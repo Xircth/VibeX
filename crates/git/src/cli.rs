@@ -869,6 +869,54 @@ impl GitCli {
     pub fn get_numstat_staged(&self, worktree_path: &Path) -> Result<String, GitCliError> {
         self.git(worktree_path, ["diff", "--cached", "--numstat"])
     }
+
+    /// Pull (fetch + fast-forward merge) from remote for the current branch.
+    pub fn pull(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        self.ensure_available()?;
+        let envs = vec![(OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0"))];
+        match self.git_with_env(worktree_path, ["pull", "--ff-only"], &envs) {
+            Ok(output) => Ok(output),
+            Err(GitCliError::CommandFailed(msg)) => Err(self.classify_cli_error(msg)),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Fetch all remotes.
+    pub fn fetch_all(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        self.ensure_available()?;
+        let envs = vec![(OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0"))];
+        match self.git_with_env(worktree_path, ["fetch", "--all", "--prune"], &envs) {
+            Ok(output) => Ok(output),
+            Err(GitCliError::CommandFailed(msg)) => Err(self.classify_cli_error(msg)),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Checkout an existing branch.
+    pub fn checkout_branch(&self, worktree_path: &Path, branch_name: &str) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        self.git(worktree_path, ["checkout", branch_name])?;
+        Ok(())
+    }
+
+    /// Create a new branch from the current HEAD (or optional base ref) and switch to it.
+    pub fn create_and_checkout_branch(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+        from_ref: Option<&str>,
+    ) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        match from_ref {
+            Some(base) => {
+                self.git(worktree_path, ["checkout", "-b", branch_name, base])?;
+            }
+            None => {
+                self.git(worktree_path, ["checkout", "-b", branch_name])?;
+            }
+        }
+        Ok(())
+    }
 }
 
 // Private methods

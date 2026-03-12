@@ -1,5 +1,5 @@
-import { memo, useMemo } from 'react';
-import { GitCommit, ArrowUp, ArrowDown } from 'lucide-react';
+import { memo, useMemo, useCallback } from 'react';
+import { GitCommit, ArrowUp, ArrowDown, Upload, Download, Copy } from 'lucide-react';
 import type { GitLogEntry } from 'shared/types';
 
 interface GitLogViewProps {
@@ -10,6 +10,8 @@ interface GitLogViewProps {
   upstream: string | null;
   branchName: string;
   loading?: boolean;
+  aheadEntries?: GitLogEntry[];
+  behindEntries?: GitLogEntry[];
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -24,18 +26,83 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleDateString();
 }
 
-const LogEntry = memo(function LogEntry({ entry }: { entry: GitLogEntry }) {
+const LogEntry = memo(function LogEntry({
+  entry,
+  onCopySha,
+}: {
+  entry: GitLogEntry;
+  onCopySha?: (sha: string) => void;
+}) {
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      onCopySha?.(entry.sha);
+    },
+    [entry.sha, onCopySha]
+  );
+
+  const handleCopyClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(entry.sha);
+    },
+    [entry.sha]
+  );
+
   return (
-    <div className="flex items-start gap-2 px-2 py-1.5 hover:bg-accent/30 text-xs group">
+    <div
+      className="flex items-start gap-2 px-2 py-1.5 hover:bg-accent/30 text-xs group"
+      onContextMenu={handleContextMenu}
+    >
       <GitCommit className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
         <span className="text-foreground truncate leading-tight">{entry.summary}</span>
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          <span className="font-mono">{entry.sha.slice(0, 7)}</span>
+          <button
+            className="font-mono hover:text-foreground transition-colors flex items-center gap-0.5"
+            onClick={handleCopyClick}
+            title="Copy full SHA"
+          >
+            {entry.sha.slice(0, 7)}
+            <Copy className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
+          </button>
           <span>{entry.author}</span>
           <span>{formatRelativeTime(entry.timestamp)}</span>
         </div>
       </div>
+    </div>
+  );
+});
+
+interface SectionProps {
+  title: string;
+  icon: React.ReactNode;
+  entries: GitLogEntry[];
+  count: number;
+  accentColor: string;
+  onCopySha?: (sha: string) => void;
+}
+
+const LogSection = memo(function LogSection({
+  title,
+  icon,
+  entries,
+  count,
+  accentColor,
+  onCopySha,
+}: SectionProps) {
+  if (count === 0 || entries.length === 0) return null;
+
+  return (
+    <div className="flex flex-col">
+      <div className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-background/50 border-b border-border/20 ${accentColor}`}>
+        {icon}
+        <span>{title}</span>
+        <span className="text-muted-foreground/60">({count})</span>
+      </div>
+      {entries.map((entry) => (
+        <LogEntry key={entry.sha} entry={entry} onCopySha={onCopySha} />
+      ))}
     </div>
   );
 });
@@ -53,6 +120,22 @@ export const GitLogView = memo(function GitLogView({
     () => [...entries].sort((a, b) => b.timestamp - a.timestamp),
     [entries]
   );
+
+  // Split entries into To Push / To Pull / Recent sections
+  // ahead entries = first N entries (most recent), behind entries are not in local log
+  const { aheadEntries, recentEntries } = useMemo(() => {
+    if (ahead <= 0) {
+      return { aheadEntries: [], recentEntries: sortedEntries };
+    }
+    return {
+      aheadEntries: sortedEntries.slice(0, ahead),
+      recentEntries: sortedEntries.slice(ahead),
+    };
+  }, [sortedEntries, ahead]);
+
+  const handleCopySha = useCallback((sha: string) => {
+    navigator.clipboard.writeText(sha);
+  }, []);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -93,9 +176,43 @@ export const GitLogView = memo(function GitLogView({
             No commits found
           </div>
         )}
-        {sortedEntries.map((entry) => (
-          <LogEntry key={entry.sha} entry={entry} />
-        ))}
+
+        {/* To Push section */}
+        <LogSection
+          title="To Push"
+          icon={<Upload className="h-3 w-3" />}
+          entries={aheadEntries}
+          count={ahead}
+          accentColor="text-green-400"
+          onCopySha={handleCopySha}
+        />
+
+        {/* To Pull indicator */}
+        {behind > 0 && (
+          <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-background/50 border-b border-border/20 text-yellow-400">
+            <Download className="h-3 w-3" />
+            <span>To Pull</span>
+            <span className="text-muted-foreground/60">({behind})</span>
+            <span className="text-[9px] text-muted-foreground normal-case font-normal ml-1">
+              Fetch or pull to see these commits
+            </span>
+          </div>
+        )}
+
+        {/* Recent Commits section */}
+        {recentEntries.length > 0 && (
+          <div className="flex flex-col">
+            {(ahead > 0 || behind > 0) && (
+              <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-background/50 border-b border-border/20 text-muted-foreground">
+                <GitCommit className="h-3 w-3" />
+                <span>Recent Commits</span>
+              </div>
+            )}
+            {recentEntries.map((entry) => (
+              <LogEntry key={entry.sha} entry={entry} onCopySha={handleCopySha} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

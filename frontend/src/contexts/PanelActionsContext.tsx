@@ -212,7 +212,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         title,
       });
     },
-    [dockviewApi]
+    [dockviewApi, chooseCenterGroupForNewPanel]
   );
 
   const openFilePreview = useCallback(
@@ -318,13 +318,15 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const toggleFileTree = useCallback(() => {
     if (!dockviewApi) return;
 
-    // If file tree panel already exists, toggle it off (close the left group)
+    // If file tree panel already exists, toggle its group visibility
     const existing = dockviewApi.getPanel(PANEL_IDS.FILE_TREE);
     if (existing) {
       const leftGroup =
         dockviewApi.getGroup(GROUP_IDS.LEFT) ??
         dockviewApi.groups.find((g) => g.panels.some((p) => p.id === PANEL_IDS.FILE_TREE));
-      leftGroup?.api.setVisible(false);
+      if (leftGroup) {
+        leftGroup.api.setVisible(!leftGroup.api.isVisible);
+      }
       return;
     }
 
@@ -373,10 +375,15 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const toggleGitPanel = useCallback(() => {
     if (!dockviewApi) return;
 
-    // If git panel already open, close it (toggle off)
+    // If git panel already exists, toggle its group visibility
     const existing = dockviewApi.getPanel(PANEL_IDS.GIT);
     if (existing) {
-      dockviewApi.removePanel(existing);
+      const leftGroup =
+        dockviewApi.getGroup(GROUP_IDS.LEFT) ??
+        dockviewApi.groups.find((g) => g.panels.some((p) => p.id === PANEL_IDS.GIT));
+      if (leftGroup) {
+        leftGroup.api.setVisible(!leftGroup.api.isVisible);
+      }
       return;
     }
 
@@ -384,6 +391,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const fileTreePanel = dockviewApi.getPanel(PANEL_IDS.FILE_TREE);
     if (fileTreePanel) {
       dockviewApi.removePanel(fileTreePanel);
+    }
+    const searchPanel = dockviewApi.getPanel(PANEL_IDS.SEARCH);
+    if (searchPanel) {
+      dockviewApi.removePanel(searchPanel);
     }
 
     // Find existing left group by ID
@@ -408,8 +419,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       id: PANEL_IDS.GIT,
       component: PANEL_IDS.GIT,
       title: 'Git 管理器',
-      position: { referenceGroup: leftGroup, direction: 'within' },
+      position: { referenceGroup: leftGroup.id, direction: 'within' },
     });
+    leftGroup.api.setVisible(true);
     applyLeftGroupHeaderHiding(dockviewApi);
   }, [dockviewApi]);
 
@@ -418,7 +430,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
     const existing = dockviewApi.getPanel(PANEL_IDS.SEARCH);
     if (existing) {
-      dockviewApi.removePanel(existing);
+      const leftGroup =
+        dockviewApi.getGroup(GROUP_IDS.LEFT) ??
+        dockviewApi.groups.find((g) => g.panels.some((p) => p.id === PANEL_IDS.SEARCH));
+      if (leftGroup) {
+        leftGroup.api.setVisible(!leftGroup.api.isVisible);
+      }
       return;
     }
 
@@ -452,8 +469,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       id: PANEL_IDS.SEARCH,
       component: PANEL_IDS.SEARCH,
       title: '搜索',
-      position: { referenceGroup: leftGroup, direction: 'within' },
+      position: { referenceGroup: leftGroup.id, direction: 'within' },
     });
+    leftGroup.api.setVisible(true);
     applyLeftGroupHeaderHiding(dockviewApi);
   }, [dockviewApi]);
 

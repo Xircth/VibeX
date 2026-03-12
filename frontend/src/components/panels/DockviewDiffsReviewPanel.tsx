@@ -58,6 +58,7 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const [stickyFileId, setStickyFileId] = useState<string | null>(null);
 
   // Safety timeout: if not initialized within 5s, stop showing spinner
   useEffect(() => {
@@ -133,6 +134,36 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
     }
   }, []);
 
+  // Sticky file header tracking
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || diffs.length === 0) return;
+
+    const handleScroll = () => {
+      const containerRect = container.getBoundingClientRect();
+      let currentId: string | null = null;
+
+      for (const [id, el] of diffRefs.current) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= containerRect.top + 40) {
+          currentId = id;
+        }
+      }
+
+      setStickyFileId(currentId);
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [diffs]);
+
+  const stickyDiff = useMemo(() => {
+    if (!stickyFileId) return null;
+    const idx = ids.indexOf(stickyFileId);
+    if (idx === -1) return null;
+    return diffs[idx];
+  }, [stickyFileId, ids, diffs]);
+
   if (!activeWorktreeId) {
     return (
       <div
@@ -186,6 +217,24 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
                 )}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Sticky file header */}
+        {stickyDiff && diffs.length > 1 && (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1 bg-accent/30 border-b border-border/30 text-xs">
+            <span className={`font-bold text-[10px] ${(changeBadge[stickyDiff.change] || changeBadge.modified).color} px-1 rounded`}>
+              {(changeBadge[stickyDiff.change] || changeBadge.modified).label}
+            </span>
+            <span className="font-mono text-foreground truncate">
+              {stickyDiff.newPath || stickyDiff.oldPath}
+            </span>
+            {stickyDiff.additions != null && stickyDiff.additions > 0 && (
+              <span className="text-green-600 text-[10px] font-mono">+{stickyDiff.additions}</span>
+            )}
+            {stickyDiff.deletions != null && stickyDiff.deletions > 0 && (
+              <span className="text-red-600 text-[10px] font-mono">-{stickyDiff.deletions}</span>
+            )}
           </div>
         )}
 

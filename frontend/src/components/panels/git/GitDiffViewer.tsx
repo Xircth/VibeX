@@ -1,6 +1,5 @@
-import { memo, useRef, useMemo } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { Columns2, Rows3 } from 'lucide-react';
+import { memo, useRef, useMemo, useCallback, useState, useEffect } from 'react';
+import { Columns2, Rows3, ChevronUp, ChevronDown } from 'lucide-react';
 import type { GitFileDiffEntry } from 'shared/types';
 import { DiffBlock, type DiffStyle } from './DiffBlock';
 import { ImageDiffCard } from './ImageDiffCard';
@@ -38,7 +37,7 @@ const DiffCard = memo(function DiffCard({
       data-diff-path={entry.path}
     >
       {/* File header */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-xs">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-xs" data-diff-header>
         <span className={`font-bold text-[10px] ${statusColor}`}>{entry.status}</span>
         <span className="font-mono text-foreground truncate">{entry.path}</span>
         {entry.is_binary && (
@@ -69,18 +68,78 @@ export const GitDiffViewer = memo(function GitDiffViewer({
   onToggleDiffStyle,
 }: GitDiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [stickyFile, setStickyFile] = useState<{ path: string; status: string } | null>(null);
 
   const effectiveDiffs = useMemo(() => {
     if (!selectedPath) return diffs;
     return diffs.filter((d) => d.path === selectedPath);
   }, [diffs, selectedPath]);
 
-  const virtualizer = useVirtualizer({
-    count: effectiveDiffs.length,
-    getScrollElement: () => containerRef.current,
-    estimateSize: () => 300,
-    overscan: 4,
-  });
+  // Sticky file header via scroll observation
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || effectiveDiffs.length <= 1) return;
+
+    const handleScroll = () => {
+      const diffCards = container.querySelectorAll('[data-diff-path]');
+      let currentFile: { path: string; status: string } | null = null;
+
+      const containerRect = container.getBoundingClientRect();
+      for (const card of diffCards) {
+        const rect = card.getBoundingClientRect();
+        if (rect.top <= containerRect.top + 40) {
+          const path = card.getAttribute('data-diff-path') ?? '';
+          const entry = effectiveDiffs.find((d) => d.path === path);
+          if (entry) {
+            currentFile = { path: entry.path, status: entry.status };
+          }
+        }
+      }
+
+      setStickyFile(currentFile);
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [effectiveDiffs]);
+
+  // Navigate to next/prev file
+  const navigateChange = useCallback(
+    (direction: 'prev' | 'next') => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const headers = container.querySelectorAll('[data-diff-header]');
+      if (headers.length === 0) return;
+
+      const containerRect = container.getBoundingClientRect();
+      let targetIdx = direction === 'next' ? 0 : headers.length - 1;
+
+      if (direction === 'next') {
+        for (let i = 0; i < headers.length; i++) {
+          const rect = headers[i].getBoundingClientRect();
+          if (rect.top > containerRect.top + 50) {
+            targetIdx = i;
+            break;
+          }
+        }
+      } else {
+        for (let i = headers.length - 1; i >= 0; i--) {
+          const rect = headers[i].getBoundingClientRect();
+          if (rect.top < containerRect.top - 10) {
+            targetIdx = i;
+            break;
+          }
+        }
+      }
+
+      headers[targetIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    []
+  );
+
+  const handlePrevChange = useCallback(() => navigateChange('prev'), [navigateChange]);
+  const handleNextChange = useCallback(() => navigateChange('next'), [navigateChange]);
 
   if (diffs.length === 0) {
     return (
@@ -90,65 +149,76 @@ export const GitDiffViewer = memo(function GitDiffViewer({
     );
   }
 
+  const stickyStatusColor = stickyFile ? (STATUS_COLORS[stickyFile.status] ?? 'text-muted-foreground') : '';
+
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-2 py-1 border-b border-border/50">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-border/50 shrink-0">
         <span className="text-[10px] text-muted-foreground">
           {effectiveDiffs.length} file{effectiveDiffs.length !== 1 ? 's' : ''}
         </span>
-        <button
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-          onClick={onToggleDiffStyle}
-          title={diffStyle === 'unified' ? 'Switch to split view' : 'Switch to unified view'}
-        >
-          {diffStyle === 'unified' ? (
-            <>
-              <Columns2 className="h-3 w-3" />
-              <span>Split</span>
-            </>
-          ) : (
-            <>
-              <Rows3 className="h-3 w-3" />
-              <span>Unified</span>
-            </>
+
+        <div className="flex items-center gap-1">
+          {/* Change anchor navigation */}
+          {effectiveDiffs.length > 1 && (
+            <div className="flex items-center gap-0.5 mr-1">
+              <button
+                className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                onClick={handlePrevChange}
+                title="Previous file"
+              >
+                <ChevronUp className="h-3 w-3" />
+              </button>
+              <button
+                className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                onClick={handleNextChange}
+                title="Next file"
+              >
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </div>
           )}
-        </button>
+
+          <button
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+            onClick={onToggleDiffStyle}
+            title={diffStyle === 'unified' ? 'Switch to split view' : 'Switch to unified view'}
+          >
+            {diffStyle === 'unified' ? (
+              <>
+                <Columns2 className="h-3 w-3" />
+                <span>Split</span>
+              </>
+            ) : (
+              <>
+                <Rows3 className="h-3 w-3" />
+                <span>Unified</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Virtual scrolling diff list */}
+      {/* Sticky file header */}
+      {stickyFile && effectiveDiffs.length > 1 && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-accent/30 border-b border-border/30 text-xs shrink-0">
+          <span className={`font-bold text-[10px] ${stickyStatusColor}`}>{stickyFile.status}</span>
+          <span className="font-mono text-foreground truncate">{stickyFile.path}</span>
+        </div>
+      )}
+
+      {/* Scrollable diff list */}
       <div ref={containerRef} className="flex-1 overflow-y-auto min-h-0">
-        <div
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            width: '100%',
-            position: 'relative',
-          }}
-        >
-          {virtualizer.getVirtualItems().map((vItem) => {
-            const entry = effectiveDiffs[vItem.index];
-            return (
-              <div
-                key={entry.path}
-                data-index={vItem.index}
-                ref={virtualizer.measureElement}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${vItem.start}px)`,
-                }}
-                className="px-1 py-0.5"
-              >
-                <DiffCard
-                  entry={entry}
-                  isSelected={selectedPath === entry.path}
-                  diffStyle={diffStyle}
-                />
-              </div>
-            );
-          })}
+        <div className="space-y-1 p-1">
+          {effectiveDiffs.map((entry) => (
+            <DiffCard
+              key={entry.path}
+              entry={entry}
+              isSelected={selectedPath === entry.path}
+              diffStyle={diffStyle}
+            />
+          ))}
         </div>
       </div>
     </div>

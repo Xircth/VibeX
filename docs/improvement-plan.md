@@ -208,19 +208,18 @@ scrollbar-color: transparent transparent;
 
 ---
 
-### 2.4 Git 历史可视化
+### 2.4 Git 面板全面增强
 
-**现状**：VibeUltra 有 Git 面板但缺少提交历史浏览。
-**MossX 参考**：`src/features/git-history/` — 完整的历史查看器。
+**现状**：VibeUltra 有基础 Git 面板（暂存/提交/推送/日志），但缺少 Pull/Fetch、分支管理、增强日志、树视图等功能。
+**MossX 参考**：`src/features/git/` — 完整的 Git 管理模块（4 种模式、树视图、多选、PR 审查等）。
 
-**实现要点**：
-- 新增 dockview 面板：`DockviewGitHistoryPanel`
-- 组件：
-  - `CommitList` — 提交列表（头像、消息、时间、SHA）
-  - `CommitDetail` — 提交详情（文件变更、Diff）
-  - `BranchGraph` — 分支线图（可选，复杂度较高）
-- 使用 `git2` crate 获取 log 数据
-- 支持按分支/作者/日期筛选
+**详细计划**：见 [`docs/plans/git-panel-enhancement-plan.md`](plans/git-panel-enhancement-plan.md)
+
+**分阶段实施**：
+- **Phase G1**（核心）— Pull/Fetch、分支管理、日志增强、Flat/Tree 视图切换
+- **Phase G2**（交互）— 丢弃确认、Commit 折叠、预览模态框、多文件选择、右键菜单
+- **Phase G3**（Diff 增强）— Sticky 文件头、变更导航、Full Diff 模式
+- **Phase G4**（GitHub 集成）— Issues/PRs 模式、PR 智能对话、AI Commit 消息
 
 ---
 

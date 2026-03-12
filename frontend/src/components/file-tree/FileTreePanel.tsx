@@ -1197,7 +1197,7 @@ export function FileTreePanel({
               aria-label="新建文件"
               title="新建文件"
             >
-              <FilePlus aria-hidden />
+              <FilePlus size={14} aria-hidden />
             </button>
             <button
               type="button"
@@ -1206,7 +1206,7 @@ export function FileTreePanel({
               aria-label="新建文件夹"
               title="新建文件夹"
             >
-              <FolderPlus aria-hidden />
+              <FolderPlus size={14} aria-hidden />
             </button>
             <button
               type="button"
@@ -1216,7 +1216,7 @@ export function FileTreePanel({
               aria-label={allVisibleExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
               title={allVisibleExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
             >
-              <SquareMinus aria-hidden />
+              <SquareMinus size={14} aria-hidden />
             </button>
             <button
               type="button"
@@ -1231,7 +1231,7 @@ export function FileTreePanel({
               aria-label="删除"
               title="删除"
             >
-              <Trash2 aria-hidden />
+              <Trash2 size={14} aria-hidden />
             </button>
           </div>
         </div>

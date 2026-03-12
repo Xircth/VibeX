@@ -511,10 +511,14 @@ pub async fn list_directory_children(
 ) -> Result<DirectoryChildrenResponse, AppError> {
     let root = PathBuf::from(&root_path);
     if !root.is_dir() {
-        return Err(AppError::BadRequest(format!(
-            "Root path is not a directory: {}",
-            root_path
-        )));
+        // Return empty response instead of error when path doesn't exist
+        // (e.g. worktree was cleaned up)
+        return Ok(DirectoryChildrenResponse {
+            files: Vec::new(),
+            directories: Vec::new(),
+            gitignored_files: Vec::new(),
+            gitignored_directories: Vec::new(),
+        });
     }
 
     let trimmed = relative_path.trim().replace('\\', "/");

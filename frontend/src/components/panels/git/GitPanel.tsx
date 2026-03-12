@@ -1,5 +1,15 @@
-import { useCallback, useEffect } from 'react';
-import { GitBranch, History } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  GitBranch,
+  History,
+  ArrowLeftRight,
+  Download,
+  RefreshCw,
+  Loader2,
+  GitBranchPlus,
+  LayoutList,
+  FolderTree,
+} from 'lucide-react';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import {
@@ -9,12 +19,15 @@ import {
   useGitLog,
   useGitActions,
   useGitCommit,
+  useGitBranches,
   useGitPanelController,
 } from '@/hooks/git';
 import { GitStagingArea } from './GitStagingArea';
 import { GitCommitBox } from './GitCommitBox';
 import { GitDiffViewer } from './GitDiffViewer';
 import { GitLogView } from './GitLogView';
+import { GitBranchList } from './GitBranchList';
+import { GitDiffModal } from './GitDiffModal';
 
 function EmptyState() {
   return (
@@ -48,6 +61,8 @@ export function GitPanel() {
     setMode,
     diffViewStyle,
     toggleDiffViewStyle,
+    diffListView,
+    toggleDiffListView,
     selectedDiffPath,
     setSelectedDiffPath,
   } = useGitPanelController();
@@ -86,10 +101,15 @@ export function GitPanel() {
     setCommitMessage,
     commitLoading,
     pushLoading,
+    pullLoading,
+    fetchLoading,
     commitError,
     pushError,
     onCommit,
     onCommitAndPush,
+    onPush,
+    onPull,
+    onFetch,
   } = useGitCommit({
     workspaceId,
     repoId,
@@ -99,8 +119,21 @@ export function GitPanel() {
   const gitLog = useGitLog({
     workspaceId,
     repoId,
-    enabled: mode === 'log',
+    enabled: mode === 'log' || mode === 'diff',
   });
+
+  const gitBranches = useGitBranches({
+    workspaceId,
+    repoId,
+    enabled: mode === 'branches',
+  });
+
+  const [modalDiffPath, setModalDiffPath] = useState<string | null>(null);
+
+  const modalDiffEntry = useMemo(() => {
+    if (!modalDiffPath) return null;
+    return diffs.find((d) => d.path === modalDiffPath) ?? null;
+  }, [modalDiffPath, diffs]);
 
   const handleSelectFile = useCallback(
     (path: string) => {
@@ -112,10 +145,22 @@ export function GitPanel() {
     [selectedDiffPath, setSelectedDiffPath, diffs.length, refreshDiffs]
   );
 
+  const handleDoubleClickFile = useCallback(
+    (path: string) => {
+      if (diffs.length === 0) {
+        refreshDiffs();
+      }
+      setModalDiffPath(path);
+    },
+    [diffs.length, refreshDiffs]
+  );
+
+  const handleCloseModal = useCallback(() => {
+    setModalDiffPath(null);
+  }, []);
+
   const handleRevertAll = useCallback(() => {
-    if (window.confirm('Discard all unstaged changes? This cannot be undone.')) {
-      revertAll();
-    }
+    revertAll();
   }, [revertAll]);
 
   if (!activeWorktreeId) return <EmptyState />;
@@ -123,6 +168,7 @@ export function GitPanel() {
 
   return (
     <div className="h-full w-full flex flex-col bg-background overflow-hidden" data-panel="git">
+      {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
         <div className="flex items-center gap-1 text-xs text-foreground mr-1">
           <GitBranch className="h-3 w-3 text-muted-foreground" />
@@ -139,15 +185,71 @@ export function GitPanel() {
 
         <div className="flex-1" />
 
+        {/* Pull/Fetch buttons (visible in diff mode) */}
+        {mode === 'diff' && (
+          <div className="flex items-center gap-0.5 mr-1">
+            <button
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-40"
+              onClick={onFetch}
+              disabled={fetchLoading}
+              title="Fetch all remotes"
+            >
+              {fetchLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+            </button>
+            <button
+              className={`p-1 rounded transition-colors relative disabled:opacity-40 ${
+                gitLog.behind > 0
+                  ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              }`}
+              onClick={onPull}
+              disabled={pullLoading}
+              title={gitLog.behind > 0 ? `Pull ${gitLog.behind} commit${gitLog.behind > 1 ? 's' : ''}` : 'Pull from remote'}
+            >
+              {pullLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
+              {gitLog.behind > 0 && (
+                <span className="absolute -top-1 -right-1 bg-yellow-500 text-[8px] text-background rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-bold leading-none px-0.5">
+                  {gitLog.behind}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Flat/Tree toggle (only in diff mode) */}
+        {mode === 'diff' && (
+          <button
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors mr-1"
+            onClick={toggleDiffListView}
+            title={diffListView === 'flat' ? 'Switch to tree view (Alt+Shift+V)' : 'Switch to flat view (Alt+Shift+V)'}
+          >
+            {diffListView === 'flat' ? (
+              <FolderTree className="h-3 w-3" />
+            ) : (
+              <LayoutList className="h-3 w-3" />
+            )}
+          </button>
+        )}
+
+        {/* Mode tabs */}
         <div className="flex items-center gap-0.5 text-[10px]">
           <button
-            className={`px-1.5 py-0.5 rounded transition-colors ${
+            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
               mode === 'diff'
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
             onClick={() => setMode('diff')}
           >
+            <ArrowLeftRight className="h-3 w-3" />
             Diff
           </button>
           <button
@@ -161,10 +263,21 @@ export function GitPanel() {
             <History className="h-3 w-3" />
             Log
           </button>
+          <button
+            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
+              mode === 'branches'
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setMode('branches')}
+          >
+            <GitBranchPlus className="h-3 w-3" />
+            Branches
+          </button>
         </div>
-
       </div>
 
+      {/* Diff mode */}
       {mode === 'diff' && (
         <div className="flex flex-col flex-1 min-h-0">
           <GitCommitBox
@@ -179,6 +292,7 @@ export function GitPanel() {
             commitsAhead={gitLog.ahead}
             onCommit={onCommit}
             onCommitAndPush={onCommitAndPush}
+            onPush={onPush}
           />
 
           <div className="flex flex-1 min-h-0">
@@ -187,7 +301,9 @@ export function GitPanel() {
                 stagedFiles={stagedFiles}
                 unstagedFiles={unstagedFiles}
                 selectedPath={selectedDiffPath}
+                viewMode={diffListView}
                 onSelectFile={handleSelectFile}
+                onDoubleClickFile={handleDoubleClickFile}
                 onStageFile={stageFile}
                 onUnstageFile={unstageFile}
                 onRevertFile={revertFile}
@@ -210,6 +326,7 @@ export function GitPanel() {
         </div>
       )}
 
+      {/* Log mode */}
       {mode === 'log' && (
         <GitLogView
           entries={gitLog.entries}
@@ -221,6 +338,27 @@ export function GitPanel() {
           loading={gitLog.isLoading}
         />
       )}
+
+      {/* Branches mode */}
+      {mode === 'branches' && (
+        <GitBranchList
+          branches={gitBranches.branches}
+          isLoading={gitBranches.isLoading}
+          error={gitBranches.error}
+          onCheckout={gitBranches.checkoutBranch}
+          onCreate={gitBranches.createBranch}
+          onDelete={gitBranches.deleteBranch}
+          onRefresh={gitBranches.refresh}
+        />
+      )}
+
+      {/* Full-screen diff modal */}
+      <GitDiffModal
+        entry={modalDiffEntry}
+        diffStyle={diffViewStyle}
+        onToggleDiffStyle={toggleDiffViewStyle}
+        onClose={handleCloseModal}
+      />
     </div>
   );
 }

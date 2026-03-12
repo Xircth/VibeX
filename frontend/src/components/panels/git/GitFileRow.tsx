@@ -8,7 +8,10 @@ interface GitFileRowProps {
   file: GitFileStatusEntry;
   section: FileSection;
   isActive: boolean;
-  onSelect: (path: string) => void;
+  isSelected?: boolean;
+  onSelect: (path: string, e?: React.MouseEvent) => void;
+  onDoubleClick?: (path: string) => void;
+  onContextMenu?: (path: string, e: React.MouseEvent) => void;
   onStageFile?: (path: string) => void;
   onUnstageFile?: (path: string) => void;
   onRevertFile?: (path: string) => void;
@@ -33,7 +36,10 @@ export const GitFileRow = memo(function GitFileRow({
   file,
   section,
   isActive,
+  isSelected = false,
   onSelect,
+  onDoubleClick,
+  onContextMenu,
   onStageFile,
   onUnstageFile,
   onRevertFile,
@@ -41,19 +47,31 @@ export const GitFileRow = memo(function GitFileRow({
   const { name, dir } = splitPath(file.path);
   const st = STATUS_STYLES[file.status] ?? { symbol: file.status, color: 'text-muted-foreground' };
 
-  const handleClick = useCallback(() => onSelect(file.path), [file.path, onSelect]);
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => onSelect(file.path, e),
+    [file.path, onSelect]
+  );
+  const handleDoubleClick = useCallback(() => onDoubleClick?.(file.path), [file.path, onDoubleClick]);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => onContextMenu?.(file.path, e),
+    [file.path, onContextMenu]
+  );
 
   const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  const highlight = isSelected || isActive;
 
   return (
     <div
       className={`group flex items-center gap-1.5 px-2 py-[3px] cursor-pointer text-xs hover:bg-accent/50 ${
-        isActive ? 'bg-accent/60' : ''
-      }`}
+        highlight ? 'bg-accent/60' : ''
+      }${isSelected ? ' ring-1 ring-inset ring-ring/30' : ''}`}
       role="button"
       tabIndex={0}
       onClick={handleClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(file.path); }}
       title={file.path}
       data-section={section}
       data-status={file.status}

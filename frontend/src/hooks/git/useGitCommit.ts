@@ -12,10 +12,15 @@ interface UseGitCommitReturn {
   setCommitMessage: (msg: string) => void;
   commitLoading: boolean;
   pushLoading: boolean;
+  pullLoading: boolean;
+  fetchLoading: boolean;
   commitError: string | null;
   pushError: string | null;
   onCommit: () => Promise<void>;
   onCommitAndPush: () => Promise<void>;
+  onPush: () => Promise<void>;
+  onPull: () => Promise<void>;
+  onFetch: () => Promise<void>;
 }
 
 export function useGitCommit({
@@ -26,6 +31,8 @@ export function useGitCommit({
   const [commitMessage, setCommitMessage] = useState('');
   const [commitLoading, setCommitLoading] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const [pullLoading, setPullLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
 
@@ -70,14 +77,67 @@ export function useGitCommit({
     }
   }, [workspaceId, repoId, commitMessage, onSuccess]);
 
+  const onPush = useCallback(async () => {
+    if (!workspaceId || !repoId) return;
+    setPushLoading(true);
+    setPushError(null);
+    try {
+      const pushResult = await attemptsApi.push(workspaceId, { repo_id: repoId });
+      if (!pushResult.success) {
+        setPushError(`Push failed: ${pushResult.error?.type ?? 'unknown'}`);
+      }
+      onSuccess?.();
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPushLoading(false);
+    }
+  }, [workspaceId, repoId, onSuccess]);
+
+  const onPull = useCallback(async () => {
+    if (!workspaceId || !repoId) return;
+    setPullLoading(true);
+    setPushError(null);
+    try {
+      const result = await attemptsApi.pullBranch(workspaceId, repoId);
+      if (!result.success) {
+        setPushError(`Pull failed: ${result.error ?? 'unknown'}`);
+      }
+      onSuccess?.();
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPullLoading(false);
+    }
+  }, [workspaceId, repoId, onSuccess]);
+
+  const onFetch = useCallback(async () => {
+    if (!workspaceId || !repoId) return;
+    setFetchLoading(true);
+    setPushError(null);
+    try {
+      await attemptsApi.fetchRemote(workspaceId, repoId);
+      onSuccess?.();
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFetchLoading(false);
+    }
+  }, [workspaceId, repoId, onSuccess]);
+
   return {
     commitMessage,
     setCommitMessage,
     commitLoading,
     pushLoading,
+    pullLoading,
+    fetchLoading,
     commitError,
     pushError,
     onCommit,
     onCommitAndPush,
+    onPush,
+    onPull,
+    onFetch,
   };
 }

@@ -169,6 +169,14 @@ pub struct GitLogStatus {
     pub branch_name: String,
 }
 
+/// Result of a git pull operation.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct PullResult {
+    pub success: bool,
+    pub new_commits: u32,
+    pub error: Option<String>,
+}
+
 // ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -2492,6 +2500,65 @@ impl GitService {
             }
         }
         Ok(entries)
+    }
+
+    /// Pull from remote (fetch + fast-forward merge) for the current branch.
+    pub fn pull(&self, worktree_path: &Path) -> Result<PullResult, GitServiceError> {
+        let git = GitCli::new();
+
+        // Get current ahead/behind before pull
+        let upstream_before = git.get_upstream_branch(worktree_path).unwrap_or(None);
+        let behind_before = if let Some(ref up) = upstream_before {
+            git.get_rev_list_count(worktree_path, up, "HEAD")
+                .map(|(_, behind)| behind)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        match git.pull(worktree_path) {
+            Ok(_) => Ok(PullResult {
+                success: true,
+                new_commits: behind_before as u32,
+                error: None,
+            }),
+            Err(e) => Ok(PullResult {
+                success: false,
+                new_commits: 0,
+                error: Some(format!("{e}")),
+            }),
+        }
+    }
+
+    /// Fetch all remotes to update tracking branches.
+    pub fn fetch_all(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.fetch_all(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git fetch --all failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Checkout an existing local branch.
+    pub fn checkout_branch(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.checkout_branch(worktree_path, branch_name)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git checkout failed: {e}")))
+    }
+
+    /// Create a new branch and switch to it.
+    pub fn create_branch(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+        from_ref: Option<&str>,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.create_and_checkout_branch(worktree_path, branch_name, from_ref)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git create branch failed: {e}")))
     }
 
     /// Get ahead/behind counts for the current branch vs its upstream.

@@ -77,6 +77,13 @@ import {
 } from 'shared/types';
 
 // Commit graph types (not generated from Rust via ts-rs, defined locally)
+// Pull result type (matches Rust PullResult — will be auto-generated after `cargo run --bin generate-types`)
+export interface PullResult {
+  success: boolean;
+  new_commits: number;
+  error: string | null;
+}
+
 export interface CommitGraphNode {
   hash: string;
   full_hash: string;
@@ -640,6 +647,26 @@ export const attemptsApi = {
 
   getGitLog: async (workspaceId: string, repoId: string): Promise<GitLogStatus> => {
     return tauriInvoke<GitLogStatus>('get_workspace_git_log', { workspaceId, repoId });
+  },
+
+  pullBranch: async (workspaceId: string, repoId: string): Promise<PullResult> => {
+    return tauriInvoke<PullResult>('pull_workspace_branch', { workspaceId, repoId });
+  },
+
+  fetchRemote: async (workspaceId: string, repoId: string): Promise<void> => {
+    return tauriInvoke<void>('fetch_workspace', { workspaceId, repoId });
+  },
+
+  checkoutBranch: async (workspaceId: string, repoId: string, branchName: string): Promise<void> => {
+    return tauriInvoke<void>('checkout_workspace_branch', { workspaceId, repoId, branchName });
+  },
+
+  createBranch: async (workspaceId: string, repoId: string, branchName: string, fromRef?: string): Promise<void> => {
+    return tauriInvoke<void>('create_workspace_branch', { workspaceId, repoId, branchName, fromRef: fromRef ?? null });
+  },
+
+  deleteBranch: async (workspaceId: string, repoId: string, branchName: string): Promise<void> => {
+    return tauriInvoke<void>('delete_workspace_branch', { workspaceId, repoId, branchName });
   },
 
   // ─────────────────────────────────────────────────────────────────

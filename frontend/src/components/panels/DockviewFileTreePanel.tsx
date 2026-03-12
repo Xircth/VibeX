@@ -50,7 +50,9 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       if (workspace?.container_ref && workspaceRepos.length > 0) {
         const containerRef = workspace.container_ref;
         const repoName = workspaceRepos[0].name;
-        const worktreePath = containerRef.replace(/[\\/]+$/, '') + '/' + repoName;
+        // Use the same separator as the containerRef path
+        const sep = containerRef.includes("\\") ? "\\" : "/";
+        const worktreePath = containerRef.replace(/[\\/]+$/, '') + sep + repoName;
         setRootPath(worktreePath);
         prevWorktreeIdRef.current = activeWorktreeId;
       }

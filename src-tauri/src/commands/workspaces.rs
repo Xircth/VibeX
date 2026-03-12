@@ -2364,6 +2364,79 @@ pub async fn get_workspace_git_log(
         .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
 }
 
+// --- Pull/Fetch operations ---
+
+#[tauri::command]
+pub async fn pull_workspace_branch(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<git::PullResult, AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.pull(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("git pull failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn fetch_workspace(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.fetch_all(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("git fetch failed: {e}")))
+}
+
+// --- Branch operations ---
+
+#[tauri::command]
+pub async fn checkout_workspace_branch(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    branch_name: String,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.checkout_branch(&worktree_path, &branch_name)
+        .map_err(|e| AppError::Internal(format!("git checkout failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn create_workspace_branch(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    branch_name: String,
+    from_ref: Option<String>,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.create_branch(&worktree_path, &branch_name, from_ref.as_deref())
+        .map_err(|e| AppError::Internal(format!("git create branch failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn delete_workspace_branch(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    branch_name: String,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = git::GitCli::new();
+    git.delete_branch(&worktree_path, &branch_name)
+        .map_err(|e| AppError::Internal(format!("git delete branch failed: {e}")))
+}
+
 // --- PR operations ---
 
 #[tauri::command]

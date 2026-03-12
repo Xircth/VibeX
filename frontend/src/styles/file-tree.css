@@ -34,6 +34,7 @@
 .file-tree-panel {
   gap: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .file-tree-top-zone {
@@ -1070,7 +1071,7 @@
 /* ── New file prompt modal ── */
 
 .new-file-prompt {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 50;
   display: flex;
@@ -1081,8 +1082,8 @@
 .new-file-prompt-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
 }
 
 .app.reduced-transparency .new-file-prompt-backdrop {
@@ -1091,11 +1092,11 @@
 
 .new-file-prompt-card {
   position: relative;
-  width: min(380px, calc(100vw - 48px));
+  width: min(320px, calc(100% - 24px));
   background: var(--surface-card-strong);
   border: 1px solid var(--border-stronger);
-  border-radius: 14px;
-  padding: 20px;
+  border-radius: 10px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;

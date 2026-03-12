@@ -496,11 +496,18 @@ pub async fn get_file_at_head(file_path: String) -> Result<String, AppError> {
 //  TAURI COMMANDS — New (from mossx)
 // ══════════════════════════════════════════════════════
 
-/// List direct children of a directory with gitignore classification.
+/// List directory children with gitignore classification.
+///
+/// When `relative_path` is empty or None, recursively scans the full tree
+/// (skipping special directories like node_modules, target, etc.) and returns
+/// all file/directory paths relative to `root_path`.
+///
+/// When `relative_path` is provided, lists only direct children of that
+/// subdirectory (used for lazy-loading special directories).
 #[tauri::command]
 pub async fn list_directory_children(
     root_path: String,
-    relative_path: Option<String>,
+    relative_path: String,
 ) -> Result<DirectoryChildrenResponse, AppError> {
     let root = PathBuf::from(&root_path);
     if !root.is_dir() {
@@ -510,30 +517,189 @@ pub async fn list_directory_children(
         )));
     }
 
-    let target_dir = match &relative_path {
-        Some(rel) => {
-            let sanitized = rel.trim().replace('\\', "/");
-            let trimmed = sanitized.trim_matches('/');
-            // Validate no parent directory traversal
-            let p = Path::new(trimmed);
-            for comp in p.components() {
-                if matches!(comp, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
-                    return Err(AppError::BadRequest("Invalid path".to_string()));
-                }
-            }
-            root.join(trimmed)
-        }
-        None => root.clone(),
-    };
+    let trimmed = relative_path.trim().replace('\\', "/");
+    let trimmed = trimmed.trim_matches('/');
+    let is_root_scan = trimmed.is_empty();
 
-    if !target_dir.is_dir() {
-        return Err(AppError::NotFound(format!(
-            "Directory not found: {}",
-            target_dir.display()
-        )));
+    // Validate path components
+    if !is_root_scan {
+        let p = Path::new(trimmed);
+        for comp in p.components() {
+            if matches!(comp, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
+                return Err(AppError::BadRequest("Invalid path".to_string()));
+            }
+        }
     }
 
     let repo = git2::Repository::discover(&root).ok();
+
+    if is_root_scan {
+        // Full recursive scan (like mossx list_workspace_files)
+        scan_tree_recursive(&root, &repo)
+    } else {
+        // Single directory children (for lazy load)
+        let target_dir = root.join(trimmed);
+        if !target_dir.is_dir() {
+            return Err(AppError::NotFound(format!(
+                "Directory not found: {}",
+                target_dir.display()
+            )));
+        }
+        scan_single_directory(&root, &target_dir, &repo)
+    }
+}
+
+/// Recursively scan tree from root, skipping special directories.
+/// Returns all files/directories as paths relative to root.
+fn scan_tree_recursive(
+    root: &Path,
+    repo: &Option<git2::Repository>,
+) -> Result<DirectoryChildrenResponse, AppError> {
+    let started_at = Instant::now();
+    let mut scanned = 0usize;
+    let max_files = 10_000usize;
+    let max_directories = 20_000usize;
+
+    let mut files = Vec::new();
+    let mut directories = Vec::new();
+    let mut gitignored_files = Vec::new();
+    let mut gitignored_directories = Vec::new();
+
+    let root_clone = root.to_path_buf();
+    let walker = WalkBuilder::new(root)
+        .hidden(false)
+        .follow_links(false)
+        .require_git(false)
+        .git_ignore(false)
+        .filter_entry(move |entry| {
+            if entry.depth() == 0 {
+                return true;
+            }
+            let name = entry.file_name().to_string_lossy();
+            if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+                if should_skip_dir(&name) {
+                    return false;
+                }
+                // Prune special directories (node_modules, target, etc.)
+                // They will still appear in the directory list but won't be traversed
+                if let Ok(rel_path) = entry.path().strip_prefix(&root_clone) {
+                    let normalized = normalize_path(&rel_path.to_string_lossy());
+                    if !normalized.is_empty() && is_special_dir(&name) {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .build();
+
+    for result in walker {
+        if scan_budget_reached(started_at, scanned) {
+            break;
+        }
+        scanned += 1;
+
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if entry.depth() == 0 {
+            continue;
+        }
+
+        let path = entry.path();
+        let rel_path = match path.strip_prefix(root) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let normalized = normalize_path(&rel_path.to_string_lossy());
+        if normalized.is_empty() {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
+        let is_file = entry.file_type().is_some_and(|ft| ft.is_file());
+
+        let is_ignored = repo
+            .as_ref()
+            .and_then(|r| r.status_should_ignore(rel_path).ok())
+            .unwrap_or(false);
+
+        if is_dir {
+            if directories.len() >= max_directories {
+                continue;
+            }
+            directories.push(normalized.clone());
+            if is_ignored {
+                gitignored_directories.push(normalized);
+            }
+        } else if is_file {
+            if name == ".DS_Store" {
+                continue;
+            }
+            if files.len() >= max_files {
+                break;
+            }
+            files.push(normalized.clone());
+            if is_ignored {
+                gitignored_files.push(normalized);
+            }
+        }
+    }
+
+    // Also add special directories at root level that were pruned by the walker
+    // (they need to appear as directories so they can be lazy-loaded)
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if ft.is_dir() && is_special_dir(&name) && !should_skip_dir(&name) {
+                let normalized = name.clone();
+                if !directories.contains(&normalized) {
+                    let rel_path = entry.path();
+                    let rel_from_root = rel_path.strip_prefix(root).unwrap_or(&rel_path);
+                    let is_ignored = repo
+                        .as_ref()
+                        .and_then(|r| r.status_should_ignore(rel_from_root).ok())
+                        .unwrap_or(false);
+                    directories.push(normalized.clone());
+                    if is_ignored {
+                        gitignored_directories.push(normalized);
+                    }
+                }
+            }
+        }
+    }
+
+    files.sort();
+    files.dedup();
+    directories.sort();
+    directories.dedup();
+    gitignored_files.sort();
+    gitignored_files.dedup();
+    gitignored_directories.sort();
+    gitignored_directories.dedup();
+
+    Ok(DirectoryChildrenResponse {
+        files,
+        directories,
+        gitignored_files,
+        gitignored_directories,
+    })
+}
+
+/// Scan only direct children of a specific subdirectory.
+/// Returns paths relative to root (not to the target directory).
+fn scan_single_directory(
+    root: &Path,
+    target_dir: &Path,
+    repo: &Option<git2::Repository>,
+) -> Result<DirectoryChildrenResponse, AppError> {
     let started_at = Instant::now();
     let mut scanned = 0usize;
 
@@ -542,7 +708,7 @@ pub async fn list_directory_children(
     let mut gitignored_files = Vec::new();
     let mut gitignored_directories = Vec::new();
 
-    let read_dir = std::fs::read_dir(&target_dir).map_err(|e| {
+    let read_dir = std::fs::read_dir(target_dir).map_err(|e| {
         AppError::Internal(format!("Failed to read directory: {}", e))
     })?;
 
@@ -566,28 +732,32 @@ pub async fn list_directory_children(
             Err(_) => continue,
         };
 
-        // Check gitignore status
-        let rel_from_root = path.strip_prefix(&root).unwrap_or(&path);
+        // Build path relative to root
+        let rel_from_root = match path.strip_prefix(root) {
+            Ok(p) => normalize_path(&p.to_string_lossy()),
+            Err(_) => continue,
+        };
+
         let is_ignored = repo
             .as_ref()
-            .and_then(|r| r.status_should_ignore(rel_from_root).ok())
+            .and_then(|r| r.status_should_ignore(Path::new(&rel_from_root)).ok())
             .unwrap_or(false);
 
         if file_type.is_dir() {
             if should_skip_dir(&name) {
                 continue;
             }
-            directories.push(name.clone());
+            directories.push(rel_from_root.clone());
             if is_ignored {
-                gitignored_directories.push(name);
+                gitignored_directories.push(rel_from_root);
             }
         } else if file_type.is_file() {
             if name == ".DS_Store" {
                 continue;
             }
-            files.push(name.clone());
+            files.push(rel_from_root.clone());
             if is_ignored {
-                gitignored_files.push(name);
+                gitignored_files.push(rel_from_root);
             }
         }
     }

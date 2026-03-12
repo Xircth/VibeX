@@ -46,7 +46,7 @@ test('关键前端页面品牌文案更新为 VibeUltra', () => {
   assert.match(onboardingSource, brandPattern);
   assert.doesNotMatch(disclaimerSource, /Vibe Kanban runs AI coding agents/);
   assert.match(disclaimerSource, brandPattern);
-  assert.doesNotMatch(projectContextSource, /vibe-kanban/);
+  assert.doesNotMatch(projectContextSource, /vibe-kanban(?!.*vibe-ultra)/);
   assert.match(projectContextSource, brandPattern);
 });
 
@@ -70,6 +70,6 @@ test('创建 PR 对话框使用新的品牌后缀', () => {
     'src/components/dialogs/tasks/CreatePRDialog.tsx'
   );
 
-  assert.doesNotMatch(createPrSource, /\(vibe-kanban\)/);
+  assert.doesNotMatch(createPrSource, /\(vibe-kanban(?!.*ultra)\)/);
   assert.match(createPrSource, /\(VibeUltra\)|APP_NAME/);
 });

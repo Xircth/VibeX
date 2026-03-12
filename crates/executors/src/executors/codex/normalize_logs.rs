@@ -86,6 +86,7 @@ impl ToNormalizedEntry for CommandState {
             entry_type: NormalizedEntryType::ToolUse {
                 tool_name: "bash".to_string(),
                 action_type: ActionType::CommandRun {
+                    category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(&self.command),
                     command: self.command.clone(),
                     result: Some(CommandRunResult {
                         exit_status: self

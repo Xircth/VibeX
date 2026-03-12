@@ -60,28 +60,28 @@ cargo build --release --bin mcp_task_server --manifest-path Cargo.toml
 echo "📦 Creating distribution package..."
 
 # Copy the main binary
-cp ${CARGO_TARGET_DIR}/release/server vibe-kanban
-zip -q vibe-kanban.zip vibe-kanban
-rm -f vibe-kanban 
-mv vibe-kanban.zip npx-cli/dist/$PLATFORM/vibe-kanban.zip
+cp ${CARGO_TARGET_DIR}/release/server vibe-ultra
+zip -q vibe-ultra.zip vibe-ultra
+rm -f vibe-ultra 
+mv vibe-ultra.zip npx-cli/dist/$PLATFORM/vibe-ultra.zip
 
 # Copy the MCP binary
-cp ${CARGO_TARGET_DIR}/release/mcp_task_server vibe-kanban-mcp
-zip -q vibe-kanban-mcp.zip vibe-kanban-mcp
-rm -f vibe-kanban-mcp
-mv vibe-kanban-mcp.zip npx-cli/dist/$PLATFORM/vibe-kanban-mcp.zip
+cp ${CARGO_TARGET_DIR}/release/mcp_task_server vibe-ultra-mcp
+zip -q vibe-ultra-mcp.zip vibe-ultra-mcp
+rm -f vibe-ultra-mcp
+mv vibe-ultra-mcp.zip npx-cli/dist/$PLATFORM/vibe-ultra-mcp.zip
 
 # Copy the Review CLI binary
-cp ${CARGO_TARGET_DIR}/release/review vibe-kanban-review
-zip -q vibe-kanban-review.zip vibe-kanban-review
-rm -f vibe-kanban-review
-mv vibe-kanban-review.zip npx-cli/dist/$PLATFORM/vibe-kanban-review.zip
+cp ${CARGO_TARGET_DIR}/release/review vibe-ultra-review
+zip -q vibe-ultra-review.zip vibe-ultra-review
+rm -f vibe-ultra-review
+mv vibe-ultra-review.zip npx-cli/dist/$PLATFORM/vibe-ultra-review.zip
 
 echo "✅ Build complete!"
 echo "📁 Files created:"
-echo "   - npx-cli/dist/$PLATFORM/vibe-kanban.zip"
-echo "   - npx-cli/dist/$PLATFORM/vibe-kanban-mcp.zip"
-echo "   - npx-cli/dist/$PLATFORM/vibe-kanban-review.zip"
+echo "   - npx-cli/dist/$PLATFORM/vibe-ultra.zip"
+echo "   - npx-cli/dist/$PLATFORM/vibe-ultra-mcp.zip"
+echo "   - npx-cli/dist/$PLATFORM/vibe-ultra-review.zip"
 echo ""
 echo "🚀 To test locally, run:"
 echo "   cd npx-cli && node bin/cli.js"

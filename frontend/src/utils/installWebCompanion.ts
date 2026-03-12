@@ -9,7 +9,7 @@ const ENTRY_CANDIDATES = [
   'src/main.js',
 ] as const;
 
-const TOOLBAR_BRIDGE_MARKER = 'data-vibe-kanban-toolbar-bridge';
+const TOOLBAR_BRIDGE_MARKER = 'data-vibe-ultra-toolbar-bridge';
 
 const TOOLBAR_BRIDGE_SNIPPET = `if (typeof window !== 'undefined') {
   const bridgeRoot = document.documentElement;
@@ -105,15 +105,15 @@ async function findEntryFile(repoRoot: string): Promise<{ path: string; content:
 }
 
 function ensureCompanionImport(source: string): string {
-  if (source.includes("vibe-kanban-web-companion")) {
+  if (source.includes("vibe-ultra-web-companion")) {
     return source;
   }
 
-  return `import { VibeKanbanWebCompanion } from 'vibe-kanban-web-companion';\n${source}`;
+  return `import { VibeUltraWebCompanion } from 'vibe-ultra-web-companion';\n${source}`;
 }
 
 function ensureCompanionRender(source: string): string {
-  if (source.includes('<VibeKanbanWebCompanion />')) {
+  if (source.includes('<VibeUltraWebCompanion />')) {
     return source;
   }
 
@@ -122,7 +122,7 @@ function ensureCompanionRender(source: string): string {
       '<App />',
       `<>
         <App />
-        <VibeKanbanWebCompanion />
+        <VibeUltraWebCompanion />
       </>`
     );
   }

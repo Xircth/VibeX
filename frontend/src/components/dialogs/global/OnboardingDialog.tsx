@@ -23,10 +23,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Sparkles, Code, ChevronDown, HandMetal } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Logo } from '@/components/Logo';
 import { BaseCodingAgent, EditorType } from 'shared/types';
 import type { EditorConfig, ExecutorProfileId } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
 import { toPrettyCase } from '@/utils/string';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
@@ -36,15 +38,46 @@ import { EditorAvailabilityIndicator } from '@/components/EditorAvailabilityIndi
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { AgentAvailabilityIndicator } from '@/components/AgentAvailabilityIndicator';
 import { APP_NAME } from '@/lib/branding';
+import { cn } from '@/lib/utils';
 
 export type OnboardingResult = {
   profile: ExecutorProfileId;
   editor: EditorConfig;
 };
 
+/** Model choices mapped to ~/.claude/settings.json env keys */
+const CLAUDE_MODEL_CHOICES = [
+  { key: 'default', label: 'Default', envKey: 'ANTHROPIC_MODEL' },
+  { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
+  { key: 'sonnet', label: 'Sonnet', envKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL' },
+  { key: 'opus', label: 'Opus', envKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
+] as const;
+
+type ClaudeModelKey = (typeof CLAUDE_MODEL_CHOICES)[number]['key'];
+
+function StepIndicator({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center gap-1.5 justify-center">
+      {Array.from({ length: total }, (_, i) => (
+        <div
+          key={i}
+          className={cn(
+            'h-1.5 rounded-full transition-all',
+            i + 1 === current ? 'w-4 bg-foreground' : 'w-1.5 bg-muted-foreground/30'
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
 const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
   const modal = useModal();
   const { profiles, config } = useUserSystem();
+  const { settings: claudeSettings } = useClaudeSettings();
+  const claudeEnv = claudeSettings?.env ?? {};
+
+  const [step, setStep] = useState<1 | 2>(1);
 
   const [profile, setProfile] = useState<ExecutorProfileId>(
     config?.executor_profile || {
@@ -52,11 +85,14 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
       variant: null,
     }
   );
+  const [claudeModel, setClaudeModel] = useState<ClaudeModelKey>('default');
   const [editorType, setEditorType] = useState<EditorType>(EditorType.VS_CODE);
   const [customCommand, setCustomCommand] = useState<string>('');
 
   const editorAvailability = useEditorAvailability(editorType);
   const agentAvailability = useAgentAvailability(profile.executor);
+
+  const isClaudeCode = profile.executor === BaseCodingAgent.CLAUDE_CODE;
 
   const handleComplete = () => {
     modal.resolve({
@@ -71,39 +107,42 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
     } as OnboardingResult);
   };
 
-  const isValid =
+  const isStep2Valid =
     editorType !== EditorType.CUSTOM ||
     (editorType === EditorType.CUSTOM && customCommand.trim() !== '');
 
   return (
     <Dialog open={modal.visible} uncloseable={true}>
-      <DialogContent className="sm:max-w-[600px] space-y-4">
+      <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <div className="flex items-center gap-3">
-            <HandMetal className="h-6 w-6 text-primary text-primary-foreground" />
-            <DialogTitle>{`Welcome to ${APP_NAME}`}</DialogTitle>
+          <div className="flex items-center gap-2.5">
+            <Logo showText={false} />
+            <DialogTitle className="text-lg">{`Welcome to ${APP_NAME}`}</DialogTitle>
           </div>
-          <DialogDescription className="text-left pt-2">
-            Let's set up your coding preferences. You can always change these
-            later in Settings.
+          <DialogDescription className="text-left pt-1 text-xs">
+            设置编码偏好，稍后可在设置中修改。
           </DialogDescription>
+          <div className="pt-2">
+            <StepIndicator current={step} total={2} />
+          </div>
         </DialogHeader>
-        <div className="space-y-2">
-          <h2 className="text-xl flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
-            Choose Your Coding Agent
-          </h2>
-          <div className="space-y-2">
-            <Label htmlFor="profile">Default Agent</Label>
-            <div className="flex gap-2">
+
+        {/* Step 1: Coding Agent */}
+        {step === 1 && (
+          <div className="space-y-3 pt-1">
+            <div className="space-y-2">
+              <Label htmlFor="profile" className="text-sm font-medium">
+                默认 Agent
+              </Label>
               <Select
                 value={profile.executor}
-                onValueChange={(v) =>
-                  setProfile({ executor: v as BaseCodingAgent, variant: null })
-                }
+                onValueChange={(v) => {
+                  setProfile({ executor: v as BaseCodingAgent, variant: null });
+                  setClaudeModel('default');
+                }}
               >
-                <SelectTrigger id="profile" className="flex-1">
-                  <SelectValue placeholder="Select your preferred coding agent" />
+                <SelectTrigger id="profile">
+                  <SelectValue placeholder="选择编码代理" />
                 </SelectTrigger>
                 <SelectContent>
                   {profiles &&
@@ -116,127 +155,167 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                       ))}
                 </SelectContent>
               </Select>
-
-              {/* Show variant selector if selected profile has variants */}
-              {(() => {
-                const selectedProfile = profiles?.[profile.executor];
-                const hasVariants =
-                  selectedProfile && Object.keys(selectedProfile).length > 0;
-
-                if (hasVariants) {
-                  return (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="w-24 px-2 flex items-center justify-between"
-                        >
-                          <span className="text-xs truncate flex-1 text-left">
-                            {profile.variant || 'DEFAULT'}
-                          </span>
-                          <ChevronDown className="h-3 w-3 ml-1 flex-shrink-0" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {Object.keys(selectedProfile).map((variant) => (
-                          <DropdownMenuItem
-                            key={variant}
-                            onClick={() =>
-                              setProfile({
-                                ...profile,
-                                variant: variant,
-                              })
-                            }
-                            className={
-                              profile.variant === variant ? 'bg-accent' : ''
-                            }
-                          >
-                            {variant}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  );
-                } else if (selectedProfile) {
-                  // Show disabled button when profile exists but has no variants
-                  return (
-                    <Button
-                      variant="outline"
-                      className="w-24 px-2 flex items-center justify-between"
-                      disabled
-                    >
-                      <span className="text-xs truncate flex-1 text-left">
-                        Default
-                      </span>
-                    </Button>
-                  );
-                }
-                return null;
-              })()}
+              <AgentAvailabilityIndicator availability={agentAvailability} />
             </div>
-            <AgentAvailabilityIndicator availability={agentAvailability} />
-          </div>
-        </div>
 
-        <div className="space-y-2">
-          <h2 className="text-xl flex items-center gap-2">
-            <Code className="h-4 w-4" />
-            Choose Your Code Editor
-          </h2>
-
-          <div className="space-y-2">
-            <Label htmlFor="editor">Preferred Editor</Label>
-            <Select
-              value={editorType}
-              onValueChange={(value: EditorType) => setEditorType(value)}
-            >
-              <SelectTrigger id="editor">
-                <SelectValue placeholder="Select your preferred editor" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.values(EditorType).map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {toPrettyCase(type)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Editor availability status indicator */}
-            {editorType !== EditorType.CUSTOM && (
-              <EditorAvailabilityIndicator availability={editorAvailability} />
-            )}
-
-            <p className="text-sm text-muted-foreground">
-              This editor will be used to open task attempts and project files.
-            </p>
-
-            {editorType === EditorType.CUSTOM && (
+            {/* Claude Code: show model choices from settings.json */}
+            {isClaudeCode && (
               <div className="space-y-2">
-                <Label htmlFor="custom-command">Custom Command</Label>
-                <Input
-                  id="custom-command"
-                  placeholder="e.g., code, subl, vim"
-                  value={customCommand}
-                  onChange={(e) => setCustomCommand(e.target.value)}
-                />
-                <p className="text-sm text-muted-foreground">
-                  Enter the command to run your custom editor. Use spaces for
-                  arguments (e.g., "code --wait").
+                <Label className="text-sm font-medium">模型配置</Label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {CLAUDE_MODEL_CHOICES.map((model) => {
+                    const modelId = claudeEnv[model.envKey];
+                    const isSelected = claudeModel === model.key;
+                    return (
+                      <button
+                        key={model.key}
+                        onClick={() => setClaudeModel(model.key)}
+                        className={cn(
+                          'flex flex-col items-start rounded-md border px-3 py-2 text-left transition-colors',
+                          isSelected
+                            ? 'border-foreground/40 bg-muted'
+                            : 'border-border hover:bg-muted/50'
+                        )}
+                      >
+                        <span className="text-sm font-medium">{model.label}</span>
+                        {modelId && (
+                          <span className="text-[10px] text-muted-foreground truncate w-full">
+                            {modelId}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  读取自 ~/.claude/settings.json
                 </p>
               </div>
             )}
-          </div>
-        </div>
 
-        <DialogFooter>
-          <Button
-            onClick={handleComplete}
-            disabled={!isValid}
-            className="w-full"
-          >
-            Continue
-          </Button>
+            {/* Non-Claude agents: show profile variants */}
+            {!isClaudeCode && (() => {
+              const selectedProfile = profiles?.[profile.executor];
+              const hasVariants =
+                selectedProfile && Object.keys(selectedProfile).length > 0;
+
+              if (!hasVariants) return null;
+
+              return (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">变体</Label>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full px-3 flex items-center justify-between"
+                      >
+                        <span className="text-sm truncate">
+                          {profile.variant || 'DEFAULT'}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                      {Object.keys(selectedProfile).map((variant) => (
+                        <DropdownMenuItem
+                          key={variant}
+                          onClick={() =>
+                            setProfile({ ...profile, variant })
+                          }
+                          className={
+                            profile.variant === variant ? 'bg-muted' : ''
+                          }
+                        >
+                          {variant}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Step 2: Code Editor */}
+        {step === 2 && (
+          <div className="space-y-3 pt-1">
+            <div className="space-y-2">
+              <Label htmlFor="editor" className="text-sm font-medium">
+                首选编辑器
+              </Label>
+              <Select
+                value={editorType}
+                onValueChange={(value: EditorType) => setEditorType(value)}
+              >
+                <SelectTrigger id="editor">
+                  <SelectValue placeholder="选择编辑器" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.values(EditorType).map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {toPrettyCase(type)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {editorType !== EditorType.CUSTOM && (
+                <EditorAvailabilityIndicator availability={editorAvailability} />
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                此编辑器用于打开任务和项目文件。
+              </p>
+
+              {editorType === EditorType.CUSTOM && (
+                <div className="space-y-2">
+                  <Label htmlFor="custom-command" className="text-sm font-medium">
+                    自定义命令
+                  </Label>
+                  <Input
+                    id="custom-command"
+                    placeholder="例如: code, subl, vim"
+                    value={customCommand}
+                    onChange={(e) => setCustomCommand(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    输入编辑器的启动命令，可使用空格添加参数。
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex-row gap-2 pt-2">
+          {step === 2 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setStep(1)}
+              className="mr-auto"
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              上一步
+            </Button>
+          )}
+          {step === 1 && (
+            <Button onClick={() => setStep(2)} className="flex-1">
+              下一步
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          )}
+          {step === 2 && (
+            <Button
+              onClick={handleComplete}
+              disabled={!isStep2Valid}
+              className="flex-1"
+            >
+              完成
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

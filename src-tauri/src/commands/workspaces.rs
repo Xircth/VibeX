@@ -44,18 +44,18 @@ use crate::{error::AppError, state::AppState};
 
 fn detect_package_manager(repo_root: &Path) -> (&'static str, Vec<&'static str>) {
     if repo_root.join("pnpm-lock.yaml").exists() {
-        return ("pnpm", vec!["add", "vibe-kanban-web-companion"]);
+        return ("pnpm", vec!["add", "vibe-ultra-web-companion"]);
     }
 
     if repo_root.join("yarn.lock").exists() {
-        return ("yarn", vec!["add", "vibe-kanban-web-companion"]);
+        return ("yarn", vec!["add", "vibe-ultra-web-companion"]);
     }
 
     if repo_root.join("bun.lockb").exists() || repo_root.join("bun.lock").exists() {
-        return ("bun", vec!["add", "vibe-kanban-web-companion"]);
+        return ("bun", vec!["add", "vibe-ultra-web-companion"]);
     }
 
-    ("npm", vec!["i", "vibe-kanban-web-companion"])
+    ("npm", vec!["i", "vibe-ultra-web-companion"])
 }
 
 // --- Local request/response types ---
@@ -788,7 +788,7 @@ pub async fn merge_workspace(
     ) {
         Ok(messages) if !messages.is_empty() => messages.join("\n\n"),
         _ => {
-            let mut msg = format!("{} (vibe-kanban {})", task.title, first_uuid_section);
+            let mut msg = format!("{} (vibe-ultra{})", task.title, first_uuid_section);
             if let Some(description) = &task.description {
                 if !description.trim().is_empty() {
                     msg.push_str("\n\n");
@@ -1080,7 +1080,7 @@ pub async fn rebase_back_workspace(
         }
         _ => {
             format!(
-                "Merge branch '{}' - {} (vibe-kanban {})",
+                "Merge branch '{}' - {} (vibe-ultra{})",
                 workspace.branch, task.title, first_uuid_section
             )
         }
@@ -1447,7 +1447,7 @@ pub async fn install_web_companion(
     }
 
     if let Ok(package_json) = std::fs::read_to_string(&package_json_path)
-        && package_json.contains("vibe-kanban-web-companion")
+        && package_json.contains("vibe-ultra-web-companion")
     {
         return Ok(());
     }
@@ -1484,7 +1484,7 @@ pub async fn install_web_companion(
     };
 
     Err(AppError::Internal(format!(
-        "Failed to install vibe-kanban-web-companion: {}",
+        "Failed to install vibe-ultra-web-companion: {}",
         message
     )))
 }

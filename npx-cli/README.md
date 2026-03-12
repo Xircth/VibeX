@@ -1,20 +1,20 @@
-# Vibe Kanban
+# Vibe Ultra
 
 > A visual project management tool for developers that integrates with git repositories and coding agents like Claude Code and Amp.
 
 ## Quick Start
 
-Run vibe kanban instantly without installation:
+Run vibe ultra instantly without installation:
 
 ```bash
-npx vibe-kanban
+npx vibe-ultra
 ```
 
 This will launch the application locally and open it in your browser automatically.
 
-## What is Vibe Kanban?
+## What is Vibe Ultra?
 
-Vibe Kanban is a modern project management tool designed specifically for developers. It helps you organize your coding projects with kanban-style task management while providing powerful integrations with git repositories and AI coding agents.
+Vibe Ultra is a modern project management tool designed specifically for developers. It helps you organize your coding projects with kanban-style task management while providing powerful integrations with git repositories and AI coding agents.
 
 ### ✨ Key Features
 
@@ -62,7 +62,7 @@ Vibe Kanban is a modern project management tool designed specifically for develo
 
 ## Core Functionality
 
-Vibe Kanban provides a complete project management experience with these key capabilities:
+Vibe Ultra provides a complete project management experience with these key capabilities:
 
 **Project Repository Management**
 - Full CRUD operations for managing coding projects
@@ -97,7 +97,7 @@ Vibe Kanban provides a complete project management experience with these key cap
 
 ## Configuration
 
-Vibe Kanban supports customization through its configuration system:
+Vibe Ultra supports customization through its configuration system:
 
 - **Editor Integration**: Choose your preferred code editor
 - **Sound Notifications**: Customize completion sounds
@@ -153,7 +153,7 @@ Vibe Kanban supports customization through its configuration system:
 **Ready to supercharge your development workflow?**
 
 ```bash
-npx vibe-kanban
+npx vibe-ultra
 ```
 
 *Start managing your projects with the power of AI coding agents today!*

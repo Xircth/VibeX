@@ -161,19 +161,19 @@ jobs:
           fi
 
           # server
-          cp "target/${TARGET}/release/server${EXT}" "vibe-kanban-promax${EXT}"
-          zip -j "release-assets/vibe-kanban-promax-${TAG}-${NAME}.zip" "vibe-kanban-promax${EXT}"
-          rm -f "vibe-kanban-promax${EXT}"
+          cp "target/${TARGET}/release/server${EXT}" "vibe-ultra${EXT}"
+          zip -j "release-assets/vibe-ultra-${TAG}-${NAME}.zip" "vibe-ultra${EXT}"
+          rm -f "vibe-ultra${EXT}"
 
           # mcp
-          cp "target/${TARGET}/release/mcp_task_server${EXT}" "vibe-kanban-promax-mcp${EXT}"
-          zip -j "release-assets/vibe-kanban-promax-mcp-${TAG}-${NAME}.zip" "vibe-kanban-promax-mcp${EXT}"
-          rm -f "vibe-kanban-promax-mcp${EXT}"
+          cp "target/${TARGET}/release/mcp_task_server${EXT}" "vibe-ultra-mcp${EXT}"
+          zip -j "release-assets/vibe-ultra-mcp-${TAG}-${NAME}.zip" "vibe-ultra-mcp${EXT}"
+          rm -f "vibe-ultra-mcp${EXT}"
 
           # review
-          cp "target/${TARGET}/release/review${EXT}" "vibe-kanban-promax-review${EXT}"
-          zip -j "release-assets/vibe-kanban-promax-review-${TAG}-${NAME}.zip" "vibe-kanban-promax-review${EXT}"
-          rm -f "vibe-kanban-promax-review${EXT}"
+          cp "target/${TARGET}/release/review${EXT}" "vibe-ultra-review${EXT}"
+          zip -j "release-assets/vibe-ultra-review-${TAG}-${NAME}.zip" "vibe-ultra-review${EXT}"
+          rm -f "vibe-ultra-review${EXT}"
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4
@@ -231,9 +231,9 @@ jobs:
 
             | Platform | Link |
             |----------|------|
-            | Windows (x64) | [vibe-kanban-promax-${tag}-windows-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-kanban-promax-${tag}-windows-x64.zip) |
-            | macOS (x64) | [vibe-kanban-promax-${tag}-macos-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-kanban-promax-${tag}-macos-x64.zip) |
-            | Linux (x64) | [vibe-kanban-promax-${tag}-linux-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-kanban-promax-${tag}-linux-x64.zip) |
+            | Windows (x64) | [vibe-ultra-${tag}-windows-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-ultra-${tag}-windows-x64.zip) |
+            | macOS (x64) | [vibe-ultra-${tag}-macos-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-ultra-${tag}-macos-x64.zip) |
+            | Linux (x64) | [vibe-ultra-${tag}-linux-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-ultra-${tag}-linux-x64.zip) |
 
             ## macOS 用户注意
 
@@ -241,7 +241,7 @@ jobs:
 
             \`\`\`bash
             # 解除 quarantine 属性（在解压后的文件所在目录执行）
-            xattr -cr vibe-kanban-promax
+            xattr -cr vibe-ultra
             \`\`\`
 
             ${autoNotes}

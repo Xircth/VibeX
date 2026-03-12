@@ -1,9 +1,9 @@
 {
-  "vibe_kanban": {
+  "vibe_ultra": {
     "command": "npx",
     "args": [
       "-y",
-      "vibe-kanban@latest",
+      "vibe-ultra@latest",
       "--mcp"
     ]
   },
@@ -45,10 +45,10 @@
     ]
   },
   "meta": {
-    "vibe_kanban": {
-      "name": "Vibe Kanban",
-      "description": "Create, update and delete Vibe Kanban tasks",
-      "url": "https://www.vibekanban.com/docs/integrations/vibe-kanban-mcp-server",
+    "vibe_ultra": {
+      "name": "Vibe Ultra",
+      "description": "Create, update and delete Vibe Ultra tasks",
+      "url": "https://www.vibekanban.com/docs/integrations/vibe-ultra-mcp-server",
       "icon": "favicon-vk-light.svg"
     },
     "context7": {

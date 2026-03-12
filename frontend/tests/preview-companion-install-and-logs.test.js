@@ -48,7 +48,7 @@ test('Companion 安装入口改为本地安装与自动接入', () => {
 
   assert.doesNotMatch(noServerContent, /createAndStart\.mutate/);
   assert.match(noServerContent, /installWebCompanion/);
-  assert.match(helper, /VibeKanbanWebCompanion/);
+  assert.match(helper, /VibeUltraWebCompanion/);
   assert.match(helper, /src\/main\.(tsx|jsx|ts|js)/);
   assert.match(api, /installWebCompanion:\s*async/);
   assert.match(backend, /pub async fn install_web_companion/);

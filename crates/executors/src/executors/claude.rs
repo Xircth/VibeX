@@ -768,6 +768,7 @@ impl ClaudeLogProcessor {
                 }
             }
             ClaudeToolData::Bash { command, .. } => ActionType::CommandRun {
+                category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(command),
                 command: command.clone(),
                 result: None,
             },
@@ -1149,6 +1150,7 @@ impl ClaudeLogProcessor {
                                 entry_type: NormalizedEntryType::ToolUse {
                                     tool_name: info.tool_name.clone(),
                                     action_type: ActionType::CommandRun {
+                                        category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(&info.content),
                                         command: info.content.clone(),
                                         result,
                                     },

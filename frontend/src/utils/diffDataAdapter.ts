@@ -21,7 +21,7 @@ export type CommentAnnotation =
   | { type: 'github'; comment: NormalizedGitHubComment };
 
 /**
- * Maps vibe-kanban's DiffChangeKind to pierre/diffs ChangeTypes.
+ * Maps vibe-ultra's DiffChangeKind to pierre/diffs ChangeTypes.
  *
  * Mapping:
  * - 'added' → 'new'
@@ -70,12 +70,12 @@ function getFilePath(diff: Diff): string {
 }
 
 /**
- * Transforms a vibe-kanban Diff to pierre/diffs FileDiffMetadata.
+ * Transforms a vibe-ultra Diff to pierre/diffs FileDiffMetadata.
  *
  * Uses parseDiffFromFile from @pierre/diffs to generate the diff metadata
  * from old and new file contents.
  *
- * @param diff - The vibe-kanban Diff object
+ * @param diff - The vibe-ultra Diff object
  * @returns FileDiffMetadata for use with pierre/diffs components
  */
 export function transformDiffToFileDiffMetadata(

@@ -210,7 +210,7 @@ export function GeneralSettings() {
       value: draft?.workspace_dir ?? '',
       title: '选择工作区目录',
       description:
-        '选择一个目录。工作区将在其中的 .vibe-kanban-workspaces 子目录中创建。',
+        '选择一个目录。工作区将在其中的 .vibe-ultra-workspaces 子目录中创建。',
     });
     if (result) {
       updateDraft({ workspace_dir: result });
@@ -508,7 +508,7 @@ export function GeneralSettings() {
             </div>
             <p className="text-sm text-muted-foreground">
               {
-                '工作区将在此路径内的 .vibe-kanban-workspaces 子目录中创建。留空以使用系统默认值。更改需要重启应用程序。'
+                '工作区将在此路径内的 .vibe-ultra-workspaces 子目录中创建。留空以使用系统默认值。更改需要重启应用程序。'
               }
             </p>
           </div>

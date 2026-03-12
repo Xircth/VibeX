@@ -1,4 +1,4 @@
-# vibe-kanban-promax 项目总结文档
+# vibe-ultra 项目总结文档
 
 > 更新日期：2026-03-06
 > 分支：`vk/5468-superpowers-brai`
@@ -140,7 +140,7 @@ Tauri Events（SSE-like）              ← 流式推送（diff stream, conversa
 
 ### 2.5 布局持久化机制
 
-- **存储**：`localStorage` key `vibe-kanban-ide-layout`（版本 8）
+- **存储**：`localStorage` key `vibe-ultra-ide-layout`（版本 8）
 - **管理**：Zustand + `persist` 中间件（`useLayoutStore`）
 - **序列化**：`api.toJSON()` / `api.fromJSON()`（dockview 内置）
 - **恢复流程**：
@@ -173,9 +173,9 @@ TaskFormDialog / CreateAttemptDialog（创建任务/尝试对话框）
 | 文件 | 说明 |
 |---|---|
 | `~/.claude/settings.json` | Claude Code 设置：env 变量、enabledPlugins、permissions |
-| `~/.vibe-kanban/config.json` | vibe-kanban 应用配置 |
-| `~/.vibe-kanban/profiles.json` | AI 执行器 profiles 配置 |
-| `~/.vibe-kanban/vibe-kanban.db` | SQLite 数据库 |
+| `~/.vibe-ultra/config.json` | vibe-ultra 应用配置 |
+| `~/.vibe-ultra/profiles.json` | AI 执行器 profiles 配置 |
+| `~/.vibe-ultra/vibe-ultra.db` | SQLite 数据库 |
 
 ---
 

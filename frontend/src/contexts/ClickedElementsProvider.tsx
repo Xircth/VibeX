@@ -287,6 +287,9 @@ function formatClickedMarkdown(
   // DOM
   const dom = formatDomBits(payload.clickedElement);
 
+  // HTML preview (source code of the clicked element)
+  const htmlPreview = payload.clickedElement?.dataset?.['preview'];
+
   // Use first component in effective chain as the "selected start"
   const first = effectiveChain[0];
   const parsed = parsePathWithLineCol(first.pathToSource);
@@ -316,6 +319,9 @@ function formatClickedMarkdown(
     `From preview click:`,
     `- DOM: ${dom}`,
     `- Selected start: ${first.name} (${loc ? `\`${loc}\`` : 'no source'})`,
+    htmlPreview
+      ? `- Element source:\n\`\`\`html\n${htmlPreview}\n\`\`\``
+      : '',
     effectiveChain.length > 1
       ? ['- Component hierarchy:', ...items].join('\n')
       : '',

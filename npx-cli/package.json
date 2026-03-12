@@ -1,19 +1,19 @@
 {
-  "name": "vibe-kanban",
+  "name": "vibe-ultra",
   "private": false,
   "version": "0.1.8",
   "main": "index.js",
   "bin": {
-    "vibe-kanban": "bin/cli.js"
+    "vibe-ultra": "bin/cli.js"
   },
   "keywords": [],
   "author": "bloop",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BloopAI/vibe-kanban"
+    "url": "https://github.com/BloopAI/vibe-ultra"
   },
   "license": "",
-  "description": "NPX wrapper around vibe-kanban and vibe-kanban-mcp",
+  "description": "NPX wrapper around vibe-ultra and vibe-ultra-mcp",
   "dependencies": {
     "adm-zip": "^0.5.16"
   },

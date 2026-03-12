@@ -35,7 +35,7 @@ const BANNER: &str = r#"
 #[derive(Parser, Debug)]
 #[command(name = "review")]
 #[command(
-    about = "Vibe-Kanban Review helps you review GitHub pull requests by turning them into a clear, story-driven summary instead of a wall of diffs. You provide a pull request URL, optionally link a Claude Code project for additional context, and it builds a narrative that highlights key events and important decisions, helping you prioritise what actually needs attention. It's particularly useful when reviewing large amounts of AI-generated code. Note that code is uploaded to and processed on Vibe-Kanban servers using AI."
+    about = "Vibe Ultra Review helps you review GitHub pull requests by turning them into a clear, story-driven summary instead of a wall of diffs. You provide a pull request URL, optionally link a Claude Code project for additional context, and it builds a narrative that highlights key events and important decisions, helping you prioritise what actually needs attention. It's particularly useful when reviewing large amounts of AI-generated code. Note that code is uploaded to and processed on Vibe Ultra servers using AI."
 )]
 #[command(version)]
 struct Args {

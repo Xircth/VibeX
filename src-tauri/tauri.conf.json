@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/tauri.conf.json",
   "productName": "VibeUltra",
   "version": "0.1.0",
-  "identifier": "com.vibe-kanban.promax",
+  "identifier": "com.vibe-ultra.app",
   "build": {
     "beforeDevCommand": "pnpm --filter ./frontend build --watch --emptyOutDir false",
     "devUrl": null,

@@ -101,7 +101,7 @@ export const useLayoutStore = create<LayoutState>()(
         }),
     }),
     {
-      name: 'vibe-kanban-ide-layout',
+      name: 'vibe-ultra-ide-layout',
       version: 10,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;

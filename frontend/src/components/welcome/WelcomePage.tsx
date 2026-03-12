@@ -6,6 +6,7 @@ import { useProjectRepos } from '@/hooks';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { projectsApi, repoApi } from '@/lib/api';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
+import { Logo } from '@/components/Logo';
 import type { LucideIcon } from 'lucide-react';
 
 function WelcomeSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -34,12 +35,12 @@ function WelcomeAction({
     <button
       onClick={onClick}
       disabled={loading}
-      className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded text-sm text-foreground hover:text-primary hover:bg-accent/60 transition-colors text-left group disabled:opacity-60 disabled:cursor-not-allowed"
+      className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded text-sm text-foreground hover:text-foreground hover:bg-muted/60 transition-colors text-left group disabled:opacity-60 disabled:cursor-not-allowed"
     >
       {loading ? (
         <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />
       ) : (
-        <Icon className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+        <Icon className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
       )}
       <span>{loading ? '正在打开...' : label}</span>
     </button>
@@ -59,9 +60,9 @@ function RecentProjectItem({
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-2 py-1.5 rounded text-sm hover:bg-accent/60 transition-colors text-left group"
+      className="w-full flex items-center gap-3 px-2 py-1.5 rounded text-sm hover:bg-muted/60 transition-colors text-left group"
     >
-      <span className="font-medium text-foreground group-hover:text-primary transition-colors truncate">
+      <span className="font-medium text-foreground transition-colors truncate">
         {project.name}
       </span>
       {repoPath && (
@@ -126,11 +127,14 @@ export function WelcomePage() {
     <div className="h-full overflow-auto bg-background">
       <div className="max-w-2xl mx-auto py-16 px-8">
         {/* Logo/Title */}
-        <div className="mb-12">
-          <h1 className="text-2xl font-semibold text-accent-foreground tracking-tight">
-            {APP_NAME}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">{APP_TAGLINE}</p>
+        <div className="flex items-center gap-3 mb-12">
+          <Logo showText={false} />
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+              {APP_NAME}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">{APP_TAGLINE}</p>
+          </div>
         </div>
 
         {/* Start section */}

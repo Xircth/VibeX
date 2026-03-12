@@ -1008,6 +1008,7 @@ impl ToolCallState {
                 error,
                 exit_code,
             } => ActionType::CommandRun {
+                category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(command.as_deref().unwrap_or_default()),
                 command: command.clone().unwrap_or_default(),
                 result: Some(CommandRunResult {
                     exit_status: exit_code.map(|code| CommandExitStatus::ExitCode { code }),

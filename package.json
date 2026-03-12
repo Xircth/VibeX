@@ -1,9 +1,9 @@
 {
-  "name": "vibe-kanban",
+  "name": "vibe-ultra",
   "version": "0.1.8",
   "private": true,
   "bin": {
-    "vibe-kanban": "npx-cli/bin/cli.js"
+    "vibe-ultra": "npx-cli/bin/cli.js"
   },
   "files": [
     "npx-cli/bin/cli.js",

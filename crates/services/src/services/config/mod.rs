@@ -1,0 +1,76 @@
+use std::path::PathBuf;
+
+use thiserror::Error;
+
+pub mod editor;
+mod versions;
+
+pub use editor::EditorOpenError;
+
+pub const DEFAULT_PR_DESCRIPTION_PROMPT: &str = r#"Update the PR that was just created with a better title and description.
+The PR number is #{pr_number} and the URL is {pr_url}.
+
+Analyze the changes in this branch and write:
+1. A concise, descriptive title that summarizes the changes, postfixed with "(Vibe Kanban)"
+2. A detailed description that explains:
+   - What changes were made
+   - Why they were made (based on the task context)
+   - Any important implementation details
+   - At the end, include a note: "This PR was written using [Vibe Kanban](https://vibekanban.com)"
+
+Use the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps)."#;
+
+pub const DEFAULT_COMMIT_REMINDER_PROMPT: &str = r#"There are uncommitted changes. Please review the diff with `git diff` and `git diff --staged`, then stage and commit them.
+
+Generate a commit message following this format:
+- First line: a short header under 50 characters in the format `<type>(<scope>): <subject>`
+  - Use types: feat (features), fix (bug fixes), docs (documentation), style (formatting), refactor (restructuring), perf (performance), test (tests), chore (maintenance), revert (rollbacks)
+  - Include scope to specify the affected area
+- Second line: blank
+- Third line onwards: a full summary explaining the change in detail, including the problem, solution, and context, wrapping lines at 72 characters
+
+Base the commit message on the actual code changes shown in the diff."#;
+
+pub const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE: &str = "{title} (vibe-kanban {id})\n\n{description}";
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+}
+
+pub type Config = versions::v9::Config;
+pub type NotificationConfig = versions::v9::NotificationConfig;
+pub type EditorConfig = versions::v9::EditorConfig;
+pub type ThemeMode = versions::v9::ThemeMode;
+pub type SoundFile = versions::v9::SoundFile;
+pub type EditorType = versions::v9::EditorType;
+pub type GitHubConfig = versions::v9::GitHubConfig;
+pub type UiLanguage = versions::v9::UiLanguage;
+pub type ShowcaseState = versions::v9::ShowcaseState;
+pub type SendMessageShortcut = versions::v9::SendMessageShortcut;
+
+/// Will always return config, trying old schemas or eventually returning default
+pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
+    match std::fs::read_to_string(config_path) {
+        Ok(raw_config) => Config::from(raw_config),
+        Err(_) => {
+            tracing::info!("No config file found, creating one");
+            Config::default()
+        }
+    }
+}
+
+/// Saves the config to the given path
+pub async fn save_config_to_file(
+    config: &Config,
+    config_path: &PathBuf,
+) -> Result<(), ConfigError> {
+    let raw_config = serde_json::to_string_pretty(config)?;
+    std::fs::write(config_path, raw_config)?;
+    Ok(())
+}

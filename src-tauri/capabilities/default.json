@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/capabilities.json",
+  "identifier": "default",
+  "description": "Default capabilities for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "fs:default",
+    {
+      "identifier": "fs:allow-read",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "fs:allow-write",
+      "allow": [{ "path": "**" }]
+    },
+    "dialog:default"
+  ]
+}

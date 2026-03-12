@@ -1,0 +1,115 @@
+{
+  "executors": {
+    "CLAUDE_CODE": {
+      "DEFAULT": {
+        "CLAUDE_CODE": {
+          "dangerously_skip_permissions": true
+        }
+      },
+      "PLAN": {
+        "CLAUDE_CODE": {
+          "plan": true
+        }
+      },
+      "OPUS": {
+        "CLAUDE_CODE": {
+          "model": "opus"
+        }
+      },
+      "APPROVALS": {
+        "CLAUDE_CODE": {
+          "approvals": true
+        }
+      }
+    },
+    "CODEX": {
+      "DEFAULT": {
+        "CODEX": {
+          "sandbox": "danger-full-access"
+        }
+      },
+      "HIGH": {
+        "CODEX": {
+          "sandbox": "danger-full-access",
+          "model_reasoning_effort": "high"
+        }
+      },
+      "APPROVALS": {
+        "CODEX": {
+          "sandbox": "workspace-write",
+          "ask_for_approval": "unless-trusted"
+        }
+      },
+      "MAX": {
+        "CODEX": {
+          "model": "gpt-5.1-codex-max",
+          "sandbox": "danger-full-access"
+        }
+      },
+      "MAX_APPROVALS": {
+        "CODEX": {
+          "model": "gpt-5.1-codex-max",
+          "sandbox": "workspace-write",
+          "ask_for_approval": "unless-trusted"
+        }
+      },
+      "GPT_5_2": {
+        "CODEX": {
+          "model": "gpt-5.2",
+          "sandbox": "danger-full-access"
+        }
+      },
+      "GPT_5_2_APPROVALS": {
+        "CODEX": {
+          "model": "gpt-5.2",
+          "sandbox": "workspace-write",
+          "ask_for_approval": "unless-trusted"
+        }
+      },
+      "GPT_5_2_CODEX": {
+        "CODEX": {
+          "model": "gpt-5.2-codex",
+          "sandbox": "danger-full-access"
+        }
+      },
+      "GPT_5_2_CODEX_APPROVALS": {
+        "CODEX": {
+          "model": "gpt-5.2-codex",
+          "sandbox": "workspace-write",
+          "ask_for_approval": "unless-trusted"
+        }
+      },
+      "GPT_5_3_CODEX": {
+        "CODEX": {
+          "model": "gpt-5.3-codex",
+          "sandbox": "danger-full-access"
+        }
+      },
+      "GPT_5_3_CODEX_APPROVALS": {
+        "CODEX": {
+          "model": "gpt-5.3-codex",
+          "sandbox": "workspace-write",
+          "ask_for_approval": "unless-trusted"
+        }
+      }
+    },
+    "OPENCODE": {
+      "DEFAULT": {
+        "OPENCODE": {
+          "auto_approve": true
+        }
+      },
+      "PLAN": {
+        "OPENCODE": {
+          "mode": "plan",
+          "auto_approve": true
+        }
+      },
+      "APPROVALS": {
+        "OPENCODE": {
+          "auto_approve": false
+        }
+      }
+    }
+  }
+}

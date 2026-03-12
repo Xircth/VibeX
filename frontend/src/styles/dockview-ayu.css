@@ -1,0 +1,137 @@
+/*
+ * Ayu Light dockview theme overrides.
+ *
+ * Strategy: Override the built-in .dockview-theme-light variables directly,
+ * plus use high-specificity !important rules on all background-bearing elements.
+ * This ensures our theme wins regardless of CSS load order or variable resolution.
+ */
+
+/* Override the built-in light theme variables with Ayu Light colors */
+.dockview-theme-light.dockview-theme-ayu,
+.dockview-theme-ayu.dockview-theme-light,
+.dockview-theme-ayu {
+  --dv-paneview-active-outline-color: #5B8CC7;
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-tabs-and-actions-container-height: 35px;
+  --dv-drag-over-background-color: rgba(91, 140, 199, 0.1);
+  --dv-drag-over-border-color: #5B8CC7;
+  --dv-tabs-container-scrollbar-color: #D4D4D5;
+  --dv-icon-hover-background-color: rgba(91, 140, 199, 0.15);
+  --dv-floating-box-shadow: 8px 8px 8px 0px rgba(0, 0, 0, 0.1);
+  --dv-overlay-z-index: 999;
+  --dv-tab-font-size: inherit;
+  --dv-border-radius: 6px;
+  --dv-tab-margin: 0;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: transparent;
+  --dv-active-sash-transition-duration: 0.1s;
+  --dv-active-sash-transition-delay: 0.5s;
+  --dv-scrollbar-background-color: rgba(0, 0, 0, 0.1);
+
+  --dv-activegroup-visiblepanel-tab-background-color: #FAFAFA;
+  --dv-activegroup-hiddenpanel-tab-background-color: #F0F0F0;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #F0F0F0;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #E7E8E9;
+  --dv-tab-divider-color: #E1E1E2;
+  --dv-activegroup-visiblepanel-tab-color: #242936;
+  --dv-activegroup-hiddenpanel-tab-color: #8A9199;
+  --dv-inactivegroup-visiblepanel-tab-color: #5C6166;
+  --dv-inactivegroup-hiddenpanel-tab-color: #8A9199;
+  --dv-background-color: #F0F0F0;
+  --dv-paneview-header-border-color: #E1E1E2;
+  --dv-tabs-and-actions-container-background-color: #F0F0F0;
+  --dv-group-view-background-color: #FAFAFA;
+  --dv-separator-border: #E1E1E2;
+}
+
+/*
+ * Hard override: force light backgrounds on ALL dockview structural elements.
+ * The [class*="dockview-theme"] selector matches any element with a theme class,
+ * ensuring we catch the root regardless of which theme classes are present.
+ */
+[class*="dockview-theme-ayu"] .dv-tabs-and-actions-container {
+  background-color: #F0F0F0 !important;
+}
+
+[class*="dockview-theme-ayu"] .dv-content-container {
+  background-color: #FAFAFA !important;
+}
+
+[class*="dockview-theme-ayu"] .dv-groupview {
+  background-color: #FAFAFA !important;
+}
+
+[class*="dockview-theme-ayu"].dv-dockview,
+.dv-dockview[class*="dockview-theme-ayu"] {
+  background-color: #FAFAFA !important;
+}
+
+[class*="dockview-theme-ayu"] .dv-tab.dv-active-tab {
+  color: #242936 !important;
+}
+
+[class*="dockview-theme-ayu"] .dv-tab.dv-inactive-tab {
+  color: #8A9199 !important;
+}
+
+/* Void container (empty space in tab bar next to tabs) */
+[class*="dockview-theme-ayu"] .dv-void-container {
+  background-color: #F0F0F0 !important;
+}
+
+/* Ayu Mirage dockview theme (dark mode) */
+.dark .dockview-theme-light.dockview-theme-ayu,
+.dark .dockview-theme-ayu.dockview-theme-light,
+.dark .dockview-theme-ayu {
+  --dv-paneview-active-outline-color: #5B8CC7;
+  --dv-icon-hover-background-color: rgba(91, 140, 199, 0.2);
+  --dv-floating-box-shadow: 8px 8px 8px 0px rgba(0, 0, 0, 0.4);
+  --dv-scrollbar-background-color: rgba(255, 255, 255, 0.15);
+
+  --dv-activegroup-visiblepanel-tab-background-color: #1F2430;
+  --dv-activegroup-hiddenpanel-tab-background-color: #232834;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #232834;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #2A2F3A;
+  --dv-tab-divider-color: #2A2F3A;
+  --dv-activegroup-visiblepanel-tab-color: #E0E0E0;
+  --dv-activegroup-hiddenpanel-tab-color: #5C6773;
+  --dv-inactivegroup-visiblepanel-tab-color: #B8C4D0;
+  --dv-inactivegroup-hiddenpanel-tab-color: #5C6773;
+  --dv-background-color: #232834;
+  --dv-paneview-header-border-color: #2A2F3A;
+  --dv-tabs-and-actions-container-background-color: #232834;
+  --dv-tabs-container-scrollbar-color: #3B4252;
+  --dv-group-view-background-color: #1F2430;
+  --dv-separator-border: #2A2F3A;
+  --dv-drag-over-background-color: rgba(91, 140, 199, 0.15);
+  --dv-drag-over-border-color: #5B8CC7;
+}
+
+.dark [class*="dockview-theme-ayu"] .dv-tabs-and-actions-container {
+  background-color: #232834 !important;
+}
+
+.dark [class*="dockview-theme-ayu"] .dv-content-container {
+  background-color: #1F2430 !important;
+}
+
+.dark [class*="dockview-theme-ayu"] .dv-groupview {
+  background-color: #1F2430 !important;
+}
+
+.dark [class*="dockview-theme-ayu"].dv-dockview,
+.dark .dv-dockview[class*="dockview-theme-ayu"] {
+  background-color: #1F2430 !important;
+}
+
+.dark [class*="dockview-theme-ayu"] .dv-tab.dv-active-tab {
+  color: #E0E0E0 !important;
+}
+
+.dark [class*="dockview-theme-ayu"] .dv-tab.dv-inactive-tab {
+  color: #5C6773 !important;
+}
+
+.dark [class*="dockview-theme-ayu"] .dv-void-container {
+  background-color: #232834 !important;
+}

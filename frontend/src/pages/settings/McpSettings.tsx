@@ -1,0 +1,455 @@
+import { useEffect, useState } from 'react';import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from '@/components/ui/carousel';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { JSONEditor } from '@/components/ui/json-editor';
+import { Loader2 } from 'lucide-react';
+import type { BaseCodingAgent, ExecutorConfig } from 'shared/types';
+import { McpConfig } from 'shared/types';
+import { useUserSystem } from '@/components/ConfigProvider';
+import { mcpServersApi } from '@/lib/api';
+import { McpConfigStrategyGeneral } from '@/lib/mcpStrategies';
+
+export function McpSettings() {  const { config, profiles } = useUserSystem();
+  const [mcpServers, setMcpServers] = useState('{}');
+  const [mcpConfig, setMcpConfig] = useState<McpConfig | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [mcpLoading, setMcpLoading] = useState(true);
+  const [selectedProfile, setSelectedProfile] = useState<ExecutorConfig | null>(
+    null
+  );
+  const [mcpApplying, setMcpApplying] = useState(false);
+  const [mcpConfigPath, setMcpConfigPath] = useState<string>('');
+  const [success, setSuccess] = useState(false);
+
+  // Initialize selected profile when config loads
+  useEffect(() => {
+    if (config?.executor_profile && profiles && !selectedProfile) {
+      // Find the current profile
+      const currentProfile = profiles[config.executor_profile.executor];
+      if (currentProfile) {
+        setSelectedProfile(currentProfile);
+      } else if (Object.keys(profiles).length > 0) {
+        // Default to first profile if current profile not found
+        setSelectedProfile(Object.values(profiles)[0]);
+      }
+    }
+  }, [config?.executor_profile, profiles, selectedProfile]);
+
+  // Load existing MCP configuration when selected profile changes
+  useEffect(() => {
+    const loadMcpServersForProfile = async (profile: ExecutorConfig) => {
+      // Reset state when loading
+      setMcpLoading(true);
+      setMcpError(null);
+      // Set default empty config based on agent type using strategy
+      setMcpConfigPath('');
+
+      try {
+        // Load MCP servers for the selected profile/agent
+        // Find the key for this profile
+        const profileKey = profiles
+          ? Object.keys(profiles).find((key) => profiles[key] === profile)
+          : null;
+        if (!profileKey) {
+          throw new Error('Profile key not found');
+        }
+
+        const result = await mcpServersApi.load({
+          executor: profileKey as BaseCodingAgent,
+        });
+        // Store the McpConfig from backend
+        setMcpConfig(result.mcp_config);
+        // Create the full configuration structure using the schema
+        const fullConfig = McpConfigStrategyGeneral.createFullConfig(
+          result.mcp_config
+        );
+        const configJson = JSON.stringify(fullConfig, null, 2);
+        setMcpServers(configJson);
+        setMcpConfigPath(result.config_path);
+      } catch (err: unknown) {
+        if (
+          err instanceof Error &&
+          err.message.includes('does not support MCP')
+        ) {
+          setMcpError(err.message);
+        } else {
+          console.error('Error loading MCP servers:', err);
+        }
+      } finally {
+        setMcpLoading(false);
+      }
+    };
+
+    // Load MCP servers for the selected profile
+    if (selectedProfile) {
+      loadMcpServersForProfile(selectedProfile);
+    }
+  }, [selectedProfile, profiles]);
+
+  const handleMcpServersChange = (value: string) => {
+    setMcpServers(value);
+    setMcpError(null);
+
+    // Validate JSON on change
+    if (value.trim() && mcpConfig) {
+      try {
+        const parsedConfig = JSON.parse(value);
+        // Validate using the schema path from backend
+        McpConfigStrategyGeneral.validateFullConfig(mcpConfig, parsedConfig);
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          setMcpError('无效的 JSON 格式');
+        } else {
+          setMcpError(
+            err instanceof Error
+              ? err.message
+              : '验证错误'
+          );
+        }
+      }
+    }
+  };
+
+  const handleApplyMcpServers = async () => {
+    if (!selectedProfile || !mcpConfig) return;
+
+    setMcpApplying(true);
+    setMcpError(null);
+
+    try {
+      // Validate and save MCP configuration
+      if (mcpServers.trim()) {
+        try {
+          const fullConfig = JSON.parse(mcpServers);
+          McpConfigStrategyGeneral.validateFullConfig(mcpConfig, fullConfig);
+          const mcpServersConfig =
+            McpConfigStrategyGeneral.extractServersForApi(
+              mcpConfig,
+              fullConfig
+            );
+
+          // Find the key for the selected profile
+          const selectedProfileKey = profiles
+            ? Object.keys(profiles).find(
+                (key) => profiles[key] === selectedProfile
+              )
+            : null;
+          if (!selectedProfileKey) {
+            throw new Error('Selected profile key not found');
+          }
+
+          await mcpServersApi.save(
+            {
+              executor: selectedProfileKey as BaseCodingAgent,
+            },
+            { servers: mcpServersConfig }
+          );
+
+          // Show success feedback
+          setSuccess(true);
+          setTimeout(() => setSuccess(false), 3000);
+        } catch (mcpErr) {
+          if (mcpErr instanceof SyntaxError) {
+            setMcpError('无效的 JSON 格式');
+          } else {
+            setMcpError(
+              mcpErr instanceof Error
+                ? mcpErr.message
+                : '保存 MCP 服务器失败'
+            );
+          }
+        }
+      }
+    } catch (err) {
+      setMcpError('应用 MCP 服务器配置失败');
+      console.error('Error applying MCP servers:', err);
+    } finally {
+      setMcpApplying(false);
+    }
+  };
+
+  const addServer = (key: string) => {
+    try {
+      const existing = mcpServers.trim() ? JSON.parse(mcpServers) : {};
+      const updated = McpConfigStrategyGeneral.addPreconfiguredToConfig(
+        mcpConfig!,
+        existing,
+        key
+      );
+      setMcpServers(JSON.stringify(updated, null, 2));
+      setMcpError(null);
+    } catch (err) {
+      console.error(err);
+      setMcpError(
+        err instanceof Error
+          ? err.message
+          : '添加预配置服务器失败'
+      );
+    }
+  };
+
+  const preconfiguredObj = (mcpConfig?.preconfigured ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const meta =
+    typeof preconfiguredObj.meta === 'object' && preconfiguredObj.meta !== null
+      ? (preconfiguredObj.meta as Record<
+          string,
+          { name?: string; description?: string; url?: string; icon?: string }
+        >)
+      : {};
+  const servers = Object.fromEntries(
+    Object.entries(preconfiguredObj).filter(([k]) => k !== 'meta')
+  ) as Record<string, unknown>;
+  const getMetaFor = (key: string) => meta[key] || {};
+
+  if (!config) {
+    return (
+      <div className="py-8">
+        <Alert variant="destructive">
+          <AlertDescription>
+            {'加载配置失败。'}
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {mcpError && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {`MCP 配置错误：${mcpError}`}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {success && (
+        <Alert variant="success">
+          <AlertDescription className="font-medium">
+            {'✓ MCP 配置保存成功！'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{'MCP 服务器配置'}</CardTitle>
+          <CardDescription>{'配置模型上下文协议服务器，使用自定义工具和资源扩展编码代理功能。'}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="mcp-executor">
+              {'代理'}
+            </Label>
+            <Select
+              value={
+                selectedProfile
+                  ? Object.keys(profiles || {}).find(
+                      (key) => profiles![key] === selectedProfile
+                    ) || ''
+                  : ''
+              }
+              onValueChange={(value: string) => {
+                const profile = profiles?.[value];
+                if (profile) setSelectedProfile(profile);
+              }}
+            >
+              <SelectTrigger id="mcp-executor">
+                <SelectValue
+                  placeholder={'选择执行器'}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {profiles &&
+                  Object.entries(profiles)
+                    .sort((a, b) => a[0].localeCompare(b[0]))
+                    .map(([profileKey]) => (
+                      <SelectItem key={profileKey} value={profileKey}>
+                        {profileKey}
+                      </SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {'选择要为其配置 MCP 服务器的代理。'}
+            </p>
+          </div>
+
+          {mcpError && mcpError.includes('does not support MCP') ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                    {'不支持 MCP'}
+                  </h3>
+                  <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                    <p>{mcpError}</p>
+                    <p className="mt-1">
+                      {'要使用 MCP 服务器，请在上方选择支持 MCP 的其他执行器（Claude、Amp、Gemini、Codex 或 Opencode）。'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="mcp-servers">
+                {'服务器配置（JSON）'}
+              </Label>
+              <JSONEditor
+                id="mcp-servers"
+                placeholder={
+                  mcpLoading
+                    ? '加载当前 MCP 服务器配置...'
+                    : '{\n  "server-name": {\n    "type": "stdio",\n    "command": "your-command",\n    "args": ["arg1", "arg2"]\n  }\n}'
+                }
+                value={
+                  mcpLoading ? '加载中...' : mcpServers
+                }
+                onChange={handleMcpServersChange}
+                disabled={mcpLoading}
+                minHeight={300}
+              />
+              {mcpError && !mcpError.includes('does not support MCP') && (
+                <p className="text-sm text-destructive dark:text-red-400">
+                  {mcpError}
+                </p>
+              )}
+              <div className="text-sm text-muted-foreground">
+                {mcpLoading ? (
+                  '加载当前 MCP 服务器配置...'
+                ) : (
+                  <span>
+                    {'更改将保存到：'}
+                    {mcpConfigPath && (
+                      <span className="ml-2 font-mono text-xs">
+                        {mcpConfigPath}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+
+              {mcpConfig?.preconfigured &&
+                typeof mcpConfig.preconfigured === 'object' && (
+                  <div className="pt-4">
+                    <Label>{'热门服务器'}</Label>
+                    <p className="text-sm text-muted-foreground mb-2">
+                      {'点击卡片将该 MCP 服务器插入到上面的 JSON 中。'}
+                    </p>
+
+                    <div className="relative overflow-hidden rounded-lg border bg-background">
+                      <Carousel className="w-full px-4 py-3">
+                        <CarouselContent>
+                          {Object.entries(servers).map(([key]) => {
+                            const metaObj = getMetaFor(key) as {
+                              name?: string;
+                              description?: string;
+                              url?: string;
+                              icon?: string;
+                            };
+                            const name = metaObj.name || key;
+                            const description =
+                              metaObj.description || 'No description';
+                            const icon = metaObj.icon
+                              ? `/${metaObj.icon}`
+                              : null;
+
+                            return (
+                              <CarouselItem
+                                key={name}
+                                className="sm:basis-1/3 lg:basis-1/4"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => addServer(key)}
+                                  aria-label={`Add ${name} to config`}
+                                  className="group w-full text-left outline-none"
+                                >
+                                  <Card className="h-32 rounded-lg border hover:shadow-md transition">
+                                    <CardHeader className="pb-0">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-6 h-6 rounded-lg border bg-muted grid place-items-center overflow-hidden">
+                                          {icon ? (
+                                            <img
+                                              src={icon}
+                                              alt=""
+                                              className="w-full h-full object-cover"
+                                            />
+                                          ) : (
+                                            <span className="font-semibold">
+                                              {name.slice(0, 1).toUpperCase()}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <CardTitle className="text-base font-medium truncate">
+                                          {name}
+                                        </CardTitle>
+                                      </div>
+                                    </CardHeader>
+
+                                    <CardContent className="pt-2 px-4">
+                                      <p className="text-sm text-muted-foreground line-clamp-3">
+                                        {description}
+                                      </p>
+                                    </CardContent>
+                                  </Card>
+                                </button>
+                              </CarouselItem>
+                            );
+                          })}
+                        </CarouselContent>
+
+                        <CarouselPrevious className="left-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full border bg-background/80 shadow-sm backdrop-blur hover:bg-background" />
+                        <CarouselNext className="right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full border bg-background/80 shadow-sm backdrop-blur hover:bg-background" />
+                      </Carousel>
+                    </div>
+                  </div>
+                )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Sticky Save Button */}
+      <div className="sticky bottom-0 z-10 bg-background/80 backdrop-blur-sm border-t py-4">
+        <div className="flex justify-end">
+          <Button
+            onClick={handleApplyMcpServers}
+            disabled={mcpApplying || mcpLoading || !!mcpError || success}
+          >
+            {mcpApplying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {success && <span className="mr-2">✓</span>}
+            {success
+              ? '设置已保存！'
+              : '保存 MCP 配置'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

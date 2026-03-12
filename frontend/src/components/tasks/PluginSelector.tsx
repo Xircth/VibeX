@@ -1,0 +1,70 @@
+import { memo } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+import { useClaudeSettings } from '@/hooks/useClaudeSettings';
+
+interface PluginSelectorProps {
+  /** Currently selected plugin name (null = default, no specific plugin) */
+  value: string | null;
+  onChange: (plugin: string | null) => void;
+  disabled?: boolean;
+  className?: string;
+}
+
+/**
+ * Plugin/Agent selector for Claude Code.
+ * Reads enabled plugins from ~/.claude/settings.json enabledPlugins field.
+ * Each plugin entry is a string like "superpowers" or "glm-plan-usage".
+ */
+function PluginSelectorInner({ value, onChange, disabled, className }: PluginSelectorProps) {
+  const { settings } = useClaudeSettings();
+  const pluginsMap = settings?.enabled_plugins ?? {};
+  const plugins = Object.entries(pluginsMap)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+
+  const displayName = value ?? '默认';
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="secondary"
+          size="sm"
+          className={cn('px-2 flex items-center gap-1', className)}
+          disabled={disabled}
+        >
+          <span className="text-xs truncate max-w-[80px]">{displayName}</span>
+          <ChevronDown className="h-2.5 w-2.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top">
+        <DropdownMenuItem
+          onClick={() => onChange(null)}
+          className={value === null ? 'bg-accent' : ''}
+        >
+          默认
+        </DropdownMenuItem>
+        {plugins.map((plugin) => (
+          <DropdownMenuItem
+            key={plugin}
+            onClick={() => onChange(plugin)}
+            className={value === plugin ? 'bg-accent' : ''}
+          >
+            {plugin}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+PluginSelectorInner.displayName = 'PluginSelector';
+export const PluginSelector = memo(PluginSelectorInner);

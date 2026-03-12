@@ -1,0 +1,6 @@
+packages:
+  - frontend
+
+onlyBuiltDependencies:
+  - core-js
+  - esbuild

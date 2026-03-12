@@ -1,0 +1,39 @@
+[package]
+name = "vibe-kanban-promax"
+version = "0.1.0"
+edition = "2024"
+
+[build-dependencies]
+cc = "1"
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-shell = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+tracing = { workspace = true }
+base64 = "0.22"
+futures = "0.3"
+os_info = "3.12.0"
+
+# Reuse existing workspace crates
+db = { path = "../crates/db" }
+services = { path = "../crates/services" }
+executors = { path = "../crates/executors" }
+git = { path = "../crates/git" }
+git2 = { workspace = true }
+local-deployment = { path = "../crates/local-deployment" }
+api-types = { path = "../crates/api-types" }
+utils = { path = "../crates/utils" }
+deployment = { path = "../crates/deployment" }
+# Note: review crate is binary-only (no lib target), cannot be used as dependency

@@ -1,0 +1,311 @@
+@import '../fonts.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 1) THEME TOKENS scoped to .legacy-design */
+@layer base {
+  .legacy-design {
+    color-scheme: light;
+    /* Ayu Light */
+    --_background: 0 0% 98%;
+    --_foreground: 213 10% 37%;
+    --_primary: 215 50% 55%;
+    --_primary-foreground: 0 0% 100%;
+    --_secondary: 0 0% 94%;
+    --_secondary-foreground: 213 10% 37%;
+    --_muted: 220 4% 91%;
+    --_muted-foreground: 210 5% 56%;
+    --_accent: 220 4% 91%;
+    --_accent-foreground: 222 30% 16%;
+    --_destructive: 0 96% 53%;
+    --_destructive-foreground: 0 0% 100%;
+    --_border: 240 2% 88%;
+    --_input: 0 0% 83%;
+    --_ring: 215 50% 55%;
+    --_radius: 0.5rem;
+
+    /* Status (light - Ayu) */
+    --_success: 78 100% 35%;
+    --_success-foreground: 78 100% 15%;
+    --_warning: 38 92% 50%;
+    --_warning-foreground: 38 92% 20%;
+    --_info: 190 56% 58%;
+    --_info-foreground: 222 30% 16%;
+    --_neutral: 0 0% 94%;
+    --_neutral-foreground: 213 10% 37%;
+
+    /* Console (light - Ayu) */
+    --_console-background: 0 0% 98%;
+    --_console-foreground: 213 10% 37%;
+    --_console-success: 78 100% 35%;
+    --_console-error: 0 96% 53%;
+
+    /* Syntax highlighting (light - Ayu Light) */
+    --_syntax-keyword: #fa8d3e;
+    --_syntax-function: #f2ae49;
+    --_syntax-constant: #a37acc;
+    --_syntax-string: #86b300;
+    --_syntax-variable: #ed9366;
+    --_syntax-comment: #abb0b6;
+    --_syntax-tag: #55b4d4;
+    --_syntax-punctuation: #5c6166;
+    --_syntax-deleted: #f51818;
+  }
+
+  /* Dark mode - Ayu Mirage */
+  .legacy-design.dark,
+  .dark .legacy-design {
+    color-scheme: dark;
+    --_background: 220 22% 14%;
+    --_foreground: 215 20% 73%;
+    --_primary: 215 50% 62%;
+    --_primary-foreground: 0 0% 100%;
+    --_secondary: 220 20% 17%;
+    --_secondary-foreground: 215 20% 73%;
+    --_muted: 220 18% 20%;
+    --_muted-foreground: 215 10% 55%;
+    --_accent: 220 18% 20%;
+    --_accent-foreground: 0 0% 100%;
+    --_destructive: 0 80% 55%;
+    --_destructive-foreground: 0 0% 100%;
+    --_border: 220 15% 25%;
+    --_input: 220 15% 25%;
+    --_ring: 215 50% 62%;
+
+    /* Status (dark - Ayu Mirage) */
+    --_success: 78 72% 50%;
+    --_success-foreground: 78 72% 90%;
+    --_warning: 38 92% 55%;
+    --_warning-foreground: 38 92% 90%;
+    --_info: 190 60% 60%;
+    --_info-foreground: 0 0% 100%;
+    --_neutral: 220 20% 17%;
+    --_neutral-foreground: 215 20% 73%;
+
+    /* Console (dark - Ayu Mirage) */
+    --_console-background: 220 25% 10%;
+    --_console-foreground: 215 20% 73%;
+    --_console-success: 78 72% 50%;
+    --_console-error: 0 80% 55%;
+
+    /* Syntax highlighting (dark - Ayu Mirage) */
+    --_syntax-keyword: #ffa759;
+    --_syntax-function: #ffd580;
+    --_syntax-constant: #d4bfff;
+    --_syntax-string: #bae67e;
+    --_syntax-variable: #ffae57;
+    --_syntax-comment: #5c6773;
+    --_syntax-tag: #5ccfe6;
+    --_syntax-punctuation: #b8c4d0;
+    --_syntax-deleted: #ff3333;
+  }
+}
+
+/* 2) PUBLIC TOKENS scoped to .legacy-design */
+@layer base {
+  .legacy-design {
+    --background: var(--vscode-editor-background, var(--_background));
+    --foreground: var(--vscode-editor-foreground, var(--_foreground));
+
+    --card: var(--muted);
+    --card-foreground: var(--muted-foreground);
+    --popover: var(--background);
+    --popover-foreground: var(--foreground);
+
+    --primary: var(--vscode-button-background, var(--_primary));
+    --primary-foreground: var(
+      --vscode-button-foreground,
+      var(--_primary-foreground)
+    );
+    --secondary: var(--vscode-input-background, var(--_secondary));
+    --secondary-foreground: var(
+      --vscode-input-foreground,
+      var(--_secondary-foreground)
+    );
+
+    --muted: var(--vscode-editor-background, var(--_muted));
+    --muted-foreground: var(
+      --vscode-descriptionForeground,
+      var(--_muted-foreground)
+    );
+    --accent: var(--vscode-focusBorder, var(--_accent));
+    --accent-foreground: var(
+      --vscode-button-foreground,
+      var(--_accent-foreground)
+    );
+
+    --destructive: var(--vscode-errorForeground, var(--_destructive));
+    --destructive-foreground: var(
+      --vscode-button-foreground,
+      var(--_destructive-foreground)
+    );
+
+    --border: var(--vscode-input-background, var(--_border));
+    --input: var(--vscode-input-background, var(--_input));
+    --ring: var(--vscode-focusBorder, var(--_ring));
+
+    --radius: var(--_radius);
+
+    /* Status */
+    --success: var(--vscode-testing-iconPassed, var(--_success));
+    --success-foreground: var(
+      --vscode-button-foreground,
+      var(--_success-foreground)
+    );
+    --warning: var(--vscode-testing-iconQueued, var(--_warning));
+    --warning-foreground: var(
+      --vscode-descriptionForeground,
+      var(--_warning-foreground)
+    );
+    --info: var(--vscode-focusBorder, var(--_info));
+    --info-foreground: var(--vscode-editor-foreground, var(--_info-foreground));
+    --neutral: var(--vscode-input-background, var(--_neutral));
+    --neutral-foreground: var(
+      --vscode-button-foreground,
+      var(--_neutral-foreground)
+    );
+
+    /* Console/terminal */
+    --console-background: var(
+      --vscode-editor-background,
+      var(--_console-background)
+    );
+    --console-foreground: var(
+      --vscode-terminal-foreground,
+      var(--_console-foreground)
+    );
+    --console-success: var(
+      --vscode-testing-iconPassed,
+      var(--_console-success)
+    );
+    --console-error: var(--vscode-terminal-ansiRed, var(--_console-error));
+
+    /* Syntax highlighting */
+    --syntax-keyword: var(--_syntax-keyword);
+    --syntax-function: var(--_syntax-function);
+    --syntax-constant: var(--_syntax-constant);
+    --syntax-string: var(--_syntax-string);
+    --syntax-variable: var(--_syntax-variable);
+    --syntax-comment: var(--_syntax-comment);
+    --syntax-tag: var(--_syntax-tag);
+    --syntax-punctuation: var(--_syntax-punctuation);
+    --syntax-deleted: var(--_syntax-deleted);
+  }
+}
+
+/* 3) Base styles scoped to .legacy-design */
+@layer base {
+  .legacy-design *,
+  .legacy-design *::before,
+  .legacy-design *::after {
+    @apply border-border;
+  }
+
+  :where(.legacy-design) button,
+  :where(.legacy-design) input:not([type='checkbox']):not([type='radio']),
+  :where(.legacy-design) textarea,
+  :where(.legacy-design) select {
+    border-radius: calc(var(--radius) - 2px);
+  }
+
+  html,
+  body,
+  #root {
+    @apply min-h-screen;
+  }
+
+  .legacy-design {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  .legacy-design *:focus {
+    @apply ring-inset;
+  }
+
+  .legacy-design .logo {
+    @apply fill-foreground;
+  }
+}
+
+/* ANSI color classes for fancy-ansi */
+@layer components {
+  .ansi-red {
+    @apply text-red-500;
+  }
+
+  .ansi-green {
+    @apply text-green-500;
+  }
+
+  .ansi-yellow {
+    @apply text-yellow-500;
+  }
+
+  .ansi-blue {
+    @apply text-blue-500;
+  }
+
+  .ansi-magenta {
+    @apply text-purple-500;
+  }
+
+  .ansi-cyan {
+    @apply text-cyan-500;
+  }
+
+  .ansi-white {
+    @apply text-white;
+  }
+
+  .ansi-black {
+    @apply text-black;
+  }
+
+  .ansi-bright-red {
+    @apply text-red-400;
+  }
+
+  .ansi-bright-green {
+    @apply text-green-400;
+  }
+
+  .ansi-bright-yellow {
+    @apply text-yellow-400;
+  }
+
+  .ansi-bright-blue {
+    @apply text-blue-400;
+  }
+
+  .ansi-bright-magenta {
+    @apply text-purple-400;
+  }
+
+  .ansi-bright-cyan {
+    @apply text-cyan-400;
+  }
+
+  .ansi-bright-white {
+    @apply text-gray-200;
+  }
+
+  .ansi-bright-black {
+    @apply text-gray-700;
+  }
+
+  .ansi-bold {
+    @apply font-bold;
+  }
+
+  .ansi-italic {
+    @apply italic;
+  }
+
+  .ansi-underline {
+    @apply underline;
+  }
+}
+
+@config '../../../tailwind.legacy.config.js';

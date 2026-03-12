@@ -163,6 +163,10 @@ module.exports = {
           '10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-2px)' },
           '20%, 40%, 60%, 80%': { transform: 'translateX(2px)' },
         },
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -173,6 +177,7 @@ module.exports = {
         'running-dot-3': 'running-dot 1.4s ease-in-out 0.4s infinite',
         'border-flash': 'border-flash 2s linear infinite',
         shake: 'shake 0.3s ease-in-out',
+        shimmer: 'shimmer 1.5s ease-in-out infinite',
       },
     },
   },

@@ -583,6 +583,50 @@ export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 
+// ── Git Panel Types (from crates/git/src/lib.rs) ────────────────────
+
+export type GitFileStatusEntry = {
+  path: string;
+  /** Status code: "A" (added), "M" (modified), "D" (deleted), "R" (renamed), "?" (untracked) */
+  status: string;
+  additions: number;
+  deletions: number;
+};
+
+export type DetailedGitStatus = {
+  branch_name: string;
+  staged_files: GitFileStatusEntry[];
+  unstaged_files: GitFileStatusEntry[];
+  total_additions: number;
+  total_deletions: number;
+};
+
+export type GitFileDiffEntry = {
+  path: string;
+  status: string;
+  diff: string;
+  is_binary: boolean;
+  is_image: boolean;
+};
+
+export type GitLogEntry = {
+  sha: string;
+  summary: string;
+  author: string;
+  timestamp: number;
+};
+
+export type GitLogStatus = {
+  entries: GitLogEntry[];
+  total: number;
+  ahead: number;
+  behind: number;
+  upstream: string | null;
+  branch_name: string;
+};
+
+// ─────────────────────────────────────────────────────────────────────
+
 export const DEFAULT_PR_DESCRIPTION_PROMPT = "Update the PR that was just created with a better title and description.\nThe PR number is #{pr_number} and the URL is {pr_url}.\n\nAnalyze the changes in this branch and write:\n1. A concise, descriptive title that summarizes the changes, postfixed with \"(Vibe Ultra)\"\n2. A detailed description that explains:\n   - What changes were made\n   - Why they were made (based on the task context)\n   - Any important implementation details\n   - At the end, include a note: \"This PR was written using [Vibe Ultra](https://vibeultra.com)\"\n\nUse the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps).";
 
 export const DEFAULT_COMMIT_REMINDER_PROMPT = "There are uncommitted changes. Please review the diff with `git diff` and `git diff --staged`, then stage and commit them.\n\nGenerate a commit message following this format:\n- First line: a short header under 50 characters in the format `<type>(<scope>): <subject>`\n  - Use types: feat (features), fix (bug fixes), docs (documentation), style (formatting), refactor (restructuring), perf (performance), test (tests), chore (maintenance), revert (rollbacks)\n  - Include scope to specify the affected area\n- Second line: blank\n- Third line onwards: a full summary explaining the change in detail, including the problem, solution, and context, wrapping lines at 72 characters\n\nBase the commit message on the actual code changes shown in the diff.";

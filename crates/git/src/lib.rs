@@ -117,6 +117,60 @@ pub struct CommitGraph {
     pub target_branch: String,
 }
 
+// ── Types for Git Panel UI ───────────────────────────────────────────
+
+/// A single file entry in git status (staged or unstaged).
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct GitFileStatusEntry {
+    pub path: String,
+    /// Status code: "A" (added), "M" (modified), "D" (deleted), "R" (renamed), "?" (untracked)
+    pub status: String,
+    pub additions: i32,
+    pub deletions: i32,
+}
+
+/// Detailed git status response with staged/unstaged file grouping.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct DetailedGitStatus {
+    pub branch_name: String,
+    pub staged_files: Vec<GitFileStatusEntry>,
+    pub unstaged_files: Vec<GitFileStatusEntry>,
+    pub total_additions: i32,
+    pub total_deletions: i32,
+}
+
+/// A single file diff entry with content.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct GitFileDiffEntry {
+    pub path: String,
+    pub status: String,
+    pub diff: String,
+    pub is_binary: bool,
+    pub is_image: bool,
+}
+
+/// A single git log entry.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct GitLogEntry {
+    pub sha: String,
+    pub summary: String,
+    pub author: String,
+    pub timestamp: i64,
+}
+
+/// Git log response with ahead/behind tracking.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct GitLogStatus {
+    pub entries: Vec<GitLogEntry>,
+    pub total: i32,
+    pub ahead: i32,
+    pub behind: i32,
+    pub upstream: Option<String>,
+    pub branch_name: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct Commit(git2::Oid);
 
@@ -2231,5 +2285,291 @@ impl GitService {
         }
 
         Ok(stats)
+    }
+
+    // ── Git Panel methods (staging, diffs, log, commit) ──────────────
+
+    /// Get detailed file status grouped into staged and unstaged files.
+    /// Returns structured data suitable for a Git staging UI.
+    pub fn get_detailed_status(
+        &self,
+        worktree_path: &Path,
+    ) -> Result<DetailedGitStatus, GitServiceError> {
+        let git = GitCli::new();
+        let status = git.get_worktree_status(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git status failed: {e}"))
+        })?;
+        let branch_name = git.get_current_branch(worktree_path).unwrap_or_default();
+
+        // Parse numstat for additions/deletions (staged)
+        let staged_numstat = git.get_numstat_staged(worktree_path).unwrap_or_default();
+        let staged_stats = Self::parse_numstat(&staged_numstat);
+
+        // Parse numstat for additions/deletions (all vs HEAD)
+        let all_numstat = git.get_numstat(worktree_path).unwrap_or_default();
+        let all_stats = Self::parse_numstat(&all_numstat);
+
+        let mut staged_files = Vec::new();
+        let mut unstaged_files = Vec::new();
+        let mut total_additions: i32 = 0;
+        let mut total_deletions: i32 = 0;
+
+        for entry in &status.entries {
+            let path_str = String::from_utf8_lossy(&entry.path).to_string();
+
+            // Staged changes (column X is not ' ' and not '?')
+            if entry.staged != ' ' && entry.staged != '?' {
+                let (adds, dels) = staged_stats.get(&path_str).copied().unwrap_or((0, 0));
+                staged_files.push(GitFileStatusEntry {
+                    path: path_str.clone(),
+                    status: Self::char_to_status_string(entry.staged),
+                    additions: adds,
+                    deletions: dels,
+                });
+                total_additions += adds;
+                total_deletions += dels;
+            }
+
+            // Unstaged changes (column Y is not ' ') or untracked files
+            if entry.is_untracked {
+                let (adds, dels) = all_stats.get(&path_str).copied().unwrap_or((0, 0));
+                unstaged_files.push(GitFileStatusEntry {
+                    path: path_str,
+                    status: "?".to_string(),
+                    additions: adds,
+                    deletions: dels,
+                });
+                total_additions += adds;
+                total_deletions += dels;
+            } else if entry.unstaged != ' ' {
+                // For unstaged modifications, compute diff: all_stats - staged_stats
+                let (all_adds, all_dels) = all_stats.get(&path_str).copied().unwrap_or((0, 0));
+                let (stg_adds, stg_dels) = staged_stats.get(&path_str).copied().unwrap_or((0, 0));
+                let adds = (all_adds - stg_adds).max(0);
+                let dels = (all_dels - stg_dels).max(0);
+                unstaged_files.push(GitFileStatusEntry {
+                    path: path_str,
+                    status: Self::char_to_status_string(entry.unstaged),
+                    additions: adds,
+                    deletions: dels,
+                });
+                total_additions += adds;
+                total_deletions += dels;
+            }
+        }
+
+        Ok(DetailedGitStatus {
+            branch_name,
+            staged_files,
+            unstaged_files,
+            total_additions,
+            total_deletions,
+        })
+    }
+
+    /// Stage a single file.
+    pub fn stage_file(
+        &self,
+        worktree_path: &Path,
+        file_path: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.stage_file(worktree_path, file_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git add failed: {e}")))
+    }
+
+    /// Stage all files.
+    pub fn stage_all(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.add_all(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git add -A failed: {e}")))
+    }
+
+    /// Unstage a single file.
+    pub fn unstage_file(
+        &self,
+        worktree_path: &Path,
+        file_path: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.unstage_file(worktree_path, file_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git unstage failed: {e}")))
+    }
+
+    /// Revert a single file to HEAD state.
+    pub fn revert_file(
+        &self,
+        worktree_path: &Path,
+        file_path: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.restore_file(worktree_path, file_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git restore failed: {e}")))
+    }
+
+    /// Revert all files to HEAD state and remove untracked files.
+    pub fn revert_all(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.restore_all(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git restore all failed: {e}")))
+    }
+
+    /// Get unified diff content for all changed files vs HEAD.
+    /// Each entry includes the file path, status, and diff content.
+    pub fn get_file_diffs(
+        &self,
+        worktree_path: &Path,
+    ) -> Result<Vec<GitFileDiffEntry>, GitServiceError> {
+        let git = GitCli::new();
+        let status = git.get_worktree_status(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git status failed: {e}"))
+        })?;
+
+        let mut diffs = Vec::new();
+        for entry in &status.entries {
+            let path_str = String::from_utf8_lossy(&entry.path).to_string();
+            let status_char = if entry.is_untracked {
+                '?'
+            } else if entry.staged != ' ' {
+                entry.staged
+            } else {
+                entry.unstaged
+            };
+
+            let is_binary = Self::is_likely_binary(&path_str);
+            let is_image = Self::is_image_file(&path_str);
+
+            let diff_content = if is_binary {
+                String::new()
+            } else {
+                git.get_diff_file(worktree_path, &path_str).unwrap_or_default()
+            };
+
+            diffs.push(GitFileDiffEntry {
+                path: path_str,
+                status: Self::char_to_status_string(status_char),
+                diff: diff_content,
+                is_binary,
+                is_image,
+            });
+        }
+
+        Ok(diffs)
+    }
+
+    /// Commit staged changes with the given message.
+    pub fn commit_changes(
+        &self,
+        worktree_path: &Path,
+        message: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.commit(worktree_path, message)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git commit failed: {e}")))
+    }
+
+    /// Get git log entries for the current branch.
+    pub fn get_log(
+        &self,
+        worktree_path: &Path,
+        max_count: usize,
+    ) -> Result<Vec<GitLogEntry>, GitServiceError> {
+        let git = GitCli::new();
+        let raw = git.get_log(worktree_path, max_count).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git log failed: {e}"))
+        })?;
+
+        let mut entries = Vec::new();
+        for line in raw.lines() {
+            let parts: Vec<&str> = line.splitn(4, '\0').collect();
+            if parts.len() >= 4 {
+                entries.push(GitLogEntry {
+                    sha: parts[0].to_string(),
+                    summary: parts[1].to_string(),
+                    author: parts[2].to_string(),
+                    timestamp: parts[3].parse::<i64>().unwrap_or(0),
+                });
+            }
+        }
+        Ok(entries)
+    }
+
+    /// Get ahead/behind counts for the current branch vs its upstream.
+    pub fn get_log_status(
+        &self,
+        worktree_path: &Path,
+    ) -> Result<GitLogStatus, GitServiceError> {
+        let git = GitCli::new();
+        let branch = git.get_current_branch(worktree_path).unwrap_or_default();
+        let upstream = git.get_upstream_branch(worktree_path).unwrap_or(None);
+
+        let (ahead, behind) = if let Some(ref up) = upstream {
+            git.get_rev_list_count(worktree_path, up, "HEAD").unwrap_or((0, 0))
+        } else {
+            (0, 0)
+        };
+
+        let entries = self.get_log(worktree_path, 100)?;
+        let total = entries.len() as i32;
+
+        Ok(GitLogStatus {
+            entries,
+            total,
+            ahead: ahead as i32,
+            behind: behind as i32,
+            upstream,
+            branch_name: branch,
+        })
+    }
+
+    // ── Helper functions ──────────────────────────────────────────────
+
+    fn parse_numstat(raw: &str) -> HashMap<String, (i32, i32)> {
+        let mut map = HashMap::new();
+        for line in raw.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                let adds = parts[0].parse::<i32>().unwrap_or(0);
+                let dels = parts[1].parse::<i32>().unwrap_or(0);
+                map.insert(parts[2].to_string(), (adds, dels));
+            }
+        }
+        map
+    }
+
+    fn char_to_status_string(c: char) -> String {
+        match c {
+            'M' => "M".to_string(),
+            'A' => "A".to_string(),
+            'D' => "D".to_string(),
+            'R' => "R".to_string(),
+            'C' => "C".to_string(),
+            'T' => "T".to_string(),
+            'U' => "U".to_string(),
+            '?' => "?".to_string(),
+            _ => "M".to_string(),
+        }
+    }
+
+    fn is_likely_binary(path: &str) -> bool {
+        let binary_exts = [
+            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg",
+            ".mp3", ".mp4", ".wav", ".avi", ".mov",
+            ".zip", ".tar", ".gz", ".rar", ".7z",
+            ".exe", ".dll", ".so", ".dylib",
+            ".woff", ".woff2", ".ttf", ".otf", ".eot",
+            ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+            ".db", ".sqlite", ".sqlite3",
+        ];
+        let lower = path.to_lowercase();
+        binary_exts.iter().any(|ext| lower.ends_with(ext))
+    }
+
+    fn is_image_file(path: &str) -> bool {
+        let image_exts = [
+            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg",
+        ];
+        let lower = path.to_lowercase();
+        image_exts.iter().any(|ext| lower.ends_with(ext))
     }
 }

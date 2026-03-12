@@ -5,7 +5,7 @@ import {
   type DockviewApi,
 } from 'dockview-react';
 import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
-import { FolderOpen, GitBranch } from 'lucide-react';
+import { FolderOpen, GitBranch, Search } from 'lucide-react';
 
 import { panelComponents } from '@/components/layout/panels/PanelRegistry';
 import { TerminalHeaderActions } from '@/components/layout/panels/TerminalHeaderActions';
@@ -16,6 +16,8 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
 import { KanbanBoard } from '@/components/panels/DockviewKanbanPanel';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
+import { SearchPalette } from '@/components/search/SearchPalette';
+import { useGlobalSearchShortcut } from '@/hooks/useGlobalSearchShortcut';
 
 /**
  * Dockview Ayu theme CSS overrides.
@@ -194,7 +196,7 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
   const serializedLayoutRef = useRef(serializedLayout);
   serializedLayoutRef.current = serializedLayout;
 
-  const { setDockviewApi, toggleFileTree, toggleGitPanel, isPanelOpen } = usePanelActionsContext();
+  const { setDockviewApi, toggleFileTree, toggleGitPanel, toggleSearchPanel, isPanelOpen } = usePanelActionsContext();
 
   // Track layout version to trigger re-renders when panels change
   const [, setLayoutVersion] = useState(0);
@@ -672,8 +674,11 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
     [rightPanelWidth, setRightPanelWidth]
   );
 
+  useGlobalSearchShortcut();
+
   return (
     <div className="flex flex-col h-full w-full">
+      <SearchPalette />
       {/* Toolbar */}
       {toolbarContent && (
         <div className="shrink-0 border-b bg-background z-10">
@@ -706,6 +711,17 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
             title="Git 管理器"
           >
             <GitBranch className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            onClick={toggleSearchPanel}
+            className={`w-9 h-9 flex items-center justify-center rounded transition-colors ${
+              isPanelOpen(PANEL_IDS.SEARCH)
+                ? 'text-foreground bg-accent'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+            }`}
+            title="搜索 (Ctrl+Shift+F)"
+          >
+            <Search className="h-[18px] w-[18px]" />
           </button>
         </div>
 

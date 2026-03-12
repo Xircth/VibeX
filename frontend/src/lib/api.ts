@@ -71,6 +71,9 @@ import {
   GitRemote,
   CreateWorkspaceFromPrBody,
   CreateWorkspaceFromPrResponse,
+  DetailedGitStatus,
+  GitFileDiffEntry,
+  GitLogStatus,
 } from 'shared/types';
 
 // Commit graph types (not generated from Rust via ts-rs, defined locally)
@@ -601,6 +604,46 @@ export const attemptsApi = {
     });
   },
 
+  // ── Git Panel operations ──────────────────────────────────────────
+
+  getGitStatus: async (workspaceId: string, repoId: string): Promise<DetailedGitStatus> => {
+    return tauriInvoke<DetailedGitStatus>('get_workspace_git_status', { workspaceId, repoId });
+  },
+
+  stageFile: async (workspaceId: string, repoId: string, filePath: string): Promise<void> => {
+    return tauriInvoke<void>('stage_workspace_file', { workspaceId, repoId, filePath });
+  },
+
+  stageAll: async (workspaceId: string, repoId: string): Promise<void> => {
+    return tauriInvoke<void>('stage_workspace_all', { workspaceId, repoId });
+  },
+
+  unstageFile: async (workspaceId: string, repoId: string, filePath: string): Promise<void> => {
+    return tauriInvoke<void>('unstage_workspace_file', { workspaceId, repoId, filePath });
+  },
+
+  revertFile: async (workspaceId: string, repoId: string, filePath: string): Promise<void> => {
+    return tauriInvoke<void>('revert_workspace_file', { workspaceId, repoId, filePath });
+  },
+
+  revertAll: async (workspaceId: string, repoId: string): Promise<void> => {
+    return tauriInvoke<void>('revert_workspace_all', { workspaceId, repoId });
+  },
+
+  getFileDiffs: async (workspaceId: string, repoId: string): Promise<GitFileDiffEntry[]> => {
+    return tauriInvoke<GitFileDiffEntry[]>('get_workspace_file_diffs', { workspaceId, repoId });
+  },
+
+  commitChanges: async (workspaceId: string, repoId: string, message: string): Promise<void> => {
+    return tauriInvoke<void>('commit_workspace_changes', { workspaceId, repoId, message });
+  },
+
+  getGitLog: async (workspaceId: string, repoId: string): Promise<GitLogStatus> => {
+    return tauriInvoke<GitLogStatus>('get_workspace_git_log', { workspaceId, repoId });
+  },
+
+  // ─────────────────────────────────────────────────────────────────
+
   /** Mark all coding agent turns for a workspace as seen */
   markSeen: async (attemptId: string): Promise<void> => {
     return tauriInvoke<void>('mark_workspace_seen', {
@@ -650,6 +693,47 @@ export interface FileTreeEntry {
   git_status: string | null;
 }
 
+export interface DirectoryChildrenResponse {
+  files: string[];
+  directories: string[];
+  gitignored_files: string[];
+  gitignored_directories: string[];
+}
+
+export interface ReadFileResponse {
+  content: string;
+  truncated: boolean;
+}
+
+export interface TextSearchMatch {
+  line: number;
+  column: number;
+  end_column: number;
+  preview: string;
+}
+
+export interface TextSearchFileResult {
+  path: string;
+  match_count: number;
+  matches: TextSearchMatch[];
+}
+
+export interface TextSearchResponse {
+  files: TextSearchFileResult[];
+  file_count: number;
+  total_matches: number;
+  truncated: boolean;
+}
+
+export interface TextSearchOptions {
+  query: string;
+  is_regex?: boolean;
+  case_sensitive?: boolean;
+  whole_word?: boolean;
+  include_pattern?: string;
+  exclude_pattern?: string;
+}
+
 export const fileTreeApi = {
   getTree: async (rootPath: string, depth?: number): Promise<FileTreeEntry[]> => {
     return tauriInvoke<FileTreeEntry[]>('get_file_tree', {
@@ -676,6 +760,48 @@ export const fileTreeApi = {
 
   getClaudeSettingsPath: async (): Promise<string> => {
     return tauriInvoke<string>('get_claude_settings_path');
+  },
+
+  listDirectoryChildren: async (
+    rootPath: string,
+    relativePath: string,
+  ): Promise<DirectoryChildrenResponse> => {
+    return tauriInvoke<DirectoryChildrenResponse>('list_directory_children', {
+      rootPath,
+      relativePath,
+    });
+  },
+
+  readFileWithTruncation: async (
+    path: string,
+    maxBytes?: number,
+  ): Promise<ReadFileResponse> => {
+    return tauriInvoke<ReadFileResponse>('read_file_with_truncation', {
+      path,
+      maxBytes: maxBytes ?? null,
+    });
+  },
+
+  trashItem: async (path: string): Promise<void> => {
+    return tauriInvoke<void>('trash_item', { path });
+  },
+
+  copyItem: async (path: string): Promise<string> => {
+    return tauriInvoke<string>('copy_item', { path });
+  },
+
+  createDirectory: async (path: string): Promise<void> => {
+    return tauriInvoke<void>('create_directory', { path });
+  },
+
+  searchText: async (
+    rootPath: string,
+    options: TextSearchOptions,
+  ): Promise<TextSearchResponse> => {
+    return tauriInvoke<TextSearchResponse>('search_workspace_text', {
+      rootPath,
+      options,
+    });
   },
 };
 

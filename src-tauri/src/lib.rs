@@ -109,6 +109,15 @@ pub fn run() {
             commands::workspaces::create_workspace_from_pr,
             commands::workspaces::get_workspace_commit_history,
             commands::workspaces::get_workspace_commit_graph,
+            commands::workspaces::get_workspace_git_status,
+            commands::workspaces::stage_workspace_file,
+            commands::workspaces::stage_workspace_all,
+            commands::workspaces::unstage_workspace_file,
+            commands::workspaces::revert_workspace_file,
+            commands::workspaces::revert_workspace_all,
+            commands::workspaces::get_workspace_file_diffs,
+            commands::workspaces::commit_workspace_changes,
+            commands::workspaces::get_workspace_git_log,
             commands::sessions::get_sessions,
             commands::sessions::get_session_summaries,
             commands::sessions::get_session,
@@ -178,6 +187,12 @@ pub fn run() {
             commands::file_tree::delete_file,
             commands::file_tree::get_file_at_head,
             commands::file_tree::get_claude_settings_path,
+            commands::file_tree::list_directory_children,
+            commands::file_tree::read_file_with_truncation,
+            commands::file_tree::trash_item,
+            commands::file_tree::copy_item,
+            commands::file_tree::create_directory,
+            commands::file_tree::search_workspace_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

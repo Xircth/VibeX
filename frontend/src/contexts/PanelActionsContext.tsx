@@ -16,6 +16,7 @@ import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.FILE_TREE,
   PANEL_IDS.GIT,
+  PANEL_IDS.SEARCH,
 ]);
 
 /**
@@ -50,6 +51,8 @@ export interface PanelActions {
   toggleFileTree: () => void;
   /** Toggle the git manager panel */
   toggleGitPanel: () => void;
+  /** Toggle the search panel in the left sidebar */
+  toggleSearchPanel: () => void;
   /** Check if a panel exists */
   isPanelOpen: (panelId: string) => boolean;
   /** Focus the kanban panel */
@@ -410,6 +413,50 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     applyLeftGroupHeaderHiding(dockviewApi);
   }, [dockviewApi]);
 
+  const toggleSearchPanel = useCallback(() => {
+    if (!dockviewApi) return;
+
+    const existing = dockviewApi.getPanel(PANEL_IDS.SEARCH);
+    if (existing) {
+      dockviewApi.removePanel(existing);
+      return;
+    }
+
+    // Close other left panels (mutual exclusion)
+    const fileTreePanel = dockviewApi.getPanel(PANEL_IDS.FILE_TREE);
+    if (fileTreePanel) {
+      dockviewApi.removePanel(fileTreePanel);
+    }
+    const gitPanel = dockviewApi.getPanel(PANEL_IDS.GIT);
+    if (gitPanel) {
+      dockviewApi.removePanel(gitPanel);
+    }
+
+    let leftGroup = dockviewApi.groups.find((g) => g.id === GROUP_IDS.LEFT);
+
+    if (!leftGroup) {
+      const centerRef = dockviewApi.panels.find(
+        (p) => !LEFT_PANEL_IDS.has(p.id) && !BOTTOM_PANEL_IDS.has(p.id)
+      );
+      if (!centerRef) return;
+      leftGroup = dockviewApi.addGroup({
+        id: GROUP_IDS.LEFT,
+        referencePanel: centerRef,
+        direction: 'left',
+        hideHeader: true,
+        initialWidth: 300,
+      });
+    }
+
+    dockviewApi.addPanel({
+      id: PANEL_IDS.SEARCH,
+      component: PANEL_IDS.SEARCH,
+      title: '搜索',
+      position: { referenceGroup: leftGroup, direction: 'within' },
+    });
+    applyLeftGroupHeaderHiding(dockviewApi);
+  }, [dockviewApi]);
+
   const isPanelOpen = useCallback(
     (panelId: string) => {
       if (!dockviewApi) return false;
@@ -519,6 +566,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     closePanel,
     toggleFileTree,
     toggleGitPanel,
+    toggleSearchPanel,
     isPanelOpen,
     focusKanban,
     openLogs,

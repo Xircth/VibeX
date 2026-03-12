@@ -2219,6 +2219,151 @@ pub async fn get_workspace_commit_graph(
     })
 }
 
+// --- Git Panel operations ---
+
+/// Helper: resolve workspace + repo to worktree path.
+async fn resolve_worktree_path(
+    state: &AppState,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<(PathBuf, Workspace), AppError> {
+    let pool = &state.deployment.db().pool;
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+    let repo = Repo::find_by_id(pool, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let worktree_path = PathBuf::from(&container_ref).join(&repo.name);
+    Ok((worktree_path, workspace))
+}
+
+#[tauri::command]
+pub async fn get_workspace_git_status(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<git::DetailedGitStatus, AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.get_detailed_status(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("git status failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn stage_workspace_file(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.stage_file(&worktree_path, &file_path)
+        .map_err(|e| AppError::Internal(format!("stage file failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn stage_workspace_all(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.stage_all(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("stage all failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn unstage_workspace_file(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.unstage_file(&worktree_path, &file_path)
+        .map_err(|e| AppError::Internal(format!("unstage file failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn revert_workspace_file(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.revert_file(&worktree_path, &file_path)
+        .map_err(|e| AppError::Internal(format!("revert file failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn revert_workspace_all(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.revert_all(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("revert all failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_workspace_file_diffs(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<Vec<git::GitFileDiffEntry>, AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.get_file_diffs(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("get file diffs failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn commit_workspace_changes(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    message: String,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.commit_changes(&worktree_path, &message)
+        .map_err(|e| AppError::Internal(format!("commit failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_workspace_git_log(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<git::GitLogStatus, AppError> {
+    let (worktree_path, _workspace) =
+        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let git = state.deployment.git();
+    git.get_log_status(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
+}
+
 // --- PR operations ---
 
 #[tauri::command]

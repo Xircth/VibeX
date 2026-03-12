@@ -17,6 +17,7 @@ export const PANEL_IDS = {
   WELCOME: 'welcome',
   LOGS: 'logs',
   NOTES: 'notes',
+  SEARCH: 'search',
 } as const;
 
 export type PanelId = (typeof PANEL_IDS)[keyof typeof PANEL_IDS];
@@ -102,7 +103,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibe-ultra-ide-layout',
-      version: 10,
+      version: 11,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const nextRightPanelWidth =

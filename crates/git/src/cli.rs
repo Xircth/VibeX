@@ -741,6 +741,134 @@ impl GitCli {
         }
         Ok(files)
     }
+
+    /// Stage a single file by path.
+    pub fn stage_file(&self, worktree_path: &Path, file_path: &str) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["add", "--", file_path])?;
+        Ok(())
+    }
+
+    /// Unstage a single file (move from index back to working tree).
+    pub fn unstage_file(&self, worktree_path: &Path, file_path: &str) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["restore", "--staged", "--", file_path])?;
+        Ok(())
+    }
+
+    /// Restore (revert) a single unstaged file to its HEAD state.
+    pub fn restore_file(&self, worktree_path: &Path, file_path: &str) -> Result<(), GitCliError> {
+        // For untracked files, `git restore` won't work — use `git clean` instead.
+        let status = self.get_worktree_status(worktree_path)?;
+        let path_bytes = file_path.as_bytes();
+        let is_untracked = status
+            .entries
+            .iter()
+            .any(|e| e.path == path_bytes && e.is_untracked);
+
+        if is_untracked {
+            self.git(worktree_path, ["clean", "-fd", "--", file_path])?;
+        } else {
+            self.git(worktree_path, ["checkout", "HEAD", "--", file_path])?;
+        }
+        Ok(())
+    }
+
+    /// Restore all modified files to HEAD state and clean untracked files.
+    pub fn restore_all(&self, worktree_path: &Path) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["checkout", "HEAD", "--", "."])?;
+        self.git(
+            worktree_path,
+            Self::apply_default_excludes(vec!["clean", "-fd"]),
+        )?;
+        Ok(())
+    }
+
+    /// Get unified diff content for all changed files (both staged and unstaged vs HEAD).
+    /// Returns raw diff output as a string.
+    pub fn get_diff_all(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        self.git(worktree_path, ["diff", "HEAD"])
+    }
+
+    /// Get unified diff content for a single file (vs HEAD).
+    pub fn get_diff_file(
+        &self,
+        worktree_path: &Path,
+        file_path: &str,
+    ) -> Result<String, GitCliError> {
+        self.git(worktree_path, ["diff", "HEAD", "--", file_path])
+    }
+
+    /// Get git log entries with format: hash, summary, author, timestamp.
+    pub fn get_log(
+        &self,
+        worktree_path: &Path,
+        max_count: usize,
+    ) -> Result<String, GitCliError> {
+        self.git(
+            worktree_path,
+            [
+                "log",
+                &format!("--max-count={max_count}"),
+                "--format=%H%x00%s%x00%aN%x00%ct",
+            ],
+        )
+    }
+
+    /// Get the number of commits ahead and behind between two refs.
+    /// Returns (ahead, behind).
+    pub fn get_rev_list_count(
+        &self,
+        worktree_path: &Path,
+        upstream: &str,
+        head: &str,
+    ) -> Result<(usize, usize), GitCliError> {
+        let out = self.git(
+            worktree_path,
+            ["rev-list", "--left-right", "--count", &format!("{upstream}...{head}")],
+        )?;
+        let parts: Vec<&str> = out.trim().split('\t').collect();
+        if parts.len() == 2 {
+            let behind = parts[0].parse::<usize>().unwrap_or(0);
+            let ahead = parts[1].parse::<usize>().unwrap_or(0);
+            Ok((ahead, behind))
+        } else {
+            Ok((0, 0))
+        }
+    }
+
+    /// Get the current branch name.
+    pub fn get_current_branch(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        let out = self.git(worktree_path, ["rev-parse", "--abbrev-ref", "HEAD"])?;
+        Ok(out.trim().to_string())
+    }
+
+    /// Get the upstream tracking branch for the current branch, if any.
+    pub fn get_upstream_branch(&self, worktree_path: &Path) -> Result<Option<String>, GitCliError> {
+        match self.git(
+            worktree_path,
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        ) {
+            Ok(out) => {
+                let trimmed = out.trim();
+                if trimmed.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(trimmed.to_string()))
+                }
+            }
+            Err(GitCliError::CommandFailed(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Get numstat (additions/deletions) for all files vs HEAD.
+    pub fn get_numstat(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        self.git(worktree_path, ["diff", "HEAD", "--numstat"])
+    }
+
+    /// Get numstat for staged files only.
+    pub fn get_numstat_staged(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        self.git(worktree_path, ["diff", "--cached", "--numstat"])
+    }
 }
 
 // Private methods

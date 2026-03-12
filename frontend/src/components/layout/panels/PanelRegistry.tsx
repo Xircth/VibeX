@@ -39,6 +39,9 @@ const LazyLogsPanel = React.lazy(
 const LazyNotesPanel = React.lazy(
   () => import('@/components/panels/DockviewNotesPanel')
 );
+const LazySearchPanel = React.lazy(
+  () => import('@/components/panels/DockviewSearchPanel')
+);
 
 /**
  * Fallback component shown while panels are loading.
@@ -69,6 +72,7 @@ const PANEL_COMPONENT_MAP: Record<
   [PANEL_IDS.WELCOME]: LazyWelcomePanel,
   [PANEL_IDS.LOGS]: LazyLogsPanel,
   [PANEL_IDS.NOTES]: LazyNotesPanel,
+  [PANEL_IDS.SEARCH]: LazySearchPanel,
 };
 
 /**
@@ -111,4 +115,5 @@ export const PANEL_META: PanelMeta[] = [
   { id: PANEL_IDS.WELCOME, title: '欢迎', defaultPosition: 'center' },
   { id: PANEL_IDS.LOGS, title: 'Logs', defaultPosition: 'center' },
   { id: PANEL_IDS.NOTES, title: '笔记', defaultPosition: 'center' },
+  { id: PANEL_IDS.SEARCH, title: '搜索', defaultPosition: 'left' },
 ];

@@ -22,8 +22,8 @@ url = "2.5"
 anyhow = { workspace = true }
 tracing = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { workspace = true }
+uuid = { workspace = true }
 ts-rs = { workspace = true }
 dirs = "5.0"
 git2 = { workspace = true }
@@ -33,11 +33,10 @@ enum_dispatch = "0.3.13"
 rust-embed = "8.2"
 ignore = "0.4"
 notify-rust = "4.11"
-reqwest = { workspace = true }
 json-patch = "2.0"
 backon = "1.5.1"
 thiserror = { workspace = true }
-futures = "0.3.31"
+futures = { workspace = true }
 tokio-stream = "0.1.17"
 strum_macros = "0.27.2"
 strum = "0.27.2"

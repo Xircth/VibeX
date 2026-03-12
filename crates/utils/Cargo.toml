@@ -13,8 +13,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { workspace = true }
+uuid = { workspace = true }
 ts-rs = { workspace = true }
 rust-embed = "8.2"
 directories = "6.0.0"
@@ -23,7 +23,7 @@ regex = "1.11.1"
 json-patch = "2.0"
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 tokio = { workspace = true }
-futures = "0.3.31"
+futures = { workspace = true }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 shellexpand = "3.1.1"
 which = "8.0.0"
@@ -32,7 +32,6 @@ git2 = { workspace = true }
 dirs = "5.0"
 thiserror = { workspace = true }
 command-group = { version = "5.0", features = ["with-tokio"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "uuid", "chrono", "derive"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }

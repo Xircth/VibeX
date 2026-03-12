@@ -8,7 +8,7 @@ default = []
 cloud = []
 
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true }
 dirs = "5.0"
 git2 = { workspace = true }
 serde = { workspace = true }

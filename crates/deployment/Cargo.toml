@@ -13,10 +13,9 @@ async-trait = { workspace = true }
 thiserror = { workspace = true } 
 anyhow = { workspace = true }
 tokio = { workspace = true }
-sqlx = "0.8.6"
-serde_json = { workspace = true }
+sqlx = { version = "0.8.6", default-features = false }
 tracing = { workspace = true }
 git2 = { workspace = true }
-futures = "0.3.31"
+futures = { workspace = true }
 axum = { workspace = true }
 

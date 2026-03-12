@@ -652,31 +652,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bon"
-version = "3.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "234655ec178edd82b891e262ea7cf71f6584bcd09eff94db786be23f1821825c"
-dependencies = [
- "bon-macros",
- "rustversion",
-]
-
-[[package]]
-name = "bon-macros"
-version = "3.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89ec27229c38ed0eb3c0feee3d2c1d6a4379ae44f418a29a658890e062d8f365"
-dependencies = [
- "darling 0.23.0",
- "ident_case",
- "prettyplease",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 2.0.114",
-]
-
-[[package]]
 name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1954,7 +1929,6 @@ dependencies = [
  "futures",
  "git",
  "git2",
- "serde_json",
  "services",
  "sqlx",
  "thiserror 2.0.18",
@@ -2579,7 +2553,6 @@ dependencies = [
  "agent-client-protocol",
  "async-trait",
  "base64 0.22.1",
- "bon",
  "chrono",
  "codex-app-server-protocol",
  "codex-core",
@@ -2603,10 +2576,8 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
- "sha2",
  "shlex",
  "sqlx",
- "strip-ansi-escapes",
  "strum",
  "strum_macros",
  "thiserror 2.0.18",
@@ -7539,7 +7510,6 @@ dependencies = [
  "notify-debouncer-full",
  "notify-rust",
  "once_cell",
- "reqwest 0.12.28",
  "rust-embed",
  "serde",
  "serde_json",
@@ -8174,15 +8144,6 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
  "unicode-properties",
-]
-
-[[package]]
-name = "strip-ansi-escapes"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a8f8038e7e7969abb3f1b7c2a811225e9296da208539e0f79c5251d6cac0025"
-dependencies = [
- "vte",
 ]
 
 [[package]]
@@ -9682,7 +9643,6 @@ dependencies = [
  "shellexpand",
  "shlex",
  "similar",
- "sqlx",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -9790,15 +9750,6 @@ checksum = "fb067e4cbd1ff067d1df46c9194b5de0e98efd2810bbc95c5d5e5f25a3231150"
 dependencies = [
  "cc",
  "libc",
-]
-
-[[package]]
-name = "vte"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "231fdcd7ef3037e8330d8e17e61011a2c244126acc0a982f4040ac3f9f0bc077"
-dependencies = [
- "memchr",
 ]
 
 [[package]]

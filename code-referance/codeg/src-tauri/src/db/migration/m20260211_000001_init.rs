@@ -1,0 +1,378 @@
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // 1. app_metadata table
+        manager
+            .create_table(
+                Table::create()
+                    .table(AppMetadata::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(AppMetadata::Id)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(AppMetadata::Key)
+                            .string()
+                            .not_null()
+                            .unique_key(),
+                    )
+                    .col(ColumnDef::new(AppMetadata::Value).string().not_null())
+                    .col(
+                        ColumnDef::new(AppMetadata::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AppMetadata::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AppMetadata::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // 2. folder table
+        manager
+            .create_table(
+                Table::create()
+                    .table(Folder::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Folder::Id)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Folder::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(Folder::Path)
+                            .string()
+                            .not_null()
+                            .unique_key(),
+                    )
+                    .col(ColumnDef::new(Folder::GitBranch).string().null())
+                    .col(ColumnDef::new(Folder::DefaultAgentType).string().null())
+                    .col(
+                        ColumnDef::new(Folder::LastOpenedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Folder::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Folder::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Folder::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // 3. conversation table
+        manager
+            .create_table(
+                Table::create()
+                    .table(Conversation::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(Conversation::Id)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Conversation::FolderId).integer().not_null())
+                    .col(ColumnDef::new(Conversation::Title).string().null())
+                    .col(ColumnDef::new(Conversation::AgentType).string().not_null())
+                    .col(
+                        ColumnDef::new(Conversation::Status)
+                            .string()
+                            .not_null()
+                            .default("in_progress"),
+                    )
+                    .col(ColumnDef::new(Conversation::Model).string().null())
+                    .col(ColumnDef::new(Conversation::GitBranch).string().null())
+                    .col(ColumnDef::new(Conversation::ExternalId).string().null())
+                    .col(ColumnDef::new(Conversation::ParentId).integer().null())
+                    .col(
+                        ColumnDef::new(Conversation::MessageCount)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(Conversation::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Conversation::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Conversation::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_conversation_folder")
+                            .from(Conversation::Table, Conversation::FolderId)
+                            .to(Folder::Table, Folder::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // 4. folder_opened_conversation table
+        manager
+            .create_table(
+                Table::create()
+                    .table(FolderOpenedConversation::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::Id)
+                            .integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::FolderId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::ConversationId)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::Position)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::IsActive)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::IsPinned)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::AgentType)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(FolderOpenedConversation::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_foc_folder")
+                            .from(
+                                FolderOpenedConversation::Table,
+                                FolderOpenedConversation::FolderId,
+                            )
+                            .to(Folder::Table, Folder::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_foc_conversation")
+                            .from(
+                                FolderOpenedConversation::Table,
+                                FolderOpenedConversation::ConversationId,
+                            )
+                            .to(Conversation::Table, Conversation::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // 6. indexes
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_folder_deleted_last_opened")
+                    .table(Folder::Table)
+                    .col(Folder::DeletedAt)
+                    .col(Folder::LastOpenedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_conversation_folder_id")
+                    .table(Conversation::Table)
+                    .col(Conversation::FolderId)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_conversation_deleted_created")
+                    .table(Conversation::Table)
+                    .col(Conversation::DeletedAt)
+                    .col(Conversation::CreatedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_conversation_external_agent")
+                    .table(Conversation::Table)
+                    .col(Conversation::ExternalId)
+                    .col(Conversation::AgentType)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_foc_folder_position")
+                    .table(FolderOpenedConversation::Table)
+                    .col(FolderOpenedConversation::FolderId)
+                    .col(FolderOpenedConversation::Position)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_foc_folder_conversation")
+                    .table(FolderOpenedConversation::Table)
+                    .col(FolderOpenedConversation::FolderId)
+                    .col(FolderOpenedConversation::ConversationId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(FolderOpenedConversation::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Conversation::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(Folder::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(AppMetadata::Table).to_owned())
+            .await
+    }
+}
+
+#[derive(DeriveIden)]
+enum AppMetadata {
+    Table,
+    Id,
+    Key,
+    Value,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum Folder {
+    Table,
+    Id,
+    Name,
+    Path,
+    GitBranch,
+    DefaultAgentType,
+    LastOpenedAt,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum Conversation {
+    Table,
+    Id,
+    FolderId,
+    Title,
+    AgentType,
+    Status,
+    Model,
+    GitBranch,
+    ExternalId,
+    ParentId,
+    MessageCount,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum FolderOpenedConversation {
+    Table,
+    Id,
+    FolderId,
+    ConversationId,
+    Position,
+    IsActive,
+    IsPinned,
+    AgentType,
+    CreatedAt,
+    UpdatedAt,
+}

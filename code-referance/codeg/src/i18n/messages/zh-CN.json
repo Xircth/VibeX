@@ -1,0 +1,1339 @@
+{
+  "Language": {
+    "followSystem": "跟随系统",
+    "english": "英语",
+    "simplifiedChinese": "简体中文",
+    "traditionalChinese": "繁體中文",
+    "japanese": "日语",
+    "korean": "韩语",
+    "spanish": "西班牙语",
+    "german": "德语",
+    "french": "法语",
+    "portuguese": "葡萄牙语",
+    "arabic": "阿拉伯语"
+  },
+  "WelcomePage": {
+    "title": "欢迎使用Codeg",
+    "openSettings": "打开设置",
+    "searchPlaceholder": "搜索文件夹...",
+    "loading": "加载中...",
+    "emptyFolders": "暂无文件夹",
+    "removeFromHistory": "从历史中移除",
+    "openFolder": "打开文件夹",
+    "cloneRepository": "克隆仓库",
+    "softwareVersion": "版本 {version}",
+    "toasts": {
+      "loadFolderHistoryFailed": "加载文件夹历史失败",
+      "openFolderFailed": "打开文件夹失败",
+      "removeFromHistoryFailed": "移除历史记录失败",
+      "openSettingsFailed": "打开设置失败",
+      "cloneFailed": "克隆仓库失败"
+    },
+    "errors": {
+      "unknown": "发生未知错误",
+      "invalidInput": "输入无效。",
+      "notFound": "资源不存在。",
+      "alreadyExists": "资源已存在。",
+      "dependencyMissing": "缺少必要依赖。",
+      "databaseError": "数据库操作失败。",
+      "ioError": "文件操作失败。",
+      "externalCommandFailed": "外部命令执行失败。",
+      "windowOperationFailed": "窗口操作失败。",
+      "gitNotInstalled": "未检测到 Git，请先安装 Git。",
+      "targetDirectoryNotEmpty": "目标目录已存在且不为空。",
+      "repositoryNotFound": "仓库不存在，请检查地址和访问权限。",
+      "networkUnavailable": "网络不可用，请检查网络连接后重试。",
+      "authenticationFailed": "认证失败，请检查凭据或 SSH Key。",
+      "permissionDenied": "权限不足，请检查目录权限。"
+    },
+    "cloneDialog": {
+      "title": "克隆仓库",
+      "repositoryUrl": "仓库地址",
+      "repositoryUrlPlaceholder": "https://github.com/user/repo.git",
+      "directory": "目录",
+      "directoryPlaceholder": "选择目标目录...",
+      "browseDirectory": "浏览目录",
+      "cancel": "取消",
+      "clone": "克隆"
+    }
+  },
+  "SettingsShell": {
+    "title": "设置",
+    "preferences": "偏好设置",
+    "nav": {
+      "appearance": "外观",
+      "agents": "Agents",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "shortcuts": "快捷键",
+      "system": "系统"
+    }
+  },
+  "AppearanceSettings": {
+    "sectionTitle": "主题外观",
+    "sectionDescription": "选择浅色、深色或跟随系统主题，设置会自动保存。",
+    "themeMode": "主题模式",
+    "placeholder": "请选择主题模式",
+    "system": "跟随系统",
+    "light": "浅色",
+    "dark": "深色",
+    "currentTheme": "当前生效主题：{theme}",
+    "resolvedTheme": {
+      "light": "浅色",
+      "dark": "深色",
+      "unknown": "未知"
+    }
+  },
+  "SystemSettings": {
+    "loading": "加载中...",
+    "sectionTitle": "系统管理",
+    "sectionDescription": "管理网络代理、应用升级与语言偏好。",
+    "proxyTitle": "网络代理",
+    "proxyDescription": "开启后，后续网络请求将优先走该代理（包括 ACP 对话、Agent 安装、Git 远程操作等）。",
+    "loadFailed": "加载失败：{message}",
+    "enableProxy": "启用系统代理",
+    "proxyAddress": "代理地址",
+    "proxyHint": "支持 http(s)/socks5，示例：{example}。仅在启用系统代理时生效。",
+    "save": "保存",
+    "saving": "保存中...",
+    "proxyRequired": "启用代理时必须填写代理地址",
+    "saveSuccess": "系统代理设置已保存",
+    "saveFailed": "保存失败：{message}",
+    "languageTitle": "语言",
+    "languageDescription": "设置应用语言。跟随系统时，若系统语言不受支持将回退为英文。",
+    "appLanguage": "应用语言",
+    "languageSaveSuccess": "语言设置已保存",
+    "languageSaveFailed": "语言设置保存失败：{message}",
+    "updateTitle": "应用升级",
+    "updateDescription": "点击检查后会从配置的发布源拉取最新版本信息，有新版本时可直接下载并安装。",
+    "currentVersion": "当前版本",
+    "upgradableVersion": "最新版本",
+    "none": "暂无",
+    "lastChecked": "上次检查：{time}",
+    "updateError": "更新异常：{message}",
+    "checking": "检查中...",
+    "checkUpdate": "检查更新",
+    "updating": "升级中...",
+    "upgradeTo": "升级到 v{version}",
+    "foundUpdate": "发现新版本 v{version}",
+    "alreadyLatest": "当前已经是最新版本",
+    "checkUpdateFailed": "检查更新失败：{message}",
+    "installSuccess": "升级包已安装，正在重启应用",
+    "installFailed": "升级失败：{message}",
+    "updateErrors": {
+      "sourceUnavailable": "无法连接更新源，请检查网络或代理设置后重试。",
+      "network": "网络连接异常，请检查网络或代理设置后重试。",
+      "downloadFailed": "下载更新包失败，请稍后重试。",
+      "installFailed": "安装更新失败，请关闭应用后重试。",
+      "unknown": "更新失败，请稍后重试。"
+    }
+  },
+  "ShortcutSettings": {
+    "sectionTitle": "快捷键",
+    "resetDefault": "恢复默认",
+    "recordInstruction": "点击右侧按钮后按下组合键即可修改。建议使用 Ctrl/Cmd、Alt、Shift 的组合。按 Esc 可取消录制。",
+    "recording": "按下快捷键...",
+    "toasts": {
+      "conflict": "快捷键已被「{title}」占用",
+      "updated": "快捷键已更新",
+      "invalid": "快捷键无效，请重试",
+      "reset": "已恢复默认快捷键"
+    },
+    "actions": {
+      "toggle_search": {
+        "title": "打开搜索",
+        "description": "打开或关闭会话搜索面板"
+      },
+      "toggle_sidebar": {
+        "title": "切换左侧边栏",
+        "description": "显示或隐藏会话列表侧边栏"
+      },
+      "toggle_terminal": {
+        "title": "切换终端",
+        "description": "显示或隐藏底部终端面板"
+      },
+      "new_terminal_tab": {
+        "title": "新建终端",
+        "description": "当最近鼠标活动在终端时新建终端标签"
+      },
+      "close_current_terminal_tab": {
+        "title": "关闭当前终端",
+        "description": "当最近鼠标活动在终端时关闭当前终端标签"
+      },
+      "toggle_aux_panel": {
+        "title": "切换右侧面板",
+        "description": "显示或隐藏辅助信息面板"
+      },
+      "new_conversation": {
+        "title": "新建会话",
+        "description": "在当前文件夹中创建新的对话标签"
+      },
+      "open_folder": {
+        "title": "打开文件夹",
+        "description": "打开文件夹选择器并在新窗口中打开"
+      },
+      "open_settings": {
+        "title": "打开设置",
+        "description": "打开设置窗口"
+      },
+      "close_current_tab": {
+        "title": "关闭当前标签",
+        "description": "关闭当前会话或文件标签"
+      },
+      "close_all_file_tabs": {
+        "title": "关闭全部文件标签",
+        "description": "仅在文件模式下关闭所有文件标签"
+      },
+      "send_message": {
+        "title": "发送消息",
+        "description": "在输入框中发送当前消息"
+      },
+      "newline_in_message": {
+        "title": "消息换行",
+        "description": "在输入框中插入换行符"
+      }
+    }
+  },
+  "SkillsSettings": {
+    "title": "Skills",
+    "description": "左侧选择 Skill，右侧默认预览 Markdown，点击编辑后可修改并保存。",
+    "loadingAgents": "正在加载支持 Skills 的 Agent...",
+    "emptyNoManageableAgents": "当前没有可管理 Skills 的 Agent。",
+    "managedTarget": "管理对象",
+    "selectAgentPlaceholder": "请选择 Agent",
+    "searchPlaceholder": "搜索名称 / ID / 路径...",
+    "skillsList": "Skills 列表",
+    "loadingSkills": "加载 Skills 中...",
+    "agentNotSupported": "当前 Agent 暂不支持 Skills 管理。",
+    "emptySkills": "暂无 Skill，可点击“新建 Skill”。",
+    "newSkillTitle": "新建 Skill",
+    "skillInfo": "Skill 信息",
+    "skillIdPlaceholder": "Skill ID（例如：my-skill）",
+    "skillsDirectoryWithPath": "Skills目录：{path}",
+    "skillsDirectoryNeedId": "Skills目录：请输入 Skill ID 以生成完整路径",
+    "markdownContent": "Markdown 内容",
+    "editingStatus": "编辑中",
+    "previewStatus": "预览中",
+    "contentPlaceholder": "输入 Skill 文本内容...",
+    "metadataTitle": "Skills 元信息",
+    "onlyYamlMetadata": "该 Skill 仅包含 YAML 元信息。",
+    "emptyContentHint": "暂无内容。点击“编辑”开始输入。",
+    "loadingSkill": "正在加载 Skill...",
+    "emptyNoAgents": "暂无可用 Agent。",
+    "actions": {
+      "preview": "预览",
+      "edit": "编辑",
+      "openInWindow": "在新窗口打开",
+      "delete": "删除",
+      "deleting": "删除中...",
+      "refresh": "刷新",
+      "newSkill": "新建 Skill",
+      "reset": "重置",
+      "save": "保存",
+      "saving": "保存中...",
+      "cancel": "取消"
+    },
+    "deleteDialog": {
+      "title": "删除 Skill",
+      "confirm": "确认删除当前 Skill 吗？该操作无法撤销。",
+      "confirmWithNamePrefix": "确认删除 Skill",
+      "confirmWithNameSuffix": "吗？该操作无法撤销。"
+    },
+    "toasts": {
+      "loadFailed": "加载 Skill 失败",
+      "openFolderFailed": "打开目录失败",
+      "noSkillDirectory": "当前 Agent 未找到可用的 Skills 目录",
+      "nameRequired": "Skill 名称不能为空",
+      "updated": "Skill 已更新",
+      "created": "Skill 已创建",
+      "saveFailed": "保存 Skill 失败",
+      "deleted": "Skill 已删除",
+      "deleteFailed": "删除 Skill 失败"
+    },
+    "templates": {
+      "gemini": "---\nname: example-skill\ndescription: Describe when this skill should be used.\n---\n\n# Skill Name\n\nInstructions for the agent when this skill is active.\n\n## Workflow\n\n1. Add actionable step one.\n2. Add actionable step two.\n",
+      "openCode": "---\nname: example-skill\ndescription: Describe when this skill should be used.\n---\n\n# Purpose\n\nDescribe what this skill helps with.\n\n# Steps\n\n1. Add actionable step one.\n2. Add actionable step two.\n",
+      "openClaw": "---\nname: example-skill\ndescription: Describe when this skill should be used.\nuser-invocable: true\ndisable-model-invocation: false\n---\n\n# Purpose\n\nDescribe what this skill helps with.\n\n# Instructions\n\n1. Add actionable instruction one.\n2. Add actionable instruction two.\n",
+      "default": "# Skill: example-skill\n\n## When to use\n\n- Describe trigger conditions.\n\n## Instructions\n\n1. Add actionable instruction one.\n2. Add actionable instruction two.\n"
+    }
+  },
+  "McpSettings": {
+    "loading": "加载中...",
+    "summary": {
+      "missingCommand": "(缺少 command)",
+      "missingUrl": "(缺少 url)"
+    },
+    "protocol": {
+      "stdio": "Stdio"
+    },
+    "errors": {
+      "selectInstallProtocol": "请选择安装协议",
+      "fieldRequired": "{field} 为必填项",
+      "fieldNeedsBoolean": "{field} 需要 true 或 false",
+      "fieldNeedsNumber": "{field} 需要数字",
+      "fieldNeedsInteger": "{field} 需要整数",
+      "fieldInvalidJson": "{field} JSON 无效：{message}",
+      "fieldOutOfRange": "{field} 的值不在可选范围内",
+      "jsonEmpty": "{name} 不能为空",
+      "jsonInvalid": "{name} 不是合法 JSON：{message}",
+      "jsonMustBeObject": "{name} 必须是 JSON 对象"
+    },
+    "jsonNames": {
+      "localConfig": "MCP 配置",
+      "installConfig": "安装配置"
+    },
+    "toasts": {
+      "uninstalled": "已卸载 MCP",
+      "uninstallFailed": "卸载失败：{message}",
+      "selectAtLeastOneApp": "请至少选择一个目标应用",
+      "saveSuccess": "保存成功",
+      "saveFailed": "保存失败：{message}",
+      "installed": "已安装 {name}",
+      "installFailed": "安装失败：{message}"
+    },
+    "installDialog": {
+      "title": "确认安装 MCP",
+      "descriptionWithName": "将 {name} 安装到本地配置。",
+      "description": "选择安装目标应用。",
+      "protocol": "协议",
+      "selectProtocol": "选择协议",
+      "parameters": "配置参数",
+      "booleanPlaceholder": "请选择 true/false",
+      "selectOneValue": "选择一个值",
+      "targetApps": "目标应用"
+    },
+    "actions": {
+      "cancel": "取消",
+      "confirmInstall": "确认安装",
+      "installing": "安装中",
+      "uninstall": "卸载",
+      "uninstalling": "卸载中",
+      "viewDetails": "查看详情",
+      "save": "保存",
+      "saving": "保存中",
+      "install": "安装"
+    },
+    "tabs": {
+      "local": "本地 MCP",
+      "market": "MCP 市场"
+    },
+    "local": {
+      "filterPlaceholder": "筛选本地 MCP...",
+      "loadFailed": "加载失败：{message}",
+      "empty": "当前未检测到本地 MCP。",
+      "description": "本地 MCP 配置可直接编辑并保存。",
+      "enabledApps": "启用应用",
+      "configJson": "MCP 配置(JSON)"
+    },
+    "market": {
+      "selectMarketplace": "选择市场",
+      "searchPlaceholder": "搜索 MCP...",
+      "searchFailed": "搜索失败：{message}",
+      "loadingList": "加载 MCP 列表...",
+      "empty": "暂无 MCP 结果。",
+      "loadingDetail": "加载市场详情...",
+      "detailLoadFailed": "加载详情失败：{message}",
+      "owner": "所有者：{owner}",
+      "namespace": "命名空间：{namespace}",
+      "defaultInstallProtocol": "默认安装协议",
+      "currentOptionParameterCount": "当前选项参数数：{count}",
+      "installConfigDescription": "安装配置(JSON，可修改后安装；修改后将覆盖协议/参数表单)",
+      "selectLeftToView": "请选择左侧市场 MCP 查看详情。"
+    },
+    "badges": {
+      "verified": "已验证",
+      "remote": "远程",
+      "hasHomepage": "有主页",
+      "uses": "{count} 次使用",
+      "deployed": "已部署",
+      "notDeployed": "未部署"
+    },
+    "selectLeftMcp": "请选择左侧 MCP。"
+  },
+  "AcpAgentSettings": {
+    "title": "Agent SDK管理",
+    "description": "统一管理 Agent 的连接SDK、启用状态、环境变量、配置管理与版本预检信息。",
+    "loadingAgents": "加载 Agent 列表中...",
+    "agentList": "Agent 列表",
+    "emptyNoAgent": "暂无可用 Agent。",
+    "configManagement": "配置管理",
+    "envVars": "环境变量",
+    "nativeJsonConfig": "原生 JSON 配置",
+    "modelHintDefault": "留空则使用系统默认模型。",
+    "generalConfigDescriptionClaude": "支持 API URL、API Key 与 Claude 模型快捷配置，并与原生 JSON 配置联动。",
+    "generalConfigDescriptionDefault": "支持重要配置输入（API URL、API Key、Model）和原生 JSON 配置管理。",
+    "actions": {
+      "dragSort": "拖拽排序",
+      "dragSortAgent": "拖拽排序 {name}",
+      "refreshCheck": "刷新检测",
+      "refreshCheckAgent": "刷新检测 {name}",
+      "clickEnable": "点击启用 {name}",
+      "clickDisable": "点击禁用 {name}",
+      "install": "安装",
+      "upgrade": "升级",
+      "uninstall": "卸载",
+      "uninstalling": "卸载中...",
+      "saveEnvVars": "保存环境变量",
+      "saving": "保存中...",
+      "saveCodexConfig": "保存 Codex 配置",
+      "saveGeminiConfig": "保存 Gemini 配置",
+      "saveOpenCodeConfig": "保存 OpenCode 配置",
+      "saveOpenClawConfig": "保存 OpenClaw 配置",
+      "saveConfigManagement": "保存配置管理",
+      "saveCurrentProvider": "保存当前 Provider",
+      "showApiKey": "显示 API Key",
+      "hideApiKey": "隐藏 API Key",
+      "showKey": "显示 Key",
+      "hideKey": "隐藏 Key",
+      "showToken": "显示 Token",
+      "hideToken": "隐藏 Token",
+      "cancel": "取消",
+      "delete": "删除",
+      "deleting": "删除中...",
+      "confirmDelete": "确认删除",
+      "confirmUninstall": "确认卸载"
+    },
+    "status": {
+      "enabled": "启用",
+      "disabled": "禁用",
+      "unchecked": "未检测",
+      "agentEnabledAria": "{name} 已启用",
+      "agentEnabledSwitch": "{name} 启用"
+    },
+    "preflight": {
+      "count": "预检项：{count}",
+      "notRun": "尚未执行检测。"
+    },
+    "codex": {
+      "configDescription": "支持 API URL、API Key、模型名称、Reasoning Effort 快捷配置，并与 `auth.json` / `config.toml` 双向联动。",
+      "selectProvider": "选择 Provider",
+      "modelName": "模型名称",
+      "selectReasoningEffort": "选择 Reasoning Effort",
+      "enableWebsocket": "启用 WebSocket",
+      "enableWebsocketAria": "Codex Provider 启用 WebSocket",
+      "authJsonNative": "auth.json（原生）",
+      "configTomlNative": "config.toml（原生）"
+    },
+    "gemini": {
+      "authConfig": "Gemini 认证配置",
+      "authConfigDescription": "对齐 Gemini CLI 认证文档，支持自定义、Google 登录、Gemini API Key、Vertex AI（ADC / 服务账号 / API Key）。",
+      "authMode": "认证方式",
+      "selectAuthMode": "选择认证方式",
+      "viewAuthDoc": "查看认证文档",
+      "mode": {
+        "custom": "自定义接口",
+        "loginGoogle": "Google 登录（OAuth）",
+        "vertexServiceAccount": "Vertex AI（服务账号）"
+      },
+      "hint": {
+        "custom": "填写 API URL、API Key 和 Model，分别映射到 GOOGLE_GEMINI_BASE_URL / GEMINI_API_KEY / GEMINI_MODEL。",
+        "loginGoogle": "首次在终端运行 gemini 并完成 Google 登录；无需填写 API Key。",
+        "geminiApiKey": "使用 Gemini API 时填写 GEMINI_API_KEY。",
+        "vertexAdc": "使用 gcloud ADC，建议填写 GOOGLE_CLOUD_PROJECT 与 GOOGLE_CLOUD_LOCATION。",
+        "vertexServiceAccount": "服务账号 JSON 路径写入 GOOGLE_APPLICATION_CREDENTIALS。",
+        "vertexApiKey": "使用 Vertex AI API key 时填写 GOOGLE_API_KEY。"
+      }
+    },
+    "openCode": {
+      "configManagement": "OpenCode 配置管理",
+      "configDescription": "对齐 OpenCode `provider` 配置结构，支持多供应商管理，并与原生 JSON 文件双向联动。",
+      "providerManagement": "Provider 管理",
+      "providerCount": "共 {count} 个",
+      "addProvider": "新增 Provider",
+      "emptyProvider": "暂无 Provider，输入 ID 后点击“新增 Provider”创建。",
+      "providerEnabledState": "{providerId} 启用状态",
+      "selectProviderNpm": "选择 provider.npm",
+      "notSet": "未设置",
+      "modelManagement": "模型管理",
+      "modelCount": "共 {count} 个",
+      "modelDescription": "对齐 OpenCode `provider.models` 结构。当前支持 `name` / `id` 快速管理；其它高级字段会保留，可在下方原生 JSON 中继续编辑。",
+      "addModel": "添加模型",
+      "emptyModel": "暂无模型，输入 model id 后点击“添加模型”创建。",
+      "modelId": "模型 ID",
+      "modelName": "模型名称",
+      "deleteModel": "删除模型 {modelId}",
+      "nativeJsonConfig": "OpenCode 原生 JSON 配置"
+    },
+    "openClaw": {
+      "gatewayConfig": "Gateway 配置",
+      "gatewayDescription": "配置 OpenClaw Gateway 连接信息。支持本地或远程 Gateway。",
+      "gatewayUrlHint": "留空则使用 openclaw 本地配置的 gateway.remote.url。",
+      "gatewayTokenPlaceholder": "Gateway 认证 Token",
+      "gatewayTokenHint": "建议使用 token-file 替代明文 Token，可通过 openclaw 命令行配置。",
+      "sessionKeyHint": "可选。指定 Gateway Session Key，留空则自动分配隔离会话。"
+    },
+    "claude": {
+      "mainModel": "主模型",
+      "reasoningModel": "推理模型（thinking）",
+      "haikuDefaultModel": "Haiku 默认模型",
+      "sonnetDefaultModel": "Sonnet 默认模型",
+      "opusDefaultModel": "Opus 默认模型"
+    },
+    "dialogs": {
+      "confirmDeleteProvider": "确认删除 Provider {providerId}？",
+      "confirmDeleteProviderDescription": "将同步更新 OpenCode 配置与认证 JSON 文件，删除后不可恢复。",
+      "confirmUninstall": "确认卸载 {name}？",
+      "confirmUninstallDescription": "这会移除本地安装版本，之后可随时重新安装。"
+    },
+    "errors": {
+      "nativeJsonMustBeObject": "原生 JSON 配置必须是对象",
+      "nativeJsonInvalid": "原生 JSON 配置格式错误：{message}",
+      "openCodeAuthMustBeObject": "OpenCode auth.json 必须是 JSON 对象",
+      "openCodeAuthInvalid": "OpenCode auth.json 格式错误：{message}",
+      "authMustBeObject": "auth.json 必须是 JSON 对象",
+      "authInvalid": "auth.json 格式错误：{message}",
+      "providerIdPattern": "Provider ID 仅支持字母、数字、下划线、点与中划线",
+      "providerExists": "Provider '{providerId}' 已存在",
+      "modelIdPattern": "模型 ID 仅支持字母、数字、下划线、点、冒号与中划线",
+      "modelExists": "Model '{modelId}' 已存在"
+    },
+    "warnings": {
+      "nativeJsonRecoveredStructured": "原生 JSON 配置格式无效，已重置为结构化配置",
+      "nativeJsonRecoveredOpenCode": "原生 JSON 配置格式无效，已重置为 OpenCode 结构化配置",
+      "openCodeAuthRecovered": "OpenCode auth.json 格式无效，已重置为默认配置",
+      "authRecoveredStructured": "auth.json 格式无效，已重置为结构化配置"
+    },
+    "toasts": {
+      "agentActionCompleted": "{name}{action}完成",
+      "agentActionFailed": "{name}{action}失败",
+      "localVersion": "本地版本：{version}",
+      "installCompletedVersionLater": "安装完成，版本将在下一次检测时更新",
+      "uninstallCompleted": "{name}卸载完成",
+      "uninstallFailed": "{name}卸载失败",
+      "localVersionRemoved": "本地版本已移除",
+      "saveAgentOrderFailed": "保存 Agent 排序失败",
+      "saveAgentSwitchFailed": "保存 Agent 开关失败",
+      "saveEnvFailed": "保存环境变量失败",
+      "codexSaved": "Codex 配置已保存",
+      "saveCodexNativeFailed": "保存 Codex 原生配置失败",
+      "geminiSaved": "Gemini 配置已保存",
+      "saveGeminiFailed": "保存 Gemini 配置失败",
+      "providerDeleted": "Provider {providerId} 已删除",
+      "providerDeleteFailed": "删除 Provider {providerId} 失败",
+      "providerSaved": "Provider {providerId} 保存成功",
+      "saveProviderFailed": "保存 Provider {providerId} 失败",
+      "openCodeConfigSynced": "OpenCode 配置与认证 JSON 已同步保存。",
+      "openCodeSaved": "OpenCode 配置已保存",
+      "saveOpenCodeFailed": "保存 OpenCode 配置失败",
+      "openClawSaved": "OpenClaw 配置已保存",
+      "saveOpenClawFailed": "保存 OpenClaw 配置失败",
+      "configSaved": "配置已保存",
+      "saveConfigManagementFailed": "保存配置管理失败"
+    },
+    "version": {
+      "statusLabel": "版本状态",
+      "notInstalled": "未安装",
+      "remoteLocal": "远程：{remoteVersion} · 本地：{localVersion}",
+      "platformUnsupported": "{versionText}。当前平台不支持该 Agent。",
+      "clickInstall": "{versionText}。请点击右侧安装。",
+      "localUnrecognized": "{versionText}。本地版本无法识别，可尝试升级覆盖安装。",
+      "upgradeAvailable": "{versionText}。发现可升级版本。",
+      "remoteUnavailable": "{versionText}。远程版本暂不可用。",
+      "latest": "{versionText}。已是最新版本。"
+    }
+  },
+  "SettingsPages": {
+    "agentsLoading": "加载 Agent 设置中..."
+  },
+  "CommitPage": {
+    "title": "提交代码",
+    "invalidFolderId": "无效的 folderId",
+    "loadingRepo": "正在加载仓库..."
+  },
+  "Folder": {
+    "common": {
+      "all": "全部",
+      "cancel": "取消",
+      "close": "关闭",
+      "closeOthers": "关闭其它",
+      "closeAll": "关闭所有",
+      "confirm": "确认",
+      "save": "保存",
+      "delete": "删除",
+      "rename": "重命名",
+      "loading": "加载中...",
+      "refresh": "刷新",
+      "refreshing": "刷新中...",
+      "create": "创建",
+      "createAndSwitch": "创建并切换",
+      "openFile": "打开文件",
+      "viewDiff": "查看差异"
+    },
+    "modes": {
+      "conversation": "会话模式",
+      "fusion": "融合模式",
+      "files": "文件模式",
+      "workspaceModesAria": "工作区模式"
+    },
+    "statusLabels": {
+      "in_progress": "进行中",
+      "pending_review": "待复查",
+      "completed": "已完成",
+      "cancelled": "已取消"
+    },
+    "sidebar": {
+      "title": "会话",
+      "locateActiveConversation": "定位当前会话",
+      "expandAllGroups": "展开全部分组",
+      "collapseAllGroups": "折叠全部分组",
+      "newConversation": "新建会话",
+      "noConversationsFound": "未找到会话。",
+      "importLocalSessions": "导入本地会话",
+      "importing": "导入中...",
+      "error": "错误：{message}",
+      "completeAllSessions": "完成全部会话",
+      "completeAllReviewTitle": "完成全部复查会话？",
+      "completeAllReviewDescription": "这会将复查中的 {count} 个会话全部标记为已完成。",
+      "completing": "处理中...",
+      "toasts": {
+        "importedSessions": "已导入 {imported} 个会话，跳过 {skipped} 个",
+        "noNewSessionsFound": "没有新会话（已跳过 {skipped} 个）",
+        "importFailed": "导入失败：{message}",
+        "reviewCompleted": "已将 {count} 个复查会话标记为已完成",
+        "completeReviewFailed": "批量完成复查会话失败：{message}"
+      }
+    },
+    "conversation": {
+      "reloadFailed": "会话重新加载失败：{message}",
+      "reloaded": "当前会话已重新加载",
+      "reload": "重新加载",
+      "newConversation": "新建会话",
+      "closeConversation": "关闭会话"
+    },
+    "conversationCard": {
+      "untitledConversation": "未命名会话",
+      "newConversation": "新建会话",
+      "rename": "重命名",
+      "status": "状态",
+      "delete": "删除",
+      "importLocalSessions": "导入本地会话",
+      "importing": "导入中...",
+      "renameConversation": "重命名会话",
+      "deleteConversationTitle": "删除会话？",
+      "deleteConversationDescription": "会删除“{title}”，此操作不可撤销。",
+      "cancel": "取消",
+      "save": "保存"
+    },
+    "search": {
+      "dialogTitle": "搜索会话",
+      "placeholder": "搜索会话...",
+      "allAgents": "全部",
+      "searching": "搜索中...",
+      "typeToSearch": "输入关键词搜索会话",
+      "noResults": "未找到结果。",
+      "untitledConversation": "未命名会话"
+    },
+    "folderTitleBar": {
+      "showSidebar": "显示侧边栏",
+      "hideSidebar": "隐藏侧边栏",
+      "toggleTerminal": "切换终端",
+      "toggleAuxPanel": "切换辅助面板",
+      "search": "搜索",
+      "openSettings": "打开设置",
+      "withShortcut": "{label}（{shortcut}）"
+    },
+    "statusBar": {
+      "connection": {
+        "connected": "已连接",
+        "connecting": "连接中...",
+        "downloading": "下载中...",
+        "prompting": "响应中...",
+        "error": "连接异常",
+        "disconnected": "未连接",
+        "tooltip": "{agent}：{status}",
+        "tooltipError": "{agent}：{error}"
+      },
+      "tasks": {
+        "title": "任务"
+      },
+      "alerts": {
+        "title": "告警",
+        "empty": "暂无告警信息"
+      },
+      "stats": {
+        "conversations": "{count} 个会话",
+        "summary": "{conversations} 个会话 / {messages} 条消息"
+      },
+      "tokens": {
+        "contextWindowUsageAria": "上下文窗口使用率",
+        "contextWindow": "上下文窗口",
+        "usedMax": "已用 / 上限",
+        "tokenUsage": "Token 用量",
+        "input": "输入",
+        "output": "输出",
+        "cacheRead": "缓存读取",
+        "cacheWrite": "缓存写入",
+        "total": "总计"
+      }
+    },
+    "auxPanel": {
+      "tabs": {
+        "diff": "差异",
+        "files": "文件",
+        "changes": "变更",
+        "commits": "提交"
+      }
+    },
+    "windowControls": {
+      "minimizeWindow": "最小化窗口",
+      "minimize": "最小化",
+      "maximizeWindow": "最大化窗口",
+      "maximize": "最大化",
+      "restoreWindow": "还原窗口",
+      "restore": "还原",
+      "closeWindow": "关闭窗口",
+      "close": "关闭"
+    },
+    "tabs": {
+      "closeConversationTab": "关闭会话标签",
+      "close": "关闭",
+      "closeOthers": "关闭其它",
+      "closeAll": "关闭所有",
+      "tileDisplay": "平铺显示",
+      "untileDisplay": "取消平铺"
+    },
+    "fileWorkspace": {
+      "files": "文件",
+      "closeFileTab": "关闭文件标签",
+      "close": "关闭",
+      "closeOthers": "关闭其它",
+      "closeAll": "关闭所有"
+    },
+    "terminal": {
+      "rename": "重命名",
+      "close": "关闭",
+      "closeOthers": "关闭其它",
+      "closeAll": "关闭所有",
+      "hideTerminal": "隐藏终端（{shortcut}）"
+    },
+    "sessionFiles": {
+      "currentResponse": "当前响应",
+      "noDiffDataAvailable": "未找到 {filePath} 的差异数据",
+      "loading": "加载中...",
+      "noFileChangesInConversation": "该会话未发现文件变更",
+      "openConversationToSeeChanges": "打开会话以查看文件变更",
+      "remove": "移除",
+      "changeCount": "{count} 处变更",
+      "fileCount": "{count} 个文件"
+    },
+    "folderNameDropdown": {
+      "fallbackFolderName": "文件夹",
+      "openFolder": "打开文件夹",
+      "cloneRepository": "克隆仓库",
+      "opened": "已打开",
+      "recentOpen": "最近打开"
+    },
+    "fileWorkspacePanel": {
+      "viewDiff": "查看差异",
+      "openFile": "打开文件",
+      "fileCount": "{count} 个文件",
+      "openFileOrDiff": "从右侧面板打开文件或差异",
+      "disk": "磁盘",
+      "head": "HEAD（当前提交）",
+      "unsaved": "未保存",
+      "workingTree": "工作区",
+      "loading": "加载中...",
+      "compareWithBranch": "{path} · 与 {branch} 比较",
+      "hunkCount": "{count} 个区块",
+      "prev": "上一个",
+      "next": "下一个",
+      "jumpToLine": "跳转到第 {line} 行",
+      "noParsedDiffSections": "未解析到差异区块",
+      "loadingEditor": "编辑器加载中..."
+    },
+    "branchDropdown": {
+      "toasts": {
+        "commitCodeCompleted": "提交代码完成",
+        "committedFiles": "已提交 {count} 个文件",
+        "taskCompleted": "{label} 完成",
+        "taskFailed": "{label} 失败",
+        "mergeNoNewCommits": "{branchName} 没有新的提交",
+        "mergedCommits": "已合并 {count} 个提交",
+        "allFilesUpToDate": "所有文件均为最新版本",
+        "updatedFiles": "已更新 {count} 个文件",
+        "openCommitWindowFailed": "打开提交窗口失败",
+        "upstreamSet": "已设置远程跟踪分支",
+        "upstreamSetAndPushed": "已设置远程跟踪分支并推送 {count} 个提交",
+        "noCommitsToPush": "没有可推送的提交",
+        "pushedCommits": "已推送 {count} 个提交"
+      },
+      "tasks": {
+        "newBranch": "新建分支 {name}",
+        "newWorktree": "新建工作树 {name}",
+        "checkoutTo": "切换到 {branchName}",
+        "mergeBranch": "合并 {branchName}",
+        "rebaseTo": "变基到 {branchName}",
+        "deleteBranch": "删除分支 {branchName}",
+        "initGitRepo": "初始化 Git 仓库",
+        "pullCode": "更新代码",
+        "fetchInfo": "获取信息",
+        "pushCode": "推送代码",
+        "stashChanges": "贮藏更改",
+        "stashPop": "取消贮藏"
+      },
+      "confirm": {
+        "mergeTitle": "合并分支",
+        "rebaseTitle": "变基分支",
+        "deleteTitle": "删除分支",
+        "mergeDescription": "确定将 {branchName} 合并到当前分支 {currentBranch} 吗？",
+        "rebaseDescription": "确定将当前分支 {currentBranch} 变基到 {branchName} 吗？",
+        "deleteDescription": "确定删除分支 {branchName} 吗？此操作不可恢复。"
+      },
+      "current": "当前",
+      "switchToBranch": "切换到此分支",
+      "mergeBranchIntoCurrent": "将 {branchName} 合并到 {currentBranch}",
+      "rebaseCurrentToBranch": "将 {currentBranch} 变基到 {branchName}",
+      "deleteBranch": "删除分支",
+      "versionControl": "版本控制",
+      "initGitRepo": "初始化 Git 仓库",
+      "pullCode": "更新代码",
+      "fetchRemoteBranches": "提取远程分支",
+      "openCommitWindow": "提交代码...",
+      "pushCode": "推送...",
+      "newBranch": "新建分支...",
+      "newWorktree": "新建工作树...",
+      "stashChanges": "贮藏更改",
+      "stashPop": "取消贮藏...",
+      "localBranches": "本地分支 ({count})",
+      "noLocalBranches": "无本地分支",
+      "remoteBranches": "远程分支 ({count})",
+      "noRemoteBranches": "无远程分支",
+      "parentBranchHint": "当前分支从 {parentBranch} 创建，点击合并 {parentBranch} 到当前分支",
+      "dialogs": {
+        "newBranchTitle": "新建分支",
+        "newBranchDescription": "从当前分支 {branch} 创建新分支",
+        "branchNamePlaceholder": "分支名称",
+        "newWorktreeTitle": "新建工作树",
+        "newWorktreeDescription": "从当前分支 {branch} 创建新的工作树",
+        "branchNameLabel": "分支名称",
+        "worktreePathLabel": "工作树路径",
+        "worktreePathPlaceholder": "工作树路径"
+      }
+    },
+    "commitDialog": {
+      "toasts": {
+        "commitCompleted": "提交代码完成",
+        "committedFiles": "已提交 {count} 个文件",
+        "addedToVcs": "已添加到 VCS",
+        "addToVcsFailed": "添加到 VCS 失败",
+        "fileDeleted": "文件已删除",
+        "deleteFailed": "删除失败",
+        "fileRolledBack": "文件已回滚",
+        "rollbackFailed": "回滚失败"
+      },
+      "confirm": {
+        "deleteTitle": "确认删除",
+        "deleteDescription": "确定要删除文件「{file}」吗？此操作不可恢复。",
+        "rollbackTitle": "确认回滚",
+        "rollbackDescription": "确定要回滚文件「{file}」到 HEAD 版本吗？未保存的修改将丢失。"
+      },
+      "actions": {
+        "select": "选择",
+        "unselect": "取消选择",
+        "rollback": "回滚",
+        "addToVcs": "添加到 VCS"
+      },
+      "aria": {
+        "selectFile": "{action}：{path}",
+        "unselectAllFiles": "取消选择全部文件",
+        "selectAllFiles": "选择全部文件",
+        "unselectTracked": "取消选择已跟踪改动",
+        "selectTracked": "选择已跟踪改动",
+        "unselectUntracked": "取消选择未跟踪文件",
+        "selectUntracked": "选择未跟踪文件"
+      },
+      "loading": "加载中...",
+      "selectionCount": "{selected} / {total} 个文件",
+      "emptyFiles": "没有改动的文件",
+      "trackedChanges": "已跟踪改动 ({count})",
+      "untrackedFiles": "未跟踪文件 ({count})",
+      "commitMessage": "提交消息",
+      "commitMessagePlaceholder": "输入提交信息...",
+      "commitButton": "提交 ({count})",
+      "head": "HEAD（当前提交）",
+      "workingTree": "工作区",
+      "clickFileToDiff": "点击文件名查看差异",
+      "loadingDiff": "加载差异..."
+    },
+    "gitLogTab": {
+      "filesTitle": "文件",
+      "expandAllFiles": "展开全部文件",
+      "collapseAllFiles": "折叠全部文件",
+      "workspace": "工作区",
+      "retry": "重试",
+      "noCommitsFound": "未找到提交记录",
+      "hash": "Hash",
+      "copyHash": "复制哈希",
+      "author": "作者",
+      "noFileChangeDetails": "暂无文件变更详情。",
+      "branchesTitle": "分支",
+      "loadingBranches": "正在加载分支...",
+      "noContainingBranches": "未找到包含此提交的分支。",
+      "newBranch": "新建分支...",
+      "viewCommitDiffAria": "查看提交 {hash} 的差异",
+      "copyFullCommitHashAria": "复制完整提交哈希 {hash}",
+      "pushStatus": {
+        "pushed": "已推送到远程",
+        "notPushed": "未推送到远程",
+        "unknown": "推送状态未知（未配置上游分支）"
+      },
+      "time": {
+        "monthsAgo": "{count} 个月前",
+        "daysAgo": "{count} 天前",
+        "hoursAgo": "{count} 小时前",
+        "minsAgo": "{count} 分钟前",
+        "justNow": "刚刚"
+      },
+      "toasts": {
+        "createdAndSwitchedNewBranch": "已创建并切换到新分支",
+        "newBranchFromCommit": "{name}（来自 {shortHash}）",
+        "createBranchFailed": "新建分支失败"
+      },
+      "branchSelector": {
+        "selectBranchPlaceholder": "选择分支...",
+        "localBranches": "本地分支",
+        "current": "当前",
+        "remoteBranches": "远程分支",
+        "refreshCommitHistory": "刷新提交记录"
+      },
+      "dialogs": {
+        "newBranchTitle": "新建分支",
+        "newBranchDescription": "以提交 {shortHash} 作为最后提交创建新分支。",
+        "branchNamePlaceholder": "分支名称"
+      }
+    },
+    "gitChangesTab": {
+      "workspace": "工作区",
+      "noChanges": "暂无本地改动",
+      "trackedChanges": "本地已跟踪改动 ({count})",
+      "untrackedFiles": "本地未跟踪文件 ({count})",
+      "expandTracked": "展开已跟踪改动",
+      "collapseTracked": "折叠已跟踪改动",
+      "expandUntracked": "展开未跟踪文件",
+      "collapseUntracked": "折叠未跟踪文件",
+      "actions": {
+        "commitCode": "提交代码",
+        "rollback": "回滚",
+        "addToVcs": "添加到 VCS"
+      },
+      "toasts": {
+        "noAddableFilesInDir": "该目录下没有可添加到 VCS 的变更文件",
+        "noRollbackFilesInDir": "该目录下没有可回滚的变更文件",
+        "addedToVcs": "已添加 {name} 到 VCS",
+        "addToVcsFailed": "添加到 VCS 失败",
+        "openCommitWindowFailed": "打开提交窗口失败",
+        "rolledBack": "已回滚 {name}",
+        "rollbackFailed": "回滚失败",
+        "addedFilesToVcs": "已添加 {count} 个文件到 VCS",
+        "rolledBackFiles": "已回滚 {count} 个文件"
+      },
+      "directoryDialog": {
+        "descriptionAdd": "选择目录 {path} 下要添加到 VCS 的文件。",
+        "descriptionRollback": "选择目录 {path} 下要回滚的文件。",
+        "descriptionFallback": "选择要操作的文件。",
+        "selectionCount": "已选择 {selected} / {total} 个文件",
+        "selectAll": "全选",
+        "unselectAll": "取消全选",
+        "loadingCandidates": "正在加载目录变更...",
+        "noOperableFiles": "没有可操作的文件"
+      },
+      "rollbackConfirm": {
+        "title": "确认回滚",
+        "descriptionWithTarget": "确定回滚{kind}「{name}」的本地修改吗？",
+        "descriptionFallback": "确定回滚本地修改吗？",
+        "kindDirectory": "目录",
+        "kindFile": "文件"
+      }
+    },
+    "tabContext": {
+      "loadingConversation": "加载中...",
+      "untitledConversation": "未命名会话",
+      "newConversation": "新建会话"
+    },
+    "fileTreeTab": {
+      "workspace": "工作区",
+      "retry": "重试",
+      "git": "Git",
+      "openInFileManager": "在文件管理器打开",
+      "openInFinder": "在访达打开",
+      "openInExplorer": "在资源管理器打开",
+      "attachToCurrentSession": "附加到当前会话",
+      "compareWithBranch": "与分支比较...",
+      "reloadFromDisk": "从磁盘重新加载",
+      "openIn": "打开于",
+      "openInTerminal": "在终端打开",
+      "actions": {
+        "select": "选择",
+        "unselect": "取消选择",
+        "commitCode": "提交代码",
+        "rollback": "回滚",
+        "addToVcs": "添加到 VCS"
+      },
+      "aria": {
+        "selectPath": "{action}：{path}"
+      },
+      "toasts": {
+        "openDirectoryFailed": "打开目录失败",
+        "openBuiltinTerminalFailed": "无法打开内置终端",
+        "openCommitWindowFailed": "打开提交窗口失败",
+        "noAddableFilesInDir": "该目录下没有可添加到 VCS 的变更文件",
+        "noRollbackFilesInDir": "该目录下没有可回滚的变更文件",
+        "addedToVcs": "已添加 {name} 到 VCS",
+        "addToVcsFailed": "添加到 VCS 失败",
+        "loadBranchesFailed": "加载分支失败",
+        "renameFailed": "重命名失败",
+        "deleteFailed": "删除失败",
+        "rolledBack": "已回滚 {name}",
+        "rollbackFailed": "回滚失败",
+        "addedFilesToVcs": "已添加 {count} 个文件到 VCS",
+        "rolledBackFiles": "已回滚 {count} 个文件",
+        "savedAsCopy": "已另存为副本",
+        "saveCopyFailed": "另存为副本失败",
+        "watchStartFailed": "文件监听启动失败"
+      },
+      "renameDialog": {
+        "renameDirectory": "重命名目录",
+        "renameFile": "重命名文件",
+        "description": "输入新的名称（仅名称，不含路径）。",
+        "placeholderDirectory": "新建文件夹名称",
+        "placeholderFile": "新建文件名称.ext"
+      },
+      "directoryDialog": {
+        "descriptionAdd": "选择目录 {path} 下要添加到 VCS 的文件。",
+        "descriptionRollback": "选择目录 {path} 下要回滚的文件。",
+        "descriptionFallback": "选择要操作的文件。",
+        "selectionCount": "已选择 {selected} / {total} 个文件",
+        "selectAll": "全选",
+        "unselectAll": "取消全选",
+        "loadingCandidates": "正在加载目录变更...",
+        "noOperableFiles": "没有可操作的文件"
+      },
+      "compareDialog": {
+        "title": "与分支比较",
+        "descriptionWithTarget": "选择分支并与{kind} {path} 对比",
+        "descriptionFallback": "选择要比较的分支。",
+        "kindDirectory": "目录",
+        "kindFile": "文件",
+        "filterPlaceholder": "过滤分支，例如 main / origin/main",
+        "singleClickHint": "单击分支即可直接比较",
+        "loadingBranches": "正在加载分支...",
+        "recentBranches": "最近分支 ({count})",
+        "noCurrentBranch": "无当前分支",
+        "localBranches": "本地分支 ({count})",
+        "remoteBranches": "远程分支 ({count})",
+        "noMatchingBranches": "无匹配分支"
+      },
+      "externalConflictDialog": {
+        "title": "检测到外部文件变更",
+        "descriptionWithPath": "文件 {path} 在磁盘已发生变化，当前编辑内容尚未保存。",
+        "descriptionFallback": "当前文件在磁盘已发生变化，当前编辑内容尚未保存。",
+        "compare": "对比",
+        "savingCopy": "另存中...",
+        "saveAsCopy": "另存为副本",
+        "reload": "重载"
+      },
+      "deleteConfirm": {
+        "title": "确认删除",
+        "descriptionWithTarget": "确定删除{kind} \"{name}\" 吗？此操作不可撤销。",
+        "descriptionFallback": "此操作不可撤销。",
+        "kindDirectory": "目录",
+        "kindFile": "文件"
+      },
+      "rollbackConfirm": {
+        "title": "确认回滚",
+        "descriptionWithTarget": "确定回滚文件 \"{name}\" 的本地修改吗？",
+        "descriptionFallback": "确定回滚该文件的本地修改吗？"
+      },
+      "terminalTitle": "终端 · {name}"
+    },
+    "commandDropdown": {
+      "loading": "加载中...",
+      "addCommand": "添加命令",
+      "manageCommands": "管理命令...",
+      "runCommandTitle": "运行：{command}",
+      "stopCommandTitle": "停止：{command}",
+      "manageDialog": {
+        "title": "管理命令",
+        "empty": "暂无命令",
+        "namePlaceholder": "名称",
+        "commandPlaceholder": "命令",
+        "add": "添加",
+        "saving": "保存中..."
+      }
+    },
+    "workspaceContext": {
+      "confirmCloseDirtyTab": "文件“{title}”有未保存更改，确定关闭吗？",
+      "confirmCloseOtherDirtyTabs": "其它标签页有未保存更改，确定关闭吗？",
+      "confirmCloseAllDirtyTabs": "存在未保存更改，确定关闭全部标签页吗？",
+      "unableLoadContent": "无法加载内容。\n\n{message}",
+      "previewRequestTimedOut": "预览请求超时",
+      "diffRequestTimedOut": "Diff 请求超时",
+      "branchCompareRequestTimedOut": "分支比较请求超时",
+      "commitDiffRequestTimedOut": "提交差异请求超时",
+      "saveRequestTimedOut": "保存请求超时",
+      "reloadRequestTimedOut": "重载请求超时",
+      "noChanges": "暂无变更。",
+      "noDiffOutput": "无差异输出。",
+      "diffTitleWorkspace": "Diff · 工作区",
+      "diffDescriptionWorkingTree": "工作区变更（HEAD）",
+      "diffTitleFile": "差异 · {name}",
+      "compareTitleFile": "比较 · {name}",
+      "compareTitleBranch": "比较 · {branch}",
+      "compareDescriptionPath": "{path} · 与 {branch} 比较",
+      "compareDescriptionBranch": "与 {branch} 比较",
+      "diffTitleCommitFile": "差异 · {name} @ {hash}",
+      "diffTitleCommit": "差异 · {hash}",
+      "diffDescriptionCommitPath": "{path} · 提交 {commit}",
+      "diffDescriptionCommit": "提交 {commit}",
+      "diffTitleConflictFile": "冲突 · {name}",
+      "diffDescriptionConflict": "{path} · 磁盘与未保存内容"
+    },
+    "chat": {
+      "acpConnections": {
+        "actions": {
+          "openAgentsSettings": "打开 Agents 管理",
+          "retry": "重试"
+        },
+        "agentsSetupHint": "点击前往设置 > Agents 管理安装。",
+        "withSetupHint": "{message}\n提示：{hint}",
+        "blocked": {
+          "missingConfig": "无法读取当前 Agent 配置。",
+          "disabled": "{agent} 已在 Agents 管理中禁用，请先启用后再连接。",
+          "unavailable": "{agent} 当前平台不可用。",
+          "sdkMissing": "{agent} SDK 尚未安装"
+        },
+        "unableReadAgentConfig": "无法读取 Agent 配置：{message}",
+        "autoLinkFailedTitle": "{agent} 自动链接失败",
+        "preflightCheckFailedDefault": "预检查未通过，请检查 Agent 配置。",
+        "preflightFailedTitle": "{agent} 预检查失败",
+        "autoLinkPreflightFailed": "自动链接预检查失败：{message}",
+        "connectFailedTitle": "{agent} 连接失败",
+        "toolFallbackTitle": "工具",
+        "eventErrorTitle": "Agent 错误"
+      },
+      "connectionLifecycle": {
+        "tasks": {
+          "connectingTitle": "正在连接 {agent}",
+          "connectingDescription": "正在建立连接",
+          "loadingSelectorsTitle": "正在加载 {agent} 选择项",
+          "loadingSelectorsDescription": "正在获取模式和会话配置选项"
+        },
+        "errors": {
+          "connectionFailed": "连接失败"
+        }
+      },
+      "shared": {
+        "attachedResources": "附加资源",
+        "toolCallFailed": "工具调用失败"
+      },
+      "messageThread": {
+        "emptyTitle": "暂无消息",
+        "emptyDescription": "开始一个会话后，消息会显示在这里"
+      },
+      "chatInput": {
+        "connecting": "连接中...",
+        "agentResponding": "Agent 正在响应...",
+        "sendMessage": "发送消息..."
+      },
+      "messageInput": {
+        "askAnything": "请开始输入...",
+        "removeAttachmentAria": "移除 {name}",
+        "attachFiles": "附加文件",
+        "dropFilesToAttach": "拖拽文件到此处附加",
+        "loadingSettings": "正在加载设置...",
+        "loadingMode": "正在加载模式...",
+        "cancel": "取消",
+        "send": "发送"
+      },
+      "messageQueue": {
+        "addToQueue": "加入队列",
+        "saveEdit": "保存",
+        "cancelEdit": "取消编辑",
+        "editItem": "编辑",
+        "deleteItem": "删除"
+      },
+      "welcomeInputPanel": {
+        "agentsSettingsPath": "设置 > Agents",
+        "autoConnectFallback": "点击前往 {path} 管理安装。",
+        "autoConnectAppend": "{message}，点击前往 {path} 管理安装。",
+        "enableAgentFirstPlaceholder": "请先启用至少一个 Agent 后开始会话...",
+        "askAnythingPlaceholder": "请开始输入..."
+      },
+      "agentSelector": {
+        "noEnabledAgents": "暂无已启用的 Agent",
+        "openAgentsSettings": "打开 Agents 设置"
+      },
+      "agentPlanOverlay": {
+        "title": "Agent 计划",
+        "collapsePlanAria": "折叠计划",
+        "collapsedSummary": "计划 {completed}/{total}",
+        "status": {
+          "completed": "已完成",
+          "inProgress": "进行中",
+          "pending": "待处理",
+          "unknown": "未知"
+        },
+        "priority": {
+          "high": "高",
+          "medium": "中",
+          "low": "低",
+          "unknown": "未知"
+        }
+      },
+      "permissionDialog": {
+        "subtitle": "Agent 请求继续当前轮次的权限。",
+        "kindFallbackTool": "工具",
+        "command": "命令",
+        "cwd": "工作目录：{cwd}",
+        "filesSummary": "文件：{count}",
+        "moreFiles": "+{count} 个更多文件",
+        "plan": "计划",
+        "allowedActions": "允许的操作",
+        "targetMode": "目标模式：{mode}"
+      },
+      "questionDialog": {
+        "title": "代理正在提问",
+        "placeholder": "输入你的回答...",
+        "send": "发送"
+      },
+      "messageBranch": {
+        "previousBranchAria": "上一分支",
+        "nextBranchAria": "下一分支",
+        "pageOf": "{current} / {total}"
+      },
+      "terminal": {
+        "title": "终端",
+        "running": "运行中"
+      },
+      "reasoning": {
+        "thinking": "思考中",
+        "thoughtForFewSeconds": "思考",
+        "thoughtForSeconds": "思考"
+      },
+      "messageList": {
+        "attachedResources": "附加资源",
+        "loading": "加载中...",
+        "error": "错误：{message}",
+        "emptyConversation": "当前会话暂无消息。"
+      },
+      "liveTurnStats": {
+        "thinking": "思考中...",
+        "streaming": "生成中",
+        "elapsedMinutes": "{value} 分钟",
+        "elapsedSeconds": "{value} 秒",
+        "toolUseCount": "{count} 个工具 {count, plural, one {use} other {uses}}"
+      },
+      "tool": {
+        "parameters": "参数",
+        "error": "错误",
+        "result": "结果",
+        "status": {
+          "approvalRequested": "等待授权",
+          "approvalResponded": "已响应",
+          "inputAvailable": "运行中",
+          "inputStreaming": "等待中",
+          "outputAvailable": "已完成",
+          "outputDenied": "已拒绝",
+          "outputError": "错误"
+        }
+      },
+      "toolCallBlock": {
+        "tool": "工具",
+        "error": "错误",
+        "result": "结果"
+      },
+      "contentParts": {
+        "showingTailOutput": "为保证性能，流式输出时仅显示尾部内容。",
+        "result": "结果",
+        "unknown": "未知",
+        "replaceAll": "全部替换",
+        "filesCount": "文件：{count}",
+        "update": "更新",
+        "moreFiles": "+{count} 个更多文件",
+        "timeoutMs": "超时：{timeout}ms",
+        "backgroundTrue": "后台：true",
+        "offset": "偏移：{offset}",
+        "limit": "限制：{limit}",
+        "pages": "页码：{pages}",
+        "mode": "模式：{mode}",
+        "cell": "单元：{cell}",
+        "pathLabel": "路径：",
+        "globLabel": "Glob：",
+        "typeLabel": "类型：",
+        "outputLabel": "输出：",
+        "caseInsensitive": "忽略大小写",
+        "multiline": "多行",
+        "promptLabel": "提示词",
+        "subjectLabel": "主题",
+        "taskLabel": "任务",
+        "nameLabel": "名称：",
+        "field": {
+          "file": "文件",
+          "notebook": "笔记本",
+          "command": "命令",
+          "old": "旧内容",
+          "new": "新内容",
+          "pattern": "模式",
+          "path": "路径",
+          "query": "查询",
+          "url": "URL地址",
+          "description": "描述",
+          "content": "内容",
+          "source": "源内容",
+          "prompt": "提示词",
+          "subject": "主题",
+          "taskId": "任务 ID",
+          "status": "状态",
+          "skill": "Skill",
+          "args": "参数",
+          "offset": "偏移",
+          "limit": "限制",
+          "glob": "Glob",
+          "type": "类型",
+          "output": "输出",
+          "replaceAll": "全部替换",
+          "language": "语言",
+          "timeout": "超时",
+          "background": "后台",
+          "agentType": "Agent 类型",
+          "library": "库",
+          "libraryId": "库 ID"
+        },
+        "title": {
+          "edit": "编辑",
+          "command": "命令",
+          "todoWrite": "待办",
+          "read": "读取",
+          "write": "写入",
+          "notebookEdit": "Notebook 编辑",
+          "editFiles": "编辑（{count} 个文件）",
+          "editWithTarget": "编辑 {target}",
+          "readWithTarget": "读取 {target}",
+          "writeWithTarget": "写入 {target}",
+          "notebookEditWithTarget": "Notebook 编辑 {target}",
+          "globWithPattern": "Glob {pattern}",
+          "grepWithPattern": "Grep {pattern}",
+          "taskCreateWithSubject": "创建任务：{subject}",
+          "taskUpdateWithStatus": "更新任务 #{id} -> {status}",
+          "taskUpdate": "更新任务 #{id}",
+          "webFetchWithUrl": "抓取网页 {url}",
+          "webSearchWithQuery": "网页搜索：{query}",
+          "todosProgress": "待办（{done}/{total}）",
+          "skillWithName": "Skill：{name}",
+          "genericWithContext": "{tool}：{context}"
+        }
+      }
+    },
+    "diffPreview": {
+      "mode": {
+        "added": "新增",
+        "deleted": "删除",
+        "renamed": "重命名",
+        "modified": "修改"
+      },
+      "hunkLabel": "代码块 {index}",
+      "loadingHunk": "正在加载代码块...",
+      "noDiffData": "无差异数据"
+    }
+  }
+}

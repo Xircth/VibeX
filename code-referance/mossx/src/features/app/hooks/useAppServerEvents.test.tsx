@@ -1,0 +1,1289 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AppServerEvent } from "../../../types";
+import { subscribeAppServerEvents } from "../../../services/events";
+import { useAppServerEvents } from "./useAppServerEvents";
+
+vi.mock("../../../services/events", () => ({
+  subscribeAppServerEvents: vi.fn(),
+}));
+
+type Handlers = Parameters<typeof useAppServerEvents>[0];
+type HookOptions = Parameters<typeof useAppServerEvents>[1];
+
+function TestHarness({
+  handlers,
+  options,
+}: {
+  handlers: Handlers;
+  options?: HookOptions;
+}) {
+  useAppServerEvents(handlers, options);
+  return null;
+}
+
+let listener: ((event: AppServerEvent) => void) | null = null;
+const unlisten = vi.fn();
+
+beforeEach(() => {
+  listener = null;
+  unlisten.mockReset();
+  vi.mocked(subscribeAppServerEvents).mockImplementation((cb) => {
+    listener = cb;
+    return unlisten;
+  });
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+async function mount(handlers: Handlers, options?: HookOptions) {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(<TestHarness handlers={handlers} options={options} />);
+  });
+  return { root };
+}
+
+describe("useAppServerEvents", () => {
+  it("routes app-server events to handlers", async () => {
+    const handlers: Handlers = {
+      onAppServerEvent: vi.fn(),
+      onWorkspaceConnected: vi.fn(),
+      onThreadStarted: vi.fn(),
+      onBackgroundThreadAction: vi.fn(),
+      onAgentMessageDelta: vi.fn(),
+      onReasoningTextDelta: vi.fn(),
+      onReasoningSummaryBoundary: vi.fn(),
+      onContextCompacting: vi.fn(),
+      onContextCompacted: vi.fn(),
+      onContextCompactionFailed: vi.fn(),
+      onApprovalRequest: vi.fn(),
+      onRequestUserInput: vi.fn(),
+      onModeBlocked: vi.fn(),
+      onModeResolved: vi.fn(),
+      onItemUpdated: vi.fn(),
+      onItemCompleted: vi.fn(),
+      onAgentMessageCompleted: vi.fn(),
+      onTurnError: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    expect(listener).toBeTypeOf("function");
+
+    act(() => {
+      listener?.({ workspace_id: "ws-1", message: { method: "codex/connected" } });
+    });
+    expect(handlers.onWorkspaceConnected).toHaveBeenCalledWith("ws-1");
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/delta",
+          params: { threadId: "thread-1", itemId: "item-1", delta: "Hello" },
+        },
+      });
+    });
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "item-1",
+      delta: "Hello",
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/reasoning/summaryPartAdded",
+          params: { threadId: "thread-1", itemId: "reasoning-1", summaryIndex: 1 },
+        },
+      });
+    });
+    expect(handlers.onReasoningSummaryBoundary).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      "reasoning-1",
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/reasoning/delta",
+          params: { threadId: "thread-1", itemId: "reasoning-1", delta: "checking..." },
+        },
+      });
+    });
+    expect(handlers.onReasoningTextDelta).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      "reasoning-1",
+      "checking...",
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "thread/compacted",
+          params: { threadId: "thread-1", turnId: "turn-7" },
+        },
+      });
+    });
+    expect(handlers.onContextCompacted).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      "turn-7",
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "thread/compacting",
+          params: {
+            threadId: "thread-1",
+            usagePercent: 96,
+            thresholdPercent: 92,
+            targetPercent: 70,
+          },
+        },
+      });
+    });
+    expect(handlers.onContextCompacting).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      {
+        usagePercent: 96,
+        thresholdPercent: 92,
+        targetPercent: 70,
+      },
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "thread/compactionFailed",
+          params: { threadId: "thread-1", reason: "rpc failed" },
+        },
+      });
+    });
+    expect(handlers.onContextCompactionFailed).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      "rpc failed",
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "thread/started",
+          params: { thread: { id: "thread-2", preview: "New thread" } },
+        },
+      });
+    });
+    expect(handlers.onThreadStarted).toHaveBeenCalledWith("ws-1", {
+      id: "thread-2",
+      preview: "New thread",
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/updated",
+          params: { threadId: "thread-2", item: { id: "item-42", type: "reasoning", text: "..." } },
+        },
+      });
+    });
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith("ws-1", "thread-2", {
+      id: "item-42",
+      type: "reasoning",
+      text: "...",
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "turn/error",
+          params: { threadId: "thread-2", turnId: "turn-2", error: "Resume failed" },
+        },
+      });
+    });
+    expect(handlers.onTurnError).toHaveBeenCalledWith("ws-1", "thread-2", "turn-2", {
+      message: "Resume failed",
+      willRetry: false,
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "turn/error",
+          params: {
+            threadId: "thread-2",
+            turnId: null,
+            error: { message: "Late start failed", lateResponse: true },
+          },
+        },
+      });
+    });
+    expect(handlers.onTurnError).toHaveBeenCalledWith("ws-1", "thread-2", "", {
+      message: "Late start failed",
+      willRetry: false,
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "codex/parseError",
+          params: {
+            threadId: "thread-2",
+            error: "EOF while parsing value",
+            raw: "{\"id\":1,\"method\":\"turn/completed\"",
+          },
+        },
+      });
+    });
+    expect(handlers.onTurnError).toHaveBeenCalledWith("ws-1", "thread-2", "", {
+      message:
+        "Codex stream parse error: EOF while parsing value\n{\"id\":1,\"method\":\"turn/completed\"",
+      willRetry: false,
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "codex/backgroundThread",
+          params: { threadId: "thread-2", action: "hide" },
+        },
+      });
+    });
+    expect(handlers.onBackgroundThreadAction).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-2",
+      "hide",
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "workspace/requestApproval",
+          id: 7,
+          params: { mode: "full" },
+        },
+      });
+    });
+    expect(handlers.onApprovalRequest).toHaveBeenCalledWith({
+      workspace_id: "ws-1",
+      request_id: 7,
+      method: "workspace/requestApproval",
+      params: { mode: "full" },
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "approval/request",
+          params: {
+            request_id: 912,
+            scope: "workspace",
+          },
+        },
+      });
+    });
+    expect(handlers.onApprovalRequest).toHaveBeenCalledWith({
+      workspace_id: "ws-1",
+      request_id: 912,
+      method: "approval/request",
+      params: {
+        request_id: 912,
+        scope: "workspace",
+      },
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "collaboration/modeBlocked",
+          params: {
+            threadId: "thread-1",
+            blockedMethod: "item/tool/requestUserInput",
+            effectiveMode: "code",
+            reason: "request blocked",
+            suggestion: "Switch to Plan mode",
+            requestId: 92,
+          },
+        },
+      });
+    });
+    expect(handlers.onModeBlocked).toHaveBeenCalledWith({
+      workspace_id: "ws-1",
+      params: {
+        thread_id: "thread-1",
+        blocked_method: "item/tool/requestUserInput",
+        effective_mode: "code",
+        reason: "request blocked",
+        suggestion: "Switch to Plan mode",
+        request_id: 92,
+      },
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "collaboration/modeResolved",
+          params: {
+            threadId: "thread-1",
+            selectedUiMode: "default",
+            effectiveRuntimeMode: "code",
+            effectiveUiMode: "default",
+            fallbackReason: null,
+          },
+        },
+      });
+    });
+    expect(handlers.onModeResolved).toHaveBeenCalledWith({
+      workspace_id: "ws-1",
+      params: {
+        thread_id: "thread-1",
+        selected_ui_mode: "default",
+        effective_runtime_mode: "code",
+        effective_ui_mode: "default",
+        fallback_reason: null,
+      },
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/tool/requestUserInput",
+          id: 11,
+          params: {
+            thread_id: "thread-1",
+            turn_id: "turn-1",
+            item_id: "call-1",
+            questions: [
+              {
+                id: "confirm_path",
+                header: "Confirm",
+                question: "Proceed?",
+                options: [
+                  { label: "Yes", description: "Continue." },
+                  { label: "No", description: "Stop." },
+                ],
+              },
+            ],
+          },
+        },
+      });
+    });
+    expect(handlers.onRequestUserInput).toHaveBeenCalledWith({
+      workspace_id: "ws-1",
+      request_id: 11,
+      params: {
+        thread_id: "thread-1",
+        turn_id: "turn-1",
+        item_id: "call-1",
+        questions: [
+          {
+            id: "confirm_path",
+            header: "Confirm",
+            question: "Proceed?",
+            isOther: false,
+            isSecret: false,
+            options: [
+              { label: "Yes", description: "Continue." },
+              { label: "No", description: "Stop." },
+            ],
+          },
+        ],
+      },
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-2", text: "Done" },
+          },
+        },
+      });
+    });
+    expect(handlers.onItemCompleted).toHaveBeenCalledWith("ws-1", "thread-1", {
+      type: "agentMessage",
+      id: "item-2",
+      text: "Done",
+    });
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "item-2",
+      text: "Done",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+    expect(unlisten).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes request user input questions and options", async () => {
+    const handlers: Handlers = {
+      onRequestUserInput: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-9",
+        message: {
+          method: "item/tool/requestUserInput",
+          id: 55,
+          params: {
+            threadId: "thread-9",
+            turnId: "turn-9",
+            itemId: "item-9",
+            questions: [
+              {
+                id: "",
+                header: "",
+                question: "",
+                options: [
+                  { label: "", description: "" },
+                  { label: "  ", description: " " },
+                ],
+              },
+              {
+                id: "q-1",
+                header: "",
+                question: "Choose",
+                options: [
+                  { label: "", description: "" },
+                  { label: "Yes", description: "" },
+                  { label: "", description: "No label" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+    });
+
+    expect(handlers.onRequestUserInput).toHaveBeenCalledWith({
+      workspace_id: "ws-9",
+      request_id: 55,
+      params: {
+        thread_id: "thread-9",
+        turn_id: "turn-9",
+        item_id: "item-9",
+        questions: [
+          {
+            id: "q-1",
+            header: "",
+            question: "Choose",
+            isOther: false,
+            isSecret: false,
+            options: [
+              { label: "Yes", description: "" },
+              { label: "", description: "No label" },
+            ],
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("routes agent delta when threadId is nested in turn and payload uses text field", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/delta",
+          params: {
+            turn: { threadId: "claude:session-1", id: "turn-1" },
+            itemId: "item-1",
+            text: "chunk-from-text-field",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "claude:session-1",
+      itemId: "item-1",
+      delta: "chunk-from-text-field",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("routes item/agentMessage/textDelta alias in legacy event path", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/textDelta",
+          params: {
+            threadId: "claude:session-2",
+            itemId: "item-2",
+            delta: "alias-delta",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "claude:session-2",
+      itemId: "item-2",
+      delta: "alias-delta",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("normalizes secret input field from snake_case", async () => {
+    const handlers: Handlers = {
+      onRequestUserInput: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-secret",
+        message: {
+          method: "item/tool/requestUserInput",
+          id: 87,
+          params: {
+            thread_id: "thread-secret",
+            turn_id: "turn-secret",
+            item_id: "item-secret",
+            questions: [
+              {
+                id: "token",
+                header: "Credential",
+                question: "Paste token",
+                is_secret: true,
+              },
+            ],
+          },
+        },
+      });
+    });
+
+    expect(handlers.onRequestUserInput).toHaveBeenCalledWith({
+      workspace_id: "ws-secret",
+      request_id: 87,
+      params: {
+        thread_id: "thread-secret",
+        turn_id: "turn-secret",
+        item_id: "item-secret",
+        questions: [
+          {
+            id: "token",
+            header: "Credential",
+            question: "Paste token",
+            isOther: false,
+            isSecret: true,
+            options: undefined,
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("falls back to turn.threadId and active codex thread for user input request", async () => {
+    const handlers: Handlers = {
+      onRequestUserInput: vi.fn(),
+      getActiveCodexThreadId: vi.fn(() => "codex-active-thread"),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-nested",
+        message: {
+          method: "item/tool/requestUserInput",
+          id: "req-nested-1",
+          params: {
+            turn: {
+              id: "turn-nested-1",
+              threadId: "thread-from-turn",
+            },
+            questions: [{ id: "q1", header: "", question: "Proceed?" }],
+          },
+        },
+      });
+    });
+
+    expect(handlers.onRequestUserInput).toHaveBeenLastCalledWith({
+      workspace_id: "ws-nested",
+      request_id: "req-nested-1",
+      params: {
+        thread_id: "thread-from-turn",
+        turn_id: "turn-nested-1",
+        item_id: "",
+        questions: [
+          {
+            id: "q1",
+            header: "",
+            question: "Proceed?",
+            isOther: false,
+            isSecret: false,
+            options: undefined,
+          },
+        ],
+      },
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-nested",
+        message: {
+          method: "item/tool/requestUserInput",
+          id: "req-nested-2",
+          params: {
+            turnId: "turn-no-thread",
+            questions: [{ id: "q2", header: "", question: "Continue?" }],
+          },
+        },
+      });
+    });
+
+    expect(handlers.onRequestUserInput).toHaveBeenLastCalledWith({
+      workspace_id: "ws-nested",
+      request_id: "req-nested-2",
+      params: {
+        thread_id: "codex-active-thread",
+        turn_id: "turn-no-thread",
+        item_id: "",
+        questions: [
+          {
+            id: "q2",
+            header: "",
+            question: "Continue?",
+            isOther: false,
+            isSecret: false,
+            options: undefined,
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("marks requestUserInput as completed when payload indicates completion", async () => {
+    const handlers: Handlers = {
+      onRequestUserInput: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-completed",
+        message: {
+          method: "item/tool/requestUserInput",
+          id: "req-completed-1",
+          params: {
+            threadId: "thread-completed",
+            turnId: "turn-completed",
+            itemId: "item-completed",
+            completed: true,
+            questions: [{ id: "q1", header: "", question: "Done?" }],
+          },
+        },
+      });
+    });
+
+    expect(handlers.onRequestUserInput).toHaveBeenCalledWith({
+      workspace_id: "ws-completed",
+      request_id: "req-completed-1",
+      params: {
+        thread_id: "thread-completed",
+        turn_id: "turn-completed",
+        item_id: "item-completed",
+        completed: true,
+        questions: [
+          {
+            id: "q1",
+            header: "",
+            question: "Done?",
+            isOther: false,
+            isSecret: false,
+            options: undefined,
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("ignores delta events missing required fields", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/delta",
+          params: { threadId: "", itemId: "item-1", delta: "Hello" },
+        },
+      });
+    });
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/delta",
+          params: { threadId: "thread-1", itemId: "", delta: "Hello" },
+        },
+      });
+    });
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/delta",
+          params: { threadId: "thread-1", itemId: "item-1", delta: "" },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageDelta).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("passes engine hint when thread session id is updated", async () => {
+    const handlers: Handlers = {
+      onThreadSessionIdUpdated: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-opencode",
+        message: {
+          method: "thread/started",
+          params: {
+            threadId: "opencode-pending-1",
+            sessionId: "ses_1",
+            engine: "opencode",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onThreadSessionIdUpdated).toHaveBeenCalledWith(
+      "ws-opencode",
+      "opencode-pending-1",
+      "ses_1",
+      "opencode",
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("emits fallback assistant completion from turn/completed result text when no delta arrived", async () => {
+    const handlers: Handlers = {
+      onAgentMessageCompleted: vi.fn(),
+      onTurnCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            result: { text: "final response from result" },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "turn-1",
+      text: "final response from result",
+    });
+    expect(handlers.onTurnCompleted).toHaveBeenCalledWith("ws-1", "thread-1", "turn-1");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("does not emit fallback assistant completion when delta already arrived", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+      onAgentMessageCompleted: vi.fn(),
+      onTurnCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/agentMessage/delta",
+          params: { threadId: "thread-1", itemId: "item-1", delta: "streaming..." },
+        },
+      });
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            result: { text: "final response from result" },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageCompleted).not.toHaveBeenCalled();
+    expect(handlers.onTurnCompleted).toHaveBeenCalledWith("ws-1", "thread-1", "turn-1");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("does not emit duplicated completion when item/completed already delivered agent text", async () => {
+    const handlers: Handlers = {
+      onAgentMessageCompleted: vi.fn(),
+      onTurnCompleted: vi.fn(),
+      onItemCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-1", text: "final response" },
+          },
+        },
+      });
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            result: { text: "final response" },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledTimes(1);
+    expect(handlers.onTurnCompleted).toHaveBeenCalledWith("ws-1", "thread-1", "turn-1");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("routes processing heartbeat events", async () => {
+    const handlers: Handlers = {
+      onProcessingHeartbeat: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "processing/heartbeat",
+          params: { threadId: "thread-1", pulse: 3 },
+        },
+      });
+    });
+
+    expect(handlers.onProcessingHeartbeat).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      3,
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("routes thread/compacted even when turnId is missing", async () => {
+    const handlers: Handlers = {
+      onContextCompacted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-2",
+        message: {
+          method: "thread/compacted",
+          params: { threadId: "thread-2" },
+        },
+      });
+    });
+
+    expect(handlers.onContextCompacted).toHaveBeenCalledWith(
+      "ws-2",
+      "thread-2",
+      "",
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("routes opencode text:delta through normalized realtime adapters when enabled", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+    };
+    const { root } = await mount(handlers, {
+      useNormalizedRealtimeAdapters: true,
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-opencode",
+        message: {
+          method: "text:delta",
+          params: {
+            threadId: "opencode:ses_99",
+            itemId: "assistant-1",
+            delta: "streaming text",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-opencode",
+      threadId: "opencode:ses_99",
+      itemId: "assistant-1",
+      delta: "streaming text",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("does not route opencode text:delta when normalized realtime adapters are disabled", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-opencode",
+        message: {
+          method: "text:delta",
+          params: {
+            threadId: "opencode:ses_99",
+            itemId: "assistant-1",
+            delta: "streaming text",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageDelta).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps token usage updates when normalized realtime adapters handle item/completed", async () => {
+    const handlers: Handlers = {
+      onThreadTokenUsageUpdated: vi.fn(),
+      onAgentMessageCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers, {
+      useNormalizedRealtimeAdapters: true,
+    });
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-1", text: "Done" },
+            usage: {
+              input_tokens: 10,
+              output_tokens: 5,
+              cached_input_tokens: 2,
+              model_context_window: 128000,
+            },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "item-1",
+      text: "Done",
+    });
+    expect(handlers.onThreadTokenUsageUpdated).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      {
+        total: {
+          inputTokens: 10,
+          outputTokens: 5,
+          cachedInputTokens: 2,
+          totalTokens: 15,
+        },
+        last: {
+          inputTokens: 10,
+          outputTokens: 5,
+          cachedInputTokens: 2,
+          totalTokens: 15,
+        },
+        modelContextWindow: 128000,
+      },
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("prefers token_count last snapshot while keeping total snapshot", async () => {
+    const handlers: Handlers = {
+      onThreadTokenUsageUpdated: vi.fn(),
+      getActiveCodexThreadId: vi.fn(() => "thread-codex-1"),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "token_count",
+          params: {
+            info: {
+              total_token_usage: {
+                input_tokens: 180000,
+                cached_input_tokens: 0,
+                model_context_window: 200000,
+              },
+              last_token_usage: {
+                input_tokens: 20000,
+                cached_input_tokens: 0,
+                model_context_window: 200000,
+              },
+            },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onThreadTokenUsageUpdated).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-codex-1",
+      {
+        total: {
+          inputTokens: 180000,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 180000,
+        },
+        last: {
+          inputTokens: 20000,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 20000,
+        },
+        modelContextWindow: 200000,
+      },
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps token_count last usage as zero when only total snapshot exists", async () => {
+    const handlers: Handlers = {
+      onThreadTokenUsageUpdated: vi.fn(),
+      getActiveCodexThreadId: vi.fn(() => "thread-codex-2"),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "token_count",
+          params: {
+            info: {
+              total_token_usage: {
+                input_tokens: 120000,
+                cached_input_tokens: 10000,
+                model_context_window: 200000,
+              },
+            },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onThreadTokenUsageUpdated).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-codex-2",
+      {
+        total: {
+          inputTokens: 120000,
+          outputTokens: 0,
+          cachedInputTokens: 10000,
+          totalTokens: 120000,
+        },
+        last: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 0,
+        },
+        modelContextWindow: 200000,
+      },
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("emits item/completed token usage updates when cached tokens are present", async () => {
+    const handlers: Handlers = {
+      onThreadTokenUsageUpdated: vi.fn(),
+      onItemCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { id: "tool-1", type: "command", status: "completed" },
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cached_input_tokens: 12,
+              model_context_window: 200000,
+            },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onThreadTokenUsageUpdated).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      {
+        total: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 12,
+          totalTokens: 0,
+        },
+        last: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 12,
+          totalTokens: 0,
+        },
+        modelContextWindow: 200000,
+      },
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+});

@@ -1,0 +1,1316 @@
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type {
+  ComposerSendShortcut,
+  ComposerEditorSettings,
+  ConversationItem,
+  CustomCommandOption,
+  CustomPromptOption,
+  DictationTranscript,
+  EngineType,
+  MessageSendOptions,
+  OpenCodeAgentOption,
+  QueuedMessage,
+  RateLimitSnapshot,
+  ThreadTokenUsage,
+  TurnPlan,
+} from "../../../types";
+import type {
+  ReviewPromptState,
+  ReviewPromptStep,
+} from "../../threads/hooks/useReviewPrompt";
+import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
+import { computeDictationInsertion } from "../../../utils/dictation";
+import { useComposerAutocompleteState } from "../hooks/useComposerAutocompleteState";
+import { usePromptHistory } from "../hooks/usePromptHistory";
+import { useInlineHistoryCompletion } from "../hooks/useInlineHistoryCompletion";
+import { recordHistory as recordInputHistory } from "../hooks/useInputHistoryStore";
+import { ChatInputBoxAdapter } from "./ChatInputBox/ChatInputBoxAdapter";
+import type { ChatInputBoxHandle } from "./ChatInputBox/ChatInputBoxAdapter";
+import { accessModeToPermissionMode, permissionModeToAccessMode } from "./ChatInputBox/types";
+import { ReviewInlinePrompt } from "./ReviewInlinePrompt";
+import type {
+  ContextCompactionState,
+  ContextSelectionChip,
+  DualContextUsageViewModel,
+  PermissionMode,
+  SelectedAgent as ChatInputSelectedAgent,
+} from "./ChatInputBox/types";
+import { StatusPanel } from "../../status-panel/components/StatusPanel";
+import { useStatusPanelData } from "../../status-panel/hooks/useStatusPanelData";
+import {
+  assembleSinglePrompt,
+  shouldAssemblePrompt,
+} from "../utils/promptAssembler";
+import {
+  extractInlineSelections,
+  mergeUniqueNames,
+} from "../utils/inlineSelections";
+import { compactThreadContext } from "../../../services/tauri";
+import { pushErrorToast } from "../../../services/toasts";
+import { getManualMemoryInjectionMode } from "../../project-memory/utils/manualInjectionMode";
+
+type ComposerProps = {
+  kanbanContextMode?: "new" | "inherit";
+  onKanbanContextModeChange?: (mode: "new" | "inherit") => void;
+  items?: ConversationItem[];
+  onSend: (
+    text: string,
+    images: string[],
+    options?: MessageSendOptions,
+  ) => void | Promise<void>;
+  onQueue: (
+    text: string,
+    images: string[],
+    options?: MessageSendOptions,
+  ) => void | Promise<void>;
+  onStop: () => void;
+  canStop: boolean;
+  disabled?: boolean;
+  isProcessing: boolean;
+  steerEnabled: boolean;
+  collaborationModes: { id: string; label: string }[];
+  collaborationModesEnabled: boolean;
+  selectedCollaborationModeId: string | null;
+  onSelectCollaborationMode: (id: string | null) => void;
+  // Engine props
+  engines?: EngineDisplayInfo[];
+  selectedEngine?: EngineType;
+  onSelectEngine?: (engine: EngineType) => void;
+  // Model props
+  models: { id: string; displayName: string; model: string }[];
+  selectedModelId: string | null;
+  onSelectModel: (id: string) => void;
+  reasoningOptions: string[];
+  selectedEffort: string | null;
+  onSelectEffort: (effort: string) => void;
+  reasoningSupported: boolean;
+  opencodeAgents?: OpenCodeAgentOption[];
+  selectedOpenCodeAgent?: string | null;
+  onSelectOpenCodeAgent?: (agentId: string | null) => void;
+  selectedAgent?: ChatInputSelectedAgent | null;
+  onAgentSelect?: (agent: ChatInputSelectedAgent | null) => void;
+  onOpenAgentSettings?: () => void;
+  onOpenModelSettings?: (providerId?: string) => void;
+  opencodeVariantOptions?: string[];
+  selectedOpenCodeVariant?: string | null;
+  onSelectOpenCodeVariant?: (variant: string | null) => void;
+  accessMode: "default" | "read-only" | "current" | "full-access";
+  onSelectAccessMode: (mode: "default" | "read-only" | "current" | "full-access") => void;
+  skills: { name: string; description?: string; source?: string }[];
+  prompts: CustomPromptOption[];
+  commands?: CustomCommandOption[];
+  files: string[];
+  directories?: string[];
+  gitignoredFiles?: Set<string>;
+  gitignoredDirectories?: Set<string>;
+  contextUsage?: ThreadTokenUsage | null;
+  contextDualViewEnabled?: boolean;
+  isContextCompacting?: boolean;
+  accountRateLimits?: RateLimitSnapshot | null;
+  usageShowRemaining?: boolean;
+  onRefreshAccountRateLimits?: () => Promise<void> | void;
+  queuedMessages?: QueuedMessage[];
+  onEditQueued?: (item: QueuedMessage) => void;
+  onDeleteQueued?: (id: string) => void;
+  sendLabel?: string;
+  draftText?: string;
+  onDraftChange?: (text: string) => void;
+  historyKey?: string | null;
+  attachedImages?: string[];
+  onPickImages?: () => void;
+  onAttachImages?: (paths: string[]) => void;
+  onRemoveImage?: (path: string) => void;
+  prefillDraft?: QueuedMessage | null;
+  onPrefillHandled?: (id: string) => void;
+  insertText?: QueuedMessage | null;
+  onInsertHandled?: (id: string) => void;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  editorSettings?: ComposerEditorSettings;
+  sendShortcut?: ComposerSendShortcut;
+  textareaHeight?: number;
+  onTextareaHeightChange?: (height: number) => void;
+  dictationEnabled?: boolean;
+  dictationState?: "idle" | "listening" | "processing";
+  dictationLevel?: number;
+  onToggleDictation?: () => void;
+  onOpenDictationSettings?: () => void;
+  onOpenExperimentalSettings?: () => void;
+  dictationTranscript?: DictationTranscript | null;
+  onDictationTranscriptHandled?: (id: string) => void;
+  dictationError?: string | null;
+  onDismissDictationError?: () => void;
+  dictationHint?: string | null;
+  onDismissDictationHint?: () => void;
+  reviewPrompt?: ReviewPromptState;
+  onReviewPromptClose?: () => void;
+  onReviewPromptShowPreset?: () => void;
+  onReviewPromptChoosePreset?: (
+    preset: Exclude<ReviewPromptStep, "preset"> | "uncommitted",
+  ) => void;
+  highlightedPresetIndex?: number;
+  onReviewPromptHighlightPreset?: (index: number) => void;
+  highlightedBranchIndex?: number;
+  onReviewPromptHighlightBranch?: (index: number) => void;
+  highlightedCommitIndex?: number;
+  onReviewPromptHighlightCommit?: (index: number) => void;
+  onReviewPromptKeyDown?: (event: {
+    key: string;
+    shiftKey?: boolean;
+    preventDefault: () => void;
+  }) => boolean;
+  onReviewPromptSelectBranch?: (value: string) => void;
+  onReviewPromptSelectBranchAtIndex?: (index: number) => void;
+  onReviewPromptConfirmBranch?: () => Promise<void>;
+  onReviewPromptSelectCommit?: (sha: string, title: string) => void;
+  onReviewPromptSelectCommitAtIndex?: (index: number) => void;
+  onReviewPromptConfirmCommit?: () => Promise<void>;
+  onReviewPromptUpdateCustomInstructions?: (value: string) => void;
+  onReviewPromptConfirmCustom?: () => Promise<void>;
+  linkedKanbanPanels?: {
+    id: string;
+    name: string;
+    workspaceId: string;
+    createdAt?: number;
+  }[];
+  selectedLinkedKanbanPanelId?: string | null;
+  onSelectLinkedKanbanPanel?: (panelId: string | null) => void;
+  onOpenLinkedKanbanPanel?: (panelId: string) => void;
+  activeFilePath?: string | null;
+  activeFileLineRange?: { startLine: number; endLine: number } | null;
+  fileReferenceMode?: "path" | "none";
+  activeWorkspaceId?: string | null;
+  activeThreadId?: string | null;
+  plan?: TurnPlan | null;
+  isPlanMode?: boolean;
+  onOpenDiffPath?: (path: string) => void;
+  onRewind?: () => void;
+};
+
+type ManualMemorySelection = {
+  id: string;
+  title: string;
+  summary: string;
+  detail: string;
+  kind: string;
+  importance: string;
+  updatedAt: number;
+  tags: string[];
+};
+
+type InlineFileReferenceSelection = {
+  id: string;
+  icon: "📁" | "📄";
+  label: string;
+  path: string;
+};
+
+const EMPTY_ITEMS: ConversationItem[] = [];
+const COMPOSER_MIN_HEIGHT = 20;
+const COMPOSER_EXPAND_HEIGHT = 80;
+
+const MANUAL_MEMORY_USER_INPUT_REGEX =
+  /(?:^|\n)\s*用户输入[:：]\s*([\s\S]*?)(?=\n+\s*(?:助手输出摘要|助手输出)[:：]|$)/;
+const MANUAL_MEMORY_ASSISTANT_SUMMARY_REGEX =
+  /(?:^|\n)\s*助手输出摘要[:：]\s*([\s\S]*?)(?=\n+\s*(?:助手输出|用户输入)[:：]|$)/;
+const INLINE_FILE_REFERENCE_TOKEN_REGEX = /(📁|📄)\s+([^\n`📁📄]+?)\s+`([^`\n]+)`/gu;
+
+function clampUsagePercent(percent: number): number {
+  if (!Number.isFinite(percent)) {
+    return 0;
+  }
+  return Math.min(Math.max(percent, 0), 100);
+}
+
+function isCompactedConversationItem(item: ConversationItem): boolean {
+  if (item.kind !== "message" || item.role !== "assistant") {
+    return false;
+  }
+  if (item.id.startsWith("context-compacted-")) {
+    return true;
+  }
+  return item.text.trim().toLowerCase() === "context compacted.";
+}
+
+function resolveCompactionState(
+  items: ConversationItem[],
+  isContextCompacting: boolean,
+): ContextCompactionState {
+  if (isContextCompacting) {
+    return "compacting";
+  }
+  if (items.some(isCompactedConversationItem)) {
+    return "compacted";
+  }
+  return "idle";
+}
+
+function resolveDualContextUsageModel(
+  contextUsage: ThreadTokenUsage | null,
+  items: ConversationItem[],
+  isContextCompacting: boolean,
+): DualContextUsageViewModel {
+  const contextWindow = Math.max(contextUsage?.modelContextWindow ?? 0, 0);
+  const lastInput = Math.max(contextUsage?.last.inputTokens ?? 0, 0);
+  const lastCached = Math.max(contextUsage?.last.cachedInputTokens ?? 0, 0);
+  // Use current/last snapshot only for context window occupancy.
+  // total.* is cumulative session usage and can exceed context window after compaction.
+  const usedTokens = lastInput + lastCached;
+  const hasUsage = usedTokens > 0 && contextWindow > 0;
+  const percent = contextWindow > 0 ? clampUsagePercent((usedTokens / contextWindow) * 100) : 0;
+  return {
+    usedTokens,
+    contextWindow,
+    percent,
+    hasUsage,
+    compactionState: resolveCompactionState(
+      items,
+      isContextCompacting,
+    ),
+  };
+}
+
+function normalizeInlineFileReferenceTokens(text: string) {
+  return text.replace(
+    INLINE_FILE_REFERENCE_TOKEN_REGEX,
+    (_full, _icon: string, _name: string, fullPath: string) => fullPath,
+  );
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractInlineFileReferenceTokens(
+  text: string,
+  existingReferenceIds: Set<string> = new Set(),
+) {
+  const extracted: InlineFileReferenceSelection[] = [];
+  const seenInBatch = new Set<string>();
+  const cleanedText = text.replace(
+    INLINE_FILE_REFERENCE_TOKEN_REGEX,
+    (
+      _full,
+      iconRaw: string,
+      nameRaw: string,
+      fullPathRaw: string,
+      offset: number,
+      source: string,
+    ) => {
+      const icon = iconRaw === "📁" ? "📁" : "📄";
+      const name = nameRaw.trim();
+      const fullPath = fullPathRaw.trim();
+      const id = `${icon}:${fullPath}`;
+      const label = `${icon} ${name}`;
+      const prefixText = source.slice(0, offset);
+      const hasVisibleLabelBefore = new RegExp(
+        `(?:^|\\s)${escapeRegExp(label)}(?:\\s|$)`,
+      ).test(prefixText);
+      const seenBefore = seenInBatch.has(id);
+      if (seenBefore) {
+        return "";
+      }
+      seenInBatch.add(id);
+      const isExistingReference = existingReferenceIds.has(id);
+      if (isExistingReference) {
+        // Keep one visible label for already-tracked refs; only trim duplicates.
+        return hasVisibleLabelBefore ? "" : label;
+      }
+      if (hasVisibleLabelBefore) {
+        return "";
+      }
+      extracted.push({
+        id,
+        icon,
+        label,
+        path: fullPath,
+      });
+      return label;
+    },
+  );
+  return {
+    cleanedText: cleanedText
+      .replace(/ {3,}/g, "  ")
+      .replace(/[ \t]+\n/g, "\n"),
+    extracted,
+  };
+}
+
+function replaceVisibleFileReferenceLabels(
+  text: string,
+  refs: InlineFileReferenceSelection[],
+) {
+  let nextText = text;
+  for (const ref of refs) {
+    const pattern = new RegExp(escapeRegExp(ref.label), "g");
+    if (!pattern.test(nextText)) {
+      continue;
+    }
+    nextText = nextText.replace(pattern, ref.path);
+  }
+  return nextText;
+}
+
+function resolveManualMemoryChipTitle(memory: ManualMemorySelection) {
+  const detail = memory.detail.trim();
+  if (detail) {
+    const matched = detail.match(MANUAL_MEMORY_USER_INPUT_REGEX);
+    if (matched?.[1]) {
+      const normalized = matched[1].replace(/\s+/g, " ").trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+    const firstLine = detail
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    if (firstLine) {
+      return firstLine;
+    }
+  }
+  const fallbackSummary = memory.summary.trim();
+  if (fallbackSummary) {
+    return fallbackSummary;
+  }
+  return "（未提取到用户输入）";
+}
+
+function resolveManualMemoryChipDetail(memory: ManualMemorySelection) {
+  const detail = memory.detail.trim();
+  if (detail) {
+    const matched = detail.match(MANUAL_MEMORY_ASSISTANT_SUMMARY_REGEX);
+    if (matched?.[1]) {
+      const normalized = matched[1].replace(/\s+/g, " ").trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+  const fallbackSummary = memory.summary.trim();
+  if (fallbackSummary) {
+    return fallbackSummary;
+  }
+  return "";
+}
+
+const OPENCODE_DIRECT_COMMANDS = new Set(["status", "mcp", "export", "share"]);
+
+function normalizeCommandChipName(name: string) {
+  const token = name.trim().replace(/^\/+/, "").split(/\s+/)[0];
+  return token ? token.toLowerCase() : "";
+}
+
+export const Composer = memo(function Composer({
+  kanbanContextMode: _kanbanContextMode = "new",
+  onKanbanContextModeChange: _onKanbanContextModeChange,
+  items = EMPTY_ITEMS,
+  onSend,
+  onQueue: _onQueue,
+  onStop,
+  canStop,
+  disabled = false,
+  isProcessing,
+  steerEnabled: _steerEnabled,
+  collaborationModes: _collaborationModes,
+  collaborationModesEnabled: _collaborationModesEnabled,
+  selectedCollaborationModeId: _selectedCollaborationModeId,
+  onSelectCollaborationMode: _onSelectCollaborationMode,
+  engines,
+  selectedEngine,
+  onSelectEngine,
+  models,
+  selectedModelId,
+  onSelectModel,
+  reasoningOptions,
+  selectedEffort,
+  onSelectEffort,
+  reasoningSupported,
+  opencodeAgents = [],
+  selectedOpenCodeAgent = null,
+  onSelectOpenCodeAgent,
+  selectedAgent = null,
+  onAgentSelect,
+  onOpenAgentSettings,
+  onOpenModelSettings,
+  opencodeVariantOptions: _opencodeVariantOptions = [],
+  selectedOpenCodeVariant: _selectedOpenCodeVariant = null,
+  onSelectOpenCodeVariant: _onSelectOpenCodeVariant,
+  accessMode,
+  onSelectAccessMode,
+  skills,
+  prompts,
+  commands = [],
+  files,
+  directories = [],
+  gitignoredFiles,
+  gitignoredDirectories,
+  contextUsage = null,
+  contextDualViewEnabled = false,
+  isContextCompacting = false,
+  accountRateLimits = null,
+  usageShowRemaining = false,
+  onRefreshAccountRateLimits,
+  queuedMessages = [],
+  onDeleteQueued,
+  sendLabel: _sendLabel = "Send",
+  draftText = "",
+  onDraftChange,
+  historyKey = null,
+  attachedImages = [],
+  onPickImages,
+  onAttachImages,
+  onRemoveImage,
+  prefillDraft = null,
+  onPrefillHandled,
+  insertText = null,
+  onInsertHandled,
+  textareaRef: externalTextareaRef,
+  editorSettings: _editorSettingsProp,
+  sendShortcut = "enter",
+  textareaHeight = 80,
+  onTextareaHeightChange,
+  dictationEnabled: _dictationEnabled = false,
+  dictationState: _dictationState = "idle",
+  dictationLevel: _dictationLevel = 0,
+  onToggleDictation: _onToggleDictation,
+  onOpenDictationSettings: _onOpenDictationSettings,
+  onOpenExperimentalSettings: _onOpenExperimentalSettings,
+  dictationTranscript = null,
+  onDictationTranscriptHandled,
+  dictationError: _dictationError = null,
+  onDismissDictationError: _onDismissDictationError,
+  dictationHint: _dictationHint = null,
+  onDismissDictationHint: _onDismissDictationHint,
+  reviewPrompt,
+  onReviewPromptClose: _onReviewPromptClose,
+  onReviewPromptShowPreset: _onReviewPromptShowPreset,
+  onReviewPromptChoosePreset: _onReviewPromptChoosePreset,
+  highlightedPresetIndex: _highlightedPresetIndex,
+  onReviewPromptHighlightPreset: _onReviewPromptHighlightPreset,
+  highlightedBranchIndex: _highlightedBranchIndex,
+  onReviewPromptHighlightBranch: _onReviewPromptHighlightBranch,
+  highlightedCommitIndex: _highlightedCommitIndex,
+  onReviewPromptHighlightCommit: _onReviewPromptHighlightCommit,
+  onReviewPromptKeyDown: _onReviewPromptKeyDown,
+  onReviewPromptSelectBranch: _onReviewPromptSelectBranch,
+  onReviewPromptSelectBranchAtIndex: _onReviewPromptSelectBranchAtIndex,
+  onReviewPromptConfirmBranch: _onReviewPromptConfirmBranch,
+  onReviewPromptSelectCommit: _onReviewPromptSelectCommit,
+  onReviewPromptSelectCommitAtIndex: _onReviewPromptSelectCommitAtIndex,
+  onReviewPromptConfirmCommit: _onReviewPromptConfirmCommit,
+  onReviewPromptUpdateCustomInstructions: _onReviewPromptUpdateCustomInstructions,
+  onReviewPromptConfirmCustom: _onReviewPromptConfirmCustom,
+  linkedKanbanPanels: _linkedKanbanPanels = [],
+  selectedLinkedKanbanPanelId: _selectedLinkedKanbanPanelId = null,
+  onSelectLinkedKanbanPanel: _onSelectLinkedKanbanPanel,
+  onOpenLinkedKanbanPanel: _onOpenLinkedKanbanPanel,
+  activeFilePath = null,
+  activeFileLineRange = null,
+  fileReferenceMode = "path",
+  activeWorkspaceId = null,
+  activeThreadId = null,
+  plan = null,
+  isPlanMode = false,
+  onOpenDiffPath,
+  onRewind,
+}: ComposerProps) {
+  const { t } = useTranslation();
+  const isCodexEngine = selectedEngine === "codex";
+  const isReviewQuickActionEngine =
+    selectedEngine === "codex" || selectedEngine === "claude";
+  const showStatusPanel = selectedEngine === "claude" || selectedEngine === "codex";
+  const { todoTotal, subagentTotal, fileChanges, commandTotal } = useStatusPanelData(
+    items,
+    { isCodexEngine },
+  );
+  const hasStatusPanelActivity = useMemo(() => {
+    const hasLegacyActivity =
+      todoTotal > 0 ||
+      subagentTotal > 0 ||
+      fileChanges.length > 0 ||
+      isPlanMode ||
+      Boolean(plan);
+    if (isCodexEngine) {
+      return hasLegacyActivity || commandTotal > 0;
+    }
+    return hasLegacyActivity;
+  }, [
+    commandTotal,
+    fileChanges.length,
+    isCodexEngine,
+    isPlanMode,
+    plan,
+    subagentTotal,
+    todoTotal,
+  ]);
+  const [text, setText] = useState(draftText);
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [selectedSkillNames, setSelectedSkillNames] = useState<string[]>([]);
+  const [selectedCommonsNames, setSelectedCommonsNames] = useState<string[]>([]);
+  const [selectedManualMemories, setSelectedManualMemories] = useState<
+    ManualMemorySelection[]
+  >([]);
+  const [selectedInlineFileReferences, setSelectedInlineFileReferences] = useState<
+    InlineFileReferenceSelection[]
+  >([]);
+  const [isComposerCollapsed, setIsComposerCollapsed] = useState(false);
+  const [statusPanelExpanded, setStatusPanelExpanded] = useState(
+    hasStatusPanelActivity,
+  );
+  const previousStatusPanelActivityRef = useRef(hasStatusPanelActivity);
+  const [dismissedActiveFileReference, setDismissedActiveFileReference] = useState<
+    string | null
+  >(null);
+  const [openCodeProviderTone, _setOpenCodeProviderTone] = useState<
+    "is-ok" | "is-runtime" | "is-fail"
+  >("is-fail");
+  const [openCodeProviderToneReady, _setOpenCodeProviderToneReady] = useState(false);
+  const lastExpandedHeightRef = useRef(
+    Math.max(textareaHeight, COMPOSER_EXPAND_HEIGHT),
+  );
+  const internalRef = useRef<HTMLTextAreaElement | null>(null);
+  const textareaRef = externalTextareaRef ?? internalRef;
+  const chatInputRef = useRef<ChatInputBoxHandle>(null);
+  const activeFileReferenceSignature =
+    activeFilePath
+      ? activeFileLineRange
+        ? `${activeFilePath}:${activeFileLineRange.startLine}-${activeFileLineRange.endLine}`
+        : `${activeFilePath}:all`
+      : null;
+  const hasActiveFileReference = Boolean(
+    activeFileReferenceSignature &&
+      fileReferenceMode === "path" &&
+      dismissedActiveFileReference !== activeFileReferenceSignature,
+  );
+
+  const selectedSkills = skills.filter((skill) => selectedSkillNames.includes(skill.name));
+  const selectedCommons = commands.filter((item) =>
+    selectedCommonsNames.includes(item.name),
+  );
+  const selectedOpenCodeDirectCommand = useMemo(() => {
+    if (selectedEngine !== "opencode") {
+      return null;
+    }
+    for (const name of selectedCommonsNames) {
+      const normalized = normalizeCommandChipName(name);
+      if (OPENCODE_DIRECT_COMMANDS.has(normalized)) {
+        return normalized;
+      }
+    }
+    return null;
+  }, [selectedCommonsNames, selectedEngine]);
+
+  useEffect(() => {
+    if (!dismissedActiveFileReference) {
+      return;
+    }
+    if (!activeFileReferenceSignature || activeFileReferenceSignature !== dismissedActiveFileReference) {
+      setDismissedActiveFileReference(null);
+    }
+  }, [activeFileReferenceSignature, dismissedActiveFileReference]);
+
+  const activeFileLinesLabel = useMemo(() => {
+    if (!activeFileLineRange) {
+      return undefined;
+    }
+    if (activeFileLineRange.startLine === activeFileLineRange.endLine) {
+      return `L${activeFileLineRange.startLine}`;
+    }
+    return `L${activeFileLineRange.startLine}-${activeFileLineRange.endLine}`;
+  }, [activeFileLineRange]);
+
+  const selectedChatInputAgent = useMemo<ChatInputSelectedAgent | null>(() => {
+    if (selectedEngine === "opencode") {
+      if (!selectedOpenCodeAgent) {
+        return null;
+      }
+      const matchedAgent = opencodeAgents.find(
+        (agent) => agent.id === selectedOpenCodeAgent,
+      );
+      return {
+        id: selectedOpenCodeAgent,
+        name: selectedOpenCodeAgent,
+        prompt: matchedAgent?.description,
+      };
+    }
+    return selectedAgent;
+  }, [opencodeAgents, selectedAgent, selectedEngine, selectedOpenCodeAgent]);
+  const opencodeDisconnected =
+    selectedEngine === "opencode" && openCodeProviderToneReady && openCodeProviderTone === "is-fail";
+
+  const contextSelectionChips = useMemo<ContextSelectionChip[]>(
+    () => [
+      ...selectedSkills.map((skill) => ({
+        type: "skill" as const,
+        name: skill.name,
+        description: skill.description,
+      })),
+      ...selectedCommons.map((item) => ({
+        type: "commons" as const,
+        name: item.name,
+        description: item.description,
+      })),
+    ],
+    [selectedCommons, selectedSkills],
+  );
+
+
+  useEffect(() => {
+    if (textareaHeight > COMPOSER_MIN_HEIGHT) {
+      lastExpandedHeightRef.current = textareaHeight;
+    }
+  }, [textareaHeight]);
+
+  useEffect(() => {
+    const hadActivity = previousStatusPanelActivityRef.current;
+    if (!hasStatusPanelActivity) {
+      setStatusPanelExpanded(false);
+    } else if (!hadActivity) {
+      setStatusPanelExpanded(true);
+    }
+    previousStatusPanelActivityRef.current = hasStatusPanelActivity;
+  }, [hasStatusPanelActivity]);
+
+  useEffect(() => {
+    setSelectedManualMemories([]);
+    setSelectedInlineFileReferences([]);
+  }, [activeThreadId, activeWorkspaceId]);
+
+  const handleExpandComposer = useCallback(() => {
+    setIsComposerCollapsed(false);
+    onTextareaHeightChange?.(
+      Math.max(lastExpandedHeightRef.current, COMPOSER_EXPAND_HEIGHT),
+    );
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, [onTextareaHeightChange, textareaRef]);
+
+  useEffect(() => {
+    setText((prev) => (prev === draftText ? prev : draftText));
+  }, [draftText]);
+
+  const setComposerText = useCallback(
+    (next: string) => {
+      setText(next);
+      onDraftChange?.(next);
+    },
+    [onDraftChange],
+  );
+
+  useEffect(() => {
+    const existingReferenceIds = new Set(
+      selectedInlineFileReferences
+        .filter((entry) => text.includes(entry.label))
+        .map((entry) => entry.id),
+    );
+    const { cleanedText, extracted } = extractInlineFileReferenceTokens(
+      text,
+      existingReferenceIds,
+    );
+    if (extracted.length > 0) {
+      setSelectedInlineFileReferences((prev) => {
+        const next = [...prev];
+        for (const ref of extracted) {
+          if (next.some((entry) => entry.id === ref.id)) {
+            continue;
+          }
+          next.push(ref);
+        }
+        return next;
+      });
+    }
+    if (cleanedText !== text) {
+      setComposerText(cleanedText);
+      return;
+    }
+    const {
+      cleanedText: cleanedSelectionText,
+      matchedSkillNames,
+      matchedCommonsNames,
+    } =
+      extractInlineSelections(text, skills, commands);
+    if (matchedSkillNames.length > 0) {
+      setSelectedSkillNames((prev) => mergeUniqueNames(prev, matchedSkillNames));
+    }
+    if (matchedCommonsNames.length > 0) {
+      setSelectedCommonsNames((prev) => mergeUniqueNames(prev, matchedCommonsNames));
+    }
+    if (cleanedSelectionText !== text) {
+      setComposerText(cleanedSelectionText);
+    }
+  }, [commands, selectedInlineFileReferences, setComposerText, skills, text]);
+
+  const handleSelectManualMemory = useCallback((memory: ManualMemorySelection) => {
+    setSelectedManualMemories((prev) => {
+      if (prev.some((entry) => entry.id === memory.id)) {
+        return prev.filter((entry) => entry.id !== memory.id);
+      }
+      return [...prev, memory];
+    });
+  }, []);
+
+  const {
+    isAutocompleteOpen,
+    activeAutocompleteTrigger: _activeAutocompleteTrigger,
+    autocompleteMatches: _autocompleteMatches,
+    highlightIndex: _highlightIndex,
+    setHighlightIndex: _setHighlightIndex,
+    applyAutocomplete: _applyAutocomplete,
+    handleInputKeyDown: _handleInputKeyDown,
+    handleTextChange,
+    handleSelectionChange,
+  } = useComposerAutocompleteState({
+    text,
+    selectionStart,
+    disabled,
+    skills,
+    prompts,
+    commands,
+    files,
+    directories,
+    gitignoredFiles,
+    gitignoredDirectories,
+    workspaceId: activeWorkspaceId,
+    onManualMemorySelect: handleSelectManualMemory,
+    textareaRef,
+    setText: setComposerText,
+    setSelectionStart,
+  });
+  const reviewPromptOpen = Boolean(reviewPrompt);
+  const suggestionsOpen = reviewPromptOpen || isAutocompleteOpen;
+
+  const {
+    handleHistoryKeyDown: _handleHistoryKeyDown,
+    handleHistoryTextChange,
+    recordHistory,
+    resetHistoryNavigation,
+  } = usePromptHistory({
+    historyKey,
+    text,
+    hasAttachments: attachedImages.length > 0,
+    disabled,
+    isAutocompleteOpen: suggestionsOpen,
+    textareaRef,
+    setText: setComposerText,
+    setSelectionStart,
+  });
+
+  const inlineCompletion = useInlineHistoryCompletion();
+
+  const handleTextChangeWithHistory = useCallback(
+    (next: string, cursor: number | null) => {
+      handleHistoryTextChange(next);
+      handleTextChange(next, cursor);
+      // Update inline history completion
+      if (!suggestionsOpen) {
+        inlineCompletion.updateQuery(next);
+      } else {
+        inlineCompletion.clear();
+      }
+    },
+    [handleHistoryTextChange, handleTextChange, suggestionsOpen, inlineCompletion],
+  );
+
+  const applyActiveFileReference = useCallback(
+    (message: string) => {
+      if (!(hasActiveFileReference && fileReferenceMode === "path" && activeFilePath)) {
+        return message;
+      }
+      const referenceTarget = activeFileLineRange
+        ? `${activeFilePath}#L${activeFileLineRange.startLine}-L${activeFileLineRange.endLine}`
+        : activeFilePath;
+      if (message.includes(referenceTarget) || message.includes(activeFilePath)) {
+        return message;
+      }
+      return `@file \`${referenceTarget}\`\n${message}`.trim();
+    },
+    [activeFileLineRange, activeFilePath, fileReferenceMode, hasActiveFileReference],
+  );
+
+  const handleClearContext = useCallback(() => {
+    if (activeFileReferenceSignature) {
+      setDismissedActiveFileReference(activeFileReferenceSignature);
+    }
+  }, [activeFileReferenceSignature]);
+
+  const handleAgentSelect = useCallback(
+    (agent: ChatInputSelectedAgent | null) => {
+      if (selectedEngine === "opencode") {
+        onSelectOpenCodeAgent?.(agent?.id ?? null);
+        return;
+      }
+      onAgentSelect?.(agent);
+    },
+    [onAgentSelect, onSelectOpenCodeAgent, selectedEngine],
+  );
+
+  const handleModeSelect = useCallback(
+    (mode: PermissionMode) => {
+      onSelectAccessMode(permissionModeToAccessMode(mode));
+    },
+    [onSelectAccessMode],
+  );
+
+  const handleToggleStatusPanel = useCallback(() => {
+    setStatusPanelExpanded((prev) => !prev);
+  }, []);
+
+  const handleRewind = useCallback(() => {
+    if (onRewind) {
+      onRewind();
+      return;
+    }
+    pushErrorToast({
+      title: t("rewind.title"),
+      message: t("rewind.notAvailable"),
+    });
+  }, [onRewind, t]);
+
+  const handleManualCompactContext = useCallback(async () => {
+    if (selectedEngine !== "codex") {
+      return;
+    }
+    if (!activeWorkspaceId || !activeThreadId) {
+      pushErrorToast({
+        title: t("chat.contextDualViewManualCompact"),
+        message: t("chat.contextDualViewManualCompactUnavailable"),
+      });
+      return;
+    }
+    try {
+      await compactThreadContext(activeWorkspaceId, activeThreadId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushErrorToast({
+        title: t("chat.contextDualViewManualCompact"),
+        message: message || t("chat.contextDualViewManualCompactFailed"),
+      });
+    }
+  }, [activeThreadId, activeWorkspaceId, selectedEngine, t]);
+
+  const handleCodexQuickCommand = useCallback((command: string) => {
+    if (disabled) {
+      return;
+    }
+    const normalized = command.trim().toLowerCase();
+    const isReviewCommand = /^\/review\b/.test(normalized);
+    const isFastCommand = /^\/fast\b/.test(normalized);
+    if (isFastCommand && selectedEngine !== "codex") {
+      return;
+    }
+    if (isReviewCommand && !isReviewQuickActionEngine) {
+      return;
+    }
+    if (!isReviewCommand && !isFastCommand && selectedEngine !== "codex") {
+      return;
+    }
+    void onSend(command, []);
+  }, [disabled, isReviewQuickActionEngine, onSend, selectedEngine]);
+
+  const handleSend = useCallback((submittedText?: string, submittedImages?: string[]) => {
+    if (disabled) {
+      return;
+    }
+    if (opencodeDisconnected) {
+      pushErrorToast({
+        title: "OpenCode 未连接",
+        message: "当前连接状态为红色，请先在 OpenCode 管理面板完成连接后再发送。",
+      });
+      return;
+    }
+    const trimmed = (submittedText ?? text).trim();
+    // Merge images from Composer state (file picker) and ChatInputBox (paste/drop)
+    const mergedImages = Array.from(
+      new Set([...attachedImages, ...(submittedImages ?? [])]),
+    );
+    if (!trimmed && mergedImages.length === 0 && !selectedOpenCodeDirectCommand) {
+      return;
+    }
+    if (selectedOpenCodeDirectCommand) {
+      onSend(`/${selectedOpenCodeDirectCommand}`, []);
+      setSelectedCommonsNames((prev) =>
+        prev.filter(
+          (name) => normalizeCommandChipName(name) !== selectedOpenCodeDirectCommand,
+        ),
+      );
+      setSelectedManualMemories([]);
+      setSelectedInlineFileReferences([]);
+      inlineCompletion.clear();
+      resetHistoryNavigation();
+      setComposerText("");
+      return;
+    }
+    if (trimmed) {
+      recordHistory(trimmed);
+      recordInputHistory(trimmed);
+    }
+    inlineCompletion.clear();
+    const finalText = shouldAssemblePrompt({
+      userInput: trimmed,
+      selectedSkillCount: selectedSkills.length,
+      selectedCommonsCount: selectedCommons.length,
+    })
+      ? assembleSinglePrompt({
+          userInput: trimmed,
+          skills: selectedSkills,
+          commons: selectedCommons.map((item) => ({ name: item.name })),
+        })
+      : trimmed;
+    const finalTextWithReference = applyActiveFileReference(finalText);
+    const resolvedFinalText = replaceVisibleFileReferenceLabels(
+      normalizeInlineFileReferenceTokens(finalTextWithReference),
+      selectedInlineFileReferences,
+    );
+    const selectedMemoryIds = selectedManualMemories.map((entry) => entry.id);
+    const selectedMemoryInjectionMode = getManualMemoryInjectionMode();
+    const sendOptions =
+      selectedMemoryIds.length > 0
+        ? { selectedMemoryIds, selectedMemoryInjectionMode }
+        : undefined;
+    const sendResult = onSend(resolvedFinalText, mergedImages, sendOptions);
+    void Promise.resolve(sendResult).finally(() => {
+      setSelectedManualMemories([]);
+      setSelectedInlineFileReferences([]);
+    });
+    resetHistoryNavigation();
+    setComposerText("");
+  }, [
+    attachedImages,
+    disabled,
+    applyActiveFileReference,
+    opencodeDisconnected,
+    selectedOpenCodeDirectCommand,
+    selectedCommons,
+    selectedSkills,
+    selectedInlineFileReferences,
+    selectedManualMemories,
+    onSend,
+    inlineCompletion,
+    recordHistory,
+    resetHistoryNavigation,
+    setComposerText,
+    setSelectedManualMemories,
+    text,
+  ]);
+
+  const handleRemoveManualMemory = useCallback((memoryId: string) => {
+    setSelectedManualMemories((prev) =>
+      prev.filter((entry) => entry.id !== memoryId),
+    );
+  }, []);
+
+  const handleRemoveContextChip = useCallback((chip: ContextSelectionChip) => {
+    if (chip.type === "skill") {
+      setSelectedSkillNames((prev) => prev.filter((name) => name !== chip.name));
+      return;
+    }
+    setSelectedCommonsNames((prev) => prev.filter((name) => name !== chip.name));
+  }, []);
+
+  useEffect(() => {
+    if (!prefillDraft) {
+      return;
+    }
+    setComposerText(prefillDraft.text);
+    resetHistoryNavigation();
+    onPrefillHandled?.(prefillDraft.id);
+  }, [onPrefillHandled, prefillDraft, resetHistoryNavigation, setComposerText]);
+
+  useEffect(() => {
+    if (!insertText) {
+      return;
+    }
+    setComposerText(insertText.text);
+    resetHistoryNavigation();
+    onInsertHandled?.(insertText.id);
+  }, [insertText, onInsertHandled, resetHistoryNavigation, setComposerText]);
+
+  useEffect(() => {
+    if (!dictationTranscript) {
+      return;
+    }
+    const textToInsert = dictationTranscript.text.trim();
+    if (!textToInsert) {
+      onDictationTranscriptHandled?.(dictationTranscript.id);
+      return;
+    }
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? selectionStart ?? text.length;
+    const end = textarea?.selectionEnd ?? start;
+    const { nextText, nextCursor } = computeDictationInsertion(
+      text,
+      textToInsert,
+      start,
+      end,
+    );
+    setComposerText(nextText);
+    resetHistoryNavigation();
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) {
+        return;
+      }
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(nextCursor, nextCursor);
+      handleSelectionChange(nextCursor);
+    });
+    onDictationTranscriptHandled?.(dictationTranscript.id);
+  }, [
+    dictationTranscript,
+    handleSelectionChange,
+    onDictationTranscriptHandled,
+    resetHistoryNavigation,
+    selectionStart,
+    setComposerText,
+    text,
+    textareaRef,
+  ]);
+
+  const legacyContextUsage = useMemo(
+    () =>
+      contextUsage
+        ? {
+            used: contextUsage.total.totalTokens,
+            total: contextUsage.modelContextWindow ?? 0,
+          }
+        : null,
+    [contextUsage],
+  );
+
+  const dualContextUsage = useMemo(
+    () =>
+      resolveDualContextUsageModel(
+        contextUsage,
+        items,
+        isContextCompacting,
+      ),
+    [contextUsage, isContextCompacting, items],
+  );
+  const codexContextDualViewEnabled = contextDualViewEnabled && isCodexEngine;
+  const shouldRenderReviewInlinePrompt =
+    isReviewQuickActionEngine &&
+    Boolean(reviewPrompt) &&
+    Boolean(_onReviewPromptClose) &&
+    Boolean(_onReviewPromptShowPreset) &&
+    Boolean(_onReviewPromptChoosePreset) &&
+    _highlightedPresetIndex !== undefined &&
+    Boolean(_onReviewPromptHighlightPreset) &&
+    _highlightedBranchIndex !== undefined &&
+    Boolean(_onReviewPromptHighlightBranch) &&
+    _highlightedCommitIndex !== undefined &&
+    Boolean(_onReviewPromptHighlightCommit) &&
+    Boolean(_onReviewPromptSelectBranch) &&
+    Boolean(_onReviewPromptSelectBranchAtIndex) &&
+    Boolean(_onReviewPromptConfirmBranch) &&
+    Boolean(_onReviewPromptSelectCommit) &&
+    Boolean(_onReviewPromptSelectCommitAtIndex) &&
+    Boolean(_onReviewPromptConfirmCommit) &&
+    Boolean(_onReviewPromptUpdateCustomInstructions) &&
+    Boolean(_onReviewPromptConfirmCustom);
+
+  return (
+    <footer className={`composer${disabled ? " is-disabled" : ""}`}>
+      {showStatusPanel && (
+        <StatusPanel
+          items={items}
+          isProcessing={isProcessing}
+          expanded={statusPanelExpanded}
+          plan={plan}
+          isPlanMode={isPlanMode}
+          isCodexEngine={isCodexEngine}
+          onOpenDiffPath={onOpenDiffPath}
+        />
+      )}
+      <div className={`composer-shell${isComposerCollapsed ? " is-collapsed" : ""}`}>
+        {isComposerCollapsed ? (
+          <button
+            type="button"
+            className={`composer-shell-collapsed-strip${isProcessing ? " is-processing" : ""}`}
+            onClick={handleExpandComposer}
+            aria-label={t("composer.expandInput")}
+            title={t("composer.expandInput")}
+          >
+            <span className="composer-shell-collapsed-rail" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="composer-shell-collapsed-text">
+              {isProcessing ? t("composer.collapsedProcessing") : t("composer.expandInput")}
+            </span>
+          </button>
+        ) : (
+          <>
+          {/* Management toolbar (help, skill, commons, kanban) removed -- was disabled with {false && ...} */}
+
+        {selectedManualMemories.length > 0 && (
+          <div className="composer-memory-strip">
+            <div className="composer-memory-strip-head">
+              <span className="composer-memory-strip-label">
+                {t("composer.manualMemorySelection", {
+                  count: selectedManualMemories.length,
+                })}
+              </span>
+              <span className="composer-memory-strip-hint">
+                {t("composer.manualMemorySelectionHint")}
+              </span>
+            </div>
+            <div className="composer-memory-chip-list">
+              {selectedManualMemories.map((memory) => {
+                const chipTitle = resolveManualMemoryChipTitle(memory);
+                const chipDetail = resolveManualMemoryChipDetail(memory);
+                return (
+                  <article
+                    key={`manual-memory-${memory.id}`}
+                    className="composer-memory-chip"
+                  >
+                    <button
+                      type="button"
+                      className="composer-memory-chip-remove"
+                      onClick={() => handleRemoveManualMemory(memory.id)}
+                      title={t("composer.manualMemoryRemove", {
+                        title: memory.title,
+                      })}
+                      aria-label={t("composer.manualMemoryRemove", {
+                        title: memory.title,
+                      })}
+                    >
+                      ×
+                    </button>
+                    <div className="composer-memory-chip-main">
+                      <span className="composer-memory-chip-title">{chipTitle}</span>
+                      {chipDetail && (
+                        <span className="composer-memory-chip-summary">{chipDetail}</span>
+                      )}
+                      <span className="composer-memory-chip-meta">
+                        <span>{memory.kind}</span>
+                        <span>{memory.importance}</span>
+                        <span>
+                          {new Date(memory.updatedAt).toLocaleDateString(undefined, {
+                            month: "2-digit",
+                            day: "2-digit",
+                          })}
+                        </span>
+                      </span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {shouldRenderReviewInlinePrompt && reviewPrompt && (
+          <div
+            className="composer-suggestions popover-surface review-inline-suggestions"
+            role="listbox"
+            style={{
+              position: "relative",
+              left: "auto",
+              right: "auto",
+              top: "auto",
+              bottom: "auto",
+              width: "min(540px, 100%)",
+              maxWidth: "min(540px, 100%)",
+              marginBottom: "4px",
+            }}
+          >
+            <ReviewInlinePrompt
+              reviewPrompt={reviewPrompt}
+              onClose={_onReviewPromptClose!}
+              onShowPreset={_onReviewPromptShowPreset!}
+              onChoosePreset={_onReviewPromptChoosePreset!}
+              highlightedPresetIndex={_highlightedPresetIndex!}
+              onHighlightPreset={_onReviewPromptHighlightPreset!}
+              highlightedBranchIndex={_highlightedBranchIndex!}
+              onHighlightBranch={_onReviewPromptHighlightBranch!}
+              highlightedCommitIndex={_highlightedCommitIndex!}
+              onHighlightCommit={_onReviewPromptHighlightCommit!}
+              onSelectBranch={_onReviewPromptSelectBranch!}
+              onSelectBranchAtIndex={_onReviewPromptSelectBranchAtIndex!}
+              onConfirmBranch={_onReviewPromptConfirmBranch!}
+              onSelectCommit={_onReviewPromptSelectCommit!}
+              onSelectCommitAtIndex={_onReviewPromptSelectCommitAtIndex!}
+              onConfirmCommit={_onReviewPromptConfirmCommit!}
+              onUpdateCustomInstructions={_onReviewPromptUpdateCustomInstructions!}
+              onConfirmCustom={_onReviewPromptConfirmCustom!}
+              onKeyDown={_onReviewPromptKeyDown}
+            />
+          </div>
+        )}
+
+        <ChatInputBoxAdapter
+          ref={chatInputRef}
+          text={text}
+          disabled={disabled}
+          isProcessing={isProcessing}
+          canStop={canStop}
+          onSend={handleSend}
+          onStop={onStop}
+          onTextChange={handleTextChangeWithHistory}
+          selectedModelId={selectedModelId}
+          selectedEngine={selectedEngine}
+          engines={engines}
+          onSelectEngine={onSelectEngine}
+          models={models}
+          onSelectModel={onSelectModel}
+          reasoningOptions={reasoningOptions}
+          selectedEffort={selectedEffort}
+          onSelectEffort={onSelectEffort}
+          reasoningSupported={reasoningSupported}
+          attachments={attachedImages}
+          onAddAttachment={onPickImages}
+          onAttachImages={onAttachImages}
+          onRemoveAttachment={onRemoveImage}
+          textareaHeight={textareaHeight}
+          onHeightChange={onTextareaHeightChange}
+          contextUsage={legacyContextUsage}
+          contextDualViewEnabled={codexContextDualViewEnabled}
+          dualContextUsage={dualContextUsage}
+          onRequestContextCompaction={handleManualCompactContext}
+          queuedMessages={queuedMessages}
+          onDeleteQueued={onDeleteQueued}
+          suggestionsOpen={suggestionsOpen}
+          files={files}
+          directories={directories}
+          commands={commands}
+          workspaceId={activeWorkspaceId}
+          onManualMemorySelect={handleSelectManualMemory}
+          sendShortcut={sendShortcut}
+          placeholder={
+            sendShortcut === "cmdEnter"
+              ? t("chat.inputPlaceholderCmdEnter")
+              : t("chat.inputPlaceholderEnter")
+          }
+          activeFile={hasActiveFileReference ? (activeFilePath ?? undefined) : undefined}
+          selectedLines={hasActiveFileReference ? activeFileLinesLabel : undefined}
+          onClearContext={hasActiveFileReference ? handleClearContext : undefined}
+          selectedAgent={selectedChatInputAgent}
+          selectedContextChips={contextSelectionChips}
+          selectedManualMemoryIds={selectedManualMemories.map((entry) => entry.id)}
+          onRemoveContextChip={handleRemoveContextChip}
+          onAgentSelect={handleAgentSelect}
+          onOpenAgentSettings={onOpenAgentSettings}
+          onOpenModelSettings={onOpenModelSettings}
+          permissionMode={accessModeToPermissionMode(accessMode)}
+          onModeSelect={handleModeSelect}
+          selectedCollaborationModeId={_selectedCollaborationModeId}
+          onSelectCollaborationMode={_onSelectCollaborationMode}
+          accountRateLimits={accountRateLimits}
+          usageShowRemaining={usageShowRemaining}
+          onRefreshAccountRateLimits={onRefreshAccountRateLimits}
+          onCodexQuickCommand={handleCodexQuickCommand}
+          hasMessages={items.length > 0}
+          onRewind={handleRewind}
+          showRewindEntry={false}
+          statusPanelExpanded={statusPanelExpanded}
+          showStatusPanelToggle={showStatusPanel}
+          onToggleStatusPanel={handleToggleStatusPanel}
+        />
+          </>
+        )}
+      </div>
+    </footer>
+  );
+});

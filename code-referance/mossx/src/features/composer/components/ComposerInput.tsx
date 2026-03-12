@@ -1,0 +1,1632 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type {
+  ChangeEvent,
+  ClipboardEvent,
+  FocusEvent,
+  KeyboardEvent,
+  ReactNode,
+  RefObject,
+  SyntheticEvent,
+} from "react";
+import type { AutocompleteItem } from "../hooks/useComposerAutocomplete";
+import type { AccessMode, EngineType, RateLimitSnapshot, ThreadTokenUsage } from "../../../types";
+import type { OpenCodeAgentOption } from "../../../types";
+import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
+import ImagePlus from "lucide-react/dist/esm/icons/image-plus";
+import Mic from "lucide-react/dist/esm/icons/mic";
+import Gauge from "lucide-react/dist/esm/icons/gauge";
+import Square from "lucide-react/dist/esm/icons/square";
+import Brain from "lucide-react/dist/esm/icons/brain";
+import GitFork from "lucide-react/dist/esm/icons/git-fork";
+import PlusCircle from "lucide-react/dist/esm/icons/plus-circle";
+import Layers3 from "lucide-react/dist/esm/icons/layers-3";
+import Tag from "lucide-react/dist/esm/icons/tag";
+import Bot from "lucide-react/dist/esm/icons/bot";
+import Clock3 from "lucide-react/dist/esm/icons/clock-3";
+import Circle from "lucide-react/dist/esm/icons/circle";
+import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2";
+import Info from "lucide-react/dist/esm/icons/info";
+import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
+import ScrollText from "lucide-react/dist/esm/icons/scroll-text";
+import Wrench from "lucide-react/dist/esm/icons/wrench";
+import FileText from "lucide-react/dist/esm/icons/file-text";
+import Plug from "lucide-react/dist/esm/icons/plug";
+import Lock from "lucide-react/dist/esm/icons/lock";
+import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
+import Cpu from "lucide-react/dist/esm/icons/cpu";
+import FileIcon from "../../../components/FileIcon";
+import { Select, SelectItem, SelectPopup, SelectTrigger } from "../../../components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { EngineSelector } from "../../engine/components/EngineSelector";
+import { Markdown } from "../../messages/components/Markdown";
+import { useComposerImageDrop } from "../hooks/useComposerImageDrop";
+import { ComposerAttachments } from "./ComposerAttachments";
+import { ComposerGhostText } from "./ComposerGhostText";
+import { DictationWaveform } from "../../dictation/components/DictationWaveform";
+import { ReviewInlinePrompt } from "./ReviewInlinePrompt";
+import type { ReviewPromptState, ReviewPromptStep } from "../../threads/hooks/useReviewPrompt";
+import { ContextUsageIndicator } from "./ContextUsageIndicator";
+import { formatRelativeTime } from "../../../utils/time";
+
+type ComposerInputProps = {
+  text: string;
+  selectionStart?: number | null;
+  disabled: boolean;
+  sendLabel: string;
+  canStop: boolean;
+  canSend: boolean;
+  isProcessing: boolean;
+  onStop: () => void;
+  onSend: () => void;
+  engineName?: string;
+  dictationState?: "idle" | "listening" | "processing";
+  dictationLevel?: number;
+  dictationEnabled?: boolean;
+  onToggleDictation?: () => void;
+  onOpenDictationSettings?: () => void;
+  onOpenExperimentalSettings?: () => void;
+  dictationError?: string | null;
+  onDismissDictationError?: () => void;
+  dictationHint?: string | null;
+  onDismissDictationHint?: () => void;
+  attachments?: string[];
+  onAddAttachment?: () => void;
+  onAttachImages?: (paths: string[]) => void;
+  onRemoveAttachment?: (path: string) => void;
+  onTextChange: (next: string, selectionStart: number | null) => void;
+  onTextPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
+  onSelectionChange: (selectionStart: number | null) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  textareaHeight?: number;
+  onHeightChange?: (height: number) => void;
+  onCollapseRequest?: () => void;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  suggestionsOpen: boolean;
+  suggestions: AutocompleteItem[];
+  autocompleteTrigger?: string | null;
+  selectedManualMemoryIds?: string[];
+  highlightIndex: number;
+  onHighlightIndex: (index: number) => void;
+  onSelectSuggestion: (item: AutocompleteItem) => void;
+  suggestionsStyle?: React.CSSProperties;
+  reviewPrompt?: ReviewPromptState;
+  onReviewPromptClose?: () => void;
+  onReviewPromptShowPreset?: () => void;
+  onReviewPromptChoosePreset?: (
+    preset: Exclude<ReviewPromptStep, "preset"> | "uncommitted",
+  ) => void;
+  highlightedPresetIndex?: number;
+  onReviewPromptHighlightPreset?: (index: number) => void;
+  highlightedBranchIndex?: number;
+  onReviewPromptHighlightBranch?: (index: number) => void;
+  highlightedCommitIndex?: number;
+  onReviewPromptHighlightCommit?: (index: number) => void;
+  onReviewPromptSelectBranch?: (value: string) => void;
+  onReviewPromptSelectBranchAtIndex?: (index: number) => void;
+  onReviewPromptConfirmBranch?: () => Promise<void>;
+  onReviewPromptSelectCommit?: (sha: string, title: string) => void;
+  onReviewPromptSelectCommitAtIndex?: (index: number) => void;
+  onReviewPromptConfirmCommit?: () => Promise<void>;
+  onReviewPromptUpdateCustomInstructions?: (value: string) => void;
+  onReviewPromptConfirmCustom?: () => Promise<void>;
+  // Engine props
+  engines?: EngineDisplayInfo[];
+  selectedEngine?: EngineType;
+  onSelectEngine?: (engine: EngineType) => void;
+  opencodeProviderTone?: "is-ok" | "is-runtime" | "is-fail";
+  // Model props
+  models?: { id: string; displayName: string; model: string }[];
+  selectedModelId?: string | null;
+  onSelectModel?: (id: string) => void;
+  // Meta props
+  collaborationModes?: { id: string; label: string }[];
+  collaborationModesEnabled?: boolean;
+  selectedCollaborationModeId?: string | null;
+  onSelectCollaborationMode?: (id: string | null) => void;
+  reasoningOptions?: string[];
+  selectedEffort?: string | null;
+  onSelectEffort?: (effort: string) => void;
+  reasoningSupported?: boolean;
+  opencodeAgents?: OpenCodeAgentOption[];
+  selectedOpenCodeAgent?: string | null;
+  onSelectOpenCodeAgent?: (agentId: string | null) => void;
+  opencodeVariantOptions?: string[];
+  selectedOpenCodeVariant?: string | null;
+  onSelectOpenCodeVariant?: (variant: string | null) => void;
+  contextUsage?: ThreadTokenUsage | null;
+  accountRateLimits?: RateLimitSnapshot | null;
+  usageShowRemaining?: boolean;
+  onRefreshAccountRateLimits?: () => Promise<void> | void;
+  accessMode?: AccessMode;
+  onSelectAccessMode?: (mode: AccessMode) => void;
+  ghostTextSuffix?: string;
+  openCodeDock?: ReactNode;
+  onOpenOpenCodePanel?: () => void;
+};
+
+const isFileSuggestion = (item: AutocompleteItem) =>
+  item.label.includes("/") || item.label.includes("\\");
+
+const isManualMemorySuggestion = (item: AutocompleteItem) =>
+  item.kind === "manual-memory" && Boolean(item.memoryId);
+
+const normalizeMemoryImportance = (value?: string) => {
+  const normalized = (value || "").trim().toLowerCase();
+  if (!normalized) {
+    return "normal";
+  }
+  if (normalized.includes("high")) {
+    return "high";
+  }
+  if (normalized.includes("low")) {
+    return "low";
+  }
+  return normalized.includes("medium") ? "medium" : "normal";
+};
+
+const getMemoryPreviewText = (item: AutocompleteItem) =>
+  (item.memoryDetail || item.memorySummary || item.description || "").trim();
+
+type MemoryPreviewSection = {
+  label: string;
+  content: string;
+};
+
+const MEMORY_DETAIL_SECTION_REGEX =
+  /(用户输入|助手输出摘要|助手输出|User input|Assistant summary|Assistant output)[:：]/gi;
+
+function parseMemoryPreviewSections(text: string): MemoryPreviewSection[] {
+  const normalized = text.trim();
+  if (!normalized) {
+    return [];
+  }
+  const matches = Array.from(
+    normalized.matchAll(
+      new RegExp(MEMORY_DETAIL_SECTION_REGEX.source, MEMORY_DETAIL_SECTION_REGEX.flags),
+    ),
+  );
+  if (matches.length === 0) {
+    return [];
+  }
+  const sections: MemoryPreviewSection[] = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    const current = matches[index];
+    if (!current || current.index === undefined) {
+      continue;
+    }
+    const label = (current[1] || "").trim();
+    const start = current.index + current[0].length;
+    const next = matches[index + 1];
+    const end = next?.index ?? normalized.length;
+    const content = normalized.slice(start, end).trim();
+    if (!content) {
+      continue;
+    }
+    sections.push({ label, content });
+  }
+  return sections;
+}
+
+const MEMORY_TRIGGER_PREFIX = /^(?:\s|["'`]|\(|\[|\{)$/;
+const MEMORY_USER_INPUT_REGEX =
+  /(?:^|\n)\s*用户输入[:：]\s*([\s\S]*?)(?=\n+\s*(?:助手输出摘要|助手输出)[:：]|$)/;
+
+function getManualMemoryQueryText(text: string, cursor: number | null | undefined) {
+  if (!text) {
+    return "";
+  }
+  const resolvedCursor =
+    typeof cursor === "number" && Number.isFinite(cursor)
+      ? Math.max(0, Math.min(cursor, text.length))
+      : text.length;
+  const beforeCursor = text.slice(0, resolvedCursor);
+  const atIndex = beforeCursor.lastIndexOf("@@");
+  if (atIndex < 0) {
+    return "";
+  }
+  const prevChar = atIndex > 0 ? beforeCursor[atIndex - 1] : "";
+  if (prevChar && !MEMORY_TRIGGER_PREFIX.test(prevChar)) {
+    return "";
+  }
+  const afterAt = beforeCursor.slice(atIndex + 2);
+  if (!afterAt || /\s/.test(afterAt)) {
+    return "";
+  }
+  return afterAt.trim();
+}
+
+function getMemoryUserInputText(item: AutocompleteItem) {
+  const detail = (item.memoryDetail || "").trim();
+  if (!detail) {
+    return "";
+  }
+  const matched = detail.match(MEMORY_USER_INPUT_REGEX);
+  if (!matched || !matched[1]) {
+    return "";
+  }
+  return matched[1].replace(/\s+/g, " ").trim();
+}
+
+const suggestionIcon = (item: AutocompleteItem) => {
+  if (isFileSuggestion(item)) {
+    return FileText;
+  }
+  if (item.id === "review") {
+    return Brain;
+  }
+  if (item.id === "fork") {
+    return GitFork;
+  }
+  if (item.id === "mcp") {
+    return Plug;
+  }
+  if (item.id === "new") {
+    return PlusCircle;
+  }
+  if (item.id === "resume") {
+    return RotateCcw;
+  }
+  if (item.id === "status") {
+    return Info;
+  }
+  if (item.id.startsWith("prompt:")) {
+    return ScrollText;
+  }
+  return Wrench;
+};
+
+const fileTitle = (path: string) => {
+  const normalized = path.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : path;
+};
+
+function resolveOpenCodeAgentToneClass(agentId: string | null | undefined) {
+  if (!agentId || !agentId.trim()) {
+    return "composer-agent-tone--default";
+  }
+  const normalized = agentId.trim().toLowerCase();
+  const hash = Array.from(normalized).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return `composer-agent-tone--${hash % 8}`;
+}
+
+function resolveOpenCodeVariantToneClass(variant: string | null | undefined) {
+  if (!variant || !variant.trim()) {
+    return "composer-variant-tone--default";
+  }
+  const normalized = variant.trim().toLowerCase();
+  const hash = Array.from(normalized).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return `composer-variant-tone--${hash % 6}`;
+}
+
+export function ComposerInput({
+  text,
+  selectionStart = null,
+  disabled,
+  sendLabel,
+  canStop,
+  canSend,
+  isProcessing,
+  onStop,
+  onSend,
+  engineName,
+  dictationState = "idle",
+  dictationLevel = 0,
+  dictationEnabled = false,
+  onToggleDictation,
+  onOpenDictationSettings,
+  onOpenExperimentalSettings: _onOpenExperimentalSettings,
+  dictationError = null,
+  onDismissDictationError,
+  dictationHint = null,
+  onDismissDictationHint,
+  attachments = [],
+  onAddAttachment,
+  onAttachImages,
+  onRemoveAttachment,
+  onTextChange,
+  onTextPaste,
+  onSelectionChange,
+  onKeyDown,
+  textareaHeight = 80,
+  onHeightChange,
+  onCollapseRequest,
+  textareaRef,
+  suggestionsOpen,
+  suggestions,
+  autocompleteTrigger = null,
+  selectedManualMemoryIds = [],
+  highlightIndex,
+  onHighlightIndex,
+  onSelectSuggestion,
+  suggestionsStyle,
+  reviewPrompt,
+  onReviewPromptClose,
+  onReviewPromptShowPreset,
+  onReviewPromptChoosePreset,
+  highlightedPresetIndex,
+  onReviewPromptHighlightPreset,
+  highlightedBranchIndex,
+  onReviewPromptHighlightBranch,
+  highlightedCommitIndex,
+  onReviewPromptHighlightCommit,
+  onReviewPromptSelectBranch,
+  onReviewPromptSelectBranchAtIndex,
+  onReviewPromptConfirmBranch,
+  onReviewPromptSelectCommit,
+  onReviewPromptSelectCommitAtIndex,
+  onReviewPromptConfirmCommit,
+  onReviewPromptUpdateCustomInstructions,
+  onReviewPromptConfirmCustom,
+  engines,
+  selectedEngine,
+  onSelectEngine,
+  models,
+  selectedModelId,
+  onSelectModel,
+  collaborationModes = [],
+  collaborationModesEnabled: _collaborationModesEnabled = true,
+  selectedCollaborationModeId,
+  onSelectCollaborationMode,
+  reasoningOptions = [],
+  selectedEffort,
+  onSelectEffort,
+  reasoningSupported = false,
+  opencodeAgents = [],
+  selectedOpenCodeAgent = null,
+  onSelectOpenCodeAgent,
+  opencodeVariantOptions = [],
+  selectedOpenCodeVariant = null,
+  onSelectOpenCodeVariant,
+  contextUsage,
+  accountRateLimits = null,
+  usageShowRemaining = false,
+  onRefreshAccountRateLimits,
+  accessMode,
+  onSelectAccessMode,
+  ghostTextSuffix,
+  openCodeDock,
+  onOpenOpenCodePanel,
+  opencodeProviderTone,
+}: ComposerInputProps) {
+  const { t, i18n } = useTranslation();
+  const suggestionListRef = useRef<HTMLDivElement | null>(null);
+  const suggestionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const resizeHandleRef = useRef<HTMLDivElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [expandedPreviewMemoryId, setExpandedPreviewMemoryId] = useState<string | null>(
+    null,
+  );
+  const [usagePopoverOpen, setUsagePopoverOpen] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const dragStartY = useRef(0);
+  const dragStartHeight = useRef(0);
+
+  const MIN_HEIGHT = 20;
+  const COLLAPSE_TRIGGER_HEIGHT = 18;
+  const MAX_HEIGHT = 400;
+  const currentHeight = Math.max(MIN_HEIGHT, Math.min(textareaHeight, MAX_HEIGHT));
+  const reviewPromptOpen = Boolean(reviewPrompt);
+  const selectedManualMemoryIdSet = useMemo(
+    () => new Set(selectedManualMemoryIds),
+    [selectedManualMemoryIds],
+  );
+  const manualMemorySuggestions = useMemo(
+    () => suggestions.filter((entry) => isManualMemorySuggestion(entry)),
+    [suggestions],
+  );
+  const manualMemoryPickerEnabled =
+    autocompleteTrigger === "@@" && manualMemorySuggestions.length > 0 && !reviewPromptOpen;
+  const manualMemoryQueryText = useMemo(
+    () =>
+      manualMemoryPickerEnabled
+        ? getManualMemoryQueryText(text, selectionStart)
+        : "",
+    [manualMemoryPickerEnabled, selectionStart, text],
+  );
+  const manualMemoryPickerHeading = useMemo(() => {
+    if (!manualMemoryQueryText) {
+      return t("composer.manualMemoryPickerTitle");
+    }
+    const query = `@@${manualMemoryQueryText}`;
+    const translated = t("composer.manualMemoryPickerInputTitle", { query });
+    return translated === "composer.manualMemoryPickerInputTitle"
+      ? `用户输入：${query}`
+      : translated;
+  }, [manualMemoryQueryText, t]);
+  const activeManualMemory =
+    manualMemoryPickerEnabled
+      ? manualMemorySuggestions[highlightIndex] ?? manualMemorySuggestions[0] ?? null
+      : null;
+  const activeManualMemoryId = activeManualMemory?.memoryId ?? null;
+  const activeManualMemoryPreview = activeManualMemory
+    ? getMemoryPreviewText(activeManualMemory)
+    : "";
+  const activeManualMemoryPreviewSections = useMemo(
+    () => parseMemoryPreviewSections(activeManualMemoryPreview),
+    [activeManualMemoryPreview],
+  );
+  const activeManualMemoryPreviewExpanded =
+    Boolean(activeManualMemoryId) && expandedPreviewMemoryId === activeManualMemoryId;
+  const activeManualMemoryPreviewLong = activeManualMemoryPreview.length > 220;
+  const formatMemoryDate = useCallback(
+    (value?: number) => {
+      if (!value || !Number.isFinite(value)) {
+        return "--";
+      }
+      return new Intl.DateTimeFormat(i18n.language || undefined, {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(value));
+    },
+    [i18n.language],
+  );
+
+  const {
+    dropTargetRef,
+    isDragOver,
+    handleDragOver,
+    handleDragEnter,
+    handleDragLeave,
+    handleDrop,
+    handlePaste,
+  } = useComposerImageDrop({
+    disabled,
+    onAttachImages,
+  });
+
+  useEffect(() => {
+    if (!suggestionsOpen || suggestions.length === 0) {
+      return;
+    }
+    const list = suggestionListRef.current;
+    const item = suggestionRefs.current[highlightIndex];
+    if (!list || !item) {
+      return;
+    }
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < listRect.top) {
+      item.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (itemRect.bottom > listRect.bottom) {
+      item.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightIndex, suggestionsOpen, suggestions.length]);
+
+  useEffect(() => {
+    if (!manualMemoryPickerEnabled || !activeManualMemoryId) {
+      setExpandedPreviewMemoryId(null);
+      return;
+    }
+    setExpandedPreviewMemoryId((prev) =>
+      prev === activeManualMemoryId ? prev : null,
+    );
+  }, [activeManualMemoryId, manualMemoryPickerEnabled]);
+
+  // Textarea height management - use user-controlled height
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    textarea.style.height = `${currentHeight}px`;
+    textarea.style.minHeight = `${MIN_HEIGHT}px`;
+    textarea.style.maxHeight = `${MAX_HEIGHT}px`;
+    textarea.style.overflowY = "auto";
+  }, [currentHeight, textareaRef]);
+
+  // Drag resize handlers
+  const handleResizeStart = useCallback(
+    (event: React.MouseEvent | React.TouchEvent) => {
+      if (disabled || !onHeightChange) return;
+      event.preventDefault();
+      setIsDragging(true);
+      const clientY = "touches" in event ? event.touches[0].clientY : event.clientY;
+      dragStartY.current = clientY;
+      dragStartHeight.current = currentHeight;
+    },
+    [disabled, onHeightChange, currentHeight],
+  );
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (event: MouseEvent | TouchEvent) => {
+      const clientY = "touches" in event ? event.touches[0].clientY : event.clientY;
+      // Dragging up (negative delta) should increase height
+      const delta = dragStartY.current - clientY;
+      const rawHeight = dragStartHeight.current + delta;
+      if (rawHeight < COLLAPSE_TRIGGER_HEIGHT) {
+        setIsDragging(false);
+        onHeightChange?.(MIN_HEIGHT);
+        onCollapseRequest?.();
+        return;
+      }
+      const newHeight = Math.max(MIN_HEIGHT, Math.min(rawHeight, MAX_HEIGHT));
+      onHeightChange?.(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("touchmove", handleMouseMove);
+    document.addEventListener("touchend", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("touchmove", handleMouseMove);
+      document.removeEventListener("touchend", handleMouseUp);
+    };
+  }, [isDragging, onCollapseRequest, onHeightChange]);
+
+  const handleActionClick = useCallback(() => {
+    if (canStop) {
+      onStop();
+    } else {
+      onSend();
+    }
+  }, [canStop, onSend, onStop]);
+  const isDictating = dictationState === "listening";
+  const isDictationBusy = dictationState !== "idle";
+  const allowOpenDictationSettings = Boolean(
+    onOpenDictationSettings && !dictationEnabled && !disabled,
+  );
+  const micDisabled =
+    disabled || dictationState === "processing" || !dictationEnabled || !onToggleDictation;
+  const micAriaLabel = allowOpenDictationSettings
+    ? "Open dictation settings"
+    : dictationState === "processing"
+      ? "Dictation processing"
+      : isDictating
+        ? "Stop dictation"
+        : "Start dictation";
+  const micTitle = allowOpenDictationSettings
+    ? "Dictation disabled. Open settings"
+    : dictationState === "processing"
+      ? "Processing dictation"
+      : isDictating
+        ? "Stop dictation"
+        : "Start dictation";
+  const handleMicClick = useCallback(() => {
+    if (allowOpenDictationSettings) {
+      onOpenDictationSettings?.();
+      return;
+    }
+    if (!onToggleDictation || micDisabled) {
+      return;
+    }
+    onToggleDictation();
+  }, [
+    allowOpenDictationSettings,
+    micDisabled,
+    onOpenDictationSettings,
+    onToggleDictation,
+  ]);
+
+  const resolveUsagePercent = useCallback(
+    (usedPercent: number | null | undefined) => {
+      if (typeof usedPercent !== "number" || Number.isNaN(usedPercent)) {
+        return null;
+      }
+      const clamped = Math.max(0, Math.min(100, Math.round(usedPercent)));
+      return usageShowRemaining ? 100 - clamped : clamped;
+    },
+    [usageShowRemaining],
+  );
+
+  const formatUsageReset = useCallback(
+    (value: number | null | undefined, labelKey: "usage.sessionReset" | "usage.weeklyReset") => {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return null;
+      }
+      const resetMs = value > 1_000_000_000_000 ? value : value * 1000;
+      return `${t(labelKey)} ${formatRelativeTime(resetMs)}`;
+    },
+    [t],
+  );
+
+  const usageSnapshot = useMemo(() => {
+    const sessionPercent = resolveUsagePercent(accountRateLimits?.primary?.usedPercent);
+    const weeklyPercent = resolveUsagePercent(accountRateLimits?.secondary?.usedPercent);
+    return {
+      sessionPercent,
+      weeklyPercent,
+      showWeekly: Boolean(accountRateLimits?.secondary),
+      sessionResetLabel: formatUsageReset(
+        accountRateLimits?.primary?.resetsAt,
+        "usage.sessionReset",
+      ),
+      weeklyResetLabel: formatUsageReset(
+        accountRateLimits?.secondary?.resetsAt,
+        "usage.weeklyReset",
+      ),
+    };
+  }, [accountRateLimits, formatUsageReset, resolveUsagePercent]);
+
+  const refreshUsageSnapshot = useCallback(async () => {
+    if (!onRefreshAccountRateLimits) {
+      return;
+    }
+    setUsageLoading(true);
+    try {
+      await onRefreshAccountRateLimits();
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [onRefreshAccountRateLimits]);
+
+  const handleUsageEnter = useCallback(() => {
+    setUsagePopoverOpen(true);
+    void refreshUsageSnapshot();
+  }, [refreshUsageSnapshot]);
+
+  const handleUsageLeave = useCallback(() => {
+    setUsagePopoverOpen(false);
+  }, []);
+
+  const handleUsageBlur = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    const nextFocused = event.relatedTarget;
+    if (nextFocused instanceof Node && event.currentTarget.contains(nextFocused)) {
+      return;
+    }
+    setUsagePopoverOpen(false);
+  }, []);
+
+  const isCodexEngine = selectedEngine === "codex";
+  const collaborationModeDisabled = disabled;
+  const planModeId = collaborationModes.find((mode) => mode.id === "plan")?.id ?? "plan";
+  const defaultModeId = collaborationModes.find((mode) => mode.id !== planModeId)?.id ?? "code";
+  const resolvedCollaborationModeId = selectedCollaborationModeId ?? defaultModeId;
+  const isPlanModeEnabled = resolvedCollaborationModeId === planModeId;
+  const collaborationModeBadgeLabel = isPlanModeEnabled
+    ? t("composer.planModeShort")
+    : t("common.default");
+  const accessDisplayLabel = accessMode === "read-only"
+    ? t("composer.readOnly")
+    : accessMode === "current"
+      ? t("composer.onRequest")
+      : t("composer.fullAccess");
+  const AccessModeIcon =
+    accessMode === "read-only"
+      ? Lock
+      : accessMode === "current"
+        ? Clock3
+        : ShieldCheck;
+
+  const handleTextareaChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      onTextChange(event.target.value, event.target.selectionStart);
+    },
+    [onTextChange],
+  );
+
+  const handleTextareaSelect = useCallback(
+    (event: SyntheticEvent<HTMLTextAreaElement>) => {
+      onSelectionChange((event.target as HTMLTextAreaElement).selectionStart);
+    },
+    [onSelectionChange],
+  );
+
+  const handleTextareaPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      void handlePaste(event);
+      if (!event.defaultPrevented) {
+        onTextPaste?.(event);
+      }
+    },
+    [handlePaste, onTextPaste],
+  );
+
+  const selectedModel = models?.find((m) => m.id === selectedModelId);
+  const selectedModelLabelRaw =
+    selectedModel?.displayName || selectedModel?.model || selectedModelId || t("composer.noModels");
+  const selectedModelDisplay =
+    selectedEngine === "opencode"
+      ? selectedModelLabelRaw.split("/").pop() || selectedModelLabelRaw
+      : selectedModelLabelRaw;
+  const sortedOpenCodeAgents = useMemo(() => {
+    const primary = opencodeAgents.filter((agent) => agent.isPrimary);
+    const others = opencodeAgents.filter((agent) => !agent.isPrimary);
+    return [...primary, ...others];
+  }, [opencodeAgents]);
+  const showEngineSelector = Boolean(engines && selectedEngine && onSelectEngine);
+  const showOpenCodeModelIndicator = selectedEngine === "opencode";
+  const showModelPicker = Boolean(models && onSelectModel && selectedEngine !== "opencode");
+  const showOpenCodeAgentPicker = Boolean(selectedEngine === "opencode" && onSelectOpenCodeAgent);
+  const showOpenCodeVariantPicker = Boolean(selectedEngine === "opencode" && onSelectOpenCodeVariant);
+  const hasEngineCluster =
+    showEngineSelector ||
+    showOpenCodeModelIndicator ||
+    showModelPicker ||
+    showOpenCodeAgentPicker ||
+    showOpenCodeVariantPicker;
+  const showAccessPicker = Boolean(accessMode && onSelectAccessMode);
+  const showPlanModeToggle = Boolean(isCodexEngine && onSelectCollaborationMode);
+  const showEffortPicker = Boolean(selectedEngine !== "claude" && reasoningSupported && onSelectEffort);
+  const showOpenCodeDock = Boolean(selectedEngine === "opencode" && openCodeDock);
+  const canOpenOpenCodePanelFromModelIndicator = Boolean(
+    selectedEngine === "opencode" && onOpenOpenCodePanel,
+  );
+  const hasPolicyCluster = showAccessPicker || showEffortPicker;
+  const handlePlanModeToggle = useCallback(
+    (checked: boolean) => {
+      if (!onSelectCollaborationMode) {
+        return;
+      }
+      onSelectCollaborationMode(checked ? planModeId : defaultModeId);
+    },
+    [defaultModeId, onSelectCollaborationMode, planModeId],
+  );
+  const handleOpenCodeModelIndicatorKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!onOpenOpenCodePanel) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      onOpenOpenCodePanel();
+    },
+    [onOpenOpenCodePanel],
+  );
+
+  return (
+    <div className={`composer-input${isDragging ? " is-resizing" : ""}`}>
+      {/* Resize handle at the top */}
+      {onHeightChange && (
+        <div
+          ref={resizeHandleRef}
+          className="composer-resize-handle"
+          onMouseDown={handleResizeStart}
+          onTouchStart={handleResizeStart}
+          aria-label={t("composer.dragToResize")}
+          role="separator"
+          aria-orientation="horizontal"
+        >
+          <div className="composer-resize-handle-bar" />
+        </div>
+      )}
+      <div
+        className={`composer-input-area${isDragOver ? " is-drag-over" : ""}`}
+        ref={dropTargetRef}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <ComposerAttachments
+          attachments={attachments}
+          disabled={disabled}
+          onRemoveAttachment={onRemoveAttachment}
+        />
+        <div className="composer-textarea-wrapper">
+          <textarea
+            ref={textareaRef}
+            className="composer-textarea"
+            placeholder={
+              disabled
+                ? "Review in progress. Chat will re-enable when it completes."
+                : engineName
+                  ? t("composer.placeholderAskWithEngine", { engineName })
+                  : t("composer.placeholderAsk")
+            }
+            value={text}
+            onChange={handleTextareaChange}
+            onSelect={handleTextareaSelect}
+            disabled={disabled}
+            onKeyDown={onKeyDown}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onPaste={handleTextareaPaste}
+          />
+          {ghostTextSuffix && (
+            <ComposerGhostText
+              text={text}
+              suffix={ghostTextSuffix}
+              textareaRef={textareaRef}
+            />
+          )}
+        </div>
+        
+        <div className="composer-input-footer">
+          <div className="composer-input-footer-left">
+            <div className="composer-footer-cluster composer-footer-cluster--attach">
+              <button
+                type="button"
+                className="composer-attach"
+                onClick={onAddAttachment}
+                disabled={disabled || !onAddAttachment}
+                aria-label={t("composer.addImage")}
+                title={t("composer.addImage")}
+              >
+                <ImagePlus size={14} aria-hidden />
+              </button>
+              {showPlanModeToggle && (
+                <label className="composer-plan-mode-toggle">
+                  <span className="composer-plan-mode-toggle-label">
+                    {t("composer.planModeToggle")}
+                  </span>
+                  <Switch
+                    aria-label={t("composer.planModeToggle")}
+                    checked={isPlanModeEnabled}
+                    disabled={collaborationModeDisabled}
+                    onCheckedChange={handlePlanModeToggle}
+                    className="composer-plan-mode-switch"
+                  />
+                </label>
+              )}
+            </div>
+
+            {hasEngineCluster && (
+              <div className="composer-footer-cluster composer-footer-cluster--engine">
+                {showEngineSelector && engines && selectedEngine && onSelectEngine && (
+                  <EngineSelector
+                    engines={engines}
+                    selectedEngine={selectedEngine}
+                    onSelectEngine={onSelectEngine}
+                    disabled={disabled}
+                    showOnlyIfMultiple={true}
+                    showLabel={true}
+                    opencodeStatusTone={opencodeProviderTone}
+                  />
+                )}
+
+                {showOpenCodeModelIndicator && (
+                  <div
+                    className={`composer-select-wrap composer-opencode-model-indicator${canOpenOpenCodePanelFromModelIndicator ? " is-clickable" : ""}`}
+                    title={selectedModelLabelRaw}
+                    role={canOpenOpenCodePanelFromModelIndicator ? "button" : undefined}
+                    tabIndex={canOpenOpenCodePanelFromModelIndicator ? 0 : undefined}
+                    aria-label={canOpenOpenCodePanelFromModelIndicator ? "打开 OpenCode 管理面板" : undefined}
+                    onClick={canOpenOpenCodePanelFromModelIndicator ? onOpenOpenCodePanel : undefined}
+                    onKeyDown={canOpenOpenCodePanelFromModelIndicator ? handleOpenCodeModelIndicatorKeyDown : undefined}
+                  >
+                    <span className="composer-icon" aria-hidden>
+                      <Cpu size={14} />
+                    </span>
+                    <span className="composer-select-value">{selectedModelDisplay}</span>
+                  </div>
+                )}
+
+                {showModelPicker && (
+                  <div
+                    className="composer-select-wrap"
+                    title={selectedModelLabelRaw}
+                  >
+                    <span className="composer-icon" aria-hidden>
+                      <Cpu size={14} />
+                    </span>
+                    <span className="composer-select-value">
+                      {selectedModelLabelRaw}
+                    </span>
+                    <Select
+                      value={selectedModelId ?? "__none__"}
+                      onValueChange={(value) => {
+                        if (value && value !== "__none__") {
+                          onSelectModel?.(value);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={t("composer.model")}
+                        className="composer-inline-select-trigger"
+                        disabled={disabled || !models || models.length === 0}
+                      />
+                      <SelectPopup
+                        side="top"
+                        sideOffset={8}
+                        align="start"
+                        className="composer-inline-select-popup"
+                      >
+                        {models && models.length > 0 ? (
+                          models.map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              <span className="composer-inline-select-item">
+                                <Cpu size={14} aria-hidden />
+                                <span className="composer-inline-select-item-label">
+                                  {model.displayName || model.model}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="__none__" disabled>
+                            <span className="composer-inline-select-item">
+                              <Info size={14} aria-hidden />
+                              <span className="composer-inline-select-item-label">
+                                {t("composer.noModels")}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        )}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
+
+                {showOpenCodeAgentPicker && (
+                  <div className="composer-select-wrap" title={selectedOpenCodeAgent || t("composer.agent")}>
+                    <span className="composer-icon" aria-hidden>
+                      <Bot size={14} />
+                    </span>
+                    <span
+                      className={`composer-select-value composer-select-value--agent ${resolveOpenCodeAgentToneClass(selectedOpenCodeAgent)}`}
+                    >
+                      {selectedOpenCodeAgent || t("composer.agent")}
+                    </span>
+                    <Select
+                      value={selectedOpenCodeAgent ?? "__none__"}
+                      onValueChange={(value) => {
+                        onSelectOpenCodeAgent?.(value === "__none__" ? null : value);
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={t("composer.agent")}
+                        className="composer-inline-select-trigger"
+                        disabled={disabled}
+                      />
+                      <SelectPopup
+                        side="top"
+                        sideOffset={8}
+                        align="start"
+                        className="composer-inline-select-popup"
+                      >
+                        <SelectItem value="__none__">
+                          <span className="composer-inline-select-item">
+                            <Bot size={14} aria-hidden />
+                            <span className="composer-inline-select-item-label">
+                              {t("composer.agentDefault")}
+                            </span>
+                          </span>
+                        </SelectItem>
+                        {opencodeAgents.length === 0 ? (
+                          <SelectItem value="__no_agents__" disabled>
+                            <span className="composer-inline-select-item">
+                              <Info size={14} aria-hidden />
+                              <span className="composer-inline-select-item-label">
+                                {t("composer.noAgents")}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        ) : (
+                          sortedOpenCodeAgents.map((agent) => (
+                            <SelectItem key={agent.id} value={agent.id}>
+                              <span className="composer-inline-select-item">
+                                <Bot size={14} aria-hidden />
+                                <span className="composer-inline-select-item-label">
+                                  {agent.isPrimary ? `🔥 ${agent.id}` : agent.id}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
+
+                {showOpenCodeVariantPicker && (
+                  <div className="composer-select-wrap" title={selectedOpenCodeVariant || t("composer.effortDefault")}>
+                    <span className="composer-icon" aria-hidden>
+                      <Brain size={14} />
+                    </span>
+                    <span
+                      className={`composer-select-value composer-select-value--variant ${resolveOpenCodeVariantToneClass(selectedOpenCodeVariant)}`}
+                    >
+                      {selectedOpenCodeVariant || t("composer.effortDefault")}
+                    </span>
+                    <Select
+                      value={selectedOpenCodeVariant ?? "__none__"}
+                      onValueChange={(value) => {
+                        onSelectOpenCodeVariant?.(value === "__none__" ? null : value);
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={t("composer.variant")}
+                        className="composer-inline-select-trigger"
+                        disabled={disabled}
+                      />
+                      <SelectPopup
+                        side="top"
+                        sideOffset={8}
+                        align="start"
+                        className="composer-inline-select-popup"
+                      >
+                        <SelectItem value="__none__">
+                          <span className="composer-inline-select-item">
+                            <Brain size={14} aria-hidden />
+                            <span className="composer-inline-select-item-label">
+                              {t("composer.effortDefault")}
+                            </span>
+                          </span>
+                        </SelectItem>
+                        {opencodeVariantOptions.map((variant) => (
+                          <SelectItem key={variant} value={variant}>
+                            <span className="composer-inline-select-item">
+                              <Brain size={14} aria-hidden />
+                              <span className="composer-inline-select-item-label">{variant}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {showOpenCodeDock && (
+              <div className="composer-footer-inline-dock">{openCodeDock}</div>
+            )}
+
+            {hasPolicyCluster && (
+              <div className="composer-footer-cluster composer-footer-cluster--policy">
+                {showAccessPicker && (
+                  <div className="composer-select-wrap" title={accessDisplayLabel}>
+                    <span className="composer-icon" aria-hidden>
+                      <AccessModeIcon size={14} />
+                    </span>
+                    <span className="composer-select-value">
+                      {accessDisplayLabel}
+                    </span>
+                    <Select
+                      value={accessMode ?? "full-access"}
+                      onValueChange={(value) => {
+                        onSelectAccessMode?.(value as AccessMode);
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={t("composer.agentAccess")}
+                        className="composer-inline-select-trigger"
+                        disabled={disabled}
+                      />
+                      <SelectPopup
+                        side="top"
+                        sideOffset={8}
+                        align="start"
+                        className="composer-inline-select-popup"
+                      >
+                        <SelectItem value="read-only" disabled>
+                          <span className="composer-inline-select-item">
+                            <Lock size={14} aria-hidden />
+                            <span className="composer-inline-select-item-label">
+                              {t("composer.readOnly")}
+                            </span>
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="current" disabled>
+                          <span className="composer-inline-select-item">
+                            <Clock3 size={14} aria-hidden />
+                            <span className="composer-inline-select-item-label">
+                              {t("composer.onRequest")}
+                            </span>
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="full-access">
+                          <span className="composer-inline-select-item">
+                            <ShieldCheck size={14} aria-hidden />
+                            <span className="composer-inline-select-item-label">
+                              {t("composer.fullAccess")}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
+
+                {showEffortPicker && (
+                  <div className="composer-select-wrap" title={selectedEffort || t("composer.effortDefault")}>
+                    <span className="composer-icon" aria-hidden>
+                      <Gauge size={14} />
+                    </span>
+                    <span className="composer-select-value">
+                      {selectedEffort || t("composer.effortDefault")}
+                    </span>
+                    <Select
+                      value={selectedEffort ?? "__none__"}
+                      onValueChange={(value) => {
+                        if (value && value !== "__none__") {
+                          onSelectEffort?.(value);
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={t("composer.thinkingMode")}
+                        className="composer-inline-select-trigger"
+                        disabled={disabled}
+                      />
+                      <SelectPopup
+                        side="top"
+                        sideOffset={8}
+                        align="start"
+                        className="composer-inline-select-popup"
+                      >
+                        <SelectItem value="__none__" disabled={reasoningOptions.length > 0}>
+                          <span className="composer-inline-select-item">
+                            <Gauge size={14} aria-hidden />
+                            <span className="composer-inline-select-item-label">
+                              {t("composer.effortDefault")}
+                            </span>
+                          </span>
+                        </SelectItem>
+                        {reasoningOptions.map((effort) => (
+                          <SelectItem key={effort} value={effort}>
+                            <span className="composer-inline-select-item">
+                              <Gauge size={14} aria-hidden />
+                              <span className="composer-inline-select-item-label">{effort}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          
+          <div className="composer-input-footer-right">
+            {showPlanModeToggle && (
+              <button
+                type="button"
+                className={`composer-mode-badge${isPlanModeEnabled ? " is-plan" : ""}`}
+                onClick={() => handlePlanModeToggle(!isPlanModeEnabled)}
+                disabled={collaborationModeDisabled}
+                aria-label={t("composer.planModeToggle")}
+                title={t("composer.planModeToggle")}
+              >
+                <GitFork size={12} aria-hidden />
+                <span>{collaborationModeBadgeLabel}</span>
+              </button>
+            )}
+            {isCodexEngine && (
+              <div
+                className="composer-usage-popover"
+                onMouseEnter={handleUsageEnter}
+                onMouseLeave={handleUsageLeave}
+                onFocus={handleUsageEnter}
+                onBlur={handleUsageBlur}
+              >
+                <button
+                  type="button"
+                  className={`composer-action composer-action--usage${
+                    usageLoading ? " is-loading" : ""
+                  }`}
+                  aria-label={t("home.usageSnapshot")}
+                  title={t("home.usageSnapshot")}
+                  aria-expanded={usagePopoverOpen}
+                  onClick={() => {
+                    void refreshUsageSnapshot();
+                  }}
+                >
+                  <Gauge size={14} aria-hidden />
+                </button>
+                {usagePopoverOpen && (
+                  <div className="composer-usage-tooltip" role="status" aria-live="polite">
+                    <div className="composer-usage-tooltip-header">
+                      <span>{t("home.usageSnapshot")}</span>
+                      {usageLoading && (
+                        <span className="composer-usage-tooltip-refreshing">
+                          {t("common.refresh")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="composer-usage-row">
+                      <div className="composer-usage-row-top">
+                        <span>5h limit</span>
+                        <span>
+                          {usageSnapshot.sessionPercent === null
+                            ? "--"
+                            : `${usageSnapshot.sessionPercent}% ${t(
+                                usageShowRemaining ? "usage.remaining" : "usage.used",
+                              )}`}
+                        </span>
+                      </div>
+                      <div className="composer-usage-progress-track" aria-hidden>
+                        <span
+                          className="composer-usage-progress-fill"
+                          style={{ width: `${usageSnapshot.sessionPercent ?? 0}%` }}
+                        />
+                      </div>
+                      {usageSnapshot.sessionResetLabel && (
+                        <div className="composer-usage-reset">{usageSnapshot.sessionResetLabel}</div>
+                      )}
+                    </div>
+                    {usageSnapshot.showWeekly && (
+                      <div className="composer-usage-row">
+                        <div className="composer-usage-row-top">
+                          <span>Weekly limit</span>
+                          <span>
+                            {usageSnapshot.weeklyPercent === null
+                              ? "--"
+                              : `${usageSnapshot.weeklyPercent}% ${t(
+                                  usageShowRemaining ? "usage.remaining" : "usage.used",
+                                )}`}
+                          </span>
+                        </div>
+                        <div className="composer-usage-progress-track" aria-hidden>
+                          <span
+                            className="composer-usage-progress-fill"
+                            style={{ width: `${usageSnapshot.weeklyPercent ?? 0}%` }}
+                          />
+                        </div>
+                        {usageSnapshot.weeklyResetLabel && (
+                          <div className="composer-usage-reset">{usageSnapshot.weeklyResetLabel}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <ContextUsageIndicator contextUsage={contextUsage} />
+            <button
+              className={`composer-action composer-action--mic${
+                isDictationBusy ? " is-active" : ""
+              }${dictationState === "processing" ? " is-processing" : ""}${
+                micDisabled ? " is-disabled" : ""
+              }`}
+              onClick={handleMicClick}
+              disabled={
+                disabled ||
+                dictationState === "processing" ||
+                (!onToggleDictation && !allowOpenDictationSettings)
+              }
+              aria-label={micAriaLabel}
+              title={micTitle}
+            >
+              {isDictating ? <Square aria-hidden /> : <Mic aria-hidden />}
+            </button>
+            <button
+              className={`composer-action${canStop ? " is-stop" : " is-send"}${
+                canStop && isProcessing ? " is-loading" : ""
+              }`}
+              onClick={handleActionClick}
+              disabled={disabled || isDictationBusy || (!canStop && !canSend)}
+              aria-label={canStop ? "Stop" : sendLabel}
+            >
+              {canStop ? (
+                <>
+                  <span className="composer-action-stop-square" aria-hidden />
+                  {isProcessing && (
+                    <span className="composer-action-spinner" aria-hidden />
+                  )}
+                </>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M12 5l6 6m-6-6L6 11m6-6v14"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+        {isDictationBusy && (
+          <DictationWaveform
+            active={isDictating}
+            processing={dictationState === "processing"}
+            level={dictationLevel}
+          />
+        )}
+        {dictationError && (
+          <div className="composer-dictation-error" role="status">
+            <span>{t(dictationError, { defaultValue: dictationError })}</span>
+            <button
+              type="button"
+              className="ghost composer-dictation-error-dismiss"
+              onClick={onDismissDictationError}
+            >
+              {t("common.dismiss")}
+            </button>
+          </div>
+        )}
+        {dictationHint && (
+          <div className="composer-dictation-hint" role="status">
+            <span>{dictationHint}</span>
+            {onDismissDictationHint && (
+              <button
+                type="button"
+                className="ghost composer-dictation-error-dismiss"
+                onClick={onDismissDictationHint}
+              >
+                {t("common.dismiss")}
+              </button>
+            )}
+          </div>
+        )}
+        {suggestionsOpen && (
+          <div
+            className={`composer-suggestions popover-surface${
+              reviewPromptOpen ? " review-inline-suggestions" : ""
+            }${
+              manualMemoryPickerEnabled ? " composer-suggestions--manual-memory" : ""
+            }`}
+            role="listbox"
+            ref={suggestionListRef}
+            style={suggestionsStyle}
+          >
+            {reviewPromptOpen &&
+            reviewPrompt &&
+            onReviewPromptClose &&
+            onReviewPromptShowPreset &&
+            onReviewPromptChoosePreset &&
+            highlightedPresetIndex !== undefined &&
+            onReviewPromptHighlightPreset &&
+            highlightedBranchIndex !== undefined &&
+            onReviewPromptHighlightBranch &&
+            highlightedCommitIndex !== undefined &&
+            onReviewPromptHighlightCommit &&
+            onReviewPromptSelectBranch &&
+            onReviewPromptSelectBranchAtIndex &&
+            onReviewPromptConfirmBranch &&
+            onReviewPromptSelectCommit &&
+            onReviewPromptSelectCommitAtIndex &&
+            onReviewPromptConfirmCommit &&
+            onReviewPromptUpdateCustomInstructions &&
+            onReviewPromptConfirmCustom ? (
+              <ReviewInlinePrompt
+                reviewPrompt={reviewPrompt}
+                onClose={onReviewPromptClose}
+                onShowPreset={onReviewPromptShowPreset}
+                onChoosePreset={onReviewPromptChoosePreset}
+                highlightedPresetIndex={highlightedPresetIndex}
+                onHighlightPreset={onReviewPromptHighlightPreset}
+                highlightedBranchIndex={highlightedBranchIndex}
+                onHighlightBranch={onReviewPromptHighlightBranch}
+                highlightedCommitIndex={highlightedCommitIndex}
+                onHighlightCommit={onReviewPromptHighlightCommit}
+                onSelectBranch={onReviewPromptSelectBranch}
+                onSelectBranchAtIndex={onReviewPromptSelectBranchAtIndex}
+                onConfirmBranch={onReviewPromptConfirmBranch}
+                onSelectCommit={onReviewPromptSelectCommit}
+                onSelectCommitAtIndex={onReviewPromptSelectCommitAtIndex}
+                onConfirmCommit={onReviewPromptConfirmCommit}
+                onUpdateCustomInstructions={onReviewPromptUpdateCustomInstructions}
+                onConfirmCustom={onReviewPromptConfirmCustom}
+              />
+            ) : manualMemoryPickerEnabled ? (
+              <div className="composer-memory-picker">
+                <div className="composer-memory-picker-list">
+                  <div className="composer-memory-picker-head">
+                    <span className="composer-memory-picker-title">
+                      {manualMemoryPickerHeading}
+                    </span>
+                    <span className="composer-memory-picker-count">
+                      {t("composer.manualMemoryPickerSelectedCount", {
+                        count: selectedManualMemoryIds.length,
+                      })}
+                    </span>
+                  </div>
+                  {suggestions.map((item, index) => {
+                    const memoryId = item.memoryId ?? item.id;
+                    const selected = selectedManualMemoryIdSet.has(memoryId);
+                    const isActive = index === highlightIndex;
+                    const displayTitle = getMemoryUserInputText(item) || item.label;
+                    const tags = (item.memoryTags || []).slice(0, 3);
+                    const importanceTone = normalizeMemoryImportance(item.memoryImportance);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`composer-memory-picker-card${
+                          isActive ? " is-active" : ""
+                        }${selected ? " is-selected" : ""}`}
+                        role="option"
+                        aria-selected={isActive}
+                        ref={(node) => {
+                          suggestionRefs.current[index] = node;
+                        }}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => onSelectSuggestion(item)}
+                        onMouseEnter={() => onHighlightIndex(index)}
+                      >
+                        <span className="composer-memory-picker-card-check" aria-hidden>
+                          {selected ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                        </span>
+                        <span className="composer-memory-picker-card-main">
+                          <span className="composer-memory-picker-card-title">{displayTitle}</span>
+                          <span className="composer-memory-picker-card-meta">
+                            <span className="composer-memory-picker-card-meta-item">
+                              <Layers3 size={12} />
+                              {item.memoryKind || "note"}
+                            </span>
+                            <span
+                              className={`composer-memory-picker-card-meta-item composer-memory-picker-importance is-${importanceTone}`}
+                            >
+                              {item.memoryImportance || "normal"}
+                            </span>
+                            <span className="composer-memory-picker-card-meta-item">
+                              <Clock3 size={12} />
+                              {formatMemoryDate(item.memoryUpdatedAt)}
+                            </span>
+                          </span>
+                          {tags.length > 0 && (
+                            <span className="composer-memory-picker-card-tags">
+                              {tags.map((tag) => (
+                                <span key={`${memoryId}-${tag}`} className="composer-memory-picker-tag">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <aside className="composer-memory-picker-preview">
+                  {activeManualMemory ? (
+                    <>
+                      <div className="composer-memory-picker-preview-head">
+                        <span className="composer-memory-picker-preview-title">
+                          {activeManualMemory.memoryTitle || activeManualMemory.label}
+                        </span>
+                        <span className="composer-memory-picker-preview-shortcut">
+                          {selectedManualMemoryIdSet.has(activeManualMemory.memoryId || "")
+                            ? t("composer.manualMemoryPickerShortcutUnselect")
+                            : t("composer.manualMemoryPickerShortcutSelect")}
+                        </span>
+                      </div>
+                      <div
+                        className={`composer-memory-picker-preview-body${
+                          activeManualMemoryPreviewExpanded ? " is-expanded" : ""
+                        }`}
+                      >
+                        {activeManualMemoryPreviewSections.length > 0 ? (
+                          <div className="composer-memory-picker-preview-sections">
+                            {activeManualMemoryPreviewSections.map((section, index) => (
+                              <div
+                                key={`${section.label}-${index}`}
+                                className="composer-memory-picker-preview-section"
+                              >
+                                <div className="composer-memory-picker-preview-section-label">
+                                  {section.label}
+                                </div>
+                                <Markdown
+                                  className="markdown composer-memory-picker-preview-markdown"
+                                  value={section.content}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="composer-memory-picker-preview-text">
+                            <Markdown
+                              className="markdown composer-memory-picker-preview-markdown"
+                              value={
+                                activeManualMemoryPreview ||
+                                t("composer.manualMemoryPickerPreviewEmpty")
+                              }
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {activeManualMemoryPreviewLong && (
+                        <button
+                          type="button"
+                          className="composer-memory-picker-preview-toggle"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() =>
+                            setExpandedPreviewMemoryId((prev) =>
+                              prev === activeManualMemoryId ? null : activeManualMemoryId,
+                            )
+                          }
+                        >
+                          {activeManualMemoryPreviewExpanded
+                            ? t("composer.manualMemoryPreviewCollapse")
+                            : t("composer.manualMemoryPreviewExpand")}
+                        </button>
+                      )}
+                      <div className="composer-memory-picker-preview-meta">
+                        <span className="composer-memory-picker-preview-meta-item">
+                          <Layers3 size={12} />
+                          {activeManualMemory.memoryKind || "note"}
+                        </span>
+                        <span className="composer-memory-picker-preview-meta-item">
+                          <Clock3 size={12} />
+                          {formatMemoryDate(activeManualMemory.memoryUpdatedAt)}
+                        </span>
+                        {(activeManualMemory.memoryTags || []).length > 0 && (
+                          <span className="composer-memory-picker-preview-meta-item">
+                            <Tag size={12} />
+                            {(activeManualMemory.memoryTags || []).slice(0, 5).join(" · ")}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="composer-memory-picker-preview-empty">
+                      {t("composer.manualMemoryPickerPreviewFallback")}
+                    </span>
+                  )}
+                </aside>
+              </div>
+            ) : (
+              suggestions.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`composer-suggestion${
+                    index === highlightIndex ? " is-active" : ""
+                  }`}
+                  role="option"
+                  aria-selected={index === highlightIndex}
+                  ref={(node) => {
+                    suggestionRefs.current[index] = node;
+                  }}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onSelectSuggestion(item)}
+                  onMouseEnter={() => onHighlightIndex(index)}
+                >
+                  {(() => {
+                    const fileSuggestion = isFileSuggestion(item);
+                    const title = fileSuggestion ? fileTitle(item.label) : item.label;
+                    const description = fileSuggestion ? item.label : item.description;
+                    if (fileSuggestion) {
+                      const isDirectory = item.isDirectory === true;
+                      const displayPath = isDirectory ? item.label.replace(/\/$/, "") : item.label;
+                      return (
+                        <span className="composer-suggestion-row">
+                          <span className="composer-suggestion-icon" aria-hidden>
+                            <FileIcon filePath={displayPath} isFolder={isDirectory} isOpen={false} />
+                          </span>
+                          <span className="composer-suggestion-content">
+                            <span className="composer-suggestion-title">{title}</span>
+                            {description && (
+                              <span className="composer-suggestion-description">
+                                {description}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      );
+                    }
+                    const Icon = suggestionIcon(item);
+                    return (
+                      <span className="composer-suggestion-row">
+                        <span className="composer-suggestion-icon" aria-hidden>
+                          <Icon size={14} />
+                        </span>
+                        <span className="composer-suggestion-content">
+                          <span className="composer-suggestion-title">{title}</span>
+                          {description && (
+                            <span className="composer-suggestion-description">
+                              {description}
+                            </span>
+                          )}
+                          {item.hint && (
+                            <span className="composer-suggestion-description">
+                              {item.hint}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    );
+                  })()}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,197 @@
+:root[data-theme="light"] {
+  color-scheme: light;
+  --text-primary: #1a1d24;
+  --text-strong: #0e1118;
+  --text-emphasis: rgba(17, 20, 28, 0.9);
+  --text-stronger: rgba(17, 20, 28, 0.85);
+  --text-quiet: rgba(17, 20, 28, 0.75);
+  --text-muted: rgba(17, 20, 28, 0.7);
+  --text-subtle: rgba(17, 20, 28, 0.6);
+  --text-faint: rgba(17, 20, 28, 0.5);
+  --text-fainter: rgba(17, 20, 28, 0.45);
+  --text-dim: rgba(17, 20, 28, 0.35);
+  --surface-sidebar: rgba(255, 255, 255, 0.82);
+  --surface-sidebar-opaque: rgb(255, 255, 255);
+  --surface-topbar: rgba(255, 255, 255, 0.9);
+  --surface-right-panel: rgba(255, 255, 255, 0.82);
+  --surface-composer: rgba(255, 255, 255, 0.9);
+  --surface-messages: #ffffff;
+  --surface-card: rgba(255, 255, 255, 0.72);
+  --surface-card-strong: rgba(255, 255, 255, 0.92);
+  --surface-card-muted: rgba(255, 255, 255, 0.7);
+  --surface-item: rgba(255, 255, 255, 0.6);
+  --surface-control: rgba(15, 23, 36, 0.08);
+  --surface-control-hover: rgba(15, 23, 36, 0.12);
+  --surface-control-disabled: rgba(15, 23, 36, 0.05);
+  --surface-hover: rgba(15, 23, 36, 0.06);
+  --surface-active: rgba(77, 153, 255, 0.18);
+  --surface-approval: rgba(255, 255, 255, 0.92);
+  --surface-debug: rgba(255, 255, 255, 0.9);
+  --surface-command: rgba(255, 255, 255, 0.95);
+  --surface-diff-card: rgba(255, 255, 255, 0.92);
+  --surface-bubble: rgba(255, 255, 255, 0.9);
+  --surface-bubble-user: #0078d4;
+  --color-message-user-bg: #0078d4;
+  --color-message-user-text: #ffffff;
+  --surface-context-core: rgba(255, 255, 255, 0.9);
+  --surface-popover: rgba(255, 255, 255, 0.99);
+  --desktop-shell-background: #eeeff3;
+  --desktop-sidebar-background: #eceef2;
+  --desktop-main-background: #ffffff;
+  --desktop-main-radius: 16px;
+  --desktop-main-shadow: none;
+  --surface-review: rgba(255, 170, 210, 0.25);
+  --border-review: rgba(200, 90, 140, 0.45);
+  --surface-review-active: rgba(255, 170, 210, 0.32);
+  --text-review-active: rgba(120, 30, 70, 0.9);
+  --surface-review-done: rgba(140, 235, 200, 0.35);
+  --text-review-done: rgba(20, 90, 60, 0.9);
+  --border-subtle: rgba(15, 23, 36, 0.08);
+  --border-muted: rgba(15, 23, 36, 0.06);
+  --border-strong: rgba(15, 23, 36, 0.14);
+  --border-stronger: rgba(15, 23, 36, 0.18);
+  --border-quiet: rgba(15, 23, 36, 0.2);
+  --border-accent: rgba(77, 153, 255, 0.5);
+  --border-accent-soft: rgba(77, 153, 255, 0.28);
+  --text-accent: rgba(45, 93, 170, 0.7);
+  --message-link-color: rgba(109, 40, 217, 1);
+  --shadow-accent: rgba(90, 140, 210, 0.18);
+  --titlebar-inset-left: 72px;
+  --titlebar-toggle-offset: 1px;
+  --status-success: rgba(30, 155, 110, 0.9);
+  --status-warning: rgba(215, 120, 20, 0.9);
+  --status-error: rgba(200, 45, 45, 0.9);
+  --status-unknown: rgba(17, 20, 28, 0.25);
+  --select-caret: rgba(15, 23, 36, 0.45);
+
+  /* @coss/ui standard theme variables (bridge) */
+  --background: #ffffff;
+  --foreground: #1a1d24;
+  --card: rgba(255, 255, 255, 0.72);
+  --card-foreground: #1a1d24;
+  --popover: rgba(255, 255, 255, 0.99);
+  --popover-foreground: #1a1d24;
+  --primary: rgba(45, 93, 170, 0.7);
+  --primary-foreground: #ffffff;
+  --secondary: rgba(15, 23, 36, 0.08);
+  --secondary-foreground: #1a1d24;
+  --muted: rgba(15, 23, 36, 0.08);
+  --muted-foreground: rgba(17, 20, 28, 0.7);
+  --accent: rgba(15, 23, 36, 0.06);
+  --accent-foreground: #1a1d24;
+  --destructive: rgba(200, 45, 45, 0.9);
+  --destructive-foreground: #ffffff;
+  --success: rgba(30, 155, 110, 0.9);
+  --success-foreground: #ffffff;
+  --warning: rgba(215, 120, 20, 0.9);
+  --warning-foreground: #1a1d24;
+  --info: rgba(45, 93, 170, 0.7);
+  --info-foreground: #ffffff;
+  --border: rgba(15, 23, 36, 0.06);
+  --input: rgba(15, 23, 36, 0.08);
+  --ring: rgba(77, 153, 255, 0.5);
+  --radius: 0.5rem;
+  --sidebar-background: rgba(246, 247, 250, 0.82);
+  --sidebar-foreground: rgba(17, 20, 28, 0.7);
+  --sidebar-border: rgba(15, 23, 36, 0.06);
+  --sidebar-accent: rgba(255, 255, 255, 0.72);
+  --sidebar-accent-foreground: #0e1118;
+
+  /* 滚动条颜色 - Scrollbar colors */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(15, 23, 36, 0.18);
+  --scrollbar-thumb-hover: rgba(15, 23, 36, 0.32);
+
+  /* 工具块主题变量 (参考 idea-claude-code-gui) */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f3f3;
+  --bg-tertiary: #e8e8e8;
+  --bg-hover: #e0e0e0;
+  --bg-active: #d6d6d6;
+
+  --text-secondary: #1a1a1a;
+  --text-tertiary: #666666;
+
+  --border-primary: #d0d0d0;
+  --border-color: rgba(15, 23, 36, 0.14);
+  --border-hover: rgba(15, 23, 36, 0.25);
+
+  --color-success: #107c10;
+  --color-warning: #f7630c;
+  --color-error: #e81123;
+
+  --color-thinking-border: #d0d0d0;
+  --color-thinking-text: #666666;
+
+  --color-tool-bg: rgba(0, 0, 0, 0.04);
+  --color-tool-icon: #0078d4;
+  --color-tool-name: #0066cc;
+  --color-tool-summary: #666666;
+  --color-tool-file-link: #107c10;
+}
+
+/* Kanban - softer borders in light mode */
+:root[data-theme="light"] .kanban-column {
+  border-right-color: rgba(15, 23, 36, 0.08);
+}
+
+:root[data-theme="light"] .kanban-column-header {
+  border-bottom-color: rgba(15, 23, 36, 0.08);
+}
+
+:root[data-theme="light"] .kanban-card {
+  border-bottom-color: rgba(15, 23, 36, 0.06);
+}
+
+:root[data-theme="light"] .kanban-board-header {
+  border-bottom-color: rgba(15, 23, 36, 0.08);
+}
+
+:root[data-theme="light"] .kanban-search-box {
+  border-color: rgba(15, 23, 36, 0.1);
+}
+
+/* Kanban modal - ensure opaque background in light mode (Tauri window is transparent) */
+:root[data-theme="light"] .kanban-modal-overlay {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] .kanban-modal {
+  background: #ffffff;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+/* Native select/option light mode override */
+:root[data-theme="light"] select,
+:root[data-theme="light"] select option {
+  background-color: #ffffff;
+  color: #1a1d24;
+}
+
+:root[data-theme="light"] .app.reduced-transparency {
+  --surface-sidebar: rgba(255, 255, 255, 0.98);
+  --surface-sidebar-opaque: rgb(255, 255, 255);
+  --surface-topbar: rgba(255, 255, 255, 0.98);
+  --surface-right-panel: rgba(255, 255, 255, 0.98);
+  --surface-composer: rgba(255, 255, 255, 0.98);
+  --surface-messages: #ffffff;
+  --surface-card: rgba(255, 255, 255, 0.96);
+  --surface-card-strong: rgba(255, 255, 255, 0.98);
+  --surface-card-muted: rgba(252, 253, 255, 0.96);
+  --surface-item: rgba(250, 251, 253, 0.96);
+  --surface-control: rgba(15, 23, 36, 0.12);
+  --surface-control-hover: rgba(15, 23, 36, 0.18);
+  --surface-control-disabled: rgba(15, 23, 36, 0.08);
+  --surface-hover: rgba(15, 23, 36, 0.1);
+  --surface-active: rgba(77, 153, 255, 0.22);
+  --surface-approval: rgba(255, 255, 255, 0.98);
+  --surface-debug: rgba(255, 255, 255, 0.98);
+  --surface-command: rgba(255, 255, 255, 0.98);
+  --surface-diff-card: rgba(255, 255, 255, 0.98);
+  --surface-bubble: rgba(255, 255, 255, 0.98);
+  --surface-bubble-user: #0078d4;
+  --color-message-user-bg: #0078d4;
+  --color-message-user-text: #ffffff;
+  --surface-context-core: rgba(255, 255, 255, 0.98);
+  --surface-popover: rgba(255, 255, 255, 0.995);
+}

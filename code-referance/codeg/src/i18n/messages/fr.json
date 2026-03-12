@@ -1,0 +1,1339 @@
+{
+  "Language": {
+    "followSystem": "Suivre le système",
+    "english": "Anglais",
+    "simplifiedChinese": "Chinois simplifié",
+    "traditionalChinese": "Chinois traditionnel",
+    "japanese": "Japonais",
+    "korean": "Coréen",
+    "spanish": "Espagnol",
+    "german": "Allemand",
+    "french": "Français",
+    "portuguese": "Portugais",
+    "arabic": "Arabe"
+  },
+  "WelcomePage": {
+    "title": "Bienvenue sur Codeg",
+    "openSettings": "Ouvrir les paramètres",
+    "searchPlaceholder": "Rechercher des dossiers...",
+    "loading": "Chargement...",
+    "emptyFolders": "Aucun dossier pour le moment",
+    "removeFromHistory": "Retirer de l’historique",
+    "openFolder": "Ouvrir un dossier",
+    "cloneRepository": "Cloner un dépôt",
+    "softwareVersion": "Version {version}",
+    "toasts": {
+      "loadFolderHistoryFailed": "Échec du chargement de l’historique des dossiers",
+      "openFolderFailed": "Échec de l’ouverture du dossier",
+      "removeFromHistoryFailed": "Échec de la suppression du dossier",
+      "openSettingsFailed": "Échec de l’ouverture des paramètres",
+      "cloneFailed": "Échec du clonage du dépôt"
+    },
+    "errors": {
+      "unknown": "Erreur inattendue",
+      "invalidInput": "Entrée invalide.",
+      "notFound": "Ressource introuvable.",
+      "alreadyExists": "La ressource existe déjà.",
+      "dependencyMissing": "Une dépendance requise est manquante.",
+      "databaseError": "Échec de l’opération de base de données.",
+      "ioError": "Échec de l’opération de fichier.",
+      "externalCommandFailed": "La commande externe a échoué.",
+      "windowOperationFailed": "Échec de l’opération de fenêtre.",
+      "gitNotInstalled": "Git n’est pas installé. Veuillez installer Git d’abord.",
+      "targetDirectoryNotEmpty": "Le répertoire cible existe déjà et n’est pas vide.",
+      "repositoryNotFound": "Dépôt introuvable. Vérifiez l’URL et les autorisations d’accès.",
+      "networkUnavailable": "Le réseau est indisponible. Vérifiez votre connexion et réessayez.",
+      "authenticationFailed": "Échec de l’authentification. Vérifiez les identifiants ou la clé SSH.",
+      "permissionDenied": "Permission refusée. Vérifiez les autorisations du répertoire."
+    },
+    "cloneDialog": {
+      "title": "Cloner un dépôt",
+      "repositoryUrl": "URL du dépôt",
+      "repositoryUrlPlaceholder": "https://github.com/user/repo.git",
+      "directory": "Répertoire",
+      "directoryPlaceholder": "Sélectionnez le répertoire cible...",
+      "browseDirectory": "Parcourir le répertoire",
+      "cancel": "Annuler",
+      "clone": "Cloner"
+    }
+  },
+  "SettingsShell": {
+    "title": "Paramètres",
+    "preferences": "Préférences",
+    "nav": {
+      "appearance": "Apparence",
+      "agents": "Agents IA",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "shortcuts": "Raccourcis",
+      "system": "Système"
+    }
+  },
+  "AppearanceSettings": {
+    "sectionTitle": "Apparence du thème",
+    "sectionDescription": "Choisissez clair, sombre ou suivre le système. Les paramètres sont enregistrés automatiquement.",
+    "themeMode": "Mode du thème",
+    "placeholder": "Sélectionner le mode du thème",
+    "system": "Suivre le système",
+    "light": "Clair",
+    "dark": "Sombre",
+    "currentTheme": "Thème effectif actuel : {theme}",
+    "resolvedTheme": {
+      "light": "Clair",
+      "dark": "Sombre",
+      "unknown": "--"
+    }
+  },
+  "SystemSettings": {
+    "loading": "Chargement...",
+    "sectionTitle": "Gestion du système",
+    "sectionDescription": "Gérez le proxy réseau, les mises à jour de l’app et les préférences de langue.",
+    "proxyTitle": "Proxy réseau",
+    "proxyDescription": "Lorsqu’il est activé, les requêtes réseau suivantes utilisent ce proxy en priorité (y compris le chat ACP, l’installation d’agents et les opérations Git distantes).",
+    "loadFailed": "Échec du chargement : {message}",
+    "enableProxy": "Activer le proxy système",
+    "proxyAddress": "Adresse du proxy",
+    "proxyHint": "Prend en charge http(s)/socks5, exemple : {example}. Actif uniquement lorsque le proxy système est activé.",
+    "save": "Enregistrer",
+    "saving": "Enregistrement...",
+    "proxyRequired": "L’URL du proxy est requise lorsque le proxy est activé",
+    "saveSuccess": "Les paramètres du proxy système ont été enregistrés",
+    "saveFailed": "Échec de l’enregistrement : {message}",
+    "languageTitle": "Langue",
+    "languageDescription": "Définissez la langue de l’app. En mode système, les langues non prises en charge reviennent à l’anglais.",
+    "appLanguage": "Langue de l’app",
+    "languageSaveSuccess": "Les paramètres de langue ont été enregistrés",
+    "languageSaveFailed": "Échec de l’enregistrement des paramètres de langue : {message}",
+    "updateTitle": "Mise à jour de l’app",
+    "updateDescription": "Vérifiez les nouvelles versions depuis la source de publication configurée et installez-les directement si disponibles.",
+    "currentVersion": "Version actuelle",
+    "upgradableVersion": "Dernière version",
+    "none": "Aucune",
+    "lastChecked": "Dernière vérification : {time}",
+    "updateError": "Erreur de mise à jour : {message}",
+    "checking": "Vérification...",
+    "checkUpdate": "Rechercher les mises à jour",
+    "updating": "Installation...",
+    "upgradeTo": "Mettre à jour vers v{version}",
+    "foundUpdate": "Nouvelle version v{version} trouvée",
+    "alreadyLatest": "Vous utilisez déjà la dernière version",
+    "checkUpdateFailed": "Échec de la recherche de mises à jour : {message}",
+    "installSuccess": "Mise à jour installée. Redémarrage de l’app.",
+    "installFailed": "Échec de la mise à jour : {message}",
+    "updateErrors": {
+      "sourceUnavailable": "Impossible d’atteindre la source de mise à jour. Vérifiez votre réseau ou proxy et réessayez.",
+      "network": "La connexion réseau a échoué. Vérifiez votre réseau ou proxy et réessayez.",
+      "downloadFailed": "Impossible de télécharger le paquet de mise à jour. Veuillez réessayer plus tard.",
+      "installFailed": "Impossible d’installer la mise à jour. Fermez l’app puis réessayez.",
+      "unknown": "La mise à jour a échoué. Veuillez réessayer plus tard."
+    }
+  },
+  "ShortcutSettings": {
+    "sectionTitle": "Raccourcis",
+    "resetDefault": "Rétablir les valeurs par défaut",
+    "recordInstruction": "Cliquez sur le bouton à droite, puis appuyez sur une combinaison de touches. Utilisez Ctrl/Cmd, Alt et Shift. Appuyez sur Échap pour annuler l’enregistrement.",
+    "recording": "Appuyez sur un raccourci...",
+    "toasts": {
+      "conflict": "Le raccourci est déjà utilisé par \"{title}\"",
+      "updated": "Raccourci mis à jour",
+      "invalid": "Raccourci invalide, veuillez réessayer",
+      "reset": "Les raccourcis par défaut ont été restaurés"
+    },
+    "actions": {
+      "toggle_search": {
+        "title": "Ouvrir la recherche",
+        "description": "Afficher ou masquer le panneau de recherche de conversations"
+      },
+      "toggle_sidebar": {
+        "title": "Basculer la barre latérale gauche",
+        "description": "Afficher ou masquer la barre latérale de liste des conversations"
+      },
+      "toggle_terminal": {
+        "title": "Basculer le terminal",
+        "description": "Afficher ou masquer le panneau terminal inférieur"
+      },
+      "new_terminal_tab": {
+        "title": "Nouveau terminal",
+        "description": "Créer un nouvel onglet terminal lorsque le terminal a le focus"
+      },
+      "close_current_terminal_tab": {
+        "title": "Fermer le terminal actuel",
+        "description": "Fermer l’onglet terminal actuel lorsque le terminal a le focus"
+      },
+      "toggle_aux_panel": {
+        "title": "Basculer le panneau droit",
+        "description": "Afficher ou masquer le panneau d’informations auxiliaires"
+      },
+      "new_conversation": {
+        "title": "Nouvelle conversation",
+        "description": "Créer un nouvel onglet de conversation dans le dossier actuel"
+      },
+      "open_folder": {
+        "title": "Ouvrir un dossier",
+        "description": "Ouvrir le sélecteur de dossier et ouvrir dans une nouvelle fenêtre"
+      },
+      "open_settings": {
+        "title": "Ouvrir les paramètres",
+        "description": "Ouvrir la fenêtre des paramètres"
+      },
+      "close_current_tab": {
+        "title": "Fermer l’onglet actuel",
+        "description": "Fermer la conversation actuelle ou l’onglet de fichier"
+      },
+      "close_all_file_tabs": {
+        "title": "Fermer tous les onglets de fichiers",
+        "description": "Fermer tous les onglets de fichiers uniquement en mode fichiers"
+      },
+      "send_message": {
+        "title": "Envoyer le message",
+        "description": "Envoyer le message actuel dans la zone de saisie"
+      },
+      "newline_in_message": {
+        "title": "Retour à la ligne",
+        "description": "Insérer un retour à la ligne dans la zone de saisie"
+      }
+    }
+  },
+  "SkillsSettings": {
+    "title": "Skills",
+    "description": "Sélectionnez une Skill à gauche. À droite, un aperçu Markdown s’affiche par défaut ; passez en édition pour modifier et enregistrer.",
+    "loadingAgents": "Chargement des agents qui prennent en charge les Skills...",
+    "emptyNoManageableAgents": "Aucun agent disponible pour la gestion des Skills.",
+    "managedTarget": "Cible gérée",
+    "selectAgentPlaceholder": "Sélectionnez un agent",
+    "searchPlaceholder": "Rechercher par nom / ID / chemin...",
+    "skillsList": "Liste des Skills",
+    "loadingSkills": "Chargement des Skills...",
+    "agentNotSupported": "L’agent actuel ne prend pas en charge la gestion des Skills.",
+    "emptySkills": "Aucune Skill pour le moment. Cliquez sur « Nouvelle Skill » pour en créer une.",
+    "newSkillTitle": "Nouvelle Skill",
+    "skillInfo": "Infos de la Skill",
+    "skillIdPlaceholder": "skill-id (lettres/chiffres/-/_/.)",
+    "skillsDirectoryWithPath": "Répertoire des Skills : {path}",
+    "skillsDirectoryNeedId": "Répertoire des Skills : saisissez l’ID de Skill pour générer le chemin complet",
+    "markdownContent": "Contenu Markdown",
+    "editingStatus": "Édition",
+    "previewStatus": "Aperçu",
+    "contentPlaceholder": "Saisissez le contenu Markdown de la Skill...",
+    "metadataTitle": "Métadonnées des Skills",
+    "onlyYamlMetadata": "Cette Skill contient uniquement des métadonnées YAML.",
+    "emptyContentHint": "Aucun contenu pour le moment. Cliquez sur « Éditer » pour commencer.",
+    "loadingSkill": "Chargement de la Skill...",
+    "emptyNoAgents": "Aucun agent disponible.",
+    "actions": {
+      "preview": "Aperçu",
+      "edit": "Éditer",
+      "openInWindow": "Ouvrir dans une nouvelle fenêtre",
+      "delete": "Supprimer",
+      "deleting": "Suppression...",
+      "refresh": "Actualiser",
+      "newSkill": "Nouvelle Skill",
+      "reset": "Réinitialiser",
+      "save": "Enregistrer",
+      "saving": "Enregistrement...",
+      "cancel": "Annuler"
+    },
+    "deleteDialog": {
+      "title": "Supprimer la Skill",
+      "confirm": "Supprimer la Skill actuelle ? Cette action est irréversible.",
+      "confirmWithNamePrefix": "Supprimer la Skill",
+      "confirmWithNameSuffix": "? Cette action est irréversible."
+    },
+    "toasts": {
+      "loadFailed": "Échec du chargement de la Skill",
+      "openFolderFailed": "Échec de l’ouverture du dossier",
+      "noSkillDirectory": "Aucun répertoire de Skills disponible pour l’agent actuel",
+      "nameRequired": "Le nom de la Skill ne peut pas être vide",
+      "updated": "Skill mise à jour",
+      "created": "Skill créée",
+      "saveFailed": "Échec de l’enregistrement de la Skill",
+      "deleted": "Skill supprimée",
+      "deleteFailed": "Échec de la suppression de la Skill"
+    },
+    "templates": {
+      "gemini": "---\nname: example-skill\ndescription: Describe when this skill should be used.\n---\n\n# Skill Name\n\nInstructions for the agent when this skill is active.\n\n## Workflow\n\n1. Add actionable step one.\n2. Add actionable step two.\n",
+      "openCode": "---\nname: example-skill\ndescription: Describe when this skill should be used.\n---\n\n# Purpose\n\nDescribe what this skill helps with.\n\n# Steps\n\n1. Add actionable step one.\n2. Add actionable step two.\n",
+      "openClaw": "---\nname: example-skill\ndescription: Describe when this skill should be used.\nuser-invocable: true\ndisable-model-invocation: false\n---\n\n# Purpose\n\nDescribe what this skill helps with.\n\n# Instructions\n\n1. Add actionable instruction one.\n2. Add actionable instruction two.\n",
+      "default": "# Skill: example-skill\n\n## When to use\n\n- Describe trigger conditions.\n\n## Instructions\n\n1. Add actionable instruction one.\n2. Add actionable instruction two.\n"
+    }
+  },
+  "McpSettings": {
+    "loading": "Chargement...",
+    "summary": {
+      "missingCommand": "(commande manquante)",
+      "missingUrl": "(URL manquante)"
+    },
+    "protocol": {
+      "stdio": "Stdio"
+    },
+    "errors": {
+      "selectInstallProtocol": "Veuillez sélectionner un protocole d’installation",
+      "fieldRequired": "{field} est requis",
+      "fieldNeedsBoolean": "{field} doit être true ou false",
+      "fieldNeedsNumber": "{field} doit être un nombre",
+      "fieldNeedsInteger": "{field} doit être un entier",
+      "fieldInvalidJson": "{field} contient un JSON invalide : {message}",
+      "fieldOutOfRange": "La valeur de {field} est hors de la plage autorisée",
+      "jsonEmpty": "{name} ne peut pas être vide",
+      "jsonInvalid": "{name} n’est pas un JSON valide : {message}",
+      "jsonMustBeObject": "{name} doit être un objet JSON"
+    },
+    "jsonNames": {
+      "localConfig": "Configuration MCP",
+      "installConfig": "Configuration d’installation"
+    },
+    "toasts": {
+      "uninstalled": "MCP désinstallé",
+      "uninstallFailed": "Échec de la désinstallation : {message}",
+      "selectAtLeastOneApp": "Veuillez sélectionner au moins une application cible",
+      "saveSuccess": "Enregistré",
+      "saveFailed": "Échec de l’enregistrement : {message}",
+      "installed": "{name} installé",
+      "installFailed": "Échec de l’installation : {message}"
+    },
+    "installDialog": {
+      "title": "Confirmer l’installation MCP",
+      "descriptionWithName": "Installer {name} dans la configuration locale.",
+      "description": "Sélectionnez les applications cibles pour l’installation.",
+      "protocol": "Protocole",
+      "selectProtocol": "Sélectionner un protocole",
+      "parameters": "Paramètres de configuration",
+      "booleanPlaceholder": "Veuillez sélectionner true/false",
+      "selectOneValue": "Sélectionner une valeur",
+      "targetApps": "Applications cibles"
+    },
+    "actions": {
+      "cancel": "Annuler",
+      "confirmInstall": "Confirmer l’installation",
+      "installing": "Installation",
+      "uninstall": "Désinstaller",
+      "uninstalling": "Désinstallation",
+      "viewDetails": "Voir les détails",
+      "save": "Enregistrer",
+      "saving": "Enregistrement",
+      "install": "Installer"
+    },
+    "tabs": {
+      "local": "MCP local",
+      "market": "Marketplace MCP"
+    },
+    "local": {
+      "filterPlaceholder": "Filtrer les MCP locaux...",
+      "loadFailed": "Échec du chargement : {message}",
+      "empty": "Aucun MCP local détecté.",
+      "description": "La configuration MCP locale peut être modifiée et enregistrée directement.",
+      "enabledApps": "Applications activées",
+      "configJson": "Configuration MCP (JSON)"
+    },
+    "market": {
+      "selectMarketplace": "Sélectionner un marketplace",
+      "searchPlaceholder": "Rechercher MCP...",
+      "searchFailed": "Échec de la recherche : {message}",
+      "loadingList": "Chargement de la liste MCP...",
+      "empty": "Aucun résultat MCP.",
+      "loadingDetail": "Chargement des détails du marketplace...",
+      "detailLoadFailed": "Échec du chargement des détails : {message}",
+      "owner": "Propriétaire : {owner}",
+      "namespace": "Espace de noms : {namespace}",
+      "defaultInstallProtocol": "Protocole d’installation par défaut",
+      "currentOptionParameterCount": "Nombre de paramètres de l’option actuelle : {count}",
+      "installConfigDescription": "Configuration d’installation (JSON, modifiable avant installation ; les modifications remplaceront le formulaire protocole/paramètres)",
+      "selectLeftToView": "Sélectionnez un MCP du marketplace à gauche pour voir les détails."
+    },
+    "badges": {
+      "verified": "Vérifié",
+      "remote": "Distant",
+      "hasHomepage": "A une page d’accueil",
+      "uses": "{count} utilisations",
+      "deployed": "Déployé",
+      "notDeployed": "Non déployé"
+    },
+    "selectLeftMcp": "Sélectionnez un MCP à gauche."
+  },
+  "AcpAgentSettings": {
+    "title": "Gestion du SDK des agents",
+    "description": "Gérez en un seul endroit la connexion SDK des agents, l'état activé, les variables d'environnement, la gestion de configuration et les informations de préflight de version.",
+    "loadingAgents": "Chargement de la liste des agents...",
+    "agentList": "Liste des agents",
+    "emptyNoAgent": "Aucun agent disponible.",
+    "configManagement": "Gestion de configuration",
+    "envVars": "Variables d'environnement",
+    "nativeJsonConfig": "Configuration JSON native",
+    "modelHintDefault": "Laissez vide pour utiliser le modèle système par défaut.",
+    "generalConfigDescriptionClaude": "Prend en charge la configuration rapide de l'API URL, API Key et des modèles Claude, et synchronise avec la configuration JSON native.",
+    "generalConfigDescriptionDefault": "Prend en charge les entrées de configuration importantes (API URL, API Key, Model) et la gestion de la configuration JSON native.",
+    "actions": {
+      "dragSort": "Glisser pour réordonner",
+      "dragSortAgent": "Glisser pour réordonner {name}",
+      "refreshCheck": "Actualiser la vérification",
+      "refreshCheckAgent": "Actualiser la vérification de {name}",
+      "clickEnable": "Cliquer pour activer {name}",
+      "clickDisable": "Cliquer pour désactiver {name}",
+      "install": "Installer",
+      "upgrade": "Mettre à niveau",
+      "uninstall": "Désinstaller",
+      "uninstalling": "Désinstallation...",
+      "saveEnvVars": "Enregistrer les variables d’environnement",
+      "saving": "Enregistrement...",
+      "saveCodexConfig": "Enregistrer la config Codex",
+      "saveGeminiConfig": "Enregistrer la config Gemini",
+      "saveOpenCodeConfig": "Enregistrer la config OpenCode",
+      "saveOpenClawConfig": "Enregistrer la config OpenClaw",
+      "saveConfigManagement": "Enregistrer la gestion de config",
+      "saveCurrentProvider": "Enregistrer le provider actuel",
+      "showApiKey": "Afficher la clé API",
+      "hideApiKey": "Masquer la clé API",
+      "showKey": "Afficher la clé",
+      "hideKey": "Masquer la clé",
+      "showToken": "Afficher le token",
+      "hideToken": "Masquer le token",
+      "cancel": "Annuler",
+      "delete": "Supprimer",
+      "deleting": "Suppression...",
+      "confirmDelete": "Confirmer la suppression",
+      "confirmUninstall": "Confirmer la désinstallation"
+    },
+    "status": {
+      "enabled": "Activé",
+      "disabled": "Désactivé",
+      "unchecked": "Non vérifié",
+      "agentEnabledAria": "{name} activé",
+      "agentEnabledSwitch": "Interrupteur d’activation {name}"
+    },
+    "preflight": {
+      "count": "Éléments de pré-vérification : {count}",
+      "notRun": "Les vérifications n’ont pas encore été exécutées."
+    },
+    "codex": {
+      "configDescription": "Prend en charge la configuration rapide de l’URL API, de la clé API, du nom du modèle et du reasoning effort, avec synchronisation vers `auth.json` / `config.toml`.",
+      "selectProvider": "Sélectionner un provider",
+      "modelName": "Nom du modèle",
+      "selectReasoningEffort": "Sélectionner Reasoning Effort",
+      "enableWebsocket": "Activer WebSocket",
+      "enableWebsocketAria": "Activer WebSocket pour Codex Provider",
+      "authJsonNative": "auth.json (natif)",
+      "configTomlNative": "config.toml (natif)"
+    },
+    "gemini": {
+      "authConfig": "Configuration d’authentification Gemini",
+      "authConfigDescription": "Alignée sur la documentation d’authentification Gemini CLI, avec prise en charge d’un endpoint personnalisé, connexion Google, Gemini API Key et Vertex AI (ADC / compte de service / API Key).",
+      "authMode": "Mode d’authentification",
+      "selectAuthMode": "Sélectionner un mode d’authentification",
+      "viewAuthDoc": "Voir la documentation d’authentification",
+      "mode": {
+        "custom": "Endpoint personnalisé",
+        "loginGoogle": "Connexion Google (OAuth)",
+        "vertexServiceAccount": "Vertex AI (Compte de service)"
+      },
+      "hint": {
+        "custom": "Renseignez API URL, API Key et Model, mappés sur GOOGLE_GEMINI_BASE_URL / GEMINI_API_KEY / GEMINI_MODEL.",
+        "loginGoogle": "Exécutez d’abord gemini dans le terminal et terminez la connexion Google ; la clé API n’est pas requise.",
+        "geminiApiKey": "Renseignez GEMINI_API_KEY lors de l’utilisation de l’API Gemini.",
+        "vertexAdc": "Utilisez gcloud ADC ; GOOGLE_CLOUD_PROJECT et GOOGLE_CLOUD_LOCATION sont recommandés.",
+        "vertexServiceAccount": "Définissez le chemin JSON du compte de service dans GOOGLE_APPLICATION_CREDENTIALS.",
+        "vertexApiKey": "Renseignez GOOGLE_API_KEY lors de l’utilisation d’une clé API Vertex AI."
+      }
+    },
+    "openCode": {
+      "configManagement": "Gestion de configuration OpenCode",
+      "configDescription": "Alignée sur le schéma `provider` d’OpenCode, prend en charge la gestion multi-provider et la synchronisation bidirectionnelle avec les fichiers JSON natifs.",
+      "providerManagement": "Gestion des providers",
+      "providerCount": "{count} fournisseurs",
+      "addProvider": "Ajouter un provider",
+      "emptyProvider": "Aucun provider pour le moment. Saisissez un ID puis cliquez sur « Ajouter un provider ».",
+      "providerEnabledState": "État activé de {providerId}",
+      "selectProviderNpm": "Sélectionner provider.npm",
+      "notSet": "Non défini",
+      "modelManagement": "Gestion des modèles",
+      "modelCount": "{count} modèles",
+      "modelDescription": "Aligné sur `provider.models` d’OpenCode. La gestion rapide prend actuellement en charge `name` / `id` ; les autres champs avancés sont conservés et peuvent être modifiés dans le JSON natif ci-dessous.",
+      "addModel": "Ajouter un modèle",
+      "emptyModel": "Aucun modèle pour le moment. Saisissez model id puis cliquez sur « Ajouter un modèle ».",
+      "modelId": "ID du modèle",
+      "modelName": "Nom du modèle",
+      "deleteModel": "Supprimer le modèle {modelId}",
+      "nativeJsonConfig": "Configuration JSON native OpenCode"
+    },
+    "openClaw": {
+      "gatewayConfig": "Configuration Gateway",
+      "gatewayDescription": "Configure la connexion OpenClaw Gateway. Prend en charge une gateway locale ou distante.",
+      "gatewayUrlHint": "Laisser vide pour utiliser gateway.remote.url depuis la configuration locale openclaw.",
+      "gatewayTokenPlaceholder": "Token d’authentification Gateway",
+      "gatewayTokenHint": "Utilisez token-file plutôt qu’un token en clair si possible ; configurez-le via le CLI openclaw.",
+      "sessionKeyHint": "Optionnel. Spécifie la session key de la gateway ; laisser vide pour auto-attribuer une session isolée."
+    },
+    "claude": {
+      "mainModel": "Modèle principal",
+      "reasoningModel": "Modèle de raisonnement (thinking)",
+      "haikuDefaultModel": "Modèle Haiku par défaut",
+      "sonnetDefaultModel": "Modèle Sonnet par défaut",
+      "opusDefaultModel": "Modèle Opus par défaut"
+    },
+    "dialogs": {
+      "confirmDeleteProvider": "Supprimer le provider {providerId} ?",
+      "confirmDeleteProviderDescription": "La configuration OpenCode et auth JSON seront mises à jour ensemble. Cette action est irréversible.",
+      "confirmUninstall": "Désinstaller {name} ?",
+      "confirmUninstallDescription": "Cela supprime la version installée localement. Vous pouvez réinstaller plus tard."
+    },
+    "errors": {
+      "nativeJsonMustBeObject": "La configuration JSON native doit être un objet",
+      "nativeJsonInvalid": "Erreur de format de configuration JSON native : {message}",
+      "openCodeAuthMustBeObject": "OpenCode auth.json doit être un objet JSON",
+      "openCodeAuthInvalid": "Erreur de format OpenCode auth.json : {message}",
+      "authMustBeObject": "auth.json doit être un objet JSON",
+      "authInvalid": "Erreur de format auth.json : {message}",
+      "providerIdPattern": "L’ID du provider n’accepte que lettres, chiffres, underscore, point et tiret",
+      "providerExists": "Le provider '{providerId}' existe déjà",
+      "modelIdPattern": "L’ID du modèle n’accepte que lettres, chiffres, underscore, point, deux-points et tiret",
+      "modelExists": "Le modèle '{modelId}' existe déjà"
+    },
+    "warnings": {
+      "nativeJsonRecoveredStructured": "La configuration JSON native est invalide ; réinitialisée en configuration structurée",
+      "nativeJsonRecoveredOpenCode": "La configuration JSON native est invalide ; réinitialisée en configuration structurée OpenCode",
+      "openCodeAuthRecovered": "OpenCode auth.json est invalide ; réinitialisé en configuration par défaut",
+      "authRecoveredStructured": "auth.json est invalide ; réinitialisé en configuration structurée"
+    },
+    "toasts": {
+      "agentActionCompleted": "{name} {action} terminé",
+      "agentActionFailed": "{name} {action} échoué",
+      "localVersion": "Version locale : {version}",
+      "installCompletedVersionLater": "Installation terminée, la version sera mise à jour à la prochaine vérification",
+      "uninstallCompleted": "Désinstallation de {name} terminée",
+      "uninstallFailed": "Échec de la désinstallation de {name}",
+      "localVersionRemoved": "Version locale supprimée",
+      "saveAgentOrderFailed": "Échec de l’enregistrement de l’ordre des agents",
+      "saveAgentSwitchFailed": "Échec de l’enregistrement du switch agent",
+      "saveEnvFailed": "Échec de l’enregistrement des variables d’environnement",
+      "codexSaved": "Configuration Codex enregistrée",
+      "saveCodexNativeFailed": "Échec de l’enregistrement de la configuration native Codex",
+      "geminiSaved": "Configuration Gemini enregistrée",
+      "saveGeminiFailed": "Échec de l’enregistrement de la configuration Gemini",
+      "providerDeleted": "Provider {providerId} supprimé",
+      "providerDeleteFailed": "Échec de suppression du provider {providerId}",
+      "providerSaved": "Provider {providerId} enregistré",
+      "saveProviderFailed": "Échec d’enregistrement du provider {providerId}",
+      "openCodeConfigSynced": "La configuration OpenCode et auth JSON ont été synchronisés.",
+      "openCodeSaved": "Configuration OpenCode enregistrée",
+      "saveOpenCodeFailed": "Échec de l’enregistrement de la configuration OpenCode",
+      "openClawSaved": "Configuration OpenClaw enregistrée",
+      "saveOpenClawFailed": "Échec de l’enregistrement de la configuration OpenClaw",
+      "configSaved": "Configuration enregistrée",
+      "saveConfigManagementFailed": "Échec de l’enregistrement de la gestion de configuration"
+    },
+    "version": {
+      "statusLabel": "Statut de version",
+      "notInstalled": "Non installé",
+      "remoteLocal": "Distant : {remoteVersion} · Local : {localVersion}",
+      "platformUnsupported": "{versionText}. La plateforme actuelle ne prend pas en charge cet agent.",
+      "clickInstall": "{versionText}. Cliquez sur Installer à droite.",
+      "localUnrecognized": "{versionText}. La version locale n’est pas comparable ; essayez une mise à niveau pour écraser l’installation.",
+      "upgradeAvailable": "{versionText}. Mise à niveau disponible.",
+      "remoteUnavailable": "{versionText}. La version distante est actuellement indisponible.",
+      "latest": "{versionText}. Déjà à jour."
+    }
+  },
+  "SettingsPages": {
+    "agentsLoading": "Chargement des paramètres des agents..."
+  },
+  "CommitPage": {
+    "title": "Valider",
+    "invalidFolderId": "ID de dossier invalide",
+    "loadingRepo": "Chargement du dépôt..."
+  },
+  "Folder": {
+    "common": {
+      "all": "Tout",
+      "cancel": "Annuler",
+      "close": "Fermer",
+      "closeOthers": "Fermer les autres",
+      "closeAll": "Tout fermer",
+      "confirm": "Confirmer",
+      "save": "Enregistrer",
+      "delete": "Supprimer",
+      "rename": "Renommer",
+      "loading": "Chargement...",
+      "refresh": "Actualiser",
+      "refreshing": "Actualisation...",
+      "create": "Créer",
+      "createAndSwitch": "Créer et basculer",
+      "openFile": "Ouvrir le fichier",
+      "viewDiff": "Voir le Diff"
+    },
+    "modes": {
+      "conversation": "Mode conversation",
+      "fusion": "Mode fusion",
+      "files": "Mode fichiers",
+      "workspaceModesAria": "Modes de l’espace de travail"
+    },
+    "statusLabels": {
+      "in_progress": "En cours",
+      "pending_review": "Revue",
+      "completed": "Terminé",
+      "cancelled": "Annulé"
+    },
+    "sidebar": {
+      "title": "Discussions",
+      "locateActiveConversation": "Localiser la conversation active",
+      "expandAllGroups": "Développer tous les groupes",
+      "collapseAllGroups": "Réduire tous les groupes",
+      "newConversation": "Nouvelle conversation",
+      "noConversationsFound": "Aucune conversation trouvée.",
+      "importLocalSessions": "Importer les sessions locales",
+      "importing": "Import en cours...",
+      "error": "Erreur : {message}",
+      "completeAllSessions": "Terminer toutes les sessions",
+      "completeAllReviewTitle": "Terminer toutes les sessions en revue ?",
+      "completeAllReviewDescription": "Cela marquera comme terminées toutes les {count, plural, one {# session} other {# sessions}} en Revue.",
+      "completing": "Finalisation...",
+      "toasts": {
+        "importedSessions": "{imported, plural, one {# session} other {# sessions}} importée(s), {skipped} ignorée(s)",
+        "noNewSessionsFound": "Aucune nouvelle session trouvée ({skipped} ignorée(s))",
+        "importFailed": "Échec de l’import : {message}",
+        "reviewCompleted": "{count, plural, one {# session en revue} other {# sessions en revue}} marquée(s) comme terminée(s)",
+        "completeReviewFailed": "Échec de la finalisation des sessions en revue : {message}"
+      }
+    },
+    "conversation": {
+      "reloadFailed": "Échec du rechargement de la conversation : {message}",
+      "reloaded": "Conversation rechargée",
+      "reload": "Recharger",
+      "newConversation": "Nouvelle conversation",
+      "closeConversation": "Fermer la conversation"
+    },
+    "conversationCard": {
+      "untitledConversation": "Conversation sans titre",
+      "newConversation": "Nouvelle conversation",
+      "rename": "Renommer",
+      "status": "Statut",
+      "delete": "Supprimer",
+      "importLocalSessions": "Importer les sessions locales",
+      "importing": "Import en cours...",
+      "renameConversation": "Renommer la conversation",
+      "deleteConversationTitle": "Supprimer la conversation ?",
+      "deleteConversationDescription": "Cela supprimera \"{title}\". Cette action est irréversible.",
+      "cancel": "Annuler",
+      "save": "Enregistrer"
+    },
+    "search": {
+      "dialogTitle": "Rechercher des conversations",
+      "placeholder": "Rechercher des conversations...",
+      "allAgents": "Tout",
+      "searching": "Recherche...",
+      "typeToSearch": "Tapez pour rechercher des conversations",
+      "noResults": "Aucun résultat trouvé.",
+      "untitledConversation": "Conversation sans titre"
+    },
+    "folderTitleBar": {
+      "showSidebar": "Afficher la barre latérale",
+      "hideSidebar": "Masquer la barre latérale",
+      "toggleTerminal": "Basculer le terminal",
+      "toggleAuxPanel": "Basculer le panneau auxiliaire",
+      "search": "Rechercher",
+      "openSettings": "Ouvrir les paramètres",
+      "withShortcut": "{label} (raccourci : {shortcut})"
+    },
+    "statusBar": {
+      "connection": {
+        "connected": "Connecté",
+        "connecting": "Connexion...",
+        "downloading": "Téléchargement...",
+        "prompting": "Réponse...",
+        "error": "Erreur de connexion",
+        "disconnected": "Déconnecté",
+        "tooltip": "{agent} : {status}",
+        "tooltipError": "{agent} : {error}"
+      },
+      "tasks": {
+        "title": "Tâches"
+      },
+      "alerts": {
+        "title": "Alertes",
+        "empty": "Aucune alerte"
+      },
+      "stats": {
+        "conversations": "{count} discussions",
+        "summary": "{conversations} discussions / {messages} messages"
+      },
+      "tokens": {
+        "contextWindowUsageAria": "Utilisation de la fenêtre de contexte",
+        "contextWindow": "Fenêtre de contexte",
+        "usedMax": "Utilisé / Max",
+        "tokenUsage": "Utilisation des tokens",
+        "input": "Entrée",
+        "output": "Sortie",
+        "cacheRead": "Lecture cache",
+        "cacheWrite": "Écriture cache",
+        "total": "Total des tokens"
+      }
+    },
+    "auxPanel": {
+      "tabs": {
+        "diff": "Différences",
+        "files": "Fichiers",
+        "changes": "Changements",
+        "commits": "Validations"
+      }
+    },
+    "windowControls": {
+      "minimizeWindow": "Minimiser la fenêtre",
+      "minimize": "Minimiser",
+      "maximizeWindow": "Maximiser la fenêtre",
+      "maximize": "Maximiser",
+      "restoreWindow": "Restaurer la fenêtre",
+      "restore": "Restaurer",
+      "closeWindow": "Fermer la fenêtre",
+      "close": "Fermer"
+    },
+    "tabs": {
+      "closeConversationTab": "Fermer l’onglet de conversation",
+      "close": "Fermer",
+      "closeOthers": "Fermer les autres",
+      "closeAll": "Tout fermer",
+      "tileDisplay": "Affichage en mosaïque",
+      "untileDisplay": "Quitter la mosaïque"
+    },
+    "fileWorkspace": {
+      "files": "Fichiers",
+      "closeFileTab": "Fermer l’onglet fichier",
+      "close": "Fermer",
+      "closeOthers": "Fermer les autres",
+      "closeAll": "Tout fermer"
+    },
+    "terminal": {
+      "rename": "Renommer",
+      "close": "Fermer",
+      "closeOthers": "Fermer les autres",
+      "closeAll": "Tout fermer",
+      "hideTerminal": "Masquer le terminal ({shortcut})"
+    },
+    "sessionFiles": {
+      "currentResponse": "Réponse actuelle",
+      "noDiffDataAvailable": "Aucune donnée de diff disponible pour {filePath}",
+      "loading": "Chargement...",
+      "noFileChangesInConversation": "Aucun changement de fichier dans cette conversation",
+      "openConversationToSeeChanges": "Ouvrez une conversation pour voir ses changements de fichiers",
+      "remove": "Retirer",
+      "changeCount": "{count, plural, one {# changement} other {# changements}}",
+      "fileCount": "{count, plural, one {# fichier} other {# fichiers}}"
+    },
+    "folderNameDropdown": {
+      "fallbackFolderName": "Dossier",
+      "openFolder": "Ouvrir le dossier",
+      "cloneRepository": "Cloner le dépôt",
+      "opened": "Ouvert",
+      "recentOpen": "Ouvert récemment"
+    },
+    "fileWorkspacePanel": {
+      "viewDiff": "Voir le Diff",
+      "openFile": "Ouvrir le fichier",
+      "fileCount": "{count, plural, one {# fichier} other {# fichiers}}",
+      "openFileOrDiff": "Ouvrez un fichier ou un diff depuis le panneau de droite",
+      "disk": "Disque",
+      "head": "HEAD",
+      "unsaved": "Non enregistré",
+      "workingTree": "Arbre de travail",
+      "loading": "Chargement...",
+      "compareWithBranch": "{path} · comparer avec {branch}",
+      "hunkCount": "{count, plural, one {# bloc} other {# blocs}}",
+      "prev": "Précédent",
+      "next": "Suivant",
+      "jumpToLine": "Aller à la ligne {line}",
+      "noParsedDiffSections": "Aucune section de diff analysée",
+      "loadingEditor": "Chargement de l’éditeur..."
+    },
+    "branchDropdown": {
+      "toasts": {
+        "commitCodeCompleted": "Commit de code terminé",
+        "committedFiles": "{count, plural, one {# fichier commit} other {# fichiers commit}}",
+        "taskCompleted": "{label} terminé",
+        "taskFailed": "{label} échoué",
+        "mergeNoNewCommits": "{branchName} n’a pas de nouveaux commits",
+        "mergedCommits": "{count, plural, one {# commit fusionné} other {# commits fusionnés}}",
+        "allFilesUpToDate": "Tous les fichiers sont à jour",
+        "updatedFiles": "{count, plural, one {# fichier mis à jour} other {# fichiers mis à jour}}",
+        "openCommitWindowFailed": "Impossible d’ouvrir la fenêtre de commit",
+        "upstreamSet": "La branche upstream a été définie",
+        "upstreamSetAndPushed": "Branche upstream définie et {count, plural, one {# commit} other {# commits}} poussé(s)",
+        "noCommitsToPush": "Aucun commit à pousser",
+        "pushedCommits": "{count, plural, one {# commit poussé} other {# commits poussés}}"
+      },
+      "tasks": {
+        "newBranch": "Créer la branche {name}",
+        "newWorktree": "Créer le worktree {name}",
+        "checkoutTo": "Basculer vers {branchName}",
+        "mergeBranch": "Fusionner {branchName}",
+        "rebaseTo": "Rebase vers {branchName}",
+        "deleteBranch": "Supprimer la branche {branchName}",
+        "initGitRepo": "Initialiser le dépôt Git",
+        "pullCode": "Pull du code",
+        "fetchInfo": "Récupérer les infos",
+        "pushCode": "Push du code",
+        "stashChanges": "Stash des changements",
+        "stashPop": "Appliquer le stash"
+      },
+      "confirm": {
+        "mergeTitle": "Fusionner la branche",
+        "rebaseTitle": "Rebase de la branche",
+        "deleteTitle": "Supprimer la branche",
+        "mergeDescription": "Fusionner {branchName} dans la branche actuelle {currentBranch} ?",
+        "rebaseDescription": "Rebaser la branche actuelle {currentBranch} sur {branchName} ?",
+        "deleteDescription": "Supprimer la branche {branchName} ? Cette action est irréversible."
+      },
+      "current": "Actuelle",
+      "switchToBranch": "Basculer vers cette branche",
+      "mergeBranchIntoCurrent": "Fusionner {branchName} dans {currentBranch}",
+      "rebaseCurrentToBranch": "Rebaser {currentBranch} sur {branchName}",
+      "deleteBranch": "Supprimer la branche",
+      "versionControl": "Contrôle de version",
+      "initGitRepo": "Initialiser le dépôt Git",
+      "pullCode": "Pull du code",
+      "fetchRemoteBranches": "Récupérer les branches distantes",
+      "openCommitWindow": "Commit du code...",
+      "pushCode": "Pousser...",
+      "newBranch": "Nouvelle branche...",
+      "newWorktree": "Nouveau worktree...",
+      "stashChanges": "Stash des changements",
+      "stashPop": "Appliquer le stash...",
+      "localBranches": "Branches locales ({count, plural, one {#} other {#}})",
+      "noLocalBranches": "Aucune branche locale",
+      "remoteBranches": "Branches distantes ({count, plural, one {#} other {#}})",
+      "noRemoteBranches": "Aucune branche distante",
+      "parentBranchHint": "La branche actuelle a été créée depuis {parentBranch}. Cliquez pour fusionner {parentBranch} dans la branche actuelle.",
+      "dialogs": {
+        "newBranchTitle": "Nouvelle branche",
+        "newBranchDescription": "Créer une nouvelle branche depuis la branche actuelle {branch}",
+        "branchNamePlaceholder": "Nom de la branche",
+        "newWorktreeTitle": "Nouveau worktree",
+        "newWorktreeDescription": "Créer un nouveau worktree depuis la branche actuelle {branch}",
+        "branchNameLabel": "Nom de la branche",
+        "worktreePathLabel": "Chemin du worktree",
+        "worktreePathPlaceholder": "Chemin du worktree"
+      }
+    },
+    "commitDialog": {
+      "toasts": {
+        "commitCompleted": "Commit de code terminé",
+        "committedFiles": "{count, plural, one {# fichier commit} other {# fichiers commit}}",
+        "addedToVcs": "Ajouté à VCS",
+        "addToVcsFailed": "Échec de l’ajout à VCS",
+        "fileDeleted": "Fichier supprimé",
+        "deleteFailed": "Échec de la suppression",
+        "fileRolledBack": "Fichier restauré",
+        "rollbackFailed": "Échec du rollback"
+      },
+      "confirm": {
+        "deleteTitle": "Confirmer la suppression",
+        "deleteDescription": "Supprimer le fichier \"{file}\" ? Cette action est irréversible.",
+        "rollbackTitle": "Confirmer le rollback",
+        "rollbackDescription": "Restaurer le fichier \"{file}\" vers HEAD ? Les modifications non enregistrées seront perdues."
+      },
+      "actions": {
+        "select": "Sélectionner",
+        "unselect": "Désélectionner",
+        "rollback": "Annuler",
+        "addToVcs": "Ajouter à VCS"
+      },
+      "aria": {
+        "selectFile": "{action} : {path}",
+        "unselectAllFiles": "Désélectionner tous les fichiers",
+        "selectAllFiles": "Sélectionner tous les fichiers",
+        "unselectTracked": "Désélectionner les changements suivis",
+        "selectTracked": "Sélectionner les changements suivis",
+        "unselectUntracked": "Désélectionner les fichiers non suivis",
+        "selectUntracked": "Sélectionner les fichiers non suivis"
+      },
+      "loading": "Chargement...",
+      "selectionCount": "{selected} / {total} fichiers",
+      "emptyFiles": "Aucun fichier modifié",
+      "trackedChanges": "Changements suivis ({count})",
+      "untrackedFiles": "Fichiers non suivis ({count})",
+      "commitMessage": "Message de commit",
+      "commitMessagePlaceholder": "Saisissez le message de commit...",
+      "commitButton": "Valider ({count})",
+      "head": "HEAD",
+      "workingTree": "Arbre de travail",
+      "clickFileToDiff": "Cliquez sur un nom de fichier pour voir le diff",
+      "loadingDiff": "Chargement du diff..."
+    },
+    "gitLogTab": {
+      "filesTitle": "Fichiers",
+      "expandAllFiles": "Développer tous les fichiers",
+      "collapseAllFiles": "Réduire tous les fichiers",
+      "workspace": "espace de travail",
+      "retry": "Réessayer",
+      "noCommitsFound": "Aucun commit trouvé",
+      "hash": "Empreinte",
+      "copyHash": "Copier le hash",
+      "author": "Auteur",
+      "noFileChangeDetails": "Aucun détail de changement de fichier disponible.",
+      "branchesTitle": "Branches Git",
+      "loadingBranches": "Chargement des branches...",
+      "noContainingBranches": "Aucune branche contenant ce commit.",
+      "newBranch": "Nouvelle branche...",
+      "viewCommitDiffAria": "Voir le diff du commit {hash}",
+      "copyFullCommitHashAria": "Copier le hash complet du commit {hash}",
+      "pushStatus": {
+        "pushed": "Poussé vers le remote",
+        "notPushed": "Non poussé vers le remote",
+        "unknown": "Statut de push inconnu (aucun upstream configuré)"
+      },
+      "time": {
+        "monthsAgo": "{count, plural, one {il y a # mois} other {il y a # mois}}",
+        "daysAgo": "{count, plural, one {il y a # jour} other {il y a # jours}}",
+        "hoursAgo": "{count, plural, one {il y a # heure} other {il y a # heures}}",
+        "minsAgo": "{count, plural, one {il y a # min} other {il y a # mins}}",
+        "justNow": "à l’instant"
+      },
+      "toasts": {
+        "createdAndSwitchedNewBranch": "Nouvelle branche créée et activée",
+        "newBranchFromCommit": "{name} (depuis {shortHash})",
+        "createBranchFailed": "Échec de la création de la branche"
+      },
+      "branchSelector": {
+        "selectBranchPlaceholder": "Sélectionner une branche...",
+        "localBranches": "Branches locales",
+        "current": "Actuelle",
+        "remoteBranches": "Branches distantes",
+        "refreshCommitHistory": "Actualiser l’historique des commits"
+      },
+      "dialogs": {
+        "newBranchTitle": "Nouvelle branche",
+        "newBranchDescription": "Créer une nouvelle branche avec le commit {shortHash} comme dernier commit.",
+        "branchNamePlaceholder": "Nom de la branche"
+      }
+    },
+    "gitChangesTab": {
+      "workspace": "espace de travail",
+      "noChanges": "Aucun changement local",
+      "trackedChanges": "Changements suivis ({count})",
+      "untrackedFiles": "Fichiers non suivis ({count})",
+      "expandTracked": "Développer les changements suivis",
+      "collapseTracked": "Réduire les changements suivis",
+      "expandUntracked": "Développer les fichiers non suivis",
+      "collapseUntracked": "Réduire les fichiers non suivis",
+      "actions": {
+        "commitCode": "Commit du code",
+        "rollback": "Annuler",
+        "addToVcs": "Ajouter à VCS"
+      },
+      "toasts": {
+        "noAddableFilesInDir": "Aucun fichier modifié de ce répertoire ne peut être ajouté à VCS",
+        "noRollbackFilesInDir": "Aucun fichier modifié de ce répertoire ne peut être rollback",
+        "addedToVcs": "{name} ajouté à VCS",
+        "addToVcsFailed": "Échec de l’ajout à VCS",
+        "openCommitWindowFailed": "Impossible d’ouvrir la fenêtre de commit",
+        "rolledBack": "{name} restauré",
+        "rollbackFailed": "Échec du rollback",
+        "addedFilesToVcs": "{count, plural, one {# fichier} other {# fichiers}} ajouté(s) à VCS",
+        "rolledBackFiles": "{count, plural, one {# fichier restauré} other {# fichiers restaurés}}"
+      },
+      "directoryDialog": {
+        "descriptionAdd": "Sélectionnez les fichiers du répertoire {path} à ajouter à VCS.",
+        "descriptionRollback": "Sélectionnez les fichiers du répertoire {path} à rollback.",
+        "descriptionFallback": "Sélectionnez les fichiers pour continuer.",
+        "selectionCount": "{selected} / {total} fichiers sélectionnés",
+        "selectAll": "Tout sélectionner",
+        "unselectAll": "Tout désélectionner",
+        "loadingCandidates": "Chargement des changements du répertoire...",
+        "noOperableFiles": "Aucun fichier opérable"
+      },
+      "rollbackConfirm": {
+        "title": "Confirmer le rollback",
+        "descriptionWithTarget": "Rollback des changements locaux pour {kind} \"{name}\" ?",
+        "descriptionFallback": "Rollback des changements locaux ?",
+        "kindDirectory": "répertoire",
+        "kindFile": "fichier"
+      }
+    },
+    "tabContext": {
+      "loadingConversation": "Chargement...",
+      "untitledConversation": "Conversation sans titre",
+      "newConversation": "Nouvelle conversation"
+    },
+    "fileTreeTab": {
+      "workspace": "Espace de travail",
+      "retry": "Réessayer",
+      "git": "Git",
+      "openInFileManager": "Ouvrir dans le gestionnaire de fichiers",
+      "openInFinder": "Ouvrir dans Finder",
+      "openInExplorer": "Ouvrir dans Explorer",
+      "attachToCurrentSession": "Attacher à la session actuelle",
+      "compareWithBranch": "Comparer avec la branche...",
+      "reloadFromDisk": "Recharger depuis le disque",
+      "openIn": "Ouvrir dans",
+      "openInTerminal": "Ouvrir dans le terminal",
+      "actions": {
+        "select": "Sélectionner",
+        "unselect": "Désélectionner",
+        "commitCode": "Committer le code",
+        "rollback": "Annuler",
+        "addToVcs": "Ajouter au VCS"
+      },
+      "aria": {
+        "selectPath": "{action} : {path}"
+      },
+      "toasts": {
+        "openDirectoryFailed": "Échec de l'ouverture du dossier",
+        "openBuiltinTerminalFailed": "Impossible d'ouvrir le terminal intégré",
+        "openCommitWindowFailed": "Échec de l'ouverture de la fenêtre de commit",
+        "noAddableFilesInDir": "Aucun fichier modifié de ce dossier ne peut être ajouté au VCS",
+        "noRollbackFilesInDir": "Aucun fichier modifié de ce dossier ne peut être annulé",
+        "addedToVcs": "{name} ajouté au VCS",
+        "addToVcsFailed": "Échec de l'ajout au VCS",
+        "loadBranchesFailed": "Échec du chargement des branches",
+        "renameFailed": "Échec du renommage",
+        "deleteFailed": "Échec de la suppression",
+        "rolledBack": "{name} annulé",
+        "rollbackFailed": "Échec de l'annulation",
+        "addedFilesToVcs": "{count, plural, one {# fichier ajouté au VCS} other {# fichiers ajoutés au VCS}}",
+        "rolledBackFiles": "{count, plural, one {# fichier annulé} other {# fichiers annulés}}",
+        "savedAsCopy": "Enregistré en copie",
+        "saveCopyFailed": "Échec de l'enregistrement en copie",
+        "watchStartFailed": "Échec du démarrage de la surveillance de fichiers"
+      },
+      "renameDialog": {
+        "renameDirectory": "Renommer le dossier",
+        "renameFile": "Renommer le fichier",
+        "description": "Saisissez un nouveau nom (nom uniquement, sans chemin).",
+        "placeholderDirectory": "nouveau-nom-dossier",
+        "placeholderFile": "nouveau-nom-fichier.ext"
+      },
+      "directoryDialog": {
+        "descriptionAdd": "Sélectionnez des fichiers sous le dossier {path} à ajouter au VCS.",
+        "descriptionRollback": "Sélectionnez des fichiers sous le dossier {path} à annuler.",
+        "descriptionFallback": "Sélectionnez des fichiers pour continuer.",
+        "selectionCount": "{selected} / {total} fichiers sélectionnés",
+        "selectAll": "Tout sélectionner",
+        "unselectAll": "Tout désélectionner",
+        "loadingCandidates": "Chargement des changements du dossier...",
+        "noOperableFiles": "Aucun fichier exploitable"
+      },
+      "compareDialog": {
+        "title": "Comparer avec la branche",
+        "descriptionWithTarget": "Sélectionnez une branche et comparez avec {kind} {path}",
+        "descriptionFallback": "Sélectionnez une branche à comparer.",
+        "kindDirectory": "dossier",
+        "kindFile": "fichier",
+        "filterPlaceholder": "Filtrer les branches, ex. main / origin/main",
+        "singleClickHint": "Cliquez sur une branche pour comparer directement",
+        "loadingBranches": "Chargement des branches...",
+        "recentBranches": "Branches récentes ({count})",
+        "noCurrentBranch": "Aucune branche courante",
+        "localBranches": "Branches locales ({count})",
+        "remoteBranches": "Branches distantes ({count})",
+        "noMatchingBranches": "Aucune branche correspondante"
+      },
+      "externalConflictDialog": {
+        "title": "Modifications externes de fichiers détectées",
+        "descriptionWithPath": "Le fichier {path} a changé sur le disque et les modifications actuelles ne sont pas enregistrées.",
+        "descriptionFallback": "Le fichier actuel a changé sur le disque et les modifications actuelles ne sont pas enregistrées.",
+        "compare": "Comparer",
+        "savingCopy": "Enregistrement de la copie...",
+        "saveAsCopy": "Enregistrer en copie",
+        "reload": "Recharger"
+      },
+      "deleteConfirm": {
+        "title": "Confirmer la suppression",
+        "descriptionWithTarget": "Supprimer {kind} \"{name}\" ? Cette action est irréversible.",
+        "descriptionFallback": "Cette action est irréversible.",
+        "kindDirectory": "dossier",
+        "kindFile": "fichier"
+      },
+      "rollbackConfirm": {
+        "title": "Confirmer l'annulation",
+        "descriptionWithTarget": "Annuler les modifications locales du fichier \"{name}\" ?",
+        "descriptionFallback": "Annuler les modifications locales de ce fichier ?"
+      },
+      "terminalTitle": "Console · {name}"
+    },
+    "commandDropdown": {
+      "loading": "Chargement...",
+      "addCommand": "Ajouter une commande",
+      "manageCommands": "Gérer les commandes...",
+      "runCommandTitle": "Exécuter : {command}",
+      "stopCommandTitle": "Arrêter : {command}",
+      "manageDialog": {
+        "title": "Gérer les commandes",
+        "empty": "Aucune commande pour le moment",
+        "namePlaceholder": "Nom",
+        "commandPlaceholder": "Commande",
+        "add": "Ajouter",
+        "saving": "Enregistrement..."
+      }
+    },
+    "workspaceContext": {
+      "confirmCloseDirtyTab": "Fermer « {title} » sans enregistrer ?",
+      "confirmCloseOtherDirtyTabs": "Fermer les autres onglets avec des modifications non enregistrées ?",
+      "confirmCloseAllDirtyTabs": "Fermer tous les onglets avec des modifications non enregistrées ?",
+      "unableLoadContent": "Impossible de charger le contenu.\n\n{message}",
+      "previewRequestTimedOut": "La requête de prévisualisation a expiré",
+      "diffRequestTimedOut": "La requête Diff a expiré",
+      "branchCompareRequestTimedOut": "La requête de comparaison de branches a expiré",
+      "commitDiffRequestTimedOut": "La requête de Diff de commit a expiré",
+      "saveRequestTimedOut": "La requête d’enregistrement a expiré",
+      "reloadRequestTimedOut": "La requête de rechargement a expiré",
+      "noChanges": "Aucun changement.",
+      "noDiffOutput": "Aucune sortie diff.",
+      "diffTitleWorkspace": "Diff · Espace de travail",
+      "diffDescriptionWorkingTree": "Arbre de travail (HEAD)",
+      "diffTitleFile": "Différence · {name}",
+      "compareTitleFile": "Comparer · {name}",
+      "compareTitleBranch": "Comparer · {branch}",
+      "compareDescriptionPath": "{path} · comparer avec {branch}",
+      "compareDescriptionBranch": "comparer avec {branch}",
+      "diffTitleCommitFile": "Différence · {name} @ {hash}",
+      "diffTitleCommit": "Différence · {hash}",
+      "diffDescriptionCommitPath": "{path} · validation {commit}",
+      "diffDescriptionCommit": "validation {commit}",
+      "diffTitleConflictFile": "Conflit · {name}",
+      "diffDescriptionConflict": "{path} · disque vs non enregistré"
+    },
+    "chat": {
+      "acpConnections": {
+        "actions": {
+          "openAgentsSettings": "Ouvrir les paramètres des agents",
+          "retry": "Réessayer"
+        },
+        "agentsSetupHint": "Ouvrez Paramètres > Agents pour gérer l'installation.",
+        "withSetupHint": "{message}\n{hint}",
+        "blocked": {
+          "missingConfig": "Impossible de lire la configuration actuelle de l'agent.",
+          "disabled": "{agent} est désactivé dans les paramètres des agents. Activez-le avant de vous connecter.",
+          "unavailable": "{agent} n'est pas disponible sur la plateforme actuelle.",
+          "sdkMissing": "Le SDK de {agent} n'est pas installé"
+        },
+        "unableReadAgentConfig": "Impossible de lire la configuration de l'agent : {message}",
+        "autoLinkFailedTitle": "Échec de l'auto-liaison de {agent}",
+        "preflightCheckFailedDefault": "Les vérifications préalables ont échoué. Vérifiez les paramètres des agents.",
+        "preflightFailedTitle": "Échec de la vérification préalable de {agent}",
+        "autoLinkPreflightFailed": "Échec de la vérification préalable de l'auto-liaison : {message}",
+        "connectFailedTitle": "Échec de la connexion de {agent}",
+        "toolFallbackTitle": "Outil",
+        "eventErrorTitle": "Erreur de l'agent"
+      },
+      "connectionLifecycle": {
+        "tasks": {
+          "connectingTitle": "Connexion à {agent}",
+          "connectingDescription": "Établissement de la connexion",
+          "loadingSelectorsTitle": "Chargement des sélecteurs de {agent}",
+          "loadingSelectorsDescription": "Récupération des options de mode et de configuration de session"
+        },
+        "errors": {
+          "connectionFailed": "Échec de la connexion"
+        }
+      },
+      "shared": {
+        "attachedResources": "Ressources jointes",
+        "toolCallFailed": "Échec de l'appel d'outil"
+      },
+      "messageThread": {
+        "emptyTitle": "Aucun message pour le moment",
+        "emptyDescription": "Commencez une conversation pour voir les messages ici"
+      },
+      "chatInput": {
+        "connecting": "Connexion...",
+        "agentResponding": "L'agent répond...",
+        "sendMessage": "Envoyer un message..."
+      },
+      "messageInput": {
+        "askAnything": "Posez n'importe quelle question...",
+        "removeAttachmentAria": "Retirer {name}",
+        "attachFiles": "Joindre des fichiers",
+        "dropFilesToAttach": "Déposez des fichiers à joindre",
+        "loadingSettings": "Chargement des paramètres...",
+        "loadingMode": "Chargement du mode...",
+        "cancel": "Annuler",
+        "send": "Envoyer"
+      },
+      "messageQueue": {
+        "addToQueue": "Mettre en file",
+        "saveEdit": "Enregistrer",
+        "cancelEdit": "Annuler la modification",
+        "editItem": "Modifier",
+        "deleteItem": "Supprimer"
+      },
+      "welcomeInputPanel": {
+        "agentsSettingsPath": "Paramètres > Agents",
+        "autoConnectFallback": "Cliquez pour ouvrir {path} et gérer l'installation.",
+        "autoConnectAppend": "{message}. Cliquez pour ouvrir {path} et gérer l'installation.",
+        "enableAgentFirstPlaceholder": "Activez au moins un agent avant de démarrer une session...",
+        "askAnythingPlaceholder": "Posez n'importe quelle question..."
+      },
+      "agentSelector": {
+        "noEnabledAgents": "Aucun agent activé",
+        "openAgentsSettings": "Ouvrir les paramètres des agents"
+      },
+      "agentPlanOverlay": {
+        "title": "Plan de l'agent",
+        "collapsePlanAria": "Réduire le plan",
+        "collapsedSummary": "Plan de travail {completed}/{total}",
+        "status": {
+          "completed": "Terminé",
+          "inProgress": "En cours",
+          "pending": "En attente",
+          "unknown": "Inconnu"
+        },
+        "priority": {
+          "high": "Haute",
+          "medium": "Moyenne",
+          "low": "Basse",
+          "unknown": "Inconnue"
+        }
+      },
+      "permissionDialog": {
+        "subtitle": "L'agent demande une autorisation pour continuer ce tour.",
+        "kindFallbackTool": "outil",
+        "command": "Commande",
+        "cwd": "Répertoire de travail : {cwd}",
+        "filesSummary": "Fichiers : {count}",
+        "moreFiles": "+{count} fichiers supplémentaires",
+        "plan": "Plan de travail",
+        "allowedActions": "Actions autorisées",
+        "targetMode": "Mode cible : {mode}"
+      },
+      "questionDialog": {
+        "title": "L'agent pose une question",
+        "placeholder": "Tapez votre réponse...",
+        "send": "Envoyer"
+      },
+      "messageBranch": {
+        "previousBranchAria": "Branche précédente",
+        "nextBranchAria": "Branche suivante",
+        "pageOf": "{current} sur {total}"
+      },
+      "terminal": {
+        "title": "Console",
+        "running": "En cours"
+      },
+      "reasoning": {
+        "thinking": "Réflexion",
+        "thoughtForFewSeconds": "Réflexion",
+        "thoughtForSeconds": "Réflexion"
+      },
+      "messageList": {
+        "attachedResources": "Ressources jointes",
+        "loading": "Chargement...",
+        "error": "Erreur : {message}",
+        "emptyConversation": "Aucun message dans cette conversation."
+      },
+      "liveTurnStats": {
+        "thinking": "Réflexion...",
+        "streaming": "Diffusion",
+        "elapsedMinutes": "{value} min",
+        "elapsedSeconds": "{value} s",
+        "toolUseCount": "{count} outil {count, plural, one {use} other {uses}}"
+      },
+      "tool": {
+        "parameters": "Paramètres",
+        "error": "Erreur",
+        "result": "Résultat",
+        "status": {
+          "approvalRequested": "En attente d'approbation",
+          "approvalResponded": "Répondu",
+          "inputAvailable": "En cours",
+          "inputStreaming": "En attente",
+          "outputAvailable": "Terminé",
+          "outputDenied": "Refusé",
+          "outputError": "Erreur"
+        }
+      },
+      "toolCallBlock": {
+        "tool": "Outil",
+        "error": "Erreur",
+        "result": "Résultat"
+      },
+      "contentParts": {
+        "showingTailOutput": "Affichage de la fin de la sortie pendant le streaming pour de meilleures performances.",
+        "result": "Résultat",
+        "unknown": "inconnu",
+        "replaceAll": "TOUT REMPLACER",
+        "filesCount": "Fichiers : {count}",
+        "update": "mettre à jour",
+        "moreFiles": "+{count} fichiers supplémentaires",
+        "timeoutMs": "Délai d'expiration : {timeout}ms",
+        "backgroundTrue": "Arrière-plan : true",
+        "offset": "Décalage : {offset}",
+        "limit": "Limite : {limit}",
+        "pages": "Pages : {pages}",
+        "mode": "Mode : {mode}",
+        "cell": "Cellule : {cell}",
+        "pathLabel": "Chemin :",
+        "globLabel": "Glob :",
+        "typeLabel": "Type :",
+        "outputLabel": "Sortie :",
+        "caseInsensitive": "Insensible à la casse",
+        "multiline": "Multiligne",
+        "promptLabel": "Instruction",
+        "subjectLabel": "Sujet",
+        "taskLabel": "Tâche",
+        "nameLabel": "Nom :",
+        "field": {
+          "file": "Fichier",
+          "notebook": "Carnet",
+          "command": "Commande",
+          "old": "Ancien",
+          "new": "Nouveau",
+          "pattern": "Motif",
+          "path": "Chemin",
+          "query": "Requête",
+          "url": "URL :",
+          "description": "Détails",
+          "content": "Contenu",
+          "source": "Origine",
+          "prompt": "Instruction",
+          "subject": "Sujet",
+          "taskId": "ID de tâche",
+          "status": "Statut",
+          "skill": "Skill",
+          "args": "Arguments",
+          "offset": "Décalage",
+          "limit": "Limite",
+          "glob": "Motif glob",
+          "type": "Type de donnée",
+          "output": "Sortie",
+          "replaceAll": "Tout remplacer",
+          "language": "Langue",
+          "timeout": "Délai",
+          "background": "Arrière-plan",
+          "agentType": "Type d'agent",
+          "library": "Bibliothèque",
+          "libraryId": "ID de bibliothèque"
+        },
+        "title": {
+          "edit": "Modifier",
+          "command": "Commande",
+          "todoWrite": "TodoWrite (mise à jour des tâches)",
+          "read": "Lire",
+          "write": "Écrire",
+          "notebookEdit": "NotebookEdit (édition du carnet)",
+          "editFiles": "Modifier ({count} fichiers)",
+          "editWithTarget": "Modifier {target}",
+          "readWithTarget": "Lire {target}",
+          "writeWithTarget": "Écrire {target}",
+          "notebookEditWithTarget": "NotebookEdit ({target})",
+          "globWithPattern": "Motif glob {pattern}",
+          "grepWithPattern": "Motif grep {pattern}",
+          "taskCreateWithSubject": "Créer une tâche : {subject}",
+          "taskUpdateWithStatus": "Mettre à jour la tâche #{id} -> {status}",
+          "taskUpdate": "Mettre à jour la tâche #{id}",
+          "webFetchWithUrl": "WebFetch ({url})",
+          "webSearchWithQuery": "Recherche web : {query}",
+          "todosProgress": "Tâches ({done}/{total})",
+          "skillWithName": "Skill : {name}",
+          "genericWithContext": "{tool} ({context})"
+        }
+      }
+    },
+    "diffPreview": {
+      "mode": {
+        "added": "Ajouté",
+        "deleted": "Supprimé",
+        "renamed": "Renommé",
+        "modified": "Modifié"
+      },
+      "hunkLabel": "Bloc {index}",
+      "loadingHunk": "Chargement du hunk...",
+      "noDiffData": "Aucune donnée diff"
+    }
+  }
+}

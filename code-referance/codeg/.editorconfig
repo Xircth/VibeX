@@ -1,0 +1,50 @@
+# http://editorconfig.org
+root = true
+
+[*]
+# 适用于所有文件的通用设置
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+end_of_line = lf
+
+[*.html]
+# Html 文件
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+[*.js]
+# JavaScript/React 文件
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+[*.mjs]
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+[*.jsx]
+# React JSX 文件
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+[*.ts]
+# TypeScript 文件
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+[*.tsx]
+# TypeScript React 文件
+indent_style = space
+indent_size = 2
+tab_width = 2
+
+[*.json]
+# JSON 文件通常使用 2 个空格
+indent_style = space
+indent_size = 2
+tab_width = 2

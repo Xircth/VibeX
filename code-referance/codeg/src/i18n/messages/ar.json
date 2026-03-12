@@ -1,0 +1,1339 @@
+{
+  "Language": {
+    "followSystem": "اتباع النظام",
+    "english": "الإنجليزية",
+    "simplifiedChinese": "الصينية المبسطة",
+    "traditionalChinese": "الصينية التقليدية",
+    "japanese": "اليابانية",
+    "korean": "الكورية",
+    "spanish": "الإسبانية",
+    "german": "الألمانية",
+    "french": "الفرنسية",
+    "portuguese": "البرتغالية",
+    "arabic": "العربية"
+  },
+  "WelcomePage": {
+    "title": "مرحبًا بك في Codeg",
+    "openSettings": "فتح الإعدادات",
+    "searchPlaceholder": "ابحث في المجلدات...",
+    "loading": "جارٍ التحميل...",
+    "emptyFolders": "لا توجد مجلدات بعد",
+    "removeFromHistory": "إزالة من السجل",
+    "openFolder": "فتح مجلد",
+    "cloneRepository": "استنساخ المستودع",
+    "softwareVersion": "الإصدار {version}",
+    "toasts": {
+      "loadFolderHistoryFailed": "فشل تحميل سجل المجلدات",
+      "openFolderFailed": "فشل فتح المجلد",
+      "removeFromHistoryFailed": "فشل إزالة المجلد من السجل",
+      "openSettingsFailed": "فشل فتح الإعدادات",
+      "cloneFailed": "فشل استنساخ المستودع"
+    },
+    "errors": {
+      "unknown": "حدث خطأ غير متوقع",
+      "invalidInput": "إدخال غير صالح.",
+      "notFound": "المورد غير موجود.",
+      "alreadyExists": "المورد موجود بالفعل.",
+      "dependencyMissing": "هناك اعتماد مطلوب مفقود.",
+      "databaseError": "فشلت عملية قاعدة البيانات.",
+      "ioError": "فشلت عملية الملف.",
+      "externalCommandFailed": "فشل تنفيذ الأمر الخارجي.",
+      "windowOperationFailed": "فشلت عملية النافذة.",
+      "gitNotInstalled": "Git غير مثبت. يرجى تثبيت Git أولًا.",
+      "targetDirectoryNotEmpty": "مجلد الهدف موجود بالفعل وليس فارغًا.",
+      "repositoryNotFound": "المستودع غير موجود. تحقق من الرابط وصلاحيات الوصول.",
+      "networkUnavailable": "الشبكة غير متاحة. تحقق من الاتصال وحاول مرة أخرى.",
+      "authenticationFailed": "فشلت المصادقة. تحقق من بيانات الاعتماد أو مفتاح SSH.",
+      "permissionDenied": "تم رفض الإذن. تحقق من صلاحيات المجلد."
+    },
+    "cloneDialog": {
+      "title": "استنساخ مستودع",
+      "repositoryUrl": "رابط المستودع",
+      "repositoryUrlPlaceholder": "https://github.com/user/repo.git",
+      "directory": "المجلد",
+      "directoryPlaceholder": "اختر مجلد الهدف...",
+      "browseDirectory": "تصفح المجلد",
+      "cancel": "إلغاء",
+      "clone": "استنساخ"
+    }
+  },
+  "SettingsShell": {
+    "title": "الإعدادات",
+    "preferences": "التفضيلات",
+    "nav": {
+      "appearance": "المظهر",
+      "agents": "الوكلاء",
+      "mcp": "MCP",
+      "skills": "Skills",
+      "shortcuts": "الاختصارات",
+      "system": "النظام"
+    }
+  },
+  "AppearanceSettings": {
+    "sectionTitle": "مظهر السمة",
+    "sectionDescription": "اختر الفاتح أو الداكن أو اتباع النظام. يتم حفظ الإعدادات تلقائيًا.",
+    "themeMode": "وضع السمة",
+    "placeholder": "اختر وضع السمة",
+    "system": "اتباع النظام",
+    "light": "فاتح",
+    "dark": "داكن",
+    "currentTheme": "السمة الفعالة الحالية: {theme}",
+    "resolvedTheme": {
+      "light": "فاتح",
+      "dark": "داكن",
+      "unknown": "--"
+    }
+  },
+  "SystemSettings": {
+    "loading": "جارٍ التحميل...",
+    "sectionTitle": "إدارة النظام",
+    "sectionDescription": "إدارة وكيل الشبكة وتحديثات التطبيق وتفضيلات اللغة.",
+    "proxyTitle": "وكيل الشبكة",
+    "proxyDescription": "عند التفعيل، ستُفضَّل إعدادات هذا الوكيل في طلبات الشبكة اللاحقة (بما في ذلك دردشة ACP وتثبيت الوكلاء وعمليات Git البعيدة).",
+    "loadFailed": "فشل التحميل: {message}",
+    "enableProxy": "تفعيل وكيل النظام",
+    "proxyAddress": "عنوان الوكيل",
+    "proxyHint": "يدعم http(s)/socks5، مثال: {example}. يعمل فقط عند تفعيل وكيل النظام.",
+    "save": "حفظ",
+    "saving": "جارٍ الحفظ...",
+    "proxyRequired": "عنوان URL للوكيل مطلوب عند تفعيل الوكيل",
+    "saveSuccess": "تم حفظ إعدادات وكيل النظام",
+    "saveFailed": "فشل الحفظ: {message}",
+    "languageTitle": "اللغة",
+    "languageDescription": "حدد لغة التطبيق. عند اتباع لغة النظام، ستعود اللغات غير المدعومة إلى الإنجليزية.",
+    "appLanguage": "لغة التطبيق",
+    "languageSaveSuccess": "تم حفظ إعدادات اللغة",
+    "languageSaveFailed": "فشل حفظ إعدادات اللغة: {message}",
+    "updateTitle": "تحديث التطبيق",
+    "updateDescription": "تحقق من المصدر المهيأ للإصدارات الأحدث وثبّت التحديث مباشرة عند توفره.",
+    "currentVersion": "الإصدار الحالي",
+    "upgradableVersion": "أحدث إصدار",
+    "none": "لا يوجد",
+    "lastChecked": "آخر فحص: {time}",
+    "updateError": "خطأ في التحديث: {message}",
+    "checking": "جارٍ التحقق...",
+    "checkUpdate": "التحقق من التحديثات",
+    "updating": "جارٍ التثبيت...",
+    "upgradeTo": "الترقية إلى v{version}",
+    "foundUpdate": "تم العثور على إصدار جديد v{version}",
+    "alreadyLatest": "أنت على أحدث إصدار",
+    "checkUpdateFailed": "فشل التحقق من التحديثات: {message}",
+    "installSuccess": "تم تثبيت التحديث. جارٍ إعادة تشغيل التطبيق.",
+    "installFailed": "فشل التحديث: {message}",
+    "updateErrors": {
+      "sourceUnavailable": "تعذر الوصول إلى مصدر التحديث. تحقق من الشبكة أو الوكيل ثم أعد المحاولة.",
+      "network": "فشل اتصال الشبكة. تحقق من الشبكة أو الوكيل ثم أعد المحاولة.",
+      "downloadFailed": "فشل تنزيل حزمة التحديث. يرجى المحاولة مرة أخرى لاحقًا.",
+      "installFailed": "فشل تثبيت التحديث. يرجى إغلاق التطبيق ثم إعادة المحاولة.",
+      "unknown": "فشل التحديث. يرجى المحاولة مرة أخرى لاحقًا."
+    }
+  },
+  "ShortcutSettings": {
+    "sectionTitle": "الاختصارات",
+    "resetDefault": "استعادة الإعدادات الافتراضية",
+    "recordInstruction": "انقر الزر في الجهة اليمنى ثم اضغط تركيبة مفاتيح. استخدم Ctrl/Cmd وAlt وShift. اضغط Esc لإلغاء التسجيل.",
+    "recording": "اضغط اختصارًا...",
+    "toasts": {
+      "conflict": "الاختصار مستخدم بالفعل بواسطة \"{title}\"",
+      "updated": "تم تحديث الاختصار",
+      "invalid": "اختصار غير صالح، يرجى المحاولة مرة أخرى",
+      "reset": "تمت استعادة الاختصارات الافتراضية"
+    },
+    "actions": {
+      "toggle_search": {
+        "title": "فتح البحث",
+        "description": "إظهار أو إخفاء لوحة البحث في المحادثات"
+      },
+      "toggle_sidebar": {
+        "title": "تبديل الشريط الجانبي الأيسر",
+        "description": "إظهار أو إخفاء الشريط الجانبي لقائمة المحادثات"
+      },
+      "toggle_terminal": {
+        "title": "تبديل الطرفية",
+        "description": "إظهار أو إخفاء لوحة الطرفية السفلية"
+      },
+      "new_terminal_tab": {
+        "title": "طرفية جديدة",
+        "description": "إنشاء تبويب طرفية جديد عندما يكون التركيز على الطرفية"
+      },
+      "close_current_terminal_tab": {
+        "title": "إغلاق الطرفية الحالية",
+        "description": "إغلاق تبويب الطرفية الحالي عندما يكون التركيز على الطرفية"
+      },
+      "toggle_aux_panel": {
+        "title": "تبديل اللوحة اليمنى",
+        "description": "إظهار أو إخفاء لوحة المعلومات المساعدة"
+      },
+      "new_conversation": {
+        "title": "محادثة جديدة",
+        "description": "إنشاء تبويب محادثة جديد في المجلد الحالي"
+      },
+      "open_folder": {
+        "title": "فتح مجلد",
+        "description": "فتح منتقي المجلدات وفتح المجلد في نافذة جديدة"
+      },
+      "open_settings": {
+        "title": "فتح الإعدادات",
+        "description": "فتح نافذة الإعدادات"
+      },
+      "close_current_tab": {
+        "title": "إغلاق التبويب الحالي",
+        "description": "إغلاق المحادثة الحالية أو تبويب الملف الحالي"
+      },
+      "close_all_file_tabs": {
+        "title": "إغلاق جميع تبويبات الملفات",
+        "description": "إغلاق جميع تبويبات الملفات في وضع الملفات فقط"
+      },
+      "send_message": {
+        "title": "إرسال الرسالة",
+        "description": "إرسال الرسالة الحالية في مربع الإدخال"
+      },
+      "newline_in_message": {
+        "title": "سطر جديد في الرسالة",
+        "description": "إدراج سطر جديد في مربع الإدخال"
+      }
+    }
+  },
+  "SkillsSettings": {
+    "title": "Skills",
+    "description": "اختر Skill من الجهة اليسرى. تعرض الجهة اليمنى معاينة Markdown بشكل افتراضي؛ انتقل إلى وضع التحرير للتعديل والحفظ.",
+    "loadingAgents": "جارٍ تحميل الوكلاء الذين يدعمون Skills...",
+    "emptyNoManageableAgents": "لا توجد وكلاء متاحة لإدارة Skills.",
+    "managedTarget": "الهدف المُدار",
+    "selectAgentPlaceholder": "اختر وكيلًا",
+    "searchPlaceholder": "ابحث بالاسم / المعرّف / المسار...",
+    "skillsList": "قائمة Skills",
+    "loadingSkills": "جارٍ تحميل Skills...",
+    "agentNotSupported": "الوكيل الحالي لا يدعم إدارة Skills.",
+    "emptySkills": "لا توجد Skills بعد. انقر \"Skill جديدة\" لإنشاء واحدة.",
+    "newSkillTitle": "Skill جديدة",
+    "skillInfo": "معلومات Skill",
+    "skillIdPlaceholder": "skill-id (حروف/أرقام/-/_/.)",
+    "skillsDirectoryWithPath": "دليل Skills: {path}",
+    "skillsDirectoryNeedId": "دليل Skills: أدخل معرّف Skill لإنشاء المسار الكامل",
+    "markdownContent": "محتوى Markdown",
+    "editingStatus": "جارٍ التحرير",
+    "previewStatus": "معاينة",
+    "contentPlaceholder": "أدخل محتوى Markdown للSkill...",
+    "metadataTitle": "بيانات Skills الوصفية",
+    "onlyYamlMetadata": "تحتوي هذه Skill على بيانات YAML الوصفية فقط.",
+    "emptyContentHint": "لا يوجد محتوى بعد. انقر \"تحرير\" للبدء.",
+    "loadingSkill": "جارٍ تحميل Skill...",
+    "emptyNoAgents": "لا يوجد وكيل متاح.",
+    "actions": {
+      "preview": "معاينة",
+      "edit": "تحرير",
+      "openInWindow": "فتح في نافذة جديدة",
+      "delete": "حذف",
+      "deleting": "جارٍ الحذف...",
+      "refresh": "تحديث",
+      "newSkill": "Skill جديدة",
+      "reset": "إعادة تعيين",
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ...",
+      "cancel": "إلغاء"
+    },
+    "deleteDialog": {
+      "title": "حذف Skill",
+      "confirm": "هل تريد حذف Skill الحالية؟ لا يمكن التراجع عن هذا الإجراء.",
+      "confirmWithNamePrefix": "حذف Skill",
+      "confirmWithNameSuffix": "؟ لا يمكن التراجع عن هذا الإجراء."
+    },
+    "toasts": {
+      "loadFailed": "فشل تحميل Skill",
+      "openFolderFailed": "فشل فتح المجلد",
+      "noSkillDirectory": "لم يتم العثور على دليل Skills متاح للوكيل الحالي",
+      "nameRequired": "لا يمكن أن يكون اسم Skill فارغًا",
+      "updated": "تم تحديث Skill",
+      "created": "تم إنشاء Skill",
+      "saveFailed": "فشل حفظ Skill",
+      "deleted": "تم حذف Skill",
+      "deleteFailed": "فشل حذف Skill"
+    },
+    "templates": {
+      "gemini": "---\nname: example-skill\ndescription: Describe when this skill should be used.\n---\n\n# Skill Name\n\nInstructions for the agent when this skill is active.\n\n## Workflow\n\n1. Add actionable step one.\n2. Add actionable step two.\n",
+      "openCode": "---\nname: example-skill\ndescription: Describe when this skill should be used.\n---\n\n# Purpose\n\nDescribe what this skill helps with.\n\n# Steps\n\n1. Add actionable step one.\n2. Add actionable step two.\n",
+      "openClaw": "---\nname: example-skill\ndescription: Describe when this skill should be used.\nuser-invocable: true\ndisable-model-invocation: false\n---\n\n# Purpose\n\nDescribe what this skill helps with.\n\n# Instructions\n\n1. Add actionable instruction one.\n2. Add actionable instruction two.\n",
+      "default": "# Skill: example-skill\n\n## When to use\n\n- Describe trigger conditions.\n\n## Instructions\n\n1. Add actionable instruction one.\n2. Add actionable instruction two.\n"
+    }
+  },
+  "McpSettings": {
+    "loading": "جارٍ التحميل...",
+    "summary": {
+      "missingCommand": "(لا يوجد أمر)",
+      "missingUrl": "(لا يوجد رابط)"
+    },
+    "protocol": {
+      "stdio": "Stdio"
+    },
+    "errors": {
+      "selectInstallProtocol": "يرجى اختيار بروتوكول التثبيت",
+      "fieldRequired": "{field} مطلوب",
+      "fieldNeedsBoolean": "{field} يجب أن يكون true أو false",
+      "fieldNeedsNumber": "{field} يجب أن يكون رقمًا",
+      "fieldNeedsInteger": "{field} يجب أن يكون عددًا صحيحًا",
+      "fieldInvalidJson": "{field} يحتوي JSON غير صالح: {message}",
+      "fieldOutOfRange": "قيمة {field} خارج النطاق المسموح",
+      "jsonEmpty": "{name} لا يمكن أن يكون فارغًا",
+      "jsonInvalid": "{name} ليس JSON صالحًا: {message}",
+      "jsonMustBeObject": "{name} يجب أن يكون كائن JSON"
+    },
+    "jsonNames": {
+      "localConfig": "إعداد MCP",
+      "installConfig": "إعداد التثبيت"
+    },
+    "toasts": {
+      "uninstalled": "تمت إزالة MCP",
+      "uninstallFailed": "فشل الإزالة: {message}",
+      "selectAtLeastOneApp": "يرجى اختيار تطبيق هدف واحد على الأقل",
+      "saveSuccess": "تم الحفظ",
+      "saveFailed": "فشل الحفظ: {message}",
+      "installed": "تم تثبيت {name}",
+      "installFailed": "فشل التثبيت: {message}"
+    },
+    "installDialog": {
+      "title": "تأكيد تثبيت MCP",
+      "descriptionWithName": "تثبيت {name} في الإعداد المحلي.",
+      "description": "اختر التطبيقات المستهدفة للتثبيت.",
+      "protocol": "البروتوكول",
+      "selectProtocol": "اختر البروتوكول",
+      "parameters": "معلمات الإعداد",
+      "booleanPlaceholder": "يرجى اختيار true/false",
+      "selectOneValue": "اختر قيمة",
+      "targetApps": "التطبيقات المستهدفة"
+    },
+    "actions": {
+      "cancel": "إلغاء",
+      "confirmInstall": "تأكيد التثبيت",
+      "installing": "جارٍ التثبيت",
+      "uninstall": "إزالة التثبيت",
+      "uninstalling": "جارٍ الإزالة",
+      "viewDetails": "عرض التفاصيل",
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ",
+      "install": "تثبيت"
+    },
+    "tabs": {
+      "local": "MCP المحلي",
+      "market": "سوق MCP"
+    },
+    "local": {
+      "filterPlaceholder": "تصفية MCP المحلي...",
+      "loadFailed": "فشل التحميل: {message}",
+      "empty": "لم يتم اكتشاف MCP محلي.",
+      "description": "يمكن تعديل إعداد MCP المحلي وحفظه مباشرة.",
+      "enabledApps": "التطبيقات المفعلة",
+      "configJson": "إعداد MCP (JSON)"
+    },
+    "market": {
+      "selectMarketplace": "اختر السوق",
+      "searchPlaceholder": "ابحث عن MCP...",
+      "searchFailed": "فشل البحث: {message}",
+      "loadingList": "جارٍ تحميل قائمة MCP...",
+      "empty": "لا توجد نتائج MCP.",
+      "loadingDetail": "جارٍ تحميل تفاصيل السوق...",
+      "detailLoadFailed": "فشل تحميل التفاصيل: {message}",
+      "owner": "المالك: {owner}",
+      "namespace": "المجال: {namespace}",
+      "defaultInstallProtocol": "بروتوكول التثبيت الافتراضي",
+      "currentOptionParameterCount": "عدد معلمات الخيار الحالي: {count}",
+      "installConfigDescription": "إعداد التثبيت (JSON، قابل للتعديل قبل التثبيت؛ ستتجاوز التعديلات نموذج البروتوكول/المعلمات)",
+      "selectLeftToView": "اختر MCP من السوق في الجهة اليسرى لعرض التفاصيل."
+    },
+    "badges": {
+      "verified": "موثّق",
+      "remote": "بعيد",
+      "hasHomepage": "له صفحة رئيسية",
+      "uses": "{count} استخدام",
+      "deployed": "منشور",
+      "notDeployed": "غير منشور"
+    },
+    "selectLeftMcp": "اختر MCP من الجهة اليسرى."
+  },
+  "AcpAgentSettings": {
+    "title": "إدارة Agent SDK",
+    "description": "أدر اتصال Agent SDK وحالة التمكين ومتغيرات البيئة وإدارة الإعدادات ومعلومات فحص الإصدار المسبق في مكان واحد.",
+    "loadingAgents": "جارٍ تحميل قائمة الوكلاء...",
+    "agentList": "قائمة الوكلاء",
+    "emptyNoAgent": "لا يوجد وكيل متاح.",
+    "configManagement": "إدارة الإعدادات",
+    "envVars": "متغيرات البيئة",
+    "nativeJsonConfig": "إعداد JSON أصلي",
+    "modelHintDefault": "اتركه فارغًا لاستخدام النموذج الافتراضي للنظام.",
+    "generalConfigDescriptionClaude": "يدعم الإعداد السريع لـ API URL وAPI Key ونماذج Claude، ويتزامن مع إعداد JSON الأصلي.",
+    "generalConfigDescriptionDefault": "يدعم إدخال الإعدادات المهمة (API URL وAPI Key وModel) وإدارة إعداد JSON الأصلي.",
+    "actions": {
+      "dragSort": "اسحب لإعادة الترتيب",
+      "dragSortAgent": "اسحب لإعادة ترتيب {name}",
+      "refreshCheck": "تحديث الفحص",
+      "refreshCheckAgent": "تحديث فحص {name}",
+      "clickEnable": "انقر لتفعيل {name}",
+      "clickDisable": "انقر لتعطيل {name}",
+      "install": "تثبيت",
+      "upgrade": "ترقية",
+      "uninstall": "إزالة التثبيت",
+      "uninstalling": "جارٍ إزالة التثبيت...",
+      "saveEnvVars": "حفظ متغيرات البيئة",
+      "saving": "جارٍ الحفظ...",
+      "saveCodexConfig": "حفظ إعداد Codex",
+      "saveGeminiConfig": "حفظ إعداد Gemini",
+      "saveOpenCodeConfig": "حفظ إعداد OpenCode",
+      "saveOpenClawConfig": "حفظ إعداد OpenClaw",
+      "saveConfigManagement": "حفظ إدارة الإعدادات",
+      "saveCurrentProvider": "حفظ المزود الحالي",
+      "showApiKey": "إظهار مفتاح API",
+      "hideApiKey": "إخفاء مفتاح API",
+      "showKey": "إظهار المفتاح",
+      "hideKey": "إخفاء المفتاح",
+      "showToken": "إظهار الرمز",
+      "hideToken": "إخفاء الرمز",
+      "cancel": "إلغاء",
+      "delete": "حذف",
+      "deleting": "جارٍ الحذف...",
+      "confirmDelete": "تأكيد الحذف",
+      "confirmUninstall": "تأكيد إزالة التثبيت"
+    },
+    "status": {
+      "enabled": "مفعّل",
+      "disabled": "معطّل",
+      "unchecked": "غير مفحوص",
+      "agentEnabledAria": "{name} مفعّل",
+      "agentEnabledSwitch": "مفتاح تفعيل {name}"
+    },
+    "preflight": {
+      "count": "عناصر الفحص المسبق: {count}",
+      "notRun": "لم يتم تشغيل الفحوصات بعد."
+    },
+    "codex": {
+      "configDescription": "يدعم الإعداد السريع لعنوان API ومفتاح API واسم النموذج وجهد الاستدلال، مع المزامنة مع `auth.json` / `config.toml`.",
+      "selectProvider": "اختر المزود",
+      "modelName": "اسم النموذج",
+      "selectReasoningEffort": "اختر Reasoning Effort",
+      "enableWebsocket": "تفعيل WebSocket",
+      "enableWebsocketAria": "تفعيل WebSocket لـ Codex Provider",
+      "authJsonNative": "auth.json (أصلي)",
+      "configTomlNative": "config.toml (أصلي)"
+    },
+    "gemini": {
+      "authConfig": "إعداد مصادقة Gemini",
+      "authConfigDescription": "متوافق مع وثائق مصادقة Gemini CLI، ويدعم endpoint مخصص وتسجيل دخول Google وGemini API Key وVertex AI ‏(ADC / حساب خدمة / API Key).",
+      "authMode": "وضع المصادقة",
+      "selectAuthMode": "اختر وضع المصادقة",
+      "viewAuthDoc": "عرض وثائق المصادقة",
+      "mode": {
+        "custom": "Endpoint مخصص",
+        "loginGoogle": "تسجيل دخول Google (OAuth)",
+        "vertexServiceAccount": "Vertex AI (حساب خدمة)"
+      },
+      "hint": {
+        "custom": "أدخل API URL وAPI Key وModel؛ وسيتم ربطها بـ GOOGLE_GEMINI_BASE_URL / GEMINI_API_KEY / GEMINI_MODEL.",
+        "loginGoogle": "شغّل gemini في الطرفية وأكمل تسجيل دخول Google أولًا؛ لا حاجة إلى API key.",
+        "geminiApiKey": "أدخل GEMINI_API_KEY عند استخدام Gemini API.",
+        "vertexAdc": "استخدم gcloud ADC؛ ويوصى بتعيين GOOGLE_CLOUD_PROJECT وGOOGLE_CLOUD_LOCATION.",
+        "vertexServiceAccount": "عيّن مسار JSON لحساب الخدمة في GOOGLE_APPLICATION_CREDENTIALS.",
+        "vertexApiKey": "أدخل GOOGLE_API_KEY عند استخدام مفتاح Vertex AI API."
+      }
+    },
+    "openCode": {
+      "configManagement": "إدارة إعداد OpenCode",
+      "configDescription": "متوافق مع مخطط `provider` في OpenCode، ويدعم إدارة متعددة المزودات ومزامنة ثنائية الاتجاه مع ملفات JSON الأصلية.",
+      "providerManagement": "إدارة المزودات",
+      "providerCount": "{count} مزودات",
+      "addProvider": "إضافة مزود",
+      "emptyProvider": "لا يوجد مزود بعد. أدخل معرّفًا ثم انقر \"إضافة مزود\".",
+      "providerEnabledState": "حالة تفعيل {providerId}",
+      "selectProviderNpm": "اختر provider.npm",
+      "notSet": "غير مضبوط",
+      "modelManagement": "إدارة النماذج",
+      "modelCount": "{count} نماذج",
+      "modelDescription": "متوافق مع `provider.models` في OpenCode. الإدارة السريعة تدعم حاليًا `name` / `id`؛ بينما تُحفظ الحقول المتقدمة الأخرى ويمكن تعديلها في JSON الأصلي أدناه.",
+      "addModel": "إضافة نموذج",
+      "emptyModel": "لا يوجد نموذج بعد. أدخل model id ثم انقر \"إضافة نموذج\".",
+      "modelId": "معرّف النموذج",
+      "modelName": "اسم النموذج",
+      "deleteModel": "حذف النموذج {modelId}",
+      "nativeJsonConfig": "إعداد JSON الأصلي لـ OpenCode"
+    },
+    "openClaw": {
+      "gatewayConfig": "إعداد Gateway",
+      "gatewayDescription": "قم بإعداد اتصال OpenClaw Gateway. يدعم gateway محليًا أو بعيدًا.",
+      "gatewayUrlHint": "اتركه فارغًا لاستخدام gateway.remote.url من إعداد openclaw المحلي.",
+      "gatewayTokenPlaceholder": "رمز مصادقة Gateway",
+      "gatewayTokenHint": "يُفضّل استخدام token-file بدل الرمز النصي متى أمكن؛ قم بالإعداد عبر openclaw CLI.",
+      "sessionKeyHint": "اختياري. حدّد مفتاح جلسة gateway؛ واتركه فارغًا للتعيين التلقائي لجلسة معزولة."
+    },
+    "claude": {
+      "mainModel": "النموذج الرئيسي",
+      "reasoningModel": "نموذج الاستدلال (thinking)",
+      "haikuDefaultModel": "نموذج Haiku الافتراضي",
+      "sonnetDefaultModel": "نموذج Sonnet الافتراضي",
+      "opusDefaultModel": "نموذج Opus الافتراضي"
+    },
+    "dialogs": {
+      "confirmDeleteProvider": "حذف المزود {providerId}؟",
+      "confirmDeleteProviderDescription": "سيتم تحديث إعداد OpenCode وauth JSON معًا. لا يمكن التراجع عن هذا الإجراء.",
+      "confirmUninstall": "إزالة تثبيت {name}؟",
+      "confirmUninstallDescription": "سيؤدي هذا إلى إزالة الإصدار المثبت محليًا. يمكنك إعادة التثبيت لاحقًا."
+    },
+    "errors": {
+      "nativeJsonMustBeObject": "يجب أن يكون إعداد JSON الأصلي كائنًا",
+      "nativeJsonInvalid": "خطأ في تنسيق إعداد JSON الأصلي: {message}",
+      "openCodeAuthMustBeObject": "يجب أن يكون OpenCode auth.json كائن JSON",
+      "openCodeAuthInvalid": "خطأ في تنسيق OpenCode auth.json: {message}",
+      "authMustBeObject": "يجب أن يكون auth.json كائن JSON",
+      "authInvalid": "خطأ في تنسيق auth.json: {message}",
+      "providerIdPattern": "يدعم معرّف المزود الأحرف والأرقام والشرطة السفلية والنقطة والشرطة فقط",
+      "providerExists": "المزوّد '{providerId}' موجود بالفعل",
+      "modelIdPattern": "يدعم معرّف النموذج الأحرف والأرقام والشرطة السفلية والنقطة والنقطتين والشرطة فقط",
+      "modelExists": "النموذج '{modelId}' موجود بالفعل"
+    },
+    "warnings": {
+      "nativeJsonRecoveredStructured": "إعداد JSON الأصلي غير صالح؛ تمت إعادة التعيين إلى إعداد مُهيكل",
+      "nativeJsonRecoveredOpenCode": "إعداد JSON الأصلي غير صالح؛ تمت إعادة التعيين إلى إعداد OpenCode المُهيكل",
+      "openCodeAuthRecovered": "ملف OpenCode auth.json غير صالح؛ تمت إعادة التعيين إلى الإعداد الافتراضي",
+      "authRecoveredStructured": "ملف auth.json غير صالح؛ تمت إعادة التعيين إلى إعداد مُهيكل"
+    },
+    "toasts": {
+      "agentActionCompleted": "اكتمل {action} لـ {name}",
+      "agentActionFailed": "فشل {action} لـ {name}",
+      "localVersion": "الإصدار المحلي: {version}",
+      "installCompletedVersionLater": "اكتمل التثبيت، سيتم تحديث الإصدار عند الفحص التالي",
+      "uninstallCompleted": "اكتملت إزالة تثبيت {name}",
+      "uninstallFailed": "فشلت إزالة تثبيت {name}",
+      "localVersionRemoved": "تمت إزالة الإصدار المحلي",
+      "saveAgentOrderFailed": "فشل حفظ ترتيب Agent",
+      "saveAgentSwitchFailed": "فشل حفظ مفتاح Agent",
+      "saveEnvFailed": "فشل حفظ متغيرات البيئة",
+      "codexSaved": "تم حفظ إعداد Codex",
+      "saveCodexNativeFailed": "فشل حفظ إعداد Codex الأصلي",
+      "geminiSaved": "تم حفظ إعداد Gemini",
+      "saveGeminiFailed": "فشل حفظ إعداد Gemini",
+      "providerDeleted": "تم حذف المزود {providerId}",
+      "providerDeleteFailed": "فشل حذف المزود {providerId}",
+      "providerSaved": "تم حفظ المزود {providerId}",
+      "saveProviderFailed": "فشل حفظ المزود {providerId}",
+      "openCodeConfigSynced": "تمت مزامنة إعداد OpenCode وauth JSON.",
+      "openCodeSaved": "تم حفظ إعداد OpenCode",
+      "saveOpenCodeFailed": "فشل حفظ إعداد OpenCode",
+      "openClawSaved": "تم حفظ إعداد OpenClaw",
+      "saveOpenClawFailed": "فشل حفظ إعداد OpenClaw",
+      "configSaved": "تم حفظ الإعداد",
+      "saveConfigManagementFailed": "فشل حفظ إدارة الإعدادات"
+    },
+    "version": {
+      "statusLabel": "حالة الإصدار",
+      "notInstalled": "غير مثبت",
+      "remoteLocal": "البعيد: {remoteVersion} · المحلي: {localVersion}",
+      "platformUnsupported": "{versionText}. المنصة الحالية لا تدعم هذا الوكيل.",
+      "clickInstall": "{versionText}. انقر تثبيت في الجهة اليمنى.",
+      "localUnrecognized": "{versionText}. الإصدار المحلي غير قابل للمقارنة؛ جرّب الترقية للكتابة فوق التثبيت.",
+      "upgradeAvailable": "{versionText}. تتوفر ترقية.",
+      "remoteUnavailable": "{versionText}. الإصدار البعيد غير متاح حاليًا.",
+      "latest": "{versionText}. أنت على أحدث إصدار."
+    }
+  },
+  "SettingsPages": {
+    "agentsLoading": "جارٍ تحميل إعدادات الوكلاء..."
+  },
+  "CommitPage": {
+    "title": "التزام",
+    "invalidFolderId": "معرّف المجلد غير صالح",
+    "loadingRepo": "جارٍ تحميل المستودع..."
+  },
+  "Folder": {
+    "common": {
+      "all": "الكل",
+      "cancel": "إلغاء",
+      "close": "إغلاق",
+      "closeOthers": "إغلاق البقية",
+      "closeAll": "إغلاق الكل",
+      "confirm": "تأكيد",
+      "save": "حفظ",
+      "delete": "حذف",
+      "rename": "إعادة تسمية",
+      "loading": "جارٍ التحميل...",
+      "refresh": "تحديث",
+      "refreshing": "جارٍ التحديث...",
+      "create": "إنشاء",
+      "createAndSwitch": "إنشاء والتبديل",
+      "openFile": "فتح الملف",
+      "viewDiff": "عرض Diff"
+    },
+    "modes": {
+      "conversation": "وضع المحادثة",
+      "fusion": "وضع الدمج",
+      "files": "وضع الملفات",
+      "workspaceModesAria": "أوضاع مساحة العمل"
+    },
+    "statusLabels": {
+      "in_progress": "قيد التنفيذ",
+      "pending_review": "مراجعة",
+      "completed": "مكتمل",
+      "cancelled": "ملغى"
+    },
+    "sidebar": {
+      "title": "المحادثات",
+      "locateActiveConversation": "تحديد المحادثة النشطة",
+      "expandAllGroups": "توسيع كل المجموعات",
+      "collapseAllGroups": "طي كل المجموعات",
+      "newConversation": "محادثة جديدة",
+      "noConversationsFound": "لم يتم العثور على محادثات.",
+      "importLocalSessions": "استيراد الجلسات المحلية",
+      "importing": "جارٍ الاستيراد...",
+      "error": "خطأ: {message}",
+      "completeAllSessions": "إكمال جميع الجلسات",
+      "completeAllReviewTitle": "إكمال جميع جلسات المراجعة؟",
+      "completeAllReviewDescription": "سيؤدي ذلك إلى وضع علامة مكتمل على جميع {count, plural, one {# جلسة} other {# جلسات}} في المراجعة.",
+      "completing": "جارٍ الإكمال...",
+      "toasts": {
+        "importedSessions": "تم استيراد {imported, plural, one {# جلسة} other {# جلسات}}، وتم تخطي {skipped}",
+        "noNewSessionsFound": "لم يتم العثور على جلسات جديدة (تم تخطي {skipped})",
+        "importFailed": "فشل الاستيراد: {message}",
+        "reviewCompleted": "تم وضع علامة مكتمل على {count, plural, one {# جلسة مراجعة} other {# جلسات مراجعة}}",
+        "completeReviewFailed": "فشل إكمال جلسات المراجعة: {message}"
+      }
+    },
+    "conversation": {
+      "reloadFailed": "فشل إعادة تحميل المحادثة: {message}",
+      "reloaded": "تمت إعادة تحميل المحادثة",
+      "reload": "إعادة تحميل",
+      "newConversation": "محادثة جديدة",
+      "closeConversation": "إغلاق المحادثة"
+    },
+    "conversationCard": {
+      "untitledConversation": "محادثة بدون عنوان",
+      "newConversation": "محادثة جديدة",
+      "rename": "إعادة تسمية",
+      "status": "الحالة",
+      "delete": "حذف",
+      "importLocalSessions": "استيراد الجلسات المحلية",
+      "importing": "جارٍ الاستيراد...",
+      "renameConversation": "إعادة تسمية المحادثة",
+      "deleteConversationTitle": "حذف المحادثة؟",
+      "deleteConversationDescription": "سيؤدي ذلك إلى حذف \"{title}\". لا يمكن التراجع عن هذا الإجراء.",
+      "cancel": "إلغاء",
+      "save": "حفظ"
+    },
+    "search": {
+      "dialogTitle": "البحث في المحادثات",
+      "placeholder": "البحث في المحادثات...",
+      "allAgents": "الكل",
+      "searching": "جارٍ البحث...",
+      "typeToSearch": "اكتب للبحث في المحادثات",
+      "noResults": "لم يتم العثور على نتائج.",
+      "untitledConversation": "محادثة بدون عنوان"
+    },
+    "folderTitleBar": {
+      "showSidebar": "إظهار الشريط الجانبي",
+      "hideSidebar": "إخفاء الشريط الجانبي",
+      "toggleTerminal": "تبديل الطرفية",
+      "toggleAuxPanel": "تبديل اللوحة المساعدة",
+      "search": "بحث",
+      "openSettings": "فتح الإعدادات",
+      "withShortcut": "{label} (اختصار: {shortcut})"
+    },
+    "statusBar": {
+      "connection": {
+        "connected": "متصل",
+        "connecting": "جارٍ الاتصال...",
+        "downloading": "جارٍ التنزيل...",
+        "prompting": "جارٍ الرد...",
+        "error": "خطأ في الاتصال",
+        "disconnected": "غير متصل",
+        "tooltip": "{agent}: {status}",
+        "tooltipError": "{agent}: {error}"
+      },
+      "tasks": {
+        "title": "المهام"
+      },
+      "alerts": {
+        "title": "التنبيهات",
+        "empty": "لا توجد تنبيهات"
+      },
+      "stats": {
+        "conversations": "{count} محادثة",
+        "summary": "{conversations} محادثة / {messages} رسالة"
+      },
+      "tokens": {
+        "contextWindowUsageAria": "استخدام نافذة السياق",
+        "contextWindow": "نافذة السياق",
+        "usedMax": "المستخدم / الحد الأقصى",
+        "tokenUsage": "استخدام الرموز",
+        "input": "إدخال",
+        "output": "إخراج",
+        "cacheRead": "قراءة الكاش",
+        "cacheWrite": "كتابة الكاش",
+        "total": "الإجمالي"
+      }
+    },
+    "auxPanel": {
+      "tabs": {
+        "diff": "الفرق",
+        "files": "الملفات",
+        "changes": "التغييرات",
+        "commits": "الالتزامات"
+      }
+    },
+    "windowControls": {
+      "minimizeWindow": "تصغير النافذة",
+      "minimize": "تصغير",
+      "maximizeWindow": "تكبير النافذة",
+      "maximize": "تكبير",
+      "restoreWindow": "استعادة النافذة",
+      "restore": "استعادة",
+      "closeWindow": "إغلاق النافذة",
+      "close": "إغلاق"
+    },
+    "tabs": {
+      "closeConversationTab": "إغلاق تبويب المحادثة",
+      "close": "إغلاق",
+      "closeOthers": "إغلاق البقية",
+      "closeAll": "إغلاق الكل",
+      "tileDisplay": "عرض متجانب",
+      "untileDisplay": "إلغاء التجانب"
+    },
+    "fileWorkspace": {
+      "files": "الملفات",
+      "closeFileTab": "إغلاق تبويب الملف",
+      "close": "إغلاق",
+      "closeOthers": "إغلاق البقية",
+      "closeAll": "إغلاق الكل"
+    },
+    "terminal": {
+      "rename": "إعادة تسمية",
+      "close": "إغلاق",
+      "closeOthers": "إغلاق البقية",
+      "closeAll": "إغلاق الكل",
+      "hideTerminal": "إخفاء الطرفية ({shortcut})"
+    },
+    "sessionFiles": {
+      "currentResponse": "الاستجابة الحالية",
+      "noDiffDataAvailable": "لا توجد بيانات diff متاحة لـ {filePath}",
+      "loading": "جارٍ التحميل...",
+      "noFileChangesInConversation": "لم يتم العثور على تغييرات ملفات في هذه المحادثة",
+      "openConversationToSeeChanges": "افتح محادثة لرؤية تغييرات الملفات الخاصة بها",
+      "remove": "إزالة",
+      "changeCount": "{count, plural, one {# تغيير} other {# تغييرات}}",
+      "fileCount": "{count, plural, one {# ملف} other {# ملفات}}"
+    },
+    "folderNameDropdown": {
+      "fallbackFolderName": "مجلد",
+      "openFolder": "فتح مجلد",
+      "cloneRepository": "استنساخ المستودع",
+      "opened": "مفتوح",
+      "recentOpen": "المفتوح مؤخرًا"
+    },
+    "fileWorkspacePanel": {
+      "viewDiff": "عرض Diff",
+      "openFile": "فتح الملف",
+      "fileCount": "{count, plural, one {# ملف} other {# ملفات}}",
+      "openFileOrDiff": "افتح ملفًا أو diff من اللوحة اليمنى",
+      "disk": "القرص",
+      "head": "HEAD",
+      "unsaved": "غير محفوظ",
+      "workingTree": "شجرة العمل",
+      "loading": "جارٍ التحميل...",
+      "compareWithBranch": "{path} · مقارنة مع {branch}",
+      "hunkCount": "{count, plural, one {# مقطع} other {# مقاطع}}",
+      "prev": "السابق",
+      "next": "التالي",
+      "jumpToLine": "الانتقال إلى السطر {line}",
+      "noParsedDiffSections": "لا توجد أقسام diff محللة",
+      "loadingEditor": "جارٍ تحميل المحرر..."
+    },
+    "branchDropdown": {
+      "toasts": {
+        "commitCodeCompleted": "اكتمل التزام الكود",
+        "committedFiles": "{count, plural, one {# ملف تم الالتزام به} other {# ملفات تم الالتزام بها}}",
+        "taskCompleted": "اكتمل {label}",
+        "taskFailed": "فشل {label}",
+        "mergeNoNewCommits": "{branchName} لا يحتوي على التزامات جديدة",
+        "mergedCommits": "{count, plural, one {# التزام تم دمجه} other {# التزامات تم دمجها}}",
+        "allFilesUpToDate": "كل الملفات محدثة",
+        "updatedFiles": "{count, plural, one {# ملف تم تحديثه} other {# ملفات تم تحديثها}}",
+        "openCommitWindowFailed": "فشل فتح نافذة الالتزام",
+        "upstreamSet": "تم تعيين فرع upstream",
+        "upstreamSetAndPushed": "تم تعيين فرع upstream ودفع {count, plural, one {# التزام} other {# التزامات}}",
+        "noCommitsToPush": "لا توجد التزامات للدفع",
+        "pushedCommits": "تم دفع {count, plural, one {# التزام} other {# التزامات}}"
+      },
+      "tasks": {
+        "newBranch": "إنشاء الفرع {name}",
+        "newWorktree": "إنشاء worktree {name}",
+        "checkoutTo": "Checkout إلى {branchName}",
+        "mergeBranch": "دمج {branchName}",
+        "rebaseTo": "Rebase إلى {branchName}",
+        "deleteBranch": "حذف الفرع {branchName}",
+        "initGitRepo": "تهيئة مستودع Git",
+        "pullCode": "سحب الكود",
+        "fetchInfo": "جلب المعلومات",
+        "pushCode": "دفع الكود",
+        "stashChanges": "تخزين التغييرات في stash",
+        "stashPop": "استرجاع stash"
+      },
+      "confirm": {
+        "mergeTitle": "دمج الفرع",
+        "rebaseTitle": "Rebase للفرع",
+        "deleteTitle": "حذف الفرع",
+        "mergeDescription": "دمج {branchName} في الفرع الحالي {currentBranch}؟",
+        "rebaseDescription": "إجراء rebase للفرع الحالي {currentBranch} على {branchName}؟",
+        "deleteDescription": "حذف الفرع {branchName}؟ لا يمكن التراجع عن هذا الإجراء."
+      },
+      "current": "الحالي",
+      "switchToBranch": "التبديل إلى هذا الفرع",
+      "mergeBranchIntoCurrent": "دمج {branchName} في {currentBranch}",
+      "rebaseCurrentToBranch": "Rebase لـ {currentBranch} على {branchName}",
+      "deleteBranch": "حذف الفرع",
+      "versionControl": "التحكم في الإصدارات",
+      "initGitRepo": "تهيئة مستودع Git",
+      "pullCode": "سحب الكود",
+      "fetchRemoteBranches": "جلب الفروع البعيدة",
+      "openCommitWindow": "التزام الكود...",
+      "pushCode": "دفع...",
+      "newBranch": "فرع جديد...",
+      "newWorktree": "Worktree جديد...",
+      "stashChanges": "تخزين التغييرات في stash",
+      "stashPop": "استرجاع stash...",
+      "localBranches": "الفروع المحلية ({count, plural, one {#} other {#}})",
+      "noLocalBranches": "لا توجد فروع محلية",
+      "remoteBranches": "الفروع البعيدة ({count, plural, one {#} other {#}})",
+      "noRemoteBranches": "لا توجد فروع بعيدة",
+      "parentBranchHint": "تم إنشاء الفرع الحالي من {parentBranch}. انقر لدمج {parentBranch} في الفرع الحالي.",
+      "dialogs": {
+        "newBranchTitle": "فرع جديد",
+        "newBranchDescription": "إنشاء فرع جديد من الفرع الحالي {branch}",
+        "branchNamePlaceholder": "اسم الفرع",
+        "newWorktreeTitle": "Worktree جديد",
+        "newWorktreeDescription": "إنشاء worktree جديد من الفرع الحالي {branch}",
+        "branchNameLabel": "اسم الفرع",
+        "worktreePathLabel": "مسار worktree",
+        "worktreePathPlaceholder": "مسار worktree"
+      }
+    },
+    "commitDialog": {
+      "toasts": {
+        "commitCompleted": "اكتمل التزام الكود",
+        "committedFiles": "{count, plural, one {# ملف تم الالتزام به} other {# ملفات تم الالتزام بها}}",
+        "addedToVcs": "تمت الإضافة إلى VCS",
+        "addToVcsFailed": "فشلت الإضافة إلى VCS",
+        "fileDeleted": "تم حذف الملف",
+        "deleteFailed": "فشل الحذف",
+        "fileRolledBack": "تم التراجع عن الملف",
+        "rollbackFailed": "فشل التراجع"
+      },
+      "confirm": {
+        "deleteTitle": "تأكيد الحذف",
+        "deleteDescription": "حذف الملف \"{file}\"؟ لا يمكن التراجع عن هذا الإجراء.",
+        "rollbackTitle": "تأكيد التراجع",
+        "rollbackDescription": "التراجع عن الملف \"{file}\" إلى HEAD؟ ستفقد التغييرات غير المحفوظة."
+      },
+      "actions": {
+        "select": "تحديد",
+        "unselect": "إلغاء التحديد",
+        "rollback": "تراجع",
+        "addToVcs": "إضافة إلى VCS"
+      },
+      "aria": {
+        "selectFile": "{action}: {path}",
+        "unselectAllFiles": "إلغاء تحديد كل الملفات",
+        "selectAllFiles": "تحديد كل الملفات",
+        "unselectTracked": "إلغاء تحديد التغييرات المتعقبة",
+        "selectTracked": "تحديد التغييرات المتعقبة",
+        "unselectUntracked": "إلغاء تحديد الملفات غير المتعقبة",
+        "selectUntracked": "تحديد الملفات غير المتعقبة"
+      },
+      "loading": "جارٍ التحميل...",
+      "selectionCount": "{selected} / {total} ملفات",
+      "emptyFiles": "لا توجد ملفات متغيرة",
+      "trackedChanges": "التغييرات المتعقبة ({count})",
+      "untrackedFiles": "الملفات غير المتعقبة ({count})",
+      "commitMessage": "رسالة الالتزام",
+      "commitMessagePlaceholder": "أدخل رسالة الالتزام...",
+      "commitButton": "التزام ({count})",
+      "head": "HEAD",
+      "workingTree": "شجرة العمل",
+      "clickFileToDiff": "انقر اسم الملف لعرض الفرق",
+      "loadingDiff": "جارٍ تحميل diff..."
+    },
+    "gitLogTab": {
+      "filesTitle": "الملفات",
+      "expandAllFiles": "توسيع كل الملفات",
+      "collapseAllFiles": "طي كل الملفات",
+      "workspace": "مساحة العمل",
+      "retry": "إعادة المحاولة",
+      "noCommitsFound": "لم يتم العثور على التزامات",
+      "hash": "بصمة الالتزام",
+      "copyHash": "نسخ الـ hash",
+      "author": "المؤلف",
+      "noFileChangeDetails": "لا توجد تفاصيل تغييرات ملفات متاحة.",
+      "branchesTitle": "الفروع",
+      "loadingBranches": "جارٍ تحميل الفروع...",
+      "noContainingBranches": "لم يتم العثور على فروع تحتوي هذا الالتزام.",
+      "newBranch": "فرع جديد...",
+      "viewCommitDiffAria": "عرض diff للالتزام {hash}",
+      "copyFullCommitHashAria": "نسخ hash الكامل للالتزام {hash}",
+      "pushStatus": {
+        "pushed": "تم الدفع إلى البعيد",
+        "notPushed": "لم يتم الدفع إلى البعيد",
+        "unknown": "حالة الدفع غير معروفة (لم يتم إعداد upstream)"
+      },
+      "time": {
+        "monthsAgo": "{count, plural, one {منذ # شهر} other {منذ # أشهر}}",
+        "daysAgo": "{count, plural, one {منذ # يوم} other {منذ # أيام}}",
+        "hoursAgo": "{count, plural, one {منذ # ساعة} other {منذ # ساعات}}",
+        "minsAgo": "{count, plural, one {منذ # دقيقة} other {منذ # دقائق}}",
+        "justNow": "الآن"
+      },
+      "toasts": {
+        "createdAndSwitchedNewBranch": "تم إنشاء فرع جديد والتبديل إليه",
+        "newBranchFromCommit": "{name} (من {shortHash})",
+        "createBranchFailed": "فشل إنشاء الفرع"
+      },
+      "branchSelector": {
+        "selectBranchPlaceholder": "اختر فرعًا...",
+        "localBranches": "الفروع المحلية",
+        "current": "الحالي",
+        "remoteBranches": "الفروع البعيدة",
+        "refreshCommitHistory": "تحديث سجل الالتزامات"
+      },
+      "dialogs": {
+        "newBranchTitle": "فرع جديد",
+        "newBranchDescription": "إنشاء فرع جديد مع الالتزام {shortHash} كأحدث التزام.",
+        "branchNamePlaceholder": "اسم الفرع"
+      }
+    },
+    "gitChangesTab": {
+      "workspace": "مساحة العمل",
+      "noChanges": "لا توجد تغييرات محلية",
+      "trackedChanges": "التغييرات المتعقبة ({count})",
+      "untrackedFiles": "الملفات غير المتعقبة ({count})",
+      "expandTracked": "توسيع التغييرات المتعقبة",
+      "collapseTracked": "طي التغييرات المتعقبة",
+      "expandUntracked": "توسيع الملفات غير المتعقبة",
+      "collapseUntracked": "طي الملفات غير المتعقبة",
+      "actions": {
+        "commitCode": "التزام الكود",
+        "rollback": "تراجع",
+        "addToVcs": "إضافة إلى VCS"
+      },
+      "toasts": {
+        "noAddableFilesInDir": "لا توجد ملفات متغيرة في هذا الدليل يمكن إضافتها إلى VCS",
+        "noRollbackFilesInDir": "لا توجد ملفات متغيرة في هذا الدليل يمكن التراجع عنها",
+        "addedToVcs": "تمت إضافة {name} إلى VCS",
+        "addToVcsFailed": "فشلت الإضافة إلى VCS",
+        "openCommitWindowFailed": "فشل فتح نافذة الالتزام",
+        "rolledBack": "تم التراجع عن {name}",
+        "rollbackFailed": "فشل التراجع",
+        "addedFilesToVcs": "تمت إضافة {count, plural, one {# ملف} other {# ملفات}} إلى VCS",
+        "rolledBackFiles": "تم التراجع عن {count, plural, one {# ملف} other {# ملفات}}"
+      },
+      "directoryDialog": {
+        "descriptionAdd": "اختر ملفات داخل الدليل {path} لإضافتها إلى VCS.",
+        "descriptionRollback": "اختر ملفات داخل الدليل {path} للتراجع عنها.",
+        "descriptionFallback": "اختر ملفات للمتابعة.",
+        "selectionCount": "تم تحديد {selected} / {total} ملف",
+        "selectAll": "تحديد الكل",
+        "unselectAll": "إلغاء تحديد الكل",
+        "loadingCandidates": "جارٍ تحميل تغييرات الدليل...",
+        "noOperableFiles": "لا توجد ملفات قابلة للتشغيل"
+      },
+      "rollbackConfirm": {
+        "title": "تأكيد التراجع",
+        "descriptionWithTarget": "التراجع عن التغييرات المحلية لـ {kind} \"{name}\"؟",
+        "descriptionFallback": "التراجع عن التغييرات المحلية؟",
+        "kindDirectory": "الدليل",
+        "kindFile": "الملف"
+      }
+    },
+    "tabContext": {
+      "loadingConversation": "جارٍ التحميل...",
+      "untitledConversation": "محادثة بدون عنوان",
+      "newConversation": "محادثة جديدة"
+    },
+    "fileTreeTab": {
+      "workspace": "مساحة العمل",
+      "retry": "إعادة المحاولة",
+      "git": "Git",
+      "openInFileManager": "فتح في مدير الملفات",
+      "openInFinder": "فتح في Finder",
+      "openInExplorer": "فتح في Explorer",
+      "attachToCurrentSession": "إرفاق بالجلسة الحالية",
+      "compareWithBranch": "المقارنة مع الفرع...",
+      "reloadFromDisk": "إعادة التحميل من القرص",
+      "openIn": "فتح في",
+      "openInTerminal": "فتح في الطرفية",
+      "actions": {
+        "select": "تحديد",
+        "unselect": "إلغاء التحديد",
+        "commitCode": "تنفيذ الالتزام بالكود",
+        "rollback": "التراجع",
+        "addToVcs": "إضافة إلى VCS"
+      },
+      "aria": {
+        "selectPath": "{action}: {path}"
+      },
+      "toasts": {
+        "openDirectoryFailed": "فشل فتح المجلد",
+        "openBuiltinTerminalFailed": "تعذر فتح الطرفية المدمجة",
+        "openCommitWindowFailed": "فشل فتح نافذة الالتزام",
+        "noAddableFilesInDir": "لا توجد ملفات متغيرة في هذا المجلد يمكن إضافتها إلى VCS",
+        "noRollbackFilesInDir": "لا توجد ملفات متغيرة في هذا المجلد يمكن التراجع عنها",
+        "addedToVcs": "تمت إضافة {name} إلى VCS",
+        "addToVcsFailed": "فشلت الإضافة إلى VCS",
+        "loadBranchesFailed": "فشل تحميل الفروع",
+        "renameFailed": "فشل إعادة التسمية",
+        "deleteFailed": "فشل الحذف",
+        "rolledBack": "تم التراجع عن {name}",
+        "rollbackFailed": "فشل التراجع",
+        "addedFilesToVcs": "{count, plural, one {تمت إضافة ملف واحد إلى VCS} other {تمت إضافة # ملفات إلى VCS}}",
+        "rolledBackFiles": "{count, plural, one {تم التراجع عن ملف واحد} other {تم التراجع عن # ملفات}}",
+        "savedAsCopy": "تم الحفظ كنسخة",
+        "saveCopyFailed": "فشل الحفظ كنسخة",
+        "watchStartFailed": "فشل بدء مراقبة الملفات"
+      },
+      "renameDialog": {
+        "renameDirectory": "إعادة تسمية المجلد",
+        "renameFile": "إعادة تسمية الملف",
+        "description": "أدخل اسمًا جديدًا (الاسم فقط، بدون مسار).",
+        "placeholderDirectory": "اسم-مجلد-جديد",
+        "placeholderFile": "اسم-ملف-جديد.ext"
+      },
+      "directoryDialog": {
+        "descriptionAdd": "حدد الملفات ضمن المجلد {path} لإضافتها إلى VCS.",
+        "descriptionRollback": "حدد الملفات ضمن المجلد {path} للتراجع عنها.",
+        "descriptionFallback": "حدد الملفات للمتابعة.",
+        "selectionCount": "تم تحديد {selected} من {total} ملف",
+        "selectAll": "تحديد الكل",
+        "unselectAll": "إلغاء تحديد الكل",
+        "loadingCandidates": "جارٍ تحميل تغييرات المجلد...",
+        "noOperableFiles": "لا توجد ملفات قابلة للمعالجة"
+      },
+      "compareDialog": {
+        "title": "المقارنة مع الفرع",
+        "descriptionWithTarget": "حدد فرعًا وقارن مع {kind} {path}",
+        "descriptionFallback": "حدد فرعًا للمقارنة.",
+        "kindDirectory": "مجلد",
+        "kindFile": "ملف",
+        "filterPlaceholder": "تصفية الفروع، مثال: main / origin/main",
+        "singleClickHint": "انقر على فرع للمقارنة مباشرة",
+        "loadingBranches": "جارٍ تحميل الفروع...",
+        "recentBranches": "الفروع الحديثة ({count})",
+        "noCurrentBranch": "لا يوجد فرع حالي",
+        "localBranches": "الفروع المحلية ({count})",
+        "remoteBranches": "الفروع البعيدة ({count})",
+        "noMatchingBranches": "لا توجد فروع مطابقة"
+      },
+      "externalConflictDialog": {
+        "title": "تم اكتشاف تغييرات خارجية في الملفات",
+        "descriptionWithPath": "تم تغيير الملف {path} على القرص، والتعديلات الحالية غير محفوظة.",
+        "descriptionFallback": "تم تغيير الملف الحالي على القرص، والتعديلات الحالية غير محفوظة.",
+        "compare": "مقارنة",
+        "savingCopy": "جارٍ حفظ نسخة...",
+        "saveAsCopy": "حفظ كنسخة",
+        "reload": "إعادة التحميل"
+      },
+      "deleteConfirm": {
+        "title": "تأكيد الحذف",
+        "descriptionWithTarget": "حذف {kind} \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
+        "descriptionFallback": "لا يمكن التراجع عن هذا الإجراء.",
+        "kindDirectory": "مجلد",
+        "kindFile": "ملف"
+      },
+      "rollbackConfirm": {
+        "title": "تأكيد التراجع",
+        "descriptionWithTarget": "التراجع عن التغييرات المحلية للملف \"{name}\"؟",
+        "descriptionFallback": "التراجع عن التغييرات المحلية لهذا الملف؟"
+      },
+      "terminalTitle": "الطرفية · {name}"
+    },
+    "commandDropdown": {
+      "loading": "جارٍ التحميل...",
+      "addCommand": "إضافة أمر",
+      "manageCommands": "إدارة الأوامر...",
+      "runCommandTitle": "تشغيل: {command}",
+      "stopCommandTitle": "إيقاف: {command}",
+      "manageDialog": {
+        "title": "إدارة الأوامر",
+        "empty": "لا توجد أوامر بعد",
+        "namePlaceholder": "الاسم",
+        "commandPlaceholder": "الأمر",
+        "add": "إضافة",
+        "saving": "جارٍ الحفظ..."
+      }
+    },
+    "workspaceContext": {
+      "confirmCloseDirtyTab": "إغلاق \"{title}\" بدون حفظ؟",
+      "confirmCloseOtherDirtyTabs": "إغلاق التبويبات الأخرى التي تحتوي تغييرات غير محفوظة؟",
+      "confirmCloseAllDirtyTabs": "إغلاق جميع التبويبات التي تحتوي تغييرات غير محفوظة؟",
+      "unableLoadContent": "تعذر تحميل المحتوى.\n\n{message}",
+      "previewRequestTimedOut": "انتهت مهلة طلب المعاينة",
+      "diffRequestTimedOut": "انتهت مهلة طلب Diff",
+      "branchCompareRequestTimedOut": "انتهت مهلة طلب مقارنة الفروع",
+      "commitDiffRequestTimedOut": "انتهت مهلة طلب Diff للالتزام",
+      "saveRequestTimedOut": "انتهت مهلة طلب الحفظ",
+      "reloadRequestTimedOut": "انتهت مهلة طلب إعادة التحميل",
+      "noChanges": "لا توجد تغييرات.",
+      "noDiffOutput": "لا يوجد مخرجات diff.",
+      "diffTitleWorkspace": "Diff · مساحة العمل",
+      "diffDescriptionWorkingTree": "شجرة العمل (HEAD)",
+      "diffTitleFile": "الفرق · {name}",
+      "compareTitleFile": "مقارنة · {name}",
+      "compareTitleBranch": "مقارنة · {branch}",
+      "compareDescriptionPath": "{path} · مقارنة مع {branch}",
+      "compareDescriptionBranch": "مقارنة مع {branch}",
+      "diffTitleCommitFile": "الفرق · {name} @ {hash}",
+      "diffTitleCommit": "الفرق · {hash}",
+      "diffDescriptionCommitPath": "{path} · الالتزام {commit}",
+      "diffDescriptionCommit": "الالتزام {commit}",
+      "diffTitleConflictFile": "تعارض · {name}",
+      "diffDescriptionConflict": "{path} · القرص مقابل غير المحفوظ"
+    },
+    "chat": {
+      "acpConnections": {
+        "actions": {
+          "openAgentsSettings": "فتح إعدادات الوكلاء",
+          "retry": "إعادة المحاولة"
+        },
+        "agentsSetupHint": "افتح الإعدادات > الوكلاء لإدارة التثبيت.",
+        "withSetupHint": "{message}\n{hint}",
+        "blocked": {
+          "missingConfig": "تعذر قراءة إعدادات الوكيل الحالية.",
+          "disabled": "{agent} معطّل في إعدادات الوكلاء. قم بتمكينه قبل الاتصال.",
+          "unavailable": "{agent} غير متاح على المنصة الحالية.",
+          "sdkMissing": "لم يتم تثبيت SDK الخاص بـ {agent}"
+        },
+        "unableReadAgentConfig": "تعذر قراءة إعدادات الوكيل: {message}",
+        "autoLinkFailedTitle": "فشل الربط التلقائي لـ {agent}",
+        "preflightCheckFailedDefault": "فشلت فحوصات ما قبل التشغيل. تحقق من إعدادات الوكلاء.",
+        "preflightFailedTitle": "فشل فحص ما قبل التشغيل لـ {agent}",
+        "autoLinkPreflightFailed": "فشل فحص ما قبل التشغيل للربط التلقائي: {message}",
+        "connectFailedTitle": "فشل اتصال {agent}",
+        "toolFallbackTitle": "أداة",
+        "eventErrorTitle": "خطأ الوكيل"
+      },
+      "connectionLifecycle": {
+        "tasks": {
+          "connectingTitle": "جارٍ الاتصال بـ {agent}",
+          "connectingDescription": "جارٍ إنشاء الاتصال",
+          "loadingSelectorsTitle": "جارٍ تحميل محددات {agent}",
+          "loadingSelectorsDescription": "جارٍ جلب خيارات الوضع وإعدادات الجلسة"
+        },
+        "errors": {
+          "connectionFailed": "فشل الاتصال"
+        }
+      },
+      "shared": {
+        "attachedResources": "الموارد المرفقة",
+        "toolCallFailed": "فشل استدعاء الأداة"
+      },
+      "messageThread": {
+        "emptyTitle": "لا توجد رسائل بعد",
+        "emptyDescription": "ابدأ محادثة لرؤية الرسائل هنا"
+      },
+      "chatInput": {
+        "connecting": "جارٍ الاتصال...",
+        "agentResponding": "الوكيل يرد...",
+        "sendMessage": "أرسل رسالة..."
+      },
+      "messageInput": {
+        "askAnything": "اسأل أي شيء...",
+        "removeAttachmentAria": "إزالة {name}",
+        "attachFiles": "إرفاق ملفات",
+        "dropFilesToAttach": "أسقط الملفات لإرفاقها",
+        "loadingSettings": "جارٍ تحميل الإعدادات...",
+        "loadingMode": "جارٍ تحميل الوضع...",
+        "cancel": "إلغاء",
+        "send": "إرسال"
+      },
+      "messageQueue": {
+        "addToQueue": "إضافة للقائمة",
+        "saveEdit": "حفظ",
+        "cancelEdit": "إلغاء التعديل",
+        "editItem": "تعديل",
+        "deleteItem": "حذف"
+      },
+      "welcomeInputPanel": {
+        "agentsSettingsPath": "الإعدادات > الوكلاء",
+        "autoConnectFallback": "انقر لفتح {path} وإدارة التثبيت.",
+        "autoConnectAppend": "{message}. انقر لفتح {path} وإدارة التثبيت.",
+        "enableAgentFirstPlaceholder": "فعّل وكيلًا واحدًا على الأقل قبل بدء جلسة...",
+        "askAnythingPlaceholder": "اسأل أي شيء..."
+      },
+      "agentSelector": {
+        "noEnabledAgents": "لا يوجد وكلاء مفعّلون",
+        "openAgentsSettings": "فتح إعدادات الوكلاء"
+      },
+      "agentPlanOverlay": {
+        "title": "خطة الوكيل",
+        "collapsePlanAria": "طي الخطة",
+        "collapsedSummary": "الخطة {completed}/{total}",
+        "status": {
+          "completed": "مكتمل",
+          "inProgress": "قيد التنفيذ",
+          "pending": "قيد الانتظار",
+          "unknown": "غير معروف"
+        },
+        "priority": {
+          "high": "مرتفع",
+          "medium": "متوسط",
+          "low": "منخفض",
+          "unknown": "غير معروف"
+        }
+      },
+      "permissionDialog": {
+        "subtitle": "يطلب الوكيل إذنًا لمتابعة هذا الدور.",
+        "kindFallbackTool": "أداة",
+        "command": "أمر",
+        "cwd": "دليل العمل: {cwd}",
+        "filesSummary": "الملفات: {count}",
+        "moreFiles": "+{count} ملف إضافي",
+        "plan": "الخطة",
+        "allowedActions": "الإجراءات المسموح بها",
+        "targetMode": "وضع الهدف: {mode}"
+      },
+      "questionDialog": {
+        "title": "الوكيل يطرح سؤالاً",
+        "placeholder": "اكتب إجابتك...",
+        "send": "إرسال"
+      },
+      "messageBranch": {
+        "previousBranchAria": "الفرع السابق",
+        "nextBranchAria": "الفرع التالي",
+        "pageOf": "{current} من {total}"
+      },
+      "terminal": {
+        "title": "الطرفية",
+        "running": "قيد التشغيل"
+      },
+      "reasoning": {
+        "thinking": "جارٍ التفكير",
+        "thoughtForFewSeconds": "تفكير",
+        "thoughtForSeconds": "تفكير"
+      },
+      "messageList": {
+        "attachedResources": "الموارد المرفقة",
+        "loading": "جارٍ التحميل...",
+        "error": "خطأ: {message}",
+        "emptyConversation": "لا توجد رسائل في هذه المحادثة."
+      },
+      "liveTurnStats": {
+        "thinking": "جارٍ التفكير...",
+        "streaming": "جارٍ البث",
+        "elapsedMinutes": "{value}د",
+        "elapsedSeconds": "{value}ث",
+        "toolUseCount": "{count} أداة {count, plural, one {use} other {uses}}"
+      },
+      "tool": {
+        "parameters": "المعلمات",
+        "error": "خطأ",
+        "result": "النتيجة",
+        "status": {
+          "approvalRequested": "بانتظار الموافقة",
+          "approvalResponded": "تم الرد",
+          "inputAvailable": "قيد التشغيل",
+          "inputStreaming": "قيد الانتظار",
+          "outputAvailable": "مكتمل",
+          "outputDenied": "مرفوض",
+          "outputError": "خطأ"
+        }
+      },
+      "toolCallBlock": {
+        "tool": "أداة",
+        "error": "خطأ",
+        "result": "النتيجة"
+      },
+      "contentParts": {
+        "showingTailOutput": "يتم عرض نهاية المخرجات أثناء البث لتحسين الأداء.",
+        "result": "النتيجة",
+        "unknown": "غير معروف",
+        "replaceAll": "استبدال الكل",
+        "filesCount": "الملفات: {count}",
+        "update": "تحديث",
+        "moreFiles": "+{count} ملف إضافي",
+        "timeoutMs": "المهلة: {timeout}ms",
+        "backgroundTrue": "الخلفية: true",
+        "offset": "الإزاحة: {offset}",
+        "limit": "الحد: {limit}",
+        "pages": "الصفحات: {pages}",
+        "mode": "الوضع: {mode}",
+        "cell": "الخلية: {cell}",
+        "pathLabel": "المسار:",
+        "globLabel": "نمط glob:",
+        "typeLabel": "النوع:",
+        "outputLabel": "المخرجات:",
+        "caseInsensitive": "غير حساس لحالة الأحرف",
+        "multiline": "متعدد الأسطر",
+        "promptLabel": "المطالبة",
+        "subjectLabel": "الموضوع",
+        "taskLabel": "المهمة",
+        "nameLabel": "الاسم:",
+        "field": {
+          "file": "ملف",
+          "notebook": "دفتر",
+          "command": "أمر",
+          "old": "قديم",
+          "new": "جديد",
+          "pattern": "النمط",
+          "path": "المسار",
+          "query": "الاستعلام",
+          "url": "URL:",
+          "description": "الوصف",
+          "content": "المحتوى",
+          "source": "المصدر",
+          "prompt": "المطالبة",
+          "subject": "الموضوع",
+          "taskId": "معرف المهمة",
+          "status": "الحالة",
+          "skill": "Skill",
+          "args": "الوسائط",
+          "offset": "الإزاحة",
+          "limit": "الحد",
+          "glob": "نمط glob",
+          "type": "النوع",
+          "output": "المخرجات",
+          "replaceAll": "استبدال الكل",
+          "language": "اللغة",
+          "timeout": "المهلة",
+          "background": "الخلفية",
+          "agentType": "نوع الوكيل",
+          "library": "المكتبة",
+          "libraryId": "معرف المكتبة"
+        },
+        "title": {
+          "edit": "تحرير",
+          "command": "أمر",
+          "todoWrite": "TodoWrite (تحديث المهام)",
+          "read": "قراءة",
+          "write": "كتابة",
+          "notebookEdit": "NotebookEdit (تحرير الدفتر)",
+          "editFiles": "تحرير ({count} ملفًا)",
+          "editWithTarget": "تحرير {target}",
+          "readWithTarget": "قراءة {target}",
+          "writeWithTarget": "كتابة {target}",
+          "notebookEditWithTarget": "NotebookEdit ({target})",
+          "globWithPattern": "نمط glob {pattern}",
+          "grepWithPattern": "نمط grep {pattern}",
+          "taskCreateWithSubject": "إنشاء مهمة: {subject}",
+          "taskUpdateWithStatus": "تحديث المهمة #{id} -> {status}",
+          "taskUpdate": "تحديث المهمة #{id}",
+          "webFetchWithUrl": "WebFetch ({url})",
+          "webSearchWithQuery": "بحث الويب: {query}",
+          "todosProgress": "المهام ({done}/{total})",
+          "skillWithName": "Skill: {name}",
+          "genericWithContext": "{tool} ({context})"
+        }
+      }
+    },
+    "diffPreview": {
+      "mode": {
+        "added": "تمت الإضافة",
+        "deleted": "تم الحذف",
+        "renamed": "تمت إعادة التسمية",
+        "modified": "تم التعديل"
+      },
+      "hunkLabel": "مقطع {index}",
+      "loadingHunk": "جارٍ تحميل hunk...",
+      "noDiffData": "لا توجد بيانات diff"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "identifier": "desktop-capability",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "welcome",
+    "folder-*",
+    "commit-*",
+    "settings"
+  ],
+  "permissions": [
+    "window-state:default"
+  ]
+}

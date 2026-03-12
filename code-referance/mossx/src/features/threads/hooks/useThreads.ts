@@ -1,0 +1,1728 @@
+import { useCallback, useEffect, useReducer, useRef } from "react";
+import type { CustomPromptOption, DebugEntry, WorkspaceInfo } from "../../../types";
+import { useAppServerEvents } from "../../app/hooks/useAppServerEvents";
+import { initialState, threadReducer } from "./useThreadsReducer";
+import { useThreadStorage } from "./useThreadStorage";
+import { useThreadLinking } from "./useThreadLinking";
+import { useThreadEventHandlers } from "./useThreadEventHandlers";
+import { useThreadActions } from "./useThreadActions";
+import { useThreadMessaging } from "./useThreadMessaging";
+import { useThreadApprovals } from "./useThreadApprovals";
+import { useThreadAccountInfo } from "./useThreadAccountInfo";
+import { useThreadRateLimits } from "./useThreadRateLimits";
+import { useThreadSelectors } from "./useThreadSelectors";
+import { useThreadStatus } from "./useThreadStatus";
+import { useThreadUserInput } from "./useThreadUserInput";
+import {
+  makeCustomNameKey,
+  saveCustomName,
+} from "../utils/threadStorage";
+import { writeClientStoreValue } from "../../../services/clientStorage";
+import {
+  generateThreadTitle,
+  listThreadTitles,
+  resumeThread,
+  setThreadTitle,
+  projectMemoryUpdate,
+  projectMemoryCreate,
+} from "../../../services/tauri";
+import { buildAssistantOutputDigest } from "../../project-memory/utils/outputDigest";
+import {
+  classifyMemoryImportance,
+  classifyMemoryKind,
+} from "../../project-memory/utils/memoryKindClassifier";
+import {
+  shouldMergeOnAssistantCompleted,
+  shouldMergeOnInputCapture,
+} from "../utils/memoryCaptureRace";
+import { buildItemsFromThread } from "../../../utils/threadItems";
+import i18n from "../../../i18n";
+
+const AUTO_TITLE_REQUEST_TIMEOUT_MS = 8_000;
+const AUTO_TITLE_MAX_ATTEMPTS = 2;
+const AUTO_TITLE_PENDING_STALE_MS = 20_000;
+const MEMORY_DEBUG_FLAG_KEY = "codemoss:memory-debug";
+const THREAD_ERROR_DUPLICATE_WINDOW_MS = 8_000;
+
+/** 回合级记忆待合并数据（输入侧采集后暂存，等输出侧压缩后融合写入） */
+type PendingMemoryCapture = {
+  workspaceId: string;
+  threadId: string;
+  turnId: string;
+  inputText: string;
+  memoryId: string | null;
+  workspaceName: string | null;
+  workspacePath: string | null;
+  engine: string | null;
+  createdAt: number;
+};
+
+type PendingAssistantCompletion = {
+  workspaceId: string;
+  threadId: string;
+  itemId: string;
+  text: string;
+  createdAt: number;
+};
+
+const MAX_ASSISTANT_DETAIL_LENGTH = 12000;
+// Claude turns can exceed 30s frequently; keep a wider merge window to avoid dropping write-back.
+const PENDING_MEMORY_STALE_MS = 10 * 60_000;
+const MEMORY_PARAGRAPH_BREAK_SPLIT_REGEX = /\r?\n[^\S\r\n]*\r?\n+/;
+const MEMORY_SENTENCE_SPLIT_REGEX = /(?<=[。！？.!?；;:：\n])\s*/;
+
+function compactComparableMemoryText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\u3400-\u9FFF]+/gu, "");
+}
+
+function splitMemorySentences(value: string) {
+  return value
+    .split(MEMORY_SENTENCE_SPLIT_REGEX)
+    .map((entry) => trimTrailingPromptFragment(entry).trim())
+    .filter(Boolean);
+}
+
+function trimTrailingPromptFragment(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.length <= 16 && /[：:]$/.test(trimmed)) {
+    return "";
+  }
+  const sentenceEndIndex = Math.max(
+    trimmed.lastIndexOf("。"),
+    trimmed.lastIndexOf("！"),
+    trimmed.lastIndexOf("？"),
+    trimmed.lastIndexOf("!"),
+    trimmed.lastIndexOf("?"),
+    trimmed.lastIndexOf(";"),
+    trimmed.lastIndexOf("；"),
+  );
+  if (sentenceEndIndex < 0 || sentenceEndIndex >= trimmed.length - 1) {
+    return trimmed;
+  }
+  const tail = trimmed.slice(sentenceEndIndex + 1).trim();
+  if (tail.length > 0 && tail.length <= 16 && /[：:]$/.test(tail)) {
+    return trimmed.slice(0, sentenceEndIndex + 1).trim();
+  }
+  return trimmed;
+}
+
+function normalizeAssistantOutputForMemory(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const directRepeat = trimmed.match(/^([\s\S]{8,}?)(?:\s+\1){1,2}$/);
+  if (directRepeat?.[1]) {
+    return directRepeat[1].trim();
+  }
+
+  const paragraphs = trimmed
+    .split(MEMORY_PARAGRAPH_BREAK_SPLIT_REGEX)
+    .map((entry) => trimTrailingPromptFragment(entry))
+    .filter(Boolean);
+  if (paragraphs.length > 1) {
+    const deduped: string[] = [];
+    for (const paragraph of paragraphs) {
+      const previous = deduped[deduped.length - 1];
+      if (
+        previous &&
+        compactComparableMemoryText(previous) === compactComparableMemoryText(paragraph) &&
+        compactComparableMemoryText(paragraph).length >= 8
+      ) {
+        continue;
+      }
+      deduped.push(paragraph);
+    }
+    for (const repeatCount of [3, 2]) {
+      if (deduped.length < repeatCount || deduped.length % repeatCount !== 0) {
+        continue;
+      }
+      const blockLength = deduped.length / repeatCount;
+      if (blockLength < 1) {
+        continue;
+      }
+      const firstBlock = deduped
+        .slice(0, blockLength)
+        .map((entry) => compactComparableMemoryText(entry));
+      if (!firstBlock.some((entry) => entry.length >= 8)) {
+        continue;
+      }
+      let matches = true;
+      for (let blockIndex = 1; blockIndex < repeatCount; blockIndex += 1) {
+        const start = blockIndex * blockLength;
+        const candidate = deduped
+          .slice(start, start + blockLength)
+          .map((entry) => compactComparableMemoryText(entry));
+        if (
+          candidate.length !== firstBlock.length ||
+          candidate.some((entry, index) => entry !== firstBlock[index])
+        ) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        return deduped.slice(0, blockLength).join("\n\n");
+      }
+    }
+    return deduped.join("\n\n");
+  }
+
+  return trimmed;
+}
+
+function normalizeDigestSummaryForMemory(value: string) {
+  const normalized = trimTrailingPromptFragment(
+    normalizeAssistantOutputForMemory(value),
+  );
+  const sentences = splitMemorySentences(normalized);
+  if (sentences.length <= 1) {
+    return normalized.trim();
+  }
+  const deduped: string[] = [];
+  const seenShort = new Set<string>();
+  for (const sentence of sentences) {
+    const comparable = compactComparableMemoryText(
+      trimTrailingPromptFragment(sentence),
+    );
+    if (!comparable) {
+      continue;
+    }
+    const previous = deduped[deduped.length - 1];
+    if (previous && compactComparableMemoryText(previous) === comparable) {
+      continue;
+    }
+    if (comparable.length <= 24 && seenShort.has(comparable)) {
+      continue;
+    }
+    if (comparable.length <= 24) {
+      seenShort.add(comparable);
+    }
+    deduped.push(sentence);
+  }
+  return deduped.join(" ").trim();
+}
+
+function isAssistantOutputRedundant(summary: string, output: string) {
+  const compactSummary = compactComparableMemoryText(summary);
+  const compactOutput = compactComparableMemoryText(output);
+  if (!compactSummary || !compactOutput) {
+    return false;
+  }
+  if (compactSummary === compactOutput) {
+    return true;
+  }
+  const longerLength = Math.max(compactSummary.length, compactOutput.length);
+  const shorterLength = Math.min(compactSummary.length, compactOutput.length);
+  if (shorterLength < 12) {
+    return false;
+  }
+  if (longerLength <= 0) {
+    return false;
+  }
+  if (shorterLength / longerLength < 0.78) {
+    return false;
+  }
+  return compactSummary.includes(compactOutput) || compactOutput.includes(compactSummary);
+}
+
+function extractNovelAssistantOutput(summary: string, output: string) {
+  const normalizedSummary = normalizeDigestSummaryForMemory(summary);
+  const normalizedOutput = normalizeAssistantOutputForMemory(output);
+  if (!normalizedOutput) {
+    return "";
+  }
+
+  const summarySentences = splitMemorySentences(normalizedSummary);
+  const summaryComparables = summarySentences
+    .map((entry) => compactComparableMemoryText(entry))
+    .filter((entry) => entry.length >= 8);
+
+  if (summaryComparables.length === 0) {
+    return normalizedOutput;
+  }
+
+  const outputSentences = splitMemorySentences(normalizedOutput);
+  const kept: string[] = [];
+  for (const sentence of outputSentences) {
+    const comparable = compactComparableMemoryText(sentence);
+    if (!comparable) {
+      continue;
+    }
+    const overlapsSummary = summaryComparables.some((entry) => {
+      if (comparable === entry) {
+        return true;
+      }
+      const minLength = Math.min(comparable.length, entry.length);
+      if (minLength < 12) {
+        return false;
+      }
+      return comparable.includes(entry) || entry.includes(comparable);
+    });
+    if (overlapsSummary) {
+      continue;
+    }
+    const previous = kept[kept.length - 1];
+    if (previous && compactComparableMemoryText(previous) === comparable) {
+      continue;
+    }
+    kept.push(sentence);
+  }
+
+  const novelOutput = kept.join(" ").trim();
+  if (!novelOutput) {
+    return "";
+  }
+  return isAssistantOutputRedundant(normalizedSummary, novelOutput)
+    ? ""
+    : novelOutput;
+}
+
+function isMemoryDebugEnabled(): boolean {
+  if (!import.meta.env.DEV) {
+    return false;
+  }
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return window.localStorage.getItem(MEMORY_DEBUG_FLAG_KEY) === "1";
+}
+
+function memoryDebugLog(message: string, payload?: Record<string, unknown>) {
+  if (!isMemoryDebugEnabled()) {
+    return;
+  }
+  if (payload) {
+    console.info(`[project-memory][debug] ${message}`, payload);
+    return;
+  }
+  console.info(`[project-memory][debug] ${message}`);
+}
+
+type UseThreadsOptions = {
+  activeWorkspace: WorkspaceInfo | null;
+  onWorkspaceConnected: (id: string) => void;
+  onDebug?: (entry: DebugEntry) => void;
+  model?: string | null;
+  effort?: string | null;
+  collaborationMode?: Record<string, unknown> | null;
+  accessMode?: "read-only" | "current" | "full-access";
+  steerEnabled?: boolean;
+  customPrompts?: CustomPromptOption[];
+  onMessageActivity?: () => void;
+  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
+  useNormalizedRealtimeAdapters?: boolean;
+  useUnifiedHistoryLoader?: boolean;
+  resolveOpenCodeAgent?: (threadId: string | null) => string | null;
+  resolveOpenCodeVariant?: (threadId: string | null) => string | null;
+  resolveCollaborationUiMode?: (
+    threadId: string,
+  ) => "plan" | "code" | null;
+  resolveCollaborationRuntimeMode?: (
+    threadId: string,
+  ) => "plan" | "code" | null;
+  onCollaborationModeResolved?: (payload: {
+    workspaceId: string;
+    threadId: string;
+    selectedUiMode: "plan" | "default";
+    effectiveRuntimeMode: "plan" | "code";
+    effectiveUiMode: "plan" | "default";
+    fallbackReason: string | null;
+  }) => void;
+};
+
+type PendingResolutionInput = {
+  workspaceId: string;
+  engine: "claude" | "opencode";
+  threadsByWorkspace: Record<string, Array<{ id: string }>>;
+  activeThreadIdByWorkspace: Record<string, string | null>;
+  threadStatusById: Record<string, { isProcessing?: boolean } | undefined>;
+  activeTurnIdByThread: Record<string, string | null | undefined>;
+  itemsByThread: Record<string, unknown[] | undefined>;
+};
+
+export type ThreadDeleteErrorCode =
+  | "WORKSPACE_NOT_CONNECTED"
+  | "SESSION_NOT_FOUND"
+  | "PERMISSION_DENIED"
+  | "IO_ERROR"
+  | "ENGINE_UNSUPPORTED"
+  | "UNKNOWN";
+
+export type ThreadDeleteResult = {
+  threadId: string;
+  success: boolean;
+  code: ThreadDeleteErrorCode | null;
+  message: string | null;
+};
+
+export function resolvePendingThreadIdForSession({
+  workspaceId,
+  engine,
+  threadsByWorkspace,
+  activeThreadIdByWorkspace,
+  threadStatusById,
+  activeTurnIdByThread,
+  itemsByThread,
+}: PendingResolutionInput): string | null {
+  const prefix = `${engine}-pending-`;
+  const threads = threadsByWorkspace[workspaceId] ?? [];
+  const pendingThreads = threads.filter((thread) => thread.id.startsWith(prefix));
+  if (pendingThreads.length === 0) {
+    return null;
+  }
+
+  const activePendingId = activeThreadIdByWorkspace[workspaceId] ?? null;
+  const pickActivePending = (candidates: Array<{ id: string }>): string | null => {
+    if (!activePendingId || !activePendingId.startsWith(prefix)) {
+      return null;
+    }
+    return candidates.some((candidate) => candidate.id === activePendingId)
+      ? activePendingId
+      : null;
+  };
+  const hasObservedItems = (threadId: string) => (itemsByThread[threadId]?.length ?? 0) > 0;
+  const hasPendingAnchor = (threadId: string) => {
+    const hasActiveTurn = (activeTurnIdByThread[threadId] ?? null) !== null;
+    if (hasActiveTurn) {
+      return true;
+    }
+    const isProcessing = Boolean(threadStatusById[threadId]?.isProcessing);
+    return isProcessing && hasObservedItems(threadId);
+  };
+
+  // Boundary guard: pending->session reconciliation requires a concrete anchor
+  // (active turn or observed items). Processing state alone is not sufficient,
+  // otherwise old in-flight streams can be rebound into unrelated new sessions.
+  const activePending = pickActivePending(pendingThreads);
+  if (activePending && hasPendingAnchor(activePending)) {
+    return activePending;
+  }
+
+  const turnBoundPending = pendingThreads.filter(
+    (thread) => (activeTurnIdByThread[thread.id] ?? null) !== null,
+  );
+  if (turnBoundPending.length === 1) {
+    return turnBoundPending[0].id;
+  }
+  if (turnBoundPending.length > 1) {
+    return pickActivePending(turnBoundPending);
+  }
+
+  const contentBoundPending = pendingThreads.filter(
+    (thread) =>
+      Boolean(threadStatusById[thread.id]?.isProcessing)
+      && hasObservedItems(thread.id),
+  );
+  if (contentBoundPending.length === 1) {
+    return contentBoundPending[0].id;
+  }
+  if (contentBoundPending.length > 1) {
+    return pickActivePending(contentBoundPending);
+  }
+
+  if (pendingThreads.length === 1) {
+    const onlyPendingId = pendingThreads[0].id;
+    return hasPendingAnchor(onlyPendingId) ? onlyPendingId : null;
+  }
+
+  return null;
+}
+
+export function useThreads({
+  activeWorkspace,
+  onWorkspaceConnected,
+  onDebug,
+  model,
+  effort,
+  collaborationMode,
+  accessMode,
+  steerEnabled = false,
+  customPrompts = [],
+  onMessageActivity,
+  activeEngine = "claude",
+  useNormalizedRealtimeAdapters = false,
+  useUnifiedHistoryLoader = false,
+  resolveOpenCodeAgent,
+  resolveOpenCodeVariant,
+  resolveCollaborationUiMode,
+  resolveCollaborationRuntimeMode,
+  onCollaborationModeResolved,
+}: UseThreadsOptions) {
+  const [state, dispatch] = useReducer(threadReducer, initialState);
+  const loadedThreadsRef = useRef<Record<string, boolean>>({});
+  const replaceOnResumeRef = useRef<Record<string, boolean>>({});
+  const pendingInterruptsRef = useRef<Set<string>>(new Set());
+  const interruptedThreadsRef = useRef<Set<string>>(new Set());
+  const pendingMemoryCaptureRef = useRef<Record<string, PendingMemoryCapture>>({});
+  const pendingAssistantCompletionRef = useRef<Record<string, PendingAssistantCompletion>>({});
+  const threadIdAliasRef = useRef<Record<string, string>>({});
+  const recentThreadErrorsRef = useRef<Record<string, { message: string; at: number }>>({});
+  const { approvalAllowlistRef, handleApprovalDecision, handleApprovalRemember } =
+    useThreadApprovals({ dispatch, onDebug });
+  const { handleUserInputSubmit } = useThreadUserInput({ dispatch });
+  const {
+    customNamesRef,
+    threadActivityRef,
+    pinnedThreadsVersion,
+    getCustomName,
+    recordThreadActivity,
+    pinThread,
+    unpinThread,
+    isThreadPinned,
+    getPinTimestamp,
+    markAutoTitlePending,
+    clearAutoTitlePending,
+    isAutoTitlePending,
+    getAutoTitlePendingStartedAt,
+    renameAutoTitlePendingKey,
+    autoTitlePendingVersion: _autoTitlePendingVersion,
+  } = useThreadStorage();
+
+  const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const { activeThreadId, activeItems } = useThreadSelectors({
+    activeWorkspaceId,
+    activeThreadIdByWorkspace: state.activeThreadIdByWorkspace,
+    itemsByThread: state.itemsByThread,
+  });
+
+  const { refreshAccountRateLimits } = useThreadRateLimits({
+    activeWorkspaceId,
+    activeWorkspaceConnected: activeWorkspace?.connected,
+    dispatch,
+    onDebug,
+  });
+  const { refreshAccountInfo } = useThreadAccountInfo({
+    activeWorkspaceId,
+    activeWorkspaceConnected: activeWorkspace?.connected,
+    dispatch,
+    onDebug,
+  });
+
+  const { markProcessing, markReviewing, setActiveTurnId } = useThreadStatus({
+    dispatch,
+  });
+
+  const pushThreadErrorMessage = useCallback(
+    (threadId: string, message: string) => {
+      const normalized = message.trim();
+      if (normalized) {
+        const now = Date.now();
+        const recent = recentThreadErrorsRef.current[threadId];
+        if (
+          recent
+          && recent.message === normalized
+          && now - recent.at < THREAD_ERROR_DUPLICATE_WINDOW_MS
+        ) {
+          return;
+        }
+        recentThreadErrorsRef.current[threadId] = { message: normalized, at: now };
+      }
+      dispatch({
+        type: "addAssistantMessage",
+        threadId,
+        text: message,
+      });
+      if (threadId !== activeThreadId) {
+        dispatch({ type: "markUnread", threadId, hasUnread: true });
+      }
+    },
+    [activeThreadId, dispatch],
+  );
+
+  const safeMessageActivity = useCallback(() => {
+    try {
+      void onMessageActivity?.();
+    } catch {
+      // Ignore refresh errors to avoid breaking the UI.
+    }
+  }, [onMessageActivity]);
+  const { applyCollabThreadLinks, applyCollabThreadLinksFromThread, updateThreadParent } =
+    useThreadLinking({
+      dispatch,
+      threadParentById: state.threadParentById,
+    });
+
+  const handleWorkspaceConnected = useCallback(
+    (workspaceId: string) => {
+      onWorkspaceConnected(workspaceId);
+      void refreshAccountRateLimits(workspaceId);
+      void refreshAccountInfo(workspaceId);
+    },
+    [onWorkspaceConnected, refreshAccountRateLimits, refreshAccountInfo],
+  );
+
+  const isThreadHidden = useCallback(
+    (workspaceId: string, threadId: string) =>
+      Boolean(state.hiddenThreadIdsByWorkspace[workspaceId]?.[threadId]),
+    [state.hiddenThreadIdsByWorkspace],
+  );
+
+  const getThreadEngine = useCallback(
+    (workspaceId: string, threadId: string): "claude" | "codex" | "opencode" | undefined => {
+      const threads = state.threadsByWorkspace[workspaceId] ?? [];
+      const thread = threads.find((t) => t.id === threadId);
+      return thread?.engineSource;
+    },
+    [state.threadsByWorkspace],
+  );
+
+  const resolvePendingThreadForSession = useCallback(
+    (
+      workspaceId: string,
+      engine: "claude" | "opencode",
+    ): string | null => {
+      const resolved = resolvePendingThreadIdForSession({
+        workspaceId,
+        engine,
+        threadsByWorkspace: state.threadsByWorkspace,
+        activeThreadIdByWorkspace: state.activeThreadIdByWorkspace,
+        threadStatusById: state.threadStatusById,
+        activeTurnIdByThread: state.activeTurnIdByThread,
+        itemsByThread: state.itemsByThread,
+      });
+      const pendingPrefix = `${engine}-pending-`;
+      const pendingCandidates = (state.threadsByWorkspace[workspaceId] ?? [])
+        .map((thread) => thread.id)
+        .filter((threadId) => threadId.startsWith(pendingPrefix));
+      onDebug?.({
+        id: `${Date.now()}-thread-session-resolve`,
+        timestamp: Date.now(),
+        source: "client",
+        label: "thread/session:resolve-pending",
+        payload: {
+          workspaceId,
+          engine,
+          activeThreadId: state.activeThreadIdByWorkspace[workspaceId] ?? null,
+          pendingCandidates,
+          resolved,
+          anchors: pendingCandidates.map((threadId) => ({
+            threadId,
+            hasTurn: (state.activeTurnIdByThread[threadId] ?? null) !== null,
+            itemCount: state.itemsByThread[threadId]?.length ?? 0,
+            isProcessing: Boolean(state.threadStatusById[threadId]?.isProcessing),
+          })),
+        },
+      });
+      return resolved;
+    },
+    [
+      onDebug,
+      state.activeThreadIdByWorkspace,
+      state.activeTurnIdByThread,
+      state.itemsByThread,
+      state.threadStatusById,
+      state.threadsByWorkspace,
+    ],
+  );
+
+  const renameCustomNameKey = useCallback(
+    (workspaceId: string, oldThreadId: string, newThreadId: string) => {
+      const fromKey = makeCustomNameKey(workspaceId, oldThreadId);
+      const value = customNamesRef.current[fromKey];
+      if (!value) {
+        return;
+      }
+      const toKey = makeCustomNameKey(workspaceId, newThreadId);
+      const next = { ...customNamesRef.current };
+      delete next[fromKey];
+      next[toKey] = value;
+      customNamesRef.current = next;
+      writeClientStoreValue("threads", "customNames", next);
+    },
+    [customNamesRef],
+  );
+
+  const resolveCanonicalThreadId = useCallback((threadId: string): string => {
+    const aliases = threadIdAliasRef.current;
+    let current = threadId;
+    const visited = new Set<string>();
+    while (aliases[current] && !visited.has(current)) {
+      visited.add(current);
+      current = aliases[current];
+    }
+    return current;
+  }, []);
+
+  const rememberThreadAlias = useCallback(
+    (oldThreadId: string, newThreadId: string) => {
+      const canonicalNewThreadId = resolveCanonicalThreadId(newThreadId);
+      threadIdAliasRef.current[oldThreadId] = canonicalNewThreadId;
+      if (canonicalNewThreadId !== newThreadId) {
+        threadIdAliasRef.current[newThreadId] = canonicalNewThreadId;
+      }
+    },
+    [resolveCanonicalThreadId],
+  );
+
+  const collectRelatedThreadIds = useCallback(
+    (threadId: string): string[] => {
+      const canonicalThreadId = resolveCanonicalThreadId(threadId);
+      const related = new Set<string>([threadId, canonicalThreadId]);
+      Object.entries(threadIdAliasRef.current).forEach(([sourceThreadId, targetThreadId]) => {
+        if (resolveCanonicalThreadId(sourceThreadId) !== canonicalThreadId) {
+          return;
+        }
+        related.add(sourceThreadId);
+        related.add(targetThreadId);
+      });
+      return Array.from(related);
+    },
+    [resolveCanonicalThreadId],
+  );
+
+  const renamePendingMemoryCaptureKey = useCallback(
+    (oldThreadId: string, newThreadId: string) => {
+      rememberThreadAlias(oldThreadId, newThreadId);
+      const oldCanonicalThreadId = resolveCanonicalThreadId(oldThreadId);
+      const newCanonicalThreadId = resolveCanonicalThreadId(newThreadId);
+      const pending =
+        pendingMemoryCaptureRef.current[oldThreadId] ??
+        pendingMemoryCaptureRef.current[oldCanonicalThreadId];
+      if (pending) {
+        memoryDebugLog("rename pending capture key", {
+          oldThreadId,
+          newThreadId,
+          memoryId: pending.memoryId,
+        });
+        delete pendingMemoryCaptureRef.current[oldThreadId];
+        delete pendingMemoryCaptureRef.current[oldCanonicalThreadId];
+        pendingMemoryCaptureRef.current[newCanonicalThreadId] = {
+          ...pending,
+          threadId: newCanonicalThreadId,
+        };
+      }
+      const completed =
+        pendingAssistantCompletionRef.current[oldThreadId] ??
+        pendingAssistantCompletionRef.current[oldCanonicalThreadId];
+      if (!completed) {
+        return;
+      }
+      memoryDebugLog("rename pending assistant completion key", {
+        oldThreadId,
+        newThreadId,
+        itemId: completed.itemId,
+      });
+      delete pendingAssistantCompletionRef.current[oldThreadId];
+      delete pendingAssistantCompletionRef.current[oldCanonicalThreadId];
+      pendingAssistantCompletionRef.current[newCanonicalThreadId] = {
+        ...completed,
+        threadId: newCanonicalThreadId,
+      };
+    },
+    [rememberThreadAlias, resolveCanonicalThreadId],
+  );
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !activeThreadId) {
+      return;
+    }
+    const currentEngine = getThreadEngine(activeWorkspaceId, activeThreadId);
+    const targetEngine =
+      activeEngine === "claude"
+        ? "claude"
+        : activeEngine === "opencode"
+          ? "opencode"
+          : "codex";
+    if (currentEngine === targetEngine) {
+      return;
+    }
+    const items = state.itemsByThread[activeThreadId] ?? [];
+    if (items.length > 0) {
+      return;
+    }
+    dispatch({
+      type: "setThreadEngine",
+      workspaceId: activeWorkspaceId,
+      threadId: activeThreadId,
+      engine: targetEngine,
+    });
+  }, [
+    activeEngine,
+    activeThreadId,
+    activeWorkspaceId,
+    getThreadEngine,
+    state.itemsByThread,
+  ]);
+
+  const {
+    startThreadForWorkspace,
+    forkThreadForWorkspace,
+    resumeThreadForWorkspace,
+    refreshThread,
+    resetWorkspaceThreads,
+    listThreadsForWorkspace,
+    loadOlderThreadsForWorkspace,
+    deleteThreadForWorkspace,
+    renameThreadTitleMapping,
+  } = useThreadActions({
+    dispatch,
+    itemsByThread: state.itemsByThread,
+    threadsByWorkspace: state.threadsByWorkspace,
+    activeThreadIdByWorkspace: state.activeThreadIdByWorkspace,
+    threadListCursorByWorkspace: state.threadListCursorByWorkspace,
+    threadStatusById: state.threadStatusById,
+    onDebug,
+    getCustomName,
+    threadActivityRef,
+    loadedThreadsRef,
+    replaceOnResumeRef,
+    applyCollabThreadLinksFromThread,
+    onThreadTitleMappingsLoaded: (workspaceId, titles) => {
+      Object.entries(titles).forEach(([threadId, title]) => {
+        if (!threadId.trim() || !title.trim()) {
+          return;
+        }
+        saveCustomName(workspaceId, threadId, title);
+        const key = makeCustomNameKey(workspaceId, threadId);
+        customNamesRef.current[key] = title;
+        dispatch({ type: "setThreadName", workspaceId, threadId, name: title });
+      });
+    },
+    onRenameThreadTitleMapping: (workspaceId, oldThreadId, _newThreadId) => {
+      clearAutoTitlePending(workspaceId, oldThreadId);
+    },
+    useUnifiedHistoryLoader,
+  });
+
+  const startThread = useCallback(async () => {
+    if (!activeWorkspaceId) {
+      return null;
+    }
+    return startThreadForWorkspace(activeWorkspaceId, { engine: activeEngine });
+  }, [activeWorkspaceId, activeEngine, startThreadForWorkspace]);
+
+  const ensureThreadForActiveWorkspace = useCallback(async () => {
+    if (!activeWorkspace) {
+      return null;
+    }
+    let threadId = activeThreadId;
+    if (!threadId) {
+      threadId = await startThreadForWorkspace(activeWorkspace.id, { engine: activeEngine });
+      if (!threadId) {
+        return null;
+      }
+    } else if (!loadedThreadsRef.current[threadId]) {
+      await resumeThreadForWorkspace(activeWorkspace.id, threadId);
+    }
+    return threadId;
+  }, [activeWorkspace, activeThreadId, activeEngine, resumeThreadForWorkspace, startThreadForWorkspace]);
+
+  const ensureThreadForWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const currentActiveThreadId = state.activeThreadIdByWorkspace[workspaceId] ?? null;
+      const shouldActivate = workspaceId === activeWorkspaceId;
+      let threadId = currentActiveThreadId;
+      if (!threadId) {
+        threadId = await startThreadForWorkspace(workspaceId, {
+          activate: shouldActivate,
+          engine: activeEngine,
+        });
+        if (!threadId) {
+          return null;
+        }
+      } else if (!loadedThreadsRef.current[threadId]) {
+        await resumeThreadForWorkspace(workspaceId, threadId);
+      }
+      if (shouldActivate && currentActiveThreadId !== threadId) {
+        dispatch({ type: "setActiveThreadId", workspaceId, threadId });
+      }
+      return threadId;
+    },
+    [
+      activeWorkspaceId,
+      activeEngine,
+      dispatch,
+      loadedThreadsRef,
+      resumeThreadForWorkspace,
+      startThreadForWorkspace,
+      state.activeThreadIdByWorkspace,
+    ],
+  );
+
+  const autoNameThread = useCallback(
+    async (
+      workspaceId: string,
+      threadId: string,
+      sourceText: string,
+      options?: { force?: boolean; clearPendingOnSkip?: boolean },
+    ): Promise<string | null> => {
+      const key = makeCustomNameKey(workspaceId, threadId);
+      const hasCustomName = Boolean(customNamesRef.current[key]);
+      if (hasCustomName && !options?.force) {
+        onDebug?.({
+          id: `${Date.now()}-thread-title-skip-custom`,
+          timestamp: Date.now(),
+          source: "client",
+          label: "thread/title skipped",
+          payload: { workspaceId, threadId, reason: "has-custom-name" },
+        });
+        if (options?.clearPendingOnSkip) {
+          clearAutoTitlePending(workspaceId, threadId);
+        }
+        return null;
+      }
+
+      const message = sourceText.trim();
+      if (!message) {
+        onDebug?.({
+          id: `${Date.now()}-thread-title-skip-empty`,
+          timestamp: Date.now(),
+          source: "client",
+          label: "thread/title skipped",
+          payload: { workspaceId, threadId, reason: "empty-source-text" },
+        });
+        if (options?.clearPendingOnSkip) {
+          clearAutoTitlePending(workspaceId, threadId);
+        }
+        return null;
+      }
+
+      const pendingStartedAt = getAutoTitlePendingStartedAt(workspaceId, threadId);
+      if (pendingStartedAt) {
+        const pendingAgeMs = Date.now() - pendingStartedAt;
+        if (pendingAgeMs >= AUTO_TITLE_PENDING_STALE_MS) {
+          onDebug?.({
+            id: `${Date.now()}-thread-title-pending-timeout-reset`,
+            timestamp: Date.now(),
+            source: "client",
+            label: "thread/title pending reset",
+            payload: {
+              workspaceId,
+              threadId,
+              pendingStartedAt,
+              pendingAgeMs,
+              reason: "timeout",
+            },
+          });
+          clearAutoTitlePending(workspaceId, threadId);
+        } else {
+          onDebug?.({
+            id: `${Date.now()}-thread-title-skip-pending`,
+            timestamp: Date.now(),
+            source: "client",
+            label: "thread/title skipped",
+            payload: {
+              workspaceId,
+              threadId,
+              reason: "already-pending",
+              pendingStartedAt,
+              pendingAgeMs,
+            },
+          });
+          return null;
+        }
+      }
+
+      if (isAutoTitlePending(workspaceId, threadId)) {
+        onDebug?.({
+          id: `${Date.now()}-thread-title-skip-pending-after-reset`,
+          timestamp: Date.now(),
+          source: "client",
+          label: "thread/title skipped",
+          payload: { workspaceId, threadId, reason: "already-pending-after-reset" },
+        });
+        return null;
+      }
+
+      markAutoTitlePending(workspaceId, threadId);
+      const markAt = getAutoTitlePendingStartedAt(workspaceId, threadId);
+      onDebug?.({
+        id: `${Date.now()}-thread-title-generate-start`,
+        timestamp: Date.now(),
+        source: "client",
+        label: "thread/title generate",
+        payload: {
+          workspaceId,
+          threadId,
+          force: Boolean(options?.force),
+          pendingStartedAt: markAt,
+        },
+      });
+
+      try {
+        const applyGeneratedTitle = (title: string, source: "generated" | "recovered") => {
+          saveCustomName(workspaceId, threadId, title);
+          const nextKey = makeCustomNameKey(workspaceId, threadId);
+          customNamesRef.current[nextKey] = title;
+          dispatch({ type: "setThreadName", workspaceId, threadId, name: title });
+          onDebug?.({
+            id: `${Date.now()}-thread-title-${source}-success`,
+            timestamp: Date.now(),
+            source: "server",
+            label: source === "generated" ? "thread/title generated" : "thread/title recovered",
+            payload: { workspaceId, threadId, title, source },
+          });
+          return title;
+        };
+
+        const generateWithTimeout = async (
+          preferredLanguage: "zh" | "en",
+        ): Promise<string> =>
+          await new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+              reject(new Error("auto-title-timeout"));
+            }, AUTO_TITLE_REQUEST_TIMEOUT_MS);
+
+            void generateThreadTitle(
+              workspaceId,
+              threadId,
+              message,
+              preferredLanguage,
+            ).then(
+              (value) => {
+                clearTimeout(timeoutId);
+                resolve(value);
+              },
+              (error) => {
+                clearTimeout(timeoutId);
+                reject(error);
+              },
+            );
+          });
+
+        const language = i18n.language.toLowerCase().startsWith("zh")
+          ? "zh"
+          : "en";
+        for (let attempt = 1; attempt <= AUTO_TITLE_MAX_ATTEMPTS; attempt += 1) {
+          const attemptStartedAt = Date.now();
+          try {
+            onDebug?.({
+              id: `${Date.now()}-thread-title-attempt-start`,
+              timestamp: Date.now(),
+              source: "client",
+              label: "thread/title attempt",
+              payload: {
+                workspaceId,
+                threadId,
+                attempt,
+                maxAttempts: AUTO_TITLE_MAX_ATTEMPTS,
+                timeoutMs: AUTO_TITLE_REQUEST_TIMEOUT_MS,
+                language,
+              },
+            });
+
+            const generated = await generateWithTimeout(language);
+            const title = generated.trim();
+            if (!title) {
+              throw new Error("empty-generated-title");
+            }
+            return applyGeneratedTitle(title, "generated");
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isTimeout = errorMessage.includes("auto-title-timeout");
+            const elapsedMs = Date.now() - attemptStartedAt;
+
+            onDebug?.({
+              id: `${Date.now()}-thread-title-attempt-failed`,
+              timestamp: Date.now(),
+              source: isTimeout ? "client" : "error",
+              label: "thread/title attempt failed",
+              payload: {
+                workspaceId,
+                threadId,
+                attempt,
+                maxAttempts: AUTO_TITLE_MAX_ATTEMPTS,
+                isTimeout,
+                elapsedMs,
+                error: errorMessage,
+              },
+            });
+
+            if (isTimeout) {
+              await new Promise((resolve) => setTimeout(resolve, 1200));
+            }
+
+            try {
+              const mappedTitles = await listThreadTitles(workspaceId);
+              const recovered = mappedTitles[threadId]?.trim();
+              if (recovered) {
+                return applyGeneratedTitle(recovered, "recovered");
+              }
+            } catch (recoveryError) {
+              onDebug?.({
+                id: `${Date.now()}-thread-title-recovery-check-error`,
+                timestamp: Date.now(),
+                source: "error",
+                label: "thread/title recovery error",
+                payload:
+                  recoveryError instanceof Error
+                    ? recoveryError.message
+                    : String(recoveryError),
+              });
+            }
+
+            if (attempt < AUTO_TITLE_MAX_ATTEMPTS) {
+              onDebug?.({
+                id: `${Date.now()}-thread-title-retry`,
+                timestamp: Date.now(),
+                source: "client",
+                label: "thread/title retry",
+                payload: {
+                  workspaceId,
+                  threadId,
+                  nextAttempt: attempt + 1,
+                  maxAttempts: AUTO_TITLE_MAX_ATTEMPTS,
+                },
+              });
+              continue;
+            }
+
+            onDebug?.({
+              id: `${Date.now()}-thread-title-generate-error`,
+              timestamp: Date.now(),
+              source: "error",
+              label: "thread/title generate error",
+              payload: {
+                workspaceId,
+                threadId,
+                attempt,
+                maxAttempts: AUTO_TITLE_MAX_ATTEMPTS,
+                error: errorMessage,
+              },
+            });
+            return null;
+          }
+        }
+
+        return null;
+      } catch (error) {
+        onDebug?.({
+          id: `${Date.now()}-thread-title-generate-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "thread/title generate error",
+          payload: {
+            workspaceId,
+            threadId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+        return null;
+      } finally {
+        clearAutoTitlePending(workspaceId, threadId);
+      }
+    },
+    [
+      clearAutoTitlePending,
+      customNamesRef,
+      dispatch,
+      getAutoTitlePendingStartedAt,
+      isAutoTitlePending,
+      markAutoTitlePending,
+      onDebug,
+    ],
+  );
+
+  const mergeMemoryFromPendingCapture = useCallback(
+    (
+      pending: Omit<PendingMemoryCapture, "createdAt">,
+      payload: { threadId: string; itemId: string; text: string },
+    ) => {
+      const normalizedAssistantOutput = normalizeAssistantOutputForMemory(
+        payload.text,
+      ).slice(0, MAX_ASSISTANT_DETAIL_LENGTH);
+      const digest = buildAssistantOutputDigest(normalizedAssistantOutput);
+      if (!digest) {
+        memoryDebugLog("assistant completed but digest is empty", {
+          threadId: payload.threadId,
+          itemId: payload.itemId,
+        });
+        return;
+      }
+
+      const normalizedSummary =
+        normalizeDigestSummaryForMemory(digest.summary) || digest.summary;
+      const assistantOutputWithoutSummary = extractNovelAssistantOutput(
+        normalizedSummary,
+        normalizedAssistantOutput,
+      );
+      const mergedDetailLines = [
+        `用户输入：${pending.inputText}`,
+        `助手输出摘要：${normalizedSummary}`,
+      ];
+      if (assistantOutputWithoutSummary) {
+        mergedDetailLines.push(`助手输出：${assistantOutputWithoutSummary}`);
+      }
+      const mergedDetail = mergedDetailLines.join("\n");
+      const classifiedKind = classifyMemoryKind(mergedDetail);
+      const mergedKind = classifiedKind === "note" ? "conversation" : classifiedKind;
+      const mergedImportance = classifyMemoryImportance(mergedDetail);
+
+      const mergeWrite = async () => {
+        if (pending.memoryId) {
+          try {
+            await projectMemoryUpdate(pending.memoryId, pending.workspaceId, {
+              kind: mergedKind,
+              title: digest.title,
+              summary: normalizedSummary,
+              detail: mergedDetail,
+              importance: mergedImportance,
+            });
+            memoryDebugLog("merge write updated existing memory", {
+              threadId: payload.threadId,
+              memoryId: pending.memoryId,
+            });
+            return;
+          } catch (updateErr) {
+            if (import.meta.env.DEV) {
+              console.warn(
+                "[project-memory] merge update failed, falling back to create:",
+                { threadId: payload.threadId, memoryId: pending.memoryId, error: updateErr },
+              );
+            }
+            memoryDebugLog("merge update failed", {
+              threadId: payload.threadId,
+              memoryId: pending.memoryId,
+              error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+            });
+          }
+        }
+
+        try {
+          await projectMemoryCreate({
+            workspaceId: pending.workspaceId,
+            kind: mergedKind,
+            title: digest.title,
+            summary: normalizedSummary,
+            detail: mergedDetail,
+            importance: mergedImportance,
+            threadId: payload.threadId,
+            messageId: payload.itemId,
+            source: "assistant_output_digest",
+            workspaceName: pending.workspaceName,
+            workspacePath: pending.workspacePath,
+            engine: pending.engine,
+          });
+          memoryDebugLog("merge write created new memory", {
+            threadId: payload.threadId,
+            itemId: payload.itemId,
+          });
+        } catch (createErr) {
+          if (import.meta.env.DEV) {
+            console.warn("[project-memory] merge create also failed:", {
+              threadId: payload.threadId,
+              error: createErr,
+            });
+          }
+          memoryDebugLog("merge create failed", {
+            threadId: payload.threadId,
+            error: createErr instanceof Error ? createErr.message : String(createErr),
+          });
+        }
+      };
+
+      void mergeWrite();
+    },
+    [],
+  );
+
+  /** 输入侧采集成功后，将 pending 数据存入 ref（仅保留该 thread 最新一条） */
+  const handleInputMemoryCaptured = useCallback(
+    (payload: {
+      workspaceId: string;
+      threadId: string;
+      turnId: string;
+      inputText: string;
+      memoryId: string | null;
+      workspaceName: string | null;
+      workspacePath: string | null;
+      engine: string | null;
+    }) => {
+      const canonicalThreadId = resolveCanonicalThreadId(payload.threadId);
+      const normalizedPayload = {
+        ...payload,
+        threadId: canonicalThreadId,
+      };
+      pendingMemoryCaptureRef.current[canonicalThreadId] = {
+        ...normalizedPayload,
+        createdAt: Date.now(),
+      };
+      if (canonicalThreadId !== payload.threadId) {
+        delete pendingMemoryCaptureRef.current[payload.threadId];
+      }
+      const completedThreadIds = collectRelatedThreadIds(canonicalThreadId);
+      const completedEntry = completedThreadIds
+        .map((threadId) => ({
+          threadId,
+          completion: pendingAssistantCompletionRef.current[threadId],
+        }))
+        .find((entry) => Boolean(entry.completion));
+      const nowMs = Date.now();
+      if (
+        completedEntry?.completion &&
+        shouldMergeOnInputCapture(
+          completedEntry.completion.createdAt,
+          nowMs,
+          PENDING_MEMORY_STALE_MS,
+        )
+      ) {
+        completedThreadIds.forEach((threadId) => {
+          delete pendingAssistantCompletionRef.current[threadId];
+          delete pendingMemoryCaptureRef.current[threadId];
+        });
+        memoryDebugLog("capture resolved after assistant completion, merging now", {
+          threadId: canonicalThreadId,
+          itemId: completedEntry.completion.itemId,
+          memoryId: normalizedPayload.memoryId,
+        });
+        mergeMemoryFromPendingCapture(normalizedPayload, {
+          ...completedEntry.completion,
+          threadId: canonicalThreadId,
+        });
+        return;
+      }
+      if (completedEntry) {
+        delete pendingAssistantCompletionRef.current[completedEntry.threadId];
+      }
+      memoryDebugLog("input captured", {
+        threadId: canonicalThreadId,
+        turnId: payload.turnId,
+        memoryId: payload.memoryId,
+      });
+    },
+    [collectRelatedThreadIds, mergeMemoryFromPendingCapture, resolveCanonicalThreadId],
+  );
+
+  /**
+   * 回合融合写入 —— assistant 输出完成后，与 pending 输入采集合并写入。
+   * 优先 update（若输入侧已产生 memoryId），失败则回退 create。
+   */
+  const handleAgentMessageCompletedForMemory = useCallback(
+    (payload: {
+      workspaceId: string;
+      threadId: string;
+      itemId: string;
+      text: string;
+    }) => {
+      const canonicalThreadId = resolveCanonicalThreadId(payload.threadId);
+      const relatedThreadIds = collectRelatedThreadIds(canonicalThreadId);
+      const pendingEntry = relatedThreadIds
+        .map((threadId) => ({
+          threadId,
+          capture: pendingMemoryCaptureRef.current[threadId],
+        }))
+        .find((entry) => Boolean(entry.capture));
+      if (!pendingEntry?.capture) {
+        pendingAssistantCompletionRef.current[canonicalThreadId] = {
+          ...payload,
+          threadId: canonicalThreadId,
+          createdAt: Date.now(),
+        };
+        if (canonicalThreadId !== payload.threadId) {
+          delete pendingAssistantCompletionRef.current[payload.threadId];
+        }
+        memoryDebugLog("assistant completed but no pending capture", {
+          threadId: canonicalThreadId,
+          itemId: payload.itemId,
+        });
+        return;
+      }
+      if (
+        !shouldMergeOnAssistantCompleted(
+          pendingEntry.capture.createdAt,
+          Date.now(),
+          PENDING_MEMORY_STALE_MS,
+        )
+      ) {
+        delete pendingMemoryCaptureRef.current[pendingEntry.threadId];
+        memoryDebugLog("pending capture is stale, skip merge", {
+          threadId: pendingEntry.threadId,
+          itemId: payload.itemId,
+        });
+        return;
+      }
+      // 清理 pending，防止重复写入
+      relatedThreadIds.forEach((threadId) => {
+        delete pendingMemoryCaptureRef.current[threadId];
+        delete pendingAssistantCompletionRef.current[threadId];
+      });
+      mergeMemoryFromPendingCapture(pendingEntry.capture, {
+        ...payload,
+        threadId: canonicalThreadId,
+      });
+    },
+    [collectRelatedThreadIds, mergeMemoryFromPendingCapture, resolveCanonicalThreadId],
+  );
+
+  const {
+    interruptTurn,
+    sendUserMessage,
+    sendUserMessageToThread,
+    startFork,
+    startReview,
+    startResume,
+    startMcp,
+    startSpecRoot,
+    startStatus,
+    startFast,
+    startMode,
+    startExport,
+    startImport,
+    startLsp,
+    startShare,
+    reviewPrompt,
+    openReviewPrompt,
+    closeReviewPrompt,
+    showPresetStep,
+    choosePreset,
+    highlightedPresetIndex,
+    setHighlightedPresetIndex,
+    highlightedBranchIndex,
+    setHighlightedBranchIndex,
+    highlightedCommitIndex,
+    setHighlightedCommitIndex,
+    handleReviewPromptKeyDown,
+    confirmBranch,
+    selectBranch,
+    selectBranchAtIndex,
+    selectCommit,
+    selectCommitAtIndex,
+    confirmCommit,
+    updateCustomInstructions,
+    confirmCustom,
+  } = useThreadMessaging({
+    activeWorkspace,
+    activeThreadId,
+    accessMode,
+    model,
+    effort,
+    collaborationMode,
+    steerEnabled,
+    customPrompts,
+    activeEngine,
+    threadStatusById: state.threadStatusById,
+    itemsByThread: state.itemsByThread,
+    activeTurnIdByThread: state.activeTurnIdByThread,
+    rateLimitsByWorkspace: state.rateLimitsByWorkspace,
+    pendingInterruptsRef,
+    interruptedThreadsRef,
+    dispatch,
+    getCustomName,
+    getThreadEngine,
+    markProcessing,
+    markReviewing,
+    setActiveTurnId,
+    recordThreadActivity,
+    safeMessageActivity,
+    onDebug,
+    pushThreadErrorMessage,
+    ensureThreadForActiveWorkspace,
+    ensureThreadForWorkspace,
+    refreshThread,
+    forkThreadForWorkspace,
+    updateThreadParent,
+    startThreadForWorkspace,
+    resolveOpenCodeAgent,
+    resolveOpenCodeVariant,
+    onInputMemoryCaptured: handleInputMemoryCaptured,
+    resolveCollaborationRuntimeMode,
+  });
+
+  const setActiveThreadId = useCallback(
+    (threadId: string | null, workspaceId?: string) => {
+      const targetId = workspaceId ?? activeWorkspaceId;
+      if (!targetId) {
+        return;
+      }
+      dispatch({ type: "setActiveThreadId", workspaceId: targetId, threadId });
+      if (threadId) {
+        void resumeThreadForWorkspace(targetId, threadId);
+      }
+    },
+    [activeWorkspaceId, resumeThreadForWorkspace],
+  );
+
+  const removeThread = useCallback(
+    async (workspaceId: string, threadId: string): Promise<ThreadDeleteResult> => {
+      const mapDeleteErrorCode = (errorMessage: string): ThreadDeleteErrorCode => {
+        const normalized = errorMessage.toLowerCase();
+        if (normalized.includes("[engine_unsupported]")) {
+          return "ENGINE_UNSUPPORTED";
+        }
+        if (
+          normalized.includes("[workspace_not_connected]") ||
+          normalized.includes("workspace not connected") ||
+          normalized.includes("workspace not found")
+        ) {
+          return "WORKSPACE_NOT_CONNECTED";
+        }
+        if (
+          normalized.includes("[session_not_found]") ||
+          normalized.includes("session file not found") ||
+          normalized.includes("not found") ||
+          normalized.includes("thread not found")
+        ) {
+          return "SESSION_NOT_FOUND";
+        }
+        if (normalized.includes("[io_error]")) {
+          return "IO_ERROR";
+        }
+        if (normalized.includes("permission denied")) {
+          return "PERMISSION_DENIED";
+        }
+        if (normalized.includes("io") || normalized.includes("failed to delete session file")) {
+          return "IO_ERROR";
+        }
+        if (normalized.includes("unsupported")) {
+          return "ENGINE_UNSUPPORTED";
+        }
+        return "UNKNOWN";
+      };
+
+      try {
+        await deleteThreadForWorkspace(workspaceId, threadId);
+        unpinThread(workspaceId, threadId);
+        dispatch({ type: "removeThread", workspaceId, threadId });
+        return {
+          threadId,
+          success: true,
+          code: null,
+          message: null,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          threadId,
+          success: false,
+          code: mapDeleteErrorCode(message),
+          message,
+        };
+      }
+    },
+    [deleteThreadForWorkspace, unpinThread],
+  );
+
+  const renameThread = useCallback(
+    (workspaceId: string, threadId: string, newName: string) => {
+      saveCustomName(workspaceId, threadId, newName);
+      void setThreadTitle(workspaceId, threadId, newName).catch(() => {
+        // Keep local rename even if file persistence fails.
+      });
+      const key = makeCustomNameKey(workspaceId, threadId);
+      customNamesRef.current[key] = newName;
+      dispatch({ type: "setThreadName", workspaceId, threadId, name: newName });
+      clearAutoTitlePending(workspaceId, threadId);
+    },
+    [clearAutoTitlePending, customNamesRef, dispatch],
+  );
+
+  const triggerAutoThreadTitle = useCallback(
+    async (workspaceId: string, threadId: string, options?: { force?: boolean }) => {
+      const items = state.itemsByThread[threadId] ?? [];
+      const userMessage = items.find(
+        (item) => item.kind === "message" && item.role === "user",
+      );
+      let text =
+        userMessage && userMessage.kind === "message" ? userMessage.text : "";
+
+      if (!text.trim() && !threadId.startsWith("claude:")) {
+        try {
+          const response = (await resumeThread(workspaceId, threadId)) as
+            | Record<string, unknown>
+            | null;
+          const result = (response?.result ?? response) as
+            | Record<string, unknown>
+            | null;
+          const thread = (result?.thread ?? response?.thread ?? null) as
+            | Record<string, unknown>
+            | null;
+          if (thread) {
+            const loadedItems = buildItemsFromThread(thread);
+            const loadedFirstUserMessage = loadedItems.find(
+              (item) => item.kind === "message" && item.role === "user",
+            );
+            if (
+              loadedFirstUserMessage &&
+              loadedFirstUserMessage.kind === "message" &&
+              loadedFirstUserMessage.text.trim()
+            ) {
+              text = loadedFirstUserMessage.text;
+              onDebug?.({
+                id: `${Date.now()}-thread-title-manual-source-resume`,
+                timestamp: Date.now(),
+                source: "client",
+                label: "thread/title manual source",
+                payload: { workspaceId, threadId, source: "thread/resume" },
+              });
+            }
+          }
+        } catch (error) {
+          onDebug?.({
+            id: `${Date.now()}-thread-title-manual-source-resume-error`,
+            timestamp: Date.now(),
+            source: "error",
+            label: "thread/title manual source error",
+            payload: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (!text.trim()) {
+        const fallbackName =
+          state.threadsByWorkspace[workspaceId]
+            ?.find((thread) => thread.id === threadId)
+            ?.name?.trim() ?? "";
+        if (fallbackName && !/^agent\s+\d+$/i.test(fallbackName)) {
+          text = fallbackName;
+          onDebug?.({
+            id: `${Date.now()}-thread-title-manual-source-name`,
+            timestamp: Date.now(),
+            source: "client",
+            label: "thread/title manual source",
+            payload: { workspaceId, threadId, source: "thread/name" },
+          });
+        }
+      }
+
+      if (!text.trim()) {
+        onDebug?.({
+          id: `${Date.now()}-thread-title-manual-missing-source`,
+          timestamp: Date.now(),
+          source: "client",
+          label: "thread/title manual skipped",
+          payload: { workspaceId, threadId, reason: "no-user-message-found" },
+        });
+      }
+      const generated = await autoNameThread(workspaceId, threadId, text, {
+        force: options?.force ?? true,
+        clearPendingOnSkip: true,
+      });
+      return generated;
+    },
+    [autoNameThread, onDebug, state.itemsByThread, state.threadsByWorkspace],
+  );
+
+  const isThreadAutoNaming = useCallback(
+    (workspaceId: string, threadId: string) =>
+      isAutoTitlePending(workspaceId, threadId),
+    [isAutoTitlePending],
+  );
+
+  const handlers = useThreadEventHandlers({
+    activeThreadId,
+    dispatch,
+    getCustomName,
+    resolveCollaborationUiMode,
+    isAutoTitlePending,
+    isThreadHidden,
+    markProcessing,
+    markReviewing,
+    setActiveTurnId,
+    safeMessageActivity,
+    recordThreadActivity,
+    pushThreadErrorMessage,
+    onDebug,
+    onWorkspaceConnected: handleWorkspaceConnected,
+    applyCollabThreadLinks,
+    approvalAllowlistRef,
+    pendingInterruptsRef,
+    interruptedThreadsRef,
+    renameCustomNameKey,
+    renameAutoTitlePendingKey,
+    renameThreadTitleMapping,
+    resolvePendingThreadForSession,
+    renamePendingMemoryCaptureKey,
+    onAgentMessageCompletedExternal: handleAgentMessageCompletedForMemory,
+    onCollaborationModeResolved: onCollaborationModeResolved
+      ? (event) => {
+          onCollaborationModeResolved({
+            workspaceId: event.workspace_id,
+            threadId: event.params.thread_id,
+            selectedUiMode: event.params.selected_ui_mode,
+            effectiveRuntimeMode: event.params.effective_runtime_mode,
+            effectiveUiMode: event.params.effective_ui_mode,
+            fallbackReason: event.params.fallback_reason ?? null,
+          });
+        }
+      : undefined,
+  });
+
+  useAppServerEvents(handlers, {
+    useNormalizedRealtimeAdapters,
+  });
+
+  return {
+    activeThreadId,
+    setActiveThreadId,
+    activeItems,
+    threadItemsByThread: state.itemsByThread,
+    approvals: state.approvals,
+    userInputRequests: state.userInputRequests,
+    threadsByWorkspace: state.threadsByWorkspace,
+    threadParentById: state.threadParentById,
+    threadStatusById: state.threadStatusById,
+    threadListLoadingByWorkspace: state.threadListLoadingByWorkspace,
+    threadListPagingByWorkspace: state.threadListPagingByWorkspace,
+    threadListCursorByWorkspace: state.threadListCursorByWorkspace,
+    activeTurnIdByThread: state.activeTurnIdByThread,
+    tokenUsageByThread: state.tokenUsageByThread,
+    rateLimitsByWorkspace: state.rateLimitsByWorkspace,
+    accountByWorkspace: state.accountByWorkspace,
+    planByThread: state.planByThread,
+    lastAgentMessageByThread: state.lastAgentMessageByThread,
+    refreshAccountRateLimits,
+    refreshAccountInfo,
+    interruptTurn,
+    removeThread,
+    pinThread,
+    unpinThread,
+    isThreadPinned,
+    getPinTimestamp,
+    pinnedThreadsVersion,
+    renameThread,
+    autoNameThread,
+    triggerAutoThreadTitle,
+    isThreadAutoNaming,
+    startThread,
+    startThreadForWorkspace,
+    forkThreadForWorkspace,
+    listThreadsForWorkspace,
+    refreshThread,
+    resetWorkspaceThreads,
+    loadOlderThreadsForWorkspace,
+    sendUserMessage,
+    sendUserMessageToThread,
+    startFork,
+    startReview,
+    startResume,
+    startMcp,
+    startSpecRoot,
+    startStatus,
+    startFast,
+    startMode,
+    startExport,
+    startImport,
+    startLsp,
+    startShare,
+    reviewPrompt,
+    openReviewPrompt,
+    closeReviewPrompt,
+    showPresetStep,
+    choosePreset,
+    highlightedPresetIndex,
+    setHighlightedPresetIndex,
+    highlightedBranchIndex,
+    setHighlightedBranchIndex,
+    highlightedCommitIndex,
+    setHighlightedCommitIndex,
+    handleReviewPromptKeyDown,
+    confirmBranch,
+    selectBranch,
+    selectBranchAtIndex,
+    selectCommit,
+    selectCommitAtIndex,
+    confirmCommit,
+    updateCustomInstructions,
+    confirmCustom,
+    handleApprovalDecision,
+    handleApprovalRemember,
+    handleUserInputSubmit,
+  };
+}

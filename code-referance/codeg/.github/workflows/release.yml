@@ -1,0 +1,362 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  RUST_BACKTRACE: short
+  HUSKY: 0
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  create-draft-release:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      release_url: ${{ steps.release.outputs.release_url }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      release_body: ${{ steps.release.outputs.release_body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: meta
+        name: Resolve release channel
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *"-rc"* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check tag commit belongs to default branch
+        shell: bash
+        run: |
+          DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+          git fetch origin "${DEFAULT_BRANCH}"
+
+          TAG_COMMIT=$(git rev-list -n 1 "${GITHUB_REF_NAME}")
+          if git merge-base --is-ancestor "${TAG_COMMIT}" "origin/${DEFAULT_BRANCH}"; then
+            echo "Tag ${GITHUB_REF_NAME} is based on ${DEFAULT_BRANCH}"
+          else
+            echo "Tag ${GITHUB_REF_NAME} is not based on ${DEFAULT_BRANCH}"
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify tag matches app version
+        shell: bash
+        run: |
+          APP_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [[ "v$APP_VERSION" != "${GITHUB_REF_NAME}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match app version v$APP_VERSION"
+            exit 1
+          fi
+
+      - id: release
+        name: Create or reuse draft release
+        uses: actions/github-script@v7
+        env:
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        with:
+          script: |
+            const tag = context.ref.replace("refs/tags/", "");
+            const { owner, repo } = context.repo;
+            const prerelease = process.env.PRERELEASE === "true";
+            const releaseName = `codeg ${tag}`;
+            const { data: tagRef } = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: `tags/${tag}`,
+            });
+
+            let commitSha = tagRef.object.sha;
+            if (tagRef.object.type === "tag") {
+              const { data: annotatedTag } = await github.rest.git.getTag({
+                owner,
+                repo,
+                tag_sha: commitSha,
+              });
+              if (annotatedTag.object.type !== "commit") {
+                core.setFailed(
+                  `Tag ${tag} points to ${annotatedTag.object.type}, not a commit.`,
+                );
+                return;
+              }
+              commitSha = annotatedTag.object.sha;
+            }
+
+            const { data: commit } = await github.rest.repos.getCommit({
+              owner,
+              repo,
+              ref: commitSha,
+            });
+
+            const releaseBody =
+              commit.commit.message?.trim() || "_No commit message._";
+            let release;
+
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag,
+              });
+
+              if (!existing.data.draft) {
+                core.setFailed(
+                  `Release for tag ${tag} already exists and is not a draft.`,
+                );
+                return;
+              }
+
+              release = existing.data;
+              if (
+                release.prerelease !== prerelease ||
+                release.name !== releaseName ||
+                (release.body ?? "").trim() !== releaseBody
+              ) {
+                const updated = await github.rest.repos.updateRelease({
+                  owner,
+                  repo,
+                  release_id: release.id,
+                  name: releaseName,
+                  prerelease,
+                  body: releaseBody,
+                });
+                release = updated.data;
+              }
+              core.info(`Reusing existing draft release #${release.id}`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+
+              const created = await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                name: releaseName,
+                body: releaseBody,
+                draft: true,
+                prerelease,
+              });
+
+              release = created.data;
+              core.info(`Created draft release #${release.id}`);
+            }
+
+            core.setOutput("release_id", String(release.id));
+            core.setOutput("release_url", release.html_url);
+            core.setOutput("release_body", releaseBody);
+
+  build-tauri:
+    needs: create-draft-release
+    name: Build ${{ matrix.name }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "macOS x64"
+            runner: "macos-latest"
+            target: "x86_64-apple-darwin"
+          - name: "macOS arm64"
+            runner: "macos-latest"
+            target: "aarch64-apple-darwin"
+          - name: "Linux x64"
+            runner: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
+          - name: "Linux arm64"
+            runner: "ubuntu-22.04"
+            target: "aarch64-unknown-linux-gnu"
+          - name: "Windows x64"
+            runner: "windows-2022"
+            target: "x86_64-pc-windows-msvc"
+          - name: "Windows arm64"
+            runner: "windows-latest"
+            target: "aarch64-pc-windows-msvc"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install Linux x64 dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install Linux arm64 cross dependencies
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          cat > /tmp/sources.list << 'EOF'
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
+
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+          EOF
+          sudo mv /etc/apt/sources.list /etc/apt/sources.list.default
+          sudo mv /tmp/sources.list /etc/apt/sources.list
+
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libwebkit2gtk-4.1-dev:arm64 \
+            libayatana-appindicator3-dev:arm64 \
+            librsvg2-dev:arm64 \
+            libssl-dev:arm64 \
+            patchelf
+
+      - name: Configure Linux arm64 cross env
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_SYSROOT_DIR=/usr/aarch64-linux-gnu" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR=aarch64-linux-gnu-gcc-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS=-Clinker=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> "$GITHUB_ENV"
+          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc-ar" >> "$GITHUB_ENV"
+
+      - name: Verify Linux arm64 cross toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          which aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc -v
+          rustup target list --installed
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER}"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR=${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR}"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS=${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS}"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload to draft release (Linux arm64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PKG_CONFIG_ALLOW_CROSS: 1
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+          PKG_CONFIG_SYSROOT_DIR: /usr/aarch64-linux-gnu
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR: aarch64-linux-gnu-gcc-ar
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Clinker=aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc-ar
+        with:
+          releaseId: ${{ needs.create-draft-release.outputs.release_id }}
+          tagName: ${{ github.ref_name }}
+          releaseBody: ${{ needs.create-draft-release.outputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ needs.create-draft-release.outputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }} --bundles deb,rpm
+          includeUpdaterJson: false
+          retryAttempts: 2
+
+      - name: Build and upload to draft release (Non-Linux arm64)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.create-draft-release.outputs.release_id }}
+          tagName: ${{ github.ref_name }}
+          releaseBody: ${{ needs.create-draft-release.outputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ needs.create-draft-release.outputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }}
+          includeUpdaterJson: true
+          retryAttempts: 2
+
+  publish-release:
+    needs:
+      - create-draft-release
+      - build-tauri
+    if: ${{ needs.build-tauri.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.create-draft-release.outputs.release_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const releaseId = Number(process.env.RELEASE_ID);
+            const prerelease =
+              "${{ needs.create-draft-release.outputs.prerelease }}" === "true";
+
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: releaseId,
+              draft: false,
+              prerelease,
+            });
+
+            core.info(`Published release #${releaseId}`);

@@ -158,6 +158,8 @@ pub fn run() {
             commands::config::check_agent_availability,
             commands::config::get_claude_settings,
             commands::config::update_claude_settings,
+            commands::config::read_agent_native_configs,
+            commands::config::write_agent_native_config,
             // Tag commands
             commands::tags::get_tags,
             commands::tags::create_tag,

@@ -29,6 +29,7 @@ import { McpConfig } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { mcpServersApi } from '@/lib/api';
 import { McpConfigStrategyGeneral } from '@/lib/mcpStrategies';
+import { isSupportedAgent, AGENT_DISPLAY_NAMES } from '@/constants/agents';
 
 export function McpSettings() {  const { config, profiles } = useUserSystem();
   const [mcpServers, setMcpServers] = useState('{}');
@@ -286,10 +287,11 @@ export function McpSettings() {  const { config, profiles } = useUserSystem();
               <SelectContent>
                 {profiles &&
                   Object.entries(profiles)
+                    .filter(([key]) => isSupportedAgent(key))
                     .sort((a, b) => a[0].localeCompare(b[0]))
                     .map(([profileKey]) => (
                       <SelectItem key={profileKey} value={profileKey}>
-                        {profileKey}
+                        {(AGENT_DISPLAY_NAMES as Record<string, string>)[profileKey] ?? profileKey}
                       </SelectItem>
                     ))}
               </SelectContent>

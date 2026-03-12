@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
+import { isSupportedAgent, AGENT_DISPLAY_NAMES } from '@/constants/agents';
 
 interface AgentSelectorProps {
   profiles: Record<string, Record<string, unknown>> | null;
@@ -27,7 +28,9 @@ export function AgentSelector({
   showLabel = false,
 }: AgentSelectorProps) {
   const agents = profiles
-    ? (Object.keys(profiles).sort() as BaseCodingAgent[])
+    ? (Object.keys(profiles)
+        .filter(isSupportedAgent)
+        .sort() as BaseCodingAgent[])
     : [];
   const selectedAgent = selectedExecutorProfile?.executor;
 
@@ -73,7 +76,7 @@ export function AgentSelector({
                 }}
                 className={selectedAgent === agent ? 'bg-accent' : ''}
               >
-                {agent}
+                {(AGENT_DISPLAY_NAMES as Record<string, string>)[agent] ?? agent}
               </DropdownMenuItem>
             ))
           )}

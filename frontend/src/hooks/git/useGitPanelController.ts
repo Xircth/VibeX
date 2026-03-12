@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-export type GitPanelMode = 'diff' | 'log' | 'branches';
+export type GitPanelMode = 'diff' | 'log' | 'branches' | 'issues' | 'prs';
 export type DiffViewStyle = 'split' | 'unified';
 export type DiffListView = 'flat' | 'tree';
 

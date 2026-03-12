@@ -68,6 +68,7 @@ import {
   Workspace,
   StartReviewRequest,
   OpenPrInfo,
+  GitHubIssueInfo,
   GitRemote,
   CreateWorkspaceFromPrBody,
   CreateWorkspaceFromPrResponse,
@@ -930,6 +931,18 @@ export const repoApi = {
   ): Promise<Result<OpenPrInfo[], string>> => {
     return invokeAsResult<OpenPrInfo[], string>('list_open_prs', {
       repoId,
+      remote: remoteName ?? null,
+    });
+  },
+
+  listRepoIssues: async (
+    repoId: string,
+    issueState?: string,
+    remoteName?: string
+  ): Promise<Result<GitHubIssueInfo[], string>> => {
+    return invokeAsResult<GitHubIssueInfo[], string>('list_repo_issues', {
+      repoId,
+      issueState: issueState ?? null,
       remote: remoteName ?? null,
     });
   },

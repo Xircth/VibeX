@@ -159,6 +159,7 @@ pub fn run() {
             commands::repos::get_repo_branches,
             commands::repos::get_repo_remotes,
             commands::repos::list_open_prs,
+            commands::repos::list_repo_issues,
             commands::repos::search_repo,
             commands::repos::open_repo_in_editor,
             // Config commands

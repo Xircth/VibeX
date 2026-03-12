@@ -6,7 +6,7 @@ use deployment::Deployment;
 use git::{GitBranch, GitRemote};
 use services::services::{
     file_search::SearchMode,
-    git_host::{GitHostProvider, GitHostService, OpenPrInfo},
+    git_host::{GitHostProvider, GitHostService, GitHubIssueInfo, OpenPrInfo},
 };
 use uuid::Uuid;
 
@@ -152,6 +152,48 @@ pub async fn list_open_prs(
     let git_host = GitHostService::from_url(&remote.url)?;
     let prs = git_host.list_open_prs(&repo.path, &remote.url).await?;
     Ok(prs)
+}
+
+#[tauri::command]
+pub async fn list_repo_issues(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    issue_state: Option<String>,
+    remote: Option<String>,
+) -> Result<Vec<GitHubIssueInfo>, AppError> {
+    use services::services::git_host::github::GhCli;
+
+    let repo = state
+        .deployment
+        .repo()
+        .get_by_id(&state.deployment.db().pool, repo_id)
+        .await?;
+
+    let remote = match remote {
+        Some(name) => GitRemote {
+            url: state.deployment.git().get_remote_url(&repo.path, &name)?,
+            name,
+        },
+        None => state.deployment.git().get_default_remote(&repo.path)?,
+    };
+
+    let repo_path = std::path::PathBuf::from(&repo.path);
+    let remote_url = remote.url.clone();
+
+    let state_filter = issue_state.unwrap_or_else(|| "open".to_string());
+    let issues = tokio::task::spawn_blocking(move || {
+        let cli = GhCli::new();
+        let repo_info = cli
+            .get_repo_info(&remote_url, &repo_path)
+            .map_err(|e| e.to_string())?;
+        cli.list_issues(&repo_info.owner, &repo_info.repo_name, &state_filter)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| AppError::Internal(e.to_string()))?
+    .map_err(AppError::Internal)?;
+
+    Ok(issues)
 }
 
 #[tauri::command]

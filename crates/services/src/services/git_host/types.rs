@@ -143,3 +143,26 @@ pub struct OpenPrInfo {
     pub head_branch: String,
     pub base_branch: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct GitHubLabel {
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct GitHubIssueAuthor {
+    pub login: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct GitHubIssueInfo {
+    pub number: i64,
+    pub title: String,
+    pub url: String,
+    pub state: String,
+    pub created_at: DateTime<Utc>,
+    pub author: GitHubIssueAuthor,
+    pub labels: Vec<GitHubLabel>,
+    pub comments_count: i64,
+}

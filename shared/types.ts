@@ -282,6 +282,12 @@ export type ProviderKind = "git_hub" | "azure_dev_ops" | "unknown";
 
 export type OpenPrInfo = { number: bigint, url: string, title: string, head_branch: string, base_branch: string, };
 
+export type GitHubLabel = { name: string, color: string, };
+
+export type GitHubIssueAuthor = { login: string, };
+
+export type GitHubIssueInfo = { number: bigint, title: string, url: string, state: string, created_at: string, author: GitHubIssueAuthor, labels: Array<GitHubLabel>, comments_count: bigint, };
+
 export type GitRemote = { name: string, url: string, };
 
 export type ListPrsError = { "type": "cli_not_installed", provider: ProviderKind, } | { "type": "auth_failed", message: string, } | { "type": "unsupported_provider" };

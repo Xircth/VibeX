@@ -1,11 +1,15 @@
 import { memo, useCallback, useRef, useState } from 'react';
-import { Upload, Loader2, ChevronsUpDown, ChevronsDownUp } from 'lucide-react';
+import { Upload, Loader2, ChevronsUpDown, ChevronsDownUp, Sparkles } from 'lucide-react';
+import type { GitFileStatusEntry, GitFileDiffEntry } from 'shared/types';
+import { generateCommitMessage } from './generateCommitMessage';
 
 interface GitCommitBoxProps {
   commitMessage: string;
   onCommitMessageChange: (msg: string) => void;
   hasStagedFiles: boolean;
   hasUnstagedFiles: boolean;
+  stagedFiles?: GitFileStatusEntry[];
+  diffs?: GitFileDiffEntry[];
   commitLoading: boolean;
   pushLoading: boolean;
   commitError: string | null;
@@ -21,6 +25,8 @@ export const GitCommitBox = memo(function GitCommitBox({
   onCommitMessageChange,
   hasStagedFiles,
   hasUnstagedFiles,
+  stagedFiles = [],
+  diffs = [],
   commitLoading,
   pushLoading,
   commitError,
@@ -56,6 +62,14 @@ export const GitCommitBox = memo(function GitCommitBox({
   const toggleCollapsed = useCallback(() => {
     setCollapsed((prev) => !prev);
   }, []);
+
+  const handleGenerateMessage = useCallback(() => {
+    if (stagedFiles.length === 0) return;
+    const msg = generateCommitMessage(stagedFiles, diffs);
+    if (msg) {
+      onCommitMessageChange(msg);
+    }
+  }, [stagedFiles, diffs, onCommitMessageChange]);
 
   const commitTitle = !hasMessage
     ? 'Enter a commit message'
@@ -97,13 +111,23 @@ export const GitCommitBox = memo(function GitCommitBox({
           <div className="relative">
             <textarea
               ref={textareaRef}
-              className="w-full resize-none bg-background/50 border border-border/50 rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+              className="w-full resize-none bg-background/50 border border-border/50 rounded px-2 py-1.5 pr-7 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring font-mono"
               placeholder="Commit message..."
               rows={2}
               value={commitMessage}
               onChange={(e) => onCommitMessageChange(e.target.value)}
               onKeyDown={handleKeyDown}
             />
+            {stagedFiles.length > 0 && (
+              <button
+                className="absolute top-1.5 right-1.5 p-0.5 rounded text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+                onClick={handleGenerateMessage}
+                title="Generate commit message from staged changes"
+                type="button"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Error display */}

@@ -22,7 +22,8 @@ use utils::{
 };
 
 use crate::services::git_host::types::{
-    CreatePrRequest, OpenPrInfo, PrComment, PrCommentAuthor, PrReviewComment, ReviewCommentUser,
+    CreatePrRequest, GitHubIssueAuthor, GitHubIssueInfo, GitHubLabel, OpenPrInfo, PrComment,
+    PrCommentAuthor, PrReviewComment, ReviewCommentUser,
 };
 
 #[derive(Debug, Clone)]
@@ -385,6 +386,31 @@ impl GhCli {
         )?;
         Ok(())
     }
+
+    /// List open issues for a GitHub repository.
+    pub fn list_issues(
+        &self,
+        owner: &str,
+        repo: &str,
+        state: &str,
+    ) -> Result<Vec<GitHubIssueInfo>, GhCliError> {
+        let raw = self.run(
+            [
+                "issue",
+                "list",
+                "--repo",
+                &format!("{owner}/{repo}"),
+                "--state",
+                state,
+                "--limit",
+                "50",
+                "--json",
+                "number,title,url,state,createdAt,author,labels,comments",
+            ],
+            None,
+        )?;
+        Self::parse_issue_list(&raw)
+    }
 }
 
 impl GhCli {
@@ -537,6 +563,67 @@ impl GhCli {
                 side: c.side,
                 diff_hunk: c.diff_hunk,
                 author_association: c.author_association,
+            })
+            .collect())
+    }
+
+    fn parse_issue_list(raw: &str) -> Result<Vec<GitHubIssueInfo>, GhCliError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct GhIssueResponse {
+            number: i64,
+            #[serde(default)]
+            title: String,
+            #[serde(default)]
+            url: String,
+            #[serde(default)]
+            state: String,
+            created_at: Option<DateTime<Utc>>,
+            author: Option<GhUserLogin>,
+            #[serde(default)]
+            labels: Vec<GhIssueLabelResponse>,
+            #[serde(default)]
+            comments: Vec<serde_json::Value>,
+        }
+
+        #[derive(Deserialize)]
+        struct GhIssueLabelResponse {
+            #[serde(default)]
+            name: String,
+            #[serde(default)]
+            color: String,
+        }
+
+        let issues: Vec<GhIssueResponse> =
+            serde_json::from_str(raw.trim()).map_err(|err| {
+                GhCliError::UnexpectedOutput(format!(
+                    "Failed to parse gh issue list response: {err}; raw: {raw}"
+                ))
+            })?;
+
+        Ok(issues
+            .into_iter()
+            .map(|i| GitHubIssueInfo {
+                number: i.number,
+                title: i.title,
+                url: i.url,
+                state: i.state,
+                created_at: i.created_at.unwrap_or_else(Utc::now),
+                author: GitHubIssueAuthor {
+                    login: i
+                        .author
+                        .and_then(|a| a.login)
+                        .unwrap_or_else(|| "unknown".to_string()),
+                },
+                labels: i
+                    .labels
+                    .into_iter()
+                    .map(|l| GitHubLabel {
+                        name: l.name,
+                        color: l.color,
+                    })
+                    .collect(),
+                comments_count: i.comments.len() as i64,
             })
             .collect())
     }

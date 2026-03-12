@@ -7,6 +7,8 @@ import {
   RefreshCw,
   Loader2,
   GitBranchPlus,
+  GitPullRequest,
+  CircleDot,
   LayoutList,
   FolderTree,
 } from 'lucide-react';
@@ -20,6 +22,7 @@ import {
   useGitActions,
   useGitCommit,
   useGitBranches,
+  useGitHubData,
   useGitPanelController,
 } from '@/hooks/git';
 import { GitStagingArea } from './GitStagingArea';
@@ -27,6 +30,8 @@ import { GitCommitBox } from './GitCommitBox';
 import { GitDiffViewer } from './GitDiffViewer';
 import { GitLogView } from './GitLogView';
 import { GitBranchList } from './GitBranchList';
+import { GitIssuesView } from './GitIssuesView';
+import { GitPRsView } from './GitPRsView';
 import { GitDiffModal } from './GitDiffModal';
 
 function EmptyState() {
@@ -126,6 +131,12 @@ export function GitPanel() {
     workspaceId,
     repoId,
     enabled: mode === 'branches',
+  });
+
+  const gitHub = useGitHubData({
+    repoId,
+    enableIssues: mode === 'issues',
+    enablePrs: mode === 'prs',
   });
 
   const [modalDiffPath, setModalDiffPath] = useState<string | null>(null);
@@ -274,6 +285,29 @@ export function GitPanel() {
             <GitBranchPlus className="h-3 w-3" />
             Branches
           </button>
+          <span className="text-muted-foreground/30 mx-0.5">|</span>
+          <button
+            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
+              mode === 'issues'
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setMode('issues')}
+          >
+            <CircleDot className="h-3 w-3" />
+            Issues
+          </button>
+          <button
+            className={`px-1.5 py-0.5 rounded transition-colors flex items-center gap-0.5 ${
+              mode === 'prs'
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => setMode('prs')}
+          >
+            <GitPullRequest className="h-3 w-3" />
+            PRs
+          </button>
         </div>
       </div>
 
@@ -285,6 +319,8 @@ export function GitPanel() {
             onCommitMessageChange={setCommitMessage}
             hasStagedFiles={stagedFiles.length > 0}
             hasUnstagedFiles={unstagedFiles.length > 0}
+            stagedFiles={stagedFiles}
+            diffs={diffs}
             commitLoading={commitLoading}
             pushLoading={pushLoading}
             commitError={commitError}
@@ -349,6 +385,28 @@ export function GitPanel() {
           onCreate={gitBranches.createBranch}
           onDelete={gitBranches.deleteBranch}
           onRefresh={gitBranches.refresh}
+        />
+      )}
+
+      {/* Issues mode */}
+      {mode === 'issues' && (
+        <GitIssuesView
+          issues={gitHub.issues}
+          isLoading={gitHub.issuesLoading}
+          error={gitHub.issuesError}
+          issueState={gitHub.issueFilter}
+          onSetIssueState={gitHub.setIssueFilter}
+          onRefresh={gitHub.refreshIssues}
+        />
+      )}
+
+      {/* PRs mode */}
+      {mode === 'prs' && (
+        <GitPRsView
+          prs={gitHub.prs}
+          isLoading={gitHub.prsLoading}
+          error={gitHub.prsError}
+          onRefresh={gitHub.refreshPrs}
         />
       )}
 

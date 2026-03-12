@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 async function fetchGitHubStars(): Promise<number | null> {
   try {
     const res = await fetch(
-      'https://api.github.com/repos/BloopAI/vibe-ultra',
+      'https://api.github.com/repos/vibe-ultra/vibe-ultra',
       { cache: 'no-store' }
     );
 

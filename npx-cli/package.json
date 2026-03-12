@@ -7,10 +7,10 @@
     "vibe-ultra": "bin/cli.js"
   },
   "keywords": [],
-  "author": "bloop",
+  "author": "vibe-ultra",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BloopAI/vibe-ultra"
+    "url": "https://github.com/vibe-ultra/vibe-ultra"
   },
   "license": "",
   "description": "NPX wrapper around vibe-ultra and vibe-ultra-mcp",

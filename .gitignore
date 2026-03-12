@@ -80,13 +80,8 @@ build-npm-package-codesign.sh
 
 # ===== Project-specific: upstream origin base (excluded from this fork) =====
 vibe-kanban-originbase/
-vibe-kanban-cloud/
-vibe-ultra-originbase/
 vibe-ultra-cloud/
 
 # ===== Logs =====
 logs/
 *.log
-
-# ===== MDX files =====
-*.mdx

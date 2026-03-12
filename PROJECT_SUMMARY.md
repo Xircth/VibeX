@@ -1,4 +1,4 @@
-# vibe-ultra 项目总结文档
+# Vibe Ultra 项目总结文档
 
 > 更新日期：2026-03-06
 > 分支：`vk/5468-superpowers-brai`
@@ -173,7 +173,7 @@ TaskFormDialog / CreateAttemptDialog（创建任务/尝试对话框）
 | 文件 | 说明 |
 |---|---|
 | `~/.claude/settings.json` | Claude Code 设置：env 变量、enabledPlugins、permissions |
-| `~/.vibe-ultra/config.json` | vibe-ultra 应用配置 |
+| `~/.vibe-ultra/config.json` | Vibe Ultra 应用配置 |
 | `~/.vibe-ultra/profiles.json` | AI 执行器 profiles 配置 |
 | `~/.vibe-ultra/vibe-ultra.db` | SQLite 数据库 |
 

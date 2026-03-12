@@ -14,7 +14,7 @@ import { getActualTheme } from '@/utils/theme';
 import { defineModal, type NoProps } from '@/lib/modals';
 import { APP_NAME } from '@/lib/branding';
 
-const RELEASE_NOTES_BASE_URL = 'https://vibekanban.com/release-notes';
+const RELEASE_NOTES_BASE_URL = 'https://vibeultra.com/release-notes';
 
 const ReleaseNotesDialogImpl = NiceModal.create<NoProps>(() => {
   const modal = useModal();

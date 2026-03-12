@@ -43,8 +43,8 @@ echo "🔍 Detected platform: $PLATFORM"
 echo "🔧 Using target directory: $CARGO_TARGET_DIR"
 
 # Set API base URL for remote features
-export VK_SHARED_API_BASE="https://api.vibekanban.com"
-export VITE_VK_SHARED_API_BASE="https://api.vibekanban.com"
+export VK_SHARED_API_BASE="https://api.vibeultra.com"
+export VITE_VK_SHARED_API_BASE="https://api.vibeultra.com"
 
 echo "🧹 Cleaning previous builds..."
 rm -rf npx-cli/dist
@@ -62,7 +62,7 @@ echo "📦 Creating distribution package..."
 # Copy the main binary
 cp ${CARGO_TARGET_DIR}/release/server vibe-ultra
 zip -q vibe-ultra.zip vibe-ultra
-rm -f vibe-ultra 
+rm -f vibe-ultra
 mv vibe-ultra.zip npx-cli/dist/$PLATFORM/vibe-ultra.zip
 
 # Copy the MCP binary
@@ -77,8 +77,8 @@ zip -q vibe-ultra-review.zip vibe-ultra-review
 rm -f vibe-ultra-review
 mv vibe-ultra-review.zip npx-cli/dist/$PLATFORM/vibe-ultra-review.zip
 
-echo "✅ Build complete!"
-echo "📁 Files created:"
+echo "Build complete!"
+echo "Files created:"
 echo "   - npx-cli/dist/$PLATFORM/vibe-ultra.zip"
 echo "   - npx-cli/dist/$PLATFORM/vibe-ultra-mcp.zip"
 echo "   - npx-cli/dist/$PLATFORM/vibe-ultra-review.zip"

@@ -540,7 +540,7 @@ impl WorktreeManager {
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
     }
 
-    /// Get the base directory for vibe-ultra worktrees
+    /// Get the base directory for Vibe Ultra worktrees
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
         if let Some(override_path) = WORKSPACE_DIR_OVERRIDE.get() {
             // Always use app-owned subdirectory within custom path for safety.

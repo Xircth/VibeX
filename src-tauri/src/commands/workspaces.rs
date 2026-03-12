@@ -788,7 +788,7 @@ pub async fn merge_workspace(
     ) {
         Ok(messages) if !messages.is_empty() => messages.join("\n\n"),
         _ => {
-            let mut msg = format!("{} (vibe-ultra{})", task.title, first_uuid_section);
+            let mut msg = format!("{} (Vibe Ultra {})", task.title, first_uuid_section);
             if let Some(description) = &task.description {
                 if !description.trim().is_empty() {
                     msg.push_str("\n\n");
@@ -1080,7 +1080,7 @@ pub async fn rebase_back_workspace(
         }
         _ => {
             format!(
-                "Merge branch '{}' - {} (vibe-ultra{})",
+                "Merge branch '{}' - {} (Vibe Ultra {})",
                 workspace.branch, task.title, first_uuid_section
             )
         }

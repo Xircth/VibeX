@@ -48,7 +48,7 @@
     "vibe_ultra": {
       "name": "Vibe Ultra",
       "description": "Create, update and delete Vibe Ultra tasks",
-      "url": "https://www.vibekanban.com/docs/integrations/vibe-ultra-mcp-server",
+      "url": "https://www.vibeultra.com/docs/integrations/vibe-ultra-mcp-server",
       "icon": "favicon-vk-light.svg"
     },
     "context7": {

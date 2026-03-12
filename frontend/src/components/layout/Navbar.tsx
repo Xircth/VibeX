@@ -36,12 +36,12 @@ const EXTERNAL_LINKS = [
   {
     label: 'Docs',
     icon: BookOpen,
-    href: 'https://vibekanban.com/docs',
+    href: 'https://vibeultra.com/docs',
   },
   {
     label: 'Support',
     icon: MessageCircleQuestion,
-    href: 'https://github.com/BloopAI/vibe-ultra/issues',
+    href: 'https://github.com/vibe-ultra/vibe-ultra/issues',
   },
   {
     label: 'Discord',

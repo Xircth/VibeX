@@ -188,7 +188,7 @@ async function main() {
     });
   } else {
     const modeLabel = LOCAL_DEV_MODE ? " (local dev)" : "";
-    console.log(`Starting vibe-ultra v${CLI_VERSION}${modeLabel}...`);
+    console.log(`Starting Vibe Ultra v${CLI_VERSION}${modeLabel}...`);
     await extractAndRun("vibe-ultra", (bin) => {
       if (platform === "win32") {
         execSync(`"${bin}"`, { stdio: "inherit" });

@@ -234,7 +234,7 @@ impl FilesystemService {
                         return false;
                     }
 
-                    // Skip vibe-ultra temp directory and all subdirectories
+                    // Skip Vibe Ultra temp directory and all subdirectories
                     // Normalize to handle macOS /private/var vs /var aliasing
                     if utils::path::normalize_macos_private_alias(path)
                         .starts_with(&vibe_ultra_temp_dir)

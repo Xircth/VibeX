@@ -1,8 +1,12 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use deployment::Deployment;
 use executors::{
-    executors::{AvailabilityInfo, BaseAgentCapability, BaseCodingAgent, StandardCodingAgentExecutor},
+    executors::{
+        codex::codex_home, AvailabilityInfo, BaseAgentCapability, BaseCodingAgent,
+        StandardCodingAgentExecutor,
+    },
     mcp_config::{McpConfig, read_agent_config, write_agent_config},
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
@@ -14,6 +18,7 @@ use services::services::config::{
     save_config_to_file,
 };
 use tokio::fs;
+use ts_rs::TS;
 
 use crate::{error::AppError, state::AppState};
 
@@ -457,4 +462,263 @@ async fn update_mcp_servers_in_config(
     };
 
     Ok(message)
+}
+
+// --- Agent Native Config Files ---
+
+/// Native configuration files for each agent (config.toml, auth.json, etc.)
+#[derive(Debug, Serialize, Deserialize, TS)]
+pub struct AgentNativeConfigs {
+    /// Codex: ~/.codex/config.toml content
+    pub codex_config_toml: Option<String>,
+    /// Codex: ~/.codex/auth.json content
+    pub codex_auth_json: Option<String>,
+    /// Codex home directory path
+    pub codex_home_path: Option<String>,
+    /// OpenCode: config directory json content
+    pub opencode_config_json: Option<String>,
+    /// OpenCode: auth.json content
+    pub opencode_auth_json: Option<String>,
+    /// OpenCode config directory path
+    pub opencode_config_path: Option<String>,
+}
+
+/// Returns the OpenCode config directory path (cross-platform).
+fn opencode_config_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|p| p.join(".config")))
+            .map(|p| p.join("opencode"))
+    }
+    #[cfg(not(windows))]
+    {
+        dirs::home_dir().map(|p| p.join(".config").join("opencode"))
+    }
+}
+
+/// Returns the OpenCode auth.json path (cross-platform).
+fn opencode_auth_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|p| p.join(".local").join("share")))
+            .map(|p| p.join("opencode").join("auth.json"))
+    }
+    #[cfg(not(windows))]
+    {
+        dirs::home_dir().map(|p| p.join(".local").join("share").join("opencode").join("auth.json"))
+    }
+}
+
+/// Read an agent's native configuration files from the filesystem.
+#[tauri::command]
+pub async fn read_agent_native_configs(
+    state: tauri::State<'_, AppState>,
+    agent_type: BaseCodingAgent,
+) -> Result<AgentNativeConfigs, AppError> {
+    let _ = state;
+
+    match agent_type {
+        BaseCodingAgent::Codex => {
+            let home = codex_home();
+            let home_str = home.as_ref().map(|p| p.display().to_string());
+
+            let config_toml = match &home {
+                Some(h) => {
+                    let path = h.join("config.toml");
+                    if path.exists() {
+                        Some(fs::read_to_string(&path).await.map_err(|e| {
+                            AppError::Internal(format!("Failed to read codex config.toml: {}", e))
+                        })?)
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            };
+
+            let auth_json = match &home {
+                Some(h) => {
+                    let path = h.join("auth.json");
+                    if path.exists() {
+                        Some(fs::read_to_string(&path).await.map_err(|e| {
+                            AppError::Internal(format!("Failed to read codex auth.json: {}", e))
+                        })?)
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            };
+
+            Ok(AgentNativeConfigs {
+                codex_config_toml: config_toml,
+                codex_auth_json: auth_json,
+                codex_home_path: home_str,
+                opencode_config_json: None,
+                opencode_auth_json: None,
+                opencode_config_path: None,
+            })
+        }
+        BaseCodingAgent::Opencode => {
+            let config_dir = opencode_config_dir();
+            let config_path_str = config_dir.as_ref().map(|p| p.display().to_string());
+
+            let config_json = match &config_dir {
+                Some(dir) => {
+                    // Try opencode.json first, then opencode.jsonc
+                    let json_path = dir.join("opencode.json");
+                    let jsonc_path = dir.join("opencode.jsonc");
+                    let path = if json_path.exists() {
+                        Some(json_path)
+                    } else if jsonc_path.exists() {
+                        Some(jsonc_path)
+                    } else {
+                        None
+                    };
+                    match path {
+                        Some(p) => Some(fs::read_to_string(&p).await.map_err(|e| {
+                            AppError::Internal(format!(
+                                "Failed to read opencode config: {}",
+                                e
+                            ))
+                        })?),
+                        None => None,
+                    }
+                }
+                None => None,
+            };
+
+            let auth_json = match opencode_auth_path() {
+                Some(path) if path.exists() => {
+                    Some(fs::read_to_string(&path).await.map_err(|e| {
+                        AppError::Internal(format!("Failed to read opencode auth.json: {}", e))
+                    })?)
+                }
+                _ => None,
+            };
+
+            Ok(AgentNativeConfigs {
+                codex_config_toml: None,
+                codex_auth_json: None,
+                codex_home_path: None,
+                opencode_config_json: config_json,
+                opencode_auth_json: auth_json,
+                opencode_config_path: config_path_str,
+            })
+        }
+        BaseCodingAgent::ClaudeCode => {
+            // Claude Code settings are already handled by get_claude_settings
+            Ok(AgentNativeConfigs {
+                codex_config_toml: None,
+                codex_auth_json: None,
+                codex_home_path: None,
+                opencode_config_json: None,
+                opencode_auth_json: None,
+                opencode_config_path: None,
+            })
+        }
+        #[allow(unreachable_patterns)]
+        _ => Ok(AgentNativeConfigs {
+            codex_config_toml: None,
+            codex_auth_json: None,
+            codex_home_path: None,
+            opencode_config_json: None,
+            opencode_auth_json: None,
+            opencode_config_path: None,
+        }),
+    }
+}
+
+/// Write an agent's native configuration files to the filesystem.
+#[tauri::command]
+pub async fn write_agent_native_config(
+    state: tauri::State<'_, AppState>,
+    agent_type: BaseCodingAgent,
+    codex_config_toml: Option<String>,
+    codex_auth_json: Option<String>,
+    opencode_config_json: Option<String>,
+    opencode_auth_json: Option<String>,
+) -> Result<(), AppError> {
+    let _ = state;
+
+    match agent_type {
+        BaseCodingAgent::Codex => {
+            let home = codex_home().ok_or_else(|| {
+                AppError::Internal("Could not determine Codex home directory".to_string())
+            })?;
+
+            // Ensure directory exists
+            fs::create_dir_all(&home).await.map_err(|e| {
+                AppError::Internal(format!("Failed to create codex home directory: {}", e))
+            })?;
+
+            if let Some(toml_content) = codex_config_toml {
+                fs::write(home.join("config.toml"), toml_content)
+                    .await
+                    .map_err(|e| {
+                        AppError::Internal(format!("Failed to write codex config.toml: {}", e))
+                    })?;
+            }
+
+            if let Some(auth_content) = codex_auth_json {
+                fs::write(home.join("auth.json"), auth_content)
+                    .await
+                    .map_err(|e| {
+                        AppError::Internal(format!("Failed to write codex auth.json: {}", e))
+                    })?;
+            }
+        }
+        BaseCodingAgent::Opencode => {
+            if let Some(config_content) = opencode_config_json {
+                let config_dir = opencode_config_dir().ok_or_else(|| {
+                    AppError::Internal(
+                        "Could not determine OpenCode config directory".to_string(),
+                    )
+                })?;
+
+                fs::create_dir_all(&config_dir).await.map_err(|e| {
+                    AppError::Internal(format!(
+                        "Failed to create opencode config directory: {}",
+                        e
+                    ))
+                })?;
+
+                fs::write(config_dir.join("opencode.json"), config_content)
+                    .await
+                    .map_err(|e| {
+                        AppError::Internal(format!("Failed to write opencode config: {}", e))
+                    })?;
+            }
+
+            if let Some(auth_content) = opencode_auth_json {
+                let auth_path = opencode_auth_path().ok_or_else(|| {
+                    AppError::Internal(
+                        "Could not determine OpenCode auth path".to_string(),
+                    )
+                })?;
+
+                if let Some(parent) = auth_path.parent() {
+                    fs::create_dir_all(parent).await.map_err(|e| {
+                        AppError::Internal(format!(
+                            "Failed to create opencode auth directory: {}",
+                            e
+                        ))
+                    })?;
+                }
+
+                fs::write(&auth_path, auth_content).await.map_err(|e| {
+                    AppError::Internal(format!("Failed to write opencode auth.json: {}", e))
+                })?;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
 }

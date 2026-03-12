@@ -1,6 +1,6 @@
 ﻿import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Settings, Cpu, Server, X, FolderOpen, GitBranch } from 'lucide-react';
+import { Settings, Bot, Server, X, FolderOpen, GitBranch } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
@@ -32,7 +32,7 @@ const settingsNavigation = [
   },
   {
     path: 'agents',
-    icon: Cpu,
+    icon: Bot,
   },
   {
     path: 'mcp',

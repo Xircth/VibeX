@@ -58,6 +58,12 @@ pub struct Config {
     pub send_message_shortcut: SendMessageShortcut,
     #[serde(default)]
     pub default_terminal_shell: Option<String>,
+    /// Agents that have been disabled by the user in settings
+    #[serde(default)]
+    pub disabled_agents: Vec<BaseCodingAgent>,
+    /// Custom agent display order (if user has reordered)
+    #[serde(default)]
+    pub agent_order: Option<Vec<BaseCodingAgent>>,
 }
 
 impl Config {
@@ -86,6 +92,8 @@ impl Config {
             merge_commit_message_template: old_config.merge_commit_message_template,
             send_message_shortcut: old_config.send_message_shortcut,
             default_terminal_shell: None,
+            disabled_agents: Vec::new(),
+            agent_order: None,
         }
     }
 
@@ -142,6 +150,8 @@ impl Default for Config {
             merge_commit_message_template: None,
             send_message_shortcut: SendMessageShortcut::default(),
             default_terminal_shell: None,
+            disabled_agents: Vec::new(),
+            agent_order: None,
         }
     }
 }

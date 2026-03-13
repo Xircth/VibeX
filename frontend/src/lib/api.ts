@@ -75,6 +75,8 @@ import {
   DetailedGitStatus,
   GitFileDiffEntry,
   GitLogStatus,
+  CommitDetail,
+  ResetMode,
 } from 'shared/types';
 
 // Commit graph types (not generated from Rust via ts-rs, defined locally)
@@ -650,6 +652,26 @@ export const attemptsApi = {
     return tauriInvoke<GitLogStatus>('get_workspace_git_log', { workspaceId, repoId });
   },
 
+  getCommitDetail: async (workspaceId: string, repoId: string, sha: string): Promise<CommitDetail> => {
+    return tauriInvoke<CommitDetail>('get_workspace_commit_detail', { workspaceId, repoId, sha });
+  },
+
+  cherryPick: async (workspaceId: string, repoId: string, sha: string): Promise<void> => {
+    return tauriInvoke<void>('git_cherry_pick', { workspaceId, repoId, sha });
+  },
+
+  revertCommit: async (workspaceId: string, repoId: string, sha: string): Promise<void> => {
+    return tauriInvoke<void>('git_revert_commit', { workspaceId, repoId, sha });
+  },
+
+  resetToCommit: async (workspaceId: string, repoId: string, sha: string, mode: ResetMode): Promise<void> => {
+    return tauriInvoke<void>('git_reset_to_commit', { workspaceId, repoId, sha, mode });
+  },
+
+  createBranchAtCommit: async (workspaceId: string, repoId: string, branchName: string, sha: string): Promise<void> => {
+    return tauriInvoke<void>('git_create_branch_at_commit', { workspaceId, repoId, branchName, sha });
+  },
+
   pullBranch: async (workspaceId: string, repoId: string): Promise<PullResult> => {
     return tauriInvoke<PullResult>('pull_workspace_branch', { workspaceId, repoId });
   },
@@ -952,6 +974,66 @@ export const repoApi = {
   },
 };
 
+// Settings Window API
+export const settingsWindowApi = {
+  open: async (): Promise<void> => {
+    return tauriInvoke<void>('open_settings_window');
+  },
+};
+
+// Agent Settings APIs
+export interface AgentSettingInfo {
+  id: number;
+  agent_type: string;
+  enabled: boolean;
+  sort_order: number;
+  installed_version: string | null;
+  env_json: string | null;
+  config_json: string | null;
+}
+
+export interface PreflightCheck {
+  check_id: string;
+  label: string;
+  status: 'pass' | 'warn' | 'fail';
+  message: string;
+  fixes: PreflightFix[];
+}
+
+export interface PreflightFix {
+  action: string;
+  label: string;
+}
+
+export interface PreflightResult {
+  checks: PreflightCheck[];
+}
+
+export const agentSettingsApi = {
+  list: async (): Promise<AgentSettingInfo[]> => {
+    return tauriInvoke<AgentSettingInfo[]>('list_agents');
+  },
+  updatePreferences: async (params: {
+    agentType: string;
+    enabled?: boolean;
+    envJson?: string | null;
+    configJson?: string | null;
+  }): Promise<void> => {
+    return tauriInvoke<void>('update_agent_preferences', params);
+  },
+  reorder: async (agentTypes: string[]): Promise<void> => {
+    return tauriInvoke<void>('reorder_agents', { agentTypes });
+  },
+  preflight: async (agentType: string): Promise<PreflightResult> => {
+    return tauriInvoke<PreflightResult>('agent_preflight', { agentType });
+  },
+  detectVersion: async (agentType: string): Promise<string | null> => {
+    return tauriInvoke<string | null>('detect_agent_local_version', {
+      agentType,
+    });
+  },
+};
+
 // Config APIs
 export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
@@ -1179,4 +1261,25 @@ export const searchApi = {
     );
     return results.flat();
   },
+};
+
+// --- Popular Skills ---
+
+export interface PopularSkill {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  tags: string[];
+  installed: boolean;
+}
+
+export const skillsApi = {
+  getPopular: (): Promise<PopularSkill[]> =>
+    tauriInvoke<PopularSkill[]>('get_popular_skills'),
+  install: (key: string): Promise<void> =>
+    tauriInvoke<void>('install_skill', { key }),
+  uninstall: (key: string): Promise<void> =>
+    tauriInvoke<void>('uninstall_skill', { key }),
 };

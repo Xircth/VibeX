@@ -1,3 +1,4 @@
+pub mod agent_settings;
 pub mod projects;
 pub mod tasks;
 pub mod workspaces;
@@ -11,3 +12,5 @@ pub mod repos;
 pub mod tags;
 pub mod approvals;
 pub mod execution_processes;
+pub mod settings_window;
+pub mod skills;

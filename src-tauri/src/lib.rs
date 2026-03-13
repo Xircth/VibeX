@@ -123,6 +123,11 @@ pub fn run() {
             commands::workspaces::get_workspace_file_diffs,
             commands::workspaces::commit_workspace_changes,
             commands::workspaces::get_workspace_git_log,
+            commands::workspaces::get_workspace_commit_detail,
+            commands::workspaces::git_cherry_pick,
+            commands::workspaces::git_revert_commit,
+            commands::workspaces::git_reset_to_commit,
+            commands::workspaces::git_create_branch_at_commit,
             commands::sessions::get_sessions,
             commands::sessions::get_session_summaries,
             commands::sessions::get_session,
@@ -175,6 +180,14 @@ pub fn run() {
             commands::config::update_claude_settings,
             commands::config::read_agent_native_configs,
             commands::config::write_agent_native_config,
+            // Agent settings commands
+            commands::agent_settings::list_agents,
+            commands::agent_settings::update_agent_preferences,
+            commands::agent_settings::reorder_agents,
+            commands::agent_settings::agent_preflight,
+            commands::agent_settings::detect_agent_local_version,
+            // Settings window commands
+            commands::settings_window::open_settings_window,
             // Tag commands
             commands::tags::get_tags,
             commands::tags::create_tag,
@@ -199,6 +212,10 @@ pub fn run() {
             commands::file_tree::copy_item,
             commands::file_tree::create_directory,
             commands::file_tree::search_workspace_text,
+            // Skills commands
+            commands::skills::get_popular_skills,
+            commands::skills::install_skill,
+            commands::skills::uninstall_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

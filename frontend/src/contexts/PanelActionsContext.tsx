@@ -90,6 +90,36 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     );
   }, [dockviewApi]);
 
+  const ensureCenter1Group = useCallback(() => {
+    if (!dockviewApi) return undefined;
+
+    const existing = getCenter1Group();
+    if (existing) return existing;
+
+    // Center-1 was destroyed – rebuild by adding a welcome panel with positioning.
+    // This creates the group as a side-effect, avoiding the addGroup ID registration issue.
+    const leftGroup = dockviewApi.getGroup(GROUP_IDS.LEFT);
+    const refPanel = leftGroup?.panels[0] ?? dockviewApi.panels[0];
+    if (!refPanel) return undefined;
+
+    const welcomePanel = dockviewApi.addPanel({
+      id: PANEL_IDS.WELCOME,
+      component: PANEL_IDS.WELCOME,
+      title: 'Welcome',
+      position: {
+        referencePanel: refPanel,
+        direction: leftGroup ? 'right' : 'within',
+      },
+      inactive: true,
+    });
+
+    // Force-set the group ID to match our constant (same pattern as normalizeCanonicalGroupIds)
+    const center1Group = welcomePanel.group;
+    (center1Group as unknown as { id: string }).id = GROUP_IDS.CENTER_1;
+
+    return center1Group;
+  }, [dockviewApi, getCenter1Group]);
+
   const ensureCenter2Group = useCallback(() => {
     if (!dockviewApi) return undefined;
 
@@ -100,36 +130,35 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return existingCenter2;
     }
 
-    const referencePanel =
-      dockviewApi.getPanel(PANEL_IDS.WELCOME) ?? dockviewApi.panels[0];
-    if (!referencePanel) return undefined;
+    // Ensure center-1 exists first so we have a reliable reference
+    const center1 = ensureCenter1Group();
+    const refPanel =
+      center1?.panels[0] ?? dockviewApi.getPanel(PANEL_IDS.WELCOME) ?? dockviewApi.panels[0];
+    if (!refPanel) return undefined;
 
-    const center2Group = dockviewApi.addGroup({
-      id: GROUP_IDS.CENTER_2,
-      referencePanel,
-      direction: 'right',
+    // Create welcome-2 panel with positioning – group is created as a side-effect
+    const welcome2Panel = dockviewApi.addPanel({
+      id: `${PANEL_IDS.WELCOME}-2`,
+      component: PANEL_IDS.WELCOME,
+      title: 'Preview',
+      position: {
+        referencePanel: refPanel,
+        direction: 'right',
+      },
+      inactive: true,
     });
 
-    if (!dockviewApi.getPanel(`${PANEL_IDS.WELCOME}-2`)) {
-      dockviewApi.addPanel({
-        id: `${PANEL_IDS.WELCOME}-2`,
-        component: PANEL_IDS.WELCOME,
-        title: 'Preview',
-        position: {
-          referenceGroup: GROUP_IDS.CENTER_2,
-          direction: 'within',
-        },
-        inactive: true,
-      });
-    }
+    // Force-set the group ID (same pattern as normalizeCanonicalGroupIds)
+    const center2Group = welcome2Panel.group;
+    (center2Group as unknown as { id: string }).id = GROUP_IDS.CENTER_2;
 
     return center2Group;
-  }, [dockviewApi]);
+  }, [dockviewApi, ensureCenter1Group]);
 
   const chooseCenterGroupForNewPanel = useCallback(() => {
     if (!dockviewApi) return undefined;
 
-    const center1Group = getCenter1Group();
+    const center1Group = ensureCenter1Group();
     const center2Group = ensureCenter2Group();
     const orderedGroups = [center1Group, center2Group].filter(
       (
@@ -168,7 +197,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       return group.id === GROUP_IDS.CENTER_1 ? group : bestGroup;
     });
-  }, [dockviewApi, ensureCenter2Group, getCenter1Group]);
+  }, [dockviewApi, ensureCenter1Group, ensureCenter2Group]);
 
   /**
    * Find the best center group for a new tab panel.
@@ -191,14 +220,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       }
 
       const targetGroup = chooseCenterGroupForNewPanel();
-      if (targetGroup) {
+      if (targetGroup && targetGroup.panels.length > 0) {
         targetGroup.api.setVisible(true);
         dockviewApi.addPanel({
           id: panelId,
           component: panelId,
           title,
           position: {
-            referenceGroup: targetGroup.id,
+            referencePanel: targetGroup.panels[0],
             direction: 'within',
           },
         });
@@ -233,7 +262,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const targetGroup = chooseCenterGroupForNewPanel();
 
-      if (targetGroup) {
+      if (targetGroup && targetGroup.panels.length > 0) {
         targetGroup.api.setVisible(true);
         dockviewApi.addPanel({
           id: panelId,
@@ -241,7 +270,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           title: fileName,
           params: { filePath },
           position: {
-            referenceGroup: targetGroup.id,
+            referencePanel: targetGroup.panels[0],
             direction: 'within',
           },
         });
@@ -267,40 +296,46 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const existingTerminal = dockviewApi.getPanel(PANEL_IDS.TERMINAL);
     let bottomGroup = dockviewApi.getGroup(GROUP_IDS.BOTTOM);
 
+    // Case 1: Both terminal and bottom group exist — just toggle visibility
     if (existingTerminal && bottomGroup) {
       bottomGroup.api.setVisible(!bottomGroup.api.isVisible);
       return;
     }
 
-    if (!bottomGroup) {
-      const centerGroups = dockviewApi.groups.filter((g) => {
-        const ids = g.panels.map((p) => p.id);
-        const isLeft = ids.some((id) => LEFT_PANEL_IDS.has(id));
-        const isBottom = ids.some((id) => BOTTOM_PANEL_IDS.has(id));
-        return !isLeft && !isBottom;
+    // Case 2: Bottom group exists but terminal was removed — re-add terminal
+    if (bottomGroup && !existingTerminal) {
+      bottomGroup.api.setVisible(true);
+      dockviewApi.addPanel({
+        id: PANEL_IDS.TERMINAL,
+        component: PANEL_IDS.TERMINAL,
+        title: 'Terminal',
+        position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
       });
-      const refPanel = centerGroups[0]?.panels[0];
-      if (!refPanel) return;
-
-      bottomGroup = dockviewApi.addGroup({
-        id: GROUP_IDS.BOTTOM,
-        referencePanel: refPanel,
-        direction: 'below',
-        locked: 'no-drop-target',
-        initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-      });
+      return;
     }
 
+    // Case 3: No bottom group — create it simply below center-1
+    // (Tree position may not span CENTER_2, but this avoids destroying CENTER_2 panels.
+    //  Correct spanning is ensured on next layout restore via validateTerminalPosition.)
+    const center1Group = dockviewApi.getGroup(GROUP_IDS.CENTER_1)
+      ?? dockviewApi.getPanel(PANEL_IDS.WELCOME)?.group;
+    const center1RefPanel = center1Group?.panels[0];
+    if (!center1RefPanel) return;
+
+    bottomGroup = dockviewApi.addGroup({
+      id: GROUP_IDS.BOTTOM,
+      referencePanel: center1RefPanel,
+      direction: 'below',
+      locked: 'no-drop-target',
+      initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
+    });
     bottomGroup.locked = 'no-drop-target';
+
     dockviewApi.addPanel({
       id: PANEL_IDS.TERMINAL,
       component: PANEL_IDS.TERMINAL,
       title: 'Terminal',
-      position: {
-        referenceGroup: GROUP_IDS.BOTTOM,
-        direction: 'within',
-      },
-      inactive: true,
+      position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
     });
   }, [dockviewApi]);
 
@@ -358,7 +393,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         referencePanel: centerRef,
         direction: 'left',
         hideHeader: true,
-        initialWidth: 300,
+        initialWidth: 220,
       });
     }
 
@@ -411,7 +446,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         referencePanel: centerRef,
         direction: 'left',
         hideHeader: true,
-        initialWidth: 300,
+        initialWidth: 220,
       });
     }
 
@@ -461,7 +496,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         referencePanel: centerRef,
         direction: 'left',
         hideHeader: true,
-        initialWidth: 300,
+        initialWidth: 220,
       });
     }
 
@@ -515,12 +550,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const toggleCenter1Visibility = useCallback(() => {
     if (!dockviewApi) return;
-    const group =
-      dockviewApi.getGroup(GROUP_IDS.CENTER_1) ??
-      dockviewApi.getPanel(PANEL_IDS.WELCOME)?.group;
-    if (!group) return;
-    group.api.setVisible(!group.api.isVisible);
-  }, [dockviewApi]);
+    const existingGroup = getCenter1Group();
+    if (existingGroup) {
+      existingGroup.api.setVisible(!existingGroup.api.isVisible);
+      return;
+    }
+    // Group was destroyed – rebuild and show it
+    const rebuilt = ensureCenter1Group();
+    if (rebuilt) {
+      rebuilt.api.setVisible(true);
+    }
+  }, [dockviewApi, getCenter1Group, ensureCenter1Group]);
 
   const toggleCenter2Visibility = useCallback(() => {
     if (!dockviewApi) return;
@@ -530,30 +570,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const centerGroups = getCenterGroups();
-    if (centerGroups.length === 1) {
-      const refPanel = centerGroups[0].panels[0];
-      if (!refPanel) return;
-
-      const targetGroup = dockviewApi.addGroup({
-        id: GROUP_IDS.CENTER_2,
-        referencePanel: refPanel,
-        direction: 'right',
-      });
-      targetGroup.api.setVisible(true);
-
-      dockviewApi.addPanel({
-        id: PANEL_IDS.WELCOME + '-2',
-        component: PANEL_IDS.WELCOME,
-        title: '预览',
-        position: {
-          referenceGroup: GROUP_IDS.CENTER_2,
-          direction: 'within',
-        },
-        inactive: true,
-      });
+    // Group was destroyed – rebuild it via ensureCenter2Group
+    const rebuilt = ensureCenter2Group();
+    if (rebuilt) {
+      rebuilt.api.setVisible(true);
     }
-  }, [dockviewApi, getCenterGroups]);
+  }, [dockviewApi, ensureCenter2Group]);
 
   const isCenter1Visible = useCallback(() => {
     if (!dockviewApi) return false;

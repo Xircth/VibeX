@@ -11,7 +11,7 @@ type ConfigWithTerminalPreferences = Config & {
   default_terminal_shell?: string | null;
 };
 
-export const DEFAULT_TERMINAL_PANEL_HEIGHT = 300;
+export const DEFAULT_TERMINAL_PANEL_HEIGHT = 200;
 
 export const TERMINAL_SHELL_OPTIONS: TerminalShellOption[] = [
   { value: '', label: 'Default' },

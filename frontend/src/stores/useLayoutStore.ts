@@ -93,17 +93,17 @@ export const useLayoutStore = create<LayoutState>()(
       setActiveTab: (tab) => set({ activeTab: tab }),
 
       resetLayout: () =>
-        set({
+        set((s) => ({
           serializedLayout: null,
           isFileTreeVisible: true,
           rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
           isRightPanelVisible: true,
-          activeTab: 'kanban' as WorkspaceTab,
-        }),
+          activeTab: s.activeTab,
+        })),
     }),
     {
       name: 'vibe-ultra-ide-layout',
-      version: 11,
+      version: 12,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const nextRightPanelWidth =

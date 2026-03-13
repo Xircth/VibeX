@@ -240,7 +240,7 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
       referencePanel: welcomePanel,
       direction: 'left',
       hideHeader: true,
-      initialWidth: 300,
+      initialWidth: 220,
     });
     api.addPanel({
       id: PANEL_IDS.FILE_TREE,
@@ -291,6 +291,90 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
 
     // Apply CSS class for left group header hiding
     applyLeftGroupHeaderHiding(api);
+  }, []);
+
+  /**
+   * Create bottom group at the correct level in the dockview layout tree.
+   *
+   * The bottom group must span across ALL center groups (center-1 + center-2).
+   * In dockview, the tree structure depends on creation order:
+   *   addGroup(below CENTER_1) THEN addGroup(right CENTER_1) → bottom spans both ✓
+   *   addGroup(right CENTER_1) THEN addGroup(below CENTER_1) → bottom only under center-1 ✗
+   *
+   * When CENTER_2 already exists, we must temporarily remove it, add bottom,
+   * then re-add CENTER_2 to get the correct tree hierarchy.
+   */
+  const createBottomGroupCorrectly = useCallback((api: DockviewApi, initialHeight?: number): ReturnType<DockviewApi['addGroup']> | undefined => {
+    const height = initialHeight ?? DEFAULT_TERMINAL_PANEL_HEIGHT;
+
+    // Find center-1 reference panel
+    const center1Group = api.getGroup(GROUP_IDS.CENTER_1) ?? api.getPanel(PANEL_IDS.WELCOME)?.group;
+    const center1RefPanel = center1Group?.panels[0];
+    if (!center1RefPanel) return undefined;
+
+    // If no CENTER_2 exists, we can simply add bottom below center-1
+    const center2Group = api.getGroup(GROUP_IDS.CENTER_2);
+    if (!center2Group) {
+      const bottomGroup = api.addGroup({
+        id: GROUP_IDS.BOTTOM,
+        referencePanel: center1RefPanel,
+        direction: 'below',
+        locked: 'no-drop-target',
+        initialHeight: height,
+      });
+      bottomGroup.locked = 'no-drop-target';
+      return bottomGroup;
+    }
+
+    // CENTER_2 exists — we must restructure:
+    // 1. Remember CENTER_2 panel info
+    // 2. Remove CENTER_2 entirely
+    // 3. Add BOTTOM (now spans full center area)
+    // 4. Re-create CENTER_2 with its panels
+    const center2PanelInfos: Array<{ id: string; component: string; title: string }> = [];
+    for (const panel of [...center2Group.panels]) {
+      center2PanelInfos.push({
+        id: panel.id,
+        component: (panel as unknown as { _component: string })._component ?? panel.id,
+        title: panel.title ?? panel.id,
+      });
+    }
+
+    // Remove CENTER_2 group and all its panels
+    api.removeGroup(center2Group);
+
+    // Add bottom group relative to center-1 (only center group now)
+    const bottomGroup = api.addGroup({
+      id: GROUP_IDS.BOTTOM,
+      referencePanel: center1RefPanel,
+      direction: 'below',
+      locked: 'no-drop-target',
+      initialHeight: height,
+    });
+    bottomGroup.locked = 'no-drop-target';
+
+    // Re-create CENTER_2 with its panels
+    if (center2PanelInfos.length > 0) {
+      api.addGroup({
+        id: GROUP_IDS.CENTER_2,
+        referencePanel: center1RefPanel,
+        direction: 'right',
+      });
+      for (const info of center2PanelInfos) {
+        api.addPanel({
+          id: info.id,
+          component: info.component,
+          title: info.title,
+          position: {
+            referenceGroup: GROUP_IDS.CENTER_2,
+            direction: 'within',
+          },
+          inactive: true,
+        });
+      }
+    }
+
+    return bottomGroup;
   }, []);
 
   const normalizeCanonicalGroupIds = useCallback((api: DockviewApi) => {
@@ -385,55 +469,59 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
    * Validate terminal position after layout restore.
    * If terminal ended up in the left sidebar group, move it back to center/bottom.
    */
+  /**
+   * Validate and fix terminal position after layout restore.
+   * Always rebuilds bottom group at the correct tree level to ensure
+   * it spans all center groups (not just center-1).
+   */
   const validateTerminalPosition = useCallback((api: DockviewApi) => {
     const terminalPanel = api.getPanel(PANEL_IDS.TERMINAL);
     if (!terminalPanel) return;
 
     const termGroup = terminalPanel.group;
-    const isInBottomGroup = termGroup.id === GROUP_IDS.BOTTOM;
+    const termHeight = termGroup.api.height || DEFAULT_TERMINAL_PANEL_HEIGHT;
+    const wasVisible = termGroup.api.isVisible;
 
-    if (isInBottomGroup) {
-      termGroup.locked = 'no-drop-target';
+    // Always rebuild bottom group to ensure correct tree position
+    // (fromJSON may restore it at the wrong level)
+    api.removePanel(terminalPanel);
+
+    // Remove old bottom group if it exists and is empty
+    const oldBottomGroup = api.getGroup(GROUP_IDS.BOTTOM);
+    if (oldBottomGroup && oldBottomGroup.panels.length === 0) {
+      try { api.removeGroup(oldBottomGroup); } catch { /* ignore */ }
+    }
+
+    // If bottom group still has other panels, just re-add terminal
+    const existingBottom = api.getGroup(GROUP_IDS.BOTTOM);
+    if (existingBottom) {
+      existingBottom.locked = 'no-drop-target';
+      api.addPanel({
+        id: PANEL_IDS.TERMINAL,
+        component: PANEL_IDS.TERMINAL,
+        title: 'Terminal',
+        position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
+        inactive: true,
+      });
       return;
     }
 
-    api.removePanel(terminalPanel);
+    // Create bottom group at the correct tree level
+    const bottomGroup = createBottomGroupCorrectly(api, termHeight);
+    if (!bottomGroup) return;
 
-    let bottomGroup = api.getGroup(GROUP_IDS.BOTTOM);
-    if (!bottomGroup) {
-      const centerGroups = api.groups.filter((g) => {
-        const ids = g.panels.map((p) => p.id);
-        const isLeft = ids.some(
-          (id) => id === PANEL_IDS.FILE_TREE || id === PANEL_IDS.GIT
-        );
-        const isBottom = ids.some((id) => id === PANEL_IDS.TERMINAL);
-        return !isLeft && !isBottom;
-      });
-      const refPanel = centerGroups[0]?.panels[0];
-      if (!refPanel) {
-        return;
-      }
-      bottomGroup = api.addGroup({
-        id: GROUP_IDS.BOTTOM,
-        referencePanel: refPanel,
-        direction: 'below',
-        locked: 'no-drop-target',
-        initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-      });
-    }
-
-    bottomGroup.locked = 'no-drop-target';
     api.addPanel({
       id: PANEL_IDS.TERMINAL,
       component: PANEL_IDS.TERMINAL,
       title: 'Terminal',
-      position: {
-        referenceGroup: GROUP_IDS.BOTTOM,
-        direction: 'within',
-      },
+      position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
       inactive: true,
     });
-  }, []);
+
+    if (!wasVisible) {
+      bottomGroup.api.setVisible(false);
+    }
+  }, [createBottomGroupCorrectly]);
 
   /**
    * Handle dockview ready event.
@@ -491,7 +579,7 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
           referencePanel: centerRef,
           direction: 'left',
           hideHeader: true,
-          initialWidth: 300,
+          initialWidth: 220,
         });
       }
 
@@ -510,15 +598,8 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
 
       let bottomGroup = api.getGroup(GROUP_IDS.BOTTOM);
       if (!bottomGroup) {
-        const centerRef = api.getPanel(PANEL_IDS.WELCOME) ?? api.panels[0];
-        if (!centerRef) return;
-        bottomGroup = api.addGroup({
-          id: GROUP_IDS.BOTTOM,
-          referencePanel: centerRef,
-          direction: 'below',
-          locked: 'no-drop-target',
-          initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-        });
+        bottomGroup = createBottomGroupCorrectly(api);
+        if (!bottomGroup) return;
       }
 
       if (!api.getPanel(PANEL_IDS.TERMINAL)) {
@@ -617,6 +698,32 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
       setDockviewApi(null);
     };
   }, [setDockviewApi]);
+
+  // Track previous serializedLayout to detect reset (non-null → null)
+  const prevSerializedLayoutRef = useRef(serializedLayout);
+  useEffect(() => {
+    const prev = prevSerializedLayoutRef.current;
+    prevSerializedLayoutRef.current = serializedLayout;
+
+    // Detect reset: previous value was non-null, now it's null
+    if (prev !== null && serializedLayout === null) {
+      const api = apiRef.current;
+      if (!api) return;
+
+      // Remove all existing groups (which also removes their panels)
+      for (const group of [...api.groups]) {
+        try { api.removeGroup(group); } catch { /* ignore */ }
+      }
+      // Remove any orphaned panels
+      for (const panel of [...api.panels]) {
+        try { api.removePanel(panel); } catch { /* ignore */ }
+      }
+
+      // Rebuild default layout
+      buildDefaultLayout(api);
+      normalizeCanonicalGroupIds(api);
+    }
+  }, [serializedLayout, buildDefaultLayout, normalizeCanonicalGroupIds]);
 
   useEffect(() => {
     const api = apiRef.current;

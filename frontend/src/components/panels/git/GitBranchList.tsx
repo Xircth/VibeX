@@ -1,5 +1,19 @@
-import { memo, useState, useCallback } from 'react';
-import { GitBranch as GitBranchIcon, Plus, Trash2, Check, Loader2, Globe } from 'lucide-react';
+import { memo, useState, useCallback, useMemo } from 'react';
+import {
+  GitBranch as GitBranchIcon,
+  Plus,
+  Trash2,
+  Check,
+  Loader2,
+  Globe,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
+  Zap,
+  Bug,
+  Tag,
+  GitMerge,
+} from 'lucide-react';
 import type { GitBranch } from 'shared/types';
 
 interface GitBranchListProps {
@@ -25,12 +39,52 @@ function formatRelativeTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
+interface BranchGroup {
+  key: string;
+  label: string;
+  items: GitBranch[];
+}
+
+function getBranchScope(name: string): string {
+  const slashIndex = name.indexOf('/');
+  if (slashIndex <= 0) return '__root__';
+  return name.slice(0, slashIndex);
+}
+
+function getBranchLeafName(name: string): string {
+  const slashIndex = name.indexOf('/');
+  if (slashIndex <= 0) return name;
+  return name.slice(slashIndex + 1);
+}
+
+/** Get scope-specific icon for branch groups */
+function getScopeIcon(scope: string): React.ReactNode {
+  const cls = 'h-3 w-3 shrink-0';
+  switch (scope.toLowerCase()) {
+    case 'feature':
+    case 'feat':
+      return <Zap className={`${cls} text-blue-400`} />;
+    case 'fix':
+    case 'bugfix':
+    case 'hotfix':
+      return <Bug className={`${cls} text-orange-400`} />;
+    case 'release':
+      return <Tag className={`${cls} text-green-400`} />;
+    case 'merge':
+      return <GitMerge className={`${cls} text-purple-400`} />;
+    default:
+      return <FolderOpen className={`${cls} text-muted-foreground/60`} />;
+  }
+}
+
 const BranchRow = memo(function BranchRow({
   branch,
+  showLeafName,
   onCheckout,
   onDelete,
 }: {
   branch: GitBranch;
+  showLeafName?: boolean;
   onCheckout: (name: string) => Promise<void>;
   onDelete: (name: string) => Promise<void>;
 }) {
@@ -46,39 +100,54 @@ const BranchRow = memo(function BranchRow({
     }
   }, [branch.name, branch.is_current, branch.is_remote, onCheckout]);
 
-  const handleDelete = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (branch.is_current) return;
-    if (!window.confirm(`Delete branch "${branch.name}"? This cannot be undone.`)) return;
-    setActionLoading(true);
-    try {
-      await onDelete(branch.name);
-    } finally {
-      setActionLoading(false);
-    }
-  }, [branch.name, branch.is_current, onDelete]);
+  const handleDelete = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (branch.is_current) return;
+      if (!window.confirm(`Delete branch "${branch.name}"? This cannot be undone.`)) return;
+      setActionLoading(true);
+      try {
+        await onDelete(branch.name);
+      } finally {
+        setActionLoading(false);
+      }
+    },
+    [branch.name, branch.is_current, onDelete]
+  );
+
+  const displayName = showLeafName ? getBranchLeafName(branch.name) : branch.name;
 
   return (
     <div
-      className={`flex items-center gap-2 px-2 py-1.5 text-xs group cursor-pointer transition-colors ${
+      className={`flex items-center gap-2 px-2.5 py-1.5 text-xs group cursor-pointer transition-colors ${
         branch.is_current
-          ? 'bg-accent/40 text-foreground'
-          : 'hover:bg-accent/20 text-foreground/80'
+          ? 'bg-green-500/8 border-l-2 border-l-green-500 text-foreground'
+          : 'hover:bg-accent/20 border-l-2 border-l-transparent text-foreground/80'
       }`}
       onClick={handleCheckout}
-      title={branch.is_current ? 'Current branch' : branch.is_remote ? 'Remote branch' : `Switch to ${branch.name}`}
+      title={
+        branch.is_current
+          ? 'Current branch'
+          : branch.is_remote
+            ? 'Remote branch'
+            : `Switch to ${branch.name}`
+      }
     >
       {actionLoading ? (
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
       ) : branch.is_current ? (
-        <Check className="h-3.5 w-3.5 shrink-0 text-green-400" />
+        <div className="shrink-0 w-4 h-4 rounded-full bg-green-500/20 flex items-center justify-center">
+          <Check className="h-3 w-3 text-green-400" />
+        </div>
       ) : branch.is_remote ? (
-        <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <Globe className="h-3.5 w-3.5 shrink-0 text-purple-400/60" />
       ) : (
         <GitBranchIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       )}
 
-      <span className="flex-1 truncate font-mono text-[11px]">{branch.name}</span>
+      <span className={`flex-1 truncate font-mono text-[11px] ${branch.is_current ? 'font-semibold' : ''}`}>
+        {displayName}
+      </span>
 
       <span className="text-[10px] text-muted-foreground shrink-0">
         {formatRelativeTime(new Date(branch.last_commit_date))}
@@ -97,6 +166,51 @@ const BranchRow = memo(function BranchRow({
   );
 });
 
+const BranchGroupSection = memo(function BranchGroupSection({
+  group,
+  defaultOpen,
+  onCheckout,
+  onDelete,
+}: {
+  group: BranchGroup;
+  defaultOpen?: boolean;
+  onCheckout: (name: string) => Promise<void>;
+  onDelete: (name: string) => Promise<void>;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen ?? true);
+  const isRoot = group.key === '__root__';
+
+  return (
+    <div>
+      <button
+        className="w-full flex items-center gap-1.5 px-2.5 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wider bg-background/50 hover:bg-accent/10 transition-colors"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        {isOpen ? (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0" />
+        )}
+        {!isRoot && getScopeIcon(group.key)}
+        <span>{group.label}</span>
+        <span className="ml-1 px-1.5 py-0 rounded-full bg-foreground/10 text-muted-foreground/60 font-mono text-[9px]">
+          {group.items.length}
+        </span>
+      </button>
+      {isOpen &&
+        group.items.map((branch) => (
+          <BranchRow
+            key={branch.name}
+            branch={branch}
+            showLeafName={!isRoot}
+            onCheckout={onCheckout}
+            onDelete={onDelete}
+          />
+        ))}
+    </div>
+  );
+});
+
 export const GitBranchList = memo(function GitBranchList({
   branches,
   isLoading,
@@ -109,8 +223,58 @@ export const GitBranchList = memo(function GitBranchList({
   const [newBranchName, setNewBranchName] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
 
-  const localBranches = branches.filter((b) => !b.is_remote);
-  const remoteBranches = branches.filter((b) => b.is_remote);
+  const localBranches = useMemo(() => branches.filter((b) => !b.is_remote), [branches]);
+  const remoteBranches = useMemo(() => branches.filter((b) => b.is_remote), [branches]);
+
+  // Group local branches by scope (prefix before first /)
+  const groupedLocalBranches = useMemo<BranchGroup[]>(() => {
+    const groups = new Map<string, GitBranch[]>();
+
+    for (const branch of localBranches) {
+      const scope = getBranchScope(branch.name);
+      const items = groups.get(scope) ?? [];
+      items.push(branch);
+      groups.set(scope, items);
+    }
+
+    return Array.from(groups.entries())
+      .sort(([left], [right]) => {
+        if (left === '__root__') return -1;
+        if (right === '__root__') return 1;
+        return left.localeCompare(right);
+      })
+      .map(([key, items]) => ({
+        key,
+        label: key === '__root__' ? 'Main' : key.toUpperCase(),
+        items: items.slice().sort((a, b) => {
+          // current branch first
+          if (a.is_current) return -1;
+          if (b.is_current) return 1;
+          return a.name.localeCompare(b.name);
+        }),
+      }));
+  }, [localBranches]);
+
+  // Group remote branches by remote name (origin, upstream, etc.)
+  const groupedRemoteBranches = useMemo<BranchGroup[]>(() => {
+    const groups = new Map<string, GitBranch[]>();
+
+    for (const branch of remoteBranches) {
+      const slashIdx = branch.name.indexOf('/');
+      const remoteName = slashIdx > 0 ? branch.name.slice(0, slashIdx) : 'unknown';
+      const items = groups.get(remoteName) ?? [];
+      items.push(branch);
+      groups.set(remoteName, items);
+    }
+
+    return Array.from(groups.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, items]) => ({
+        key,
+        label: key.toUpperCase(),
+        items: items.slice().sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+  }, [remoteBranches]);
 
   const handleCreate = useCallback(async () => {
     const trimmed = newBranchName.trim();
@@ -143,9 +307,17 @@ export const GitBranchList = memo(function GitBranchList({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <div className="flex items-center gap-2 px-2 py-1.5 border-b border-border/30 text-xs">
+      <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/30 text-xs">
+        <GitBranchIcon className="h-3.5 w-3.5 text-blue-400 shrink-0" />
         <span className="font-medium text-foreground">Branches</span>
-        <span className="text-muted-foreground text-[10px]">{localBranches.length} local</span>
+        <span className="px-1.5 py-0 rounded-full bg-foreground/10 text-muted-foreground text-[10px] font-mono">
+          {localBranches.length}
+        </span>
+        {remoteBranches.length > 0 && (
+          <span className="px-1.5 py-0 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-mono">
+            {remoteBranches.length} remote
+          </span>
+        )}
         <div className="flex-1" />
         <button
           className="p-0.5 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors"
@@ -187,42 +359,74 @@ export const GitBranchList = memo(function GitBranchList({
       {/* Branch list */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && branches.length === 0 && (
-          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
             Loading branches...
           </div>
         )}
 
-        {/* Local branches */}
-        {localBranches.length > 0 && (
+        {/* Local branches - grouped */}
+        {groupedLocalBranches.length > 0 && (
           <div>
-            <div className="px-2 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wider bg-background/50">
-              Local
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/30 border-b border-border/20">
+              <GitBranchIcon className="h-3 w-3" />
+              <span>Local</span>
             </div>
-            {localBranches.map((branch) => (
-              <BranchRow
-                key={branch.name}
-                branch={branch}
-                onCheckout={onCheckout}
-                onDelete={onDelete}
-              />
-            ))}
+            {groupedLocalBranches.length === 1 && groupedLocalBranches[0].key === '__root__' ? (
+              // Only root group - render flat (no sub-grouping needed)
+              groupedLocalBranches[0].items.map((branch) => (
+                <BranchRow
+                  key={branch.name}
+                  branch={branch}
+                  onCheckout={onCheckout}
+                  onDelete={onDelete}
+                />
+              ))
+            ) : (
+              // Multiple groups - render with grouping
+              groupedLocalBranches.map((group) => (
+                <BranchGroupSection
+                  key={group.key}
+                  group={group}
+                  defaultOpen={group.key === '__root__'}
+                  onCheckout={onCheckout}
+                  onDelete={onDelete}
+                />
+              ))
+            )}
           </div>
         )}
 
-        {/* Remote branches */}
-        {remoteBranches.length > 0 && (
+        {/* Remote branches - grouped by remote */}
+        {groupedRemoteBranches.length > 0 && (
           <div>
-            <div className="px-2 py-1 text-[10px] text-muted-foreground font-medium uppercase tracking-wider bg-background/50">
-              Remote
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/30 border-b border-border/20">
+              <Globe className="h-3 w-3 text-purple-400/60" />
+              <span>Remote</span>
             </div>
-            {remoteBranches.map((branch) => (
-              <BranchRow
-                key={branch.name}
-                branch={branch}
-                onCheckout={onCheckout}
-                onDelete={onDelete}
-              />
-            ))}
+            {groupedRemoteBranches.length === 1 ? (
+              // Single remote - render flat
+              groupedRemoteBranches[0].items.map((branch) => (
+                <BranchRow
+                  key={branch.name}
+                  branch={branch}
+                  showLeafName
+                  onCheckout={onCheckout}
+                  onDelete={onDelete}
+                />
+              ))
+            ) : (
+              // Multiple remotes - render with grouping
+              groupedRemoteBranches.map((group) => (
+                <BranchGroupSection
+                  key={group.key}
+                  group={group}
+                  defaultOpen={false}
+                  onCheckout={onCheckout}
+                  onDelete={onDelete}
+                />
+              ))
+            )}
           </div>
         )}
 

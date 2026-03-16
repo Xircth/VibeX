@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import Prism, { type Grammar } from "prismjs";
 import "prismjs/components/prism-bash";
 import "prismjs/components/prism-c";
@@ -34,13 +35,14 @@ function escapeHtml(value: string) {
 
 /**
  * Defense-in-depth sanitizer for Prism.highlight output.
- * Prism only emits `<span class="token ...">` tags with HTML-escaped content,
- * but we strip anything unexpected as a safety net against potential Prism bugs.
+ * Uses DOMPurify to cover all XSS vectors (script, iframe, svg/onload,
+ * javascript: URLs, etc.) while preserving Prism's `<span class="token ...">` tags.
  */
 function sanitizePrismHtml(html: string): string {
-  return html
-    .replace(/<script[\s>][\s\S]*?<\/script>/gi, "")
-    .replace(/\bon\w+\s*=/gi, "data-removed=");
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["span"],
+    ALLOWED_ATTR: ["class"],
+  });
 }
 
 export function languageFromPath(path?: string | null) {

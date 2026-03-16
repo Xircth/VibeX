@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/capabilities.json",
   "identifier": "default",
   "description": "Default capabilities for the main window",
-  "windows": ["main"],
+  "windows": ["main", "settings"],
   "permissions": [
     "core:default",
     "shell:allow-open",
@@ -15,6 +15,12 @@
       "identifier": "fs:allow-write",
       "allow": [{ "path": "**" }]
     },
-    "dialog:default"
+    "dialog:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "core:window:allow-set-focus"
   ]
 }

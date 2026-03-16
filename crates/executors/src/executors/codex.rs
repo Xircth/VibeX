@@ -485,6 +485,7 @@ impl Codex {
         let (program_path, args) = command_parts.into_resolved().await?;
 
         let mut process = Command::new(program_path);
+        workspace_utils::process::configure_tokio_command_no_window(&mut process);
         process
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())

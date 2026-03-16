@@ -1,0 +1,177 @@
+/* ============================================
+ * AI Conversation — Tool Call, Terminal & Thinking
+ * Tool call card, status dots, expanded details,
+ * terminal output, and thinking block styles
+ * ============================================ */
+
+/* =========================================
+ * Tool Call Card (mossx-style pill)
+ * ========================================= */
+
+.conv-tool-card {
+  border: 1.5px solid var(--conv-border-subtle) !important;
+  border-radius: 10px !important;
+  background: var(--conv-surface-control) !important;
+  transition: background 0.15s, border-color 0.15s;
+  font-size: 13px;
+}
+
+.conv-tool-card:hover {
+  background: var(--conv-surface-card) !important;
+}
+
+.conv-tool-card-success {
+  border-color: var(--conv-tool-success) !important;
+}
+
+.conv-tool-card-error {
+  border-color: var(--conv-tool-error) !important;
+}
+
+.conv-tool-card-pending {
+  border-color: var(--conv-tool-pending) !important;
+}
+
+/* Tool card label */
+.conv-tool-label {
+  color: var(--conv-text-primary);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+/* Tool card detail text */
+.conv-tool-detail {
+  color: var(--conv-text-secondary);
+  font-size: 12px;
+}
+
+/* Tool card icon color */
+.conv-tool-icon {
+  color: var(--conv-tool-icon);
+}
+
+/* Tool status dots */
+.conv-tool-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.conv-tool-dot-success {
+  background: var(--conv-tool-success);
+}
+
+.conv-tool-dot-error {
+  background: var(--conv-tool-error);
+}
+
+.conv-tool-dot-pending {
+  background: var(--conv-tool-pending);
+  animation: conv-breathing 1.5s ease-in-out infinite;
+}
+
+@keyframes conv-breathing {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Tool expanded details panel */
+.conv-tool-details {
+  border: 1.5px solid var(--conv-border-subtle);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: var(--conv-surface-card);
+  max-height: 400px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.conv-tool-details-section-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--conv-text-tertiary);
+  background: var(--conv-surface-control);
+  border-bottom: 1px dashed var(--conv-border-subtle);
+  padding: 4px 10px;
+}
+
+.conv-tool-details-content {
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* =========================================
+ * Terminal Output (dark terminal style)
+ * ========================================= */
+
+.conv-terminal-output {
+  background: var(--conv-terminal-bg);
+  color: var(--conv-terminal-text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: 'Cascadia Code', 'Fira Code', 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+/* =========================================
+ * Thinking Block
+ * ========================================= */
+
+.conv-thinking {
+  border-left: 2px solid var(--conv-thinking-border);
+  background: var(--conv-thinking-bg);
+  border-radius: 0 8px 8px 0;
+  padding: 8px 12px;
+}
+
+.conv-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--conv-text-secondary);
+  user-select: none;
+  transition: opacity 0.2s;
+}
+
+.conv-thinking-header:hover {
+  opacity: 0.75;
+}
+
+.conv-thinking-chevron {
+  transition: transform 0.2s;
+}
+
+.conv-thinking-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.conv-thinking-content {
+  margin-top: 8px;
+  font-style: italic;
+  opacity: 0.7;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@keyframes conv-thinking-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.conv-thinking-live .conv-thinking-header {
+  animation: conv-thinking-pulse 2s ease-in-out infinite;
+}

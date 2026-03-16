@@ -54,10 +54,14 @@ export function useGitBranches({
 
   const checkoutBranch = useCallback(
     async (name: string) => {
-      if (!workspaceId || !repoId) return;
+      if (!repoId) return;
       setError(null);
       try {
-        await attemptsApi.checkoutBranch(workspaceId, repoId, name);
+        if (workspaceId) {
+          await attemptsApi.checkoutBranch(workspaceId, repoId, name);
+        } else {
+          await repoApi.checkoutBranch(repoId, name);
+        }
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -69,10 +73,14 @@ export function useGitBranches({
 
   const createBranch = useCallback(
     async (name: string, fromRef?: string) => {
-      if (!workspaceId || !repoId) return;
+      if (!repoId) return;
       setError(null);
       try {
-        await attemptsApi.createBranch(workspaceId, repoId, name, fromRef);
+        if (workspaceId) {
+          await attemptsApi.createBranch(workspaceId, repoId, name, fromRef);
+        } else {
+          await repoApi.createBranch(repoId, name, fromRef);
+        }
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -84,10 +92,14 @@ export function useGitBranches({
 
   const deleteBranch = useCallback(
     async (name: string) => {
-      if (!workspaceId || !repoId) return;
+      if (!repoId) return;
       setError(null);
       try {
-        await attemptsApi.deleteBranch(workspaceId, repoId, name);
+        if (workspaceId) {
+          await attemptsApi.deleteBranch(workspaceId, repoId, name);
+        } else {
+          await repoApi.deleteBranch(repoId, name);
+        }
         await refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));

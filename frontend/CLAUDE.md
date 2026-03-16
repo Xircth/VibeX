@@ -1,72 +1,41 @@
-## New Design System Styling Guidelines
+## Styling Guidelines
 
-### CSS Variables & Tailwind Config
+### CSS Architecture
 
-The new design uses custom CSS variables defined in `src/styles/new/index.css` and configured in `tailwind.new.config.js`. All styles are scoped to the `.new-design` class.
+The project uses a **Legacy Design** system with Tailwind CSS. All routes are wrapped in `LegacyDesignScope`.
 
-### Colors
+**Key CSS files:**
+- `src/styles/legacy/index.css` — Main entry, Tailwind base + theme variables
+- `src/styles/conversation.css` — AI conversation UI (uses `--conv-*` CSS variables)
+- `src/styles/file-tree.css` — File tree panel (uses mossx bridge variables)
+- `src/styles/diff-style-overrides.css` — Diff viewer overrides
+- `src/styles/dockview-ayu.css` — Dockview theme (injected via `?raw`)
 
-**Text colors** (use these instead of `text-gray-*`):
-- `text-high` - Primary text, highest contrast
-- `text-normal` - Standard text
-- `text-low` - Muted/secondary text, placeholders
+### Theme System
 
-**Background colors**:
-- `bg-primary` - Main background
-- `bg-secondary` - Slightly darker, used for inputs, cards, sidebars
-- `bg-panel` - Panel/elevated surfaces
+Dark/light mode is toggled via `.dark` class on the root element.
 
-**Accent colors**:
-- `brand` - Orange accent (`hsl(25 82% 54%)`)
-- `error` - Error states
-- `success` - Success states
+**CSS variable conventions:**
+- Legacy theme: `--background`, `--foreground`, `--border`, `--muted`, etc. (HSL values)
+- Conversation: `--conv-*` variables defined in `conversation.css`
+- File tree: bridge variables mapping legacy tokens to mossx naming
 
-### Typography
+**Rules:**
+- Always use CSS variables or Tailwind classes for colors — never hardcode HEX values
+- Dark mode variants use `.dark` selector prefix
+- Diff overrides use `data-theme='dark'` attribute (legacy pattern from @git-diff-view)
 
-**Font families**:
-- `font-ibm-plex-sans` - Default sans-serif
-- `font-ibm-plex-mono` - Monospace/code
+### Tailwind Config
 
-**Font sizes** (smaller than typical Tailwind defaults):
-- `text-xs` - 8px
-- `text-sm` - 10px
-- `text-base` - 12px (default)
-- `text-lg` - 14px
-- `text-xl` - 16px
+- Config file: `tailwind.legacy.config.js`
+- shadcn/ui config: `components.json` points to `src/styles/legacy/index.css`
 
-### Spacing
-
-Custom spacing tokens:
-- `p-half` / `m-half` - 6px
-- `p-base` / `m-base` - 12px
-- `p-double` / `m-double` - 24px
-
-### Border Radius
-
-Uses a small radius by default (`--radius: 0.125rem`):
-- `rounded` - Default small radius
-- `rounded-sm`, `rounded-md`, `rounded-lg` - Progressively larger
-
-### Focus States
-
-Focus rings use `ring-brand` (orange) and are inset by default.
-
-### Example Component Styling
+### Component Styling
 
 ```tsx
-// Input field
-className="px-base bg-secondary rounded border text-base text-normal placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
+// Use Tailwind utility classes with theme tokens
+className="bg-background text-foreground border-border"
 
-// Button (icon)
-className="flex items-center justify-center bg-secondary rounded border text-low hover:text-normal"
-
-// Sidebar container
-className="w-64 bg-secondary shrink-0 p-base"
+// Dark mode responsive
+className="bg-white dark:bg-gray-900"
 ```
-
-### Architecture Rules
-
-- **View components** (in `views/`) should be stateless - receive all data via props
-- **Container components** (in `containers/`) manage state and pass to views
-- **UI components** (in `ui-new/`) are reusable primitives
-- File names in `ui-new/` must be **PascalCase** (e.g., `Field.tsx`, `Label.tsx`)

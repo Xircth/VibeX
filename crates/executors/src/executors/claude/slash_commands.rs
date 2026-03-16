@@ -206,6 +206,7 @@ impl ClaudeCode {
         let (program_path, args) = command_parts.into_resolved().await?;
 
         let mut command = Command::new(program_path);
+        workspace_utils::process::configure_tokio_command_no_window(&mut command);
         command
             .kill_on_drop(true)
             .stdin(Stdio::null())

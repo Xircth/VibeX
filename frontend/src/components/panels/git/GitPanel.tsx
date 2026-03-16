@@ -12,8 +12,10 @@ import {
   LayoutList,
   FolderTree,
 } from 'lucide-react';
+import { useParams } from 'react-router-dom';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
+import { useProjectRepos } from '@/hooks';
 import {
   useGitStatus,
   useGitDiffs,
@@ -57,9 +59,16 @@ function LoadingState() {
 export function GitPanel() {
   const { activeWorktreeId } = useWorktree();
   const { selectedRepoId } = useAttemptRepo(activeWorktreeId ?? undefined);
+  const { projectId } = useParams<{ projectId?: string }>();
+
+  // When no workspace is active, fall back to the project's first repo
+  const { data: projectRepos = [] } = useProjectRepos(projectId, {
+    enabled: !activeWorktreeId && !!projectId,
+  });
+  const fallbackRepoId = projectRepos[0]?.id ?? null;
 
   const workspaceId = activeWorktreeId ?? null;
-  const repoId = selectedRepoId ?? null;
+  const repoId = selectedRepoId ?? fallbackRepoId;
 
   const {
     mode,
@@ -109,7 +118,7 @@ export function GitPanel() {
     pullLoading,
     fetchLoading,
     commitError,
-    pushError,
+    operationError,
     onCommit,
     onCommitAndPush,
     onPush,
@@ -174,7 +183,7 @@ export function GitPanel() {
     revertAll();
   }, [revertAll]);
 
-  if (!activeWorktreeId) return <EmptyState />;
+  if (!activeWorktreeId && !repoId) return <EmptyState />;
   if (statusLoading && !branchName) return <LoadingState />;
 
   return (
@@ -324,7 +333,7 @@ export function GitPanel() {
             commitLoading={commitLoading}
             pushLoading={pushLoading}
             commitError={commitError}
-            pushError={pushError}
+            operationError={operationError}
             commitsAhead={gitLog.ahead}
             onCommit={onCommit}
             onCommitAndPush={onCommitAndPush}
@@ -372,6 +381,9 @@ export function GitPanel() {
           upstream={gitLog.upstream}
           branchName={gitLog.branchName || branchName}
           loading={gitLog.isLoading}
+          workspaceId={workspaceId}
+          repoId={repoId}
+          onRefresh={gitLog.refresh}
         />
       )}
 

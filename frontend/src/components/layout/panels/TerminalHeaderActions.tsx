@@ -67,7 +67,6 @@ function TerminalHeaderActionsInner() {
         onClick={stopPropagation}
         className="h-6 text-[11px] bg-transparent border border-border rounded px-1 text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer"
         title="Shell type"
-        disabled={!workspaceKey}
       >
         {TERMINAL_SHELL_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>

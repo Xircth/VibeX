@@ -1,0 +1,90 @@
+/*
+ * file-tree-git.css
+ *
+ * Git status colors for file tree entries (added, modified, deleted, renamed, type-changed),
+ * gitignored file styling, active toggle state, and inline new file/folder input.
+ */
+
+/* Git status colors in file tree — Light mode */
+.file-tree-name.git-a {
+  color: var(--status-success, #2da44e);
+}
+
+.file-tree-name.git-m {
+  color: #2a7ab5;
+}
+
+.file-tree-name.git-d {
+  color: var(--status-error, #cf222e);
+  text-decoration: line-through;
+}
+
+.file-tree-name.git-r {
+  color: #8b5fcf;
+}
+
+.file-tree-name.git-t {
+  color: var(--status-warning, #bf8700);
+}
+
+/* Git status colors — Dark mode */
+.dark .file-tree-name.git-a {
+  color: #89d185;
+}
+
+.dark .file-tree-name.git-m {
+  color: #6bb3f0;
+}
+
+.dark .file-tree-name.git-d {
+  color: #ff6b6b;
+  text-decoration: line-through;
+}
+
+.dark .file-tree-name.git-r {
+  color: #c9a3f5;
+}
+
+.dark .file-tree-name.git-t {
+  color: #f5c363;
+}
+
+/* Gitignored files */
+.file-tree-row.is-gitignored {
+  opacity: 0.5;
+}
+
+.file-tree-row.is-gitignored .file-tree-name {
+  font-style: italic;
+}
+
+.file-tree-toggle.is-active {
+  color: var(--text-emphasis);
+  background: var(--surface-active);
+  border-color: var(--border-accent);
+}
+
+/* ── Inline new file/folder input ── */
+
+.file-tree-inline-new-row {
+  background: color-mix(in srgb, var(--surface-active) 40%, transparent);
+  border-color: var(--border-accent);
+}
+
+.file-tree-inline-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: 11px;
+  font-family: var(--code-font-family);
+  padding: 0;
+  line-height: 1.4;
+}
+
+.file-tree-inline-input::placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}

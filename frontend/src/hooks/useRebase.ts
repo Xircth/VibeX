@@ -1,14 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { attemptsApi, Result } from '@/lib/api';
+import { attemptsApi, type RebaseResult } from '@/lib/api';
 import type { RebaseTaskAttemptRequest } from 'shared/types';
-import type { GitOperationError } from 'shared/types';
 import { repoBranchKeys } from './useRepoBranches';
 
 export function useRebase(
   attemptId: string | undefined,
   repoId: string | undefined,
   onSuccess?: () => void,
-  onError?: (err: Result<void, GitOperationError>) => void
+  onError?: (err: RebaseResult) => void
 ) {
   const queryClient = useQueryClient();
 
@@ -18,7 +17,7 @@ export function useRebase(
     oldBaseBranch?: string;
   };
 
-  return useMutation<void, Result<void, GitOperationError>, RebaseMutationArgs>(
+  return useMutation<void, RebaseResult, RebaseMutationArgs>(
     {
       mutationFn: (args) => {
         if (!attemptId) return Promise.resolve();
@@ -31,8 +30,7 @@ export function useRebase(
         };
 
         return attemptsApi.rebase(attemptId, data).then((res) => {
-          if (!res.success) {
-            // Propagate typed failure Result for caller to handle (no manual ApiError construction)
+          if (res.error) {
             return Promise.reject(res);
           }
         });
@@ -62,8 +60,7 @@ export function useRebase(
 
         onSuccess?.();
       },
-      onError: (err: Result<void, GitOperationError>) => {
-        console.error('Failed to rebase:', err);
+      onError: (err: RebaseResult) => {
         // Even on failure (likely conflicts), re-fetch branch status immediately to show rebase-in-progress
         queryClient.invalidateQueries({
           queryKey: ['branchStatus', attemptId],

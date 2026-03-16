@@ -19,8 +19,8 @@ ts-rs = { workspace = true }
 rust-embed = "8.2"
 directories = "6.0.0"
 open = "5.3.2"
-regex = "1.11.1"
-json-patch = "2.0"
+regex = { workspace = true }
+json-patch = { workspace = true }
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 tokio = { workspace = true }
 futures = { workspace = true }
@@ -29,9 +29,9 @@ shellexpand = "3.1.1"
 which = "8.0.0"
 similar = "2"
 git2 = { workspace = true }
-dirs = "5.0"
+dirs = { workspace = true }
 thiserror = { workspace = true }
-command-group = { version = "5.0", features = ["with-tokio"] }
+command-group = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }

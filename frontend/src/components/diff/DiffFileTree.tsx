@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, File } from 'lucide-react';
 
 interface DiffFile {
   id: string;
@@ -54,23 +54,29 @@ function TreeNodeView({ node, depth, onFileClick }: TreeNodeViewProps) {
   const [collapsed, setCollapsed] = useState(false);
   const children = Object.values(node.children);
   const isDir = !node.file && children.length > 0;
-  const indent = depth * 12;
+  const indent = depth * 14;
 
   if (node.file) {
+    const hasStats = node.file.additions != null || node.file.deletions != null;
     return (
       <button
         onClick={() => onFileClick(node.file!.id)}
-        className="w-full flex items-center gap-1.5 px-2 py-0.5 text-left hover:bg-accent/50 rounded-sm"
-        style={{ paddingLeft: `${8 + indent}px` }}
+        className="w-full flex items-center gap-1.5 px-2 py-[3px] text-left hover:bg-accent/50 group"
+        style={{ paddingLeft: `${10 + indent}px` }}
       >
-        <span className={`text-[10px] font-medium px-0.5 rounded shrink-0 ${node.file.badge.color}`}>
+        <span className={`text-[10px] font-semibold w-4 text-center leading-none shrink-0 rounded-sm ${node.file.badge.color}`}>
           {node.file.badge.label}
         </span>
-        <span className="text-xs truncate text-foreground flex-1">{node.name}</span>
-        {(node.file.additions != null || node.file.deletions != null) && (
-          <span className="text-[10px] shrink-0">
-            <span className="text-green-600">+{node.file.additions ?? 0}</span>
-            <span className="text-red-600 ml-0.5">-{node.file.deletions ?? 0}</span>
+        <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+        <span className="text-xs truncate text-foreground/90 flex-1 font-mono">{node.name}</span>
+        {hasStats && (
+          <span className="text-[10px] shrink-0 font-mono opacity-70 group-hover:opacity-100">
+            {(node.file.additions ?? 0) > 0 && (
+              <span className="text-green-600">+{node.file.additions}</span>
+            )}
+            {(node.file.deletions ?? 0) > 0 && (
+              <span className="text-red-600 ml-0.5">-{node.file.deletions}</span>
+            )}
           </span>
         )}
       </button>
@@ -83,15 +89,16 @@ function TreeNodeView({ node, depth, onFileClick }: TreeNodeViewProps) {
       <div>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center gap-1 px-2 py-0.5 text-left hover:bg-accent/30 rounded-sm"
-          style={{ paddingLeft: `${8 + indent}px` }}
+          className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-accent/30"
+          style={{ paddingLeft: `${10 + indent}px` }}
         >
           {collapsed
-            ? <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-            : <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+            ? <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+            : <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" />
           }
-          <span className="text-xs font-medium text-muted-foreground flex-1 truncate">{node.name}</span>
-          <span className="text-[10px] text-muted-foreground shrink-0 bg-muted rounded px-1">{fileCount}</span>
+          <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+          <span className="text-xs text-muted-foreground flex-1 truncate">{node.name}</span>
+          <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">{fileCount}</span>
         </button>
         {!collapsed && children.map((child) => (
           <TreeNodeView
@@ -118,7 +125,7 @@ export function DiffFileTree({ files, onFileClick }: DiffFileTreeProps) {
   const children = Object.values(root.children);
 
   return (
-    <div className="flex flex-col gap-0">
+    <div className="flex flex-col">
       {children.map((child) => (
         <TreeNodeView
           key={child.name}

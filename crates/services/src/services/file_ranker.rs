@@ -1,13 +1,12 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use dashmap::DashMap;
 use db::models::project::{SearchMatchType, SearchResult};
 use git::{FileStat, GitService, GitServiceError};
-use once_cell::sync::Lazy;
 use tokio::task;
 
 /// File statistics for a repository
@@ -21,7 +20,7 @@ struct RepoHistoryCache {
 }
 
 /// Global cache for file ranking statistics
-static FILE_STATS_CACHE: Lazy<DashMap<PathBuf, RepoHistoryCache>> = Lazy::new(DashMap::new);
+static FILE_STATS_CACHE: LazyLock<DashMap<PathBuf, RepoHistoryCache>> = LazyLock::new(DashMap::new);
 
 /// Configuration constants for ranking algorithm
 const DEFAULT_COMMIT_LIMIT: usize = 100;

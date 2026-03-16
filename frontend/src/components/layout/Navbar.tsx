@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { settingsWindowApi } from '@/lib/api';
 import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -193,18 +194,10 @@ export function Navbar() {
                 variant="ghost"
                 size="icon"
                 className="h-9 w-9"
-                asChild
                 aria-label="Settings"
+                onClick={() => settingsWindowApi.open()}
               >
-                <Link
-                  to={
-                    projectId
-                      ? `/settings/projects?projectId=${projectId}`
-                      : '/settings'
-                  }
-                >
-                  <Settings className="h-4 w-4" />
-                </Link>
+                <Settings className="h-4 w-4" />
               </Button>
 
               <DropdownMenu>

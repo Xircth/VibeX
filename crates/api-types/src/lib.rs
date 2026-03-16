@@ -21,7 +21,9 @@ pub mod pull_request;
 pub mod tag;
 pub mod user;
 pub mod workspace;
+pub mod agent_setting;
 
+pub use agent_setting::*;
 pub use issue::*;
 pub use issue_assignee::*;
 pub use issue_comment::*;

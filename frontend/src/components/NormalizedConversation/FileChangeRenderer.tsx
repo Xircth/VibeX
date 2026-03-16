@@ -17,6 +17,7 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  containerRef?: string | null;
 };
 
 function isWrite(
@@ -40,6 +41,20 @@ function isEdit(
   return change?.action === 'edit';
 }
 
+/** Build absolute path for file preview from a potentially relative path */
+function resolveFilePath(filePath: string, containerRef?: string | null): string {
+  // Already absolute (Windows or Unix)
+  if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/')) {
+    return filePath;
+  }
+  if (!containerRef) return filePath;
+  const usesWindows = containerRef.includes('\\');
+  const sep = usesWindows ? '\\' : '/';
+  const base = containerRef.replace(/[\\/]+$/, '');
+  const normalized = usesWindows ? filePath.replaceAll('/', '\\') : filePath;
+  return `${base}${sep}${normalized}`;
+}
+
 const FileChangeRenderer = ({
   path,
   change,
@@ -47,6 +62,7 @@ const FileChangeRenderer = ({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  containerRef,
 }: Props) => {
   const { config } = useUserSystem();
   const { openFilePreview } = usePanelActionsContext();
@@ -54,7 +70,6 @@ const FileChangeRenderer = ({
   const effectiveExpanded = forceExpanded || expanded;
 
   const theme = getActualTheme(config?.theme);
-  const headerClass = cn('flex items-center gap-1.5 text-secondary-foreground');
 
   const statusIcon =
     statusAppearance === 'denied' ? (
@@ -65,11 +80,13 @@ const FileChangeRenderer = ({
 
   if (statusIcon) {
     return (
-      <div>
-        <div className={headerClass}>
-          {statusIcon}
-          <p className="text-sm font-light overflow-x-auto flex-1">{path}</p>
-        </div>
+      <div className={cn(
+        'conv-file-card',
+        statusAppearance === 'denied' && 'border-red-400/40',
+        statusAppearance === 'timed_out' && 'border-amber-400/40'
+      )}>
+        {statusIcon}
+        <span className="conv-file-name">{path}</span>
       </div>
     );
   }
@@ -85,80 +102,80 @@ const FileChangeRenderer = ({
         defaultExpanded={defaultExpanded}
         statusAppearance={statusAppearance}
         forceExpanded={forceExpanded}
+        containerRef={containerRef}
       />
     );
   }
 
-  // Title row content and whether the row is expandable
-  const { titleNode, icon, expandable } = (() => {
+  // Determine icon and expandability by change type
+  const { titleText, icon, expandable, targetPath } = (() => {
     if (isDelete(change)) {
       return {
-        titleNode: path,
-        icon: <Trash2 className="h-3 w-3" />,
+        titleText: path,
+        icon: <Trash2 className="h-3 w-3 conv-file-icon" />,
         expandable: false,
+        targetPath: path,
       };
     }
 
     if (isRename(change)) {
       return {
-        titleNode: (
-          <>
-            Rename {path} to {change.new_path}
-          </>
-        ),
-        icon: <ArrowRight className="h-3 w-3" />,
+        titleText: `${path} → ${change.new_path}`,
+        icon: <ArrowRight className="h-3 w-3 conv-file-icon" />,
         expandable: false,
+        targetPath: change.new_path,
       };
     }
 
     if (isWrite(change)) {
       return {
-        titleNode: path,
-        icon: <FilePlus2 className="h-3 w-3" />,
+        titleText: path,
+        icon: <FilePlus2 className="h-3 w-3 conv-file-icon" />,
         expandable: true,
+        targetPath: path,
       };
     }
 
-    // No fallback: render nothing for unknown change types
-    return {
-      titleNode: null,
-      icon: null,
-      expandable: false,
-    };
+    return { titleText: null, icon: null, expandable: false, targetPath: '' };
   })();
 
-  // nothing to display
-  if (!titleNode) {
-    return null;
-  }
+  if (!titleText) return null;
 
   return (
     <div>
-      <div className={headerClass}>
-        {expandable ? (
-          <span onClick={() => setExpanded()} className="cursor-pointer shrink-0">
-            <ChevronRight
-              className={cn('h-3 w-3 transition-transform', effectiveExpanded && 'rotate-90')}
-            />
-          </span>
-        ) : (
-          icon
+      <div
+        className="conv-file-card"
+        onClick={expandable ? () => setExpanded() : undefined}
+      >
+        {expandable && (
+          <ChevronRight
+            className={cn(
+              'h-3 w-3 conv-file-chevron',
+              effectiveExpanded && 'is-expanded'
+            )}
+          />
         )}
-        <p
-          onClick={() => openFilePreview(path)}
-          className="text-sm font-mono overflow-x-auto flex-1 cursor-pointer hover:underline"
+        {icon}
+        <span
+          className="conv-file-name"
+          onClick={(e) => {
+            e.stopPropagation();
+            openFilePreview(resolveFilePath(targetPath, containerRef));
+          }}
         >
-          {titleNode}
-        </p>
+          {titleText}
+        </span>
       </div>
 
       {/* Body */}
       {isWrite(change) && effectiveExpanded && (
-        <FileContentView
-          content={change.content}
-          lang={getHighLightLanguageFromPath(path)}
-          theme={theme}
-        />
+        <div className="mt-1 overflow-hidden rounded-b-lg border border-t-0 border-[var(--conv-border-subtle)]">
+          <FileContentView
+            content={change.content}
+            lang={getHighLightLanguageFromPath(path)}
+            theme={theme}
+          />
+        </div>
       )}
     </div>
   );

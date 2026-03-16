@@ -75,32 +75,60 @@ export const GitDiffViewer = memo(function GitDiffViewer({
     return diffs.filter((d) => d.path === selectedPath);
   }, [diffs, selectedPath]);
 
-  // Sticky file header via scroll observation
+  // Sticky file header tracking via IntersectionObserver
+  // Tracks the last diff card that scrolled past the top of the viewport
+  const lastStickyPathRef = useRef<string | null>(null);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || effectiveDiffs.length <= 1) return;
 
-    const handleScroll = () => {
-      const diffCards = container.querySelectorAll('[data-diff-path]');
-      let currentFile: { path: string; status: string } | null = null;
+    const aboveThreshold = new Set<string>();
 
-      const containerRect = container.getBoundingClientRect();
-      for (const card of diffCards) {
-        const rect = card.getBoundingClientRect();
-        if (rect.top <= containerRect.top + 40) {
-          const path = card.getAttribute('data-diff-path') ?? '';
-          const entry = effectiveDiffs.find((d) => d.path === path);
-          if (entry) {
-            currentFile = { path: entry.path, status: entry.status };
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const ioEntry of entries) {
+          const path = (ioEntry.target as HTMLElement).dataset.diffPath;
+          if (!path) continue;
+
+          if (!ioEntry.isIntersecting) {
+            // Element is outside the root margin; check if it's above (scrolled past)
+            if (ioEntry.boundingClientRect.top < 0) {
+              aboveThreshold.add(path);
+            } else {
+              aboveThreshold.delete(path);
+            }
+          } else {
+            aboveThreshold.delete(path);
           }
         }
+
+        // Find the last element (by document order) that is above threshold
+        let foundFile: { path: string; status: string } | null = null;
+        for (const entry of effectiveDiffs) {
+          if (aboveThreshold.has(entry.path)) {
+            foundFile = { path: entry.path, status: entry.status };
+          }
+        }
+
+        if (foundFile?.path !== lastStickyPathRef.current) {
+          lastStickyPathRef.current = foundFile?.path ?? null;
+          setStickyFile(foundFile);
+        }
+      },
+      {
+        root: container,
+        rootMargin: '-40px 0px 0px 0px',
+        threshold: [0, 1],
       }
+    );
 
-      setStickyFile(currentFile);
-    };
+    const cards = container.querySelectorAll('[data-diff-path]');
+    for (const card of cards) {
+      observer.observe(card);
+    }
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => observer.disconnect();
   }, [effectiveDiffs]);
 
   // Navigate to next/prev file

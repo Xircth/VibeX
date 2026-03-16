@@ -32,6 +32,13 @@ async-trait = "0.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
+dirs = "5"
+command-group = { version = "5.0", features = ["with-tokio"] }
+strum = "0.27.2"
+strum_macros = "0.27.2"
+json-patch = "2.0"
+tempfile = "3"
+regex = "1"
 
 [profile.release]
 debug = 1

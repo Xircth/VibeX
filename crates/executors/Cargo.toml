@@ -16,20 +16,20 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 ts-rs = { workspace = true }
 schemars = { workspace = true }
-dirs = "5.0"
+dirs = { workspace = true }
 xdg = "3.0"
 async-trait = { workspace = true } 
-command-group = { version = "5.0", features = ["with-tokio"] }
-regex = "1.11.1"
-json-patch = "2.0"
+command-group = { workspace = true }
+regex = { workspace = true }
+json-patch = { workspace = true }
 thiserror = { workspace = true }
 enum_dispatch = "0.3.13"
 futures-io = "0.3.31"
 tokio-stream = { version = "0.1.17", features = ["io-util"] }
 futures = { workspace = true }
 os_pipe = "1.2"
-strum = "0.27.2"
-strum_macros = "0.27.2"
+strum = { workspace = true }
+strum_macros = { workspace = true }
 convert_case = "0.6"
 sqlx = { version = "0.8.6", default-features = false, features = ["derive"] }
 shlex = "1.3.0"

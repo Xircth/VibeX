@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { DiffView, DiffModeEnum } from '@git-diff-view/react';
 import { generateDiffFile } from '@git-diff-view/file';
-import '@/styles/diff-style-overrides.css';
-import '@/styles/edit-diff-overrides.css';
+/* diff-style-overrides.css and edit-diff-overrides.css imported by parent FileChangeRenderer */
 
 type Props = {
   content: string;

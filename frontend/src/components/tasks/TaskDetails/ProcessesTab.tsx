@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import {
   Play,
   Square,
@@ -8,7 +9,7 @@ import {
   Cog,
   ArrowLeft,
 } from 'lucide-react';
-import { executionProcessesApi } from '@/lib/api.ts';
+import { executionProcessesApi } from '@/lib/api';
 import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useLogStream } from '@/hooks/useLogStream';
@@ -36,7 +37,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
   const [localProcessDetails, setLocalProcessDetails] = useState<
     Record<string, ExecutionProcess>
   >({});
-  const [copied, setCopied] = useState(false);
+  const [copied, triggerCopied] = useTemporaryFlag(2000);
 
   const selectedProcess = selectedProcessId
     ? localProcessDetails[selectedProcessId] ||
@@ -56,8 +57,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
     const text = logs.map((entry) => entry.content).join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      triggerCopied();
     } catch (err) {
       console.warn('Copy to clipboard failed:', err);
     }

@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom';
-import { useMemo } from 'react';
+import { settingsWindowApi } from '@/lib/api';
+import { useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -194,6 +195,10 @@ export function Toolbar() {
     handleOpenInEditor();
   };
 
+  const handleOpenSettings = useCallback(() => {
+    settingsWindowApi.open();
+  }, []);
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="w-full px-1.5 bg-secondary/50">
@@ -352,18 +357,10 @@ export function Toolbar() {
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  asChild
+                  onClick={handleOpenSettings}
                   aria-label="Settings"
                 >
-                  <Link
-                    to={
-                      projectId
-                        ? `/settings/projects?projectId=${projectId}`
-                        : '/settings'
-                    }
-                  >
-                    <Settings className="h-3.5 w-3.5" />
-                  </Link>
+                  <Settings className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Settings</TooltipContent>

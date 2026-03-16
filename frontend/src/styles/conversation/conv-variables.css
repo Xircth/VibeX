@@ -1,0 +1,64 @@
+/* ============================================
+ * AI Conversation — CSS Variables
+ * Light mode (:root) and dark mode (.dark) tokens
+ * ============================================ */
+
+/* --- CSS Variables (Light Mode — mossx inspired) --- */
+:root {
+  --conv-user-bg: #0078d4;
+  --conv-user-text: #ffffff;
+  --conv-user-bubble-radius: 12px 12px 2px 12px;
+
+  --conv-thinking-border: #7c3aed;
+  --conv-thinking-bg: #f5f3ff;
+
+  --conv-tool-success: #22c55e;
+  --conv-tool-error: #ef4444;
+  --conv-tool-pending: #eab308;
+
+  --conv-border-subtle: rgba(15, 23, 36, 0.22);
+  --conv-border-strong: rgba(15, 23, 36, 0.38);
+  --conv-surface-card: rgba(255, 255, 255, 0.85);
+  --conv-surface-control: rgba(15, 23, 36, 0.06);
+  --conv-surface-control-hover: rgba(15, 23, 36, 0.1);
+  --conv-text-primary: #111318;
+  --conv-text-secondary: rgba(17, 20, 28, 0.72);
+  --conv-text-tertiary: rgba(17, 20, 28, 0.5);
+  --conv-tool-icon: #0078d4;
+
+  --conv-shimmer-from: rgba(0, 120, 212, 0.15);
+  --conv-shimmer-via: rgba(0, 120, 212, 0.45);
+  --conv-shimmer-to: rgba(0, 120, 212, 0.15);
+
+  --conv-code-bg: #f6f8fa;
+  --conv-code-text: #24292f;
+  --conv-terminal-bg: var(--conv-surface-control);
+  --conv-terminal-text: var(--conv-text-primary);
+}
+
+.dark {
+  --conv-user-bg: #2563eb;
+  --conv-user-text: #ffffff;
+
+  --conv-thinking-border: #8b5cf6;
+  --conv-thinking-bg: rgba(139, 92, 246, 0.08);
+
+  --conv-border-subtle: rgba(255, 255, 255, 0.20);
+  --conv-border-strong: rgba(255, 255, 255, 0.32);
+  --conv-surface-card: rgba(255, 255, 255, 0.06);
+  --conv-surface-control: rgba(255, 255, 255, 0.08);
+  --conv-surface-control-hover: rgba(255, 255, 255, 0.14);
+  --conv-text-primary: #f0f1f3;
+  --conv-text-secondary: rgba(229, 231, 235, 0.8);
+  --conv-text-tertiary: rgba(229, 231, 235, 0.55);
+  --conv-tool-icon: #60a5fa;
+
+  --conv-shimmer-from: rgba(96, 165, 250, 0.1);
+  --conv-shimmer-via: rgba(96, 165, 250, 0.35);
+  --conv-shimmer-to: rgba(96, 165, 250, 0.1);
+
+  --conv-code-bg: #0d1117;
+  --conv-code-text: #e6edf3;
+  --conv-terminal-bg: #0f1117;
+  --conv-terminal-text: #7ee787;
+}

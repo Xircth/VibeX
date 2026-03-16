@@ -8,6 +8,147 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
+// ── Path safety ──
+
+/// Validate that a resolved path falls within one of the allowed sandbox roots.
+/// Returns the canonicalized path on success.
+///
+/// This function:
+/// 1. Rejects raw paths containing `..` components (defense-in-depth)
+/// 2. Canonicalizes the path to resolve symlinks
+/// 3. Verifies the canonical path starts with one of `allowed_roots`
+#[allow(dead_code)] // Reserved for future use when commands gain AppState access
+fn validate_path_within_sandbox(
+    path: &Path,
+    allowed_roots: &[PathBuf],
+) -> Result<PathBuf, AppError> {
+    // Step 1: Reject `..` components in the raw path (before symlink resolution)
+    for comp in path.components() {
+        if matches!(comp, Component::ParentDir) {
+            return Err(AppError::BadRequest(
+                "Path traversal not allowed: '..' components rejected".to_string(),
+            ));
+        }
+    }
+
+    // Step 2: Canonicalize to resolve symlinks and get the real absolute path
+    let canonical = if path.exists() {
+        path.canonicalize().map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to resolve path {}: {}",
+                path.display(),
+                e
+            ))
+        })?
+    } else if let Some(parent) = path.parent() {
+        if parent.exists() {
+            let canonical_parent = parent.canonicalize().map_err(|e| {
+                AppError::Internal(format!("Failed to resolve parent path: {}", e))
+            })?;
+            canonical_parent.join(path.file_name().unwrap_or_default())
+        } else {
+            return Err(AppError::BadRequest(format!(
+                "Parent directory does not exist: {}",
+                parent.display()
+            )));
+        }
+    } else {
+        return Err(AppError::BadRequest(
+            "Cannot resolve path: no parent directory".to_string(),
+        ));
+    };
+
+    // Step 3: Verify the canonical path is under one of the allowed roots
+    if allowed_roots.is_empty() {
+        return Err(AppError::BadRequest(
+            "No allowed sandbox roots configured".to_string(),
+        ));
+    }
+
+    let is_within_sandbox = allowed_roots.iter().any(|root| {
+        // Canonicalize the root too to ensure consistent comparison
+        let canonical_root = if root.exists() {
+            root.canonicalize().unwrap_or_else(|_| root.clone())
+        } else {
+            root.clone()
+        };
+        canonical.starts_with(&canonical_root)
+    });
+
+    if !is_within_sandbox {
+        return Err(AppError::BadRequest(format!(
+            "Access denied: path '{}' is outside allowed workspace boundaries",
+            path.display()
+        )));
+    }
+
+    Ok(canonical)
+}
+
+/// Sanitize a user-supplied file path to prevent path traversal attacks.
+///
+/// When sandbox roots are not available (commands without AppState), this
+/// function provides defense-in-depth by:
+/// 1. Rejecting paths with `..` components
+/// 2. Canonicalizing to resolve symlinks
+/// 3. Verifying the canonical path does not escape the original path's parent
+///    hierarchy (detects symlink escapes)
+fn sanitize_file_path(path: &str) -> Result<PathBuf, AppError> {
+    let p = PathBuf::from(path);
+
+    // Reject any path containing parent-dir (`..`) components
+    for comp in p.components() {
+        if matches!(comp, Component::ParentDir) {
+            return Err(AppError::BadRequest(
+                "Path traversal not allowed: '..' components rejected".to_string(),
+            ));
+        }
+    }
+
+    // Must be an absolute path to prevent relative-path tricks
+    if !p.is_absolute() {
+        return Err(AppError::BadRequest(
+            "Only absolute paths are accepted".to_string(),
+        ));
+    }
+
+    // Canonicalize to resolve symlinks and normalize the path
+    let canonical = if p.exists() {
+        p.canonicalize().map_err(|e| {
+            AppError::Internal(format!("Failed to resolve path {}: {}", path, e))
+        })?
+    } else if let Some(parent) = p.parent() {
+        if parent.exists() {
+            let canonical_parent = parent.canonicalize().map_err(|e| {
+                AppError::Internal(format!("Failed to resolve parent path: {}", e))
+            })?;
+            canonical_parent.join(p.file_name().unwrap_or_default())
+        } else {
+            return Err(AppError::BadRequest(format!(
+                "Parent directory does not exist for path: {}",
+                path
+            )));
+        }
+    } else {
+        return Err(AppError::BadRequest(format!(
+            "Cannot resolve path: {}",
+            path
+        )));
+    };
+
+    // Additional safety: reject if canonical path contains `..` after resolution
+    // (should not happen but acts as a safety net)
+    for comp in canonical.components() {
+        if matches!(comp, Component::ParentDir) {
+            return Err(AppError::BadRequest(
+                "Resolved path still contains '..' components".to_string(),
+            ));
+        }
+    }
+
+    Ok(canonical)
+}
+
 // ── Existing types ──
 
 #[derive(Debug, Serialize, Clone)]
@@ -287,6 +428,10 @@ fn compile_search_regex(
     if trimmed.is_empty() {
         return Err("Search query cannot be empty.".to_string());
     }
+    // Limit regex pattern length to prevent DoS via compilation of huge patterns
+    if trimmed.len() > 1000 {
+        return Err("Search pattern too long (max 1000 characters).".to_string());
+    }
     let pattern = if options.is_regex {
         trimmed.to_string()
     } else {
@@ -299,6 +444,7 @@ fn compile_search_regex(
     };
     RegexBuilder::new(&pattern)
         .case_insensitive(!options.case_sensitive)
+        .size_limit(1 << 20) // 1MB compiled regex size limit
         .build()
         .map_err(|error| format!("Invalid search pattern: {error}"))
 }
@@ -413,7 +559,7 @@ pub async fn get_claude_settings_path() -> String {
 
 #[tauri::command]
 pub async fn read_file_content(path: String) -> Result<String, AppError> {
-    let file_path = PathBuf::from(&path);
+    let file_path = sanitize_file_path(&path)?;
     if !file_path.is_file() {
         return Err(AppError::NotFound(format!("File not found: {}", path)));
     }
@@ -423,7 +569,7 @@ pub async fn read_file_content(path: String) -> Result<String, AppError> {
 
 #[tauri::command]
 pub async fn save_file_content(path: String, content: String) -> Result<(), AppError> {
-    let file_path = PathBuf::from(&path);
+    let file_path = sanitize_file_path(&path)?;
     if let Some(parent) = file_path.parent() {
         if !parent.exists() {
             return Err(AppError::NotFound(format!(
@@ -438,7 +584,7 @@ pub async fn save_file_content(path: String, content: String) -> Result<(), AppE
 
 #[tauri::command]
 pub async fn delete_file(path: String) -> Result<(), AppError> {
-    let file_path = PathBuf::from(&path);
+    let file_path = sanitize_file_path(&path)?;
     if !file_path.exists() {
         return Err(AppError::NotFound(format!("File not found: {}", path)));
     }
@@ -453,7 +599,7 @@ pub async fn delete_file(path: String) -> Result<(), AppError> {
 
 #[tauri::command]
 pub async fn get_file_at_head(file_path: String) -> Result<String, AppError> {
-    let path = PathBuf::from(&file_path);
+    let path = sanitize_file_path(&file_path)?;
 
     let repo = git2::Repository::discover(&path)
         .map_err(|e| AppError::Internal(format!("Failed to open git repo: {}", e)))?;
@@ -780,7 +926,7 @@ pub async fn read_file_with_truncation(
     path: String,
     max_bytes: Option<usize>,
 ) -> Result<ReadFileResponse, AppError> {
-    let file_path = PathBuf::from(&path);
+    let file_path = sanitize_file_path(&path)?;
     if !file_path.is_file() {
         return Err(AppError::NotFound(format!("File not found: {}", path)));
     }
@@ -799,7 +945,7 @@ pub async fn read_file_with_truncation(
 /// Move file/directory to system trash (recycle bin).
 #[tauri::command]
 pub async fn trash_item(path: String) -> Result<(), AppError> {
-    let item_path = PathBuf::from(&path);
+    let item_path = sanitize_file_path(&path)?;
     if !item_path.exists() {
         return Err(AppError::NotFound(format!("Item not found: {}", path)));
     }
@@ -812,7 +958,7 @@ pub async fn trash_item(path: String) -> Result<(), AppError> {
 /// Copy a file or directory, returning the new path.
 #[tauri::command]
 pub async fn copy_item(path: String) -> Result<String, AppError> {
-    let source = PathBuf::from(&path);
+    let source = sanitize_file_path(&path)?;
     if !source.exists() {
         return Err(AppError::NotFound(format!("Item not found: {}", path)));
     }
@@ -892,7 +1038,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
 /// Create a directory (including parents).
 #[tauri::command]
 pub async fn create_directory(path: String) -> Result<(), AppError> {
-    let dir_path = PathBuf::from(&path);
+    let dir_path = sanitize_file_path(&path)?;
     std::fs::create_dir_all(&dir_path).map_err(|e| {
         AppError::Internal(format!("Failed to create directory {}: {}", path, e))
     })

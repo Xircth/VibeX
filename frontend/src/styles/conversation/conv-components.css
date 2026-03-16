@@ -1,0 +1,314 @@
+/* ============================================
+ * AI Conversation — UI Components
+ * Shimmer loading, copy button, assistant message,
+ * aggregated timeline, code blocks, user feedback,
+ * system/error cards, file change card, performance
+ * ============================================ */
+
+/* =========================================
+ * Shimmer Loading
+ * ========================================= */
+
+@keyframes conv-shimmer {
+  0% { background-position: -200% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.conv-shimmer-text {
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--conv-shimmer-from),
+    var(--conv-shimmer-via),
+    var(--conv-shimmer-to)
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: conv-shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes conv-spinner {
+  to { transform: rotate(360deg); }
+}
+
+.conv-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--conv-border-subtle);
+  border-top-color: var(--conv-tool-icon);
+  border-radius: 50%;
+  animation: conv-spinner 1s linear infinite;
+}
+
+/* =========================================
+ * Copy Button
+ * ========================================= */
+
+.conv-copy-btn {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.group:hover .conv-copy-btn,
+.conv-msg-hover:hover .conv-copy-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* =========================================
+ * Assistant Message
+ * ========================================= */
+
+.conv-assistant-msg {
+  position: relative;
+}
+
+/* =========================================
+ * Aggregated Group (Timeline)
+ * ========================================= */
+
+.conv-agg-timeline {
+  position: relative;
+  padding-left: 16px;
+  margin-top: 4px;
+}
+
+.conv-agg-timeline::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 4px;
+  bottom: 4px;
+  width: 1.5px;
+  background: var(--conv-border-strong);
+}
+
+.conv-agg-timeline-item {
+  position: relative;
+  padding: 2px 0;
+}
+
+.conv-agg-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -13px;
+  top: 11px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--conv-text-tertiary);
+}
+
+/* Count Badge */
+.conv-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--conv-surface-control);
+  color: var(--conv-text-secondary);
+}
+
+/* =========================================
+ * Assistant Message Text — ensure dark readable text
+ * ========================================= */
+
+.conv-assistant-msg .ProseMirror,
+.conv-assistant-msg .ProseMirror p,
+.conv-assistant-msg .ProseMirror li,
+.conv-assistant-msg .ProseMirror span,
+.conv-assistant-msg .ProseMirror td,
+.conv-assistant-msg .ProseMirror th {
+  color: var(--conv-text-primary) !important;
+}
+
+.conv-assistant-msg .ProseMirror h1,
+.conv-assistant-msg .ProseMirror h2,
+.conv-assistant-msg .ProseMirror h3,
+.conv-assistant-msg .ProseMirror h4,
+.conv-assistant-msg .ProseMirror h5,
+.conv-assistant-msg .ProseMirror h6 {
+  color: var(--conv-text-primary) !important;
+  font-weight: 600;
+}
+
+.conv-assistant-msg .ProseMirror a {
+  color: var(--conv-tool-icon) !important;
+  text-decoration: underline;
+}
+
+/* =========================================
+ * Code Blocks in Conversation
+ * ========================================= */
+
+.conv-assistant-msg .ProseMirror code:not([class*="code-highlight"]) {
+  background: var(--conv-surface-control) !important;
+  color: var(--conv-text-primary) !important;
+  border: 1px solid var(--conv-border-subtle);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 0.88em;
+}
+
+.conv-assistant-msg .ProseMirror pre,
+.conv-assistant-msg .editor-code {
+  background: var(--conv-code-bg) !important;
+  border: 1px solid var(--conv-border-subtle) !important;
+  border-radius: 8px !important;
+  padding: 12px 14px !important;
+  margin: 8px 0 !important;
+  overflow-x: auto;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+
+.conv-assistant-msg .ProseMirror pre code,
+.conv-assistant-msg .editor-code code {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: inherit !important;
+  color: var(--conv-code-text) !important;
+}
+
+/* =========================================
+ * User Feedback (Denied Tool) Card
+ * ========================================= */
+
+.conv-feedback-card {
+  background: var(--conv-surface-control);
+  border: 1.5px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.conv-feedback-label {
+  font-size: 11px;
+  color: var(--conv-tool-error);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+/* =========================================
+ * System / Error Message Cards
+ * ========================================= */
+
+.conv-system-card {
+  background: var(--conv-surface-control);
+  border: 1.5px solid var(--conv-border-subtle);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.conv-system-card:hover {
+  background: var(--conv-surface-card);
+}
+
+.conv-system-card .conv-system-text {
+  color: var(--conv-text-secondary);
+  font-size: 13px;
+}
+
+.conv-error-card {
+  background: var(--conv-surface-control);
+  border: 1.5px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.conv-error-card:hover {
+  background: var(--conv-surface-card);
+}
+
+.conv-error-card .conv-error-text {
+  color: var(--conv-text-primary);
+  font-size: 13px;
+}
+
+/* =========================================
+ * File Change Card — consistent with tool card
+ * ========================================= */
+
+.conv-file-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1.5px solid var(--conv-border-subtle);
+  border-radius: 10px;
+  background: var(--conv-surface-control);
+  font-size: 13px;
+  transition: background 0.15s;
+}
+
+.conv-file-card:hover {
+  background: var(--conv-surface-card);
+}
+
+.conv-file-card .conv-file-name {
+  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+  font-size: 12px;
+  color: var(--conv-text-primary);
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-file-card .conv-file-name:hover {
+  text-decoration: underline;
+  color: var(--conv-tool-icon);
+}
+
+.conv-file-card .conv-file-stat-add {
+  color: var(--conv-tool-success);
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+}
+
+.conv-file-card .conv-file-stat-del {
+  color: var(--conv-tool-error);
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+}
+
+.conv-file-card .conv-file-icon {
+  color: var(--conv-tool-icon);
+  flex-shrink: 0;
+}
+
+.conv-file-card .conv-file-chevron {
+  color: var(--conv-text-tertiary);
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.conv-file-card .conv-file-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+/* =========================================
+ * Performance: content-visibility
+ * ========================================= */
+
+/* NOTE: Do NOT use content-visibility: auto here.
+   react-virtuoso already handles virtualization. Adding content-visibility
+   causes height estimation mismatches (50px placeholder vs actual height),
+   leading to layout thrashing and scroll jitter. */
+.conv-entry-item {
+  /* intentionally left without content-visibility */
+}

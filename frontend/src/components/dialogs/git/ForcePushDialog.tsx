@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { defineModal } from '@/lib/modals';
-import { useForcePush } from '@/hooks/useForcePush';
+import { usePush } from '@/hooks/usePush';
 import { useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';export interface ForcePushDialogProps {
   attemptId: string;
@@ -23,7 +23,7 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
   const { attemptId, repoId, branchName } = props;
   const [error, setError] = useState<string | null>(null);  const branchLabel = branchName ? ` "${branchName}"` : '';
 
-  const forcePush = useForcePush(
+  const forcePush = usePush(
     attemptId,
     () => {
       // Success - close dialog
@@ -37,7 +37,8 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
           ? String(err.message)
           : '强制推送失败';
       setError(message);
-    }
+    },
+    { force: true }
   );
 
   const handleConfirm = async () => {

@@ -1,4 +1,5 @@
-﻿import { useCallback, useState } from 'react';
+﻿import { useCallback } from 'react';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { Check, Copy, FileDiff, GitBranch, Settings } from 'lucide-react';
 import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
@@ -203,10 +204,19 @@ function PrimaryActionsSection({
   onRunSetup,
   onTryAgain,
 }: PrimaryActionsSectionProps) {
+  const showSetupHelp = needsSetup && setupHelpText;
+  const showAction =
+    failed &&
+    (needsSetup || executionProcesses <= 2);
+
+  if (!showSetupHelp && !showAction) {
+    return null;
+  }
+
   return (
-    <>
-      {needsSetup && setupHelpText && (
-        <div className="flex items-start gap-2 border-t border-border px-3 py-2 text-sm text-muted-foreground">
+    <div className="px-3 py-2">
+      {showSetupHelp && (
+        <div className="flex items-start gap-2 text-sm text-muted-foreground mb-2">
           <Settings className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <span>{setupHelpText}</span>
         </div>
@@ -238,7 +248,7 @@ function PrimaryActionsSection({
             </Button>
           )
         ))}
-    </>
+    </div>
   );
 }
 
@@ -253,7 +263,7 @@ export function NextActionCard({
   const { config, capabilities } = useUserSystem();
   const panelActions = useOptionalPanelActionsContext();
   const navigateWithSearch = useNavigateWithSearch();
-  const [copied, setCopied] = useState(false);
+  const [copied, triggerCopied] = useTemporaryFlag(2000);
 
   const { data: attempt } = useQuery({
     queryKey: ['attemptWithSession', attemptId],
@@ -271,8 +281,7 @@ export function NextActionCard({
 
     try {
       await navigator.clipboard.writeText(containerRef);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      triggerCopied();
     } catch (err) {
       console.warn('Copy to clipboard failed:', err);
     }
@@ -359,28 +368,30 @@ export function NextActionCard({
             onTryAgain={handleTryAgain}
           />
 
-          <div className="flex min-w-0 flex-col gap-2 border-t border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
-            <DiffSummarySection
-              fileCount={fileCount}
-              added={added}
-              deleted={deleted}
-              error={error}
-              onOpenDiffs={handleOpenDiffs}
-            />
+          {hasDiffs && (
+            <div className="flex min-w-0 flex-col gap-2 border-t border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
+              <DiffSummarySection
+                fileCount={fileCount}
+                added={added}
+                deleted={deleted}
+                error={error}
+                onOpenDiffs={handleOpenDiffs}
+              />
 
-            <ActionButtonsSection
-              attemptId={attemptId}
-              containerRef={containerRef}
-              copied={copied}
-              editorName={editorName}
-              editorType={config?.editor?.editor_type}
-              hasDiffs={hasDiffs}
-              onOpenDiffs={handleOpenDiffs}
-              onCopy={handleCopy}
-              onOpenInEditor={handleOpenInEditor}
-              onGitActions={handleGitActions}
-            />
-          </div>
+              <ActionButtonsSection
+                attemptId={attemptId}
+                containerRef={containerRef}
+                copied={copied}
+                editorName={editorName}
+                editorType={config?.editor?.editor_type}
+                hasDiffs={hasDiffs}
+                onOpenDiffs={handleOpenDiffs}
+                onCopy={handleCopy}
+                onOpenInEditor={handleOpenInEditor}
+                onGitActions={handleGitActions}
+              />
+            </div>
+          )}
         </div>
       </div>
     </TooltipProvider>

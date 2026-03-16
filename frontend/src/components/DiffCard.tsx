@@ -1,7 +1,7 @@
 import { Diff } from 'shared/types';
 import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/react';
 import { generateDiffFile, type DiffFile } from '@git-diff-view/file';
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
@@ -140,6 +140,13 @@ export default function DiffCard({
     }
   }, [diff, selectedAttempt]);
 
+  // Auto-load content when omitted and card is expanded
+  useEffect(() => {
+    if (expanded && isOmitted && forcedOldContent === null && forcedNewContent === null && !isLoadingContent) {
+      handleLoadContent();
+    }
+  }, [expanded, isOmitted, forcedOldContent, forcedNewContent, isLoadingContent, handleLoadContent]);
+
   // Build a diff from raw contents so the viewer can expand beyond hunks
   // If content was force-loaded, use that instead of the omitted content
   const oldContentSafe = (isOmitted && forcedOldContent !== null) ? forcedOldContent : (diff.oldContent || '');
@@ -264,34 +271,29 @@ export default function DiffCard({
 
   // Title row
   const title = (
-    <p
-      className="text-sm font-mono overflow-x-auto flex-1"
-      style={{ color: 'hsl(var(--muted-foreground) / 0.7)' }}
-    >
-      <Icon className="h-3 w-3 inline mr-2" aria-hidden />
-      {label && <span className="mr-2">{label}</span>}
+    <div className="flex items-center gap-2 flex-1 min-w-0 text-sm font-mono">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+      {label && <span className="text-muted-foreground/60 text-xs shrink-0">{label}</span>}
       {diff.change === 'renamed' && oldName ? (
-        <span className="inline-flex items-center gap-2">
-          <span>{oldName}</span>
-          <span aria-hidden>→</span>
-          <span>{newName}</span>
+        <span className="flex items-center gap-1.5 truncate text-foreground/80">
+          <span className="truncate">{oldName}</span>
+          <span className="text-muted-foreground/50 shrink-0" aria-hidden>→</span>
+          <span className="truncate">{newName}</span>
         </span>
       ) : (
-        <span>{newName}</span>
+        <span className="truncate text-foreground/80">{newName}</span>
       )}
-      <span className="ml-3" style={{ color: 'hsl(var(--console-success))' }}>
-        +{add}
-      </span>
-      <span className="ml-2" style={{ color: 'hsl(var(--console-error))' }}>
-        -{del}
+      <span className="shrink-0 flex items-center gap-1.5 ml-1 font-mono text-xs">
+        <span className="text-green-600 dark:text-green-500">+{add}</span>
+        <span className="text-red-600 dark:text-red-500">-{del}</span>
       </span>
       {commentsForFile.length > 0 && (
-        <span className="ml-3 inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">
+        <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary rounded">
           <MessageSquare className="h-3 w-3" />
           {commentsForFile.length}
         </span>
       )}
-    </p>
+    </div>
   );
 
   const handleOpenInIDE = async () => {
@@ -375,33 +377,35 @@ export default function DiffCard({
         >
           {isEffectivelyOmitted
             ? (
-              <div className="flex flex-col items-center gap-2 py-4">
-                <p className="text-sm text-muted-foreground">
-                  文件较大，内容已省略
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLoadContent}
-                    disabled={isLoadingContent || !selectedAttempt?.agent_working_dir}
-                    className="h-7 text-xs"
-                  >
-                    {isLoadingContent ? (
-                      <><Loader2 className="h-3 w-3 mr-1 animate-spin" />加载中...</>
-                    ) : (
-                      '加载预览'
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleOpenInIDE}
-                    className="h-7 text-xs"
-                  >
-                    在编辑器中打开
-                  </Button>
-                </div>
+              <div className="flex items-center justify-center gap-2 py-6">
+                {isLoadingContent ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">加载文件内容中…</span>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm text-muted-foreground">内容加载失败</p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLoadContent}
+                        className="h-7 text-xs"
+                      >
+                        重新加载
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleOpenInIDE}
+                        className="h-7 text-xs"
+                      >
+                        在编辑器中打开
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )
             : isContentEqual

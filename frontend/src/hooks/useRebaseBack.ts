@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { attemptsApi, Result } from '@/lib/api';
-import type { GitOperationError } from 'shared/types';
+import { attemptsApi, type RebaseResult } from '@/lib/api';
 
 /**
  * Hook for the rebase-back operation: merging AI branch changes
@@ -13,16 +12,16 @@ import type { GitOperationError } from 'shared/types';
 export function useRebaseBack(
   workspaceId: string | undefined,
   onSuccess?: () => void,
-  onError?: (err: Result<void, GitOperationError>) => void
+  onError?: (err: RebaseResult) => void
 ) {
   const queryClient = useQueryClient();
 
-  return useMutation<void, Result<void, GitOperationError>, { repoId: string }>(
+  return useMutation<void, RebaseResult, { repoId: string }>(
     {
       mutationFn: async ({ repoId }) => {
         if (!workspaceId) return;
         const res = await attemptsApi.rebaseBack(workspaceId, repoId);
-        if (!res.success) {
+        if (res.error) {
           return Promise.reject(res);
         }
       },
@@ -33,7 +32,7 @@ export function useRebaseBack(
         });
         onSuccess?.();
       },
-      onError: (err: Result<void, GitOperationError>) => {
+      onError: (err: RebaseResult) => {
         // Even on failure (likely conflicts), re-fetch branch status
         queryClient.invalidateQueries({
           queryKey: ['branchStatus', workspaceId],

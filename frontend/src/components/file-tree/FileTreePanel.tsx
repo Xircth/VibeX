@@ -18,15 +18,10 @@ import { fileTreeApi } from "../../lib/api";
 import type { DirectoryChildrenResponse } from "../../lib/api";
 import { languageFromPath } from "../../utils/syntax";
 import { FilePreviewPopover } from "./FilePreviewPopover";
+import type { FileTreeNode, FileOpenLocation } from "./file-tree-types";
+import { EMPTY_DIRECTORIES, EMPTY_SET } from "./file-tree-constants";
+import { isSpecialDirectoryPath, buildTree, isImagePath, resolveWorkspaceRootLabel } from "./file-tree-utils";
 import "@/styles/file-tree.css";
-
-type FileTreeNode = {
-  name: string;
-  path: string;
-  type: "file" | "folder";
-  children: FileTreeNode[];
-  isLazyLoadable?: boolean;
-};
 
 export type FileTreePanelProps = {
   workspacePath: string;
@@ -41,220 +36,6 @@ export type FileTreePanelProps = {
   gitignoredDirectories?: Set<string>;
   onRefreshFiles?: () => void;
 };
-
-type FileOpenLocation = {
-  line: number;
-  column: number;
-};
-
-type FileTreeBuildNode = {
-  name: string;
-  path: string;
-  type: "file" | "folder";
-  children: Map<string, FileTreeBuildNode>;
-  isLazyLoadable: boolean;
-};
-
-const EMPTY_DIRECTORIES: string[] = [];
-const EMPTY_SET: Set<string> = new Set();
-const SPECIAL_DEPENDENCY_DIRECTORIES = new Set([
-  "node_modules",
-  ".pnpm-store",
-  ".yarn",
-  "bower_components",
-  "vendor",
-  ".venv",
-  "venv",
-  "env",
-  "__pypackages__",
-  "Pods",
-  "Carthage",
-  ".m2",
-  ".ivy2",
-  ".cargo",
-]);
-const SPECIAL_BUILD_ARTIFACT_DIRECTORIES = new Set([
-  "target",
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".next",
-  ".nuxt",
-  ".svelte-kit",
-  ".angular",
-  ".parcel-cache",
-  ".turbo",
-  ".cache",
-  ".gradle",
-  "CMakeFiles",
-  "bin",
-  "obj",
-  "__pycache__",
-  ".pytest_cache",
-  ".mypy_cache",
-  ".tox",
-  ".dart_tool",
-]);
-
-function isSpecialDirectoryPath(path: string) {
-  const leaf = path.split("/").filter(Boolean).pop() ?? "";
-  if (!leaf) {
-    return false;
-  }
-  return (
-    SPECIAL_DEPENDENCY_DIRECTORIES.has(leaf) ||
-    SPECIAL_BUILD_ARTIFACT_DIRECTORIES.has(leaf) ||
-    leaf.startsWith("cmake-build-")
-  );
-}
-
-function buildTree(
-  files: string[],
-  directories: string[],
-  lazyLoadableDirectories: Set<string>,
-): { nodes: FileTreeNode[]; folderPaths: Set<string> } {
-  const root = new Map<string, FileTreeBuildNode>();
-  const addNode = (
-    map: Map<string, FileTreeBuildNode>,
-    name: string,
-    path: string,
-    type: "file" | "folder",
-    isLazyLoadable = false,
-  ) => {
-    const existing = map.get(name);
-    if (existing) {
-      if (type === "folder") {
-        existing.type = "folder";
-      }
-      if (isLazyLoadable) {
-        existing.isLazyLoadable = true;
-      }
-      return existing;
-    }
-    const node: FileTreeBuildNode = {
-      name,
-      path,
-      type,
-      children: new Map(),
-      isLazyLoadable,
-    };
-    map.set(name, node);
-    return node;
-  };
-
-  const insertPath = (path: string, leafType: "file" | "folder") => {
-    const parts = path.split("/").filter(Boolean);
-    if (parts.length === 0) {
-      return;
-    }
-    let currentMap = root;
-    let currentPath = "";
-    parts.forEach((segment, index) => {
-      const isLeaf = index === parts.length - 1;
-      const nextPath = currentPath ? `${currentPath}/${segment}` : segment;
-      const nodeType: "file" | "folder" = isLeaf ? leafType : "folder";
-      const node = addNode(
-        currentMap,
-        segment,
-        nextPath,
-        nodeType,
-        nodeType === "folder" && lazyLoadableDirectories.has(nextPath),
-      );
-      if (nodeType === "folder") {
-        currentMap = node.children;
-        currentPath = nextPath;
-      }
-    });
-  };
-
-  directories.forEach((path) => insertPath(path, "folder"));
-  files.forEach((path) => insertPath(path, "file"));
-
-  const folderPaths = new Set<string>();
-
-  const sortNodes = (a: FileTreeBuildNode, b: FileTreeBuildNode) => {
-    if (a.type !== b.type) {
-      return a.type === "folder" ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  };
-
-  const collapseFolderChain = (
-    start: FileTreeBuildNode,
-  ): { node: FileTreeBuildNode; label: string; path: string } => {
-    let node = start;
-    const labels = [start.name];
-    let path = start.path;
-
-    while (true) {
-      const children = Array.from(node.children.values());
-      const hasDirectFile = children.some((child) => child.type === "file");
-      const directFolders = children.filter((child) => child.type === "folder");
-      const hasLazyLoadableChild = directFolders.some((child) => child.isLazyLoadable);
-      if (node.isLazyLoadable || hasDirectFile || hasLazyLoadableChild || directFolders.length !== 1) {
-        break;
-      }
-      const next = directFolders[0];
-      labels.push(next.name);
-      node = next;
-      path = node.path;
-    }
-
-    return {
-      node,
-      label: labels.join("."),
-      path,
-    };
-  };
-
-  const toArray = (map: Map<string, FileTreeBuildNode>): FileTreeNode[] => {
-    const nodes = Array.from(map.values())
-      .sort(sortNodes)
-      .map((node) => {
-        if (node.type === "folder") {
-          const collapsed = collapseFolderChain(node);
-          folderPaths.add(collapsed.path);
-          return {
-            name: collapsed.label,
-            path: collapsed.path,
-            type: "folder" as const,
-            children: toArray(collapsed.node.children),
-            isLazyLoadable: collapsed.node.isLazyLoadable,
-          };
-        }
-        return {
-          name: node.name,
-          path: node.path,
-          type: "file" as const,
-          children: [],
-        };
-      });
-    return nodes;
-  };
-
-  return { nodes: toArray(root), folderPaths };
-}
-
-const imageExtensions = new Set([
-  "png", "jpg", "jpeg", "gif", "svg", "webp", "avif",
-  "bmp", "heic", "heif", "tif", "tiff",
-]);
-
-function isImagePath(path: string) {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  return imageExtensions.has(ext);
-}
-
-function resolveWorkspaceRootLabel(workspacePath: string, workspaceName?: string) {
-  const fromName = workspaceName?.trim();
-  if (fromName) {
-    return fromName;
-  }
-  const normalizedPath = workspacePath.replace(/[\\/]+$/, "");
-  const segments = normalizedPath.split(/[\\/]/).filter(Boolean);
-  return segments.at(-1) || normalizedPath || "workspace";
-}
 
 export function FileTreePanel({
   workspaceName,
@@ -835,8 +616,9 @@ export function FileTreePanel({
           setSelectedNodeType(null);
         }
         onRefreshFiles?.();
-      } catch {
-        // trash operation failed
+      } catch (e) {
+        // TODO: surface error to user via toast/notification
+        console.error('Failed to trash item:', e);
       }
     },
     [resolvePath, onRefreshFiles, selectedNodePath],
@@ -848,8 +630,9 @@ export function FileTreePanel({
         const absolutePath = resolvePath(relativePath);
         await fileTreeApi.copyItem(absolutePath);
         onRefreshFiles?.();
-      } catch {
-        // copy operation failed
+      } catch (e) {
+        // TODO: surface error to user via toast/notification
+        console.error('Failed to duplicate item:', e);
       }
     },
     [resolvePath, onRefreshFiles],
@@ -857,8 +640,18 @@ export function FileTreePanel({
 
   const openNewFilePrompt = useCallback(
     (parentFolder: string) => {
+      setNewFolderParent(null);
+      setNewFolderName("");
       setNewFileParent(parentFolder);
       setNewFileName("");
+      if (parentFolder) {
+        setExpandedFolders((prev) => {
+          if (prev.has(parentFolder)) return prev;
+          const next = new Set(prev);
+          next.add(parentFolder);
+          return next;
+        });
+      }
       requestAnimationFrame(() => {
         newFileInputRef.current?.focus();
       });
@@ -867,19 +660,16 @@ export function FileTreePanel({
   );
 
   const confirmNewFile = useCallback(async () => {
-    const name = newFileName.trim();
-    if (!name || newFileParent === null) {
-      setNewFileParent(null);
-      setNewFileName("");
-      return;
-    }
+    if (newFileParent === null) return;
+    const name = newFileName.trim() || "untitled";
     const relativePath = newFileParent ? `${newFileParent}/${name}` : name;
     try {
       const absolutePath = resolvePath(relativePath);
       await fileTreeApi.saveFile(absolutePath, "");
       onRefreshFiles?.();
-    } catch {
-      // create file failed
+    } catch (e) {
+      // TODO: surface error to user via toast/notification
+      console.error('Failed to create file:', e);
     }
     setNewFileParent(null);
     setNewFileName("");
@@ -892,8 +682,18 @@ export function FileTreePanel({
 
   const openNewFolderPrompt = useCallback(
     (parentFolder: string) => {
+      setNewFileParent(null);
+      setNewFileName("");
       setNewFolderParent(parentFolder);
       setNewFolderName("");
+      if (parentFolder) {
+        setExpandedFolders((prev) => {
+          if (prev.has(parentFolder)) return prev;
+          const next = new Set(prev);
+          next.add(parentFolder);
+          return next;
+        });
+      }
       requestAnimationFrame(() => {
         newFolderInputRef.current?.focus();
       });
@@ -902,19 +702,16 @@ export function FileTreePanel({
   );
 
   const confirmNewFolder = useCallback(async () => {
-    const name = newFolderName.trim();
-    if (!name || newFolderParent === null) {
-      setNewFolderParent(null);
-      setNewFolderName("");
-      return;
-    }
+    if (newFolderParent === null) return;
+    const name = newFolderName.trim() || "新建文件夹";
     const relativePath = newFolderParent ? `${newFolderParent}/${name}` : name;
     try {
       const absolutePath = resolvePath(relativePath);
       await fileTreeApi.createDirectory(absolutePath);
       onRefreshFiles?.();
-    } catch {
-      // create folder failed
+    } catch (e) {
+      // TODO: surface error to user via toast/notification
+      console.error('Failed to create folder:', e);
     }
     setNewFolderParent(null);
     setNewFolderName("");
@@ -1053,6 +850,54 @@ export function FileTreePanel({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedNodePath, selectedNodeType, trashItem, copyPath]);
 
+  const renderInlineNewInput = (type: "file" | "folder", depth: number) => {
+    const isFile = type === "file";
+    const inputRef = isFile ? newFileInputRef : newFolderInputRef;
+    const name = isFile ? newFileName : newFolderName;
+    const setName = isFile ? setNewFileName : setNewFolderName;
+    const defaultName = isFile ? "untitled" : "新建文件夹";
+    const doConfirm = isFile ? confirmNewFile : confirmNewFolder;
+    const doCancel = isFile ? cancelNewFile : cancelNewFolder;
+
+    return (
+      <div key={`__inline-new-${type}`} className="file-tree-row-wrap">
+        <div
+          className={`file-tree-row is-file file-tree-inline-new-row`}
+          style={{ paddingLeft: `${depth * 10}px` }}
+        >
+          <span className="file-tree-spacer" aria-hidden />
+          <span className="file-tree-icon" aria-hidden>
+            <FileIcon
+              filePath={isFile ? "untitled" : "folder"}
+              isFolder={!isFile}
+              isOpen={false}
+            />
+          </span>
+          <input
+            ref={inputRef}
+            className="file-tree-inline-input"
+            value={name}
+            placeholder={defaultName}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                doCancel();
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void doConfirm();
+              }
+            }}
+            onBlur={() => {
+              void doConfirm();
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   const renderNode = (node: FileTreeNode, depth: number) => {
     const isFolder = node.type === "folder";
     const isLazyFolder = isFolder && (node.isLazyLoadable ?? false);
@@ -1134,8 +979,10 @@ export function FileTreePanel({
             </button>
           )}
         </div>
-        {hasChildren && isExpanded && (
+        {isFolder && isExpanded && (hasChildren || newFolderParent === node.path || newFileParent === node.path) && (
           <div className="file-tree-children">
+            {newFolderParent === node.path && renderInlineNewInput("folder", depth + 1)}
+            {newFileParent === node.path && renderInlineNewInput("file", depth + 1)}
             {node.children.map((child) => renderNode(child, depth + 1))}
           </div>
         )}
@@ -1247,12 +1094,17 @@ export function FileTreePanel({
               />
             ))}
           </div>
-        ) : !isRootVisibleExpanded ? null : nodes.length === 0 ? (
-          <div className="file-tree-empty">
-            无文件
-          </div>
-        ) : (
-          nodes.map((node) => renderNode(node, 1))
+        ) : !isRootVisibleExpanded ? null : (
+          <>
+            {newFolderParent === "" && renderInlineNewInput("folder", 1)}
+            {newFileParent === "" && renderInlineNewInput("file", 1)}
+            {nodes.length === 0 && newFileParent !== "" && newFolderParent !== "" && (
+              <div className="file-tree-empty">
+                无文件
+              </div>
+            )}
+            {nodes.map((node) => renderNode(node, 1))}
+          </>
         )}
       </div>
       {previewPath && previewAnchor
@@ -1287,90 +1139,6 @@ export function FileTreePanel({
             document.body,
           )
         : null}
-      {newFileParent !== null && (
-        <div className="new-file-prompt" role="dialog" aria-modal="true">
-          <div className="new-file-prompt-backdrop" onClick={cancelNewFile} />
-          <div className="new-file-prompt-card">
-            <div className="new-file-prompt-title">新建文件</div>
-            {newFileParent && (
-              <div className="new-file-prompt-path">{newFileParent}/</div>
-            )}
-            <input
-              id="new-file-name"
-              ref={newFileInputRef}
-              className="new-file-prompt-input"
-              placeholder="输入文件名..."
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  cancelNewFile();
-                }
-                if (e.key === "Enter" && newFileName.trim()) {
-                  e.preventDefault();
-                  void confirmNewFile();
-                }
-              }}
-            />
-            <div className="new-file-prompt-actions">
-              <button type="button" className="ghost" onClick={cancelNewFile}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="primary"
-                disabled={!newFileName.trim()}
-                onClick={() => void confirmNewFile()}
-              >
-                创建
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {newFolderParent !== null && (
-        <div className="new-file-prompt" role="dialog" aria-modal="true">
-          <div className="new-file-prompt-backdrop" onClick={cancelNewFolder} />
-          <div className="new-file-prompt-card">
-            <div className="new-file-prompt-title">新建文件夹</div>
-            {newFolderParent && (
-              <div className="new-file-prompt-path">{newFolderParent}/</div>
-            )}
-            <input
-              id="new-folder-name"
-              ref={newFolderInputRef}
-              className="new-file-prompt-input"
-              placeholder="输入文件夹名..."
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  cancelNewFolder();
-                }
-                if (e.key === "Enter" && newFolderName.trim()) {
-                  e.preventDefault();
-                  void confirmNewFolder();
-                }
-              }}
-            />
-            <div className="new-file-prompt-actions">
-              <button type="button" className="ghost" onClick={cancelNewFolder}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="primary"
-                disabled={!newFolderName.trim()}
-                onClick={() => void confirmNewFolder()}
-              >
-                创建
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </aside>
   );
 }

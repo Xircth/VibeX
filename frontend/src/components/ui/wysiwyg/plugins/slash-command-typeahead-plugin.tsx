@@ -6,6 +6,7 @@ import {
   MenuOption,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import { $createTextNode } from 'lexical';
+import { $createSlashCommandNode } from '../nodes/slash-command-node';
 import { Command as CommandIcon } from 'lucide-react';import type { BaseCodingAgent, SlashCommandDescription } from 'shared/types';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
@@ -69,7 +70,7 @@ export function SlashCommandTypeaheadPlugin({
         return;
       }
 
-      const filtered = filterSlashCommands(allCommands, query).slice(0, 20);
+      const filtered = filterSlashCommands(allCommands, query).slice(0, 50);
       setOptions(filtered.map((c) => new SlashCommandOption(c)));
     },
     [agent, allCommands]
@@ -109,10 +110,14 @@ export function SlashCommandTypeaheadPlugin({
         editor.update(() => {
           if (!nodeToReplace) return;
 
-          const textToInsert = `/${option.command.name}`;
-          const commandNode = $createTextNode(textToInsert);
+          // Insert a compact slash command chip (DecoratorNode)
+          const commandNode = $createSlashCommandNode({
+            commandName: option.command.name,
+            description: option.command.description ?? undefined,
+          });
           nodeToReplace.replace(commandNode);
 
+          // Add a trailing space after the chip for continued typing
           const spaceNode = $createTextNode(' ');
           commandNode.insertAfter(spaceNode);
           spaceNode.select(1, 1);

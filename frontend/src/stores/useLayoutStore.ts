@@ -103,7 +103,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibe-ultra-ide-layout',
-      version: 12,
+      version: 14,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const nextRightPanelWidth =

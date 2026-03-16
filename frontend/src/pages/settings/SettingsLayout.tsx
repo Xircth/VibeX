@@ -1,122 +1,141 @@
-﻿import { useEffect } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { Settings, Bot, Server, X, FolderOpen, GitBranch } from 'lucide-react';
-import { Logo } from '@/components/Logo';
+import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Bot,
+  BookOpenText,
+  Keyboard,
+  PlugZap,
+  Settings,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { usePreviousPath } from '@/hooks/usePreviousPath';
-import { useKeyExit } from '@/keyboard/hooks';
-import { Scope } from '@/keyboard/registry';
 import { cn } from '@/lib/utils';
-import { useHotkeysContext } from 'react-hotkeys-hook';
+import { WindowControls } from '@/components/settings/WindowControls';
+import { Logo } from '@/components/Logo';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
-const settingsNavLabels: Record<string, { name: string; desc: string }> = {
-  general: { name: '常规', desc: '主题、通知和偏好设置' },
-  projects: { name: '项目', desc: '项目仓库和配置' },
-  repos: { name: '仓库', desc: '仓库脚本和配置' },
-  agents: { name: '代理', desc: '编码代理配置' },
-  mcp: { name: 'MCP 服务器', desc: '模型上下文协议服务' },
-};
+interface SettingsNavItem {
+  path: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+}
 
-const settingsNavigation = [
-  {
-    path: 'general',
-    icon: Settings,
-  },
-  {
-    path: 'projects',
-    icon: FolderOpen,
-  },
-  {
-    path: 'repos',
-    icon: GitBranch,
-  },
-  {
-    path: 'agents',
-    icon: Bot,
-  },
-  {
-    path: 'mcp',
-    icon: Server,
-  },
+const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
+  { path: '/settings/agents', label: '代理', icon: Bot },
+  { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
+  { path: '/settings/skills', label: '技能', icon: BookOpenText },
+  { path: '/settings/shortcuts', label: '快捷键', icon: Keyboard },
+  { path: '/settings/system', label: '系统', icon: Settings },
 ];
 
 export function SettingsLayout() {
-  const { enableScope, disableScope } = useHotkeysContext();
-  const goToPreviousPath = usePreviousPath();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isWindows = navigator.platform.toLowerCase().includes('win');
+  const [isStandaloneWindow, setIsStandaloneWindow] = useState(false);
 
-  // Enable SETTINGS scope when component mounts
   useEffect(() => {
-    enableScope(Scope.SETTINGS);
-    return () => {
-      disableScope(Scope.SETTINGS);
-    };
-  }, [enableScope, disableScope]);
+    getCurrentWindow().label !== 'main' && setIsStandaloneWindow(true);
+  }, []);
 
-  // Register ESC keyboard shortcut
-  useKeyExit(goToPreviousPath, { scope: Scope.SETTINGS });
+  const navigateTo = useCallback(
+    (path: string) => {
+      if (location.pathname === path) return;
+      navigate(path);
+    },
+    [location.pathname, navigate]
+  );
+
+  const handleBack = useCallback(() => {
+    navigate(-1);
+  }, [navigate]);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    // Only start dragging on left mouse button and direct target (not child buttons)
+    if (e.button !== 0) return;
+    e.preventDefault();
+    getCurrentWindow().startDragging().catch(() => {});
+  }, []);
 
   return (
-    <div className="h-full overflow-auto [scrollbar-gutter:stable]">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header with title and close button */}
-        <div className="sticky top-0 z-10 -mx-4 flex items-center justify-between gap-4 bg-background px-4 py-4">
-          <div className="flex min-w-0 items-center gap-4">
-            <Logo />
-            <div className="min-w-0">
-              <h1 className="text-2xl font-semibold">{'设置'}</h1>
-            </div>
+    <div className="settings-page h-screen flex flex-col overflow-hidden bg-background text-foreground">
+      {/* Integrated title bar */}
+      <div
+        className="relative h-10 shrink-0 border-b bg-muted/70 select-none"
+        onMouseDown={isStandaloneWindow ? handleDragStart : undefined}
+      >
+        <div
+          className={cn(
+            'relative z-10 flex h-full items-center px-3',
+            isStandaloneWindow && isWindows && 'pr-[138px]'
+          )}
+        >
+          {/* Back button (only in main window mode) */}
+          {!isStandaloneWindow && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mr-2 h-7 w-7 p-0"
+              onClick={handleBack}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          {/* Logo + "设置" — pointer-events-none so drag region works in standalone */}
+          <div className={cn('flex items-center gap-3', isStandaloneWindow && 'pointer-events-none')}>
+            <Logo showText={false} />
+            <span className="text-sm font-semibold tracking-tight text-foreground">设置</span>
           </div>
-          <Button
-            variant="ghost"
-            onClick={goToPreviousPath}
-            className="flex h-8 items-center gap-1.5 rounded-md border border-foreground/20 px-2 transition-all hover:border-foreground/30 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-          >
-            <X className="h-4 w-4" />
-            <span className="text-xs font-medium">ESC</span>
-          </Button>
         </div>
-        <div className="flex flex-col gap-8 lg:flex-row">
-          {/* Sidebar Navigation */}
-          <aside className="w-full lg:sticky lg:top-24 lg:h-fit lg:max-h-[calc(100vh-8rem)] lg:w-64 lg:shrink-0 lg:overflow-y-auto">
-            <div className="space-y-1">
-              <nav className="space-y-1">
-                {settingsNavigation.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      end
-                      className={({ isActive }) =>
-                        cn(
-                          'flex items-start gap-3 rounded-lg border px-3 py-2 text-sm transition-colors',
-                          isActive
-                            ? 'border-primary/30 bg-primary text-primary-foreground shadow-sm'
-                            : 'border-border/60 bg-background text-foreground hover:bg-muted/60'
-                        )
-                      }
-                    >
-                      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium">
-                          {settingsNavLabels[item.path]?.name ?? item.path}
-                        </div>
-                        <div className="text-xs opacity-80">
-                          {settingsNavLabels[item.path]?.desc ?? ''}
-                        </div>
-                      </div>
-                    </NavLink>
-                  );
-                })}
-              </nav>
-            </div>
-          </aside>
 
-          {/* Main Content */}
-          <main className="min-w-0 flex-1">
-            <Outlet />
-          </main>
-        </div>
+        {/* Window controls — only in standalone window */}
+        {isStandaloneWindow && isWindows && (
+          <div
+            className="absolute right-0 top-0 z-30 flex items-center h-full"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <WindowControls />
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 flex">
+        {/* Left sidebar navigation */}
+        <aside className="w-56 shrink-0 border-r p-3">
+          <div className="px-1 pb-2 text-[11px] font-medium text-muted-foreground">
+            偏好设置
+          </div>
+          <nav className="space-y-1">
+            {SETTINGS_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const active =
+                location.pathname === item.path ||
+                location.pathname.startsWith(`${item.path}/`);
+
+              return (
+                <Button
+                  key={item.path}
+                  variant={active ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className={cn('w-full justify-start')}
+                  type="button"
+                  onClick={() => navigateTo(item.path)}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Icon className="h-3.5 w-3.5" />
+                    {item.label}
+                  </span>
+                </Button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* Main content area */}
+        <section className="flex-1 min-w-0 min-h-0 p-4 overflow-y-auto">
+          <Outlet />
+        </section>
       </div>
     </div>
   );

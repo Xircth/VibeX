@@ -217,7 +217,6 @@ export function TaskFollowUpSection({
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
   const previousScratchIdRef = useRef<string | undefined>(scratchId);
-  const lastAutoInsertedClickedMarkdownRef = useRef('');
 
   useEffect(() => {
     const scratchChanged = previousScratchIdRef.current !== scratchId;
@@ -526,45 +525,6 @@ export function TaskFollowUpSection({
     [workspaceId, getQueueState, cancelMutation]
   );
 
-  useEffect(() => {
-    if (!clickedMarkdown) {
-      lastAutoInsertedClickedMarkdownRef.current = '';
-      return;
-    }
-    if (lastAutoInsertedClickedMarkdownRef.current === clickedMarkdown) return;
-    lastAutoInsertedClickedMarkdownRef.current = clickedMarkdown;
-
-    const appendClickedMarkdown = (base: string) =>
-      base ? `${base}\n\n${clickedMarkdown}` : clickedMarkdown;
-
-    const {
-      isQueued: currentlyQueued,
-      queuedMessage: currentQueuedMessage,
-    } = getQueueState();
-
-    if (currentlyQueued && currentQueuedMessage) {
-      cancelMutation.mutate();
-      const newMessage = appendClickedMarkdown(
-        currentQueuedMessage.data.message
-      );
-      setLocalMessage(newMessage);
-      setFollowUpMessageRef.current(newMessage);
-    } else {
-      setLocalMessage((prev) => {
-        const newMessage = appendClickedMarkdown(prev);
-        setFollowUpMessageRef.current(newMessage);
-        return newMessage;
-      });
-    }
-    if (followUpErrorRef.current) setFollowUpError(null);
-    clearClickedElements();
-  }, [
-    clickedMarkdown,
-    getQueueState,
-    cancelMutation,
-    setFollowUpError,
-    clearClickedElements,
-  ]);
 
   const handleReviewChanges = useCallback(async () => {
     if (!sessionId || !effectiveExecutorProfile) return;

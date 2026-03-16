@@ -1,41 +1,17 @@
 import { createElement, FunctionComponentElement, SVGProps } from 'react';
 import {
-  TypeScript,
-  JavaScript,
-  Python,
-  RustDark,
-  RustLight,
-  Go,
-  Java,
-  C,
-  CPlusPlus,
-  CSharp,
-  Swift,
-  Kotlin,
-  Dart,
-  Ruby,
-  PHP,
-  Lua,
-  R,
-  Scala,
-  Elixir,
-  HTML5,
-  CSS3,
-  Sass,
-  JSON,
-  Bash,
-  PowerShell,
-  React,
-  VueJs,
-  SvelteJS,
-  Angular,
-  Docker,
-  PostgreSQL,
-  GraphQL,
-} from 'developer-icons';
-import { FileIcon, FileMd, FileCss } from '@phosphor-icons/react';
+  File,
+  FileText,
+  FileCode,
+  FileCode2,
+  FileJson,
+  Terminal,
+  Database,
+  Box,
+  type LucideIcon,
+} from 'lucide-react';
 
-// Match the DeveloperIconProps from developer-icons
+// Common interface for icon components used across the file tree
 interface DeveloperIconProps extends Partial<SVGProps<SVGElement>> {
   size?: number;
 }
@@ -49,113 +25,102 @@ type IconMapping = {
   dark: DeveloperIcon;
 };
 
+// Wrapper to adapt lucide-react icons to the DeveloperIcon interface
+function wrapLucide(LucideComp: LucideIcon): DeveloperIcon {
+  const wrapper: DeveloperIcon = ({ size, ...props }) => {
+    return createElement(LucideComp, {
+      size,
+      ...(props as object),
+    }) as unknown as FunctionComponentElement<DeveloperIconProps>;
+  };
+  return wrapper;
+}
+
 function icon(component: DeveloperIcon): IconMapping {
   return { light: component, dark: component };
 }
 
-function iconWithVariants(
-  lightIcon: DeveloperIcon,
-  darkIcon: DeveloperIcon
-): IconMapping {
-  return { light: lightIcon, dark: darkIcon };
-}
-
-// Wrapper for FileMd from phosphor
-const FileMdWrapper: DeveloperIcon = ({ size, ...props }) => {
-  return createElement(FileMd, {
-    size,
-    ...(props as object),
-  }) as unknown as FunctionComponentElement<DeveloperIconProps>;
-};
-
-// Wrapper for FileCss from phosphor
-const FileCssWrapper: DeveloperIcon = ({ size, ...props }) => {
-  return createElement(FileCss, {
-    size,
-    ...(props as object),
-  }) as unknown as FunctionComponentElement<DeveloperIconProps>;
-};
+// Lucide-based icon wrappers
+const FileCodeIcon = wrapLucide(FileCode);
+const FileCode2Icon = wrapLucide(FileCode2);
+const FileTextIcon = wrapLucide(FileText);
+const FileJsonIcon = wrapLucide(FileJson);
+const TerminalIcon = wrapLucide(Terminal);
+const DatabaseIcon = wrapLucide(Database);
+const ContainerIcon = wrapLucide(Box);
+const DefaultFileIcon = wrapLucide(File);
 
 const extToIcon: Record<string, IconMapping> = {
   // TypeScript/JavaScript
-  ts: icon(TypeScript),
-  tsx: icon(TypeScript),
-  js: icon(JavaScript),
-  mjs: icon(JavaScript),
-  cjs: icon(JavaScript),
-  jsx: icon(React),
+  ts: icon(FileCode2Icon),
+  tsx: icon(FileCode2Icon),
+  js: icon(FileCode2Icon),
+  mjs: icon(FileCode2Icon),
+  cjs: icon(FileCode2Icon),
+  jsx: icon(FileCode2Icon),
 
   // Web
-  html: icon(HTML5),
-  htm: icon(HTML5),
-  css: icon(FileCssWrapper),
-  scss: icon(Sass),
-  sass: icon(Sass),
-  less: icon(CSS3),
+  html: icon(FileCodeIcon),
+  htm: icon(FileCodeIcon),
+  css: icon(FileCodeIcon),
+  scss: icon(FileCodeIcon),
+  sass: icon(FileCodeIcon),
+  less: icon(FileCodeIcon),
 
   // Frameworks
-  vue: icon(VueJs),
-  svelte: icon(SvelteJS),
+  vue: icon(FileCode2Icon),
+  svelte: icon(FileCode2Icon),
 
   // Languages
-  py: icon(Python),
-  rs: iconWithVariants(RustDark, RustLight),
-  go: icon(Go),
-  java: icon(Java),
-  c: icon(C),
-  h: icon(C),
-  cpp: icon(CPlusPlus),
-  cc: icon(CPlusPlus),
-  cxx: icon(CPlusPlus),
-  hpp: icon(CPlusPlus),
-  cs: icon(CSharp),
-  swift: icon(Swift),
-  kt: icon(Kotlin),
-  dart: icon(Dart),
-  rb: icon(Ruby),
-  php: icon(PHP),
-  lua: icon(Lua),
-  r: icon(R),
-  scala: icon(Scala),
-  ex: icon(Elixir),
-  exs: icon(Elixir),
+  py: icon(FileCode2Icon),
+  rs: icon(FileCode2Icon),
+  go: icon(FileCode2Icon),
+  java: icon(FileCode2Icon),
+  c: icon(FileCode2Icon),
+  h: icon(FileCode2Icon),
+  cpp: icon(FileCode2Icon),
+  cc: icon(FileCode2Icon),
+  cxx: icon(FileCode2Icon),
+  hpp: icon(FileCode2Icon),
+  cs: icon(FileCode2Icon),
+  swift: icon(FileCode2Icon),
+  kt: icon(FileCode2Icon),
+  dart: icon(FileCode2Icon),
+  rb: icon(FileCode2Icon),
+  php: icon(FileCode2Icon),
+  lua: icon(FileCode2Icon),
+  r: icon(FileCode2Icon),
+  scala: icon(FileCode2Icon),
+  ex: icon(FileCode2Icon),
+  exs: icon(FileCode2Icon),
 
   // Data/Config
-  json: icon(JSON),
-  md: icon(FileMdWrapper),
-  // No YAML icon in developer-icons, use JSON as fallback
-  yaml: icon(JSON),
-  yml: icon(JSON),
+  json: icon(FileJsonIcon),
+  md: icon(FileTextIcon),
+  yaml: icon(FileJsonIcon),
+  yml: icon(FileJsonIcon),
 
   // Shell
-  sh: icon(Bash),
-  bash: icon(Bash),
-  zsh: icon(Bash),
-  ps1: icon(PowerShell),
+  sh: icon(TerminalIcon),
+  bash: icon(TerminalIcon),
+  zsh: icon(TerminalIcon),
+  ps1: icon(TerminalIcon),
 
   // Databases
-  sql: icon(PostgreSQL),
-  psql: icon(PostgreSQL),
+  sql: icon(DatabaseIcon),
+  psql: icon(DatabaseIcon),
 
   // Special files
-  graphql: icon(GraphQL),
-  gql: icon(GraphQL),
+  graphql: icon(FileCode2Icon),
+  gql: icon(FileCode2Icon),
 };
 
 // Special filename mappings (for files without extensions)
 const filenameToIcon: Record<string, IconMapping> = {
-  dockerfile: icon(Docker),
-  'docker-compose.yml': icon(Docker),
-  'docker-compose.yaml': icon(Docker),
-  '.angular.json': icon(Angular),
-};
-
-// Wrapper component to adapt phosphor FileIcon to same interface
-const FileIconWrapper: DeveloperIcon = ({ size, ...props }) => {
-  return createElement(FileIcon, {
-    size,
-    ...(props as object),
-  }) as unknown as FunctionComponentElement<DeveloperIconProps>;
+  dockerfile: icon(ContainerIcon),
+  'docker-compose.yml': icon(ContainerIcon),
+  'docker-compose.yaml': icon(ContainerIcon),
+  '.angular.json': icon(FileCode2Icon),
 };
 
 export function getFileIcon(
@@ -178,5 +143,5 @@ export function getFileIcon(
     return extMapping[theme];
   }
 
-  return FileIconWrapper;
+  return DefaultFileIcon;
 }

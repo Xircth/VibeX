@@ -1,9 +1,11 @@
+use std::path::PathBuf;
+
 use db::models::{
     project::SearchResult,
     repo::{Repo, UpdateRepo},
 };
 use deployment::Deployment;
-use git::{GitBranch, GitRemote};
+use git::{self, GitBranch, GitRemote};
 use services::services::{
     file_search::SearchMode,
     git_host::{GitHostProvider, GitHostService, GitHubIssueInfo, OpenPrInfo},
@@ -15,6 +17,19 @@ use crate::{
     state::AppState,
     commands::projects::{OpenEditorRequest, OpenEditorResponse},
 };
+
+/// Helper: resolve repo path from repo_id
+async fn resolve_repo_path(
+    state: &AppState,
+    repo_id: Uuid,
+) -> Result<PathBuf, AppError> {
+    let repo = state
+        .deployment
+        .repo()
+        .get_by_id(&state.deployment.db().pool, repo_id)
+        .await?;
+    Ok(PathBuf::from(&repo.path))
+}
 
 #[tauri::command]
 pub async fn get_repos(
@@ -261,4 +276,195 @@ pub async fn open_repo_in_editor(
             Err(AppError::Internal(format!("Failed to open editor: {}", e)))
         }
     }
+}
+
+// ─── Repo-level Git operations ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_repo_git_status(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<git::DetailedGitStatus, AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().get_detailed_status(&repo_path)
+        .map_err(|e| AppError::Internal(format!("git status failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_repo_file_diffs(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<Vec<git::GitFileDiffEntry>, AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().get_file_diffs(&repo_path)
+        .map_err(|e| AppError::Internal(format!("get file diffs failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn stage_repo_file(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().stage_file(&repo_path, &file_path)
+        .map_err(|e| AppError::Internal(format!("stage file failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn unstage_repo_file(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().unstage_file(&repo_path, &file_path)
+        .map_err(|e| AppError::Internal(format!("unstage file failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn revert_repo_file(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    file_path: String,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().revert_file(&repo_path, &file_path)
+        .map_err(|e| AppError::Internal(format!("revert file failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn stage_repo_all(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().stage_all(&repo_path)
+        .map_err(|e| AppError::Internal(format!("stage all failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn revert_repo_all(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().revert_all(&repo_path)
+        .map_err(|e| AppError::Internal(format!("revert all failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn commit_repo_changes(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    message: String,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().commit_changes(&repo_path, &message)
+        .map_err(|e| AppError::Internal(format!("commit failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn push_repo(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    let git = state.deployment.git();
+    let head = git.get_head_info(&repo_path)
+        .map_err(|e| AppError::Internal(format!("get head info failed: {e}")))?;
+    git.push_to_remote(&repo_path, &head.branch, false)
+        .map_err(|e| AppError::Internal(format!("git push failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn pull_repo(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<git::PullResult, AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().pull(&repo_path)
+        .map_err(|e| AppError::Internal(format!("git pull failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn fetch_repo(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().fetch_all(&repo_path)
+        .map_err(|e| AppError::Internal(format!("git fetch failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_repo_git_log(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+) -> Result<git::GitLogStatus, AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().get_log_status(&repo_path)
+        .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_repo_commit_detail(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    sha: String,
+) -> Result<git::CommitDetail, AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().get_commit_detail(&repo_path, &sha)
+        .map_err(|e| AppError::Internal(format!("get commit detail failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn get_repo_commit_diffs(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    sha: String,
+) -> Result<Vec<utils::diff::Diff>, AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().get_diffs(
+        git::DiffTarget::Commit {
+            repo_path: &repo_path,
+            commit_sha: &sha,
+        },
+        None,
+    )
+    .map_err(|e| AppError::Internal(format!("get commit diffs failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn checkout_repo_branch(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    branch_name: String,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().checkout_branch(&repo_path, &branch_name)
+        .map_err(|e| AppError::Internal(format!("git checkout failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn create_repo_branch(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    branch_name: String,
+    from_ref: Option<String>,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().create_branch(&repo_path, &branch_name, from_ref.as_deref())
+        .map_err(|e| AppError::Internal(format!("git create branch failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn delete_repo_branch(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    branch_name: String,
+) -> Result<(), AppError> {
+    let repo_path = resolve_repo_path(&state, repo_id).await?;
+    state.deployment.git().delete_branch(&repo_path, &branch_name)
+        .map_err(|e| AppError::Internal(format!("git delete branch failed: {e}")))
 }

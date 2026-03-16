@@ -15,30 +15,30 @@ import {
   $isListNode,
 } from '@lexical/list';
 import {
-  TextB,
-  TextItalic,
-  TextUnderline,
-  TextStrikethrough,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
   Code,
-  ListBullets,
-  ListNumbers,
-  ArrowCounterClockwise,
-  type Icon,
-  CheckIcon,
-} from '@phosphor-icons/react';
+  List,
+  ListOrdered,
+  Undo2,
+  Check,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ToolbarButtonProps {
   active?: boolean;
   onClick: () => void;
-  icon: Icon;
+  icon: LucideIcon;
   label: string;
 }
 
 function ToolbarButton({
   active,
   onClick,
-  icon: Icon,
+  icon: IconComponent,
   label,
 }: ToolbarButtonProps) {
   return (
@@ -58,7 +58,7 @@ function ToolbarButton({
           : 'text-low hover:text-normal hover:bg-panel/50'
       )}
     >
-      <Icon className="size-icon-sm" weight="bold" />
+      <IconComponent className="size-icon-sm" strokeWidth={2.5} />
     </button>
   );
 }
@@ -142,7 +142,7 @@ export function StaticToolbarPlugin({ saveStatus }: StaticToolbarPluginProps) {
       {/* Undo button */}
       <ToolbarButton
         onClick={() => editor.dispatchCommand(UNDO_COMMAND, undefined)}
-        icon={ArrowCounterClockwise}
+        icon={Undo2}
         label="Undo"
       />
 
@@ -153,19 +153,19 @@ export function StaticToolbarPlugin({ saveStatus }: StaticToolbarPluginProps) {
       <ToolbarButton
         active={isBold}
         onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold')}
-        icon={TextB}
+        icon={Bold}
         label="Bold"
       />
       <ToolbarButton
         active={isItalic}
         onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic')}
-        icon={TextItalic}
+        icon={Italic}
         label="Italic"
       />
       <ToolbarButton
         active={isUnderline}
         onClick={() => editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'underline')}
-        icon={TextUnderline}
+        icon={Underline}
         label="Underline"
       />
       <ToolbarButton
@@ -173,7 +173,7 @@ export function StaticToolbarPlugin({ saveStatus }: StaticToolbarPluginProps) {
         onClick={() =>
           editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'strikethrough')
         }
-        icon={TextStrikethrough}
+        icon={Strikethrough}
         label="Strikethrough"
       />
       <ToolbarButton
@@ -196,7 +196,7 @@ export function StaticToolbarPlugin({ saveStatus }: StaticToolbarPluginProps) {
             editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined);
           }
         }}
-        icon={ListBullets}
+        icon={List}
         label="Bullet List"
       />
       <ToolbarButton
@@ -208,7 +208,7 @@ export function StaticToolbarPlugin({ saveStatus }: StaticToolbarPluginProps) {
             editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined);
           }
         }}
-        icon={ListNumbers}
+        icon={ListOrdered}
         label="Numbered List"
       />
 
@@ -220,7 +220,7 @@ export function StaticToolbarPlugin({ saveStatus }: StaticToolbarPluginProps) {
             saveStatus === 'idle' ? 'opacity-0' : 'opacity-100'
           )}
         >
-          <CheckIcon className="size-icon-sm text-success" weight="bold" />
+          <Check className="size-icon-sm text-success" strokeWidth={2.5} />
         </div>
       )}
     </div>

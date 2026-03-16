@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ThemeMode } from 'shared/types';
+import { tauriListen } from '@/lib/tauri-api';
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -47,6 +48,17 @@ export function ThemeProvider({
 
     root.classList.add(theme.toLowerCase());
   }, [theme]);
+
+  // Listen for cross-window theme changes (e.g. settings window → main window)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    tauriListen<{ theme: ThemeMode }>('theme-changed', (payload) => {
+      setThemeState(payload.theme);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
 
   const setTheme = (newTheme: ThemeMode) => {
     setThemeState(newTheme);

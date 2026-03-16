@@ -4,15 +4,15 @@
   "rsc": false,
   "tsx": true,
   "tailwind": {
-    "config": "tailwind.new.config.js",
-    "css": "src/styles/new/index.css",
+    "config": "tailwind.legacy.config.js",
+    "css": "src/styles/legacy/index.css",
     "baseColor": "slate",
     "cssVariables": true,
     "prefix": ""
   },
   "aliases": {
     "components": "@/components",
-    "ui": "@/components/ui-new",
+    "ui": "@/components/ui",
     "utils": "@/lib/utils"
   }
 }

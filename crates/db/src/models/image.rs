@@ -178,11 +178,17 @@ impl Image {
 
 impl TaskImage {
     /// Associate multiple images with a task, skipping duplicates.
+    /// Wrapped in a transaction for atomicity and reduced I/O overhead.
     pub async fn associate_many_dedup(
         pool: &SqlitePool,
         task_id: Uuid,
         image_ids: &[Uuid],
     ) -> Result<(), sqlx::Error> {
+        if image_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = pool.begin().await?;
         for &image_id in image_ids {
             let id = Uuid::new_v4();
             sqlx::query!(
@@ -195,9 +201,10 @@ impl TaskImage {
                 task_id,
                 image_id
             )
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 

@@ -326,6 +326,7 @@ impl ClaudeCode {
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
 
         let mut command = Command::new(program_path);
+        workspace_utils::process::configure_tokio_command_no_window(&mut command);
         command
             .kill_on_drop(true)
             .stdin(Stdio::piped())
@@ -587,20 +588,15 @@ impl ClaudeLogProcessor {
 
     /// Extract session ID from Claude JSON
     fn extract_session_id(claude_json: &ClaudeJson) -> Option<String> {
-        match claude_json {
-            ClaudeJson::System { .. } => None, // session might not have been initialized yet
-            ClaudeJson::Assistant { session_id, .. } => session_id.clone(),
-            ClaudeJson::User { session_id, .. } => session_id.clone(),
-            ClaudeJson::ToolUse { session_id, .. } => session_id.clone(),
-            ClaudeJson::ToolResult { session_id, .. } => session_id.clone(),
-            ClaudeJson::Result { session_id, .. } => session_id.clone(),
-            ClaudeJson::StreamEvent { .. } => None, // session might not have been initialized yet
-            ClaudeJson::ApprovalResponse { .. } => None,
-            ClaudeJson::ControlRequest { .. } => None,
-            ClaudeJson::ControlResponse { .. } => None,
-            ClaudeJson::ControlCancelRequest { .. } => None,
-            ClaudeJson::Unknown { .. } => None,
-        }
+        let session_id = match claude_json {
+            ClaudeJson::Assistant { session_id, .. }
+            | ClaudeJson::User { session_id, .. }
+            | ClaudeJson::ToolUse { session_id, .. }
+            | ClaudeJson::ToolResult { session_id, .. }
+            | ClaudeJson::Result { session_id, .. } => session_id.as_ref(),
+            _ => None,
+        };
+        session_id.cloned()
     }
 
     /// Generate warning entry if API key source is ANTHROPIC_API_KEY
@@ -660,11 +656,12 @@ impl ClaudeLogProcessor {
                     "assistant" => NormalizedEntryType::AssistantMessage,
                     _ => return None,
                 };
-                *last_assistant_message = Some(text.clone());
+                let content = text.clone();
+                *last_assistant_message = Some(content.clone());
                 Some(NormalizedEntry {
                     timestamp: None,
                     entry_type,
-                    content: text.clone(),
+                    content,
                     metadata: Some(
                         serde_json::to_value(content_item).unwrap_or(serde_json::Value::Null),
                     ),
@@ -727,8 +724,8 @@ impl ClaudeLogProcessor {
                     vec![FileChange::Edit {
                         unified_diff: create_unified_diff(
                             file_path,
-                            &old_string.clone().unwrap_or_default(),
-                            &new_string.clone().unwrap_or_default(),
+                            old_string.as_deref().unwrap_or(""),
+                            new_string.as_deref().unwrap_or(""),
                         ),
                         has_line_numbers: false,
                     }]
@@ -747,8 +744,8 @@ impl ClaudeLogProcessor {
                     .map(|edit| FileChange::Edit {
                         unified_diff: create_unified_diff(
                             file_path,
-                            &edit.old_string.clone().unwrap_or_default(),
-                            &edit.new_string.clone().unwrap_or_default(),
+                            edit.old_string.as_deref().unwrap_or(""),
+                            edit.new_string.as_deref().unwrap_or(""),
                         ),
                         has_line_numbers: false,
                     })

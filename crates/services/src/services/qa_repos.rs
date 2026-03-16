@@ -3,9 +3,7 @@
 //! This module provides two hardcoded QA repositories that are cloned
 //! to a persistent temp directory and returned as the only "recent" repos.
 
-use std::{path::PathBuf, process::Command};
-
-use once_cell::sync::Lazy;
+use std::{path::PathBuf, process::Command, sync::LazyLock};
 use tracing::{info, warn};
 
 use super::filesystem::{DirectoryEntry, FilesystemError};
@@ -17,7 +15,7 @@ const QA_REPOS: &[(&str, &str)] = &[
 ];
 
 /// Persistent directory for QA repos - survives server restarts
-static QA_REPOS_DIR: Lazy<PathBuf> = Lazy::new(|| {
+static QA_REPOS_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
     let dir = utils::path::get_vibe_ultra_temp_dir().join("qa-repos");
     if let Err(e) = std::fs::create_dir_all(&dir) {
         warn!("Failed to create QA repos directory: {}", e);
@@ -77,7 +75,9 @@ fn clone_qa_repos_if_needed(base_dir: &std::path::Path) {
         info!("Cloning QA repo {} from {} to {:?}", name, url, repo_path);
 
         // Use git CLI for reliable TLS support (git2 has TLS issues)
-        let output = Command::new("git")
+        let mut cmd = Command::new("git");
+        utils::process::configure_std_command_no_window(&mut cmd);
+        let output = cmd
             .args(["clone", "--depth", "1", url, &repo_path.to_string_lossy()])
             .output();
 

@@ -12,7 +12,7 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { attemptsApi } from '@/lib/api';
 import { ConflictBanner } from '@/components/tasks/ConflictBanner';
-import type { ConflictOp, GitOperationError, RepoBranchStatus } from 'shared/types';
+import type { ConflictOp, RepoBranchStatus } from 'shared/types';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useChangeTargetBranch } from '@/hooks/useChangeTargetBranch';
 import { ChangeTargetBranchDialog } from '@/components/dialogs/tasks/ChangeTargetBranchDialog';
@@ -108,19 +108,37 @@ function TargetBranchDropdown({ repo, worktreeId }: { repo: RepoBranchStatus; wo
 
 function RebaseButton({ worktreeId, repoId }: { worktreeId: string; repoId: string }) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   const handleRebase = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      await attemptsApi.rebase(worktreeId, { repo_id: repoId, old_base_branch: null, new_base_branch: null });
+      const result = await attemptsApi.rebase(worktreeId, { repo_id: repoId, old_base_branch: null, new_base_branch: null });
+      if (result.error) {
+        if (result.error.type === 'rebase_in_progress') {
+          setError('Rebase is already in progress.');
+        } else {
+          setError('Rebase failed with conflicts.');
+        }
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['branchStatus'] });
+    } catch {
+      setError('Rebase failed.');
     } finally {
       setLoading(false);
     }
-  }, [worktreeId, repoId]);
+  }, [worktreeId, repoId, queryClient]);
 
   return (
-    <Button variant="outline" size="sm" className="h-5 text-[10px] px-1.5" onClick={handleRebase} disabled={loading}>
-      Rebase
-    </Button>
+    <div className="flex flex-col items-start gap-1">
+      <Button variant="outline" size="sm" className="h-5 text-[10px] px-1.5" onClick={handleRebase} disabled={loading}>
+        Rebase
+      </Button>
+      {error && <span className="text-[9px] text-destructive">{error}</span>}
+    </div>
   );
 }
 
@@ -140,8 +158,8 @@ function RebaseBackButton({ worktreeId, repoId }: { worktreeId: string; repoId: 
     setConflict(null);
     try {
       const result = await attemptsApi.rebaseBack(worktreeId, repoId);
-      if (!result.success) {
-        const err = result.error as GitOperationError;
+      if (result.error) {
+        const err = result.error;
         if (err.type === 'merge_conflicts') {
           setConflict({
             files: [...err.conflicted_files],
@@ -156,6 +174,8 @@ function RebaseBackButton({ worktreeId, repoId }: { worktreeId: string; repoId: 
         return;
       }
       queryClient.invalidateQueries({ queryKey: ['branchStatus'] });
+    } catch {
+      setError('Rebase back failed.');
     } finally {
       setLoading(false);
     }

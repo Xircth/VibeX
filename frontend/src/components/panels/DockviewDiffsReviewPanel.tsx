@@ -2,11 +2,15 @@ import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import {
   GitCompare,
-  ChevronDown,
-  ChevronRight,
   ChevronsUp,
   ChevronsDown,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  User,
+  Calendar,
+  Hash,
+  X,
 } from 'lucide-react';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttempt } from '@/hooks/useAttempt';
@@ -15,6 +19,7 @@ import { useDiffSummary } from '@/hooks/useDiffSummary';
 import DiffCard from '@/components/DiffCard';
 import DiffViewSwitch from '@/components/DiffViewSwitch';
 import { DiffFileTree } from '@/components/diff/DiffFileTree';
+import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import type { Diff, DiffChangeKind } from 'shared/types';
 
 type DiffCollapseDefaults = Record<DiffChangeKind, boolean>;
@@ -46,13 +51,35 @@ const changeBadge: Record<DiffChangeKind, { label: string; color: string }> = {
   permissionChange: { label: 'P', color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/40' },
 };
 
+function formatTimestamp(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleString();
+}
+
 function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
   const { data: workspace } = useAttempt(activeWorktreeId ?? undefined);
   const attemptId = workspace?.id ?? null;
 
-  const { diffs, error, isInitialized } = useDiffStream(attemptId, true);
-  const { fileCount, added, deleted } = useDiffSummary(attemptId);
+  // Commit diff mode from store
+  const { commitSha, commitInfo, commitDiffs, isLoading: commitLoading, clearCommitDiff } =
+    useCommitDiffStore();
+  const isCommitMode = !!commitSha;
+
+  // Worktree diff mode (existing functionality)
+  const { diffs: worktreeDiffs, error, isInitialized } = useDiffStream(attemptId, true);
+  const { fileCount: wtFileCount, added: wtAdded, deleted: wtDeleted } = useDiffSummary(attemptId);
+
+  // Select data source based on mode
+  const diffs = isCommitMode ? commitDiffs : worktreeDiffs;
+
+  // Compute stats for commit mode
+  const fileCount = isCommitMode ? commitDiffs.length : wtFileCount;
+  const added = isCommitMode
+    ? commitDiffs.reduce((sum, d) => sum + (d.additions ?? 0), 0)
+    : wtAdded;
+  const deleted = isCommitMode
+    ? commitDiffs.reduce((sum, d) => sum + (d.deletions ?? 0), 0)
+    : wtDeleted;
 
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
@@ -60,17 +87,26 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stickyFileId, setStickyFileId] = useState<string | null>(null);
 
+  // Reset collapse state when switching modes or commit
+  useEffect(() => {
+    setCollapsedIds(new Set());
+    setProcessedIds(new Set());
+    setStickyFileId(null);
+  }, [commitSha]);
+
   // Safety timeout: if not initialized within 5s, stop showing spinner
   useEffect(() => {
-    if (isInitialized || diffs.length > 0) {
+    if (isCommitMode || isInitialized || diffs.length > 0) {
       setLoadingTimedOut(false);
       return;
     }
     const timer = setTimeout(() => setLoadingTimedOut(true), 5000);
     return () => clearTimeout(timer);
-  }, [isInitialized, diffs.length]);
+  }, [isCommitMode, isInitialized, diffs.length]);
 
-  const showLoading = !isInitialized && !loadingTimedOut && diffs.length === 0;
+  const showLoading = isCommitMode
+    ? commitLoading
+    : !isInitialized && !loadingTimedOut && diffs.length === 0;
 
   const diffRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -134,27 +170,65 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
     }
   }, []);
 
-  // Sticky file header tracking
+  // Sticky file header tracking via IntersectionObserver
+  // Tracks the last diff element that scrolled past the top of the viewport
+  const lastVisibleIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || diffs.length === 0) return;
 
-    const handleScroll = () => {
-      const containerRect = container.getBoundingClientRect();
-      let currentId: string | null = null;
+    // Track which elements are above the viewport threshold (top 40px of container)
+    const aboveThreshold = new Set<string>();
 
-      for (const [id, el] of diffRefs.current) {
-        const rect = el.getBoundingClientRect();
-        if (rect.top <= containerRect.top + 40) {
-          currentId = id;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const ioEntry of entries) {
+          const id = (ioEntry.target as HTMLElement).dataset.diffId;
+          if (!id) continue;
+
+          // When the element's top edge is above the rootMargin boundary,
+          // it means the element has scrolled past the top => it's the "sticky" one
+          if (!ioEntry.isIntersecting) {
+            // Element is fully above the threshold line
+            const rect = ioEntry.boundingClientRect;
+            if (rect.top < 0) {
+              aboveThreshold.add(id);
+            } else {
+              aboveThreshold.delete(id);
+            }
+          } else {
+            aboveThreshold.delete(id);
+          }
         }
+
+        // Find the last element (by document order) that is above threshold
+        let foundId: string | null = null;
+        for (const [id] of diffRefs.current) {
+          if (aboveThreshold.has(id)) {
+            foundId = id;
+          }
+        }
+
+        if (foundId !== lastVisibleIdRef.current) {
+          lastVisibleIdRef.current = foundId;
+          setStickyFileId(foundId);
+        }
+      },
+      {
+        root: container,
+        // A thin margin at the very top of the scroll container
+        rootMargin: '-40px 0px 0px 0px',
+        threshold: [0, 1],
       }
+    );
 
-      setStickyFileId(currentId);
-    };
+    // Observe all current diff elements
+    for (const [, el] of diffRefs.current) {
+      observer.observe(el);
+    }
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => observer.disconnect();
   }, [diffs]);
 
   const stickyDiff = useMemo(() => {
@@ -164,7 +238,7 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
     return diffs[idx];
   }, [stickyFileId, ids, diffs]);
 
-  if (!activeWorktreeId) {
+  if (!isCommitMode && !activeWorktreeId) {
     return (
       <div
         className="h-full w-full flex items-center justify-center text-muted-foreground text-sm"
@@ -179,7 +253,7 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
     );
   }
 
-  if (error) {
+  if (!isCommitMode && error) {
     return (
       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 m-4">
         <div className="text-red-800 dark:text-red-300 text-sm">{`加载差异失败：${error}`}</div>
@@ -191,15 +265,67 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
     <div className="h-full w-full flex" data-panel="diffs">
       {/* Left: Diff content */}
       <div className="flex-1 min-w-0 flex flex-col">
+        {/* Commit info header (only in commit mode) */}
+        {isCommitMode && commitInfo && (
+          <div className="shrink-0 border-b border-border bg-muted/20">
+            <div className="px-3 py-2.5 space-y-1.5">
+              {/* Title row with close button */}
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-foreground leading-snug">
+                    {commitInfo.summary}
+                  </h3>
+                </div>
+                <button
+                  onClick={clearCommitDiff}
+                  className="shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  title="返回工作区差异"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Body (if any) */}
+              {commitInfo.body && (
+                <div className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-20 overflow-y-auto">
+                  {commitInfo.body}
+                </div>
+              )}
+
+              {/* Meta row */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  <span className="text-foreground/80">{commitInfo.author}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <Hash className="h-3 w-3" />
+                  <button
+                    className="font-mono text-foreground/80 hover:text-foreground transition-colors"
+                    onClick={() => navigator.clipboard.writeText(commitInfo.sha)}
+                    title="Copy full SHA"
+                  >
+                    {commitInfo.sha.slice(0, 12)}
+                  </button>
+                </span>
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  <span>{formatTimestamp(commitInfo.timestamp)}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header toolbar */}
         {diffs.length > 0 && (
-          <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/30">
-            <span className="text-xs text-muted-foreground">
-              {fileCount} 个文件已更改{' '}
-              <span className="text-green-600 dark:text-green-500">
+          <div className="shrink-0 flex items-center gap-2 px-3 h-[33px] border-b border-border bg-muted/30">
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <span>{fileCount} 个文件已更改</span>
+              <span className="font-mono text-green-600 dark:text-green-500">
                 +{added}
-              </span>{' '}
-              <span className="text-red-600 dark:text-red-500">
+              </span>
+              <span className="font-mono text-red-600 dark:text-red-500">
                 -{deleted}
               </span>
             </span>
@@ -245,10 +371,10 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
               {showLoading ? (
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>加载变更中…</span>
+                  <span>{isCommitMode ? '加载提交差异中…' : '加载变更中…'}</span>
                 </div>
               ) : (
-                '尚未进行任何更改'
+                isCommitMode ? '该提交无文件变更' : '尚未进行任何更改'
               )}
             </div>
           ) : (
@@ -257,6 +383,7 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
               return (
                 <div
                   key={id}
+                  data-diff-id={id}
                   ref={(el) => {
                     if (el) diffRefs.current.set(id, el);
                     else diffRefs.current.delete(id);
@@ -266,7 +393,7 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
                     diff={diff}
                     expanded={!collapsedIds.has(id)}
                     onToggle={() => toggle(id)}
-                    selectedAttempt={workspace ?? null}
+                    selectedAttempt={isCommitMode ? null : (workspace ?? null)}
                   />
                 </div>
               );
@@ -278,30 +405,30 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
       {/* Right: Changes directory sidebar */}
       {diffs.length > 0 && (
         <div
-          className={`shrink-0 border-l border-border bg-muted/20 flex flex-col ${
-            sidebarCollapsed ? 'w-8' : 'w-56'
+          className={`shrink-0 border-l border-border bg-muted/20 flex flex-col transition-[width] duration-150 ${
+            sidebarCollapsed ? 'w-8' : 'w-60'
           }`}
         >
           {sidebarCollapsed ? (
             <button
               onClick={() => setSidebarCollapsed(false)}
-              className="h-full flex items-center justify-center text-muted-foreground hover:text-foreground"
+              className="h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 border-b border-border"
               title="展开文件目录"
             >
-              <ChevronRight className="h-4 w-4" />
+              <PanelRightOpen className="h-3.5 w-3.5" />
             </button>
           ) : (
             <>
-              <div className="flex items-center justify-between px-2 py-1.5 border-b border-border">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Changes
+              <div className="flex items-center h-[33px] px-2.5 border-b border-border">
+                <span className="text-xs font-medium text-muted-foreground flex-1">
+                  {isCommitMode ? 'Changed Files' : 'Changes'}
                 </span>
                 <button
                   onClick={() => setSidebarCollapsed(true)}
                   className="p-0.5 rounded hover:bg-accent text-muted-foreground"
                   title="收起"
                 >
-                  <ChevronDown className="h-3 w-3 -rotate-90" />
+                  <PanelRightClose className="h-3.5 w-3.5" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto py-1">
@@ -321,10 +448,11 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
                 />
               </div>
               {/* Summary footer */}
-              <div className="shrink-0 px-2 py-1.5 border-t border-border text-[10px] text-muted-foreground">
-                {fileCount} 个文件 ·{' '}
-                <span className="text-green-600">+{added}</span>{' '}
-                <span className="text-red-600">-{deleted}</span>
+              <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border-t border-border text-[10px] text-muted-foreground">
+                <span>{fileCount} 个文件</span>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="text-green-600 font-mono">+{added}</span>
+                <span className="text-red-600 font-mono">-{deleted}</span>
               </div>
             </>
           )}

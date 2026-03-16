@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type { CreateFollowUpAttempt, ExecutorProfileId } from 'shared/types';
 import { buildAgentPrompt } from '@/utils/promptMessage';
@@ -32,6 +33,7 @@ export function useFollowUpSend({
   clearClickedElements,
   onAfterSendCleanup,
 }: Args) {
+  const queryClient = useQueryClient();
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
 
@@ -62,6 +64,13 @@ export function useFollowUpSend({
 
         targetSessionId = session.id;
         onSelectSession?.(session.id);
+
+        // Immediately invalidate session cache so useWorkspaceSessions
+        // picks up the new session and ExecutionProcessesProvider can
+        // subscribe to the conversation stream without delay.
+        queryClient.invalidateQueries({
+          queryKey: ['workspaceSessions', workspaceId],
+        });
       }
 
       const body: CreateFollowUpAttempt = {
@@ -87,6 +96,7 @@ export function useFollowUpSend({
       setIsSendingFollowUp(false);
     }
   }, [
+    queryClient,
     sessionId,
     workspaceId,
     isNewSessionMode,

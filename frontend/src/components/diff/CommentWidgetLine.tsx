@@ -79,7 +79,7 @@ export function CommentWidgetLine({
       <WYSIWYGEditor
         value={value}
         onChange={setValue}
-        placeholder="Add a comment... (type @ to search files)"
+        placeholder="Add a comment... (type # to search tags or files)"
         className="w-full bg-background text-foreground text-sm font-mono min-h-[60px]"
         projectId={projectId}
         onCmdEnter={handleSave}

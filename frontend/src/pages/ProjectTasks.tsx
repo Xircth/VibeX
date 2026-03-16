@@ -150,7 +150,7 @@ export function ProjectTasks() {
   }
 
   const attemptContent = selectedTask ? (
-    <NewCard className="h-full min-h-0 flex flex-col border-0" style={{ backgroundColor: '#FCFCFC' }}>
+    <NewCard className="h-full min-h-0 flex flex-col border-0" style={{ backgroundColor: 'hsl(var(--_background))' }}>
       {isTaskView ? (
         <TaskPanel task={selectedTask} />
       ) : (

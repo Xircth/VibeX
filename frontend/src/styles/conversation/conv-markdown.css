@@ -1,0 +1,355 @@
+/* ============================================
+ * AI Conversation — Markdown Renderer
+ * Base markdown styles, code blocks (fenced &
+ * single-line), Prism syntax highlighting,
+ * lists, headings, tables, links, blockquotes
+ * ============================================ */
+
+/* =========================================
+ * Markdown Renderer (mossx-style)
+ * ========================================= */
+
+.conv-markdown {
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--conv-text-primary);
+}
+
+.conv-markdown > * {
+  margin: 0;
+}
+
+.conv-markdown > * + * {
+  margin-top: 8px;
+}
+
+.conv-markdown pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.conv-markdown code {
+  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.9em;
+}
+
+/* Inline code */
+.conv-markdown :not(pre) > code {
+  background: var(--conv-surface-control);
+  border: 1px solid var(--conv-border-subtle);
+  color: var(--conv-text-primary);
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 0.88em;
+}
+
+/* ── Code Block (fenced, multi-line) ── */
+
+.conv-md-codeblock {
+  border: 1.5px solid var(--conv-border-strong);
+  border-radius: 10px;
+  background: var(--conv-surface-card);
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  margin: 6px 0;
+}
+
+.conv-md-codeblock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--conv-surface-control);
+  border-bottom: 1px solid var(--conv-border-subtle);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--conv-text-tertiary);
+}
+
+.conv-md-codeblock-language {
+  font-weight: 600;
+  color: var(--conv-text-secondary);
+}
+
+.conv-md-codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--conv-border-strong);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--conv-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.conv-md-codeblock-copy:hover {
+  background: var(--conv-surface-control-hover);
+}
+
+.conv-md-codeblock-copy.is-copied {
+  border-color: var(--conv-tool-success);
+  color: var(--conv-tool-success);
+}
+
+.conv-md-codeblock pre {
+  margin: 0;
+  padding: 10px 12px 12px;
+  white-space: pre;
+  overflow-x: auto;
+  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.conv-md-codeblock code {
+  color: var(--conv-code-text);
+}
+
+/* Prism token colors — Light mode (GitHub-inspired) */
+.conv-md-codeblock :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
+.conv-md-codeblock-single :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
+  color: #6a737d;
+}
+
+.conv-md-codeblock .token.punctuation,
+.conv-md-codeblock-single .token.punctuation {
+  color: #24292f;
+}
+
+.conv-md-codeblock :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted),
+.conv-md-codeblock-single :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted) {
+  color: #cf222e;
+}
+
+.conv-md-codeblock :is(.token.boolean, .token.number),
+.conv-md-codeblock-single :is(.token.boolean, .token.number) {
+  color: #0550ae;
+}
+
+.conv-md-codeblock :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted),
+.conv-md-codeblock-single :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted) {
+  color: #116329;
+}
+
+.conv-md-codeblock :is(.token.operator, .token.entity, .token.url, .token.variable),
+.conv-md-codeblock-single :is(.token.operator, .token.entity, .token.url, .token.variable) {
+  color: #24292f;
+}
+
+.conv-md-codeblock :is(.token.atrule, .token.attr-value, .token.keyword),
+.conv-md-codeblock-single :is(.token.atrule, .token.attr-value, .token.keyword) {
+  color: #cf222e;
+}
+
+.conv-md-codeblock :is(.token.function, .token.class-name),
+.conv-md-codeblock-single :is(.token.function, .token.class-name) {
+  color: #8250df;
+}
+
+/* Prism token colors — Dark mode */
+.dark .conv-md-codeblock :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
+.dark .conv-md-codeblock-single :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
+  color: #8b949e;
+}
+
+.dark .conv-md-codeblock .token.punctuation,
+.dark .conv-md-codeblock-single .token.punctuation {
+  color: #c9d1d9;
+}
+
+.dark .conv-md-codeblock :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted),
+.dark .conv-md-codeblock-single :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted) {
+  color: #ff7b72;
+}
+
+.dark .conv-md-codeblock :is(.token.boolean, .token.number),
+.dark .conv-md-codeblock-single :is(.token.boolean, .token.number) {
+  color: #f2cc60;
+}
+
+.dark .conv-md-codeblock :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted),
+.dark .conv-md-codeblock-single :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted) {
+  color: #7ee787;
+}
+
+.dark .conv-md-codeblock :is(.token.operator, .token.entity, .token.url, .token.variable),
+.dark .conv-md-codeblock-single :is(.token.operator, .token.entity, .token.url, .token.variable) {
+  color: #c9d1d9;
+}
+
+.dark .conv-md-codeblock :is(.token.atrule, .token.attr-value, .token.keyword),
+.dark .conv-md-codeblock-single :is(.token.atrule, .token.attr-value, .token.keyword) {
+  color: #8bd5ff;
+}
+
+.dark .conv-md-codeblock :is(.token.function, .token.class-name),
+.dark .conv-md-codeblock-single :is(.token.function, .token.class-name) {
+  color: #d2a8ff;
+}
+
+/* ── Single-line code block ── */
+
+.conv-md-codeblock-single {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border: 1.5px solid var(--conv-border-strong);
+  border-radius: 10px;
+  background: var(--conv-surface-card);
+  white-space: pre;
+  overflow-x: auto;
+  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.conv-md-codeblock-single code {
+  color: var(--conv-code-text);
+  display: block;
+  font-family: inherit;
+}
+
+/* ── Lists ── */
+
+.conv-markdown ul,
+.conv-markdown ol {
+  margin: 10px 0;
+  max-width: 100%;
+  list-style-position: outside;
+}
+
+.conv-markdown ul {
+  padding-left: 22px;
+  list-style-type: disc;
+}
+
+.conv-markdown ol {
+  padding-left: 28px;
+  list-style-type: decimal;
+}
+
+.conv-markdown li {
+  margin-bottom: 4px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.conv-markdown li p {
+  margin: 0;
+}
+
+/* ── Headings ── */
+
+.conv-markdown :where(h1, h2, h3, h4, h5, h6) {
+  font-size: 1em;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--conv-text-primary);
+}
+
+/* ── Bold / Italic ── */
+
+.conv-markdown :where(strong) {
+  font-weight: 600;
+}
+
+.conv-markdown :where(em) {
+  color: var(--conv-text-secondary);
+}
+
+/* ── Blockquote ── */
+
+.conv-markdown :where(blockquote) {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 2.5px solid var(--conv-border-strong);
+  background: var(--conv-surface-control);
+  border-radius: 0 6px 6px 0;
+  color: var(--conv-text-secondary);
+}
+
+/* ── Tables ── */
+
+.conv-markdown table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  margin: 10px 0;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1.5px solid var(--conv-border-subtle);
+  border-radius: 8px;
+}
+
+.conv-markdown thead,
+.conv-markdown tbody,
+.conv-markdown tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.conv-markdown th,
+.conv-markdown td {
+  border-bottom: 1px solid var(--conv-border-subtle);
+  border-right: 1px solid var(--conv-border-subtle);
+  padding: 8px 12px;
+  text-align: left;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.conv-markdown th:last-child,
+.conv-markdown td:last-child {
+  border-right: none;
+}
+
+.conv-markdown tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.conv-markdown th {
+  font-weight: 600;
+  background: var(--conv-surface-control);
+}
+
+/* ── Links ── */
+
+.conv-markdown a {
+  color: var(--conv-tool-icon);
+  text-underline-offset: 2px;
+  text-decoration: underline;
+}
+
+.conv-markdown a:hover {
+  color: var(--conv-text-primary);
+}
+
+/* ── Paragraph spacing ── */
+
+.conv-markdown p {
+  margin-bottom: 0;
+}
+
+/* Code block background — uses CSS variables for theme adaptation */
+.conv-md-codeblock,
+.conv-md-codeblock-single {
+  background: var(--conv-code-bg);
+}
+
+.conv-md-codeblock-header {
+  background: var(--conv-surface-control);
+  border-bottom-color: var(--conv-border-subtle);
+}

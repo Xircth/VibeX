@@ -1,0 +1,205 @@
+/* =============================================================================
+   Diff Syntax Dark — Dark theme syntax highlighting (data-theme='dark')
+   ============================================================================= */
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  pre
+  code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw code.hljs {
+  padding: 3px 5px;
+}
+
+/*!
+  Theme: GitHub Dark
+  Description: Dark theme as seen on github.com
+  Author: github.com
+  Maintainer: @Hirse
+  Updated: 2021-05-15
+
+  Outdated base version: https://github.com/primer/github-syntax-dark
+  Current colors taken from GitHub's CSS
+*/
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs {
+  color: var(--syntax-punctuation);
+  background: #0d1117;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-doctag,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-keyword,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-meta
+  .hljs-keyword,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-template-tag,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-template-variable,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-type,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-variable.language_ {
+  /* prettylights-syntax-keyword */
+  color: var(--syntax-keyword);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-title,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-title.class_,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-title.class_.inherited__,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-title.function_ {
+  /* prettylights-syntax-entity */
+  color: var(--syntax-function);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-attr,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-attribute,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-literal,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-meta,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-number,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-operator,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-variable,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-selector-attr,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-selector-class,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-selector-id {
+  /* prettylights-syntax-constant */
+  color: var(--syntax-constant);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-regexp,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-string,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-meta
+  .hljs-string {
+  /* prettylights-syntax-string */
+  color: var(--syntax-string);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-built_in,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-symbol {
+  /* prettylights-syntax-variable */
+  color: var(--syntax-variable);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-comment,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-code,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-formula {
+  /* prettylights-syntax-comment */
+  color: var(--syntax-comment);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-name,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-quote,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-selector-tag,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-selector-pseudo {
+  /* prettylights-syntax-entity-tag */
+  color: var(--syntax-tag);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-subst {
+  /* prettylights-syntax-storage-modifier-import */
+  color: var(--syntax-punctuation);
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-section {
+  /* prettylights-syntax-markup-heading */
+  color: #1f6feb;
+  font-weight: bold;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-bullet {
+  /* prettylights-syntax-markup-list */
+  color: #f2cc60;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-emphasis {
+  /* prettylights-syntax-markup-italic */
+  color: var(--syntax-punctuation);
+  font-style: italic;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-strong {
+  /* prettylights-syntax-markup-bold */
+  color: var(--syntax-punctuation);
+  font-weight: bold;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-addition {
+  /* prettylights-syntax-markup-inserted */
+  color: #aff5b4;
+  background-color: #033a16;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-deletion {
+  /* prettylights-syntax-markup-deleted */
+  color: var(--syntax-deleted);
+  background-color: #67060c;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-char.escape_,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-link,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-params,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-property,
+.diff-tailwindcss-wrapper[data-theme='dark']
+  .diff-line-syntax-raw
+  .hljs-punctuation,
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-tag {
+  /* purposely ignored */
+}

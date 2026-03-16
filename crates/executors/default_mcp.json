@@ -1,12 +1,4 @@
 {
-  "vibe_ultra": {
-    "command": "npx",
-    "args": [
-      "-y",
-      "vibe-ultra@latest",
-      "--mcp"
-    ]
-  },
   "context7": {
     "type": "http",
     "url": "https://mcp.context7.com/mcp",
@@ -45,12 +37,6 @@
     ]
   },
   "meta": {
-    "vibe_ultra": {
-      "name": "Vibe Ultra",
-      "description": "Create, update and delete Vibe Ultra tasks",
-      "url": "https://www.vibeultra.com/docs/integrations/vibe-ultra-mcp-server",
-      "icon": "favicon-vk-light.svg"
-    },
     "context7": {
       "name": "Context7",
       "description": "Fetch up-to-date documentation and code examples",

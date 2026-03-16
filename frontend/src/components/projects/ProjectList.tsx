@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
+import { settingsWindowApi } from '@/lib/api';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Project } from 'shared/types';
@@ -28,8 +30,8 @@ export function ProjectList() {
   // Semantic keyboard shortcut for creating new project
   useKeyCreate(handleCreateProject, { scope: Scope.PROJECTS });
 
-  const handleEditProject = (project: Project) => {
-    navigate(`/settings/projects?projectId=${project.id}`);
+  const handleEditProject = (_project: Project) => {
+    settingsWindowApi.open();
   };
 
   // Set initial focus when projects are loaded

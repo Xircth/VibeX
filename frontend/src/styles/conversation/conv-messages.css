@@ -1,0 +1,116 @@
+/* ============================================
+ * AI Conversation — User Message Bubble Styles
+ * Bubble layout, inline code, code blocks,
+ * collapsible messages, and toggle controls
+ * ============================================ */
+
+/* =========================================
+ * User Message Bubble
+ * ========================================= */
+
+.conv-user-bubble {
+  background: var(--conv-user-bg);
+  color: var(--conv-user-text);
+  border-radius: var(--conv-user-bubble-radius);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  max-width: 85%;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.conv-user-bubble .ProseMirror,
+.conv-user-bubble .ProseMirror p,
+.conv-user-bubble .ProseMirror li,
+.conv-user-bubble .ProseMirror span {
+  color: var(--conv-user-text) !important;
+}
+
+/* Inline code inside user bubble — transparent bg + subtle border only */
+.conv-user-bubble .bg-muted,
+.conv-user-bubble .bg-panel,
+.conv-user-bubble .ProseMirror code,
+.conv-user-bubble code {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--conv-user-text) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Code block inside user bubble (Lexical CodeNode uses bg-secondary) */
+.conv-user-bubble .editor-code,
+.conv-user-bubble [class*="bg-secondary"],
+.conv-user-bubble .ProseMirror pre {
+  background: rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+  margin: 6px 0 !important;
+  overflow-x: auto;
+}
+
+/* Code text inside code blocks in user bubble */
+.conv-user-bubble .editor-code code,
+.conv-user-bubble .editor-code span,
+.conv-user-bubble .ProseMirror pre code {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.conv-user-bubble .ProseMirror a {
+  color: rgba(255, 255, 255, 0.9) !important;
+  text-decoration: underline;
+}
+
+/* Collapsible user message */
+.conv-user-collapsible {
+  position: relative;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+}
+
+.conv-user-collapsible-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: linear-gradient(to bottom, transparent, var(--conv-user-bg));
+  pointer-events: none;
+}
+
+.conv-user-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 0 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  background: none;
+  border: none;
+  transition: color 0.15s;
+}
+
+.conv-user-toggle:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.conv-user-toggle-icon {
+  transition: transform 0.2s;
+}
+
+.conv-user-toggle-icon.is-expanded {
+  transform: rotate(180deg);
+}

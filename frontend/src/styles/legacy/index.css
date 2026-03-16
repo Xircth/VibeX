@@ -229,6 +229,21 @@
   }
 }
 
+/* 4) Settings page overrides – darker text for better readability */
+@layer base {
+  .settings-page {
+    --foreground: 0 0% 13%;
+    --muted-foreground: 0 0% 35%;
+    --card-foreground: 0 0% 13%;
+  }
+
+  .dark .settings-page {
+    --foreground: 0 0% 93%;
+    --muted-foreground: 0 0% 70%;
+    --card-foreground: 0 0% 93%;
+  }
+}
+
 /* ANSI color classes for fancy-ansi */
 @layer components {
   .ansi-red {

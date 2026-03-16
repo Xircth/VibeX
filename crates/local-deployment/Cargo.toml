@@ -19,11 +19,11 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs",
 uuid = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
-command-group = { version = "5.0", features = ["with-tokio"] }
+command-group = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 globwalk = "0.9"
 portable-pty = "0.8"
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = { workspace = true }

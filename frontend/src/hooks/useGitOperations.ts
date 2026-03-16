@@ -2,11 +2,10 @@ import { useRebase } from './useRebase';
 import { useRebaseBack } from './useRebaseBack';
 import { useMerge } from './useMerge';
 import { usePush } from './usePush';
-import { useForcePush } from './useForcePush';
 import { useChangeTargetBranch } from './useChangeTargetBranch';
 import { useGitOperationsError } from '@/contexts/GitOperationsContext';
-import { Result } from '@/lib/api';
-import type { GitOperationError, PushTaskAttemptRequest } from 'shared/types';
+import type { RebaseResult } from '@/lib/api';
+import type { PushTaskAttemptRequest } from 'shared/types';
 import { ForcePushDialog } from '@/components/dialogs/git/ForcePushDialog';
 
 export function useGitOperations(
@@ -19,15 +18,13 @@ export function useGitOperations(
     attemptId,
     repoId,
     () => setError(null),
-    (err: Result<void, GitOperationError>) => {
-      if (!err.success) {
-        const data = err?.error;
-        const isConflict =
-          data?.type === 'merge_conflicts' ||
-          data?.type === 'rebase_in_progress';
-        if (!isConflict) {
-          setError(err.message || 'Failed to rebase');
-        }
+    (err: RebaseResult) => {
+      const data = err?.error;
+      const isConflict =
+        data?.type === 'merge_conflicts' ||
+        data?.type === 'rebase_in_progress';
+      if (!isConflict) {
+        setError('Failed to rebase');
       }
     }
   );
@@ -44,7 +41,7 @@ export function useGitOperations(
     }
   );
 
-  const forcePush = useForcePush(
+  const forcePush = usePush(
     attemptId,
     () => setError(null),
     (err: unknown) => {
@@ -53,7 +50,8 @@ export function useGitOperations(
           ? String(err.message)
           : 'Failed to force push';
       setError(message);
-    }
+    },
+    { force: true }
   );
 
   const push = usePush(
@@ -80,15 +78,13 @@ export function useGitOperations(
   const rebaseBack = useRebaseBack(
     attemptId,
     () => setError(null),
-    (err: Result<void, GitOperationError>) => {
-      if (!err.success) {
-        const data = err?.error;
-        const isConflict =
-          data?.type === 'merge_conflicts' ||
-          data?.type === 'rebase_in_progress';
-        if (!isConflict) {
-          setError(err.message || 'Failed to rebase back');
-        }
+    (err: RebaseResult) => {
+      const data = err?.error;
+      const isConflict =
+        data?.type === 'merge_conflicts' ||
+        data?.type === 'rebase_in_progress';
+      if (!isConflict) {
+        setError('Failed to rebase back');
       }
     }
   );

@@ -1,5 +1,6 @@
 import { useState } from 'react';import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch } from '@/hooks';
+import { settingsWindowApi } from '@/lib/api';
 import {
   Card,
   CardContent,
@@ -54,7 +55,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {  con
   };
 
   const handleEditClick = () => {
-    navigate(`/settings/projects?projectId=${projectId}`);
+    settingsWindowApi.open();
   };
 
   if (isLoading) {

@@ -797,7 +797,7 @@ impl GitCli {
         self.git(worktree_path, ["diff", "HEAD", "--", file_path])
     }
 
-    /// Get git log entries with format: hash, summary, author, timestamp.
+    /// Get git log entries with format: hash, summary, author, timestamp, refs.
     pub fn get_log(
         &self,
         worktree_path: &Path,
@@ -808,7 +808,7 @@ impl GitCli {
             [
                 "log",
                 &format!("--max-count={max_count}"),
-                "--format=%H%x00%s%x00%aN%x00%ct",
+                "--format=%H%x00%s%x00%aN%x00%ct%x00%D",
             ],
         )
     }
@@ -915,6 +915,118 @@ impl GitCli {
                 self.git(worktree_path, ["checkout", "-b", branch_name])?;
             }
         }
+        Ok(())
+    }
+
+    /// Get detailed information about a single commit (message body, author email, files changed).
+    pub fn show_commit(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+    ) -> Result<(String, String, String, String, i64), GitCliError> {
+        // Format: summary\0body\0author\0email\0timestamp
+        let out = self.git(
+            worktree_path,
+            ["show", sha, "--no-patch", "--format=%s%x00%b%x00%aN%x00%aE%x00%ct"],
+        )?;
+        let trimmed = out.trim();
+        let parts: Vec<&str> = trimmed.splitn(5, '\0').collect();
+        if parts.len() < 5 {
+            return Err(GitCliError::CommandFailed(format!(
+                "unexpected show output for {sha}"
+            )));
+        }
+        let timestamp = parts[4].trim().parse::<i64>().unwrap_or(0);
+        Ok((
+            parts[0].to_string(), // summary
+            parts[1].trim().to_string(), // body
+            parts[2].to_string(), // author
+            parts[3].to_string(), // author_email
+            timestamp,
+        ))
+    }
+
+    /// Get the list of files changed in a commit with numstat.
+    pub fn show_commit_files(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+    ) -> Result<Vec<(String, String, u32, u32)>, GitCliError> {
+        // --diff-filter to get status, --numstat for additions/deletions
+        let name_status = self.git(
+            worktree_path,
+            ["diff-tree", "--no-commit-id", "-r", "--name-status", sha],
+        )?;
+        let numstat = self.git(
+            worktree_path,
+            ["diff-tree", "--no-commit-id", "-r", "--numstat", sha],
+        )?;
+
+        let mut stat_map: std::collections::HashMap<String, (u32, u32)> =
+            std::collections::HashMap::new();
+        for line in numstat.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 3 {
+                let adds = parts[0].parse::<u32>().unwrap_or(0);
+                let dels = parts[1].parse::<u32>().unwrap_or(0);
+                stat_map.insert(parts[2].to_string(), (adds, dels));
+            }
+        }
+
+        let mut result = Vec::new();
+        for line in name_status.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = line.splitn(2, '\t').collect();
+            if parts.len() < 2 {
+                continue;
+            }
+            let status = parts[0].to_string();
+            let path = parts[1].to_string();
+            let (adds, dels) = stat_map.get(&path).copied().unwrap_or((0, 0));
+            result.push((path, status, adds, dels));
+        }
+        Ok(result)
+    }
+
+    /// Cherry-pick a commit.
+    pub fn cherry_pick(&self, worktree_path: &Path, sha: &str) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        self.git(worktree_path, ["cherry-pick", sha])?;
+        Ok(())
+    }
+
+    /// Revert a commit (creates a new commit undoing the changes).
+    pub fn revert_commit(&self, worktree_path: &Path, sha: &str) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        self.git(worktree_path, ["revert", "--no-edit", sha])?;
+        Ok(())
+    }
+
+    /// Reset current branch to a specific commit.
+    pub fn reset_to(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+        mode: &str,
+    ) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        let mode_flag = format!("--{mode}");
+        self.git(worktree_path, ["reset", &mode_flag, sha])?;
+        Ok(())
+    }
+
+    /// Create a new branch at a specific commit (without switching to it).
+    pub fn create_branch_at(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+        sha: &str,
+    ) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+        self.git(worktree_path, ["branch", branch_name, sha])?;
         Ok(())
     }
 }

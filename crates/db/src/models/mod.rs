@@ -1,3 +1,4 @@
+pub mod agent_setting;
 pub mod coding_agent_turn;
 pub mod execution_process;
 pub mod execution_process_logs;

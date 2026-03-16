@@ -1,5 +1,5 @@
-import { memo, useEffect, useRef } from 'react';
-import { Plus, Minus, Undo2, Copy } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Plus, Minus, Undo2, Copy, ChevronRight } from 'lucide-react';
 
 export interface ContextMenuAction {
   label: string;
@@ -7,6 +7,9 @@ export interface ContextMenuAction {
   onClick: () => void;
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
+  group?: string;
+  submenu?: ContextMenuAction[];
 }
 
 interface GitContextMenuProps {
@@ -23,6 +26,7 @@ export const GitContextMenu = memo(function GitContextMenu({
   onClose,
 }: GitContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -50,40 +54,150 @@ export const GitContextMenu = memo(function GitContextMenu({
     const vh = window.innerHeight;
 
     if (rect.right > vw) {
-      menuRef.current.style.left = `${x - rect.width}px`;
+      menuRef.current.style.left = `${Math.max(8, x - rect.width)}px`;
     }
     if (rect.bottom > vh) {
-      menuRef.current.style.top = `${y - rect.height}px`;
+      menuRef.current.style.top = `${Math.max(8, y - rect.height)}px`;
     }
   }, [x, y]);
+
+  // Group actions by group field
+  const groupedActions = groupActionsByField(actions);
 
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[160px] bg-popover border border-border rounded-md shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100"
+      className="fixed z-50 min-w-[180px] max-w-[320px] bg-popover border border-border rounded-lg shadow-lg py-1 animate-in fade-in zoom-in-95 duration-100"
       style={{ left: x, top: y }}
+      role="menu"
     >
-      {actions.map((action, i) => (
-        <button
-          key={i}
-          className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors disabled:opacity-40 ${
-            action.danger
-              ? 'text-destructive hover:bg-destructive/10'
-              : 'text-popover-foreground hover:bg-accent'
-          }`}
-          onClick={() => {
-            action.onClick();
-            onClose();
-          }}
-          disabled={action.disabled}
-        >
-          {action.icon}
-          <span>{action.label}</span>
-        </button>
+      {groupedActions.map((group, gi) => (
+        <div key={gi}>
+          {gi > 0 && (
+            <div className="mx-2 my-1 border-t border-border/40" />
+          )}
+          {group.map((action, ai) => {
+            const globalIdx = groupedActions
+              .slice(0, gi)
+              .reduce((s, g) => s + g.length, 0) + ai;
+
+            if (action.submenu && action.submenu.length > 0) {
+              return (
+                <SubmenuItem
+                  key={globalIdx}
+                  action={action}
+                  isOpen={openSubmenu === globalIdx}
+                  onToggle={() =>
+                    setOpenSubmenu(openSubmenu === globalIdx ? null : globalIdx)
+                  }
+                  onClose={onClose}
+                />
+              );
+            }
+
+            return (
+              <button
+                key={globalIdx}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors disabled:opacity-40 ${
+                  action.danger
+                    ? 'text-destructive hover:bg-destructive/10'
+                    : 'text-popover-foreground hover:bg-accent'
+                }`}
+                onClick={() => {
+                  action.onClick();
+                  onClose();
+                }}
+                disabled={action.disabled}
+                title={action.disabledReason ?? undefined}
+                role="menuitem"
+              >
+                {action.icon}
+                <span className="flex-1 text-left">{action.label}</span>
+              </button>
+            );
+          })}
+        </div>
       ))}
     </div>
   );
 });
+
+const SubmenuItem = memo(function SubmenuItem({
+  action,
+  isOpen,
+  onToggle,
+  onClose,
+}: {
+  action: ContextMenuAction;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}) {
+  const itemRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div ref={itemRef} className="relative">
+      <button
+        className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${
+          action.danger
+            ? 'text-destructive hover:bg-destructive/10'
+            : 'text-popover-foreground hover:bg-accent'
+        }`}
+        onClick={onToggle}
+        disabled={action.disabled}
+        title={action.disabledReason ?? undefined}
+        role="menuitem"
+      >
+        {action.icon}
+        <span className="flex-1 text-left">{action.label}</span>
+        <ChevronRight className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+      </button>
+      {isOpen && action.submenu && (
+        <div className="ml-2 border-l border-border/30 pl-1">
+          {action.submenu.map((sub, i) => (
+            <button
+              key={i}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors disabled:opacity-40 ${
+                sub.danger
+                  ? 'text-destructive hover:bg-destructive/10'
+                  : 'text-popover-foreground hover:bg-accent'
+              }`}
+              onClick={() => {
+                sub.onClick();
+                onClose();
+              }}
+              disabled={sub.disabled}
+              title={sub.disabledReason ?? undefined}
+              role="menuitem"
+            >
+              {sub.icon}
+              <span>{sub.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+function groupActionsByField(actions: ContextMenuAction[]): ContextMenuAction[][] {
+  const groups: ContextMenuAction[][] = [];
+  let currentGroup: ContextMenuAction[] = [];
+  let currentGroupName: string | undefined;
+
+  for (const action of actions) {
+    if (action.group !== currentGroupName && currentGroup.length > 0) {
+      groups.push(currentGroup);
+      currentGroup = [];
+    }
+    currentGroupName = action.group;
+    currentGroup.push(action);
+  }
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
+  }
+  return groups;
+}
 
 export function buildFileContextActions({
   section,

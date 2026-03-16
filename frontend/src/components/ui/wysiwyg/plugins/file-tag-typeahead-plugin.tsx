@@ -17,6 +17,7 @@ import {
   $createParagraphNode,
   $isParagraphNode,
 } from 'lexical';
+import { $createTagReferenceNode } from '../nodes/tag-reference-node';
 import { Tag as TagIcon, FileText, Cog } from 'lucide-react';import type { Repo } from 'shared/types';
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useTypeaheadOpen } from '@/components/ui/wysiwyg/context/typeahead-open-context';
@@ -309,11 +310,19 @@ export function FileTagTypeaheadPlugin({ repoIds }: { repoIds?: string[] }) {
           if (!nodeToReplace) return;
 
           if (option.item.type === 'tag') {
-            // For tags, keep the existing behavior (insert tag content as plain text)
-            const textToInsert = option.item.tag?.content ?? '';
-            const textNode = $createTextNode(textToInsert);
-            nodeToReplace.replace(textNode);
-            textNode.select(textToInsert.length, textToInsert.length);
+            // Insert a compact tag reference chip (DecoratorNode)
+            const tag = option.item.tag!;
+            const tagNode = $createTagReferenceNode({
+              tagId: tag.id,
+              tagName: tag.tag_name,
+              content: tag.content,
+            });
+            nodeToReplace.replace(tagNode);
+
+            // Add a trailing space after the chip for continued typing
+            const spaceNode = $createTextNode(' ');
+            tagNode.insertAfter(spaceNode);
+            spaceNode.select(1, 1);
           } else {
             // For files, insert filename as inline code at cursor,
             // and append full path as inline code at the bottom

@@ -2,7 +2,8 @@ import {
   createContext,
   useContext,
   useCallback,
-  useState,
+  useRef,
+  useMemo,
   type ReactNode,
 } from 'react';
 import type { DockviewApi } from 'dockview-react';
@@ -43,6 +44,8 @@ export interface PanelActions {
   openFilePreview: (filePath: string) => void;
   /** Open the diff preview panel (or focus if already open) */
   openDiffPreview: () => void;
+  /** Open the diff preview panel in commit diff mode */
+  openCommitDiff: () => void;
   /** Open a new terminal panel */
   openNewTerminal: () => void;
   /** Close a specific panel by ID */
@@ -76,21 +79,25 @@ export interface PanelActions {
 const PanelActionsContext = createContext<PanelActions | null>(null);
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
-  const [dockviewApi, setDockviewApiState] = useState<DockviewApi | null>(null);
+  // Use ref to store dockviewApi so callbacks don't need it as a dependency.
+  // This prevents all consumers from re-rendering when dockviewApi changes.
+  const apiRef = useRef<DockviewApi | null>(null);
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
-    setDockviewApiState(api);
+    apiRef.current = api;
   }, []);
 
   const getCenter1Group = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return undefined;
     return (
       dockviewApi.getGroup(GROUP_IDS.CENTER_1) ??
       dockviewApi.getPanel(PANEL_IDS.WELCOME)?.group
     );
-  }, [dockviewApi]);
+  }, []);
 
   const ensureCenter1Group = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return undefined;
 
     const existing = getCenter1Group();
@@ -101,6 +108,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const leftGroup = dockviewApi.getGroup(GROUP_IDS.LEFT);
     const refPanel = leftGroup?.panels[0] ?? dockviewApi.panels[0];
     if (!refPanel) return undefined;
+
+    // Remove orphaned welcome panel if it exists in an unexpected location
+    const orphanedWelcome = dockviewApi.getPanel(PANEL_IDS.WELCOME);
+    if (orphanedWelcome) {
+      try { dockviewApi.removePanel(orphanedWelcome); } catch { /* ignore */ }
+    }
 
     const welcomePanel = dockviewApi.addPanel({
       id: PANEL_IDS.WELCOME,
@@ -118,14 +131,40 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     (center1Group as unknown as { id: string }).id = GROUP_IDS.CENTER_1;
 
     return center1Group;
-  }, [dockviewApi, getCenter1Group]);
+  }, [getCenter1Group]);
 
-  const ensureCenter2Group = useCallback(() => {
+  /**
+   * Find center-2 group by ID, by welcome-2 panel, or by exclusion.
+   * Handles the case where fromJSON restores groups with non-canonical IDs.
+   */
+  const findCenter2Group = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return undefined;
 
-    const existingCenter2 =
-      dockviewApi.getGroup(GROUP_IDS.CENTER_2) ??
-      dockviewApi.getPanel(`${PANEL_IDS.WELCOME}-2`)?.group;
+    // Try canonical ID first
+    const byId = dockviewApi.getGroup(GROUP_IDS.CENTER_2);
+    if (byId) return byId;
+
+    // Try welcome-2 panel reference
+    const byWelcome = dockviewApi.getPanel(`${PANEL_IDS.WELCOME}-2`)?.group;
+    if (byWelcome) return byWelcome;
+
+    // Fallback: find by exclusion (any center group that's not center-1)
+    const center1Group = getCenter1Group();
+    return dockviewApi.groups.find((g) => {
+      if (g === center1Group) return false;
+      const pIds = g.panels.map((p) => p.id);
+      if (pIds.some((id) => LEFT_PANEL_IDS.has(id))) return false;
+      if (pIds.some((id) => BOTTOM_PANEL_IDS.has(id))) return false;
+      return true;
+    });
+  }, [getCenter1Group]);
+
+  const ensureCenter2Group = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return undefined;
+
+    const existingCenter2 = findCenter2Group();
     if (existingCenter2) {
       return existingCenter2;
     }
@@ -135,6 +174,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const refPanel =
       center1?.panels[0] ?? dockviewApi.getPanel(PANEL_IDS.WELCOME) ?? dockviewApi.panels[0];
     if (!refPanel) return undefined;
+
+    // Remove orphaned welcome-2 panel if it exists in an unexpected location
+    const orphanedWelcome2 = dockviewApi.getPanel(`${PANEL_IDS.WELCOME}-2`);
+    if (orphanedWelcome2) {
+      try { dockviewApi.removePanel(orphanedWelcome2); } catch { /* ignore */ }
+    }
 
     // Create welcome-2 panel with positioning – group is created as a side-effect
     const welcome2Panel = dockviewApi.addPanel({
@@ -153,9 +198,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     (center2Group as unknown as { id: string }).id = GROUP_IDS.CENTER_2;
 
     return center2Group;
-  }, [dockviewApi, ensureCenter1Group]);
+  }, [findCenter2Group, ensureCenter1Group]);
 
   const chooseCenterGroupForNewPanel = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return undefined;
 
     const center1Group = ensureCenter1Group();
@@ -197,7 +243,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       return group.id === GROUP_IDS.CENTER_1 ? group : bestGroup;
     });
-  }, [dockviewApi, ensureCenter1Group, ensureCenter2Group]);
+  }, [ensureCenter1Group, ensureCenter2Group]);
 
   /**
    * Find the best center group for a new tab panel.
@@ -209,6 +255,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
    */
   const openOrFocusPanel = useCallback(
     (panelId: string, title: string) => {
+      const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
       // 1. Already exists → activate
@@ -241,11 +288,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         title,
       });
     },
-    [dockviewApi, chooseCenterGroupForNewPanel]
+    [chooseCenterGroupForNewPanel]
   );
 
   const openFilePreview = useCallback(
     (filePath: string) => {
+      const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
       // Generate a stable panel ID from file path
@@ -283,14 +331,19 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [chooseCenterGroupForNewPanel, dockviewApi]
+    [chooseCenterGroupForNewPanel]
   );
 
   const openDiffPreview = useCallback(() => {
     openOrFocusPanel(PANEL_IDS.DIFFS, 'Diffs');
   }, [openOrFocusPanel]);
 
+  const openCommitDiff = useCallback(() => {
+    openOrFocusPanel(PANEL_IDS.DIFFS, 'Commit Diff');
+  }, [openOrFocusPanel]);
+
   const openNewTerminal = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
 
     const existingTerminal = dockviewApi.getPanel(PANEL_IDS.TERMINAL);
@@ -337,185 +390,164 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       title: 'Terminal',
       position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
     });
-  }, [dockviewApi]);
+  }, []);
 
   const closePanel = useCallback(
     (panelId: string) => {
+      const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
       const panel = dockviewApi.getPanel(panelId);
       if (panel) {
         dockviewApi.removePanel(panel);
       }
     },
-    [dockviewApi]
+    []
+  );
+
+  /**
+   * Helper: switch the left sidebar to a different panel.
+   * Adds the new panel BEFORE removing old ones so the group is never empty
+   * (preventing dockview from auto-destroying the group).
+   */
+  const switchLeftPanel = useCallback(
+    (
+      targetId: string,
+      targetComponent: string,
+      targetTitle: string,
+      otherPanelIds: string[]
+    ) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      // If target panel already exists, check whether we need to switch or toggle
+      const existing = dockviewApi.getPanel(targetId);
+      if (existing) {
+        const leftGroup =
+          dockviewApi.getGroup(GROUP_IDS.LEFT) ??
+          dockviewApi.groups.find((g) =>
+            g.panels.some((p) => p.id === targetId)
+          );
+        if (leftGroup) {
+          // Check if other left panels also exist in the group (e.g. after layout restore)
+          const hasOtherLeftPanels = otherPanelIds.some(
+            (id) => !!dockviewApi.getPanel(id)
+          );
+
+          if (hasOtherLeftPanels) {
+            // Switch mode: activate target, remove stale panels, ensure visible
+            existing.api.setActive();
+            for (const otherId of otherPanelIds) {
+              const otherPanel = dockviewApi.getPanel(otherId);
+              if (otherPanel) {
+                dockviewApi.removePanel(otherPanel);
+              }
+            }
+            leftGroup.api.setVisible(true);
+            applyLeftGroupHeaderHiding(dockviewApi);
+          } else {
+            // Pure toggle: no other left panels, just toggle sidebar visibility
+            leftGroup.api.setVisible(!leftGroup.api.isVisible);
+          }
+        }
+        return;
+      }
+
+      // Find existing left group and save its width
+      const existingLeftGroup =
+        dockviewApi.getGroup(GROUP_IDS.LEFT) ??
+        dockviewApi.groups.find((g) =>
+          g.panels.some((p) => LEFT_PANEL_IDS.has(p.id))
+        );
+      const savedLeftWidth =
+        existingLeftGroup?.api.isVisible ? existingLeftGroup.api.width : 0;
+
+      let leftGroup = existingLeftGroup ?? null;
+
+      if (!leftGroup) {
+        // No left group exists — create one
+        const centerRef = dockviewApi.panels.find(
+          (p) => !LEFT_PANEL_IDS.has(p.id) && !BOTTOM_PANEL_IDS.has(p.id)
+        );
+        if (!centerRef) return;
+        leftGroup = dockviewApi.addGroup({
+          id: GROUP_IDS.LEFT,
+          referencePanel: centerRef,
+          direction: 'left',
+          hideHeader: true,
+          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 220,
+        });
+        if (savedLeftWidth > 0) {
+          try {
+            leftGroup.api.setSize({ width: savedLeftWidth });
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      // Add the new panel FIRST (group stays non-empty, won't be destroyed)
+      dockviewApi.addPanel({
+        id: targetId,
+        component: targetComponent,
+        title: targetTitle,
+        position: { referenceGroup: GROUP_IDS.LEFT, direction: 'within' },
+      });
+
+      // Now safely remove the old panels
+      for (const otherId of otherPanelIds) {
+        const otherPanel = dockviewApi.getPanel(otherId);
+        if (otherPanel) {
+          dockviewApi.removePanel(otherPanel);
+        }
+      }
+
+      leftGroup.api.setVisible(true);
+      applyLeftGroupHeaderHiding(dockviewApi);
+    },
+    []
   );
 
   const toggleFileTree = useCallback(() => {
-    if (!dockviewApi) return;
-
-    // If file tree panel already exists, toggle its group visibility
-    const existing = dockviewApi.getPanel(PANEL_IDS.FILE_TREE);
-    if (existing) {
-      const leftGroup =
-        dockviewApi.getGroup(GROUP_IDS.LEFT) ??
-        dockviewApi.groups.find((g) => g.panels.some((p) => p.id === PANEL_IDS.FILE_TREE));
-      if (leftGroup) {
-        leftGroup.api.setVisible(!leftGroup.api.isVisible);
-      }
-      return;
-    }
-
-    // Close git panel first (mutual exclusion)
-    const gitPanel = dockviewApi.getPanel(PANEL_IDS.GIT);
-    if (gitPanel) {
-      dockviewApi.removePanel(gitPanel);
-    }
-
-    const leftGroup =
-      dockviewApi.getGroup(GROUP_IDS.LEFT) ??
-      dockviewApi.groups.find((group) =>
-        group.panels.some(
-          (panel) => panel.id === PANEL_IDS.FILE_TREE || panel.id === PANEL_IDS.GIT
-        )
-      );
-
-    // Find existing left group by ID
-    let resolvedLeftGroup = leftGroup;
-
-    if (!resolvedLeftGroup) {
-      // Create new left group
-      const centerRef = dockviewApi.panels.find(
-        (p) => !LEFT_PANEL_IDS.has(p.id) && !BOTTOM_PANEL_IDS.has(p.id)
-      );
-      if (!centerRef) return;
-      resolvedLeftGroup = dockviewApi.addGroup({
-        id: GROUP_IDS.LEFT,
-        referencePanel: centerRef,
-        direction: 'left',
-        hideHeader: true,
-        initialWidth: 220,
-      });
-    }
-
-    dockviewApi.addPanel({
-      id: PANEL_IDS.FILE_TREE,
-      component: PANEL_IDS.FILE_TREE,
-      title: '文件管理器',
-      position: { referenceGroup: resolvedLeftGroup.id, direction: 'within' },
-    });
-    resolvedLeftGroup.api.setVisible(true);
-    applyLeftGroupHeaderHiding(dockviewApi);
-  }, [dockviewApi]);
+    switchLeftPanel(
+      PANEL_IDS.FILE_TREE,
+      PANEL_IDS.FILE_TREE,
+      '文件管理器',
+      [PANEL_IDS.GIT, PANEL_IDS.SEARCH]
+    );
+  }, [switchLeftPanel]);
 
   const toggleGitPanel = useCallback(() => {
-    if (!dockviewApi) return;
-
-    // If git panel already exists, toggle its group visibility
-    const existing = dockviewApi.getPanel(PANEL_IDS.GIT);
-    if (existing) {
-      const leftGroup =
-        dockviewApi.getGroup(GROUP_IDS.LEFT) ??
-        dockviewApi.groups.find((g) => g.panels.some((p) => p.id === PANEL_IDS.GIT));
-      if (leftGroup) {
-        leftGroup.api.setVisible(!leftGroup.api.isVisible);
-      }
-      return;
-    }
-
-    // Close file tree panel first (mutual exclusion)
-    const fileTreePanel = dockviewApi.getPanel(PANEL_IDS.FILE_TREE);
-    if (fileTreePanel) {
-      dockviewApi.removePanel(fileTreePanel);
-    }
-    const searchPanel = dockviewApi.getPanel(PANEL_IDS.SEARCH);
-    if (searchPanel) {
-      dockviewApi.removePanel(searchPanel);
-    }
-
-    // Find existing left group by ID
-    let leftGroup = dockviewApi.groups.find((g) => g.id === GROUP_IDS.LEFT);
-
-    if (!leftGroup) {
-      // Create new left group
-      const centerRef = dockviewApi.panels.find(
-        (p) => !LEFT_PANEL_IDS.has(p.id) && !BOTTOM_PANEL_IDS.has(p.id)
-      );
-      if (!centerRef) return;
-      leftGroup = dockviewApi.addGroup({
-        id: GROUP_IDS.LEFT,
-        referencePanel: centerRef,
-        direction: 'left',
-        hideHeader: true,
-        initialWidth: 220,
-      });
-    }
-
-    dockviewApi.addPanel({
-      id: PANEL_IDS.GIT,
-      component: PANEL_IDS.GIT,
-      title: 'Git 管理器',
-      position: { referenceGroup: leftGroup.id, direction: 'within' },
-    });
-    leftGroup.api.setVisible(true);
-    applyLeftGroupHeaderHiding(dockviewApi);
-  }, [dockviewApi]);
+    switchLeftPanel(
+      PANEL_IDS.GIT,
+      PANEL_IDS.GIT,
+      'Git 管理器',
+      [PANEL_IDS.FILE_TREE, PANEL_IDS.SEARCH]
+    );
+  }, [switchLeftPanel]);
 
   const toggleSearchPanel = useCallback(() => {
-    if (!dockviewApi) return;
-
-    const existing = dockviewApi.getPanel(PANEL_IDS.SEARCH);
-    if (existing) {
-      const leftGroup =
-        dockviewApi.getGroup(GROUP_IDS.LEFT) ??
-        dockviewApi.groups.find((g) => g.panels.some((p) => p.id === PANEL_IDS.SEARCH));
-      if (leftGroup) {
-        leftGroup.api.setVisible(!leftGroup.api.isVisible);
-      }
-      return;
-    }
-
-    // Close other left panels (mutual exclusion)
-    const fileTreePanel = dockviewApi.getPanel(PANEL_IDS.FILE_TREE);
-    if (fileTreePanel) {
-      dockviewApi.removePanel(fileTreePanel);
-    }
-    const gitPanel = dockviewApi.getPanel(PANEL_IDS.GIT);
-    if (gitPanel) {
-      dockviewApi.removePanel(gitPanel);
-    }
-
-    let leftGroup = dockviewApi.groups.find((g) => g.id === GROUP_IDS.LEFT);
-
-    if (!leftGroup) {
-      const centerRef = dockviewApi.panels.find(
-        (p) => !LEFT_PANEL_IDS.has(p.id) && !BOTTOM_PANEL_IDS.has(p.id)
-      );
-      if (!centerRef) return;
-      leftGroup = dockviewApi.addGroup({
-        id: GROUP_IDS.LEFT,
-        referencePanel: centerRef,
-        direction: 'left',
-        hideHeader: true,
-        initialWidth: 220,
-      });
-    }
-
-    dockviewApi.addPanel({
-      id: PANEL_IDS.SEARCH,
-      component: PANEL_IDS.SEARCH,
-      title: '搜索',
-      position: { referenceGroup: leftGroup.id, direction: 'within' },
-    });
-    leftGroup.api.setVisible(true);
-    applyLeftGroupHeaderHiding(dockviewApi);
-  }, [dockviewApi]);
+    switchLeftPanel(
+      PANEL_IDS.SEARCH,
+      PANEL_IDS.SEARCH,
+      '搜索',
+      [PANEL_IDS.FILE_TREE, PANEL_IDS.GIT]
+    );
+  }, [switchLeftPanel]);
 
   const isPanelOpen = useCallback(
     (panelId: string) => {
+      const dockviewApi = apiRef.current;
       if (!dockviewApi) return false;
-      return !!dockviewApi.getPanel(panelId);
+      const panel = dockviewApi.getPanel(panelId);
+      if (!panel) return false;
+      // For left sidebar panels, also check group visibility and active state
+      // so the Activity Bar icon accurately reflects what's actually shown
+      if (LEFT_PANEL_IDS.has(panelId)) {
+        return panel.group.api.isVisible && panel.api.isActive;
+      }
+      return true;
     },
-    [dockviewApi]
+    []
   );
 
   const openLogs = useCallback(() => {
@@ -527,28 +559,16 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   }, [openOrFocusPanel]);
 
   const focusKanban = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
     const kanbanPanel = dockviewApi.getPanel(PANEL_IDS.KANBAN);
     if (kanbanPanel) {
       kanbanPanel.api.setActive();
     }
-  }, [dockviewApi]);
-
-  /**
-   * Get center groups ordered by their position in the groups array.
-   * Center groups are those that are neither left-sidebar nor bottom groups.
-   */
-  const getCenterGroups = useCallback(() => {
-    if (!dockviewApi) return [];
-    return dockviewApi.groups.filter((g) => {
-      const ids = g.panels.map((p) => p.id);
-      const isLeft = ids.some((id) => LEFT_PANEL_IDS.has(id));
-      const isBottom = ids.some((id) => BOTTOM_PANEL_IDS.has(id));
-      return !isLeft && !isBottom;
-    });
-  }, [dockviewApi]);
+  }, []);
 
   const toggleCenter1Visibility = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
     const existingGroup = getCenter1Group();
     if (existingGroup) {
@@ -560,11 +580,14 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     if (rebuilt) {
       rebuilt.api.setVisible(true);
     }
-  }, [dockviewApi, getCenter1Group, ensureCenter1Group]);
+  }, [getCenter1Group, ensureCenter1Group]);
 
   const toggleCenter2Visibility = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
-    const center2Group = dockviewApi.getGroup(GROUP_IDS.CENTER_2);
+
+    // Use robust detection (handles fromJSON ID mismatch)
+    const center2Group = findCenter2Group();
     if (center2Group) {
       center2Group.api.setVisible(!center2Group.api.isVisible);
       return;
@@ -575,48 +598,66 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     if (rebuilt) {
       rebuilt.api.setVisible(true);
     }
-  }, [dockviewApi, ensureCenter2Group]);
+  }, [findCenter2Group, ensureCenter2Group]);
 
   const isCenter1Visible = useCallback(() => {
+    const dockviewApi = apiRef.current;
     if (!dockviewApi) return false;
     const group =
       dockviewApi.getGroup(GROUP_IDS.CENTER_1) ??
       dockviewApi.getPanel(PANEL_IDS.WELCOME)?.group;
     return group?.api.isVisible ?? false;
-  }, [dockviewApi]);
+  }, []);
 
   const isCenter2Visible = useCallback(() => {
-    if (dockviewApi) {
-      const center2Group = dockviewApi.getGroup(GROUP_IDS.CENTER_2);
-      if (center2Group) {
-        return center2Group.api.isVisible;
-      }
-    }
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return false;
+    const center2Group = findCenter2Group();
+    return center2Group?.api.isVisible ?? false;
+  }, [findCenter2Group]);
 
-    const centerGroups = getCenterGroups();
-    if (centerGroups.length < 2) return false;
-    return centerGroups[1].api.isVisible;
-  }, [dockviewApi, getCenterGroups]);
-
-  const value: PanelActions = {
-    openOrFocusPanel,
-    openFilePreview,
-    openDiffPreview,
-    openNewTerminal,
-    closePanel,
-    toggleFileTree,
-    toggleGitPanel,
-    toggleSearchPanel,
-    isPanelOpen,
-    focusKanban,
-    openLogs,
-    openNotes,
-    toggleCenter1Visibility,
-    toggleCenter2Visibility,
-    isCenter1Visible,
-    isCenter2Visible,
-    setDockviewApi,
-  };
+  const value: PanelActions = useMemo(
+    () => ({
+      openOrFocusPanel,
+      openFilePreview,
+      openDiffPreview,
+      openCommitDiff,
+      openNewTerminal,
+      closePanel,
+      toggleFileTree,
+      toggleGitPanel,
+      toggleSearchPanel,
+      isPanelOpen,
+      focusKanban,
+      openLogs,
+      openNotes,
+      toggleCenter1Visibility,
+      toggleCenter2Visibility,
+      isCenter1Visible,
+      isCenter2Visible,
+      setDockviewApi,
+    }),
+    [
+      openOrFocusPanel,
+      openFilePreview,
+      openDiffPreview,
+      openCommitDiff,
+      openNewTerminal,
+      closePanel,
+      toggleFileTree,
+      toggleGitPanel,
+      toggleSearchPanel,
+      isPanelOpen,
+      focusKanban,
+      openLogs,
+      openNotes,
+      toggleCenter1Visibility,
+      toggleCenter2Visibility,
+      isCenter1Visible,
+      isCenter2Visible,
+      setDockviewApi,
+    ]
+  );
 
   return (
     <PanelActionsContext.Provider value={value}>

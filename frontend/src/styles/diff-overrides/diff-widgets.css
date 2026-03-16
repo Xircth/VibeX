@@ -1,0 +1,103 @@
+/* =============================================================================
+   Diff Widgets — Comment widgets, tooltips, toolbar, interactive elements
+   ============================================================================= */
+
+.diff-tailwindcss-wrapper .diff-add-widget-wrapper {
+  transform-origin: center;
+  transform: translateX(-50%) !important;
+}
+
+.diff-tailwindcss-wrapper .diff-line-old-content .diff-add-widget-wrapper,
+.diff-tailwindcss-wrapper .diff-line-new-content .diff-add-widget-wrapper {
+  transform: translateX(50%) !important;
+}
+
+.diff-tailwindcss-wrapper .diff-add-widget-wrapper:hover {
+  transform: translateX(-50%) scale(1.1) !important;
+}
+
+.diff-tailwindcss-wrapper .diff-line-old-content .diff-add-widget-wrapper:hover,
+.diff-tailwindcss-wrapper
+  .diff-line-new-content
+  .diff-add-widget-wrapper:hover {
+  transform: translateX(50%) scale(1.1) !important;
+}
+
+.diff-tailwindcss-wrapper .diff-widget-tooltip {
+  position: relative;
+}
+
+.diff-tailwindcss-wrapper .diff-add-widget,
+.diff-tailwindcss-wrapper .diff-widget-tooltip {
+  font-family: inherit;
+  font-feature-settings: 'liga' off;
+  font-variation-settings: inherit;
+  font-size: 100%;
+  font-weight: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  margin: 0;
+  text-transform: none;
+  /* border-width: 0px; */
+  background-color: transparent;
+  background-image: none;
+}
+
+.diff-tailwindcss-wrapper .diff-widget-tooltip::after {
+  display: none;
+  box-sizing: border-box;
+  background-color: #333333;
+  position: absolute;
+  content: attr(data-title);
+  font-size: 11px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  overflow: hidden;
+  top: 50%;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  left: calc(100% + 8px);
+  color: #ffffff;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-widget-tooltip::after {
+  background-color: #6b7280;
+}
+
+.diff-tailwindcss-wrapper .diff-widget-tooltip::before {
+  display: none;
+  box-sizing: border-box;
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(100% - 2px);
+  transform: translateY(-50%);
+  border: 6px solid transparent;
+  border-right-color: #333333;
+}
+
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-widget-tooltip::before {
+  border-right-color: #6b7280;
+}
+
+.diff-tailwindcss-wrapper .diff-widget-tooltip:hover {
+  background-color: var(--diff-hunk-lineNumber-hover--);
+  color: white;
+}
+
+.diff-tailwindcss-wrapper .diff-widget-tooltip:hover::before {
+  display: block;
+}
+
+.diff-tailwindcss-wrapper .diff-widget-tooltip:hover::after {
+  display: block;
+}
+
+.diff-line-extend-wrapper * {
+  color: initial;
+}
+
+.diff-line-widget-wrapper * {
+  color: initial;
+}

@@ -20,7 +20,7 @@
   --dv-floating-box-shadow: 8px 8px 8px 0px rgba(0, 0, 0, 0.1);
   --dv-overlay-z-index: 999;
   --dv-tab-font-size: inherit;
-  --dv-border-radius: 6px;
+  --dv-border-radius: 0px;
   --dv-tab-margin: 0;
   --dv-sash-color: transparent;
   --dv-active-sash-color: transparent;
@@ -134,4 +134,23 @@
 
 .dark [class*="dockview-theme-ayu"] .dv-void-container {
   background-color: #232834 !important;
+}
+
+/* Hide tab header for groups marked with dv-header-hidden class (e.g. left sidebar) */
+.dv-header-hidden > .dv-tabs-and-actions-container {
+  display: none !important;
+}
+
+/* Allow tab bar to scroll horizontally when tabs overflow, instead of hiding them */
+[class*="dockview-theme-ayu"] .dv-scrollable > .dv-tabs-container {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin;
+}
+[class*="dockview-theme-ayu"] .dv-scrollable > .dv-tabs-container::-webkit-scrollbar {
+  height: 3px;
+}
+[class*="dockview-theme-ayu"] .dv-scrollable > .dv-tabs-container::-webkit-scrollbar-thumb {
+  background-color: var(--dv-tabs-container-scrollbar-color, rgba(0,0,0,0.2));
+  border-radius: 2px;
 }

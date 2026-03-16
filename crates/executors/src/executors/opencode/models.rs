@@ -40,7 +40,7 @@ impl ModelContextCache {
     }
 
     fn get(&self, cache_key: &str, provider: &str, model: &str) -> Option<u32> {
-        let map = self.entries.lock().unwrap();
+        let map = self.entries.lock().expect("ModelContextCache mutex poisoned");
         let entry = map.get(cache_key)?;
 
         entry
@@ -62,7 +62,7 @@ impl ModelContextCache {
         model: &str,
         fetched_windows: ModelContextWindows,
     ) -> u32 {
-        let mut cache = self.entries.lock().unwrap();
+        let mut cache = self.entries.lock().expect("ModelContextCache mutex poisoned");
         let entry = cache.entry(cache_key.to_string()).or_default();
 
         entry.context_windows.extend(fetched_windows);

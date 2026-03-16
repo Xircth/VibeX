@@ -5,12 +5,11 @@ import {
   DiffLineType,
   parseInstance,
 } from '@git-diff-view/react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Edit } from 'lucide-react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
-import '@/styles/diff-style-overrides.css';
-import '@/styles/edit-diff-overrides.css';
+/* diff-style-overrides.css and edit-diff-overrides.css imported by parent FileChangeRenderer */
 import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 
@@ -22,6 +21,7 @@ type Props = {
   defaultExpanded?: boolean;
   statusAppearance?: 'default' | 'denied' | 'timed_out';
   forceExpanded?: boolean;
+  containerRef?: string | null;
 };
 
 /**
@@ -62,6 +62,19 @@ function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
 
 import { useExpandable } from '@/stores/useExpandableStore';
 
+/** Build absolute path for file preview from a potentially relative path */
+function resolveFilePath(filePath: string, containerRef?: string | null): string {
+  if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/')) {
+    return filePath;
+  }
+  if (!containerRef) return filePath;
+  const usesWindows = containerRef.includes('\\');
+  const sep = usesWindows ? '\\' : '/';
+  const base = containerRef.replace(/[\\/]+$/, '');
+  const normalized = usesWindows ? filePath.replaceAll('/', '\\') : filePath;
+  return `${base}${sep}${normalized}`;
+}
+
 function EditDiffRenderer({
   path,
   unifiedDiff,
@@ -70,6 +83,7 @@ function EditDiffRenderer({
   defaultExpanded = false,
   statusAppearance = 'default',
   forceExpanded = false,
+  containerRef,
 }: Props) {
   const { config } = useUserSystem();
   const { openFilePreview } = usePanelActionsContext();
@@ -93,45 +107,43 @@ function EditDiffRenderer({
     };
   }, [hunks, path]);
 
-  const headerClass = cn(
-    'flex items-center gap-1.5 text-secondary-foreground',
-    statusAppearance === 'denied' && 'text-red-700 dark:text-red-300',
-    statusAppearance === 'timed_out' && 'text-amber-700 dark:text-amber-200'
-  );
-
   return (
     <div>
-      <div className={headerClass}>
-        <span onClick={() => setExpanded()} className="cursor-pointer shrink-0">
-          <ChevronRight
-            className={cn(
-              'h-3 w-3 transition-transform',
-              effectiveExpanded && 'rotate-90'
-            )}
-          />
-        </span>
-        <p
+      <div
+        className={cn(
+          'conv-file-card',
+          statusAppearance === 'denied' && 'border-red-400/40',
+          statusAppearance === 'timed_out' && 'border-amber-400/40'
+        )}
+        onClick={() => setExpanded()}
+      >
+        <ChevronRight
+          className={cn(
+            'h-3 w-3 conv-file-chevron',
+            effectiveExpanded && 'is-expanded'
+          )}
+        />
+        <Edit className="h-3 w-3 conv-file-icon" />
+        <span
+          className="conv-file-name"
           onClick={(e) => {
             e.stopPropagation();
-            openFilePreview(path);
+            openFilePreview(resolveFilePath(path, containerRef));
           }}
-          className="text-sm font-mono overflow-x-auto flex-1 cursor-pointer hover:underline"
         >
-          {path}{' '}
-          <span style={{ color: 'hsl(var(--console-success))' }}>
-            +{additions}
-          </span>{' '}
-          <span style={{ color: 'hsl(var(--console-error))' }}>
-            -{deletions}
-          </span>
-        </p>
+          {path}
+        </span>
+        <span className="conv-file-stat-add">+{additions}</span>
+        <span className="conv-file-stat-del">-{deletions}</span>
       </div>
 
       {effectiveExpanded && (
         <div
-          className={
-            'mt-2 overflow-hidden rounded-md border ' + hideLineNumbersClass
-          }
+          className={cn(
+            'mt-1 overflow-hidden rounded-b-lg border border-t-0',
+            'border-[var(--conv-border-subtle)]',
+            hideLineNumbersClass
+          )}
         >
           {isValidDiff ? (
             <DiffView
@@ -143,14 +155,12 @@ function EditDiffRenderer({
               diffViewFontSize={12}
             />
           ) : (
-            <>
-              <pre
-                className="px-4 pb-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap"
-                style={{ color: 'hsl(var(--muted-foreground) / 0.9)' }}
-              >
-                {unifiedDiff}
-              </pre>
-            </>
+            <pre
+              className="px-4 pb-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap"
+              style={{ color: 'var(--conv-text-secondary)' }}
+            >
+              {unifiedDiff}
+            </pre>
           )}
         </div>
       )}

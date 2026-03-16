@@ -1,0 +1,49 @@
+// Unified API entry point
+// All imports from '@/lib/api' continue to work via this re-export barrel
+
+// Base types and utilities
+export type { Ok, Err, Result, RebaseResult, PullResult, CommitGraphNode, CommitGraphResult, SessionSummary } from './base';
+export { invokeAsResult } from './base';
+
+// Projects
+export { projectsApi } from './projects';
+
+// Tasks
+export { tasksApi } from './tasks';
+
+// Sessions
+export { sessionsApi } from './sessions';
+
+// Attempts / Workspaces
+export { attemptsApi } from './attempts';
+
+// Repos
+export { repoApi } from './repos';
+
+// Config, Settings, MCP, Profiles, Agent Settings, Queue, Settings Window
+export { configApi, claudeSettingsApi, mcpServersApi, profilesApi, agentSettingsApi, settingsWindowApi, queueApi } from './config';
+export type { ClaudeSettings, AgentSettingInfo, PreflightCheck, PreflightFix, PreflightResult } from './config';
+
+// Misc: Execution Processes, File Tree, Desktop, File System, Tags, Images, Approvals, Scratch, Search, Skills
+export {
+  executionProcessesApi,
+  fileTreeApi,
+  desktopApi,
+  fileSystemApi,
+  tagsApi,
+  imagesApi,
+  approvalsApi,
+  scratchApi,
+  searchApi,
+  skillsApi,
+} from './misc';
+export type {
+  FileTreeEntry,
+  DirectoryChildrenResponse,
+  ReadFileResponse,
+  TextSearchMatch,
+  TextSearchFileResult,
+  TextSearchResponse,
+  TextSearchOptions,
+  PopularSkill,
+} from './misc';

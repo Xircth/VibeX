@@ -13,9 +13,9 @@ const NODE_RADIUS = 4;
 const MERGE_BASE_RADIUS = 6;
 
 const COLORS = {
-  currentBranch: '#3B82F6', // blue-500
-  targetBranch: '#9CA3AF', // gray-400
-  mergeBase: '#F59E0B', // amber-500
+  currentBranch: 'var(--commit-graph-current, #3B82F6)',
+  targetBranch: 'var(--commit-graph-target, #9CA3AF)',
+  mergeBase: 'var(--commit-graph-merge-base, #F59E0B)',
 };
 
 interface CommitGraphProps {

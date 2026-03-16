@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
 import { useCallback, useMemo, useState } from 'react';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import type {
   RepoBranchStatus,
   Merge,
@@ -61,10 +62,10 @@ function GitOperations({
   const [pushing, setPushing] = useState(false);
   const [rebasing, setRebasing] = useState(false);
   const [rebasingBack, setRebasingBack] = useState(false);
-  const [mergeSuccess, setMergeSuccess] = useState(false);
-  const [pushSuccess, setPushSuccess] = useState(false);
-  const [rebaseSuccess, setRebaseSuccess] = useState(false);
-  const [rebaseBackSuccess, setRebaseBackSuccess] = useState(false);
+  const [mergeSuccess, triggerMergeSuccess] = useTemporaryFlag(2000);
+  const [pushSuccess, triggerPushSuccess] = useTemporaryFlag(2000);
+  const [rebaseSuccess, triggerRebaseSuccess] = useTemporaryFlag(2000);
+  const [rebaseBackSuccess, triggerRebaseBackSuccess] = useTemporaryFlag(2000);
 
   // Target branch change handlers
   const handleChangeTargetBranchClick = async (newBranch: string) => {
@@ -186,8 +187,7 @@ function GitOperations({
       const repoId = getSelectedRepoId();
       if (!repoId) return;
       await git.actions.push({ repo_id: repoId });
-      setPushSuccess(true);
-      setTimeout(() => setPushSuccess(false), 2000);
+      triggerPushSuccess();
     } finally {
       setPushing(false);
     }
@@ -201,8 +201,7 @@ function GitOperations({
       await git.actions.merge({
         repoId,
       });
-      setMergeSuccess(true);
-      setTimeout(() => setMergeSuccess(false), 2000);
+      triggerMergeSuccess();
     } finally {
       setMerging(false);
     }
@@ -221,8 +220,7 @@ function GitOperations({
         newBaseBranch: newBaseBranch,
         oldBaseBranch: selectedUpstream,
       });
-      setRebaseSuccess(true);
-      setTimeout(() => setRebaseSuccess(false), 2000);
+      triggerRebaseSuccess();
     } catch {
       // Error is already handled by useGitOperations context
     } finally {
@@ -260,8 +258,7 @@ function GitOperations({
       const repoId = getSelectedRepoId();
       if (!repoId) return;
       await git.actions.rebaseBack({ repoId });
-      setRebaseBackSuccess(true);
-      setTimeout(() => setRebaseBackSuccess(false), 2000);
+      triggerRebaseBackSuccess();
     } catch {
       // Error is already handled by useGitOperations context
     } finally {

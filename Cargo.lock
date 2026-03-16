@@ -6737,6 +6737,7 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "tracing-subscriber",
+ "utils",
  "uuid",
 ]
 
@@ -7509,7 +7510,6 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "notify-rust",
- "once_cell",
  "rust-embed",
  "serde",
  "serde_json",
@@ -9730,6 +9730,7 @@ dependencies = [
  "ts-rs 11.0.1",
  "utils",
  "uuid",
+ "which",
 ]
 
 [[package]]

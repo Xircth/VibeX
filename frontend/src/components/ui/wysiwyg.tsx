@@ -1,6 +1,5 @@
 import {
   useMemo,
-  useState,
   useCallback,
   memo,
   forwardRef,
@@ -8,13 +7,14 @@ import {
   useRef,
   useEffect,
 } from 'react';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { AutoFocusPlugin } from '@lexical/react/LexicalAutoFocusPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
-import { TRANSFORMERS, CODE, type Transformer } from '@lexical/markdown';
+import { TRANSFORMERS, CODE, HEADING, type Transformer } from '@lexical/markdown';
 import { ImageNode, IMAGE_TRANSFORMER } from './wysiwyg/nodes/image-node';
 import {
   PrCommentNode,
@@ -22,6 +22,14 @@ import {
   PR_COMMENT_EXPORT_TRANSFORMER,
 } from './wysiwyg/nodes/pr-comment-node';
 import { TABLE_TRANSFORMER } from './wysiwyg/transformers/table-transformer';
+import {
+  TagReferenceNode,
+  TAG_REFERENCE_TRANSFORMER,
+} from './wysiwyg/nodes/tag-reference-node';
+import {
+  SlashCommandNode,
+  SLASH_COMMAND_TRANSFORMER,
+} from './wysiwyg/nodes/slash-command-node';
 import {
   TaskAttemptContext,
   TaskContext,
@@ -53,7 +61,6 @@ import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
 import { EditorState, type LexicalEditor } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { Check, Clipboard, Pencil, Trash2 } from 'lucide-react';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import type { SendMessageShortcut } from 'shared/types';
@@ -164,19 +171,18 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     }));
 
     // Copy button state
-    const [copied, setCopied] = useState(false);
+    const [copied, triggerCopied] = useTemporaryFlag(400);
     const handleCopy = useCallback(async () => {
       if (!value) return;
       try {
         // Unescape markdown-escaped underscores for cleaner clipboard output
         const unescaped = value.replace(/\\_/g, '_');
         await writeClipboardViaBridge(unescaped);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 400);
+        triggerCopied();
       } catch {
         // noop – bridge handles fallback
       }
-    }, [value]);
+    }, [value, triggerCopied]);
 
     const initialConfig = useMemo(
       () => ({
@@ -229,6 +235,8 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           LinkNode,
           ImageNode,
           PrCommentNode,
+          TagReferenceNode,
+          SlashCommandNode,
           TableNode,
           TableRowNode,
           TableCellNode,
@@ -244,10 +252,19 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         IMAGE_TRANSFORMER,
         PR_COMMENT_EXPORT_TRANSFORMER, // Export transformer for DecoratorNode (must be before import transformer)
         PR_COMMENT_TRANSFORMER, // Import transformer for fenced code block
+        TAG_REFERENCE_TRANSFORMER, // Export-only transformer for tag reference chips
+        SLASH_COMMAND_TRANSFORMER, // Export-only transformer for slash command chips
         CODE,
         ...TRANSFORMERS,
       ],
       []
+    );
+
+    // Transformers for MarkdownShortcutPlugin: excludes HEADING to prevent
+    // # being converted to a heading node, which conflicts with the # tag trigger
+    const shortcutTransformers: Transformer[] = useMemo(
+      () => extendedTransformers.filter((t) => t !== HEADING),
+      [extendedTransformers]
     );
 
     // Memoized handlers for ContentEditable to prevent re-renders
@@ -328,7 +345,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     {autoFocus && <AutoFocusPlugin />}
                     <HistoryPlugin />
                     <MarkdownShortcutPlugin
-                      transformers={extendedTransformers}
+                      transformers={shortcutTransformers}
                     />
                     <PasteMarkdownPlugin transformers={extendedTransformers} />
                     <TypeaheadOpenProvider>
@@ -370,56 +387,48 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     // Wrap with action buttons in read-only mode
     if (disabled) {
       return (
-        <div className="relative group">
-          <div className="sticky top-0 right-2 z-10 pointer-events-none h-0">
-            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-              {/* Copy button */}
-              <Button
-                type="button"
-                aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
-                title={copied ? 'Copied!' : 'Copy as Markdown'}
-                variant="icon"
-                size="icon"
-                onClick={handleCopy}
-                className="pointer-events-auto p-2 bg-muted h-8 w-8"
-              >
-                {copied ? (
-                  <Check className="w-4 h-4 text-success" />
-                ) : (
-                  <Clipboard className="w-4 h-4 text-muted-foreground" />
-                )}
-              </Button>
-              {/* Edit button - only if onEdit provided */}
-              {onEdit && (
-                <Button
-                  type="button"
-                  aria-label="Edit"
-                  title="Edit"
-                  variant="icon"
-                  size="icon"
-                  onClick={onEdit}
-                  className="pointer-events-auto p-2 bg-muted h-8 w-8"
-                >
-                  <Pencil className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              )}
-              {/* Delete button - only if onDelete provided */}
-              {onDelete && (
-                <Button
-                  type="button"
-                  aria-label="Delete"
-                  title="Delete"
-                  variant="icon"
-                  size="icon"
-                  onClick={onDelete}
-                  className="pointer-events-auto p-2 bg-muted h-8 w-8"
-                >
-                  <Trash2 className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              )}
-            </div>
-          </div>
+        <div className="group">
           {editorContent}
+          <div className="flex justify-end gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+            {/* Copy button */}
+            <button
+              type="button"
+              aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
+              title={copied ? 'Copied!' : 'Copy as Markdown'}
+              onClick={handleCopy}
+              className="p-1 rounded hover:bg-white/10 transition-colors"
+            >
+              {copied ? (
+                <Check className="w-3.5 h-3.5 text-green-400" />
+              ) : (
+                <Clipboard className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+              )}
+            </button>
+            {/* Edit button - only if onEdit provided */}
+            {onEdit && (
+              <button
+                type="button"
+                aria-label="Edit"
+                title="Edit"
+                onClick={onEdit}
+                className="p-1 rounded hover:bg-white/10 transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+              </button>
+            )}
+            {/* Delete button - only if onDelete provided */}
+            {onDelete && (
+              <button
+                type="button"
+                aria-label="Delete"
+                title="Delete"
+                onClick={onDelete}
+                className="p-1 rounded hover:bg-white/10 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+              </button>
+            )}
+          </div>
         </div>
       );
     }

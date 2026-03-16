@@ -9,14 +9,14 @@ cloud = []
 
 [dependencies]
 chrono = { workspace = true }
-dirs = "5.0"
+dirs = { workspace = true }
 git2 = { workspace = true }
 serde = { workspace = true }
-tempfile = "3.21"
+tempfile = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 ts-rs = { workspace = true }
 utils = { path = "../utils" }
 
 [dev-dependencies]
-tempfile = "3.21"
+tempfile = { workspace = true }

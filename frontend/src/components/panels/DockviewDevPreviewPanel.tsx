@@ -1,4 +1,3 @@
-import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
@@ -11,14 +10,12 @@ export default function DockviewDevPreviewPanel() {
   const executionKey = `${workspaceId ?? 'none'}:${attempt?.session?.id ?? 'none'}`;
 
   return (
-    <ClickedElementsProvider attempt={attempt}>
-      <ExecutionProcessesProvider
-        key={executionKey}
-        attemptId={workspaceId}
-        sessionId={attempt?.session?.id}
-      >
-        <PreviewPanel />
-      </ExecutionProcessesProvider>
-    </ClickedElementsProvider>
+    <ExecutionProcessesProvider
+      key={executionKey}
+      attemptId={workspaceId}
+      sessionId={attempt?.session?.id}
+    >
+      <PreviewPanel />
+    </ExecutionProcessesProvider>
   );
 }

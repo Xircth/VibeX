@@ -1,0 +1,110 @@
+/*
+ * file-tree-syntax.css
+ *
+ * Syntax token colors for the file preview code viewer.
+ * GitHub-inspired color scheme for both light and dark modes.
+ */
+
+/* Syntax token colors — Light mode (GitHub-inspired) */
+.file-preview-line-text .token.comment,
+.file-preview-line-text .token.prolog,
+.file-preview-line-text .token.doctype,
+.file-preview-line-text .token.cdata {
+  color: #6a737d;
+}
+
+.file-preview-line-text .token.punctuation {
+  color: #24292f;
+}
+
+.file-preview-line-text .token.property,
+.file-preview-line-text .token.tag,
+.file-preview-line-text .token.constant,
+.file-preview-line-text .token.symbol,
+.file-preview-line-text .token.deleted {
+  color: #cf222e;
+}
+
+.file-preview-line-text .token.boolean,
+.file-preview-line-text .token.number {
+  color: #0550ae;
+}
+
+.file-preview-line-text .token.selector,
+.file-preview-line-text .token.attr-name,
+.file-preview-line-text .token.string,
+.file-preview-line-text .token.char,
+.file-preview-line-text .token.builtin,
+.file-preview-line-text .token.inserted {
+  color: #116329;
+}
+
+.file-preview-line-text .token.operator,
+.file-preview-line-text .token.entity,
+.file-preview-line-text .token.url,
+.file-preview-line-text .token.variable {
+  color: #24292f;
+}
+
+.file-preview-line-text .token.atrule,
+.file-preview-line-text .token.attr-value,
+.file-preview-line-text .token.keyword {
+  color: #cf222e;
+}
+
+.file-preview-line-text .token.function,
+.file-preview-line-text .token.class-name {
+  color: #8250df;
+}
+
+/* Syntax token colors — Dark mode */
+.dark .file-preview-line-text .token.comment,
+.dark .file-preview-line-text .token.prolog,
+.dark .file-preview-line-text .token.doctype,
+.dark .file-preview-line-text .token.cdata {
+  color: rgba(150, 170, 200, 0.75);
+}
+
+.dark .file-preview-line-text .token.punctuation {
+  color: rgba(200, 210, 220, 0.85);
+}
+
+.dark .file-preview-line-text .token.property,
+.dark .file-preview-line-text .token.tag,
+.dark .file-preview-line-text .token.constant,
+.dark .file-preview-line-text .token.symbol,
+.dark .file-preview-line-text .token.deleted {
+  color: #ff7b72;
+}
+
+.dark .file-preview-line-text .token.boolean,
+.dark .file-preview-line-text .token.number {
+  color: #f2cc60;
+}
+
+.dark .file-preview-line-text .token.selector,
+.dark .file-preview-line-text .token.attr-name,
+.dark .file-preview-line-text .token.string,
+.dark .file-preview-line-text .token.char,
+.dark .file-preview-line-text .token.builtin,
+.dark .file-preview-line-text .token.inserted {
+  color: #7ee787;
+}
+
+.dark .file-preview-line-text .token.operator,
+.dark .file-preview-line-text .token.entity,
+.dark .file-preview-line-text .token.url,
+.dark .file-preview-line-text .token.variable {
+  color: rgba(200, 210, 220, 0.9);
+}
+
+.dark .file-preview-line-text .token.atrule,
+.dark .file-preview-line-text .token.attr-value,
+.dark .file-preview-line-text .token.keyword {
+  color: #8bd5ff;
+}
+
+.dark .file-preview-line-text .token.function,
+.dark .file-preview-line-text .token.class-name {
+  color: #d2a8ff;
+}

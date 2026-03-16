@@ -448,7 +448,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             {(field) => (
               <div className="border p-3">
                 <WYSIWYGEditor
-                  placeholder={'添加更多详情（可选）。输入 @ 搜索文件。'}
+                  placeholder={'添加更多详情（可选）。输入 # 搜索标签或文件。'}
                   className="w-full min-h-[360px] max-h-[500px] overflow-auto"
                   value={field.state.value}
                   onChange={(desc) => field.handleChange(desc)}

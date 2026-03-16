@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
-import { attemptsApi } from '@/lib/api';
+import { useCallback, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { attemptsApi, repoApi } from '@/lib/api';
 import type { GitFileDiffEntry, GitFileStatusEntry } from 'shared/types';
 
 const LOCK_FILE_PATTERNS = [
@@ -68,32 +69,30 @@ export function useGitDiffs({
   workspaceId,
   repoId,
 }: UseGitDiffsOptions): UseGitDiffsReturn {
-  const [diffs, setDiffs] = useState<GitFileDiffEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestIdRef = useRef(0);
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ['gitDiffs', workspaceId, repoId],
+    [workspaceId, repoId]
+  );
+
+  const { data: diffs, isLoading, error: queryError } = useQuery<GitFileDiffEntry[]>({
+    queryKey,
+    queryFn: async () => {
+      return workspaceId
+        ? await attemptsApi.getFileDiffs(workspaceId, repoId!)
+        : await repoApi.getFileDiffs(repoId!);
+    },
+    enabled: !!repoId,
+  });
 
   const refresh = useCallback(async () => {
-    if (!workspaceId || !repoId) return;
+    await queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
 
-    const id = ++requestIdRef.current;
-    setIsLoading(true);
-    try {
-      const result = await attemptsApi.getFileDiffs(workspaceId, repoId);
-      if (requestIdRef.current === id) {
-        setDiffs(result);
-        setError(null);
-      }
-    } catch (e) {
-      if (requestIdRef.current === id) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      if (requestIdRef.current === id) {
-        setIsLoading(false);
-      }
-    }
-  }, [workspaceId, repoId]);
-
-  return { diffs, isLoading, error, refresh };
+  return {
+    diffs: diffs ?? [],
+    isLoading,
+    error: queryError ? (queryError instanceof Error ? queryError.message : String(queryError)) : null,
+    refresh,
+  };
 }

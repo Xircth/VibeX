@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';import { PlusIcon, PencilSimpleIcon, TrashIcon } from '@phosphor-icons/react';
-import { SpinnerGap } from '@phosphor-icons/react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { tagsApi } from '@/lib/api';
 import { TagEditDialog } from '@/components/dialogs/tasks/TagEditDialog';
 import { Button } from '@/components/ui/button';
 import type { Tag } from 'shared/types';
 
-export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
+export function TagManager() {
+  const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchTags = useCallback(async () => {
@@ -34,7 +35,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
         if (result === 'saved') {
           await fetchTags();
         }
-      } catch (error) {
+      } catch {
         // User cancelled - do nothing
       }
     },
@@ -64,7 +65,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <SpinnerGap className="h-8 w-8 animate-spin" />
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
@@ -76,7 +77,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
           {'任务标签'}
         </h3>
         <Button variant="outline" onClick={() => handleOpenDialog()}>
-          <PlusIcon className="mr-2 h-4 w-4" />
+          <Plus className="mr-2 h-4 w-4" />
           {'添加标签'}
         </Button>
       </div>
@@ -128,7 +129,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
                           onClick={() => handleOpenDialog(tag)}
                           title={'编辑标签'}
                         >
-                          <PencilSimpleIcon className="h-4 w-4" />
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
@@ -137,7 +138,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
                           onClick={() => handleDelete(tag)}
                           title={'删除标签'}
                         >
-                          <TrashIcon className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </td>

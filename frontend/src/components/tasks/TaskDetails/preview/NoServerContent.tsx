@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import {
   Play,
   Square,
@@ -13,6 +12,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useProjectRepos } from '@/hooks';
 import { repoApi } from '@/lib/api';
+import { settingsWindowApi } from '@/lib/api';
 import type { Project, Repo } from 'shared/types';
 
 interface NoServerContentProps {
@@ -42,7 +42,6 @@ export function NoServerContent({
   isInstallingCompanion = false,
   startError = null,
 }: NoServerContentProps) {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: projectRepos = [] } = useProjectRepos(project?.id);
   const [scriptInput, setScriptInput] = useState('');
@@ -77,7 +76,7 @@ export function NoServerContent({
   };
 
   const handleConfigureDevScript = () => {
-    navigate('/settings/repos');
+    settingsWindowApi.open();
   };
 
   return (

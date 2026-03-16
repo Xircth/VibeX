@@ -156,6 +156,40 @@ pub struct GitLogEntry {
     pub summary: String,
     pub author: String,
     pub timestamp: i64,
+    /// Branch/tag refs pointing at this commit (e.g. "master", "origin/main", "v1.0").
+    pub refs: Vec<String>,
+}
+
+/// A single file changed in a commit.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct CommitFileEntry {
+    pub path: String,
+    pub status: String,
+    pub additions: u32,
+    pub deletions: u32,
+}
+
+/// Detailed information about a single commit.
+#[derive(Debug, Clone, Serialize, TS)]
+pub struct CommitDetail {
+    pub sha: String,
+    pub summary: String,
+    pub body: String,
+    pub author: String,
+    pub author_email: String,
+    pub timestamp: i64,
+    pub files: Vec<CommitFileEntry>,
+}
+
+/// Mode for git reset.
+#[derive(Debug, Clone, Deserialize, TS)]
+pub enum ResetMode {
+    #[serde(rename = "soft")]
+    Soft,
+    #[serde(rename = "mixed")]
+    Mixed,
+    #[serde(rename = "hard")]
+    Hard,
 }
 
 /// Git log response with ahead/behind tracking.
@@ -2489,13 +2523,26 @@ impl GitService {
 
         let mut entries = Vec::new();
         for line in raw.lines() {
-            let parts: Vec<&str> = line.splitn(4, '\0').collect();
+            let parts: Vec<&str> = line.splitn(5, '\0').collect();
             if parts.len() >= 4 {
+                let refs = if parts.len() >= 5 && !parts[4].is_empty() {
+                    parts[4]
+                        .split(", ")
+                        .map(|r| {
+                            // Strip "HEAD -> " prefix from current branch ref
+                            r.strip_prefix("HEAD -> ").unwrap_or(r).to_string()
+                        })
+                        .filter(|r| r != "HEAD")
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 entries.push(GitLogEntry {
                     sha: parts[0].to_string(),
                     summary: parts[1].to_string(),
                     author: parts[2].to_string(),
                     timestamp: parts[3].parse::<i64>().unwrap_or(0),
+                    refs,
                 });
             }
         }
@@ -2587,6 +2634,93 @@ impl GitService {
             upstream,
             branch_name: branch,
         })
+    }
+
+    /// Get detailed information about a single commit.
+    pub fn get_commit_detail(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+    ) -> Result<CommitDetail, GitServiceError> {
+        let git = GitCli::new();
+        let (summary, body, author, author_email, timestamp) =
+            git.show_commit(worktree_path, sha)
+                .map_err(|e| GitServiceError::from(e))?;
+
+        let raw_files = git
+            .show_commit_files(worktree_path, sha)
+            .map_err(|e| GitServiceError::from(e))?;
+
+        let files = raw_files
+            .into_iter()
+            .map(|(path, status, additions, deletions)| CommitFileEntry {
+                path,
+                status,
+                additions,
+                deletions,
+            })
+            .collect();
+
+        Ok(CommitDetail {
+            sha: sha.to_string(),
+            summary,
+            body,
+            author,
+            author_email,
+            timestamp,
+            files,
+        })
+    }
+
+    /// Cherry-pick a commit onto the current branch.
+    pub fn cherry_pick_commit(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.cherry_pick(worktree_path, sha)
+            .map_err(|e| GitServiceError::from(e))
+    }
+
+    /// Revert a commit (creates a new undo commit).
+    pub fn revert_commit(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.revert_commit(worktree_path, sha)
+            .map_err(|e| GitServiceError::from(e))
+    }
+
+    /// Reset current branch to a specific commit.
+    pub fn reset_to_commit(
+        &self,
+        worktree_path: &Path,
+        sha: &str,
+        mode: &ResetMode,
+    ) -> Result<(), GitServiceError> {
+        let mode_str = match mode {
+            ResetMode::Soft => "soft",
+            ResetMode::Mixed => "mixed",
+            ResetMode::Hard => "hard",
+        };
+        let git = GitCli::new();
+        git.reset_to(worktree_path, sha, mode_str)
+            .map_err(|e| GitServiceError::from(e))
+    }
+
+    /// Create a new branch at a specific commit.
+    pub fn create_branch_at_commit(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+        sha: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.create_branch_at(worktree_path, branch_name, sha)
+            .map_err(|e| GitServiceError::from(e))
     }
 
     // ── Helper functions ──────────────────────────────────────────────

@@ -6,7 +6,33 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { cloneDeep, merge, isEqual } from 'lodash';
+import { tauriEmit } from '@/lib/tauri-api';
+// Deep clone: structuredClone (native), deep equal: JSON comparison, deep merge: manual
+function deepMerge<T extends Record<string, unknown>>(target: T, ...sources: Partial<T>[]): T {
+  const result = { ...target };
+  for (const source of sources) {
+    for (const key of Object.keys(source) as (keyof T)[]) {
+      const srcVal = source[key];
+      const tgtVal = result[key];
+      if (
+        srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
+        tgtVal && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
+      ) {
+        (result as Record<string, unknown>)[key as string] = deepMerge(
+          tgtVal as Record<string, unknown>,
+          srcVal as Record<string, unknown>,
+        );
+      } else {
+        (result as Record<string, unknown>)[key as string] = srcVal;
+      }
+    }
+  }
+  return result;
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -126,13 +152,14 @@ export function SystemSettings() {
   const { setTheme } = useTheme();
 
   const [draft, setDraft] = useState<SystemSettingsConfig | null>(() =>
-    config ? cloneDeep(config as SystemSettingsConfig) : null
+    config ? structuredClone(config as SystemSettingsConfig) : null
   );
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [branchPrefixError, setBranchPrefixError] = useState<string | null>(
     null
   );
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const editorAvailability = useEditorAvailability(draft?.editor.editor_type);
 
@@ -155,21 +182,21 @@ export function SystemSettings() {
   useEffect(() => {
     if (!config) return;
     if (!dirty) {
-      setDraft(cloneDeep(config as SystemSettingsConfig));
+      setDraft(structuredClone(config as SystemSettingsConfig));
     }
   }, [config, dirty]);
 
   const hasUnsavedChanges = useMemo(() => {
     if (!draft || !config) return false;
-    return !isEqual(draft, config);
+    return !deepEqual(draft, config);
   }, [draft, config]);
 
   const updateDraft = useCallback(
     (patch: Partial<SystemSettingsConfig>) => {
       setDraft((prev: SystemSettingsConfig | null) => {
         if (!prev) return prev;
-        const next = merge({}, prev, patch);
-        if (!isEqual(next, config)) {
+        const next = deepMerge({} as typeof prev, prev, patch as typeof prev);
+        if (!deepEqual(next, config)) {
           setDirty(true);
         }
         return next;
@@ -201,16 +228,19 @@ export function SystemSettings() {
   const handleSave = async () => {
     if (!draft) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const sanitized = sanitizeDraft(draft);
       const saved = await updateAndSaveConfig(sanitized);
       if (saved) {
         setTheme(sanitized.theme);
-        setDraft(cloneDeep(sanitized));
+        // Broadcast theme change to all windows (main window won't see React state update)
+        tauriEmit('theme-changed', { theme: sanitized.theme });
+        setDraft(structuredClone(sanitized));
         setDirty(false);
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save settings');
     } finally {
       setSaving(false);
     }
@@ -218,7 +248,7 @@ export function SystemSettings() {
 
   const handleDiscard = () => {
     if (!config) return;
-    setDraft(cloneDeep(config as SystemSettingsConfig));
+    setDraft(structuredClone(config as SystemSettingsConfig));
     setDirty(false);
   };
 
@@ -742,6 +772,9 @@ export function SystemSettings() {
                 保存设置
               </Button>
             </div>
+            {saveError && (
+              <p className="text-xs text-destructive mt-1">{saveError}</p>
+            )}
           </div>
         </div>
       )}

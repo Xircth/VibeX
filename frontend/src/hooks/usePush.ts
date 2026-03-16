@@ -12,6 +12,10 @@ class PushErrorWithData extends Error {
   }
 }
 
+export interface UsePushOptions {
+  force?: boolean;
+}
+
 export function usePush(
   attemptId?: string,
   onSuccess?: () => void,
@@ -19,28 +23,30 @@ export function usePush(
     err: unknown,
     errorData?: PushError,
     params?: PushTaskAttemptRequest
-  ) => void
+  ) => void,
+  options?: UsePushOptions
 ) {
   const queryClient = useQueryClient();
+  const force = options?.force ?? false;
 
   return useMutation<void, unknown, PushTaskAttemptRequest>({
     mutationFn: async (params: PushTaskAttemptRequest) => {
       if (!attemptId) return;
-      const result = await attemptsApi.push(attemptId, params);
+      const result = force
+        ? await attemptsApi.forcePush(attemptId, params)
+        : await attemptsApi.push(attemptId, params);
       if (!result.success) {
         throw new PushErrorWithData(
-          result.message || 'Push failed',
+          result.message || (force ? 'Force push failed' : 'Push failed'),
           result.error
         );
       }
     },
     onSuccess: () => {
-      // A push only affects remote status; invalidate the same branchStatus
       queryClient.invalidateQueries({ queryKey: ['branchStatus', attemptId] });
       onSuccess?.();
     },
     onError: (err, variables) => {
-      console.error('Failed to push:', err);
       const errorData =
         err instanceof PushErrorWithData ? err.errorData : undefined;
       onError?.(err, errorData, variables);

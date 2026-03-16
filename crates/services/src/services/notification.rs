@@ -85,10 +85,16 @@ impl NotificationService {
                 file_path.to_string_lossy().to_string()
             };
 
+            // Sanitize file path: use PowerShell single-quoted string (verbatim),
+            // which only requires escaping single quotes (by doubling them).
+            // Single-quoted strings in PowerShell do NOT expand variables ($),
+            // subexpressions, or backtick escapes, making them injection-safe.
+            let safe_path = file_path.replace('\'', "''");
             let mut cmd = tokio::process::Command::new("powershell.exe");
-            cmd.arg("-c")
+            cmd.arg("-NoProfile")
+                .arg("-Command")
                 .arg(format!(
-                    r#"(New-Object Media.SoundPlayer "{file_path}").PlaySync()"#
+                    "(New-Object Media.SoundPlayer '{safe_path}').PlaySync()"
                 ));
             utils::process::configure_tokio_command_no_window(&mut cmd);
             let _ = cmd.spawn();
@@ -106,12 +112,36 @@ impl NotificationService {
         }
     }
 
-    /// Send macOS notification using osascript
+    /// Send macOS notification using osascript.
+    /// Sanitize inputs with strict character whitelist to prevent AppleScript injection.
     async fn send_macos_notification(title: &str, message: &str) {
+        // Strict sanitization: only allow alphanumeric, spaces, and basic punctuation.
+        // This prevents all AppleScript injection vectors including backslash sequences,
+        // string interpolation, and command chaining via special characters.
+        let sanitize = |input: &str| -> String {
+            input
+                .chars()
+                .filter(|c| {
+                    c.is_alphanumeric()
+                        || matches!(
+                            c,
+                            ' ' | '.' | ',' | '!' | '?' | '-' | ':' | ';' | '(' | ')' | '\''
+                        )
+                })
+                .take(256) // Limit length to prevent abuse
+                .collect()
+        };
+
+        let safe_message = sanitize(message);
+        let safe_title = sanitize(title);
+
+        // AppleScript string escaping: escape backslashes first, then double quotes.
+        // After whitelist sanitization these characters won't appear, but defense-in-depth.
+        let safe_message = safe_message.replace('\\', "\\\\").replace('"', "\\\"");
+        let safe_title = safe_title.replace('\\', "\\\\").replace('"', "\\\"");
+
         let script = format!(
-            r#"display notification "{message}" with title "{title}" sound name "Glass""#,
-            message = message.replace('"', r#"\""#),
-            title = title.replace('"', r#"\""#)
+            r#"display notification "{safe_message}" with title "{safe_title}" sound name "Glass""#
         );
 
         let _ = tokio::process::Command::new("osascript")

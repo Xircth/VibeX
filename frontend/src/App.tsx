@@ -7,13 +7,14 @@ import { NormalLayout } from '@/components/layout/NormalLayout';
 import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
+import { skillsApi } from '@/lib/api';
 
 import {
   AgentSettings,
-  GeneralSettings,
   McpSettings,
-  ProjectSettings,
-  ReposSettings,
+  SkillsSettings,
+  ShortcutSettings,
+  SystemSettings,
   SettingsLayout,
 } from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
@@ -41,6 +42,13 @@ function AppContent() {
 
   // Sync UI preferences with server scratch storage
   useUiPreferencesScratch();
+
+  // Silently install ai-max commands on first launch
+  useEffect(() => {
+    skillsApi.ensureAimaxInstalled().catch(() => {
+      // Non-critical, ignore errors
+    });
+  }, []);
 
   useEffect(() => {
     if (!config) return;
@@ -123,6 +131,23 @@ function AppContent() {
             />
           </Route>
 
+          {/* ========== SETTINGS ROUTES (standalone layout, no Navbar) ========== */}
+          <Route
+            path="/settings/*"
+            element={
+              <LegacyDesignScope>
+                <SettingsLayout />
+              </LegacyDesignScope>
+            }
+          >
+            <Route index element={<Navigate to="agents" replace />} />
+            <Route path="agents" element={<AgentSettings />} />
+            <Route path="mcp" element={<McpSettings />} />
+            <Route path="skills" element={<SkillsSettings />} />
+            <Route path="shortcuts" element={<ShortcutSettings />} />
+            <Route path="system" element={<SystemSettings />} />
+          </Route>
+
           {/* ========== LEGACY DESIGN ROUTES (standard layout) ========== */}
           <Route
             element={
@@ -134,14 +159,6 @@ function AppContent() {
             <Route path="/" element={<Projects />} />
             <Route path="/local-projects" element={<Projects />} />
             <Route path="/local-projects/:projectId" element={<Projects />} />
-            <Route path="/settings/*" element={<SettingsLayout />}>
-              <Route index element={<Navigate to="general" replace />} />
-              <Route path="general" element={<GeneralSettings />} />
-              <Route path="projects" element={<ProjectSettings />} />
-              <Route path="repos" element={<ReposSettings />} />
-              <Route path="agents" element={<AgentSettings />} />
-              <Route path="mcp" element={<McpSettings />} />
-            </Route>
             <Route
               path="/mcp-servers"
               element={<Navigate to="/settings/mcp" replace />}

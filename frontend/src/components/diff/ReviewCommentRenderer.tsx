@@ -43,7 +43,7 @@ export function ReviewCommentRenderer({
         <WYSIWYGEditor
           value={editText}
           onChange={setEditText}
-          placeholder="Edit comment... (type @ to search files)"
+          placeholder="Edit comment... (type # to search tags or files)"
           className="w-full bg-background text-foreground text-sm font-mono min-h-[60px]"
           projectId={projectId}
           onCmdEnter={handleSave}

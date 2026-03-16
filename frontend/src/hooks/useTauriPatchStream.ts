@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react';
-import { produce } from 'immer';
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
 import { tauriInvoke, tauriListen } from '@/lib/tauri-api';
@@ -127,9 +126,8 @@ export const useTauriPatchStream = <T extends object>(
               const current = dataRef.current;
               if (!filtered.length || !current) return;
 
-              const next = produce(current, (draft) => {
-                applyUpsertPatch(draft, filtered);
-              });
+              const next = structuredClone(current);
+              applyUpsertPatch(next, filtered);
 
               dataRef.current = next;
               setData(next);

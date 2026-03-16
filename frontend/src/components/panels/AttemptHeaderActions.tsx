@@ -7,7 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '../ui/tooltip';
-import type { LayoutMode } from '../layout/TasksLayout';
+type LayoutMode = 'preview' | 'diffs' | null;
 import type { TaskWithAttemptStatus } from 'shared/types';
 import { ActionsDropdown } from '../ui/actions-dropdown';
 import { WorkspaceWithSession } from '@/types/attempt';

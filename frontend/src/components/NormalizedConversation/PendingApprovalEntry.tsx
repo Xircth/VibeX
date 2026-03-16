@@ -144,7 +144,7 @@ function DenyReasonForm({
       <WYSIWYGEditor
         value={value}
         onChange={onChange}
-        placeholder="告诉 Agent 此请求被拒绝的原因... 输入 @ 插入标签或搜索文件。"
+        placeholder="告诉 Agent 此请求被拒绝的原因... 输入 # 插入标签或搜索文件。"
         disabled={isResponding}
         className="min-h-[80px]"
         projectId={projectId}

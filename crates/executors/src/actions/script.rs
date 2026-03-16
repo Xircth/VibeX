@@ -55,6 +55,7 @@ impl Executable for ScriptRequest {
 
         let (shell_cmd, shell_arg) = get_shell_command();
         let mut command = Command::new(shell_cmd);
+        workspace_utils::process::configure_tokio_command_no_window(&mut command);
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::null())

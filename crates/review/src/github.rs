@@ -2,8 +2,16 @@ use std::{path::Path, process::Command};
 
 use serde::Deserialize;
 use tracing::debug;
+use utils::process::configure_std_command_no_window;
 
 use crate::error::ReviewError;
+
+/// Create a new Command with CREATE_NO_WINDOW configured on Windows.
+fn new_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    configure_std_command_no_window(&mut cmd);
+    cmd
+}
 
 /// Information about a pull request
 #[derive(Debug)]
@@ -88,7 +96,7 @@ pub fn parse_pr_url(url: &str) -> Result<(String, String, i64), ReviewError> {
 
 /// Check if the GitHub CLI is installed
 fn ensure_gh_available() -> Result<(), ReviewError> {
-    let output = Command::new("which")
+    let output = new_command("which")
         .arg("gh")
         .output()
         .map_err(|_| ReviewError::GhNotInstalled)?;
@@ -106,7 +114,7 @@ fn ensure_gh_available() -> Result<(), ReviewError> {
 fn get_pr_info_via_api(owner: &str, repo: &str, pr_number: i64) -> Result<PrInfo, ReviewError> {
     debug!("Fetching PR info via gh api for {owner}/{repo}#{pr_number}");
 
-    let output = Command::new("gh")
+    let output = new_command("gh")
         .args(["api", &format!("repos/{owner}/{repo}/pulls/{pr_number}")])
         .output()
         .map_err(|e| ReviewError::PrInfoFailed(e.to_string()))?;
@@ -146,7 +154,7 @@ pub fn get_pr_info(owner: &str, repo: &str, pr_number: i64) -> Result<PrInfo, Re
 
     debug!("Fetching PR info for {owner}/{repo}#{pr_number}");
 
-    let output = Command::new("gh")
+    let output = new_command("gh")
         .args([
             "pr",
             "view",
@@ -200,7 +208,7 @@ pub fn clone_repo(owner: &str, repo: &str, target_dir: &Path) -> Result<(), Revi
 
     debug!("Cloning {owner}/{repo} to {}", target_dir.display());
 
-    let output = Command::new("gh")
+    let output = new_command("gh")
         .args([
             "repo",
             "clone",
@@ -228,7 +236,7 @@ pub fn checkout_commit(commit_sha: &str, repo_dir: &Path) -> Result<(), ReviewEr
     debug!("Fetching commit {commit_sha} in {}", repo_dir.display());
 
     // First, fetch the specific commit
-    let output = Command::new("git")
+    let output = new_command("git")
         .args(["fetch", "origin", commit_sha])
         .current_dir(repo_dir)
         .output()
@@ -244,7 +252,7 @@ pub fn checkout_commit(commit_sha: &str, repo_dir: &Path) -> Result<(), ReviewEr
     debug!("Checking out commit {commit_sha}");
 
     // Then checkout the commit
-    let output = Command::new("git")
+    let output = new_command("git")
         .args(["checkout", commit_sha])
         .current_dir(repo_dir)
         .output()

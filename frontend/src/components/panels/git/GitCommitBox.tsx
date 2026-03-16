@@ -13,7 +13,7 @@ interface GitCommitBoxProps {
   commitLoading: boolean;
   pushLoading: boolean;
   commitError: string | null;
-  pushError: string | null;
+  operationError: string | null;
   commitsAhead?: number;
   onCommit: () => void;
   onCommitAndPush: () => void;
@@ -30,7 +30,7 @@ export const GitCommitBox = memo(function GitCommitBox({
   commitLoading,
   pushLoading,
   commitError,
-  pushError,
+  operationError,
   commitsAhead = 0,
   onCommit,
   onCommitAndPush,
@@ -131,9 +131,9 @@ export const GitCommitBox = memo(function GitCommitBox({
           </div>
 
           {/* Error display */}
-          {(commitError || pushError) && (
+          {(commitError || operationError) && (
             <div className="text-[10px] text-destructive px-0.5">
-              {commitError || pushError}
+              {commitError || operationError}
             </div>
           )}
 

@@ -11,6 +11,8 @@ use crate::error::AppError;
 // --- Default skills data ---
 
 static DEFAULT_SKILLS_JSON: &str = include_str!("../../../crates/executors/default_skills.json");
+static DEFAULT_AIMAX_COMMANDS_JSON: &str =
+    include_str!("../../../crates/executors/default_aimax_commands.json");
 
 static PRECONFIGURED_SKILLS: LazyLock<HashMap<String, SkillEntry>> = LazyLock::new(|| {
     let raw: Value =
@@ -55,6 +57,24 @@ pub struct PopularSkill {
 
 // --- Helpers ---
 
+/// Validate that a skill key contains only safe characters (alphanumeric, '-', '_')
+/// to prevent path traversal attacks via `../` or other special sequences.
+fn validate_skill_key(key: &str) -> Result<(), AppError> {
+    if key.is_empty() {
+        return Err(AppError::BadRequest("Skill key cannot be empty".into()));
+    }
+    if !key
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(AppError::BadRequest(format!(
+            "Invalid skill key '{}': only alphanumeric characters, '-' and '_' are allowed",
+            key
+        )));
+    }
+    Ok(())
+}
+
 fn skills_base_dir() -> PathBuf {
     dirs::home_dir()
         .expect("Cannot resolve home directory")
@@ -96,6 +116,7 @@ pub async fn get_popular_skills() -> Result<Vec<PopularSkill>, AppError> {
 
 #[tauri::command]
 pub async fn install_skill(key: String) -> Result<(), AppError> {
+    validate_skill_key(&key)?;
     let entry = PRECONFIGURED_SKILLS
         .get(&key)
         .ok_or_else(|| AppError::NotFound(format!("Skill not found: {}", key)))?;
@@ -116,6 +137,7 @@ pub async fn install_skill(key: String) -> Result<(), AppError> {
 
 #[tauri::command]
 pub async fn uninstall_skill(key: String) -> Result<(), AppError> {
+    validate_skill_key(&key)?;
     if !PRECONFIGURED_SKILLS.contains_key(&key) {
         return Err(AppError::NotFound(format!("Skill not found: {}", key)));
     }
@@ -132,4 +154,71 @@ pub async fn uninstall_skill(key: String) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+// --- ai-max command helpers ---
+
+fn aimax_commands_dir() -> PathBuf {
+    dirs::home_dir()
+        .expect("Cannot resolve home directory")
+        .join(".claude")
+        .join("commands")
+        .join("aimax")
+}
+
+fn is_aimax_installed() -> bool {
+    let dir = aimax_commands_dir();
+    if !dir.exists() {
+        return false;
+    }
+    std::fs::read_dir(&dir)
+        .map(|entries| {
+            entries.filter_map(|e| e.ok()).any(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .map_or(false, |ext| ext == "md")
+            })
+        })
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub async fn ensure_aimax_installed() -> Result<bool, AppError> {
+    if is_aimax_installed() {
+        tracing::debug!("ai-max commands already installed, skipping");
+        return Ok(false);
+    }
+
+    let raw: Value = serde_json::from_str(DEFAULT_AIMAX_COMMANDS_JSON)
+        .map_err(|e| AppError::Internal(format!("Failed to parse default_aimax_commands.json: {}", e)))?;
+
+    let commands = raw
+        .get("commands")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| AppError::Internal("default_aimax_commands.json missing 'commands' object".into()))?;
+
+    let dest_dir = aimax_commands_dir();
+    fs::create_dir_all(&dest_dir).await.map_err(|e| {
+        AppError::Internal(format!("Failed to create aimax commands dir {:?}: {}", dest_dir, e))
+    })?;
+
+    for (_key, val) in commands {
+        let filename = val
+            .get("filename")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::Internal("ai-max command entry missing 'filename'".into()))?;
+        let content = val
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::Internal("ai-max command entry missing 'content'".into()))?;
+
+        let file = dest_dir.join(filename);
+        fs::write(&file, content).await.map_err(|e| {
+            AppError::Internal(format!("Failed to write ai-max command file {:?}: {}", file, e))
+        })?;
+    }
+
+    tracing::info!("Installed ai-max commands to {:?}", dest_dir);
+    Ok(true)
 }

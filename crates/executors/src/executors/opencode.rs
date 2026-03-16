@@ -106,6 +106,7 @@ impl Opencode {
         let server_password = generate_server_password();
 
         let mut command = Command::new(program_path);
+        workspace_utils::process::configure_tokio_command_no_window(&mut command);
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::null())

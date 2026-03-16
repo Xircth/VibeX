@@ -620,6 +620,7 @@ export type GitLogEntry = {
   summary: string;
   author: string;
   timestamp: number;
+  refs: string[];
 };
 
 export type GitLogStatus = {
@@ -630,6 +631,25 @@ export type GitLogStatus = {
   upstream: string | null;
   branch_name: string;
 };
+
+export type CommitFileEntry = {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+};
+
+export type CommitDetail = {
+  sha: string;
+  summary: string;
+  body: string;
+  author: string;
+  author_email: string;
+  timestamp: number;
+  files: CommitFileEntry[];
+};
+
+export type ResetMode = "soft" | "mixed" | "hard";
 
 // ─────────────────────────────────────────────────────────────────────
 

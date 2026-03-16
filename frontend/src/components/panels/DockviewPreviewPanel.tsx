@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
-import { Eye, Save } from 'lucide-react';
+import { Eye, Code2, Save } from 'lucide-react';
 import { useFileContent, useSaveFile } from '@/hooks/useFileContent';
+import { Markdown } from '@/components/NormalizedConversation/Markdown';
 
 /**
  * Map file extension to Monaco language identifier.
@@ -52,11 +53,24 @@ function getLanguageFromPath(filePath: string): string {
 }
 
 /**
+ * Check if a file path points to a Markdown file.
+ */
+function isMarkdownFile(filePath: string): boolean {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  return ext === 'md' || ext === 'mdx' || ext === 'markdown';
+}
+
+/** Persist markdown render state across tab switches (keyed by filePath). */
+const markdownRenderStateMap = new Map<string, boolean>();
+
+/**
  * DockviewPreviewPanel - Monaco Editor panel for viewing/editing files.
  *
  * Reads file path from panel params.filePath and displays it in Monaco Editor.
  * Supports Ctrl+S to save changes back to disk.
  * Each file gets its own panel instance (VSCode-like multi-tab behavior).
+ *
+ * For Markdown files, supports rendered preview mode toggled via middle-click.
  */
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const filePath = (props.params?.filePath as string) || null;
@@ -64,6 +78,36 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const saveFile = useSaveFile();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+
+  const isMd = filePath ? isMarkdownFile(filePath) : false;
+  const [isRendered, setIsRendered] = useState(() =>
+    filePath ? (markdownRenderStateMap.get(filePath) ?? false) : false
+  );
+
+  // Restore render state when filePath changes
+  useEffect(() => {
+    if (filePath) {
+      setIsRendered(markdownRenderStateMap.get(filePath) ?? false);
+    }
+  }, [filePath]);
+
+  // Persist render state to module-level map
+  useEffect(() => {
+    if (filePath && isMd) {
+      markdownRenderStateMap.set(filePath, isRendered);
+    }
+  }, [filePath, isMd, isRendered]);
+
+  // Middle-click toggle handler
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button === 1 && isMd) {
+        e.preventDefault();
+        setIsRendered((prev) => !prev);
+      }
+    },
+    [isMd]
+  );
 
   const handleEditorMount: OnMount = useCallback(
     (editor, monaco) => {
@@ -127,29 +171,57 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const language = getLanguageFromPath(filePath);
 
   return (
-    <div className="h-full w-full flex flex-col bg-background" data-panel="preview">
+    <div
+      className="h-full w-full flex flex-col bg-background"
+      data-panel="preview"
+      onMouseDown={handleMouseDown}
+    >
       {/* Header bar */}
       <div className="flex items-center gap-2 px-2 py-1 border-b border-border text-xs shrink-0 bg-background">
         <span className="truncate text-muted-foreground flex-1" title={filePath}>
           {fileName}
           {isDirty && <span className="ml-1 text-yellow-400">*</span>}
         </span>
-        <button
-          className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-accent rounded transition-colors disabled:opacity-40"
-          onClick={handleSave}
-          disabled={!isDirty || saveFile.isPending}
-          title="Save (Ctrl+S)"
-        >
-          <Save className="w-3 h-3" />
-          {saveFile.isPending ? 'Saving...' : 'Save'}
-        </button>
+        {isMd && (
+          <span
+            className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground bg-muted rounded select-none"
+            title="Middle-click to toggle"
+          >
+            {isRendered ? (
+              <>
+                <Eye className="w-3 h-3" />
+                Preview
+              </>
+            ) : (
+              <>
+                <Code2 className="w-3 h-3" />
+                Source
+              </>
+            )}
+          </span>
+        )}
+        {(!isMd || !isRendered) && (
+          <button
+            className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-accent rounded transition-colors disabled:opacity-40"
+            onClick={handleSave}
+            disabled={!isDirty || saveFile.isPending}
+            title="Save (Ctrl+S)"
+          >
+            <Save className="w-3 h-3" />
+            {saveFile.isPending ? 'Saving...' : 'Save'}
+          </button>
+        )}
       </div>
 
-      {/* Editor */}
+      {/* Content */}
       <div className="flex-1 min-h-0">
         {isLoading ? (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
             Loading file...
+          </div>
+        ) : isMd && isRendered ? (
+          <div className="h-full overflow-auto px-6 py-4">
+            <Markdown value={content ?? ''} />
           </div>
         ) : (
           <Editor

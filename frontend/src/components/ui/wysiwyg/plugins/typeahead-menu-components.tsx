@@ -286,6 +286,7 @@ function TypeaheadMenuItemComponent({
           ? 'bg-secondary border-l-brand text-high'
           : 'hover:bg-muted border-l-transparent text-muted-foreground'
       }`}
+      onMouseDown={(event) => event.preventDefault()}
       onMouseMove={handleMouseMove}
       onClick={onClick}
     >

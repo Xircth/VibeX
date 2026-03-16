@@ -83,7 +83,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
 
       {tags.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          {'还没有标签。为常见任务描述创建可重用的文本片段。在任何任务中使用 @tag_name。'}
+          {'还没有标签。为常见任务描述创建可重用的文本片段。在任何任务中使用 #tag_name。'}
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
@@ -108,7 +108,7 @@ export function TagManager() {  const [tags, setTags] = useState<Tag[]>([]);
                     key={tag.id}
                     className="border-b hover:bg-muted/30 transition-colors"
                   >
-                    <td className="p-2 text-sm font-medium">@{tag.tag_name}</td>
+                    <td className="p-2 text-sm font-medium">#{tag.tag_name}</td>
                     <td className="p-2 text-sm">
                       <div
                         className="max-w-[400px] truncate"

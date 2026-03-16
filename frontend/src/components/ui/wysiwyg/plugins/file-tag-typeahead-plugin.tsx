@@ -290,14 +290,14 @@ export function FileTagTypeaheadPlugin({ repoIds }: { repoIds?: string[] }) {
   return (
     <LexicalTypeaheadMenuPlugin<FileTagOption>
       triggerFn={(text) => {
-        // Match @ followed by any non-whitespace characters
-        const match = /(?:^|\s)@([^\s@]*)$/.exec(text);
+        // Match # followed by any non-whitespace characters
+        const match = /(?:^|\s)#([^\s#]*)$/.exec(text);
         if (!match) return null;
-        const offset = match.index + match[0].indexOf('@');
+        const offset = match.index + match[0].indexOf('#');
         return {
           leadOffset: offset,
           matchingString: match[1],
-          replaceableString: match[0].slice(match[0].indexOf('@')),
+          replaceableString: match[0].slice(match[0].indexOf('#')),
         };
       }}
       options={options}
@@ -426,7 +426,7 @@ export function FileTagTypeaheadPlugin({ repoIds }: { repoIds?: string[] }) {
                     >
                       <div className="flex items-center gap-2 font-medium">
                         <TagIcon className="h-3.5 w-3.5 text-blue-600" />
-                        <span>@{tag.tag_name}</span>
+                        <span>#{tag.tag_name}</span>
                       </div>
                       {tag.content && (
                         <div className="text-xs mt-0.5 truncate">

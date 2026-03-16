@@ -121,7 +121,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
               </span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
-              {`在任务描述中使用 @ 加此名称：@${formData.tag_name || 'tag_name'}`}
+              {`在任务描述中使用 # 加此名称：#${formData.tag_name || 'tag_name'}`}
             </p>
             <Input
               id="tag-name"
@@ -157,7 +157,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
               </span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
-              {`当您在任务描述中使用 @${formData.tag_name || 'tag_name'} 时将插入的文本`}
+              {`当您在任务描述中使用 #${formData.tag_name || 'tag_name'} 时将插入的文本`}
             </p>
             <Textarea
               id="tag-content"

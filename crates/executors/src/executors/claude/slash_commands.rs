@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-use command_group::AsyncCommandGroup;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
@@ -223,7 +222,7 @@ impl ClaudeCode {
             command.env_remove("ANTHROPIC_API_KEY");
         }
 
-        let mut child = command.group_spawn()?;
+        let mut child = workspace_utils::process::group_spawn_no_window(&mut command)?;
         let stdout = child.inner().stdout.take().ok_or_else(|| {
             ExecutorError::Io(std::io::Error::other("Claude Code missing stdout"))
         })?;

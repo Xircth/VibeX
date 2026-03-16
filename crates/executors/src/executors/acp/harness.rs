@@ -7,7 +7,7 @@ use std::{
 
 use agent_client_protocol as proto;
 use agent_client_protocol::Agent as _;
-use command_group::{AsyncCommandGroup, AsyncGroupChild};
+use command_group::AsyncGroupChild;
 use futures::StreamExt;
 use tokio::{io::AsyncWriteExt, process::Command, sync::mpsc};
 use tokio_util::{
@@ -95,7 +95,7 @@ impl AcpAgentHarness {
             .with_profile(cmd_overrides)
             .apply_to_command(&mut command);
 
-        let mut child = command.group_spawn()?;
+        let mut child = workspace_utils::process::group_spawn_no_window(&mut command)?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ExecutorExitResult>();
         let cancel = CancellationToken::new();
@@ -149,7 +149,7 @@ impl AcpAgentHarness {
             .with_profile(cmd_overrides)
             .apply_to_command(&mut command);
 
-        let mut child = command.group_spawn()?;
+        let mut child = workspace_utils::process::group_spawn_no_window(&mut command)?;
 
         let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<ExecutorExitResult>();
         let cancel = CancellationToken::new();

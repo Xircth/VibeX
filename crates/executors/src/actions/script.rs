@@ -1,7 +1,6 @@
 use std::{path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use command_group::AsyncCommandGroup;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use ts_rs::TS;
@@ -13,6 +12,7 @@ use crate::{
     env::ExecutionEnv,
     executors::{ExecutorError, SpawnedChild},
 };
+use workspace_utils::process::group_spawn_no_window;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub enum ScriptRequestLanguage {
@@ -68,7 +68,7 @@ impl Executable for ScriptRequest {
         // Apply environment variables
         env.apply_to_command(&mut command);
 
-        let child = command.group_spawn()?;
+        let child = group_spawn_no_window(&mut command)?;
 
         Ok(child.into())
     }

@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use command_group::{AsyncCommandGroup, AsyncGroupChild};
+use command_group::AsyncGroupChild;
 use derivative::Derivative;
 use futures::StreamExt;
 use schemars::JsonSchema;
@@ -124,7 +124,7 @@ impl Opencode {
             .with_profile(&self.cmd)
             .apply_to_command(&mut command);
 
-        let child = command.group_spawn()?;
+        let child = workspace_utils::process::group_spawn_no_window(&mut command)?;
 
         Ok((child, server_password))
     }

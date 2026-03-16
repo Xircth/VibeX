@@ -1,4 +1,4 @@
-use command_group::AsyncGroupChild;
+use command_group::{AsyncCommandGroup, AsyncGroupChild};
 #[cfg(unix)]
 use nix::{
     sys::signal::{Signal, killpg},
@@ -39,6 +39,20 @@ pub fn configure_tokio_command_no_window(
     command: &mut tokio::process::Command,
 ) -> &mut tokio::process::Command {
     command
+}
+
+/// Spawn a tokio Command as a process group with CREATE_NO_WINDOW on Windows.
+///
+/// `command_group`'s `group_spawn()` overwrites any `creation_flags` previously
+/// set on the Command (it calls `command.creation_flags(builder_flags | CREATE_SUSPENDED)`).
+/// This helper uses the `CommandGroupBuilder` API to pass CREATE_NO_WINDOW correctly.
+pub fn group_spawn_no_window(
+    command: &mut tokio::process::Command,
+) -> std::io::Result<AsyncGroupChild> {
+    let mut builder = command.group();
+    #[cfg(windows)]
+    builder.creation_flags(CREATE_NO_WINDOW);
+    builder.spawn()
 }
 
 pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<()> {

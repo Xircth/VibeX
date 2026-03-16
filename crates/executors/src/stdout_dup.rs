@@ -8,7 +8,7 @@ use std::os::unix::io::{FromRawFd, IntoRawFd, OwnedFd};
 #[cfg(windows)]
 use std::os::windows::io::{FromRawHandle, IntoRawHandle, OwnedHandle};
 
-use command_group::{AsyncCommandGroup, AsyncGroupChild};
+use command_group::AsyncGroupChild;
 use futures::{StreamExt, stream::BoxStream};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -204,7 +204,6 @@ pub fn spawn_local_output_process()
 
     #[cfg(windows)]
     let mut cmd = {
-        use std::os::windows::process::CommandExt as _;
         let mut cmd = tokio::process::Command::new("powershell.exe");
         cmd.args([
             "-NoLogo",
@@ -214,14 +213,13 @@ pub fn spawn_local_output_process()
         ])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags(0x08000000); // CREATE_NO_WINDOW
+        .stderr(std::process::Stdio::piped());
         cmd
     };
 
     cmd.kill_on_drop(true);
 
-    let mut child = cmd.group_spawn()?;
+    let mut child = workspace_utils::process::group_spawn_no_window(&mut cmd)?;
 
     // Replace stdout with our pipe
     child.inner().stdout = Some(wrap_fd_as_child_stdout(pipe_reader)?);

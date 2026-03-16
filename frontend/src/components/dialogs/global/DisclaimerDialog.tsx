@@ -25,36 +25,22 @@ const DisclaimerDialogImpl = NiceModal.create<NoProps>(() => {
         <DialogHeader>
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-6 w-6 text-destructive" />
-            <DialogTitle>Safety Notice</DialogTitle>
+            <DialogTitle>安全提示</DialogTitle>
           </div>
           <DialogDescription className="text-left space-y-4 pt-4">
             <p>
-              {APP_NAME} runs AI coding agents with{' '}
+              {APP_NAME} 默认以{' '}
               <code>--dangerously-skip-permissions</code> / <code>--yolo</code>{' '}
-              by default, giving them unrestricted access to execute code and
-              run commands on your system.
+              模式运行 AI 编程 Agent，赋予其在你系统上执行代码和运行命令的完全访问权限。
             </p>
             <p>
-              <strong>Important:</strong> Always review what agents are doing
-              and ensure you have backups of important work. This software is
-              experimental - use it responsibly.
-            </p>
-            <p>
-              Learn more at{' '}
-              <a
-                href="https://www.vibeultra.com/docs/getting-started#safety-notice"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 dark:text-blue-400 underline hover:no-underline"
-              >
-                https://www.vibeultra.com/docs/getting-started#safety-notice
-              </a>
+              <strong>重要：</strong>请始终关注 Agent 的操作行为，并确保重要工作已备份。本软件仍处于实验阶段，请谨慎使用。
             </p>
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button onClick={handleAccept} variant="default">
-            I Understand, Continue
+            我已了解，继续使用
           </Button>
         </DialogFooter>
       </DialogContent>

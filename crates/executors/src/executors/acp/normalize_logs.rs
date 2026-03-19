@@ -16,7 +16,7 @@ use crate::{
     approvals::ToolCallMetadata,
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
-        TodoItem, ToolResult, ToolResultValueType, ToolStatus as LogToolStatus,
+        ToolResult, ToolResultValueType, ToolStatus as LogToolStatus,
         stderr_processor::normalize_stderr_logs,
         utils::{ConversationPatch, EntryIndexProvider},
     },
@@ -126,29 +126,13 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     AcpEvent::Plan(plan) => {
                         streaming.assistant_text = None;
                         streaming.thinking_text = None;
-                        let todos: Vec<TodoItem> = plan
-                            .entries
-                            .iter()
-                            .map(|e| TodoItem {
-                                content: e.content.clone(),
-                                status: serde_json::to_value(&e.status)
-                                    .ok()
-                                    .and_then(|v| v.as_str().map(|s| s.to_string()))
-                                    .unwrap_or_else(|| "unknown".to_string()),
-                                priority: serde_json::to_value(&e.priority)
-                                    .ok()
-                                    .and_then(|v| v.as_str().map(|s| s.to_string())),
-                            })
-                            .collect();
-
                         let idx = entry_index.next();
                         let entry = NormalizedEntry {
                             timestamp: None,
                             entry_type: NormalizedEntryType::ToolUse {
                                 tool_name: "plan".to_string(),
-                                action_type: ActionType::TodoManagement {
-                                    todos,
-                                    operation: "update".to_string(),
+                                action_type: ActionType::PlanPresentation {
+                                    plan: format_plan_markdown(&plan),
                                 },
                                 status: LogToolStatus::Success,
                             },
@@ -279,10 +263,10 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 timestamp: None,
                 entry_type: NormalizedEntryType::ToolUse {
                     tool_name: tool_data.title.clone(),
-                    action_type: action,
+                    action_type: action.clone(),
                     status: convert_tool_status(&tool_data.status),
                 },
-                content: get_tool_content(tool_data),
+                content: get_tool_content(tool_data, &action),
                 metadata: serde_json::to_value(ToolCallMetadata {
                     tool_call_id: tool_data.id.0.to_string(),
                 })
@@ -363,7 +347,14 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                             output: None,
                         })
                     };
-                    ActionType::CommandRun { category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(&command), command, result }
+                    ActionType::CommandRun {
+                        category:
+                            crate::logs::utils::shell_command_parsing::CommandCategory::from_command(
+                                &command,
+                            ),
+                        command,
+                        result,
+                    }
                 }
                 agent_client_protocol::ToolKind::Delete => ActionType::FileEdit {
                     path: tc
@@ -399,6 +390,9 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     ActionType::WebFetch { url }
                 }
                 agent_client_protocol::ToolKind::Think => {
+                    if let Some(task_action) = heuristically_extract_task_create(tc) {
+                        return task_action;
+                    }
                     let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
                         .unwrap_or_else(|| tc.title.clone());
                     // For think/save_memory, surface both title and aggregated text content as arguments
@@ -430,6 +424,9 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 agent_client_protocol::ToolKind::Other
                 | agent_client_protocol::ToolKind::Move
                 | _ => {
+                    if let Some(task_action) = heuristically_extract_task_create(tc) {
+                        return task_action;
+                    }
                     // Derive a friendlier tool name from the id if it looks like name-<digits>
                     let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
                         .unwrap_or_else(|| tc.title.clone());
@@ -524,32 +521,37 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
             changes
         }
 
-        fn get_tool_content(tc: &PartialToolCallData) -> String {
-            match tc.kind {
-                agent_client_protocol::ToolKind::Execute => {
-                    AcpEventParser::parse_execute_command(tc)
-                }
-                agent_client_protocol::ToolKind::Think => "Saving memory".to_string(),
-                agent_client_protocol::ToolKind::Other => {
-                    let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
-                        .unwrap_or_else(|| "tool".to_string());
-                    if tc.title.is_empty() {
-                        tool_name
-                    } else {
-                        format!("{}: {}", tool_name, tc.title)
+        fn get_tool_content(tc: &PartialToolCallData, action: &ActionType) -> String {
+            match action {
+                ActionType::CommandRun { command, .. } => command.clone(),
+                ActionType::FileRead { path } => path.clone(),
+                ActionType::FileEdit { path, .. } => path.clone(),
+                ActionType::Search { query } => query.clone(),
+                ActionType::WebFetch { url } => url.clone(),
+                ActionType::TaskCreate { description, .. } => description.clone(),
+                _ => match tc.kind {
+                    agent_client_protocol::ToolKind::Think => "Saving memory".to_string(),
+                    agent_client_protocol::ToolKind::Other => {
+                        let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
+                            .unwrap_or_else(|| "tool".to_string());
+                        if tc.title.is_empty() {
+                            tool_name
+                        } else {
+                            format!("{}: {}", tool_name, tc.title)
+                        }
                     }
-                }
-                agent_client_protocol::ToolKind::Read => {
-                    if tc.id.0.starts_with("read_many_files") {
-                        "Read files".to_string()
-                    } else {
-                        tc.path
-                            .as_ref()
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|| tc.title.clone())
+                    agent_client_protocol::ToolKind::Read => {
+                        if tc.id.0.starts_with("read_many_files") {
+                            "Read files".to_string()
+                        } else {
+                            tc.path
+                                .as_ref()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|| tc.title.clone())
+                        }
                     }
-                }
-                _ => tc.title.clone(),
+                    _ => tc.title.clone(),
+                },
             }
         }
 
@@ -604,6 +606,271 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
             }
         }
     });
+}
+
+fn format_plan_markdown(plan: &acp::Plan) -> String {
+    plan.entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let status = serde_json::to_value(&entry.status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "unknown".to_string());
+            let priority = serde_json::to_value(&entry.priority)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "normal".to_string());
+
+            format!(
+                "{}. [{} | {}] {}",
+                index + 1,
+                status,
+                priority,
+                entry.content.trim()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn heuristically_extract_task_create(tc: &PartialToolCallData) -> Option<ActionType> {
+    let parsed_title_json = tc
+        .title
+        .trim_start()
+        .starts_with('{')
+        .then(|| serde_json::from_str::<serde_json::Value>(&tc.title).ok())
+        .flatten();
+    let arguments = tc.raw_input.as_ref().or(parsed_title_json.as_ref());
+    let tool_name =
+        extract_task_tool_name(tc.id.0.as_ref()).unwrap_or_else(|| tc.title.trim().to_string());
+
+    let has_task_signal = is_task_like_name(&tool_name)
+        || is_task_like_name(&tc.title)
+        || extract_string_argument(
+            arguments,
+            &[
+                "description",
+                "prompt",
+                "task",
+                "subagent_type",
+                "agent_type",
+            ],
+        )
+        .is_some();
+
+    if !has_task_signal {
+        return None;
+    }
+
+    let description = extract_string_argument(
+        arguments,
+        &[
+            "description",
+            "prompt",
+            "task",
+            "title",
+            "summary",
+            "message",
+            "instruction",
+        ],
+    )
+    .or_else(|| extract_task_description_from_title(&tc.title, &tool_name))
+    .or_else(|| collect_text_content_blocks(&tc.content))
+    .filter(|text| !text.trim().is_empty())
+    .unwrap_or_else(|| tool_name.clone());
+
+    let subagent_type = extract_string_argument(
+        arguments,
+        &["subagent_type", "agent_type", "agent", "kind", "role"],
+    );
+
+    Some(ActionType::TaskCreate {
+        description: description.trim().trim_matches('`').to_string(),
+        subagent_type,
+        result: collect_tool_result(tc),
+    })
+}
+
+fn collect_tool_result(tc: &PartialToolCallData) -> Option<ToolResult> {
+    if let Some(output) = &tc.raw_output {
+        Some(ToolResult {
+            r#type: ToolResultValueType::Json,
+            value: output.clone(),
+        })
+    } else {
+        collect_text_content_blocks(&tc.content).map(|text| ToolResult {
+            r#type: ToolResultValueType::Markdown,
+            value: serde_json::Value::String(text),
+        })
+    }
+}
+
+fn collect_text_content_blocks(
+    content: &[agent_client_protocol::ToolCallContent],
+) -> Option<String> {
+    let mut out = String::new();
+    for item in content {
+        if let agent_client_protocol::ToolCallContent::Content(inner) = item
+            && let agent_client_protocol::ContentBlock::Text(text) = &inner.content
+        {
+            out.push_str(&text.text);
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+    }
+    if out.trim().is_empty() {
+        None
+    } else {
+        Some(out.trim().to_string())
+    }
+}
+
+fn extract_task_description_from_title(title: &str, tool_name: &str) -> Option<String> {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized_tool_name = normalize_task_name(tool_name);
+    let normalized_title = normalize_task_name(trimmed);
+    if normalized_title == normalized_tool_name {
+        return None;
+    }
+
+    for separator in [":", "-", "=>"] {
+        if let Some((prefix, rest)) = trimmed.split_once(separator)
+            && normalize_task_name(prefix) == normalized_tool_name
+            && !rest.trim().is_empty()
+        {
+            return Some(rest.trim().to_string());
+        }
+    }
+
+    Some(trimmed.to_string())
+}
+
+fn extract_string_argument(value: Option<&serde_json::Value>, keys: &[&str]) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return Some(text.to_string());
+    }
+
+    let object = value.as_object()?;
+    keys.iter().find_map(|key| {
+        object.get(*key).and_then(|candidate| {
+            candidate
+                .as_str()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(ToOwned::to_owned)
+        })
+    })
+}
+
+fn extract_task_tool_name(id: &str) -> Option<String> {
+    if let Some(idx) = id.rfind('-') {
+        let (head, tail) = id.split_at(idx);
+        if tail
+            .trim_start_matches('-')
+            .chars()
+            .all(|c| c.is_ascii_digit())
+        {
+            return Some(head.to_string());
+        }
+    }
+    None
+}
+
+fn normalize_task_name(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn is_task_like_name(name: &str) -> bool {
+    let normalized = normalize_task_name(name);
+    ["task", "task_create", "create_task", "subagent", "delegate"]
+        .iter()
+        .any(|candidate| {
+            normalized == *candidate
+                || normalized.starts_with(&format!("{candidate}_"))
+                || normalized.ends_with(&format!("_{candidate}"))
+                || normalized.contains(&format!("_{candidate}_"))
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use agent_client_protocol::{
+        Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, ToolCallId, ToolCallStatus, ToolKind,
+    };
+    use serde_json::json;
+
+    use super::{PartialToolCallData, format_plan_markdown, heuristically_extract_task_create};
+    use crate::logs::ActionType;
+
+    #[test]
+    fn formats_acp_plan_as_readable_markdown() {
+        let plan = Plan::new(vec![
+            PlanEntry::new(
+                "Inspect the repository state",
+                PlanEntryPriority::High,
+                PlanEntryStatus::InProgress,
+            ),
+            PlanEntry::new(
+                "Update the renderer",
+                PlanEntryPriority::Medium,
+                PlanEntryStatus::Pending,
+            ),
+        ]);
+
+        assert_eq!(
+            format_plan_markdown(&plan),
+            "1. [in_progress | high] Inspect the repository state\n2. [pending | medium] Update the renderer"
+        );
+    }
+
+    #[test]
+    fn heuristically_extracts_task_create_from_other_tool() {
+        let tool_call = PartialToolCallData {
+            id: ToolCallId::new("create_task-1"),
+            kind: ToolKind::Other,
+            title: "create_task: Audit renderer parity".to_string(),
+            status: ToolCallStatus::Completed,
+            raw_input: Some(json!({
+                "description": "Audit renderer parity",
+                "subagent_type": "reviewer"
+            })),
+            raw_output: Some(json!({ "ok": true })),
+            ..Default::default()
+        };
+
+        let action = heuristically_extract_task_create(&tool_call).expect("task action");
+        let ActionType::TaskCreate {
+            description,
+            subagent_type,
+            result,
+        } = action
+        else {
+            panic!("expected task_create action");
+        };
+
+        assert_eq!(description, "Audit renderer parity");
+        assert_eq!(subagent_type.as_deref(), Some("reviewer"));
+        assert!(result.is_some());
+    }
 }
 
 struct PartialToolCallData {

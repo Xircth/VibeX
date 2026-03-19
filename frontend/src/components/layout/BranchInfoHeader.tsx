@@ -1,5 +1,11 @@
 import { useState, useCallback } from 'react';
-import { GitBranch, ArrowUp, ArrowDown, AlertTriangle, ChevronDown } from 'lucide-react';
+import {
+  GitBranch,
+  ArrowUp,
+  ArrowDown,
+  AlertTriangle,
+  ChevronDown,
+} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,27 +15,56 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { attemptsApi } from '@/lib/api';
-import { ConflictBanner } from '@/components/tasks/ConflictBanner';
-import type { ConflictOp, RepoBranchStatus } from 'shared/types';
+import type { RebaseResult } from '@/lib/api';
+import type { RepoBranchStatus } from 'shared/types';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useChangeTargetBranch } from '@/hooks/useChangeTargetBranch';
 import { ChangeTargetBranchDialog } from '@/components/dialogs/tasks/ChangeTargetBranchDialog';
+import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConflictResolutionDialog';
+
+async function showConflictResolutionDialog(
+  worktreeId: string,
+  repo: RepoBranchStatus,
+  result: RebaseResult
+) {
+  const error = result.error;
+  if (error?.type !== 'merge_conflicts') {
+    return false;
+  }
+
+  await GitConflictResolutionDialog.show({
+    workspaceId: worktreeId,
+    sourceBranch: null,
+    targetBranch: error.target_branch,
+    conflictedFiles: [...error.conflicted_files],
+    op: error.op ?? null,
+    repoName: repo.repo_name,
+  });
+
+  return true;
+}
 
 export function BranchInfoHeader() {
   const { activeWorktreeId } = useWorktree();
-  const { data: branchStatus } = useWorkspaceBranchStatus(activeWorktreeId ?? undefined);
+  const { visibleRightSession } = useKanbanSessionContext();
+  const effectiveWorktreeId =
+    activeWorktreeId ?? visibleRightSession?.workspaceId ?? null;
+  const { data: branchStatus } = useWorkspaceBranchStatus(
+    effectiveWorktreeId ?? undefined
+  );
 
-  if (!activeWorktreeId || !branchStatus?.length) return null;
+  if (!effectiveWorktreeId || !branchStatus?.length) return null;
 
   const repo = branchStatus[0];
 
   return (
     <div className="shrink-0 border-b border-border bg-muted/30 px-3 py-1.5">
       <div className="flex items-center gap-2 text-xs min-w-0">
-        <span className="text-muted-foreground shrink-0">目标</span>
-        <TargetBranchDropdown repo={repo} worktreeId={activeWorktreeId} />
+        <span className="text-muted-foreground shrink-0">鐩爣</span>
+        <TargetBranchDropdown repo={repo} worktreeId={effectiveWorktreeId} />
         <span className="text-muted-foreground shrink-0">&rarr;</span>
         <span className="font-mono text-foreground truncate">HEAD</span>
         {(repo.commits_ahead ?? 0) > 0 && (
@@ -47,19 +82,25 @@ export function BranchInfoHeader() {
         {repo.is_rebase_in_progress && (
           <span className="flex items-center gap-0.5 text-destructive shrink-0">
             <AlertTriangle className="h-2.5 w-2.5" />
-            冲突
+            鍐茬獊
           </span>
         )}
         <div className="ml-auto flex items-center gap-1 shrink-0">
-          <RebaseButton worktreeId={activeWorktreeId} repoId={repo.repo_id} />
-          <RebaseBackButton worktreeId={activeWorktreeId} repoId={repo.repo_id} />
+          <RebaseButton worktreeId={effectiveWorktreeId} repo={repo} />
+          <RebaseBackButton worktreeId={effectiveWorktreeId} repo={repo} />
         </div>
       </div>
     </div>
   );
 }
 
-function TargetBranchDropdown({ repo, worktreeId }: { repo: RepoBranchStatus; worktreeId: string }) {
+function TargetBranchDropdown({
+  repo,
+  worktreeId,
+}: {
+  repo: RepoBranchStatus;
+  worktreeId: string;
+}) {
   const { data: branches = [] } = useRepoBranches(repo.repo_id);
   const changeTargetBranch = useChangeTargetBranch(worktreeId, repo.repo_id);
   const isChangingTargetBranch = changeTargetBranch.isPending;
@@ -82,8 +123,13 @@ function TargetBranchDropdown({ repo, worktreeId }: { repo: RepoBranchStatus; wo
   }, [branches, isChangingTargetBranch, changeTargetBranch, repo.repo_id]);
 
   const handleRebase = useCallback(async () => {
-    await attemptsApi.rebase(worktreeId, { repo_id: repo.repo_id, old_base_branch: null, new_base_branch: null });
-  }, [worktreeId, repo.repo_id]);
+    const result = await attemptsApi.rebase(worktreeId, {
+      repo_id: repo.repo_id,
+      old_base_branch: null,
+      new_base_branch: null,
+    });
+    await showConflictResolutionDialog(worktreeId, repo, result);
+  }, [repo, worktreeId]);
 
   return (
     <DropdownMenu>
@@ -95,18 +141,25 @@ function TargetBranchDropdown({ repo, worktreeId }: { repo: RepoBranchStatus; wo
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuItem onSelect={handleChangeTarget} disabled={isChangingTargetBranch}>
-          {isChangingTargetBranch ? '切换中...' : '切换目标分支'}
+        <DropdownMenuItem
+          onSelect={handleChangeTarget}
+          disabled={isChangingTargetBranch}
+        >
+          {isChangingTargetBranch ? '鍒囨崲涓?..' : '鍒囨崲鐩爣鍒嗘敮'}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={handleRebase}>
-          Rebase
-        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={handleRebase}>Rebase</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function RebaseButton({ worktreeId, repoId }: { worktreeId: string; repoId: string }) {
+function RebaseButton({
+  worktreeId,
+  repo,
+}: {
+  worktreeId: string;
+  repo: RepoBranchStatus;
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -115,12 +168,16 @@ function RebaseButton({ worktreeId, repoId }: { worktreeId: string; repoId: stri
     setLoading(true);
     setError(null);
     try {
-      const result = await attemptsApi.rebase(worktreeId, { repo_id: repoId, old_base_branch: null, new_base_branch: null });
+      const result = await attemptsApi.rebase(worktreeId, {
+        repo_id: repo.repo_id,
+        old_base_branch: null,
+        new_base_branch: null,
+      });
       if (result.error) {
         if (result.error.type === 'rebase_in_progress') {
           setError('Rebase is already in progress.');
         } else {
-          setError('Rebase failed with conflicts.');
+          await showConflictResolutionDialog(worktreeId, repo, result);
         }
         return;
       }
@@ -130,11 +187,17 @@ function RebaseButton({ worktreeId, repoId }: { worktreeId: string; repoId: stri
     } finally {
       setLoading(false);
     }
-  }, [worktreeId, repoId, queryClient]);
+  }, [worktreeId, repo, queryClient]);
 
   return (
     <div className="flex flex-col items-start gap-1">
-      <Button variant="outline" size="sm" className="h-5 text-[10px] px-1.5" onClick={handleRebase} disabled={loading}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-5 text-[10px] px-1.5"
+        onClick={handleRebase}
+        disabled={loading}
+      >
         Rebase
       </Button>
       {error && <span className="text-[9px] text-destructive">{error}</span>}
@@ -142,30 +205,26 @@ function RebaseButton({ worktreeId, repoId }: { worktreeId: string; repoId: stri
   );
 }
 
-function RebaseBackButton({ worktreeId, repoId }: { worktreeId: string; repoId: string }) {
+function RebaseBackButton({
+  worktreeId,
+  repo,
+}: {
+  worktreeId: string;
+  repo: RepoBranchStatus;
+}) {
   const [loading, setLoading] = useState(false);
-  const [conflict, setConflict] = useState<{
-    files: string[];
-    op: ConflictOp | null;
-    targetBranch: string;
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const handleRebaseBack = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setConflict(null);
     try {
-      const result = await attemptsApi.rebaseBack(worktreeId, repoId);
+      const result = await attemptsApi.rebaseBack(worktreeId, repo.repo_id);
       if (result.error) {
         const err = result.error;
         if (err.type === 'merge_conflicts') {
-          setConflict({
-            files: [...err.conflicted_files],
-            op: err.op ?? null,
-            targetBranch: err.target_branch,
-          });
+          await showConflictResolutionDialog(worktreeId, repo, result);
         } else if (err.type === 'rebase_in_progress') {
           setError('Rebase is already in progress.');
         } else {
@@ -179,43 +238,20 @@ function RebaseBackButton({ worktreeId, repoId }: { worktreeId: string; repoId: 
     } finally {
       setLoading(false);
     }
-  }, [worktreeId, repoId, queryClient]);
-
-  const handleSendToAI = useCallback(() => {
-    // TODO: integrate with AI chat to send conflict info
-    setConflict(null);
-  }, []);
-
-  const handleAbort = useCallback(async () => {
-    // Abort the rebase operation
-    setConflict(null);
-    queryClient.invalidateQueries({ queryKey: ['branchStatus'] });
-  }, [queryClient]);
-
-  const handleOpenEditor = useCallback(() => {
-    // Placeholder for open-in-editor functionality
-  }, []);
+  }, [worktreeId, repo, queryClient]);
 
   return (
     <div className="flex flex-col items-start gap-1">
-      <Button variant="outline" size="sm" className="h-5 text-[10px] px-1.5" onClick={handleRebaseBack} disabled={loading}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-5 text-[10px] px-1.5"
+        onClick={handleRebaseBack}
+        disabled={loading}
+      >
         Rebase Back
       </Button>
       {error && <span className="text-[9px] text-destructive">{error}</span>}
-      {conflict && (
-        <ConflictBanner
-          attemptBranch={null}
-          baseBranch={conflict.targetBranch}
-          conflictedFiles={conflict.files}
-          op={conflict.op}
-          onOpenEditor={handleOpenEditor}
-          onAbort={handleAbort}
-          onResolve={handleSendToAI}
-          resolveLabel="发送给AI"
-          enableResolve={true}
-          enableAbort={true}
-        />
-      )}
     </div>
   );
 }

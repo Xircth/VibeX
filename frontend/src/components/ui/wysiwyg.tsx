@@ -31,6 +31,12 @@ import {
   SLASH_COMMAND_TRANSFORMER,
 } from './wysiwyg/nodes/slash-command-node';
 import {
+  ClickedElementNode,
+  CLICKED_ELEMENT_TRANSFORMER,
+  type ClickedElementData,
+} from './wysiwyg/nodes/clicked-element-node';
+import { ClickedElementInsertPlugin } from './wysiwyg/plugins/clicked-element-insert-plugin';
+import {
   TaskAttemptContext,
   TaskContext,
   LocalImagesContext,
@@ -100,6 +106,8 @@ type WysiwygProps = {
   onEdit?: () => void;
   /** Optional delete callback - shows delete button in read-only mode when provided */
   onDelete?: () => void;
+  /** Hide the default read-only action row */
+  hideReadOnlyActions?: boolean;
   /** Auto-focus the editor on mount */
   autoFocus?: boolean;
   /** Function to find a matching diff path for clickable inline code (only in read-only mode) */
@@ -110,6 +118,10 @@ type WysiwygProps = {
   showStaticToolbar?: boolean;
   /** Save status indicator for static toolbar */
   saveStatus?: 'idle' | 'saved';
+  /** Register a function that can insert clicked element chips into the editor */
+  onRegisterClickedElementInsert?: (
+    insertFn: (data: ClickedElementData) => void
+  ) => void;
 };
 
 /** Ref interface for WYSIWYGEditor, exposing imperative methods */
@@ -152,11 +164,13 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       localImages,
       onEdit,
       onDelete,
+      hideReadOnlyActions = false,
       autoFocus = false,
       findMatchingDiffPath,
       onCodeClick,
       showStaticToolbar = false,
       saveStatus,
+      onRegisterClickedElementInsert,
     }: WysiwygProps,
     ref: React.ForwardedRef<WYSIWYGEditorRef>
   ) {
@@ -237,6 +251,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           PrCommentNode,
           TagReferenceNode,
           SlashCommandNode,
+          ClickedElementNode,
           TableNode,
           TableRowNode,
           TableCellNode,
@@ -254,6 +269,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         PR_COMMENT_TRANSFORMER, // Import transformer for fenced code block
         TAG_REFERENCE_TRANSFORMER, // Export-only transformer for tag reference chips
         SLASH_COMMAND_TRANSFORMER, // Export-only transformer for slash command chips
+        CLICKED_ELEMENT_TRANSFORMER, // Export-only transformer for clicked element chips
         CODE,
         ...TRANSFORMERS,
       ],
@@ -366,6 +382,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     </TypeaheadOpenProvider>
                     <ImageKeyboardPlugin />
                     <CodeBlockShortcutPlugin />
+                    {onRegisterClickedElementInsert && (
+                      <ClickedElementInsertPlugin
+                        onRegisterInsert={onRegisterClickedElementInsert}
+                      />
+                    )}
                   </>
                 )}
                 {/* Link sanitization for read-only mode */}
@@ -389,46 +410,48 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       return (
         <div className="group">
           {editorContent}
-          <div className="flex justify-end gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-            {/* Copy button */}
-            <button
-              type="button"
-              aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
-              title={copied ? 'Copied!' : 'Copy as Markdown'}
-              onClick={handleCopy}
-              className="p-1 rounded hover:bg-white/10 transition-colors"
-            >
-              {copied ? (
-                <Check className="w-3.5 h-3.5 text-green-400" />
-              ) : (
-                <Clipboard className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+          {!hideReadOnlyActions && (
+            <div className="flex justify-end gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+              {/* Copy button */}
+              <button
+                type="button"
+                aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
+                title={copied ? 'Copied!' : 'Copy as Markdown'}
+                onClick={handleCopy}
+                className="p-1 rounded hover:bg-white/10 transition-colors"
+              >
+                {copied ? (
+                  <Check className="w-3.5 h-3.5 text-green-400" />
+                ) : (
+                  <Clipboard className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+                )}
+              </button>
+              {/* Edit button - only if onEdit provided */}
+              {onEdit && (
+                <button
+                  type="button"
+                  aria-label="Edit"
+                  title="Edit"
+                  onClick={onEdit}
+                  className="p-1 rounded hover:bg-white/10 transition-colors"
+                >
+                  <Pencil className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+                </button>
               )}
-            </button>
-            {/* Edit button - only if onEdit provided */}
-            {onEdit && (
-              <button
-                type="button"
-                aria-label="Edit"
-                title="Edit"
-                onClick={onEdit}
-                className="p-1 rounded hover:bg-white/10 transition-colors"
-              >
-                <Pencil className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
-              </button>
-            )}
-            {/* Delete button - only if onDelete provided */}
-            {onDelete && (
-              <button
-                type="button"
-                aria-label="Delete"
-                title="Delete"
-                onClick={onDelete}
-                className="p-1 rounded hover:bg-white/10 transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
-              </button>
-            )}
-          </div>
+              {/* Delete button - only if onDelete provided */}
+              {onDelete && (
+                <button
+                  type="button"
+                  aria-label="Delete"
+                  title="Delete"
+                  onClick={onDelete}
+                  className="p-1 rounded hover:bg-white/10 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       );
     }

@@ -2,19 +2,21 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigateWithSearch } from '@/hooks';
 import { tasksApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { taskRelationshipsKeys } from '@/hooks/useTaskRelationships';
 import type {
   CreateTask,
-  CreateAndStartTaskRequest,
   Task,
   TaskWithAttemptStatus,
   UpdateTask,
 } from 'shared/types';
 import { taskKeys } from './useTask';
+import type { CreateAndStartTaskPayload } from '@/lib/api/tasks';
 
 export function useTaskMutations(projectId?: string) {
   const queryClient = useQueryClient();
   const navigate = useNavigateWithSearch();
+  const setActiveTab = useLayoutStore((state) => state.setActiveTab);
 
   const invalidateQueries = (taskId?: string) => {
     queryClient.invalidateQueries({ queryKey: taskKeys.all });
@@ -36,6 +38,7 @@ export function useTaskMutations(projectId?: string) {
         });
       }
       if (projectId) {
+        setActiveTab('workspace');
         navigate(`${paths.task(projectId, createdTask.id)}/attempts/latest`);
       }
     },
@@ -45,8 +48,7 @@ export function useTaskMutations(projectId?: string) {
   });
 
   const createAndStart = useMutation({
-    mutationFn: (data: CreateAndStartTaskRequest) =>
-      tasksApi.createAndStart(data),
+    mutationFn: (data: CreateAndStartTaskPayload) => tasksApi.createAndStart(data),
     onSuccess: (createdTask: TaskWithAttemptStatus) => {
       invalidateQueries();
       // Invalidate parent's relationships cache if this is a subtask
@@ -58,6 +60,7 @@ export function useTaskMutations(projectId?: string) {
         });
       }
       if (projectId) {
+        setActiveTab('workspace');
         navigate(`${paths.task(projectId, createdTask.id)}/attempts/latest`);
       }
     },

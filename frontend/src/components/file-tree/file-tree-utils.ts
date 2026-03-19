@@ -95,13 +95,15 @@ export function buildTree(
     const labels = [start.name];
     let path = start.path;
 
-    while (true) {
+    let canCollapse = true;
+    while (canCollapse) {
       const children = Array.from(node.children.values());
       const hasDirectFile = children.some((child) => child.type === "file");
       const directFolders = children.filter((child) => child.type === "folder");
       const hasLazyLoadableChild = directFolders.some((child) => child.isLazyLoadable);
       if (node.isLazyLoadable || hasDirectFile || hasLazyLoadableChild || directFolders.length !== 1) {
-        break;
+        canCollapse = false;
+        continue;
       }
       const next = directFolders[0];
       labels.push(next.name);

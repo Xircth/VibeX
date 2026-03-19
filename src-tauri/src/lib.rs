@@ -51,6 +51,7 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
             events::start_event_forwarding(&app.handle().clone(), &state);
+            events::start_acp_terminal_forwarding(&app.handle().clone(), &state);
             app.manage(state);
             Ok(())
         })
@@ -133,6 +134,7 @@ pub fn run() {
             commands::sessions::get_session_summaries,
             commands::sessions::get_session,
             commands::sessions::create_session,
+            commands::sessions::delete_session,
             commands::sessions::follow_up,
             commands::sessions::reset_session_process,
             commands::sessions::start_review,
@@ -147,7 +149,12 @@ pub fn run() {
             commands::events::subscribe_projects_stream,
             commands::events::subscribe_scratch_stream,
             commands::events::subscribe_slash_commands_stream,
+            commands::scratch::create_scratch,
+            commands::scratch::get_scratch,
+            commands::scratch::update_scratch,
+            commands::scratch::delete_scratch,
             commands::terminal::create_terminal,
+            commands::terminal::attach_terminal,
             commands::terminal::write_terminal,
             commands::terminal::resize_terminal,
             commands::terminal::close_terminal,
@@ -159,6 +166,8 @@ pub fn run() {
             commands::repos::register_repo,
             commands::repos::get_recent_repos,
             commands::repos::init_repo,
+            commands::repos::check_git_repo_path,
+            commands::repos::init_repo_at_path,
             commands::repos::get_repos_batch,
             commands::repos::get_repo,
             commands::repos::update_repo,

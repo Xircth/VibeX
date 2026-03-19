@@ -40,10 +40,7 @@ pub async fn update_tag(
 }
 
 #[tauri::command]
-pub async fn delete_tag(
-    state: tauri::State<'_, AppState>,
-    tag_id: Uuid,
-) -> Result<(), AppError> {
+pub async fn delete_tag(state: tauri::State<'_, AppState>, tag_id: Uuid) -> Result<(), AppError> {
     let rows_affected = Tag::delete(&state.deployment.db().pool, tag_id).await?;
     if rows_affected == 0 {
         Err(AppError::NotFound(format!("Tag {} not found", tag_id)))

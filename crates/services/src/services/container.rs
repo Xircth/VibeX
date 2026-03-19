@@ -282,9 +282,11 @@ pub trait ContainerService {
             if let Ok(ctx) = ExecutionProcess::load_context(&self.db().pool, process.id).await
                 && let Some(ref container_ref) = ctx.workspace.container_ref
             {
-                let workspace_root = PathBuf::from(container_ref);
                 for repo in &ctx.repos {
-                    let repo_path = workspace_root.join(&repo.name);
+                    let repo_path = ctx
+                        .workspace
+                        .repo_path(repo)
+                        .unwrap_or_else(|| PathBuf::from(container_ref));
                     if let Ok(head) = self.git().get_head_info(&repo_path)
                         && let Err(err) = ExecutionProcessRepoState::update_after_head_commit(
                             &self.db().pool,
@@ -682,8 +684,9 @@ pub trait ContainerService {
                     .await?
                 }
             };
-
-            let worktree_path = workspace_dir.join(&repo.name);
+            let worktree_path = workspace
+                .repo_path(repo)
+                .unwrap_or_else(|| workspace_dir.clone());
             if let Some(oid) = target_oid {
                 self.git().reconcile_worktree_to_commit(
                     &worktree_path,
@@ -1234,7 +1237,9 @@ pub trait ContainerService {
 
         let mut repo_states = Vec::with_capacity(repositories.len());
         for repo in &repositories {
-            let repo_path = workspace_root.join(&repo.name);
+            let repo_path = workspace
+                .repo_path(repo)
+                .unwrap_or_else(|| workspace_root.clone());
             let before_head_commit = self.git().get_head_info(&repo_path).ok().map(|h| h.oid);
             repo_states.push(CreateExecutionProcessRepoState {
                 repo_id: repo.id,
@@ -1372,7 +1377,9 @@ pub trait ContainerService {
             }
             #[cfg(not(feature = "qa-mode"))]
             {
-                if let Some(executor) = ExecutorConfigs::get_cached().get_coding_agent(&executor_profile_id) {
+                if let Some(executor) =
+                    ExecutorConfigs::get_cached().get_coding_agent(&executor_profile_id)
+                {
                     executor.normalize_logs(msg_store, &working_dir);
                 } else {
                     tracing::error!(

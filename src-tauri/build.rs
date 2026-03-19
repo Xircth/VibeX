@@ -47,7 +47,11 @@ fn neutralize_codex_sandbox_resource() {
 #[cfg(windows)]
 fn generate_empty_static_library(out_dir: &Path) -> Option<PathBuf> {
     let source = out_dir.join("codex_windows_sandbox_empty_resource.c");
-    std::fs::write(&source, "void codex_windows_sandbox_empty_resource(void) {}\n").ok()?;
+    std::fs::write(
+        &source,
+        "void codex_windows_sandbox_empty_resource(void) {}\n",
+    )
+    .ok()?;
 
     cc::Build::new()
         .file(&source)
@@ -60,11 +64,7 @@ fn generate_empty_static_library(out_dir: &Path) -> Option<PathBuf> {
         out_dir.join("libcodex_windows_sandbox_empty_resource.a"),
     ];
 
-    for candidate in candidates {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-
-    None
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
 }

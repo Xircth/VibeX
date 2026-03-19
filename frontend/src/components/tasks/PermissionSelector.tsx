@@ -34,7 +34,10 @@ export function PermissionSelector({
   const availableModes = modes
     ? MODES.filter((mode) => modes.includes(mode.value))
     : MODES;
-  const current = availableModes.find((m) => m.value === value) ?? availableModes[0] ?? MODES[1];
+  const current =
+    availableModes.find((mode) => mode.value === value) ??
+    availableModes[0] ??
+    MODES[1];
   const Icon = current.icon;
 
   return (

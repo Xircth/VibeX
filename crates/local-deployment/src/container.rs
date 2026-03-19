@@ -79,6 +79,18 @@ pub struct LocalContainerService {
 }
 
 impl LocalContainerService {
+    fn workspace_repo_path(
+        workspace: &Workspace,
+        workspace_root: &Path,
+        repo_name: &str,
+    ) -> PathBuf {
+        if workspace.use_worktree {
+            workspace_root.join(repo_name)
+        } else {
+            workspace_root.to_path_buf()
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DBService,
@@ -166,6 +178,11 @@ impl LocalContainerService {
         };
         let workspace_dir = PathBuf::from(container_ref);
 
+        if !workspace.use_worktree {
+            let _ = Workspace::clear_container_ref(&db.pool, workspace.id).await;
+            return;
+        }
+
         let repositories = WorkspaceRepo::find_repos_for_workspace(&db.pool, workspace.id)
             .await
             .unwrap_or_default();
@@ -244,7 +261,8 @@ impl LocalContainerService {
         if let Ok(ctx) = ExecutionProcess::load_context(&self.db.pool, exec_id).await {
             let workspace_root = self.workspace_to_current_dir(&ctx.workspace);
             for repo in &ctx.repos {
-                let repo_path = workspace_root.join(&repo.name);
+                let repo_path =
+                    Self::workspace_repo_path(&ctx.workspace, &workspace_root, &repo.name);
                 if let Ok(head) = self.git().get_head_info(&repo_path) {
                     let _ = ExecutionProcessRepoState::update_after_head_commit(
                         &self.db.pool,
@@ -307,6 +325,7 @@ impl LocalContainerService {
     /// Check which repos have uncommitted changes. Fails if any repo is inaccessible.
     fn check_repos_for_changes(
         &self,
+        workspace: &Workspace,
         workspace_root: &Path,
         repos: &[Repo],
     ) -> Result<Vec<(Repo, PathBuf)>, ContainerError> {
@@ -314,7 +333,7 @@ impl LocalContainerService {
         let mut repos_with_changes = Vec::new();
 
         for repo in repos {
-            let worktree_path = workspace_root.join(&repo.name);
+            let worktree_path = Self::workspace_repo_path(workspace, workspace_root, &repo.name);
 
             match git.get_worktree_status(&worktree_path) {
                 Ok(ws) if !ws.entries.is_empty() => {
@@ -349,7 +368,7 @@ impl LocalContainerService {
         .await?;
 
         for repo in &ctx.repos {
-            let repo_path = workspace_root.join(&repo.name);
+            let repo_path = Self::workspace_repo_path(&ctx.workspace, &workspace_root, &repo.name);
             let current_head = self.git().get_head_info(&repo_path).ok().map(|h| h.oid);
 
             let before_head = repo_states
@@ -735,7 +754,7 @@ impl LocalContainerService {
             if let Some(copy_files) = &repo.copy_files
                 && !copy_files.trim().is_empty()
             {
-                let worktree_path = workspace_dir.join(&repo.name);
+                let worktree_path = Self::workspace_repo_path(workspace, workspace_dir, &repo.name);
                 self.copy_project_files(&repo.path, &worktree_path, copy_files)
                     .await
                     .unwrap_or_else(|e| {
@@ -769,7 +788,11 @@ impl LocalContainerService {
     async fn create_workspace_config_files(
         workspace_dir: &Path,
         repos: &[Repo],
+        use_worktree: bool,
     ) -> Result<(), ContainerError> {
+        if !use_worktree {
+            return Ok(());
+        }
         const CONFIG_FILES: [&str; 2] = ["CLAUDE.md", "AGENTS.md"];
 
         for config_file in CONFIG_FILES {
@@ -867,20 +890,20 @@ impl LocalContainerService {
             .cloned();
 
         let action_type = if let Some(info) = latest_session_info {
-                ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-                    prompt: queued_data.message.clone(),
-                    session_id: info.session_id,
-                    reset_to_message_id: None,
-                    executor_config: executor_config.clone(),
-                    working_dir: working_dir.clone(),
-                })
-            } else {
-                ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                    prompt: queued_data.message.clone(),
-                    executor_config: executor_config.clone(),
-                    working_dir,
-                })
-            };
+            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
+                prompt: queued_data.message.clone(),
+                session_id: info.session_id,
+                reset_to_message_id: None,
+                executor_config: executor_config.clone(),
+                working_dir: working_dir.clone(),
+            })
+        } else {
+            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
+                prompt: queued_data.message.clone(),
+                executor_config: executor_config.clone(),
+                working_dir,
+            })
+        };
 
         let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
 
@@ -942,15 +965,6 @@ impl ContainerService for LocalContainerService {
     }
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError> {
-        let task = workspace
-            .parent_task(&self.db.pool)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
-
-        let workspace_dir_name =
-            LocalContainerService::dir_name_from_workspace(&workspace.id, &task.title);
-        let workspace_dir = WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name);
-
         let workspace_repos =
             WorkspaceRepo::find_by_workspace_id(&self.db.pool, workspace.id).await?;
         if workspace_repos.is_empty() {
@@ -961,6 +975,34 @@ impl ContainerService for LocalContainerService {
 
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
+
+        if !workspace.use_worktree {
+            let repo = repositories.first().ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Opening without a worktree requires one repository"
+                ))
+            })?;
+            let container_ref = workspace
+                .container_ref
+                .clone()
+                .unwrap_or_else(|| repo.path.to_string_lossy().to_string());
+            if workspace.container_ref.is_none() {
+                Workspace::update_container_ref(&self.db.pool, workspace.id, &container_ref)
+                    .await?;
+            }
+            self.copy_files_and_images(Path::new(&container_ref), workspace)
+                .await?;
+            return Ok(container_ref);
+        }
+
+        let task = workspace
+            .parent_task(&self.db.pool)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+
+        let workspace_dir_name =
+            LocalContainerService::dir_name_from_workspace(&workspace.id, &task.title);
+        let workspace_dir = WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name);
 
         let target_branches: HashMap<_, _> = workspace_repos
             .iter()
@@ -986,8 +1028,12 @@ impl ContainerService for LocalContainerService {
         self.copy_files_and_images(&created_workspace.workspace_dir, workspace)
             .await?;
 
-        Self::create_workspace_config_files(&created_workspace.workspace_dir, &repositories)
-            .await?;
+        Self::create_workspace_config_files(
+            &created_workspace.workspace_dir,
+            &repositories,
+            workspace.use_worktree,
+        )
+        .await?;
 
         Workspace::update_container_ref(
             &self.db.pool,
@@ -1022,6 +1068,37 @@ impl ContainerService for LocalContainerService {
             )));
         }
 
+        if !workspace.use_worktree {
+            let repo = repositories.first().ok_or_else(|| {
+                ContainerError::Other(anyhow!(
+                    "Opening without a worktree requires one repository"
+                ))
+            })?;
+            let workspace_dir = workspace
+                .container_ref
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| repo.path.clone());
+            if !workspace_dir.exists() {
+                return Err(ContainerError::Other(anyhow!(
+                    "Repository path does not exist: {}",
+                    workspace_dir.display()
+                )));
+            }
+            if workspace.container_ref.is_none() {
+                Workspace::update_container_ref(
+                    &self.db.pool,
+                    workspace.id,
+                    &workspace_dir.to_string_lossy(),
+                )
+                .await?;
+            }
+
+            self.copy_files_and_images(&workspace_dir, workspace)
+                .await?;
+            return Ok(workspace_dir.to_string_lossy().to_string());
+        }
+
         let workspace_dir = if let Some(container_ref) = &workspace.container_ref {
             PathBuf::from(container_ref)
         } else {
@@ -1050,7 +1127,8 @@ impl ContainerService for LocalContainerService {
         self.copy_files_and_images(&workspace_dir, workspace)
             .await?;
 
-        Self::create_workspace_config_files(&workspace_dir, &repositories).await?;
+        Self::create_workspace_config_files(&workspace_dir, &repositories, workspace.use_worktree)
+            .await?;
 
         Ok(workspace_dir.to_string_lossy().to_string())
     }
@@ -1069,7 +1147,7 @@ impl ContainerService for LocalContainerService {
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
 
         for repo in &repositories {
-            let worktree_path = workspace_dir.join(&repo.name);
+            let worktree_path = Self::workspace_repo_path(workspace, &workspace_dir, &repo.name);
             if worktree_path.exists() && !self.git().is_worktree_clean(&worktree_path)? {
                 return Ok(false);
             }
@@ -1093,20 +1171,19 @@ impl ContainerService for LocalContainerService {
             )))?;
         let current_dir = PathBuf::from(container_ref);
 
-        let approvals_service: Arc<dyn ExecutorApprovalService> =
-            match executor_action.base_executor() {
-                Some(
-                    BaseCodingAgent::Codex
-                    | BaseCodingAgent::ClaudeCode
-                    | BaseCodingAgent::Opencode,
-                ) => ExecutorApprovalBridge::new(
-                    self.approvals.clone(),
-                    self.db.clone(),
-                    self.notification_service.clone(),
-                    execution_process.id,
-                ),
-                _ => Arc::new(NoopExecutorApprovalService {}),
-            };
+        let approvals_service: Arc<dyn ExecutorApprovalService> = match executor_action
+            .base_executor()
+        {
+            Some(
+                BaseCodingAgent::Codex | BaseCodingAgent::ClaudeCode | BaseCodingAgent::Opencode,
+            ) => ExecutorApprovalBridge::new(
+                self.approvals.clone(),
+                self.db.clone(),
+                self.notification_service.clone(),
+                execution_process.id,
+            ),
+            _ => Arc::new(NoopExecutorApprovalService {}),
+        };
 
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
         let repo_names: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
@@ -1193,7 +1270,7 @@ impl ContainerService for LocalContainerService {
             completion_status,
             exit_code,
         )
-            .await?;
+        .await?;
 
         let child = self.get_child_from_store(&execution_process.id).await;
 
@@ -1215,7 +1292,8 @@ impl ContainerService for LocalContainerService {
                 let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
             }
 
-            if let Ok(ctx) = ExecutionProcess::load_context(&self.db.pool, execution_process.id).await
+            if let Ok(ctx) =
+                ExecutionProcess::load_context(&self.db.pool, execution_process.id).await
                 && !matches!(
                     ctx.execution_process.run_reason,
                     ExecutionProcessRunReason::DevServer
@@ -1319,7 +1397,7 @@ impl ContainerService for LocalContainerService {
         let workspace_root = PathBuf::from(container_ref);
 
         for repo in repositories {
-            let worktree_path = workspace_root.join(&repo.name);
+            let worktree_path = Self::workspace_repo_path(workspace, &workspace_root, &repo.name);
             let branch = &workspace.branch;
 
             let Some(target_branch) = target_branches.get(&repo.id) else {
@@ -1389,7 +1467,8 @@ impl ContainerService for LocalContainerService {
             .ok_or_else(|| ContainerError::Other(anyhow!("Container reference not found")))?;
         let workspace_root = PathBuf::from(container_ref);
 
-        let repos_with_changes = self.check_repos_for_changes(&workspace_root, &ctx.repos)?;
+        let repos_with_changes =
+            self.check_repos_for_changes(&ctx.workspace, &workspace_root, &ctx.repos)?;
         if repos_with_changes.is_empty() {
             tracing::debug!("No changes to commit in any repository");
             return Ok(false);

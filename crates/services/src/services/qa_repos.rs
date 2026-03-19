@@ -4,6 +4,7 @@
 //! to a persistent temp directory and returned as the only "recent" repos.
 
 use std::{path::PathBuf, process::Command, sync::LazyLock};
+
 use tracing::{info, warn};
 
 use super::filesystem::{DirectoryEntry, FilesystemError};

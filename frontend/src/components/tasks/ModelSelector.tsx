@@ -10,9 +10,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
-/** Available model choices mapped to ~/.claude/settings.json env keys */
 const MODEL_CHOICES = [
-  { key: 'default', label: 'Default', envKey: 'ANTHROPIC_MODEL' },
+  { key: 'default', label: '默认', envKey: 'ANTHROPIC_MODEL' },
   { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
   { key: 'sonnet', label: 'Sonnet', envKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL' },
   { key: 'opus', label: 'Opus', envKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
@@ -27,20 +26,17 @@ interface ModelSelectorProps {
   className?: string;
 }
 
-/**
- * Model selector for Claude Code.
- * Reads model configuration from ~/.claude/settings.json env fields:
- * - ANTHROPIC_MODEL (current default model)
- * - ANTHROPIC_DEFAULT_HAIKU_MODEL
- * - ANTHROPIC_DEFAULT_SONNET_MODEL
- * - ANTHROPIC_DEFAULT_OPUS_MODEL
- */
-function ModelSelectorInner({ value, onChange, disabled, className }: ModelSelectorProps) {
+function ModelSelectorInner({
+  value,
+  onChange,
+  disabled,
+  className,
+}: ModelSelectorProps) {
   const { settings } = useClaudeSettings();
   const env = settings?.env ?? {};
 
   const currentLabel =
-    MODEL_CHOICES.find((m) => m.key === value)?.label ?? 'Default';
+    MODEL_CHOICES.find((model) => model.key === value)?.label ?? '默认';
 
   return (
     <DropdownMenu>

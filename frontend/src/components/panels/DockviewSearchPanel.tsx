@@ -167,10 +167,10 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
     <div className="h-full w-full flex flex-col overflow-hidden bg-background" data-panel="search">
       {/* Search input bar */}
       <div className="shrink-0 px-2 pt-2 pb-1 border-b border-border">
-        <div className="flex items-center gap-1 bg-input rounded px-2 py-1">
+        <div className="flex min-w-0 items-center gap-1 overflow-hidden bg-input rounded px-2 py-1">
           <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <input
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
+            className="flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
             type="search"
             placeholder="搜索文件内容..."
             value={query}
@@ -178,6 +178,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
             disabled={!rootPath}
             autoFocus
           />
+          <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
@@ -226,6 +227,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
           >
             ...
           </button>
+        </div>
         </div>
 
         {/* Include/Exclude patterns */}

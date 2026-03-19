@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use ts_rs::TS;
-use workspace_utils::shell::get_shell_command;
+use workspace_utils::{process::group_spawn_no_window, shell::get_shell_command};
 
 use crate::{
     actions::Executable,
@@ -12,7 +12,6 @@ use crate::{
     env::ExecutionEnv,
     executors::{ExecutorError, SpawnedChild},
 };
-use workspace_utils::process::group_spawn_no_window;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub enum ScriptRequestLanguage {

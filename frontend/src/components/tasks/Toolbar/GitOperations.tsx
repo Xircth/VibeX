@@ -26,9 +26,12 @@ import type {
 import { ChangeTargetBranchDialog } from '@/components/dialogs/tasks/ChangeTargetBranchDialog';
 import RepoSelector from '@/components/tasks/RepoSelector';
 import { RebaseDialog } from '@/components/dialogs/tasks/RebaseDialog';
-import { CreatePRDialog } from '@/components/dialogs/tasks/CreatePRDialog';import { useAttemptRepo } from '@/hooks/useAttemptRepo';
+import { CreatePRDialog } from '@/components/dialogs/tasks/CreatePRDialog';
+import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConflictResolutionDialog';
+import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useGitOperations } from '@/hooks/useGitOperations';
 import { useRepoBranches } from '@/hooks';
+import type { RebaseResult } from '@/lib/api';
 
 interface GitOperationsProps {
   selectedAttempt: Workspace;
@@ -105,6 +108,32 @@ function GitOperations({
   const selectedRepoStatus = useMemo(
     () => getSelectedRepoStatus(),
     [getSelectedRepoStatus]
+  );
+  const showConflictResolutionDialog = useCallback(
+    async (result: RebaseResult) => {
+      const error = result.error;
+      if (error?.type !== 'merge_conflicts') {
+        return false;
+      }
+
+      await GitConflictResolutionDialog.show({
+        workspaceId: selectedAttempt.id,
+        sourceBranch: selectedAttempt.branch,
+        targetBranch:
+          error.target_branch ?? selectedRepoStatus?.target_branch_name ?? 'target branch',
+        conflictedFiles: [...error.conflicted_files],
+        op: error.op ?? null,
+        repoName: selectedRepoStatus?.repo_name,
+      });
+
+      return true;
+    },
+    [
+      selectedAttempt.id,
+      selectedAttempt.branch,
+      selectedRepoStatus?.repo_name,
+      selectedRepoStatus?.target_branch_name,
+    ]
   );
 
   const hasConflictsCalculated =
@@ -221,8 +250,8 @@ function GitOperations({
         oldBaseBranch: selectedUpstream,
       });
       triggerRebaseSuccess();
-    } catch {
-      // Error is already handled by useGitOperations context
+    } catch (error) {
+      await showConflictResolutionDialog(error as RebaseResult);
     } finally {
       setRebasing(false);
     }
@@ -259,8 +288,8 @@ function GitOperations({
       if (!repoId) return;
       await git.actions.rebaseBack({ repoId });
       triggerRebaseBackSuccess();
-    } catch {
-      // Error is already handled by useGitOperations context
+    } catch (error) {
+      await showConflictResolutionDialog(error as RebaseResult);
     } finally {
       setRebasingBack(false);
     }

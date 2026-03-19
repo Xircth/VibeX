@@ -9,7 +9,7 @@
  * ========================================= */
 
 .conv-tool-card {
-  border: 1.5px solid var(--conv-border-subtle) !important;
+  border: 1px solid var(--conv-border-subtle) !important;
   border-radius: 10px !important;
   background: var(--conv-surface-control) !important;
   transition: background 0.15s, border-color 0.15s;
@@ -84,7 +84,7 @@
 
 /* Tool expanded details panel */
 .conv-tool-details {
-  border: 1.5px solid var(--conv-border-subtle);
+  border: 1px solid var(--conv-border-subtle);
   border-top: none;
   border-radius: 0 0 10px 10px;
   background: var(--conv-surface-card);

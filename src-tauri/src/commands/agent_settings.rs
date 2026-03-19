@@ -102,16 +102,15 @@ pub async fn agent_preflight(
     };
 
     // Check 1: CLI installed
-    let which_result =
-        tokio::task::spawn_blocking({
-            let cmd = cli_cmd.to_string();
-            move || which::which(cmd)
-        })
-        .await
-        .ok()
-        .and_then(|r| r.ok());
+    let which_result = tokio::task::spawn_blocking({
+        let cmd = cli_cmd.to_string();
+        move || which::which(cmd)
+    })
+    .await
+    .ok()
+    .and_then(|r| r.ok());
 
-    match &which_result {
+    let executable = match which_result {
         Some(path) => {
             checks.push(PreflightCheck {
                 check_id: "cli_installed".to_string(),
@@ -120,6 +119,7 @@ pub async fn agent_preflight(
                 message: format!("Found at {}", path.display()),
                 fixes: vec![],
             });
+            path
         }
         None => {
             let install_hint = match agent_type.as_str() {
@@ -140,21 +140,16 @@ pub async fn agent_preflight(
             });
             return Ok(PreflightResult { checks });
         }
-    }
+    };
 
     // Check 2: version detection
-    let mut ver_cmd = tokio::process::Command::new(cli_cmd);
-    utils::process::configure_tokio_command_no_window(&mut ver_cmd);
-    let version_output = ver_cmd
-        .arg("--version")
-        .output()
-        .await;
+    let mut ver_cmd =
+        utils::process::new_hidden_tokio_command(&executable, &["--version".to_string()]);
+    let version_output = ver_cmd.output().await;
 
     match version_output {
         Ok(output) if output.status.success() => {
-            let version_str = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .to_string();
+            let version_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
             // Try to update the stored version in DB
             let pool = &state.deployment.db().pool;
             let _ = AgentSetting::update_version(pool, &agent_type, Some(&version_str)).await;
@@ -168,9 +163,7 @@ pub async fn agent_preflight(
             });
         }
         Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr)
-                .trim()
-                .to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             checks.push(PreflightCheck {
                 check_id: "cli_version".to_string(),
                 label: "Version".to_string(),
@@ -213,17 +206,19 @@ pub async fn detect_agent_local_version(
     .ok()
     .and_then(|r| r.ok());
 
-    if which_result.is_none() {
-        // Update DB to clear version
-        let pool = &state.deployment.db().pool;
-        let _ = AgentSetting::update_version(pool, &agent_type, None).await;
-        return Ok(None);
-    }
+    let executable = match which_result {
+        Some(path) => path,
+        None => {
+            // Update DB to clear version
+            let pool = &state.deployment.db().pool;
+            let _ = AgentSetting::update_version(pool, &agent_type, None).await;
+            return Ok(None);
+        }
+    };
 
-    let mut ver_cmd = tokio::process::Command::new(cli_cmd);
-    utils::process::configure_tokio_command_no_window(&mut ver_cmd);
+    let mut ver_cmd =
+        utils::process::new_hidden_tokio_command(&executable, &["--version".to_string()]);
     let output = ver_cmd
-        .arg("--version")
         .output()
         .await
         .map_err(|e| AppError::Internal(format!("Failed to run {} --version: {}", cli_cmd, e)))?;

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useLayoutStore, PANEL_IDS, GROUP_IDS } from './useLayoutStore';
+import {
+  useLayoutStore,
+  PANEL_IDS,
+  GROUP_IDS,
+  EDITOR_GROUP_PREFIX,
+  MAX_EDITOR_GROUPS,
+} from './useLayoutStore';
 
 describe('useLayoutStore', () => {
   beforeEach(() => {
@@ -108,7 +114,7 @@ describe('useLayoutStore', () => {
       expect(reset.isFileTreeVisible).toBe(true);
       expect(reset.rightPanelWidth).toBe(420);
       expect(reset.isRightPanelVisible).toBe(true);
-      expect(reset.activeTab).toBe('kanban');
+      expect(reset.activeTab).toBe('workspace');
       expect(reset.serializedLayout).toBeNull();
     });
   });
@@ -125,8 +131,11 @@ describe('constants', () => {
 
   it('should export correct GROUP_IDS', () => {
     expect(GROUP_IDS.LEFT).toBe('group-left');
-    expect(GROUP_IDS.CENTER_1).toBe('group-center-1');
-    expect(GROUP_IDS.CENTER_2).toBe('group-center-2');
     expect(GROUP_IDS.BOTTOM).toBe('group-bottom');
+  });
+
+  it('should export editor group settings', () => {
+    expect(EDITOR_GROUP_PREFIX).toBe('group-editor-');
+    expect(MAX_EDITOR_GROUPS).toBe(4);
   });
 });

@@ -9,7 +9,6 @@ import {
 } from '@/components/tasks/CodexModelSelector';
 import { ModelSelector, type ModelKey } from '@/components/tasks/ModelSelector';
 import { PermissionSelector, type PermissionMode } from '@/components/tasks/PermissionSelector';
-import { PluginSelector } from '@/components/tasks/PluginSelector';
 import {
   getDefaultVariantForExecutor,
   getDefaultProfileForExecutor,
@@ -196,7 +195,6 @@ export function TerminalProfileControls({
     useState<PermissionMode>(initialClaudeUiState.permissionMode);
   const [selectedModelKey, setSelectedModelKey] =
     useState<ModelKey>(initialClaudeUiState.modelKey);
-  const [selectedPlugin, setSelectedPlugin] = useState<string | null>(null);
   const [codexPermissionMode, setCodexPermissionMode] = useState<
     Extract<PermissionMode, 'auto' | 'ask'>
   >('auto');
@@ -218,7 +216,10 @@ export function TerminalProfileControls({
   useEffect(() => {
     if (!isCodex) return;
 
-    const codexConfig = getCodexVariantConfig(profiles, selectedProfile?.variant ?? null);
+    const codexConfig = getCodexVariantConfig(
+      profiles,
+      selectedProfile?.variant ?? null
+    );
     setCodexPermissionMode(codexConfig.permissionMode);
     setSelectedCodexModel(codexConfig.model);
   }, [isCodex, profiles, selectedProfile?.variant]);
@@ -277,7 +278,8 @@ export function TerminalProfileControls({
     });
   };
 
-  const contentClassName = className || 'flex items-center gap-1 flex-1 min-w-0';
+  const contentClassName =
+    className || 'flex flex-wrap items-center gap-2 flex-1 min-w-0';
 
   return (
     <div className={contentClassName}>
@@ -301,6 +303,7 @@ export function TerminalProfileControls({
               handleClaudeControlChange(mode, selectedModelKey);
             }}
             disabled={disabled}
+            className="shrink-0"
           />
           <ModelSelector
             value={selectedModelKey}
@@ -309,11 +312,7 @@ export function TerminalProfileControls({
               handleClaudeControlChange(permissionMode, modelKey);
             }}
             disabled={disabled}
-          />
-          <PluginSelector
-            value={selectedPlugin}
-            onChange={setSelectedPlugin}
-            disabled={disabled}
+            className="max-w-full shrink-0"
           />
         </>
       ) : isCodex ? (
@@ -327,6 +326,7 @@ export function TerminalProfileControls({
             }}
             modes={['auto', 'ask']}
             disabled={disabled}
+            className="shrink-0"
           />
           <CodexModelSelector
             value={selectedCodexModel}
@@ -336,6 +336,7 @@ export function TerminalProfileControls({
               handleCodexControlChange(codexPermissionMode, model);
             }}
             disabled={disabled}
+            className="max-w-full shrink-0"
           />
         </>
       ) : (

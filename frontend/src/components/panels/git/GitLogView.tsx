@@ -46,19 +46,6 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleDateString();
 }
 
-/** Generate a stable color for a string (author name) */
-function stringToColor(str: string): string {
-  const colors = [
-    'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
-    'bg-pink-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500',
-  ];
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
-}
-
 /** Color for ref badge based on ref type */
 function getRefBadgeStyle(ref: string): string {
   if (ref.startsWith('origin/') || ref.startsWith('upstream/')) {
@@ -67,7 +54,7 @@ function getRefBadgeStyle(ref: string): string {
   if (ref.startsWith('tag:') || ref.startsWith('v')) {
     return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
   }
-  return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+  return 'bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30';
 }
 
 interface ContextMenuState {
@@ -100,13 +87,11 @@ const LogEntry = memo(function LogEntry({
   );
 
   const initial = entry.author.charAt(0).toUpperCase();
-  const avatarColor = stringToColor(entry.author);
-
   return (
     <div
       className={`flex items-start gap-2.5 px-2.5 py-2 text-xs group cursor-pointer transition-colors border-l-2 ${
         isSelected
-          ? 'bg-accent/50 border-l-blue-500'
+          ? 'bg-accent/50 border-l-[#3B82F6]'
           : isHead
             ? 'bg-accent/20 border-l-green-500'
             : isPushable
@@ -117,17 +102,26 @@ const LogEntry = memo(function LogEntry({
       onContextMenu={(e) => onContextMenu(e, entry)}
     >
       {/* Author avatar */}
-      <div
-        className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${avatarColor}`}
-        title={entry.author}
-      >
-        {initial}
+      <div className="shrink-0 self-stretch py-[1.5px] flex flex-col items-center justify-center gap-0.5">
+        <span className="w-px flex-1 min-h-0 bg-[#3B82F6]/60 rounded-full" />
+        <div
+          className="w-[14.4px] h-[14.4px] rounded-full flex items-center justify-center text-[8px] font-bold text-white bg-[#3B82F6]"
+          title={entry.author}
+        >
+          {initial}
+        </div>
+        <span className="w-px flex-1 min-h-0 bg-[#3B82F6]/60 rounded-full" />
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
         {/* Summary */}
-        <span className="text-foreground leading-tight break-all">{entry.summary}</span>
+        <span
+          className="text-foreground leading-tight break-all line-clamp-2"
+          title={entry.summary}
+        >
+          {entry.summary}
+        </span>
 
         {/* Refs badges */}
         {entry.refs.length > 0 && (
@@ -149,17 +143,17 @@ const LogEntry = memo(function LogEntry({
         )}
 
         {/* Meta row */}
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+        <div className="flex items-center gap-2 text-[10px] mt-0.5">
           <button
-            className="font-mono hover:text-foreground transition-colors flex items-center gap-0.5"
+            className="font-mono text-[#3B82F6] hover:text-[#2563EB] transition-colors flex items-center gap-0.5"
             onClick={handleCopyClick}
             title="Copy full SHA"
           >
             {entry.sha.slice(0, 7)}
             <Copy className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
           </button>
-          <span className="truncate">{entry.author}</span>
-          <span className="shrink-0">{formatRelativeTime(entry.timestamp)}</span>
+          <span className="truncate text-[#3B82F6]">{entry.author}</span>
+          <span className="shrink-0 text-muted-foreground">{formatRelativeTime(entry.timestamp)}</span>
         </div>
       </div>
     </div>

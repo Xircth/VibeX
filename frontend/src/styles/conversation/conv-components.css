@@ -184,7 +184,7 @@
 
 .conv-feedback-card {
   background: var(--conv-surface-control);
-  border: 1.5px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 13px;
@@ -203,7 +203,7 @@
 
 .conv-system-card {
   background: var(--conv-surface-control);
-  border: 1.5px solid var(--conv-border-subtle);
+  border: 1px solid var(--conv-border-subtle);
   border-radius: 10px;
   padding: 8px 12px;
   cursor: pointer;
@@ -221,7 +221,7 @@
 
 .conv-error-card {
   background: var(--conv-surface-control);
-  border: 1.5px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   border-radius: 10px;
   padding: 8px 12px;
   cursor: pointer;
@@ -246,7 +246,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border: 1.5px solid var(--conv-border-subtle);
+  border: 1px solid var(--conv-border-subtle);
   border-radius: 10px;
   background: var(--conv-surface-control);
   font-size: 13px;

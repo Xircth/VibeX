@@ -1,6 +1,8 @@
-use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    path::{Component, Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use ignore::WalkBuilder;
 use regex::{Regex, RegexBuilder};
@@ -34,17 +36,13 @@ fn validate_path_within_sandbox(
     // Step 2: Canonicalize to resolve symlinks and get the real absolute path
     let canonical = if path.exists() {
         path.canonicalize().map_err(|e| {
-            AppError::Internal(format!(
-                "Failed to resolve path {}: {}",
-                path.display(),
-                e
-            ))
+            AppError::Internal(format!("Failed to resolve path {}: {}", path.display(), e))
         })?
     } else if let Some(parent) = path.parent() {
         if parent.exists() {
-            let canonical_parent = parent.canonicalize().map_err(|e| {
-                AppError::Internal(format!("Failed to resolve parent path: {}", e))
-            })?;
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|e| AppError::Internal(format!("Failed to resolve parent path: {}", e)))?;
             canonical_parent.join(path.file_name().unwrap_or_default())
         } else {
             return Err(AppError::BadRequest(format!(
@@ -114,14 +112,13 @@ fn sanitize_file_path(path: &str) -> Result<PathBuf, AppError> {
 
     // Canonicalize to resolve symlinks and normalize the path
     let canonical = if p.exists() {
-        p.canonicalize().map_err(|e| {
-            AppError::Internal(format!("Failed to resolve path {}: {}", path, e))
-        })?
+        p.canonicalize()
+            .map_err(|e| AppError::Internal(format!("Failed to resolve path {}: {}", path, e)))?
     } else if let Some(parent) = p.parent() {
         if parent.exists() {
-            let canonical_parent = parent.canonicalize().map_err(|e| {
-                AppError::Internal(format!("Failed to resolve parent path: {}", e))
-            })?;
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|e| AppError::Internal(format!("Failed to resolve parent path: {}", e)))?;
             canonical_parent.join(p.file_name().unwrap_or_default())
         } else {
             return Err(AppError::BadRequest(format!(
@@ -301,29 +298,28 @@ fn build_git_status_map(root: &Path) -> HashMap<PathBuf, String> {
 
     for entry in statuses.iter() {
         let status = entry.status();
-        let status_str = if status.contains(git2::Status::WT_NEW)
-            || status.contains(git2::Status::INDEX_NEW)
-        {
-            "added"
-        } else if status.contains(git2::Status::WT_MODIFIED)
-            || status.contains(git2::Status::INDEX_MODIFIED)
-        {
-            "modified"
-        } else if status.contains(git2::Status::WT_DELETED)
-            || status.contains(git2::Status::INDEX_DELETED)
-        {
-            "deleted"
-        } else if status.contains(git2::Status::WT_RENAMED)
-            || status.contains(git2::Status::INDEX_RENAMED)
-        {
-            "renamed"
-        } else if status.contains(git2::Status::CONFLICTED) {
-            "conflicted"
-        } else if status.contains(git2::Status::IGNORED) {
-            continue;
-        } else {
-            continue;
-        };
+        let status_str =
+            if status.contains(git2::Status::WT_NEW) || status.contains(git2::Status::INDEX_NEW) {
+                "added"
+            } else if status.contains(git2::Status::WT_MODIFIED)
+                || status.contains(git2::Status::INDEX_MODIFIED)
+            {
+                "modified"
+            } else if status.contains(git2::Status::WT_DELETED)
+                || status.contains(git2::Status::INDEX_DELETED)
+            {
+                "deleted"
+            } else if status.contains(git2::Status::WT_RENAMED)
+                || status.contains(git2::Status::INDEX_RENAMED)
+            {
+                "renamed"
+            } else if status.contains(git2::Status::CONFLICTED) {
+                "conflicted"
+            } else if status.contains(git2::Status::IGNORED) {
+                continue;
+            } else {
+                continue;
+            };
 
         if let Some(path_str) = entry.path() {
             let full_path = workdir.join(path_str);
@@ -348,15 +344,10 @@ fn build_tree(
     let mut entries = Vec::new();
 
     let read_dir = std::fs::read_dir(dir).map_err(|e| {
-        AppError::Internal(format!(
-            "Failed to read directory {}: {}",
-            dir.display(),
-            e
-        ))
+        AppError::Internal(format!("Failed to read directory {}: {}", dir.display(), e))
     })?;
 
-    let mut dir_entries: Vec<std::fs::DirEntry> =
-        read_dir.filter_map(|e| e.ok()).collect();
+    let mut dir_entries: Vec<std::fs::DirEntry> = read_dir.filter_map(|e| e.ok()).collect();
 
     dir_entries.sort_by(|a, b| {
         let a_is_dir = a.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
@@ -420,10 +411,7 @@ fn derive_dir_git_status(children: &[FileTreeEntry]) -> Option<String> {
 
 // ── Search helpers ──
 
-fn compile_search_regex(
-    query: &str,
-    options: &TextSearchOptions,
-) -> Result<Regex, String> {
+fn compile_search_regex(query: &str, options: &TextSearchOptions) -> Result<Regex, String> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return Err("Search query cannot be empty.".to_string());
@@ -450,7 +438,11 @@ fn compile_search_regex(
 }
 
 fn glob_to_regex(pattern: &str) -> Result<Regex, String> {
-    let normalized = pattern.replace('\\', "/").trim().trim_matches('/').to_string();
+    let normalized = pattern
+        .replace('\\', "/")
+        .trim()
+        .trim_matches('/')
+        .to_string();
     if normalized.is_empty() {
         return Err("Glob pattern cannot be empty.".to_string());
     }
@@ -474,7 +466,10 @@ fn glob_to_regex(pattern: &str) -> Result<Regex, String> {
             i += 1;
             continue;
         }
-        if matches!(c, '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\') {
+        if matches!(
+            c,
+            '.' | '+' | '(' | ')' | '|' | '^' | '$' | '{' | '}' | '[' | ']' | '\\'
+        ) {
             regex_src.push('\\');
         }
         regex_src.push(c);
@@ -604,9 +599,9 @@ pub async fn get_file_at_head(file_path: String) -> Result<String, AppError> {
     let repo = git2::Repository::discover(&path)
         .map_err(|e| AppError::Internal(format!("Failed to open git repo: {}", e)))?;
 
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| AppError::Internal("Bare repository has no working directory".to_string()))?;
+    let workdir = repo.workdir().ok_or_else(|| {
+        AppError::Internal("Bare repository has no working directory".to_string())
+    })?;
 
     let relative_path = path.strip_prefix(workdir).map_err(|_| {
         AppError::BadRequest(format!(
@@ -675,7 +670,10 @@ pub async fn list_directory_children(
     if !is_root_scan {
         let p = Path::new(trimmed);
         for comp in p.components() {
-            if matches!(comp, Component::ParentDir | Component::RootDir | Component::Prefix(_)) {
+            if matches!(
+                comp,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            ) {
                 return Err(AppError::BadRequest("Invalid path".to_string()));
             }
         }
@@ -858,9 +856,8 @@ fn scan_single_directory(
     let mut gitignored_files = Vec::new();
     let mut gitignored_directories = Vec::new();
 
-    let read_dir = std::fs::read_dir(target_dir).map_err(|e| {
-        AppError::Internal(format!("Failed to read directory: {}", e))
-    })?;
+    let read_dir = std::fs::read_dir(target_dir)
+        .map_err(|e| AppError::Internal(format!("Failed to read directory: {}", e)))?;
 
     let mut dir_entries: Vec<std::fs::DirEntry> = read_dir
         .filter_map(|e| {
@@ -950,9 +947,8 @@ pub async fn trash_item(path: String) -> Result<(), AppError> {
         return Err(AppError::NotFound(format!("Item not found: {}", path)));
     }
 
-    trash::delete(&item_path).map_err(|e| {
-        AppError::Internal(format!("Failed to move to trash {}: {}", path, e))
-    })
+    trash::delete(&item_path)
+        .map_err(|e| AppError::Internal(format!("Failed to move to trash {}: {}", path, e)))
 }
 
 /// Copy a file or directory, returning the new path.
@@ -963,9 +959,9 @@ pub async fn copy_item(path: String) -> Result<String, AppError> {
         return Err(AppError::NotFound(format!("Item not found: {}", path)));
     }
 
-    let parent = source.parent().ok_or_else(|| {
-        AppError::Internal("Cannot determine parent directory".to_string())
-    })?;
+    let parent = source
+        .parent()
+        .ok_or_else(|| AppError::Internal("Cannot determine parent directory".to_string()))?;
 
     let stem = source
         .file_stem()
@@ -1004,9 +1000,8 @@ pub async fn copy_item(path: String) -> Result<String, AppError> {
     if source.is_dir() {
         copy_dir_recursive(&source, &dest)?;
     } else {
-        std::fs::copy(&source, &dest).map_err(|e| {
-            AppError::Internal(format!("Failed to copy file: {}", e))
-        })?;
+        std::fs::copy(&source, &dest)
+            .map_err(|e| AppError::Internal(format!("Failed to copy file: {}", e)))?;
     }
 
     Ok(dest.to_string_lossy().to_string())
@@ -1014,7 +1009,11 @@ pub async fn copy_item(path: String) -> Result<String, AppError> {
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
     std::fs::create_dir_all(dst).map_err(|e| {
-        AppError::Internal(format!("Failed to create directory {}: {}", dst.display(), e))
+        AppError::Internal(format!(
+            "Failed to create directory {}: {}",
+            dst.display(),
+            e
+        ))
     })?;
 
     for entry in std::fs::read_dir(src).map_err(|e| {
@@ -1027,9 +1026,8 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
         if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            std::fs::copy(&src_path, &dst_path).map_err(|e| {
-                AppError::Internal(format!("Failed to copy: {}", e))
-            })?;
+            std::fs::copy(&src_path, &dst_path)
+                .map_err(|e| AppError::Internal(format!("Failed to copy: {}", e)))?;
         }
     }
     Ok(())
@@ -1039,9 +1037,8 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
 #[tauri::command]
 pub async fn create_directory(path: String) -> Result<(), AppError> {
     let dir_path = sanitize_file_path(&path)?;
-    std::fs::create_dir_all(&dir_path).map_err(|e| {
-        AppError::Internal(format!("Failed to create directory {}: {}", path, e))
-    })
+    std::fs::create_dir_all(&dir_path)
+        .map_err(|e| AppError::Internal(format!("Failed to create directory {}: {}", path, e)))
 }
 
 /// Search workspace text content.
@@ -1058,12 +1055,11 @@ pub async fn search_workspace_text(
         )));
     }
 
-    let regex = compile_search_regex(&options.query, &options)
-        .map_err(AppError::BadRequest)?;
-    let include_patterns = compile_globs(options.include_pattern.as_deref())
-        .map_err(AppError::BadRequest)?;
-    let exclude_patterns = compile_globs(options.exclude_pattern.as_deref())
-        .map_err(AppError::BadRequest)?;
+    let regex = compile_search_regex(&options.query, &options).map_err(AppError::BadRequest)?;
+    let include_patterns =
+        compile_globs(options.include_pattern.as_deref()).map_err(AppError::BadRequest)?;
+    let exclude_patterns =
+        compile_globs(options.exclude_pattern.as_deref()).map_err(AppError::BadRequest)?;
 
     let root_for_filter = root.clone();
     let walker = WalkBuilder::new(&root)
@@ -1084,7 +1080,9 @@ pub async fn search_workspace_text(
                 }
                 if let Ok(rel) = entry.path().strip_prefix(&root_for_filter) {
                     let normalized = normalize_path(&rel.to_string_lossy());
-                    if !normalized.is_empty() && is_special_dir(normalized.rsplit('/').next().unwrap_or("")) {
+                    if !normalized.is_empty()
+                        && is_special_dir(normalized.rsplit('/').next().unwrap_or(""))
+                    {
                         return false;
                     }
                 }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal as TerminalIcon, ScrollText, X } from 'lucide-react';
 import { useTauriTerminal } from '@/hooks/useTauriTerminal';
+import { usePreviewSettings } from '@/hooks/usePreviewSettings';
+import { detectDevserverUrl } from '@/hooks/useDevserverUrl';
 import {
   useTerminalStore,
   generateTerminalTabId,
@@ -9,32 +11,30 @@ import {
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useLogStream } from '@/hooks/useLogStream';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { tauriInvoke } from '@/lib/tauri-api';
 import {
   getDefaultTerminalShell,
   getTerminalWorkspaceKey,
 } from '@/lib/terminalPreferences';
 
-/**
- * DockviewTerminalPanel - Dockview wrapper integrating xterm.js with Tauri PTY.
- *
- * This panel:
- * - Reads the active worktree from WorktreeContext
- * - Manages multiple terminal tabs per workspace
- * - Each tab connects to a dedicated Tauri PTY session
- * - Uses xterm.js for terminal rendering with FitAddon for auto-sizing
- */
 function DockviewTerminalPanel() {
   const { activeWorktreeId } = useWorktree();
   const { config } = useUserSystem();
-  // Only use actual workspace IDs for terminal PTY – projectId is not a valid workspace
+  const { openOrFocusPanel } = usePanelActionsContext();
   const workspaceId = getTerminalWorkspaceKey(activeWorktreeId) || undefined;
   const defaultShell = getDefaultTerminalShell(config);
+  const { setOverrideUrl } = usePreviewSettings(workspaceId);
 
-  const sessionsByWorkspace = useTerminalStore((s) => s.sessionsByWorkspace);
-  const activeTabByWorkspace = useTerminalStore((s) => s.activeTabByWorkspace);
-  const addSession = useTerminalStore((s) => s.addSession);
-  const removeSession = useTerminalStore((s) => s.removeSession);
-  const setActiveTab = useTerminalStore((s) => s.setActiveTab);
+  const sessionsByWorkspace = useTerminalStore((state) => state.sessionsByWorkspace);
+  const activeTabByWorkspace = useTerminalStore(
+    (state) => state.activeTabByWorkspace
+  );
+  const addSession = useTerminalStore((state) => state.addSession);
+  const removeSession = useTerminalStore((state) => state.removeSession);
+  const setActiveTab = useTerminalStore((state) => state.setActiveTab);
+  const setSessionId = useTerminalStore((state) => state.setSessionId);
 
   const sessions = useMemo(
     () => (workspaceId ? sessionsByWorkspace[workspaceId] || [] : []),
@@ -45,7 +45,15 @@ function DockviewTerminalPanel() {
     ? activeTabByWorkspace[workspaceId] ?? null
     : null;
 
-  // Auto-create a terminal tab if workspace exists but no tabs yet
+  const openPreviewUrl = useCallback(
+    (url: string) => {
+      const normalizedUrl = detectDevserverUrl(url)?.url ?? url;
+      setOverrideUrl(normalizedUrl);
+      openOrFocusPanel(PANEL_IDS.DEV_PREVIEW, 'Dev Preview');
+    },
+    [openOrFocusPanel, setOverrideUrl]
+  );
+
   const [autoCreated, setAutoCreated] = useState<string | null>(null);
   useEffect(() => {
     setAutoCreated(null);
@@ -59,21 +67,29 @@ function DockviewTerminalPanel() {
     const tabId = generateTerminalTabId();
     addSession(workspaceId, tabId, defaultShell || undefined);
     setAutoCreated(workspaceId);
-  }, [
-    workspaceId,
-    sessions.length,
-    autoCreated,
-    addSession,
-    defaultShell,
-  ]);
+  }, [workspaceId, sessions.length, autoCreated, addSession, defaultShell]);
 
   const handleCloseTab = useCallback(
-    (e: React.MouseEvent, tabId: string) => {
-      e.stopPropagation();
+    async (event: React.MouseEvent, tabId: string) => {
+      event.stopPropagation();
       if (!workspaceId) return;
+
+      const session = sessions.find((item) => item.tabId === tabId);
+      if (
+        session?.type === 'pty' &&
+        session.sessionId &&
+        session.source !== 'acp'
+      ) {
+        try {
+          await tauriInvoke('close_terminal', { sessionId: session.sessionId });
+        } catch (error) {
+          console.error('Failed to close terminal session:', error);
+        }
+      }
+
       removeSession(workspaceId, tabId);
     },
-    [workspaceId, removeSession]
+    [workspaceId, sessions, removeSession]
   );
 
   const handleSelectTab = useCallback(
@@ -84,7 +100,6 @@ function DockviewTerminalPanel() {
     [workspaceId, setActiveTab]
   );
 
-  // Show placeholder when no workspace is selected
   if (!workspaceId) {
     return (
       <div
@@ -93,8 +108,8 @@ function DockviewTerminalPanel() {
       >
         <TerminalIcon className="h-8 w-8 opacity-40" />
         <div className="text-center space-y-1">
-          <p className="font-medium">终端</p>
-          <p className="text-xs">选择一个工作区以打开终端</p>
+          <p className="font-medium">Terminal</p>
+          <p className="text-xs">Select a workspace to open the terminal.</p>
         </div>
       </div>
     );
@@ -105,7 +120,6 @@ function DockviewTerminalPanel() {
       className="h-full w-full min-h-0 overflow-hidden flex bg-console"
       data-panel="terminal"
     >
-      {/* Terminal content area — takes remaining space */}
       <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
         {sessions.map((session) =>
           session.type === 'log-viewer' ? (
@@ -113,20 +127,24 @@ function DockviewTerminalPanel() {
               key={session.tabId}
               session={session}
               isActive={activeTabId === session.tabId}
+              onOpenUrl={openPreviewUrl}
             />
           ) : (
             <TerminalTabContent
               key={session.tabId}
               workspaceId={workspaceId}
               tabId={session.tabId}
+              sessionId={session.sessionId}
               isActive={activeTabId === session.tabId}
               shell={session.shell}
+              readOnly={session.readOnly}
+              onSessionId={setSessionId}
+              onOpenUrl={openPreviewUrl}
             />
           )
         )}
       </div>
 
-      {/* Vertical tab bar on the right */}
       <div className="shrink-0 w-24 min-h-0 bg-secondary border-l border-border overflow-hidden">
         <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-0">
           {sessions.map((session) => (
@@ -148,11 +166,11 @@ function DockviewTerminalPanel() {
               <span
                 role="button"
                 tabIndex={0}
-                onClick={(e) => handleCloseTab(e, session.tabId)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    handleCloseTab(
-                      e as unknown as React.MouseEvent,
+                onClick={(event) => void handleCloseTab(event, session.tabId)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    void handleCloseTab(
+                      event as unknown as React.MouseEvent,
                       session.tabId
                     );
                   }
@@ -169,38 +187,48 @@ function DockviewTerminalPanel() {
   );
 }
 
-/**
- * Individual terminal tab content.
- * Each tab has its own xterm.js instance connected to a Tauri PTY.
- */
 function TerminalTabContent({
   workspaceId,
   tabId,
+  sessionId,
   isActive,
   shell,
+  readOnly,
+  onSessionId,
+  onOpenUrl,
 }: {
   workspaceId: string;
   tabId: string;
+  sessionId: string | null;
   isActive: boolean;
   shell?: string;
+  readOnly?: boolean;
+  onSessionId: (tabId: string, sessionId: string) => void;
+  onOpenUrl: (url: string) => void;
 }) {
   const { containerRef, refit } = useTauriTerminal({
     workspaceId,
+    tabId,
+    sessionId,
     enabled: true,
     shell,
+    readOnly,
+    onSessionId: (resolvedSessionId) => onSessionId(tabId, resolvedSessionId),
+    onLinkActivated: onOpenUrl,
   });
 
-  // Re-fit terminal when tab becomes visible
   useEffect(() => {
-    if (isActive && refit) {
-      const timer = setTimeout(() => refit(), 50);
-      return () => clearTimeout(timer);
+    if (isActive) {
+      const timer = window.setTimeout(() => refit(), 50);
+      return () => window.clearTimeout(timer);
     }
   }, [isActive, refit]);
 
   return (
     <div
-      className={`absolute inset-0 px-2 pt-1 ${isActive ? 'visible' : 'invisible'}`}
+      className={`absolute inset-0 px-2 pt-1 ${
+        isActive ? 'visible' : 'invisible'
+      }`}
       data-terminal-tab={tabId}
     >
       <div ref={containerRef} className="h-full w-full" />
@@ -208,27 +236,61 @@ function TerminalTabContent({
   );
 }
 
-/**
- * Log viewer tab content for dev server process logs.
- * Subscribes to Tauri log-stream events and renders output in a scrollable container.
- */
 function LogViewerTab({
   session,
   isActive,
+  onOpenUrl,
 }: {
   session: TerminalSession;
   isActive: boolean;
+  onOpenUrl: (url: string) => void;
 }) {
   const { logs, error } = useLogStream(session.processId ?? '');
   const containerRef = useRef<HTMLPreElement>(null);
 
-  // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
-    const el = containerRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
+    const element = containerRef.current;
+    if (element) {
+      element.scrollTop = element.scrollHeight;
     }
   }, [logs]);
+
+  const renderLogLine = useCallback(
+    (content: string) => {
+      const parts: Array<JSX.Element | string> = [];
+      const urlRegex = /(https?:\/\/[^\s]+)/gi;
+      let lastIndex = 0;
+
+      for (const match of content.matchAll(urlRegex)) {
+        const matchedUrl = match[0];
+        const matchIndex = match.index ?? 0;
+
+        if (matchIndex > lastIndex) {
+          parts.push(content.slice(lastIndex, matchIndex));
+        }
+
+        parts.push(
+          <button
+            key={`${matchedUrl}-${matchIndex}`}
+            type="button"
+            onClick={() => onOpenUrl(matchedUrl)}
+            className="underline text-sky-400 hover:text-sky-300"
+          >
+            {matchedUrl}
+          </button>
+        );
+
+        lastIndex = matchIndex + matchedUrl.length;
+      }
+
+      if (lastIndex < content.length) {
+        parts.push(content.slice(lastIndex));
+      }
+
+      return parts.length > 0 ? parts : content;
+    },
+    [onOpenUrl]
+  );
 
   return (
     <div
@@ -246,14 +308,16 @@ function LogViewerTab({
           className="flex-1 overflow-auto p-3 text-xs font-mono whitespace-pre-wrap break-words leading-relaxed"
         >
           {logs.length === 0 && !error && (
-            <span className="text-muted-foreground">Waiting for dev server output...</span>
+            <span className="text-muted-foreground">
+              Waiting for dev server output...
+            </span>
           )}
-          {logs.map((entry, i) => (
+          {logs.map((entry, index) => (
             <span
-              key={i}
+              key={index}
               className={entry.type === 'STDERR' ? 'text-destructive' : ''}
             >
-              {entry.content}
+              {renderLogLine(entry.content)}
             </span>
           ))}
         </pre>

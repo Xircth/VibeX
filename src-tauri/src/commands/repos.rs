@@ -6,6 +6,8 @@ use db::models::{
 };
 use deployment::Deployment;
 use git::{self, GitBranch, GitRemote};
+use reqwest::header::{ACCEPT, USER_AGENT};
+use serde::Deserialize;
 use services::services::{
     file_search::SearchMode,
     git_host::{GitHostProvider, GitHostService, GitHubIssueInfo, OpenPrInfo},
@@ -13,16 +15,13 @@ use services::services::{
 use uuid::Uuid;
 
 use crate::{
+    commands::projects::{OpenEditorRequest, OpenEditorResponse},
     error::AppError,
     state::AppState,
-    commands::projects::{OpenEditorRequest, OpenEditorResponse},
 };
 
 /// Helper: resolve repo path from repo_id
-async fn resolve_repo_path(
-    state: &AppState,
-    repo_id: Uuid,
-) -> Result<PathBuf, AppError> {
+async fn resolve_repo_path(state: &AppState, repo_id: Uuid) -> Result<PathBuf, AppError> {
     let repo = state
         .deployment
         .repo()
@@ -31,10 +30,242 @@ async fn resolve_repo_path(
     Ok(PathBuf::from(&repo.path))
 }
 
+#[derive(Debug, Clone)]
+struct GitHubRemoteSpec {
+    host: String,
+    owner: String,
+    repo: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubApiIssueUser {
+    login: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubApiIssueLabel {
+    name: String,
+    color: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubApiIssue {
+    number: i64,
+    title: String,
+    html_url: String,
+    state: String,
+    created_at: String,
+    user: GitHubApiIssueUser,
+    #[serde(default)]
+    labels: Vec<GitHubApiIssueLabel>,
+    #[serde(default)]
+    comments: i64,
+    #[serde(default)]
+    pull_request: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubApiPrRef {
+    #[serde(rename = "ref")]
+    branch: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubApiPr {
+    number: i64,
+    html_url: String,
+    title: String,
+    head: GitHubApiPrRef,
+    base: GitHubApiPrRef,
+}
+
+fn parse_github_remote_spec(remote_url: &str) -> Option<GitHubRemoteSpec> {
+    let trimmed = remote_url.trim().trim_end_matches('/');
+
+    let (host, path_part) = if let Some(rest) = trimmed.strip_prefix("git@") {
+        let (host, path) = rest.split_once(':')?;
+        (host.to_string(), path.to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("ssh://") {
+        let rest = rest.strip_prefix("git@").unwrap_or(rest);
+        let (host, path) = rest.split_once('/')?;
+        (host.to_string(), path.to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("https://") {
+        let (host, path) = rest.split_once('/')?;
+        (host.to_string(), path.to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("http://") {
+        let (host, path) = rest.split_once('/')?;
+        (host.to_string(), path.to_string())
+    } else {
+        return None;
+    };
+
+    let host_lower = host.to_ascii_lowercase();
+    if !host_lower.contains("github.com") && !host_lower.contains("github.") {
+        return None;
+    }
+
+    let segments: Vec<&str> = path_part.trim_matches('/').split('/').collect();
+    if segments.len() < 2 {
+        return None;
+    }
+
+    let owner = segments[segments.len() - 2];
+    let repo = segments[segments.len() - 1].trim_end_matches(".git");
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+
+    Some(GitHubRemoteSpec {
+        host,
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+    })
+}
+
+fn github_api_base(host: &str) -> String {
+    if host.eq_ignore_ascii_case("github.com") {
+        "https://api.github.com".to_string()
+    } else {
+        format!("https://{host}/api/v3")
+    }
+}
+
+fn github_token_from_env() -> Option<String> {
+    std::env::var("GH_TOKEN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("GITHUB_TOKEN")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+}
+
+fn summarize_github_api_error_body(body: &str) -> String {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
+            return message.to_string();
+        }
+    }
+
+    let compact = body.replace('\n', " ").trim().to_string();
+    if compact.is_empty() {
+        return "Unknown API error".to_string();
+    }
+
+    compact.chars().take(200).collect()
+}
+
+async fn request_github_json<T: for<'de> Deserialize<'de>>(
+    spec: &GitHubRemoteSpec,
+    path_and_query: &str,
+) -> Result<T, AppError> {
+    let url = format!(
+        "{}/{}",
+        github_api_base(&spec.host),
+        path_and_query.trim_start_matches('/')
+    );
+
+    let client = reqwest::Client::new();
+    let mut request = client
+        .get(url)
+        .header(USER_AGENT, "VibeUltra/1.0")
+        .header(ACCEPT, "application/vnd.github+json");
+
+    if let Some(token) = github_token_from_env() {
+        request = request.bearer_auth(token);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("GitHub API request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let detail = summarize_github_api_error_body(&body);
+        return Err(AppError::BadRequest(format!(
+            "GitHub API returned {status}: {detail}"
+        )));
+    }
+
+    response
+        .json::<T>()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to parse GitHub API response: {e}")))
+}
+
+async fn list_open_prs_via_github_api(
+    spec: &GitHubRemoteSpec,
+) -> Result<Vec<OpenPrInfo>, AppError> {
+    let api_prs: Vec<GitHubApiPr> = request_github_json(
+        spec,
+        &format!(
+            "repos/{}/{}/pulls?state=open&per_page=100",
+            spec.owner, spec.repo
+        ),
+    )
+    .await?;
+
+    Ok(api_prs
+        .into_iter()
+        .map(|pr| OpenPrInfo {
+            number: pr.number,
+            url: pr.html_url,
+            title: pr.title,
+            head_branch: pr.head.branch,
+            base_branch: pr.base.branch,
+        })
+        .collect())
+}
+
+async fn list_issues_via_github_api(
+    spec: &GitHubRemoteSpec,
+    issue_state: &str,
+) -> Result<Vec<GitHubIssueInfo>, AppError> {
+    let api_issues: Vec<GitHubApiIssue> = request_github_json(
+        spec,
+        &format!(
+            "repos/{}/{}/issues?state={}&per_page=100",
+            spec.owner, spec.repo, issue_state
+        ),
+    )
+    .await?;
+
+    let mut issues = Vec::new();
+    for issue in api_issues {
+        if issue.pull_request.is_some() {
+            continue;
+        }
+
+        let value = serde_json::json!({
+            "number": issue.number,
+            "title": issue.title,
+            "url": issue.html_url,
+            "state": issue.state,
+            "created_at": issue.created_at,
+            "author": { "login": issue.user.login },
+            "labels": issue.labels.into_iter().map(|label| {
+                serde_json::json!({
+                    "name": label.name,
+                    "color": label.color
+                })
+            }).collect::<Vec<_>>(),
+            "comments_count": issue.comments
+        });
+
+        let parsed = serde_json::from_value::<GitHubIssueInfo>(value).map_err(|e| {
+            AppError::BadRequest(format!("Failed to parse GitHub issue payload: {e}"))
+        })?;
+        issues.push(parsed);
+    }
+
+    Ok(issues)
+}
+
 #[tauri::command]
-pub async fn get_repos(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<Repo>, AppError> {
+pub async fn get_repos(state: tauri::State<'_, AppState>) -> Result<Vec<Repo>, AppError> {
     let repos = Repo::list_all(&state.deployment.db().pool).await?;
     Ok(repos)
 }
@@ -48,19 +279,13 @@ pub async fn register_repo(
     let repo = state
         .deployment
         .repo()
-        .register(
-            &state.deployment.db().pool,
-            &path,
-            display_name.as_deref(),
-        )
+        .register(&state.deployment.db().pool, &path, display_name.as_deref())
         .await?;
     Ok(repo)
 }
 
 #[tauri::command]
-pub async fn get_recent_repos(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<Repo>, AppError> {
+pub async fn get_recent_repos(state: tauri::State<'_, AppState>) -> Result<Vec<Repo>, AppError> {
     let repos = Repo::list_by_recent_workspace_usage(&state.deployment.db().pool).await?;
     Ok(repos)
 }
@@ -85,6 +310,34 @@ pub async fn init_repo(
 }
 
 #[tauri::command]
+pub async fn check_git_repo_path(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<bool, AppError> {
+    let is_git_repo = state.deployment.repo().is_git_repo_path(&path)?;
+    Ok(is_git_repo)
+}
+
+#[tauri::command]
+pub async fn init_repo_at_path(
+    state: tauri::State<'_, AppState>,
+    path: String,
+    display_name: Option<String>,
+) -> Result<Repo, AppError> {
+    let repo = state
+        .deployment
+        .repo()
+        .init_repo_at_path(
+            &state.deployment.db().pool,
+            state.deployment.git(),
+            &path,
+            display_name.as_deref(),
+        )
+        .await?;
+    Ok(repo)
+}
+
+#[tauri::command]
 pub async fn get_repos_batch(
     state: tauri::State<'_, AppState>,
     ids: Vec<Uuid>,
@@ -94,10 +347,7 @@ pub async fn get_repos_batch(
 }
 
 #[tauri::command]
-pub async fn get_repo(
-    state: tauri::State<'_, AppState>,
-    repo_id: Uuid,
-) -> Result<Repo, AppError> {
+pub async fn get_repo(state: tauri::State<'_, AppState>, repo_id: Uuid) -> Result<Repo, AppError> {
     let repo = state
         .deployment
         .repo()
@@ -165,8 +415,20 @@ pub async fn list_open_prs(
     };
 
     let git_host = GitHostService::from_url(&remote.url)?;
-    let prs = git_host.list_open_prs(&repo.path, &remote.url).await?;
-    Ok(prs)
+    match git_host.list_open_prs(&repo.path, &remote.url).await {
+        Ok(prs) => Ok(prs),
+        Err(err) => {
+            let Some(spec) = parse_github_remote_spec(&remote.url) else {
+                return Err(err.into());
+            };
+
+            tracing::warn!(
+                "Falling back to GitHub REST API for open PRs after CLI error: {}",
+                err
+            );
+            list_open_prs_via_github_api(&spec).await
+        }
+    }
 }
 
 #[tauri::command]
@@ -196,19 +458,38 @@ pub async fn list_repo_issues(
     let remote_url = remote.url.clone();
 
     let state_filter = issue_state.unwrap_or_else(|| "open".to_string());
-    let issues = tokio::task::spawn_blocking(move || {
+    let state_filter_for_cli = state_filter.clone();
+    let gh_result = tokio::task::spawn_blocking(move || {
         let cli = GhCli::new();
         let repo_info = cli
             .get_repo_info(&remote_url, &repo_path)
             .map_err(|e| e.to_string())?;
-        cli.list_issues(&repo_info.owner, &repo_info.repo_name, &state_filter)
-            .map_err(|e| e.to_string())
+        cli.list_issues(
+            &repo_info.owner,
+            &repo_info.repo_name,
+            &state_filter_for_cli,
+        )
+        .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| AppError::Internal(e.to_string()))?
-    .map_err(AppError::Internal)?;
+    .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    Ok(issues)
+    match gh_result {
+        Ok(issues) => Ok(issues),
+        Err(err) => {
+            let Some(spec) = parse_github_remote_spec(&remote.url) else {
+                return Err(AppError::BadRequest(format!(
+                    "Failed to load GitHub issues: {err}"
+                )));
+            };
+
+            tracing::warn!(
+                "Falling back to GitHub REST API for issues after CLI error: {}",
+                err
+            );
+            list_issues_via_github_api(&spec, &state_filter).await
+        }
+    }
 }
 
 #[tauri::command]
@@ -286,7 +567,10 @@ pub async fn get_repo_git_status(
     repo_id: Uuid,
 ) -> Result<git::DetailedGitStatus, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().get_detailed_status(&repo_path)
+    state
+        .deployment
+        .git()
+        .get_detailed_status(&repo_path)
         .map_err(|e| AppError::Internal(format!("git status failed: {e}")))
 }
 
@@ -296,7 +580,10 @@ pub async fn get_repo_file_diffs(
     repo_id: Uuid,
 ) -> Result<Vec<git::GitFileDiffEntry>, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().get_file_diffs(&repo_path)
+    state
+        .deployment
+        .git()
+        .get_file_diffs(&repo_path)
         .map_err(|e| AppError::Internal(format!("get file diffs failed: {e}")))
 }
 
@@ -307,7 +594,10 @@ pub async fn stage_repo_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().stage_file(&repo_path, &file_path)
+    state
+        .deployment
+        .git()
+        .stage_file(&repo_path, &file_path)
         .map_err(|e| AppError::Internal(format!("stage file failed: {e}")))
 }
 
@@ -318,7 +608,10 @@ pub async fn unstage_repo_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().unstage_file(&repo_path, &file_path)
+    state
+        .deployment
+        .git()
+        .unstage_file(&repo_path, &file_path)
         .map_err(|e| AppError::Internal(format!("unstage file failed: {e}")))
 }
 
@@ -329,7 +622,10 @@ pub async fn revert_repo_file(
     file_path: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().revert_file(&repo_path, &file_path)
+    state
+        .deployment
+        .git()
+        .revert_file(&repo_path, &file_path)
         .map_err(|e| AppError::Internal(format!("revert file failed: {e}")))
 }
 
@@ -339,7 +635,10 @@ pub async fn stage_repo_all(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().stage_all(&repo_path)
+    state
+        .deployment
+        .git()
+        .stage_all(&repo_path)
         .map_err(|e| AppError::Internal(format!("stage all failed: {e}")))
 }
 
@@ -349,7 +648,10 @@ pub async fn revert_repo_all(
     repo_id: Uuid,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().revert_all(&repo_path)
+    state
+        .deployment
+        .git()
+        .revert_all(&repo_path)
         .map_err(|e| AppError::Internal(format!("revert all failed: {e}")))
 }
 
@@ -360,18 +662,19 @@ pub async fn commit_repo_changes(
     message: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().commit_changes(&repo_path, &message)
+    state
+        .deployment
+        .git()
+        .commit_changes(&repo_path, &message)
         .map_err(|e| AppError::Internal(format!("commit failed: {e}")))
 }
 
 #[tauri::command]
-pub async fn push_repo(
-    state: tauri::State<'_, AppState>,
-    repo_id: Uuid,
-) -> Result<(), AppError> {
+pub async fn push_repo(state: tauri::State<'_, AppState>, repo_id: Uuid) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
     let git = state.deployment.git();
-    let head = git.get_head_info(&repo_path)
+    let head = git
+        .get_head_info(&repo_path)
         .map_err(|e| AppError::Internal(format!("get head info failed: {e}")))?;
     git.push_to_remote(&repo_path, &head.branch, false)
         .map_err(|e| AppError::Internal(format!("git push failed: {e}")))
@@ -383,17 +686,20 @@ pub async fn pull_repo(
     repo_id: Uuid,
 ) -> Result<git::PullResult, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().pull(&repo_path)
+    state
+        .deployment
+        .git()
+        .pull(&repo_path)
         .map_err(|e| AppError::Internal(format!("git pull failed: {e}")))
 }
 
 #[tauri::command]
-pub async fn fetch_repo(
-    state: tauri::State<'_, AppState>,
-    repo_id: Uuid,
-) -> Result<(), AppError> {
+pub async fn fetch_repo(state: tauri::State<'_, AppState>, repo_id: Uuid) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().fetch_all(&repo_path)
+    state
+        .deployment
+        .git()
+        .fetch_all(&repo_path)
         .map_err(|e| AppError::Internal(format!("git fetch failed: {e}")))
 }
 
@@ -403,7 +709,10 @@ pub async fn get_repo_git_log(
     repo_id: Uuid,
 ) -> Result<git::GitLogStatus, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().get_log_status(&repo_path)
+    state
+        .deployment
+        .git()
+        .get_log_status(&repo_path)
         .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
 }
 
@@ -414,7 +723,10 @@ pub async fn get_repo_commit_detail(
     sha: String,
 ) -> Result<git::CommitDetail, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().get_commit_detail(&repo_path, &sha)
+    state
+        .deployment
+        .git()
+        .get_commit_detail(&repo_path, &sha)
         .map_err(|e| AppError::Internal(format!("get commit detail failed: {e}")))
 }
 
@@ -425,14 +737,17 @@ pub async fn get_repo_commit_diffs(
     sha: String,
 ) -> Result<Vec<utils::diff::Diff>, AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().get_diffs(
-        git::DiffTarget::Commit {
-            repo_path: &repo_path,
-            commit_sha: &sha,
-        },
-        None,
-    )
-    .map_err(|e| AppError::Internal(format!("get commit diffs failed: {e}")))
+    state
+        .deployment
+        .git()
+        .get_diffs(
+            git::DiffTarget::Commit {
+                repo_path: &repo_path,
+                commit_sha: &sha,
+            },
+            None,
+        )
+        .map_err(|e| AppError::Internal(format!("get commit diffs failed: {e}")))
 }
 
 #[tauri::command]
@@ -442,7 +757,10 @@ pub async fn checkout_repo_branch(
     branch_name: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().checkout_branch(&repo_path, &branch_name)
+    state
+        .deployment
+        .git()
+        .checkout_branch(&repo_path, &branch_name)
         .map_err(|e| AppError::Internal(format!("git checkout failed: {e}")))
 }
 
@@ -454,7 +772,10 @@ pub async fn create_repo_branch(
     from_ref: Option<String>,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().create_branch(&repo_path, &branch_name, from_ref.as_deref())
+    state
+        .deployment
+        .git()
+        .create_branch(&repo_path, &branch_name, from_ref.as_deref())
         .map_err(|e| AppError::Internal(format!("git create branch failed: {e}")))
 }
 
@@ -465,6 +786,9 @@ pub async fn delete_repo_branch(
     branch_name: String,
 ) -> Result<(), AppError> {
     let repo_path = resolve_repo_path(&state, repo_id).await?;
-    state.deployment.git().delete_branch(&repo_path, &branch_name)
+    state
+        .deployment
+        .git()
+        .delete_branch(&repo_path, &branch_name)
         .map_err(|e| AppError::Internal(format!("git delete branch failed: {e}")))
 }

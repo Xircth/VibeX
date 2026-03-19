@@ -12,12 +12,13 @@ use codex_protocol::{
     plan_tool::{StepStatus, UpdatePlanArgs},
     protocol::{
         AgentMessageDeltaEvent, AgentMessageEvent, AgentReasoningDeltaEvent, AgentReasoningEvent,
+        AgentReasoningRawContentDeltaEvent, AgentReasoningRawContentEvent,
         AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent, BackgroundEventEvent,
         ErrorEvent, EventMsg, ExecApprovalRequestEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
         ExecCommandOutputDeltaEvent, ExecOutputStream, FileChange as CodexProtoFileChange,
         McpInvocation, McpToolCallBeginEvent, McpToolCallEndEvent, PatchApplyBeginEvent,
-        PatchApplyEndEvent, StreamErrorEvent, ViewImageToolCallEvent, WarningEvent,
-        WebSearchBeginEvent, WebSearchEndEvent,
+        PatchApplyEndEvent, ReasoningRawContentDeltaEvent, StreamErrorEvent,
+        ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent, WebSearchEndEvent,
     },
 };
 use futures::StreamExt;
@@ -86,7 +87,10 @@ impl ToNormalizedEntry for CommandState {
             entry_type: NormalizedEntryType::ToolUse {
                 tool_name: "bash".to_string(),
                 action_type: ActionType::CommandRun {
-                    category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(&self.command),
+                    category:
+                        crate::logs::utils::shell_command_parsing::CommandCategory::from_command(
+                            &self.command,
+                        ),
                     command: self.command.clone(),
                     result: Some(CommandRunResult {
                         exit_status: self
@@ -120,19 +124,74 @@ struct McpToolState {
 impl ToNormalizedEntry for McpToolState {
     fn to_normalized_entry(&self) -> NormalizedEntry {
         let tool_name = format!("mcp:{}:{}", self.invocation.server, self.invocation.tool);
+        let action_type = self.build_action_type(tool_name.clone());
+        let content = self.build_content(&action_type);
         NormalizedEntry {
             timestamp: None,
             entry_type: NormalizedEntryType::ToolUse {
-                tool_name: tool_name.clone(),
-                action_type: ActionType::Tool {
-                    tool_name,
-                    arguments: self.invocation.arguments.clone(),
-                    result: self.result.clone(),
-                },
+                tool_name,
+                action_type,
                 status: self.status.clone(),
             },
-            content: self.invocation.tool.clone(),
+            content,
             metadata: None,
+        }
+    }
+}
+
+impl McpToolState {
+    fn build_action_type(&self, qualified_tool_name: String) -> ActionType {
+        let tool_name = self.invocation.tool.as_str();
+
+        if is_search_like_tool(tool_name) {
+            return ActionType::Search {
+                query: extract_argument_string(
+                    self.invocation.arguments.as_ref(),
+                    &["query", "pattern", "search", "term", "path"],
+                )
+                .unwrap_or_else(|| self.invocation.tool.clone()),
+            };
+        }
+
+        if is_fetch_like_tool(tool_name) {
+            return ActionType::WebFetch {
+                url: extract_argument_string(
+                    self.invocation.arguments.as_ref(),
+                    &["url", "uri", "href"],
+                )
+                .unwrap_or_else(|| self.invocation.tool.clone()),
+            };
+        }
+
+        if is_task_like_tool(tool_name) {
+            return ActionType::TaskCreate {
+                description: extract_argument_string(
+                    self.invocation.arguments.as_ref(),
+                    &["description", "prompt", "task", "title", "summary"],
+                )
+                .unwrap_or_else(|| self.invocation.tool.clone()),
+                subagent_type: extract_argument_string(
+                    self.invocation.arguments.as_ref(),
+                    &["subagent_type", "agent_type", "agent", "kind"],
+                ),
+                result: self.result.clone(),
+            };
+        }
+
+        ActionType::Tool {
+            tool_name: qualified_tool_name,
+            arguments: self.invocation.arguments.clone(),
+            result: self.result.clone(),
+        }
+    }
+
+    fn build_content(&self, action_type: &ActionType) -> String {
+        match action_type {
+            ActionType::Search { query } => query.clone(),
+            ActionType::WebFetch { url } => url.clone(),
+            ActionType::TaskCreate { description, .. } => description.clone(),
+            ActionType::Tool { .. } => self.invocation.tool.clone(),
+            _ => self.invocation.tool.clone(),
         }
     }
 }
@@ -156,8 +215,8 @@ impl ToNormalizedEntry for WebSearchState {
             timestamp: None,
             entry_type: NormalizedEntryType::ToolUse {
                 tool_name: "web_search".to_string(),
-                action_type: ActionType::WebFetch {
-                    url: self.query.clone().unwrap_or_else(|| "...".to_string()),
+                action_type: ActionType::Search {
+                    query: self.query.clone().unwrap_or_else(|| "...".to_string()),
                 },
                 status: self.status.clone(),
             },
@@ -309,6 +368,70 @@ enum UpdateMode {
     Set,
 }
 
+fn normalize_tool_name(tool_name: &str) -> String {
+    tool_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn tool_name_matches(tool_name: &str, candidates: &[&str]) -> bool {
+    let normalized = normalize_tool_name(tool_name);
+    candidates.iter().any(|candidate| {
+        normalized == *candidate
+            || normalized.starts_with(&format!("{candidate}_"))
+            || normalized.ends_with(&format!("_{candidate}"))
+            || normalized.contains(&format!("_{candidate}_"))
+    })
+}
+
+fn is_search_like_tool(tool_name: &str) -> bool {
+    tool_name_matches(
+        tool_name,
+        &["search", "web_search", "code_search", "grep", "glob"],
+    )
+}
+
+fn is_fetch_like_tool(tool_name: &str) -> bool {
+    tool_name_matches(tool_name, &["fetch", "web_fetch", "webfetch"])
+}
+
+fn is_task_like_tool(tool_name: &str) -> bool {
+    tool_name_matches(
+        tool_name,
+        &["task", "task_create", "create_task", "subagent"],
+    )
+}
+
+fn extract_argument_string(arguments: Option<&Value>, keys: &[&str]) -> Option<String> {
+    let arguments = arguments?;
+
+    if let Some(value) = arguments
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(value.to_string());
+    }
+
+    let object = arguments.as_object()?;
+    keys.iter().find_map(|key| {
+        object.get(*key).and_then(|value| match value {
+            Value::String(text) => {
+                let trimmed = text.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            }
+            _ => None,
+        })
+    })
+}
+
 fn normalize_file_changes(
     worktree_path: &str,
     changes: &HashMap<PathBuf, CodexProtoFileChange>,
@@ -437,7 +560,13 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     let (entry, index, is_new) = state.assistant_message_append(delta);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
                 }
-                EventMsg::AgentReasoningDelta(AgentReasoningDeltaEvent { delta }) => {
+                EventMsg::AgentReasoningDelta(AgentReasoningDeltaEvent { delta })
+                | EventMsg::AgentReasoningRawContentDelta(AgentReasoningRawContentDeltaEvent {
+                    delta,
+                })
+                | EventMsg::ReasoningRawContentDelta(ReasoningRawContentDeltaEvent {
+                    delta, ..
+                }) => {
                     state.assistant = None;
                     let (entry, index, is_new) = state.thinking_append(delta);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
@@ -450,7 +579,15 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 }
                 EventMsg::AgentReasoning(AgentReasoningEvent { text }) => {
                     state.assistant = None;
-                    let (entry, index, is_new) = state.thinking(text);
+                    if state.thinking.is_none() && !text.is_empty() {
+                        let (entry, index, is_new) = state.thinking(text);
+                        upsert_normalized_entry(&msg_store, index, entry, is_new);
+                    }
+                    state.thinking = None;
+                }
+                EventMsg::AgentReasoningRawContent(AgentReasoningRawContentEvent { text }) => {
+                    state.assistant = None;
+                    let (entry, index, is_new) = state.thinking_append(text);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
                     state.thinking = None;
                 }
@@ -1031,9 +1168,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         },
                     );
                 }
-                EventMsg::AgentReasoningRawContent(..)
-                | EventMsg::AgentReasoningRawContentDelta(..)
-                | EventMsg::ThreadRolledBack(..)
+                EventMsg::ThreadRolledBack(..)
                 | EventMsg::TurnStarted(..)
                 | EventMsg::UserMessage(..)
                 | EventMsg::TurnDiff(..)
@@ -1049,7 +1184,6 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 | EventMsg::ItemCompleted(..)
                 | EventMsg::AgentMessageContentDelta(..)
                 | EventMsg::ReasoningContentDelta(..)
-                | EventMsg::ReasoningRawContentDelta(..)
                 | EventMsg::ListCustomPromptsResponse(..)
                 | EventMsg::ListSkillsResponse(..)
                 | EventMsg::SkillsUpdateAvailable
@@ -1264,5 +1398,50 @@ impl ToNormalizedEntryOpt for Approval {
                 metadata: None,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        extract_argument_string, is_fetch_like_tool, is_search_like_tool, is_task_like_tool,
+    };
+
+    #[test]
+    fn classifies_search_like_mcp_tools() {
+        assert!(is_search_like_tool("search"));
+        assert!(is_search_like_tool("code_search"));
+        assert!(is_search_like_tool("acme.grep_files"));
+        assert!(!is_search_like_tool("task"));
+    }
+
+    #[test]
+    fn classifies_fetch_and_task_like_mcp_tools() {
+        assert!(is_fetch_like_tool("webfetch"));
+        assert!(is_fetch_like_tool("acme.web_fetch"));
+        assert!(is_task_like_tool("task"));
+        assert!(is_task_like_tool("create_task"));
+        assert!(is_task_like_tool("subagent_runner"));
+        assert!(!is_task_like_tool("search"));
+    }
+
+    #[test]
+    fn extracts_string_arguments_by_priority() {
+        let args = json!({
+            "description": "Investigate flaky test",
+            "query": "ignored"
+        });
+        assert_eq!(
+            extract_argument_string(Some(&args), &["description", "query"]).as_deref(),
+            Some("Investigate flaky test")
+        );
+
+        let direct = json!("grep TODO");
+        assert_eq!(
+            extract_argument_string(Some(&direct), &["query"]).as_deref(),
+            Some("grep TODO")
+        );
     }
 }

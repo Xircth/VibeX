@@ -8,19 +8,27 @@ import { getTerminalTheme } from '@/utils/terminalTheme';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 function isTerminalCopyShortcut(
-  event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+  event: Pick<
+    KeyboardEvent,
+    'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'
+  >,
   platform = navigator.platform
 ): boolean {
   const isMac = platform.toUpperCase().includes('MAC');
 
-  return (isMac ? event.metaKey : event.ctrlKey) &&
+  return (
+    (isMac ? event.metaKey : event.ctrlKey) &&
     !event.shiftKey &&
     !event.altKey &&
-    event.key.toLowerCase() === 'c';
+    event.key.toLowerCase() === 'c'
+  );
 }
 
 function shouldCopyTerminalSelection(
-  event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>,
+  event: Pick<
+    KeyboardEvent,
+    'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'
+  >,
   hasSelection: boolean,
   platform = navigator.platform
 ): boolean {
@@ -51,30 +59,36 @@ async function writeTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-/**
- * Encode a string to base64 (handles binary data correctly).
- */
 function encodeBase64(str: string): string {
   const bytes = new TextEncoder().encode(str);
-  const binString = Array.from(bytes, (b) => String.fromCodePoint(b)).join('');
+  const binString = Array.from(bytes, (byte) =>
+    String.fromCodePoint(byte)
+  ).join('');
   return btoa(binString);
 }
 
-/**
- * Decode a base64 string to a Uint8Array for binary-safe terminal write.
- */
 function decodeBase64ToBytes(base64: string): Uint8Array {
   const binString = atob(base64);
-  return Uint8Array.from(binString, (c) => c.codePointAt(0)!);
+  return Uint8Array.from(binString, (char) => char.codePointAt(0)!);
 }
 
 interface UseTauriTerminalOptions {
   /** Workspace UUID to create the PTY in */
   workspaceId: string | undefined;
+  /** Frontend terminal tab id */
+  tabId: string;
+  /** Existing PTY session id to reattach */
+  sessionId?: string | null;
   /** Whether the terminal should be active (connected) */
   enabled?: boolean;
   /** Shell type override (e.g. 'powershell.exe', 'cmd.exe', 'bash') */
   shell?: string;
+  /** Called whenever a PTY session id is attached or created */
+  onSessionId?: (sessionId: string) => void;
+  /** Called when a terminal link is activated */
+  onLinkActivated?: (url: string) => void;
+  /** Prevent user input from being written into the terminal */
+  readOnly?: boolean;
 }
 
 interface UseTauriTerminalResult {
@@ -88,64 +102,42 @@ interface UseTauriTerminalResult {
   refit: () => void;
 }
 
-/**
- * Hook that manages an xterm.js Terminal instance connected to a Tauri PTY session.
- *
- * Lifecycle:
- * 1. Creates xterm.js Terminal and attaches to the container DOM element
- * 2. Installs FitAddon and WebLinksAddon
- * 3. Calls `invoke('create_terminal')` to create a PTY session
- * 4. Listens to `terminal-output:{sessionId}` for PTY output (base64-decoded)
- * 5. Forwards user input via `terminal.onData()` -> base64-encoded -> `invoke('write_terminal')`
- * 6. Forwards resize events via `terminal.onResize()` -> `invoke('resize_terminal')`
- * 7. Uses ResizeObserver to auto-fit the terminal to its container
- * 8. Cleans up everything on unmount
- */
 export function useTauriTerminal({
   workspaceId,
+  tabId,
+  sessionId,
   enabled = true,
   shell,
+  onSessionId,
+  onLinkActivated,
+  readOnly = false,
 }: UseTauriTerminalOptions): UseTauriTerminalResult {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(sessionId ?? null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const containerElRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const isConnectedRef = useRef(false);
   const errorRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
-  // Track whether the terminal has been opened to avoid re-opening
   const terminalOpenedRef = useRef(false);
 
-  /**
-   * Tear down the terminal and PTY connection.
-   */
-  const cleanup = useCallback(async () => {
-    // Disconnect resize observer
+  useEffect(() => {
+    sessionIdRef.current = sessionId ?? null;
+  }, [sessionId]);
+
+  const disposeView = useCallback(() => {
     if (resizeObserverRef.current) {
       resizeObserverRef.current.disconnect();
       resizeObserverRef.current = null;
     }
 
-    // Unsubscribe from Tauri events
     if (unlistenRef.current) {
       unlistenRef.current();
       unlistenRef.current = null;
     }
 
-    // Close PTY session on the backend
-    const sessionId = sessionIdRef.current;
-    if (sessionId) {
-      sessionIdRef.current = null;
-      try {
-        await tauriInvoke('close_terminal', { sessionId });
-      } catch (err) {
-        console.error('Failed to close terminal session:', err);
-      }
-    }
-
-    // Dispose xterm.js terminal
     if (terminalRef.current) {
       terminalRef.current.dispose();
       terminalRef.current = null;
@@ -156,37 +148,36 @@ export function useTauriTerminal({
     terminalOpenedRef.current = false;
   }, []);
 
-  /**
-   * Initialize the terminal: create xterm instance, connect to PTY.
-   */
   const initialize = useCallback(
     async (container: HTMLDivElement) => {
       if (!workspaceId || !enabled) return;
 
-      // Clean up any previous instance
-      await cleanup();
+      disposeView();
 
       if (!mountedRef.current) return;
 
-      // 1. Create xterm.js Terminal instance
       const terminal = new Terminal({
-        cursorBlink: true,
+        cursorBlink: !readOnly,
         fontSize: 13,
         fontFamily: 'IBM Plex Mono, Menlo, Monaco, Consolas, monospace',
         theme: getTerminalTheme(),
         scrollback: 5000,
         convertEol: true,
         allowProposedApi: true,
+        disableStdin: readOnly,
       });
       terminalRef.current = terminal;
 
-      // 2. Install addons
       const fitAddon = new FitAddon();
       fitAddonRef.current = fitAddon;
       terminal.loadAddon(fitAddon);
-      terminal.loadAddon(new WebLinksAddon());
+      terminal.loadAddon(
+        new WebLinksAddon((event, uri) => {
+          event.preventDefault();
+          onLinkActivated?.(uri);
+        })
+      );
 
-      // 3. Open terminal in container
       terminal.open(container);
       terminalOpenedRef.current = true;
 
@@ -206,79 +197,106 @@ export function useTauriTerminal({
         return false;
       });
 
-      // Initial fit
       try {
         fitAddon.fit();
       } catch {
         // Container may not have dimensions yet
       }
 
-      // 4. Create PTY session via Tauri
-      let sessionId: string;
-      try {
-        sessionId = await tauriInvoke<string>('create_terminal', {
-          workspaceId,
-          cols: terminal.cols,
-          rows: terminal.rows,
-          shell: shell || null,
-        });
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : String(err);
-        errorRef.current = msg;
-        terminal.writeln(`\r\n\x1b[31mFailed to create terminal: ${msg}\x1b[0m`);
-        return;
-      }
-
-      if (!mountedRef.current) {
-        // Component unmounted during async operation
-        try {
-          await tauriInvoke('close_terminal', { sessionId });
-        } catch {
-          // ignore
-        }
-        terminal.dispose();
-        return;
-      }
-
-      sessionIdRef.current = sessionId;
-
-      // 5. Listen for PTY output
-      try {
+      const attachListener = async (currentSessionId: string) => {
         const unlisten = await tauriListen<string>(
-          `terminal-output:${sessionId}`,
+          `terminal-output:${currentSessionId}`,
           (payload) => {
-            if (terminalRef.current && sessionIdRef.current === sessionId) {
+            if (
+              terminalRef.current &&
+              sessionIdRef.current === currentSessionId
+            ) {
               const bytes = decodeBase64ToBytes(payload);
               terminalRef.current.write(bytes);
             }
           }
         );
         unlistenRef.current = unlisten;
-      } catch (err) {
-        console.error('Failed to listen for terminal output:', err);
-        errorRef.current = 'Failed to connect to terminal output';
-        return;
-      }
+      };
 
-      if (!mountedRef.current) {
-        cleanup();
-        return;
-      }
+      let resolvedSessionId = sessionIdRef.current;
 
-      // 6. Forward user input to PTY
-      terminal.onData((data) => {
-        if (sessionIdRef.current) {
-          tauriInvoke('write_terminal', {
-            sessionId: sessionIdRef.current,
-            data: encodeBase64(data),
-          }).catch((err) => {
-            console.error('Failed to write to terminal:', err);
+      try {
+        if (resolvedSessionId) {
+          await attachListener(resolvedSessionId);
+          await tauriInvoke<string>('attach_terminal', {
+            sessionId: resolvedSessionId,
+          });
+        } else {
+          resolvedSessionId = crypto.randomUUID();
+          await attachListener(resolvedSessionId);
+          await tauriInvoke<string>('create_terminal', {
+            workspaceId,
+            cols: terminal.cols,
+            rows: terminal.rows,
+            shell: shell || null,
+            sessionId: resolvedSessionId,
           });
         }
-      });
+      } catch (err) {
+        if (unlistenRef.current) {
+          unlistenRef.current();
+          unlistenRef.current = null;
+        }
 
-      // 7. Forward resize events to PTY
+        if (resolvedSessionId && resolvedSessionId === sessionIdRef.current) {
+          try {
+            resolvedSessionId = crypto.randomUUID();
+            await attachListener(resolvedSessionId);
+            await tauriInvoke<string>('create_terminal', {
+              workspaceId,
+              cols: terminal.cols,
+              rows: terminal.rows,
+              shell: shell || null,
+              sessionId: resolvedSessionId,
+            });
+          } catch (fallbackErr) {
+            const message =
+              fallbackErr instanceof Error
+                ? fallbackErr.message
+                : String(fallbackErr);
+            errorRef.current = message;
+            terminal.writeln(
+              `\r\n\x1b[31mFailed to create terminal for ${tabId}: ${message}\x1b[0m`
+            );
+            return;
+          }
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          errorRef.current = message;
+          terminal.writeln(
+            `\r\n\x1b[31mFailed to attach terminal for ${tabId}: ${message}\x1b[0m`
+          );
+          return;
+        }
+      }
+
+      if (!mountedRef.current || !resolvedSessionId) {
+        disposeView();
+        return;
+      }
+
+      sessionIdRef.current = resolvedSessionId;
+      onSessionId?.(resolvedSessionId);
+
+      if (!readOnly) {
+        terminal.onData((data) => {
+          if (sessionIdRef.current) {
+            tauriInvoke('write_terminal', {
+              sessionId: sessionIdRef.current,
+              data: encodeBase64(data),
+            }).catch((err) => {
+              console.error('Failed to write to terminal:', err);
+            });
+          }
+        });
+      }
+
       terminal.onResize(({ cols, rows }) => {
         if (sessionIdRef.current) {
           tauriInvoke('resize_terminal', {
@@ -291,50 +309,52 @@ export function useTauriTerminal({
         }
       });
 
-      // 8. Setup ResizeObserver for auto-fit
-      const ro = new ResizeObserver(() => {
+      const resizeObserver = new ResizeObserver(() => {
         if (fitAddonRef.current && terminalRef.current) {
           try {
             fitAddonRef.current.fit();
           } catch {
-            // Ignore fit errors (e.g. when container has zero dimensions)
+            // Ignore fit errors when container is hidden
           }
         }
       });
-      ro.observe(container);
-      resizeObserverRef.current = ro;
+      resizeObserver.observe(container);
+      resizeObserverRef.current = resizeObserver;
 
       isConnectedRef.current = true;
       errorRef.current = null;
     },
-    [workspaceId, enabled, shell, cleanup]
+    [
+      workspaceId,
+      enabled,
+      shell,
+      tabId,
+      onSessionId,
+      onLinkActivated,
+      readOnly,
+      disposeView,
+    ]
   );
 
-  // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      cleanup();
+      disposeView();
     };
-  }, [cleanup]);
+  }, [disposeView]);
 
-  /**
-   * Ref callback for the container div.
-   * When the div mounts, initialize the terminal.
-   * When it unmounts (null), clean up.
-   */
   const containerRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (el && el !== containerElRef.current) {
-        containerElRef.current = el;
-        initialize(el);
-      } else if (!el && containerElRef.current) {
+    (element: HTMLDivElement | null) => {
+      if (element && element !== containerElRef.current) {
+        containerElRef.current = element;
+        void initialize(element);
+      } else if (!element && containerElRef.current) {
         containerElRef.current = null;
-        cleanup();
+        disposeView();
       }
     },
-    [initialize, cleanup]
+    [initialize, disposeView]
   );
 
   const refit = useCallback(() => {
@@ -342,7 +362,7 @@ export function useTauriTerminal({
       try {
         fitAddonRef.current.fit();
       } catch {
-        /* container may have zero size */
+        // Container may currently have zero size
       }
     }
   }, []);

@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::{collections::HashMap, path::PathBuf, sync::LazyLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -127,9 +125,9 @@ pub async fn install_skill(key: String) -> Result<(), AppError> {
     })?;
 
     let file = skill_file(&key);
-    fs::write(&file, &entry.content).await.map_err(|e| {
-        AppError::Internal(format!("Failed to write skill file {:?}: {}", file, e))
-    })?;
+    fs::write(&file, &entry.content)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to write skill file {:?}: {}", file, e)))?;
 
     tracing::info!("Installed skill '{}' to {:?}", key, file);
     Ok(())
@@ -145,10 +143,7 @@ pub async fn uninstall_skill(key: String) -> Result<(), AppError> {
     let dir = skill_dir(&key);
     if dir.exists() {
         fs::remove_dir_all(&dir).await.map_err(|e| {
-            AppError::Internal(format!(
-                "Failed to remove skill directory {:?}: {}",
-                dir, e
-            ))
+            AppError::Internal(format!("Failed to remove skill directory {:?}: {}", dir, e))
         })?;
         tracing::info!("Uninstalled skill '{}' from {:?}", key, dir);
     }
@@ -173,12 +168,9 @@ fn is_aimax_installed() -> bool {
     }
     std::fs::read_dir(&dir)
         .map(|entries| {
-            entries.filter_map(|e| e.ok()).any(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .map_or(false, |ext| ext == "md")
-            })
+            entries
+                .filter_map(|e| e.ok())
+                .any(|entry| entry.path().extension().map_or(false, |ext| ext == "md"))
         })
         .unwrap_or(false)
 }
@@ -190,17 +182,26 @@ pub async fn ensure_aimax_installed() -> Result<bool, AppError> {
         return Ok(false);
     }
 
-    let raw: Value = serde_json::from_str(DEFAULT_AIMAX_COMMANDS_JSON)
-        .map_err(|e| AppError::Internal(format!("Failed to parse default_aimax_commands.json: {}", e)))?;
+    let raw: Value = serde_json::from_str(DEFAULT_AIMAX_COMMANDS_JSON).map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to parse default_aimax_commands.json: {}",
+            e
+        ))
+    })?;
 
     let commands = raw
         .get("commands")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| AppError::Internal("default_aimax_commands.json missing 'commands' object".into()))?;
+        .ok_or_else(|| {
+            AppError::Internal("default_aimax_commands.json missing 'commands' object".into())
+        })?;
 
     let dest_dir = aimax_commands_dir();
     fs::create_dir_all(&dest_dir).await.map_err(|e| {
-        AppError::Internal(format!("Failed to create aimax commands dir {:?}: {}", dest_dir, e))
+        AppError::Internal(format!(
+            "Failed to create aimax commands dir {:?}: {}",
+            dest_dir, e
+        ))
     })?;
 
     for (_key, val) in commands {
@@ -215,7 +216,10 @@ pub async fn ensure_aimax_installed() -> Result<bool, AppError> {
 
         let file = dest_dir.join(filename);
         fs::write(&file, content).await.map_err(|e| {
-            AppError::Internal(format!("Failed to write ai-max command file {:?}: {}", file, e))
+            AppError::Internal(format!(
+                "Failed to write ai-max command file {:?}: {}",
+                file, e
+            ))
         })?;
     }
 

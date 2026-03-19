@@ -36,10 +36,7 @@ pub struct PrMonitorService<C: ContainerService> {
 }
 
 impl<C: ContainerService + Send + Sync + 'static> PrMonitorService<C> {
-    pub async fn spawn(
-        db: DBService,
-        container: C,
-    ) -> tokio::task::JoinHandle<()> {
+    pub async fn spawn(db: DBService, container: C) -> tokio::task::JoinHandle<()> {
         let service = Self {
             db,
             poll_interval: Duration::from_secs(60), // Check every minute

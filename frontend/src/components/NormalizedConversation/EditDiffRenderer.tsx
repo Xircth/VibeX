@@ -63,7 +63,10 @@ function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
 import { useExpandable } from '@/stores/useExpandableStore';
 
 /** Build absolute path for file preview from a potentially relative path */
-function resolveFilePath(filePath: string, containerRef?: string | null): string {
+function resolveFilePath(
+  filePath: string,
+  containerRef?: string | null
+): string {
   if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/')) {
     return filePath;
   }
@@ -111,7 +114,7 @@ function EditDiffRenderer({
     <div>
       <div
         className={cn(
-          'conv-file-card',
+          'conv-file-card conv-tool-card',
           statusAppearance === 'denied' && 'border-red-400/40',
           statusAppearance === 'timed_out' && 'border-amber-400/40'
         )}
@@ -128,7 +131,10 @@ function EditDiffRenderer({
           className="conv-file-name"
           onClick={(e) => {
             e.stopPropagation();
-            openFilePreview(resolveFilePath(path, containerRef));
+            openFilePreview(resolveFilePath(path, containerRef), {
+              mode: 'diff',
+              diffViewMode: 'inline',
+            });
           }}
         >
           {path}

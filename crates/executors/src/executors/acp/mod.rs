@@ -2,6 +2,7 @@ pub mod client;
 pub mod harness;
 pub mod normalize_logs;
 pub mod session;
+pub mod terminal;
 
 use std::{fmt::Display, str::FromStr};
 
@@ -10,6 +11,7 @@ pub use harness::AcpAgentHarness;
 pub use normalize_logs::*;
 use serde::{Deserialize, Serialize};
 pub use session::SessionManager;
+pub use terminal::{AcpTerminalLifecycleEvent, acp_terminal_registry};
 use workspace_utils::approvals::ApprovalStatus;
 
 /// Parsed event types for internal processing

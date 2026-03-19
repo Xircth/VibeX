@@ -267,30 +267,43 @@ export const approvalsApi = {
 };
 
 // Scratch API
-// TODO: Scratch commands not yet implemented in Tauri backend
 export const scratchApi = {
   create: async (
-    _scratchType: ScratchType,
-    _id: string,
-    _data: CreateScratch
+    scratchType: ScratchType,
+    id: string,
+    data: CreateScratch
   ): Promise<Scratch> => {
-    throw new Error('Scratch API not yet implemented for Tauri');
+    return tauriInvoke<Scratch>('create_scratch', {
+      scratchType,
+      id,
+      payload: data,
+    });
   },
 
-  get: async (_scratchType: ScratchType, _id: string): Promise<Scratch> => {
-    throw new Error('Scratch API not yet implemented for Tauri');
+  get: async (scratchType: ScratchType, id: string): Promise<Scratch> => {
+    return tauriInvoke<Scratch>('get_scratch', {
+      scratchType,
+      id,
+    });
   },
 
   update: async (
-    _scratchType: ScratchType,
-    _id: string,
-    _data: UpdateScratch
+    scratchType: ScratchType,
+    id: string,
+    data: UpdateScratch
   ): Promise<void> => {
-    throw new Error('Scratch API not yet implemented for Tauri');
+    await tauriInvoke<void>('update_scratch', {
+      scratchType,
+      id,
+      payload: data,
+    });
   },
 
-  delete: async (_scratchType: ScratchType, _id: string): Promise<void> => {
-    throw new Error('Scratch API not yet implemented for Tauri');
+  delete: async (scratchType: ScratchType, id: string): Promise<void> => {
+    await tauriInvoke<void>('delete_scratch', {
+      scratchType,
+      id,
+    });
   },
 };
 

@@ -13,25 +13,21 @@ export function usePanelActions() {
     openFilePreview,
     openDiffPreview,
     openNewTerminal,
+    splitActiveEditor,
+    canSplitActiveEditor,
     closePanel,
     toggleFileTree,
     focusKanban,
-    toggleCenter1Visibility,
-    toggleCenter2Visibility,
-    isCenter1Visible,
-    isCenter2Visible,
   } = usePanelActionsContext();
 
   return {
     openFilePreview,
     openDiffPreview,
     openNewTerminal,
+    splitActiveEditor,
+    canSplitActiveEditor,
     closePanel,
     toggleFileTree,
     focusKanban,
-    toggleCenter1Visibility,
-    toggleCenter2Visibility,
-    isCenter1Visible,
-    isCenter2Visible,
   };
 }

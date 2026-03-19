@@ -1,12 +1,15 @@
 param(
+    [Parameter(Mandatory=$false)]
+    [string]$AppId = "com.vibe-ultra.app",
+
+    [Parameter(Mandatory=$false)]
+    [string]$AppName = "VibeUltra",
+
     [Parameter(Mandatory=$true)]
     [string]$Title,
     
     [Parameter(Mandatory=$true)]
-    [string]$Message,
-    
-    [Parameter(Mandatory=$false)]
-    [string]$AppName = "VibeUltra"
+    [string]$Message
 )
 
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
@@ -17,7 +20,7 @@ $RawXml = [xml] $Template.GetXml()
 $SerializedXml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $SerializedXml.LoadXml($RawXml.OuterXml)
 $Toast = [Windows.UI.Notifications.ToastNotification]::new($SerializedXml)
-$Toast.Tag = $AppName
-$Toast.Group = $AppName
-$Notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($AppName)
+$Toast.Tag = $AppId
+$Toast.Group = $AppId
+$Notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($AppId)
 $Notifier.Show($Toast)

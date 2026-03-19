@@ -213,11 +213,7 @@ pub async fn subscribe_scratch_stream(
                 }
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to start scratch stream for {}: {}",
-                    scratch_id,
-                    e
-                );
+                tracing::error!("Failed to start scratch stream for {}: {}", scratch_id, e);
             }
         }
     });
@@ -237,10 +233,7 @@ pub async fn subscribe_log_stream(
     let deployment = state.deployment.clone();
 
     tokio::spawn(async move {
-        let stream_opt = deployment
-            .container()
-            .stream_raw_logs(&process_id)
-            .await;
+        let stream_opt = deployment.container().stream_raw_logs(&process_id).await;
 
         if let Some(mut stream) = stream_opt {
             while let Some(Ok(msg)) = stream.next().await {
@@ -263,10 +256,7 @@ pub async fn subscribe_slash_commands_stream(
     workspace_id: Option<Uuid>,
     repo_id: Option<Uuid>,
 ) -> Result<(), AppError> {
-    let variant_str = executor_profile_id
-        .variant
-        .as_deref()
-        .unwrap_or("default");
+    let variant_str = executor_profile_id.variant.as_deref().unwrap_or("default");
     let ws_str = workspace_id
         .map(|id| id.to_string())
         .unwrap_or_else(|| "none".to_string());

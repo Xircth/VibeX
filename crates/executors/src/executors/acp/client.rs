@@ -9,7 +9,7 @@ use workspace_utils::approvals::ApprovalStatus;
 
 use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
-    executors::acp::{AcpEvent, ApprovalResponse},
+    executors::acp::{AcpEvent, ApprovalResponse, acp_terminal_registry},
 };
 
 /// ACP client that handles agent-client protocol communication
@@ -215,40 +215,84 @@ impl acp::Client for AcpClient {
         Err(acp::Error::method_not_found())
     }
 
-    // Terminal operations - not implemented
+    // Terminal operations
     async fn create_terminal(
         &self,
-        _args: acp::CreateTerminalRequest,
+        args: acp::CreateTerminalRequest,
     ) -> Result<acp::CreateTerminalResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
+        let terminal_id = acp_terminal_registry()
+            .create_terminal(&args)
+            .await
+            .map_err(|err| {
+                tracing::error!("Failed to create ACP terminal: {err}");
+                acp::Error::internal_error()
+            })?;
+
+        Ok(acp::CreateTerminalResponse::new(acp::TerminalId::new(
+            terminal_id.to_string(),
+        )))
     }
 
     async fn terminal_output(
         &self,
-        _args: acp::TerminalOutputRequest,
+        args: acp::TerminalOutputRequest,
     ) -> Result<acp::TerminalOutputResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
+        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
+            .map_err(|_| acp::Error::invalid_params())?;
+
+        let snapshot = acp_terminal_registry()
+            .snapshot_output(terminal_id)
+            .await
+            .ok_or_else(acp::Error::invalid_params)?;
+
+        let mut response = acp::TerminalOutputResponse::new(snapshot.output, snapshot.truncated);
+        if let Some(exit_status) = snapshot.exit_status {
+            response = response.exit_status(exit_status);
+        }
+        Ok(response)
     }
 
     async fn release_terminal(
         &self,
-        _args: acp::ReleaseTerminalRequest,
+        args: acp::ReleaseTerminalRequest,
     ) -> Result<acp::ReleaseTerminalResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
+        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
+            .map_err(|_| acp::Error::invalid_params())?;
+
+        if !acp_terminal_registry().release_terminal(terminal_id).await {
+            return Err(acp::Error::invalid_params());
+        }
+
+        Ok(acp::ReleaseTerminalResponse::new())
     }
 
     async fn wait_for_terminal_exit(
         &self,
-        _args: acp::WaitForTerminalExitRequest,
+        args: acp::WaitForTerminalExitRequest,
     ) -> Result<acp::WaitForTerminalExitResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
+        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
+            .map_err(|_| acp::Error::invalid_params())?;
+
+        let exit_status = acp_terminal_registry()
+            .wait_for_exit(terminal_id)
+            .await
+            .ok_or_else(acp::Error::invalid_params)?;
+
+        Ok(acp::WaitForTerminalExitResponse::new(exit_status))
     }
 
     async fn kill_terminal_command(
         &self,
-        _args: acp::KillTerminalCommandRequest,
+        args: acp::KillTerminalCommandRequest,
     ) -> Result<acp::KillTerminalCommandResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
+        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
+            .map_err(|_| acp::Error::invalid_params())?;
+
+        if !acp_terminal_registry().kill_terminal(terminal_id).await {
+            return Err(acp::Error::invalid_params());
+        }
+
+        Ok(acp::KillTerminalCommandResponse::new())
     }
 
     // Extension methods

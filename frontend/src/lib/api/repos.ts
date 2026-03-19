@@ -61,6 +61,20 @@ export const repoApi = {
     });
   },
 
+  checkGitRepoPath: async (path: string): Promise<boolean> => {
+    return tauriInvoke<boolean>('check_git_repo_path', { path });
+  },
+
+  initAtPath: async (data: {
+    path: string;
+    display_name?: string;
+  }): Promise<Repo> => {
+    return tauriInvoke<Repo>('init_repo_at_path', {
+      path: data.path,
+      displayName: data.display_name ?? null,
+    });
+  },
+
   getBatch: async (ids: string[]): Promise<Repo[]> => {
     return tauriInvoke<Repo[]>('get_repos_batch', { ids });
   },

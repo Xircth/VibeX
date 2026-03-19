@@ -34,7 +34,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum_macros::AsRefStr;
-use tokio::process::Command;
 use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
@@ -483,8 +482,7 @@ impl Codex {
     {
         let (program_path, args) = command_parts.into_resolved().await?;
 
-        let mut process = Command::new(program_path);
-        workspace_utils::process::configure_tokio_command_no_window(&mut process);
+        let mut process = workspace_utils::process::new_hidden_tokio_command(&program_path, &args);
         process
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
@@ -494,8 +492,7 @@ impl Codex {
             .env("NPM_CONFIG_LOGLEVEL", "error")
             .env("NODE_NO_WARNINGS", "1")
             .env("NO_COLOR", "1")
-            .env("RUST_LOG", "error")
-            .args(&args);
+            .env("RUST_LOG", "error");
 
         env.clone()
             .with_profile(&self.cmd)

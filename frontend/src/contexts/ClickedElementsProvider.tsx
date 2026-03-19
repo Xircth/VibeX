@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useState,
+  useRef,
   ReactNode,
   useEffect,
   useCallback,
@@ -27,8 +28,17 @@ interface ClickedElementsContextType {
   addElement: (payload: OpenInEditorPayload) => void;
   removeElement: (id: string) => void;
   clearElements: () => void;
-  selectComponent: (id: string, depthFromInner: number) => void;
-  generateMarkdown: () => string;
+  /** Sync attempt info so the provider can track workspace root and clear on attempt change */
+  syncAttempt: (
+    attemptId: string | undefined,
+    containerRef: string | undefined
+  ) => void;
+  /** Register a callback that fires when a new element is added (returns unregister fn) */
+  registerOnElementAdded: (
+    callback: (entry: ClickedEntry) => void
+  ) => () => void;
+  /** Current workspace root for path relativization */
+  workspaceRoot: string | undefined;
 }
 
 const ClickedElementsContext = createContext<ClickedElementsContextType | null>(
@@ -330,64 +340,148 @@ function formatClickedMarkdown(
     .join('\n');
 }
 
+// ====== Public utility: convert ClickedEntry to chip node data ======
+
+export interface ClickedElementChipData {
+  entryId: string;
+  componentName: string;
+  filePath: string;
+  htmlPreview?: string;
+  componentChain: string[];
+  fullMarkdown: string;
+}
+
+export function buildClickedElementData(
+  entry: ClickedEntry,
+  workspaceRoot?: string
+): ClickedElementChipData {
+  const { payload } = entry;
+  const chain = buildChainInnerToOuter(payload, workspaceRoot);
+
+  // Component name: innermost component
+  const componentName =
+    chain[0]?.name ?? payload.selected?.name ?? 'Unknown';
+
+  // File path: first component with a path
+  const first = chain[0];
+  const parsed = first ? parsePathWithLineCol(first.pathToSource) : { path: '' };
+  const rel = relativizePath(parsed.path, workspaceRoot);
+  const filePath = formatLoc(
+    rel,
+    first?.source?.lineNumber ?? parsed.line,
+    first?.source?.columnNumber ?? parsed.col
+  );
+
+  // HTML preview
+  const htmlPreview = payload.clickedElement?.dataset?.['preview'] ?? '';
+
+  // Component chain names from inner to outer
+  const componentChain = chain.map((c) => c.name);
+
+  // Full markdown for export
+  const fullMarkdown = formatClickedMarkdown(entry, workspaceRoot);
+
+  return {
+    entryId: entry.id,
+    componentName,
+    filePath,
+    htmlPreview: htmlPreview || undefined,
+    componentChain,
+    fullMarkdown,
+  };
+}
+
 export function ClickedElementsProvider({
   children,
   attempt,
 }: ClickedElementsProviderProps) {
   const [elements, setElements] = useState<ClickedEntry[]>([]);
-  const workspaceRoot = attempt?.container_ref;
+
+  // Track attempt info from either prop or syncAttempt calls
+  const [syncedAttemptId, setSyncedAttemptId] = useState<string | undefined>();
+  const [syncedContainerRef, setSyncedContainerRef] = useState<string | undefined>();
+  const prevAttemptIdRef = useRef<string | undefined>();
+
+  // Effective values: prop takes precedence over synced state
+  const effectiveAttemptId = attempt?.id ?? syncedAttemptId;
+  const workspaceRoot = attempt?.container_ref ?? syncedContainerRef;
 
   // Clear elements when attempt changes
   useEffect(() => {
+    if (effectiveAttemptId === prevAttemptIdRef.current) return;
+    prevAttemptIdRef.current = effectiveAttemptId;
     setElements([]);
-  }, [attempt?.id]);
+  }, [effectiveAttemptId]);
 
-  const addElement = (payload: OpenInEditorPayload) => {
-    const sanitized = stripHeavyProps(payload);
-    const dedupeKey = makeDedupeKey(sanitized, workspaceRoot || undefined);
+  // Callback registry for element-added notifications
+  const onElementAddedCallbacksRef = useRef<
+    Set<(entry: ClickedEntry) => void>
+  >(new Set());
 
-    setElements((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.dedupeKey === dedupeKey) {
-        return prev; // Skip consecutive duplicate
+  const addElement = useCallback(
+    (payload: OpenInEditorPayload) => {
+      const sanitized = stripHeavyProps(payload);
+      const dedupeKey = makeDedupeKey(sanitized, workspaceRoot || undefined);
+
+      let newEntry: ClickedEntry | null = null;
+
+      setElements((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.dedupeKey === dedupeKey) {
+          return prev; // Skip consecutive duplicate
+        }
+        newEntry = {
+          id: genId(),
+          payload: sanitized,
+          timestamp: Date.now(),
+          dedupeKey,
+        };
+        const updated = [...prev, newEntry];
+        return updated.length > MAX_ELEMENTS
+          ? updated.slice(-MAX_ELEMENTS)
+          : updated;
+      });
+
+      // Notify registered callbacks after state update
+      // Use queueMicrotask to ensure state is committed first
+      if (newEntry) {
+        const entry = newEntry;
+        queueMicrotask(() => {
+          onElementAddedCallbacksRef.current.forEach((cb) => cb(entry));
+        });
       }
-      const newEntry: ClickedEntry = {
-        id: genId(),
-        payload: sanitized,
-        timestamp: Date.now(),
-        dedupeKey,
-      };
-      const updated = [...prev, newEntry];
-      return updated.length > MAX_ELEMENTS
-        ? updated.slice(-MAX_ELEMENTS)
-        : updated;
-    });
-  };
+    },
+    [workspaceRoot]
+  );
 
-  const removeElement = (id: string) => {
+  const removeElement = useCallback((id: string) => {
     setElements((prev) => prev.filter((e) => e.id !== id));
-  };
+  }, []);
 
-  const clearElements = () => {
+  const clearElements = useCallback(() => {
     setElements([]);
-  };
+  }, []);
 
-  const selectComponent = (id: string, depthFromInner: number) => {
-    setElements((prev) =>
-      prev.map((e) =>
-        e.id === id ? { ...e, selectedDepth: depthFromInner } : e
-      )
-    );
-  };
+  const syncAttempt = useCallback(
+    (
+      attemptId: string | undefined,
+      containerRef: string | undefined
+    ) => {
+      setSyncedAttemptId(attemptId);
+      setSyncedContainerRef(containerRef);
+    },
+    []
+  );
 
-  const generateMarkdown = useCallback(() => {
-    if (elements.length === 0) return '';
-    const header = `## Clicked Elements (${elements.length})\n\n`;
-    const body = elements
-      .map((e) => formatClickedMarkdown(e, workspaceRoot || undefined))
-      .join('\n\n');
-    return header + body;
-  }, [elements, workspaceRoot]);
+  const registerOnElementAdded = useCallback(
+    (callback: (entry: ClickedEntry) => void) => {
+      onElementAddedCallbacksRef.current.add(callback);
+      return () => {
+        onElementAddedCallbacksRef.current.delete(callback);
+      };
+    },
+    []
+  );
 
   return (
     <ClickedElementsContext.Provider
@@ -396,8 +490,9 @@ export function ClickedElementsProvider({
         addElement,
         removeElement,
         clearElements,
-        selectComponent,
-        generateMarkdown,
+        syncAttempt,
+        registerOnElementAdded,
+        workspaceRoot,
       }}
     >
       {children}

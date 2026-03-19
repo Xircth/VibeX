@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 /**
  * Terminal session metadata tracked per workspace.
@@ -18,6 +19,10 @@ export interface TerminalSession {
   type?: 'pty' | 'log-viewer';
   /** ExecutionProcess ID — only used when type is 'log-viewer' */
   processId?: string;
+  /** Whether this terminal should reject user input */
+  readOnly?: boolean;
+  /** Logical source of the terminal session */
+  source?: 'workspace' | 'acp' | 'log-viewer';
 }
 
 interface TerminalState {
@@ -27,7 +32,18 @@ interface TerminalState {
   activeTabByWorkspace: Record<string, string | null>;
 
   /** Add a new terminal session for a workspace */
-  addSession: (workspaceId: string, tabId: string, shell?: string, options?: { title?: string; type?: 'pty' | 'log-viewer'; processId?: string }) => void;
+  addSession: (
+    workspaceId: string,
+    tabId: string,
+    shell?: string,
+    options?: {
+      title?: string;
+      type?: 'pty' | 'log-viewer';
+      processId?: string;
+      readOnly?: boolean;
+      source?: 'workspace' | 'acp' | 'log-viewer';
+    }
+  ) => void;
   /** Set the PTY session ID once the backend creates it */
   setSessionId: (tabId: string, sessionId: string) => void;
   /** Remove a terminal session */
@@ -44,114 +60,138 @@ interface TerminalState {
 
 let tabCounter = 0;
 
+function formatTerminalTitle(index: number): string {
+  return `VU-${String(index).padStart(2, '0')}`;
+}
+
 export function generateTerminalTabId(): string {
   tabCounter += 1;
   return `term-${Date.now()}-${tabCounter}`;
 }
 
-export const useTerminalStore = create<TerminalState>()((set, get) => ({
-  sessionsByWorkspace: {},
-  activeTabByWorkspace: {},
+export const useTerminalStore = create<TerminalState>()(
+  persist(
+    (set, get) => ({
+      sessionsByWorkspace: {},
+      activeTabByWorkspace: {},
 
-  addSession: (workspaceId, tabId, shell, options) => {
-    const state = get();
-    const existing = state.sessionsByWorkspace[workspaceId] || [];
-    const session: TerminalSession = {
-      tabId,
-      sessionId: null,
-      workspaceId,
-      title: options?.title ?? (options?.type === 'log-viewer' ? `日志 ${existing.length + 1}` : `终端 ${existing.length + 1}`),
-      shell,
-      type: options?.type ?? 'pty',
-      processId: options?.processId,
-    };
-    set({
-      sessionsByWorkspace: {
-        ...state.sessionsByWorkspace,
-        [workspaceId]: [...existing, session],
+      addSession: (workspaceId, tabId, shell, options) => {
+        const state = get();
+        const existing = state.sessionsByWorkspace[workspaceId] || [];
+        const session: TerminalSession = {
+          tabId,
+          sessionId: null,
+          workspaceId,
+          title:
+            options?.title ??
+            (options?.type === 'log-viewer'
+              ? `Log ${existing.length + 1}`
+              : formatTerminalTitle(existing.length + 1)),
+          shell,
+          type: options?.type ?? 'pty',
+          processId: options?.processId,
+          readOnly: options?.readOnly ?? false,
+          source:
+            options?.source ??
+            (options?.type === 'log-viewer' ? 'log-viewer' : 'workspace'),
+        };
+        set({
+          sessionsByWorkspace: {
+            ...state.sessionsByWorkspace,
+            [workspaceId]: [...existing, session],
+          },
+          activeTabByWorkspace: {
+            ...state.activeTabByWorkspace,
+            [workspaceId]: tabId,
+          },
+        });
       },
-      activeTabByWorkspace: {
-        ...state.activeTabByWorkspace,
-        [workspaceId]: tabId,
-      },
-    });
-  },
 
-  setSessionId: (tabId, sessionId) => {
-    const state = get();
-    const updated: Record<string, TerminalSession[]> = {};
-    for (const [wsId, sessions] of Object.entries(
-      state.sessionsByWorkspace
-    )) {
-      updated[wsId] = sessions.map((s) =>
-        s.tabId === tabId ? { ...s, sessionId } : s
-      );
+      setSessionId: (tabId, sessionId) => {
+        const state = get();
+        const updated: Record<string, TerminalSession[]> = {};
+        for (const [wsId, sessions] of Object.entries(
+          state.sessionsByWorkspace
+        )) {
+          updated[wsId] = sessions.map((session) =>
+            session.tabId === tabId ? { ...session, sessionId } : session
+          );
+        }
+        set({ sessionsByWorkspace: updated });
+      },
+
+      removeSession: (workspaceId, tabId) => {
+        const state = get();
+        const sessions = state.sessionsByWorkspace[workspaceId] || [];
+        const newSessions = sessions.filter((session) => session.tabId !== tabId);
+        const wasActive = state.activeTabByWorkspace[workspaceId] === tabId;
+
+        let newActive = state.activeTabByWorkspace[workspaceId];
+        if (wasActive && newSessions.length > 0) {
+          const closedIdx = sessions.findIndex((session) => session.tabId === tabId);
+          const nextIdx = Math.min(closedIdx, newSessions.length - 1);
+          newActive = newSessions[nextIdx]?.tabId ?? null;
+        } else if (newSessions.length === 0) {
+          newActive = null;
+        }
+
+        set({
+          sessionsByWorkspace: {
+            ...state.sessionsByWorkspace,
+            [workspaceId]: newSessions,
+          },
+          activeTabByWorkspace: {
+            ...state.activeTabByWorkspace,
+            [workspaceId]: newActive,
+          },
+        });
+      },
+
+      setActiveTab: (workspaceId, tabId) => {
+        set((state) => ({
+          activeTabByWorkspace: {
+            ...state.activeTabByWorkspace,
+            [workspaceId]: tabId,
+          },
+        }));
+      },
+
+      updateTitle: (tabId, title) => {
+        const state = get();
+        const updated: Record<string, TerminalSession[]> = {};
+        for (const [wsId, sessions] of Object.entries(
+          state.sessionsByWorkspace
+        )) {
+          updated[wsId] = sessions.map((session) =>
+            session.tabId === tabId ? { ...session, title } : session
+          );
+        }
+        set({ sessionsByWorkspace: updated });
+      },
+
+      clearWorkspace: (workspaceId) => {
+        const state = get();
+        const restSessions = { ...state.sessionsByWorkspace };
+        delete restSessions[workspaceId];
+        const restActive = { ...state.activeTabByWorkspace };
+        delete restActive[workspaceId];
+        set({
+          sessionsByWorkspace: restSessions,
+          activeTabByWorkspace: restActive,
+        });
+      },
+
+      getSessionsForWorkspace: (workspaceId) => {
+        return get().sessionsByWorkspace[workspaceId] || [];
+      },
+    }),
+    {
+      name: 'vibe-ultra-terminal-sessions',
+      version: 1,
+      partialize: (state) => ({
+        sessionsByWorkspace: state.sessionsByWorkspace,
+        activeTabByWorkspace: state.activeTabByWorkspace,
+      }),
     }
-    set({ sessionsByWorkspace: updated });
-  },
-
-  removeSession: (workspaceId, tabId) => {
-    const state = get();
-    const sessions = state.sessionsByWorkspace[workspaceId] || [];
-    const newSessions = sessions.filter((s) => s.tabId !== tabId);
-    const wasActive = state.activeTabByWorkspace[workspaceId] === tabId;
-
-    let newActive = state.activeTabByWorkspace[workspaceId];
-    if (wasActive && newSessions.length > 0) {
-      const closedIdx = sessions.findIndex((s) => s.tabId === tabId);
-      const nextIdx = Math.min(closedIdx, newSessions.length - 1);
-      newActive = newSessions[nextIdx]?.tabId ?? null;
-    } else if (newSessions.length === 0) {
-      newActive = null;
-    }
-
-    set({
-      sessionsByWorkspace: {
-        ...state.sessionsByWorkspace,
-        [workspaceId]: newSessions,
-      },
-      activeTabByWorkspace: {
-        ...state.activeTabByWorkspace,
-        [workspaceId]: newActive,
-      },
-    });
-  },
-
-  setActiveTab: (workspaceId, tabId) => {
-    set((s) => ({
-      activeTabByWorkspace: {
-        ...s.activeTabByWorkspace,
-        [workspaceId]: tabId,
-      },
-    }));
-  },
-
-  updateTitle: (tabId, title) => {
-    const state = get();
-    const updated: Record<string, TerminalSession[]> = {};
-    for (const [wsId, sessions] of Object.entries(
-      state.sessionsByWorkspace
-    )) {
-      updated[wsId] = sessions.map((s) =>
-        s.tabId === tabId ? { ...s, title } : s
-      );
-    }
-    set({ sessionsByWorkspace: updated });
-  },
-
-  clearWorkspace: (workspaceId) => {
-    const state = get();
-    const { [workspaceId]: _removed, ...restSessions } =
-      state.sessionsByWorkspace;
-    const { [workspaceId]: _removedActive, ...restActive } =
-      state.activeTabByWorkspace;
-    set({
-      sessionsByWorkspace: restSessions,
-      activeTabByWorkspace: restActive,
-    });
-  },
-
-  getSessionsForWorkspace: (workspaceId) => {
-    return get().sessionsByWorkspace[workspaceId] || [];
-  },
-}));
+  )
+);

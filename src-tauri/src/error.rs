@@ -91,6 +91,20 @@ impl From<db::models::execution_process::ExecutionProcessError> for AppError {
     }
 }
 
+impl From<db::models::scratch::ScratchError> for AppError {
+    fn from(e: db::models::scratch::ScratchError) -> Self {
+        match e {
+            db::models::scratch::ScratchError::TypeMismatch { expected, actual } => {
+                AppError::BadRequest(format!(
+                    "Scratch type mismatch: expected {}, got {}",
+                    expected, actual
+                ))
+            }
+            other => AppError::Internal(other.to_string()),
+        }
+    }
+}
+
 impl From<executors::executors::ExecutorError> for AppError {
     fn from(e: executors::executors::ExecutorError) -> Self {
         AppError::Internal(e.to_string())

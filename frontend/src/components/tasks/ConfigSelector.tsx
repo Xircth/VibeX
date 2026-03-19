@@ -37,14 +37,15 @@ export function ConfigSelector({
     !profiles ||
     !configs ||
     Object.keys(configs).length === 0
-  )
+  ) {
     return null;
+  }
 
   return (
     <div className="flex-1">
       {showLabel && (
         <Label htmlFor="executor-variant" className="text-sm font-medium">
-          Configuration
+          配置
         </Label>
       )}
       <DropdownMenu>
@@ -54,7 +55,7 @@ export function ConfigSelector({
             size="sm"
             className={`w-full justify-between text-xs ${showLabel ? 'mt-1.5' : ''} ${className}`}
             disabled={disabled}
-            aria-label="Select configuration"
+            aria-label="选择配置"
           >
             <div className="flex items-center gap-1.5 w-full">
               <Settings2 className="h-3 w-3" />

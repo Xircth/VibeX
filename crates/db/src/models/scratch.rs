@@ -367,6 +367,15 @@ impl Scratch {
         Ok(result.rows_affected())
     }
 
+    pub async fn delete_all_by_id(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM scratch WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+
+        Ok(result.rows_affected())
+    }
+
     pub async fn find_by_rowid(
         pool: &SqlitePool,
         rowid: i64,

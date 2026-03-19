@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { queueApi, sessionsApi } from '@/lib/api';
 import type { QueueStatus, Session } from 'shared/types';
 import type { SessionSummary as SessionSummaryRecord } from '@/lib/api';
@@ -48,6 +48,8 @@ export function useWorkspaceSessions(
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
+  const pendingSessionIdRef = useRef<string | null>(null);
+  const previousWorkspaceIdRef = useRef<string | undefined>(workspaceId);
 
   const { data: sessionSummaries = [], isLoading } = useQuery<
     SessionSummaryRecord[]
@@ -61,7 +63,7 @@ export function useWorkspaceSessions(
     queries: sessionSummaries.map((session) => ({
       queryKey: ['sessionQueueStatus', session.id],
       queryFn: () => queueApi.getStatus(session.id),
-      enabled: enabled && !!workspaceId,
+      enabled: enabled && !!workspaceId && !!session.id,
     })),
   });
 
@@ -71,9 +73,9 @@ export function useWorkspaceSessions(
         const queueStatus = queueStatusQueries[index]?.data ?? null;
         const displayName = session.first_prompt?.trim()
           ? session.first_prompt.trim()
-          : `session${sessionSummaries.length - index}`;
+          : `会话${sessionSummaries.length - index}`;
         const statusLabel = session.is_running
-          ? '运行中'
+          ? '执行中'
           : queueStatus?.status === 'queued'
             ? '排队中'
             : '空闲';
@@ -94,21 +96,38 @@ export function useWorkspaceSessions(
     [queueStatusQueries, sessionSummaries]
   );
 
-  // Combined effect: handle workspace changes and auto-select sessions
-  // This replaces two separate effects that had a race condition where the reset
-  // effect would fire after auto-select when sessions were cached, undoing the selection.
   useEffect(() => {
+    const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;
+    previousWorkspaceIdRef.current = workspaceId;
+
+    if (workspaceChanged) {
+      pendingSessionIdRef.current = null;
+    }
+
     if (sessions.length > 0) {
-      // Sessions are ordered by most recently used, so first is the most recently used
-      // Always select first session when sessions are available for this workspace
-      // Only auto-select if not in new session mode
       setSelection((prev) => {
         if (prev?.mode === 'new') return prev;
         if (
           prev?.mode === 'existing' &&
-          sessions.some((session) => session.id === prev.sessionId)
+          pendingSessionIdRef.current === prev.sessionId &&
+          !sessions.some((session) => session.id === prev.sessionId)
         ) {
           return prev;
+        }
+        if (
+          prev?.mode === 'existing' &&
+          sessions.some((session) => session.id === prev.sessionId)
+        ) {
+          if (pendingSessionIdRef.current === prev.sessionId) {
+            pendingSessionIdRef.current = null;
+          }
+          return prev;
+        }
+        if (
+          initialSessionId &&
+          !sessions.some((session) => session.id === initialSessionId)
+        ) {
+          return { mode: 'existing', sessionId: initialSessionId };
         }
         if (
           initialSessionId &&
@@ -133,16 +152,19 @@ export function useWorkspaceSessions(
   );
 
   const selectSession = useCallback((sessionId: string) => {
+    pendingSessionIdRef.current = sessionId;
     setSelection({ mode: 'existing', sessionId });
   }, []);
 
   const selectLatestSession = useCallback(() => {
     if (sessions.length > 0) {
+      pendingSessionIdRef.current = null;
       setSelection({ mode: 'existing', sessionId: sessions[0].id });
     }
   }, [sessions]);
 
   const startNewSession = useCallback(() => {
+    pendingSessionIdRef.current = null;
     setSelection({ mode: 'new' });
   }, []);
 

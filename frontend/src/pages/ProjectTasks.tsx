@@ -7,13 +7,14 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { paths } from '@/lib/paths';
-import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
+import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import {
   GitOperationsProvider,
   useGitOperationsError,
 } from '@/contexts/GitOperationsContext';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
 import TaskPanel from '@/components/panels/TaskPanel';
@@ -39,6 +40,7 @@ export function ProjectTasks() {
   }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const setActiveTab = useLayoutStore((state) => state.setActiveTab);
 
   const {
     projectId,
@@ -84,6 +86,11 @@ export function ProjectTasks() {
     [navigate, searchParams]
   );
 
+  useEffect(() => {
+    if (!projectId || taskId || attemptId) return;
+    setActiveTab('kanban');
+  }, [attemptId, projectId, setActiveTab, taskId]);
+
   // Resolve "latest" attempt to the actual latest attempt ID
   useEffect(() => {
     if (!projectId || !taskId) return;
@@ -119,6 +126,13 @@ export function ProjectTasks() {
   const effectiveAttemptId = attemptId === 'latest' ? undefined : attemptId;
   const isTaskView = !!taskId && !effectiveAttemptId;
   const { data: attempt } = useTaskAttemptWithSession(effectiveAttemptId);
+
+  // Sync attempt info to the shared ClickedElements context so that
+  // dockview panels (e.g. PreviewPanel) and this page share the same state.
+  const { syncAttempt } = useClickedElements();
+  useEffect(() => {
+    syncAttempt(attempt?.id, attempt?.container_ref ?? undefined);
+  }, [attempt?.id, attempt?.container_ref, syncAttempt]);
 
   const isInitialTasksLoad = isLoading && tasks.length === 0;
 
@@ -182,22 +196,20 @@ export function ProjectTasks() {
 
   return (
     <GitOperationsProvider attemptId={attempt?.id}>
-      <ClickedElementsProvider attempt={attempt}>
-        <ReviewProvider attemptId={attempt?.id}>
-          <div className="h-full flex flex-col">
-            {streamError && (
-              <Alert className="w-full z-30 xl:sticky xl:top-0">
-                <AlertTitle className="flex items-center gap-2">
-                  <AlertTriangle size="16" />
-                  {'重新连接中'}
-                </AlertTitle>
-                <AlertDescription>{streamError}</AlertDescription>
-              </Alert>
-            )}
-            <div className="flex-1 min-h-0">{attemptContent}</div>
-          </div>
-        </ReviewProvider>
-      </ClickedElementsProvider>
+      <ReviewProvider attemptId={attempt?.id}>
+        <div className="h-full flex flex-col">
+          {streamError && (
+            <Alert className="w-full z-30 xl:sticky xl:top-0">
+              <AlertTitle className="flex items-center gap-2">
+                <AlertTriangle size="16" />
+                {'重新连接中'}
+              </AlertTitle>
+              <AlertDescription>{streamError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="flex-1 min-h-0">{attemptContent}</div>
+        </div>
+      </ReviewProvider>
     </GitOperationsProvider>
   );
 }

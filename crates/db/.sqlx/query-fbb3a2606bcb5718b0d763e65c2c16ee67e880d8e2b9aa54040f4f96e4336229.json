@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO workspaces (id, task_id, container_ref, branch, agent_working_dir, setup_completed_at)\n               VALUES ($1, $2, $3, $4, $5, $6)\n               RETURNING id as \"id!: Uuid\", task_id as \"task_id!: Uuid\", container_ref, branch, agent_working_dir, setup_completed_at as \"setup_completed_at: DateTime<Utc>\", created_at as \"created_at!: DateTime<Utc>\", updated_at as \"updated_at!: DateTime<Utc>\", archived as \"archived!: bool\", pinned as \"pinned!: bool\", name",
+  "query": "SELECT id AS \"id!: Uuid\",\n                              task_id AS \"task_id!: Uuid\",\n                              container_ref,\n                              branch,\n                              use_worktree AS \"use_worktree!: bool\",\n                              agent_working_dir,\n                              setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                              created_at AS \"created_at!: DateTime<Utc>\",\n                              updated_at AS \"updated_at!: DateTime<Utc>\",\n                              archived AS \"archived!: bool\",\n                              pinned AS \"pinned!: bool\",\n                              name\n                       FROM workspaces\n                       ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -24,48 +24,54 @@
         "type_info": "Text"
       },
       {
-        "name": "agent_working_dir",
+        "name": "use_worktree!: bool",
         "ordinal": 4,
+        "type_info": "Bool"
+      },
+      {
+        "name": "agent_working_dir",
+        "ordinal": 5,
         "type_info": "Text"
       },
       {
         "name": "setup_completed_at: DateTime<Utc>",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Datetime"
       },
       {
         "name": "created_at!: DateTime<Utc>",
-        "ordinal": 6,
-        "type_info": "Text"
-      },
-      {
-        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 7,
         "type_info": "Text"
       },
       {
-        "name": "archived!: bool",
+        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 8,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "pinned!: bool",
+        "name": "archived!: bool",
         "ordinal": 9,
         "type_info": "Integer"
       },
       {
-        "name": "name",
+        "name": "pinned!: bool",
         "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 11,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 6
+      "Right": 0
     },
     "nullable": [
       true,
       false,
       true,
+      false,
       false,
       true,
       true,
@@ -76,5 +82,5 @@
       true
     ]
   },
-  "hash": "59567b3422999cd8cf5eccc8eb2a19e58a00712239ea078f01450491b4e6d159"
+  "hash": "fbb3a2606bcb5718b0d763e65c2c16ee67e880d8e2b9aa54040f4f96e4336229"
 }

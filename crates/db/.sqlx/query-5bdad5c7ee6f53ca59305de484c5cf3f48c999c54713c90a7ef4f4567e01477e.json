@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id!: Uuid\",\n                       container_ref,\n                       branch,\n                       agent_working_dir,\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\",\n                       archived          AS \"archived!: bool\",\n                       pinned            AS \"pinned!: bool\",\n                       name\n               FROM    workspaces\n               WHERE   rowid = $1",
+  "query": "SELECT  id                AS \"id!: Uuid\",\n                       task_id           AS \"task_id!: Uuid\",\n                       container_ref,\n                       branch,\n                       use_worktree      AS \"use_worktree!: bool\",\n                       agent_working_dir,\n                       setup_completed_at AS \"setup_completed_at: DateTime<Utc>\",\n                       created_at        AS \"created_at!: DateTime<Utc>\",\n                       updated_at        AS \"updated_at!: DateTime<Utc>\",\n                       archived          AS \"archived!: bool\",\n                       pinned            AS \"pinned!: bool\",\n                       name\n               FROM    workspaces\n               WHERE   rowid = $1",
   "describe": {
     "columns": [
       {
@@ -24,38 +24,43 @@
         "type_info": "Text"
       },
       {
-        "name": "agent_working_dir",
+        "name": "use_worktree!: bool",
         "ordinal": 4,
+        "type_info": "Bool"
+      },
+      {
+        "name": "agent_working_dir",
+        "ordinal": 5,
         "type_info": "Text"
       },
       {
         "name": "setup_completed_at: DateTime<Utc>",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Datetime"
       },
       {
         "name": "created_at!: DateTime<Utc>",
-        "ordinal": 6,
-        "type_info": "Text"
-      },
-      {
-        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 7,
         "type_info": "Text"
       },
       {
-        "name": "archived!: bool",
+        "name": "updated_at!: DateTime<Utc>",
         "ordinal": 8,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "pinned!: bool",
+        "name": "archived!: bool",
         "ordinal": 9,
         "type_info": "Integer"
       },
       {
-        "name": "name",
+        "name": "pinned!: bool",
         "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 11,
         "type_info": "Text"
       }
     ],
@@ -67,6 +72,7 @@
       false,
       true,
       false,
+      false,
       true,
       true,
       false,
@@ -76,5 +82,5 @@
       true
     ]
   },
-  "hash": "265392a2e833b8f0bc7ac317b6c82e12e935a964ae34faea00b2c7f15e988b39"
+  "hash": "5bdad5c7ee6f53ca59305de484c5cf3f48c999c54713c90a7ef4f4567e01477e"
 }

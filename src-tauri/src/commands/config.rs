@@ -1,11 +1,10 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use deployment::Deployment;
 use executors::{
     executors::{
-        codex::codex_home, AvailabilityInfo, BaseAgentCapability, BaseCodingAgent,
-        StandardCodingAgentExecutor,
+        AvailabilityInfo, BaseAgentCapability, BaseCodingAgent, StandardCodingAgentExecutor,
+        codex::codex_home,
     },
     mcp_config::{McpConfig, read_agent_config, write_agent_config},
     profile::{ExecutorConfigs, ExecutorProfileId},
@@ -108,7 +107,8 @@ pub async fn update_config(
     // Validate git branch prefix
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
         return Err(AppError::BadRequest(
-            "Invalid git branch prefix. Must be a valid git branch name component without slashes.".to_string(),
+            "Invalid git branch prefix. Must be a valid git branch name component without slashes."
+                .to_string(),
         ));
     }
 
@@ -208,9 +208,7 @@ pub async fn update_mcp_servers(
 }
 
 #[tauri::command]
-pub async fn get_profiles(
-    state: tauri::State<'_, AppState>,
-) -> Result<ProfilesContent, AppError> {
+pub async fn get_profiles(state: tauri::State<'_, AppState>) -> Result<ProfilesContent, AppError> {
     let _ = state;
     let profiles_path = utils::assets::profiles_path();
 
@@ -234,9 +232,8 @@ pub async fn update_profiles(
 ) -> Result<String, AppError> {
     let _ = state;
 
-    let executor_profiles: ExecutorConfigs = serde_json::from_str(&body).map_err(|e| {
-        AppError::BadRequest(format!("Invalid executor profiles format: {}", e))
-    })?;
+    let executor_profiles: ExecutorConfigs = serde_json::from_str(&body)
+        .map_err(|e| AppError::BadRequest(format!("Invalid executor profiles format: {}", e)))?;
 
     executor_profiles.save_overrides().map_err(|e| {
         tracing::error!("Failed to save executor profiles: {}", e);
@@ -256,12 +253,7 @@ pub async fn check_editor_availability(
 ) -> Result<CheckEditorAvailabilityResponse, AppError> {
     let _ = state;
 
-    let editor_config = EditorConfig::new(
-        editor_type,
-        None,
-        None,
-        None,
-    );
+    let editor_config = EditorConfig::new(editor_type, None, None, None);
 
     let available = editor_config.check_availability().await;
     Ok(CheckEditorAvailabilityResponse { available })
@@ -299,7 +291,11 @@ fn claude_settings_path() -> Option<std::path::PathBuf> {
     // Use HOME on Unix, USERPROFILE on Windows
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
-        .map(|home| std::path::PathBuf::from(home).join(".claude").join("settings.json"))
+        .map(|home| {
+            std::path::PathBuf::from(home)
+                .join(".claude")
+                .join("settings.json")
+        })
 }
 
 #[tauri::command]
@@ -308,33 +304,36 @@ pub async fn get_claude_settings(
 ) -> Result<ClaudeSettings, AppError> {
     let _ = state;
 
-    let path = claude_settings_path().ok_or_else(|| {
-        AppError::Internal("Could not determine home directory".to_string())
-    })?;
+    let path = claude_settings_path()
+        .ok_or_else(|| AppError::Internal("Could not determine home directory".to_string()))?;
 
     if !path.exists() {
         return Ok(ClaudeSettings::default());
     }
 
-    let content = fs::read_to_string(&path).await.map_err(|e| {
-        AppError::Internal(format!("Failed to read claude settings: {}", e))
-    })?;
+    let content = fs::read_to_string(&path)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read claude settings: {}", e)))?;
 
     // Parse as generic JSON Value first, then extract known fields.
     // This avoids failures when the file contains unknown fields (e.g. "permissions").
-    let raw: Value = serde_json::from_str(&content).map_err(|e| {
-        AppError::Internal(format!("Failed to parse claude settings JSON: {}", e))
-    })?;
+    let raw: Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Internal(format!("Failed to parse claude settings JSON: {}", e)))?;
 
-    let env: HashMap<String, String> = raw.get("env")
+    let env: HashMap<String, String> = raw
+        .get("env")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    let enabled_plugins: HashMap<String, bool> = raw.get("enabledPlugins")
+    let enabled_plugins: HashMap<String, bool> = raw
+        .get("enabledPlugins")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    Ok(ClaudeSettings { env, enabled_plugins })
+    Ok(ClaudeSettings {
+        env,
+        enabled_plugins,
+    })
 }
 
 #[tauri::command]
@@ -344,15 +343,14 @@ pub async fn update_claude_settings(
 ) -> Result<ClaudeSettings, AppError> {
     let _ = state;
 
-    let path = claude_settings_path().ok_or_else(|| {
-        AppError::Internal("Could not determine home directory".to_string())
-    })?;
+    let path = claude_settings_path()
+        .ok_or_else(|| AppError::Internal("Could not determine home directory".to_string()))?;
 
     // Read existing file to preserve unknown fields
     let mut existing: Value = if path.exists() {
-        let content = fs::read_to_string(&path).await.map_err(|e| {
-            AppError::Internal(format!("Failed to read claude settings: {}", e))
-        })?;
+        let content = fs::read_to_string(&path)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to read claude settings: {}", e)))?;
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
     } else {
         serde_json::json!({})
@@ -360,8 +358,14 @@ pub async fn update_claude_settings(
 
     // Update only the fields we manage
     if let Some(obj) = existing.as_object_mut() {
-        obj.insert("env".to_string(), serde_json::to_value(&settings.env).unwrap());
-        obj.insert("enabledPlugins".to_string(), serde_json::to_value(&settings.enabled_plugins).unwrap());
+        obj.insert(
+            "env".to_string(),
+            serde_json::to_value(&settings.env).unwrap(),
+        );
+        obj.insert(
+            "enabledPlugins".to_string(),
+            serde_json::to_value(&settings.enabled_plugins).unwrap(),
+        );
     }
 
     // Ensure parent directory exists
@@ -371,13 +375,12 @@ pub async fn update_claude_settings(
         })?;
     }
 
-    let content = serde_json::to_string_pretty(&existing).map_err(|e| {
-        AppError::Internal(format!("Failed to serialize claude settings: {}", e))
-    })?;
+    let content = serde_json::to_string_pretty(&existing)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize claude settings: {}", e)))?;
 
-    fs::write(&path, content).await.map_err(|e| {
-        AppError::Internal(format!("Failed to write claude settings: {}", e))
-    })?;
+    fs::write(&path, content)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to write claude settings: {}", e)))?;
 
     Ok(settings)
 }
@@ -511,7 +514,12 @@ fn opencode_auth_path() -> Option<PathBuf> {
     }
     #[cfg(not(windows))]
     {
-        dirs::home_dir().map(|p| p.join(".local").join("share").join("opencode").join("auth.json"))
+        dirs::home_dir().map(|p| {
+            p.join(".local")
+                .join("share")
+                .join("opencode")
+                .join("auth.json")
+        })
     }
 }
 
@@ -583,10 +591,7 @@ pub async fn read_agent_native_configs(
                     };
                     match path {
                         Some(p) => Some(fs::read_to_string(&p).await.map_err(|e| {
-                            AppError::Internal(format!(
-                                "Failed to read opencode config: {}",
-                                e
-                            ))
+                            AppError::Internal(format!("Failed to read opencode config: {}", e))
                         })?),
                         None => None,
                     }
@@ -677,16 +682,11 @@ pub async fn write_agent_native_config(
         BaseCodingAgent::Opencode => {
             if let Some(config_content) = opencode_config_json {
                 let config_dir = opencode_config_dir().ok_or_else(|| {
-                    AppError::Internal(
-                        "Could not determine OpenCode config directory".to_string(),
-                    )
+                    AppError::Internal("Could not determine OpenCode config directory".to_string())
                 })?;
 
                 fs::create_dir_all(&config_dir).await.map_err(|e| {
-                    AppError::Internal(format!(
-                        "Failed to create opencode config directory: {}",
-                        e
-                    ))
+                    AppError::Internal(format!("Failed to create opencode config directory: {}", e))
                 })?;
 
                 fs::write(config_dir.join("opencode.json"), config_content)
@@ -698,9 +698,7 @@ pub async fn write_agent_native_config(
 
             if let Some(auth_content) = opencode_auth_json {
                 let auth_path = opencode_auth_path().ok_or_else(|| {
-                    AppError::Internal(
-                        "Could not determine OpenCode auth path".to_string(),
-                    )
+                    AppError::Internal("Could not determine OpenCode auth path".to_string())
                 })?;
 
                 if let Some(parent) = auth_path.parent() {

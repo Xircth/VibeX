@@ -29,6 +29,8 @@ pub enum PtyError {
 struct PtySession {
     writer: Box<dyn Write + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
+    output_history: Arc<Mutex<Vec<u8>>>,
+    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Vec<u8>>>>>,
     _output_handle: thread::JoinHandle<()>,
     closed: bool,
 }
@@ -51,14 +53,19 @@ impl PtyService {
         cols: u16,
         rows: u16,
         shell_override: Option<String>,
+        preset_session_id: Option<Uuid>,
     ) -> Result<(Uuid, mpsc::UnboundedReceiver<Vec<u8>>), PtyError> {
-        let session_id = Uuid::new_v4();
+        let session_id = preset_session_id.unwrap_or_else(Uuid::new_v4);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let shell = if let Some(ref s) = shell_override {
             std::path::PathBuf::from(s)
         } else {
             get_interactive_shell().await
         };
+        let output_history = Arc::new(Mutex::new(Vec::new()));
+        let subscribers = Arc::new(Mutex::new(vec![output_tx]));
+        let history_for_thread = Arc::clone(&output_history);
+        let subscribers_for_thread = Arc::clone(&subscribers);
 
         let result = tokio::task::spawn_blocking(move || {
             let pty_system = NativePtySystem::default();
@@ -127,8 +134,20 @@ impl PtyService {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => {
-                            if output_tx.send(buf[..n].to_vec()).is_err() {
-                                break;
+                            let chunk = buf[..n].to_vec();
+
+                            if let Ok(mut history) = history_for_thread.lock() {
+                                history.extend_from_slice(&chunk);
+                                const MAX_HISTORY_BYTES: usize = 512 * 1024;
+                                if history.len() > MAX_HISTORY_BYTES {
+                                    let overflow = history.len() - MAX_HISTORY_BYTES;
+                                    history.drain(..overflow);
+                                }
+                            }
+
+                            if let Ok(mut subscribers) = subscribers_for_thread.lock() {
+                                subscribers
+                                    .retain(|subscriber| subscriber.send(chunk.clone()).is_ok());
                             }
                         }
                         Err(_) => break,
@@ -147,6 +166,8 @@ impl PtyService {
         let session = PtySession {
             writer,
             master,
+            output_history,
+            subscribers,
             _output_handle: output_handle,
             closed: false,
         };
@@ -157,6 +178,38 @@ impl PtyService {
             .insert(session_id, session);
 
         Ok((session_id, output_rx))
+    }
+
+    pub async fn subscribe_output(
+        &self,
+        session_id: Uuid,
+    ) -> Result<mpsc::UnboundedReceiver<Vec<u8>>, PtyError> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
+        let session = sessions
+            .get(&session_id)
+            .ok_or(PtyError::SessionNotFound(session_id))?;
+
+        if session.closed {
+            return Err(PtyError::SessionClosed);
+        }
+
+        if let Ok(history) = session.output_history.lock()
+            && !history.is_empty()
+        {
+            let _ = tx.send(history.clone());
+        }
+
+        session
+            .subscribers
+            .lock()
+            .map_err(|e| PtyError::CreateFailed(e.to_string()))?
+            .push(tx);
+
+        Ok(rx)
     }
 
     pub async fn write(&self, session_id: Uuid, data: &[u8]) -> Result<(), PtyError> {
@@ -219,6 +272,9 @@ impl PtyService {
             .remove(&session_id)
         {
             session.closed = true;
+            if let Ok(mut subscribers) = session.subscribers.lock() {
+                subscribers.clear();
+            }
         }
         Ok(())
     }

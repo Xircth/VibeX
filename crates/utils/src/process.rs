@@ -1,3 +1,7 @@
+#[cfg(windows)]
+use std::os::windows::process::CommandExt as _;
+use std::{ffi::OsStr, path::Path};
+
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
 #[cfg(unix)]
 use nix::{
@@ -6,9 +10,6 @@ use nix::{
 };
 #[cfg(unix)]
 use tokio::time::Duration;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt as _;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -38,6 +39,38 @@ pub fn configure_tokio_command_no_window(
 pub fn configure_tokio_command_no_window(
     command: &mut tokio::process::Command,
 ) -> &mut tokio::process::Command {
+    command
+}
+
+#[cfg(windows)]
+fn is_windows_batch_script(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat"))
+        .unwrap_or(false)
+}
+
+/// Build a tokio command that stays hidden on Windows, including `.cmd`/`.bat`
+/// wrappers such as npm-installed CLIs.
+pub fn new_hidden_tokio_command(
+    program: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+) -> tokio::process::Command {
+    let program = program.as_ref();
+
+    #[cfg(windows)]
+    {
+        if is_windows_batch_script(program) {
+            let mut command = tokio::process::Command::new("cmd.exe");
+            configure_tokio_command_no_window(&mut command);
+            command.arg("/d").arg("/c").arg(program).args(args);
+            return command;
+        }
+    }
+
+    let mut command = tokio::process::Command::new(program);
+    configure_tokio_command_no_window(&mut command);
+    command.args(args);
     command
 }
 
@@ -86,4 +119,47 @@ pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<
     let _ = child.kill().await;
     let _ = child.wait().await;
     Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use std::{
+        fs,
+        process::Stdio,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::new_hidden_tokio_command;
+
+    #[tokio::test]
+    async fn batch_script_with_spaces_runs_successfully() {
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "vibe-ultra-process-{unique_suffix}-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_dir).expect("create temp test dir");
+
+        let script_path = temp_dir.join("hello world.cmd");
+        fs::write(&script_path, "@echo off\r\necho ok %1\r\n").expect("write batch script");
+
+        let mut command = new_hidden_tokio_command(&script_path, ["arg"]);
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        let output = command.output().await.expect("run batch script");
+
+        let _ = fs::remove_file(&script_path);
+        let _ = fs::remove_dir(&temp_dir);
+
+        assert!(
+            output.status.success(),
+            "expected success, got status {:?}, stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok arg");
+    }
 }

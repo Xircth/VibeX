@@ -9,14 +9,16 @@ type Args = {
   workspaceId?: string;
   isNewSessionMode?: boolean;
   onSelectSession?: (sessionId: string) => void;
+  onSessionCreated?: (session: {
+    sessionId: string;
+    workspaceId: string;
+  }) => void;
   message: string;
   conflictMarkdown: string | null;
   reviewMarkdown: string;
-  clickedMarkdown?: string;
   executorProfileId: ExecutorProfileId | null;
   clearComments: () => void;
-  clearClickedElements?: () => void;
-  onAfterSendCleanup: () => void;
+  onAfterSendCleanup: () => void | Promise<void>;
 };
 
 export function useFollowUpSend({
@@ -24,13 +26,12 @@ export function useFollowUpSend({
   workspaceId,
   isNewSessionMode,
   onSelectSession,
+  onSessionCreated,
   message,
   conflictMarkdown,
   reviewMarkdown,
-  clickedMarkdown,
   executorProfileId,
   clearComments,
-  clearClickedElements,
   onAfterSendCleanup,
 }: Args) {
   const queryClient = useQueryClient();
@@ -43,7 +44,6 @@ export function useFollowUpSend({
     const extraMessage = message.trim();
     const { prompt, isSlashCommand } = buildAgentPrompt(extraMessage, [
       conflictMarkdown,
-      clickedMarkdown?.trim(),
       reviewMarkdown?.trim(),
     ]);
 
@@ -64,6 +64,10 @@ export function useFollowUpSend({
 
         targetSessionId = session.id;
         onSelectSession?.(session.id);
+        onSessionCreated?.({
+          sessionId: session.id,
+          workspaceId: session.workspace_id,
+        });
 
         // Immediately invalidate session cache so useWorkspaceSessions
         // picks up the new session and ExecutionProcessesProvider can
@@ -83,9 +87,8 @@ export function useFollowUpSend({
       await sessionsApi.followUp(targetSessionId, body);
       if (!isSlashCommand) {
         clearComments();
-        clearClickedElements?.();
       }
-      onAfterSendCleanup();
+      await onAfterSendCleanup();
       // Don't call jumpToLogsTab() - preserves focus on the follow-up editor
     } catch (error: unknown) {
       const err = error as { message?: string };
@@ -101,13 +104,12 @@ export function useFollowUpSend({
     workspaceId,
     isNewSessionMode,
     onSelectSession,
+    onSessionCreated,
     message,
     conflictMarkdown,
     reviewMarkdown,
-    clickedMarkdown,
     executorProfileId,
     clearComments,
-    clearClickedElements,
     onAfterSendCleanup,
   ]);
 

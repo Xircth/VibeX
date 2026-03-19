@@ -93,18 +93,25 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  width: 100%;
-  padding: 4px 0 0;
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
-  background: none;
-  border: none;
-  transition: color 0.15s;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
 }
 
 .conv-user-toggle:hover {
   color: rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.28);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .conv-user-toggle-icon {

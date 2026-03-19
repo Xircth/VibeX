@@ -39,7 +39,6 @@ interface ActionBarProps {
   localMessage: string;
   conflictResolutionInstructions: string | null;
   reviewMarkdown: string | null;
-  clickedMarkdown: string | null;
   todos: TodoItem[];
   comments: unknown[];
   onQueueMessage: () => void;
@@ -66,7 +65,6 @@ export function ActionBar({
   localMessage,
   conflictResolutionInstructions,
   reviewMarkdown,
-  clickedMarkdown,
   todos,
   comments,
   onQueueMessage,
@@ -99,8 +97,7 @@ export function ActionBar({
   const hasQueueableContent =
     localMessage.trim() ||
     conflictResolutionInstructions ||
-    reviewMarkdown ||
-    clickedMarkdown;
+    reviewMarkdown;
 
   return (
     <div className="flex flex-wrap gap-1 items-center pt-1 border-t border-border/50">

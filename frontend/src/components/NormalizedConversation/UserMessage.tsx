@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { ChevronDown, Undo2 } from 'lucide-react';
+import { useState, useCallback, useRef, useLayoutEffect } from 'react';
+import { Check, ChevronDown, Clipboard, Pencil, Undo2 } from 'lucide-react';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { BaseAgentCapability } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
@@ -7,11 +7,13 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useBranchStatus } from '@/hooks/useBranchStatus';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { sessionsApi } from '@/lib/api';
 import { RestoreLogsDialog } from '@/components/dialogs';
 import { RetryEditorInline } from './RetryEditorInline';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 
-const COLLAPSED_MAX_HEIGHT = 120; // px – roughly 6 lines at 14px/1.5
+const COLLAPSED_MAX_HEIGHT = 120;
 
 const UserMessage = ({
   content,
@@ -26,7 +28,9 @@ const UserMessage = ({
   const [isRollingBack, setIsRollingBack] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [needsCollapse, setNeedsCollapse] = useState(false);
+  const [isCollapseMeasured, setIsCollapseMeasured] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [copied, triggerCopied] = useTemporaryFlag(400);
 
   const { capabilities } = useUserSystem();
   const { activeRetryProcessId, setActiveRetryProcessId, isProcessGreyed } =
@@ -34,15 +38,26 @@ const UserMessage = ({
   const { isAttemptRunning } = useAttemptExecution(taskAttempt?.id);
   const { data: branchStatus } = useBranchStatus(taskAttempt?.id);
 
-  // Check if content is tall enough to need collapsing
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-    const check = () => setNeedsCollapse(el.scrollHeight > COLLAPSED_MAX_HEIGHT + 20);
+  useLayoutEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+
+    const check = () => {
+      setNeedsCollapse(element.scrollHeight > COLLAPSED_MAX_HEIGHT + 20);
+      setIsCollapseMeasured(true);
+    };
+
     check();
-    // Re-check after WYSIWYG renders
-    const timer = setTimeout(check, 200);
-    return () => clearTimeout(timer);
+
+    const resizeObserver = new ResizeObserver(() => {
+      check();
+    });
+
+    resizeObserver.observe(element);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
   }, [content]);
 
   const canFork = !!(
@@ -52,16 +67,16 @@ const UserMessage = ({
     )
   );
 
-  const startRetry = () => {
+  const startRetry = useCallback(() => {
     if (!executionProcessId || !taskAttempt) return;
     setIsEditing(true);
     setActiveRetryProcessId(executionProcessId);
-  };
+  }, [executionProcessId, setActiveRetryProcessId, taskAttempt]);
 
-  const onCancelled = () => {
+  const onCancelled = useCallback(() => {
     setIsEditing(false);
     setActiveRetryProcessId(null);
-  };
+  }, [setActiveRetryProcessId]);
 
   const showRetryEditor =
     !!executionProcessId &&
@@ -72,10 +87,23 @@ const UserMessage = ({
     isProcessGreyed(executionProcessId) &&
     !showRetryEditor;
 
-  const canRetry = executionProcessId && canFork && !isAttemptRunning;
+  const canRetry = !!executionProcessId && canFork && !isAttemptRunning;
+  const showActionRail = content.trim().length > 0 || canRetry;
+
+  const handleCopy = useCallback(async () => {
+    if (!content) return;
+
+    try {
+      await writeClipboardViaBridge(content.replace(/\\_/g, '_'));
+      triggerCopied();
+    } catch {
+      // Ignore clipboard failures in embedded environments.
+    }
+  }, [content, triggerCopied]);
 
   const handleRollback = useCallback(async () => {
     if (!executionProcessId || !taskAttempt?.session?.id) return;
+
     setIsRollingBack(true);
     try {
       let modalResult;
@@ -88,18 +116,20 @@ const UserMessage = ({
       } catch {
         return;
       }
+
       if (!modalResult || modalResult.action !== 'confirmed') return;
+
       await sessionsApi.reset(taskAttempt.session.id, {
         process_id: executionProcessId,
         force_when_dirty: modalResult.forceWhenDirty ?? false,
         perform_git_reset: modalResult.performGitReset ?? true,
       });
-    } catch (err) {
-      console.error('Failed to rollback:', err);
+    } catch (error) {
+      console.error('Failed to rollback:', error);
     } finally {
       setIsRollingBack(false);
     }
-  }, [executionProcessId, taskAttempt, branchStatus]);
+  }, [branchStatus, executionProcessId, taskAttempt]);
 
   if (showRetryEditor && taskAttempt) {
     return (
@@ -128,10 +158,7 @@ const UserMessage = ({
             ref={contentRef}
             className="conv-user-collapsible"
             style={{
-              maxHeight:
-                needsCollapse && isCollapsed
-                  ? `${COLLAPSED_MAX_HEIGHT}px`
-                  : undefined,
+              maxHeight: isCollapsed ? `${COLLAPSED_MAX_HEIGHT}px` : undefined,
             }}
           >
             <WYSIWYGEditor
@@ -139,37 +166,60 @@ const UserMessage = ({
               disabled
               className="whitespace-pre-wrap break-words flex flex-col gap-1"
               taskAttemptId={taskAttempt?.id}
-              onEdit={canRetry ? startRetry : undefined}
+              hideReadOnlyActions
             />
-            {needsCollapse && isCollapsed && (
+            {isCollapseMeasured && needsCollapse && isCollapsed && (
               <div className="conv-user-collapsible-overlay" />
             )}
           </div>
 
-          {needsCollapse && (
+          {isCollapseMeasured && needsCollapse && (
             <button
               className="conv-user-toggle"
-              onClick={() => setIsCollapsed((v) => !v)}
+              onClick={() => setIsCollapsed((value) => !value)}
             >
               <ChevronDown
                 className={`h-3 w-3 conv-user-toggle-icon ${!isCollapsed ? 'is-expanded' : ''}`}
               />
-              <span>{isCollapsed ? '展开' : '收起'}</span>
+              <span>{isCollapsed ? '\u5c55\u5f00' : '\u6536\u8d77'}</span>
             </button>
           )}
 
-          {/* Hover actions – outside the bubble visually */}
-          {canRetry && (
-            <div className="absolute -left-8 top-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {showActionRail && (
+            <div className="absolute right-full top-2 mr-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               <button
-                onClick={handleRollback}
-                disabled={isRollingBack}
+                onClick={handleCopy}
                 className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                title="回退到此消息"
-                aria-label="回退"
+                title={copied ? 'Copied!' : 'Copy as Markdown'}
+                aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
               >
-                <Undo2 className="h-3.5 w-3.5" />
+                {copied ? (
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                ) : (
+                  <Clipboard className="h-3.5 w-3.5" />
+                )}
               </button>
+              {canRetry && (
+                <button
+                  onClick={startRetry}
+                  className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                  title="Edit"
+                  aria-label="Edit"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {canRetry && (
+                <button
+                  onClick={handleRollback}
+                  disabled={isRollingBack}
+                  className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                  title="Rollback"
+                  aria-label="Rollback"
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           )}
         </div>

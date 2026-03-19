@@ -187,7 +187,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
                   selectedProfile={effectiveProfile}
                   onChange={setUserSelectedProfile}
                   showLabel={true}
-                  className="flex items-center gap-1 flex-wrap"
+                  className="flex w-full min-w-0 flex-wrap items-end gap-2"
                 />
               </div>
             )}

@@ -1082,14 +1082,8 @@ impl GitService {
         let branch = Self::find_branch(&repo, branch_name)?;
         let base_branch = Self::find_branch(&repo, base_branch_name)?;
 
-        let branch_oid = branch
-            .get()
-            .peel_to_commit()?
-            .id();
-        let base_oid = base_branch
-            .get()
-            .peel_to_commit()?
-            .id();
+        let branch_oid = branch.get().peel_to_commit()?.id();
+        let base_oid = base_branch.get().peel_to_commit()?.id();
 
         let mut revwalk = repo.revwalk()?;
         revwalk.push(branch_oid)?;
@@ -1201,15 +1195,10 @@ impl GitService {
                 .trim()
                 .to_string();
 
-            let author = commit
-                .author()
-                .name()
-                .unwrap_or("Unknown")
-                .to_string();
+            let author = commit.author().name().unwrap_or("Unknown").to_string();
             let timestamp = commit.time().seconds();
 
-            let parents: Vec<String> =
-                commit.parent_ids().map(|p| format!("{}", p)).collect();
+            let parents: Vec<String> = commit.parent_ids().map(|p| format!("{}", p)).collect();
 
             let refs = ref_map.get(&oid).cloned().unwrap_or_default();
             let is_current_branch = branch_only.contains(&oid);
@@ -2338,9 +2327,9 @@ impl GitService {
         worktree_path: &Path,
     ) -> Result<DetailedGitStatus, GitServiceError> {
         let git = GitCli::new();
-        let status = git.get_worktree_status(worktree_path).map_err(|e| {
-            GitServiceError::InvalidRepository(format!("git status failed: {e}"))
-        })?;
+        let status = git
+            .get_worktree_status(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
         let branch_name = git.get_current_branch(worktree_path).unwrap_or_default();
 
         // Parse numstat for additions/deletions (staged)
@@ -2410,11 +2399,7 @@ impl GitService {
     }
 
     /// Stage a single file.
-    pub fn stage_file(
-        &self,
-        worktree_path: &Path,
-        file_path: &str,
-    ) -> Result<(), GitServiceError> {
+    pub fn stage_file(&self, worktree_path: &Path, file_path: &str) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.stage_file(worktree_path, file_path)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git add failed: {e}")))
@@ -2463,9 +2448,9 @@ impl GitService {
         worktree_path: &Path,
     ) -> Result<Vec<GitFileDiffEntry>, GitServiceError> {
         let git = GitCli::new();
-        let status = git.get_worktree_status(worktree_path).map_err(|e| {
-            GitServiceError::InvalidRepository(format!("git status failed: {e}"))
-        })?;
+        let status = git
+            .get_worktree_status(worktree_path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
 
         let mut diffs = Vec::new();
         for entry in &status.entries {
@@ -2484,7 +2469,8 @@ impl GitService {
             let diff_content = if is_binary {
                 String::new()
             } else {
-                git.get_diff_file(worktree_path, &path_str).unwrap_or_default()
+                git.get_diff_file(worktree_path, &path_str)
+                    .unwrap_or_default()
             };
 
             diffs.push(GitFileDiffEntry {
@@ -2517,9 +2503,9 @@ impl GitService {
         max_count: usize,
     ) -> Result<Vec<GitLogEntry>, GitServiceError> {
         let git = GitCli::new();
-        let raw = git.get_log(worktree_path, max_count).map_err(|e| {
-            GitServiceError::InvalidRepository(format!("git log failed: {e}"))
-        })?;
+        let raw = git
+            .get_log(worktree_path, max_count)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git log failed: {e}")))?;
 
         let mut entries = Vec::new();
         for line in raw.lines() {
@@ -2580,8 +2566,9 @@ impl GitService {
     /// Fetch all remotes to update tracking branches.
     pub fn fetch_all(&self, worktree_path: &Path) -> Result<(), GitServiceError> {
         let git = GitCli::new();
-        git.fetch_all(worktree_path)
-            .map_err(|e| GitServiceError::InvalidRepository(format!("git fetch --all failed: {e}")))?;
+        git.fetch_all(worktree_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git fetch --all failed: {e}"))
+        })?;
         Ok(())
     }
 
@@ -2605,20 +2592,20 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.create_and_checkout_branch(worktree_path, branch_name, from_ref)
-            .map_err(|e| GitServiceError::InvalidRepository(format!("git create branch failed: {e}")))
+            .map_err(|e| {
+                GitServiceError::InvalidRepository(format!("git create branch failed: {e}"))
+            })
     }
 
     /// Get ahead/behind counts for the current branch vs its upstream.
-    pub fn get_log_status(
-        &self,
-        worktree_path: &Path,
-    ) -> Result<GitLogStatus, GitServiceError> {
+    pub fn get_log_status(&self, worktree_path: &Path) -> Result<GitLogStatus, GitServiceError> {
         let git = GitCli::new();
         let branch = git.get_current_branch(worktree_path).unwrap_or_default();
         let upstream = git.get_upstream_branch(worktree_path).unwrap_or(None);
 
         let (ahead, behind) = if let Some(ref up) = upstream {
-            git.get_rev_list_count(worktree_path, up, "HEAD").unwrap_or((0, 0))
+            git.get_rev_list_count(worktree_path, up, "HEAD")
+                .unwrap_or((0, 0))
         } else {
             (0, 0)
         };
@@ -2643,9 +2630,9 @@ impl GitService {
         sha: &str,
     ) -> Result<CommitDetail, GitServiceError> {
         let git = GitCli::new();
-        let (summary, body, author, author_email, timestamp) =
-            git.show_commit(worktree_path, sha)
-                .map_err(|e| GitServiceError::from(e))?;
+        let (summary, body, author, author_email, timestamp) = git
+            .show_commit(worktree_path, sha)
+            .map_err(|e| GitServiceError::from(e))?;
 
         let raw_files = git
             .show_commit_files(worktree_path, sha)
@@ -2684,11 +2671,7 @@ impl GitService {
     }
 
     /// Revert a commit (creates a new undo commit).
-    pub fn revert_commit(
-        &self,
-        worktree_path: &Path,
-        sha: &str,
-    ) -> Result<(), GitServiceError> {
+    pub fn revert_commit(&self, worktree_path: &Path, sha: &str) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.revert_commit(worktree_path, sha)
             .map_err(|e| GitServiceError::from(e))
@@ -2754,13 +2737,10 @@ impl GitService {
 
     fn is_likely_binary(path: &str) -> bool {
         let binary_exts = [
-            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg",
-            ".mp3", ".mp4", ".wav", ".avi", ".mov",
-            ".zip", ".tar", ".gz", ".rar", ".7z",
-            ".exe", ".dll", ".so", ".dylib",
-            ".woff", ".woff2", ".ttf", ".otf", ".eot",
-            ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-            ".db", ".sqlite", ".sqlite3",
+            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg", ".mp3", ".mp4",
+            ".wav", ".avi", ".mov", ".zip", ".tar", ".gz", ".rar", ".7z", ".exe", ".dll", ".so",
+            ".dylib", ".woff", ".woff2", ".ttf", ".otf", ".eot", ".pdf", ".doc", ".docx", ".xls",
+            ".xlsx", ".db", ".sqlite", ".sqlite3",
         ];
         let lower = path.to_lowercase();
         binary_exts.iter().any(|ext| lower.ends_with(ext))

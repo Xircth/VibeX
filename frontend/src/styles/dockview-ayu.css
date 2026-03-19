@@ -154,3 +154,12 @@
   background-color: var(--dv-tabs-container-scrollbar-color, rgba(0,0,0,0.2));
   border-radius: 2px;
 }
+
+/* Keep overflow tab dropdown list text consistent with tab bar font size */
+[class*="dockview-theme-ayu"] .dv-tabs-overflow-container {
+  font-size: var(--dv-tabs-and-actions-container-font-size, 12px) !important;
+}
+
+[class*="dockview-theme-ayu"] .dv-tabs-overflow-container .dv-tab {
+  font-size: inherit !important;
+}

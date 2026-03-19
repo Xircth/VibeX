@@ -7,6 +7,8 @@ import {
   TokenUsageInfo,
   ToolStatus,
 } from 'shared/types';
+import { useQuery } from '@tanstack/react-query';
+import { queueApi } from '@/lib/api';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -31,6 +33,8 @@ export const useConversationHistory = ({
   onEntriesUpdated,
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
   const HISTORIC_PROCESS_CONCURRENCY = 4;
+  const sessionId = attempt.session?.id;
+  const conversationKey = `${attempt.id}:${sessionId ?? 'no-session'}`;
   const {
     executionProcessesVisible: executionProcessesRaw,
     isLoading: executionProcessesLoading,
@@ -44,6 +48,12 @@ export const useConversationHistory = ({
   const previousStatusMapRef = useRef<Map<string, ExecutionProcessStatus>>(
     new Map()
   );
+  const prevConversationKeyRef = useRef<string | null>(null);
+  const { data: queueStatus } = useQuery({
+    queryKey: ['queue-status', sessionId],
+    queryFn: () => queueApi.getStatus(sessionId!),
+    enabled: !!sessionId,
+  });
 
   const mergeIntoDisplayed = (
     mutator: (state: ExecutionProcessStateStore) => void
@@ -339,9 +349,26 @@ export const useConversationHistory = ({
         );
       }
 
+      if (queueStatus?.status === 'queued' && queueStatus.message.data.message) {
+        const queuedEntry: NormalizedEntry = {
+          entry_type: {
+            type: 'user_message',
+          },
+          content: queueStatus.message.data.message,
+          timestamp: null,
+        };
+
+        allEntries.push({
+          type: 'NORMALIZED_ENTRY',
+          content: queuedEntry,
+          patchKey: `queued:${queueStatus.message.session_id}`,
+          executionProcessId: `queued:${queueStatus.message.session_id}`,
+        });
+      }
+
       return allEntries;
     },
-    []
+    [queueStatus]
   );
 
   const emitEntries = useCallback(
@@ -733,10 +760,14 @@ export const useConversationHistory = ({
         });
       });
     }
-  }, [attempt.id, idListKey, executionProcessesRaw]);
+  }, [conversationKey, idListKey, executionProcessesRaw]);
 
-  // Reset state when attempt changes
+  // Reset state when the active workspace/session conversation changes.
+  // Using a ref guard prevents resets when unrelated execution processes update.
   useEffect(() => {
+    if (prevConversationKeyRef.current === conversationKey) return;
+    prevConversationKeyRef.current = conversationKey;
+
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
     streamingProcessIdsRef.current.clear();
@@ -745,7 +776,12 @@ export const useConversationHistory = ({
     const hasNoHistory =
       !executionProcessesLoading && executionProcessesRaw.length === 0;
     emitEntries(displayedExecutionProcesses.current, 'initial', !hasNoHistory);
-  }, [attempt.id, emitEntries, executionProcessesLoading, executionProcessesRaw.length]);
+  }, [
+    conversationKey,
+    emitEntries,
+    executionProcessesLoading,
+    executionProcessesRaw.length,
+  ]);
 
   return {};
 };

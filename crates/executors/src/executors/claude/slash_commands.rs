@@ -6,10 +6,7 @@ use std::{
     time::Duration,
 };
 
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::Command,
-};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use walkdir::WalkDir;
 
 use super::{ClaudeCode, ClaudeJson, ClaudePlugin, base_command};
@@ -204,15 +201,13 @@ impl ClaudeCode {
         let command_parts = command_builder.build_initial()?;
         let (program_path, args) = command_parts.into_resolved().await?;
 
-        let mut command = Command::new(program_path);
-        workspace_utils::process::configure_tokio_command_no_window(&mut command);
+        let mut command = workspace_utils::process::new_hidden_tokio_command(&program_path, &args);
         command
             .kill_on_drop(true)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .current_dir(current_dir)
-            .args(&args);
+            .current_dir(current_dir);
 
         ExecutionEnv::new(RepoContext::default(), false, String::new())
             .with_profile(&self.cmd)

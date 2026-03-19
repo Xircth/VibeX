@@ -43,12 +43,12 @@ const TaskAttemptPanel = ({
           : undefined)
       : attempt.session;
   const activeAttempt = createWorkspaceWithSession(attempt, activeSession);
-  const executionKey = `${attempt.id}:${activeSession?.id ?? 'new'}`;
+  const conversationKey = `${attempt.id}:${activeSession?.id ?? 'new'}`;
 
   return (
-    <EntriesProvider key={executionKey}>
+    <EntriesProvider key={conversationKey} cacheKey={conversationKey}>
       <ExecutionProcessesProvider
-        key={executionKey}
+        key={conversationKey}
         attemptId={attempt.id}
         sessionId={activeSession?.id}
       >
@@ -57,14 +57,13 @@ const TaskAttemptPanel = ({
             logs: (
               <VirtualizedList
                 ref={logsRef}
-                key={executionKey}
                 attempt={activeAttempt}
                 task={task}
+                conversationKey={conversationKey}
               />
             ),
             followUp: (
               <TaskFollowUpSection
-                key={executionKey}
                 task={task}
                 session={activeSession}
                 workspaceId={attempt.id}

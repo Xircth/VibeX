@@ -1,15 +1,19 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderOpen, Loader2 } from 'lucide-react';
+import { FolderOpen, Loader2, Plus } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectRepos } from '@/hooks';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
-import { projectsApi, repoApi } from '@/lib/api';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
-import type { LucideIcon } from 'lucide-react';
 
-function WelcomeSection({ title, children }: { title: string; children: React.ReactNode }) {
+function WelcomeSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mb-8">
       <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3">
@@ -42,7 +46,7 @@ function WelcomeAction({
       ) : (
         <Icon className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
       )}
-      <span>{loading ? '正在打开...' : label}</span>
+      <span>{loading ? '处理中...' : label}</span>
     </button>
   );
 }
@@ -77,7 +81,6 @@ function RecentProjectItem({
 export function WelcomePage() {
   const navigate = useNavigate();
   const { projects, isLoading } = useProjects();
-  const [isOpeningFolder, setIsOpeningFolder] = useState(false);
 
   const handleCreateProject = async () => {
     const result = await ProjectFormDialog.show({});
@@ -87,35 +90,9 @@ export function WelcomePage() {
   };
 
   const handleOpenFolder = async () => {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const selected = await open({ directory: true, multiple: false });
-      if (!selected || typeof selected !== 'string') return;
-
-      setIsOpeningFolder(true);
-      try {
-        // Register the selected directory as a git repository
-        const repo = await repoApi.register({ path: selected });
-        // Use the repo name as the project name
-        const projectName = repo.display_name || repo.name;
-        // Create the project with this repository
-        const project = await projectsApi.create({
-          name: projectName,
-          repositories: [{ display_name: projectName, git_repo_path: repo.path }],
-        });
-        navigate(`/local-projects/${project.id}/tasks`);
-      } catch {
-        // If auto-creation fails (e.g. not a git repo), fall back to the full dialog
-        setIsOpeningFolder(false);
-        const result = await ProjectFormDialog.show({});
-        if (result?.status === 'saved' && result.project) {
-          navigate(`/local-projects/${result.project.id}/tasks`);
-        }
-      } finally {
-        setIsOpeningFolder(false);
-      }
-    } catch {
-      // User cancelled dialog or not in Tauri environment
+    const result = await ProjectFormDialog.show({ autoOpenFolderPicker: true });
+    if (result?.status === 'saved' && result.project) {
+      navigate(`/local-projects/${result.project.id}/tasks`);
     }
   };
 
@@ -126,7 +103,6 @@ export function WelcomePage() {
   return (
     <div className="h-full overflow-auto bg-background">
       <div className="max-w-2xl mx-auto py-16 px-8">
-        {/* Logo/Title */}
         <div className="flex items-center gap-3 mb-12">
           <Logo showText={false} />
           <div>
@@ -137,19 +113,12 @@ export function WelcomePage() {
           </div>
         </div>
 
-        {/* Start section */}
         <WelcomeSection title="开始">
           <WelcomeAction icon={Plus} label="创建新项目" onClick={handleCreateProject} />
-          <WelcomeAction
-            icon={FolderOpen}
-            label="打开文件夹"
-            onClick={handleOpenFolder}
-            loading={isOpeningFolder}
-          />
+          <WelcomeAction icon={FolderOpen} label="选择文件夹" onClick={handleOpenFolder} />
         </WelcomeSection>
 
-        {/* Recent Projects section */}
-        <WelcomeSection title="最近的项目">
+        <WelcomeSection title="最近项目">
           {isLoading ? (
             <div className="px-2 py-4 text-xs text-muted-foreground">加载项目中...</div>
           ) : projects.length === 0 ? (
@@ -157,11 +126,11 @@ export function WelcomePage() {
               暂无项目，创建一个开始使用吧。
             </div>
           ) : (
-            projects.map((p) => (
+            projects.map((project) => (
               <RecentProjectItem
-                key={p.id}
-                project={p}
-                onClick={() => handleProjectClick(p.id)}
+                key={project.id}
+                project={project}
+                onClick={() => handleProjectClick(project.id)}
               />
             ))
           )}

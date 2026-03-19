@@ -162,6 +162,7 @@ export const queueApi = {
    * Cancel a queued follow-up message
    */
   cancel: async (sessionId: string): Promise<QueueStatus> => {
+    if (!sessionId) throw new Error('cancel: sessionId is required');
     return tauriInvoke<QueueStatus>('cancel_queued_message', { sessionId });
   },
 
@@ -169,6 +170,7 @@ export const queueApi = {
    * Get the current queue status for a session
    */
   getStatus: async (sessionId: string): Promise<QueueStatus> => {
+    if (!sessionId) throw new Error('getStatus: sessionId is required');
     return tauriInvoke<QueueStatus>('get_queue_status', { sessionId });
   },
 };

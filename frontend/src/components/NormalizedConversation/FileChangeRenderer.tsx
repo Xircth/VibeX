@@ -1,8 +1,16 @@
 import { type FileChange } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Trash2, FilePlus2, ArrowRight, FileX, FileClock, ChevronRight } from 'lucide-react';
+import {
+  Trash2,
+  FilePlus2,
+  ArrowRight,
+  FileX,
+  FileClock,
+  ChevronRight,
+} from 'lucide-react';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
+import { useFileAtHead } from '@/hooks/useFileContent';
 import EditDiffRenderer from './EditDiffRenderer';
 import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
@@ -42,7 +50,10 @@ function isEdit(
 }
 
 /** Build absolute path for file preview from a potentially relative path */
-function resolveFilePath(filePath: string, containerRef?: string | null): string {
+function resolveFilePath(
+  filePath: string,
+  containerRef?: string | null
+): string {
   // Already absolute (Windows or Unix)
   if (/^[a-zA-Z]:[\\/]/.test(filePath) || filePath.startsWith('/')) {
     return filePath;
@@ -70,6 +81,12 @@ const FileChangeRenderer = ({
   const effectiveExpanded = forceExpanded || expanded;
 
   const theme = getActualTheme(config?.theme);
+  const resolvedPath = resolveFilePath(path, containerRef);
+  const {
+    data: headContent,
+    isLoading: isLoadingHead,
+    error: headError,
+  } = useFileAtHead(isWrite(change) && effectiveExpanded ? resolvedPath : null);
 
   const statusIcon =
     statusAppearance === 'denied' ? (
@@ -80,11 +97,13 @@ const FileChangeRenderer = ({
 
   if (statusIcon) {
     return (
-      <div className={cn(
-        'conv-file-card',
-        statusAppearance === 'denied' && 'border-red-400/40',
-        statusAppearance === 'timed_out' && 'border-amber-400/40'
-      )}>
+      <div
+        className={cn(
+          'conv-file-card conv-tool-card',
+          statusAppearance === 'denied' && 'border-red-400/40',
+          statusAppearance === 'timed_out' && 'border-amber-400/40'
+        )}
+      >
         {statusIcon}
         <span className="conv-file-name">{path}</span>
       </div>
@@ -144,7 +163,7 @@ const FileChangeRenderer = ({
   return (
     <div>
       <div
-        className="conv-file-card"
+        className="conv-file-card conv-tool-card"
         onClick={expandable ? () => setExpanded() : undefined}
       >
         {expandable && (
@@ -160,7 +179,19 @@ const FileChangeRenderer = ({
           className="conv-file-name"
           onClick={(e) => {
             e.stopPropagation();
-            openFilePreview(resolveFilePath(targetPath, containerRef));
+            const resolvedTargetPath = resolveFilePath(
+              targetPath,
+              containerRef
+            );
+            if (isWrite(change)) {
+              openFilePreview(resolvedTargetPath, {
+                mode: 'diff',
+                diffViewMode: 'inline',
+                modifiedContent: change.content,
+              });
+              return;
+            }
+            openFilePreview(resolvedTargetPath);
           }}
         >
           {titleText}
@@ -169,12 +200,21 @@ const FileChangeRenderer = ({
 
       {/* Body */}
       {isWrite(change) && effectiveExpanded && (
-        <div className="mt-1 overflow-hidden rounded-b-lg border border-t-0 border-[var(--conv-border-subtle)]">
-          <FileContentView
-            content={change.content}
-            lang={getHighLightLanguageFromPath(path)}
-            theme={theme}
-          />
+        <div className="mt-1 overflow-hidden rounded-b-lg border border-t-0 border-[var(--conv-border-subtle)] bg-[var(--conv-surface-card)]">
+          {isLoadingHead ? (
+            <div className="px-4 py-3 text-xs text-muted-foreground">
+              Loading diff...
+            </div>
+          ) : (
+            <FileContentView
+              content={change.content}
+              originalContent={headError ? '' : (headContent ?? '')}
+              lang={getHighLightLanguageFromPath(path)}
+              theme={theme}
+              diffMode="unified"
+              emptyMessage="No differences against HEAD."
+            />
+          )}
         </div>
       )}
     </div>

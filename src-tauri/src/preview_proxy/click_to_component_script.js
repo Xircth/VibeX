@@ -788,8 +788,16 @@
     if (!event.data || event.data.source !== SOURCE) return;
     if (event.data.type === 'toggle-inspect') {
       setInspectMode(event.data.payload && event.data.payload.active);
+    } else if (event.data.type === 'set-targeting') {
+      setInspectMode(event.data.payload && event.data.payload.enabled);
+    } else if (event.data.type === 'enable-button') {
+      // Acknowledge the companion bridge is ready
+      send('toolbar-bridge-ready', undefined, 1);
     }
   });
+
+  // --- Notify parent that companion bridge is ready ---
+  send('ready', undefined, 1);
 
   // --- Log detected frameworks on page load (diagnostic only) ---
   if (document.readyState === 'loading') {

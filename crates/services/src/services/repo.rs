@@ -79,6 +79,20 @@ impl RepoService {
         Ok(repo)
     }
 
+    pub fn is_git_repo_path(&self, path: &str) -> Result<bool> {
+        let normalized_path = self.normalize_path(path)?;
+
+        if !normalized_path.exists() {
+            return Err(RepoError::PathNotFound(normalized_path));
+        }
+
+        if !normalized_path.is_dir() {
+            return Err(RepoError::PathNotDirectory(normalized_path));
+        }
+
+        Ok(normalized_path.join(".git").exists())
+    }
+
     pub async fn find_by_id(&self, pool: &SqlitePool, repo_id: Uuid) -> Result<Option<RepoModel>> {
         let repo = RepoModel::find_by_id(pool, repo_id).await?;
         Ok(repo)
@@ -122,6 +136,38 @@ impl RepoService {
         git.initialize_repo_with_main_branch(&repo_path)?;
 
         let repo = RepoModel::find_or_create(pool, &repo_path, folder_name).await?;
+        Ok(repo)
+    }
+
+    pub async fn init_repo_at_path(
+        &self,
+        pool: &SqlitePool,
+        git: &GitService,
+        path: &str,
+        display_name: Option<&str>,
+    ) -> Result<RepoModel> {
+        let normalized_path = self.normalize_path(path)?;
+        if !normalized_path.exists() {
+            return Err(RepoError::PathNotFound(normalized_path));
+        }
+        if !normalized_path.is_dir() {
+            return Err(RepoError::PathNotDirectory(normalized_path));
+        }
+
+        if !normalized_path.join(".git").exists() {
+            git.initialize_repo_with_main_branch(&normalized_path)?;
+        }
+
+        let default_name = normalized_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unnamed".to_string());
+        let repo = RepoModel::find_or_create(
+            pool,
+            &normalized_path,
+            display_name.unwrap_or(&default_name),
+        )
+        .await?;
         Ok(repo)
     }
 }

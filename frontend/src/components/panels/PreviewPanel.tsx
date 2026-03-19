@@ -13,6 +13,7 @@ import { useDevServer } from '@/hooks/useDevServer';
 import { useDevserverPreview } from '@/hooks/useDevserverPreview';
 import { useDevserverUrlFromLogs } from '@/hooks/useDevserverUrl';
 import { useHasDevServerScript } from '@/hooks/useHasDevServerScript';
+import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { useLogStream } from '@/hooks/useLogStream';
 import { desktopApi } from '@/lib/api';
 import { DevServerLogsView } from '@/components/tasks/TaskDetails/preview/DevServerLogsView';
@@ -135,7 +136,6 @@ export function PreviewPanel() {
   const [companionInstallFeedback, setCompanionInstallFeedback] =
     useState<CompanionInstallFeedback | null>(null);
   const [devServerStartError, setDevServerStartError] = useState<string | null>(null);
-  const customUrl: string | null = null;
   const listenerRef = useRef<ClickToComponentListener | null>(null);
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeBootstrapTimerRef = useRef<number | null>(null);
@@ -148,6 +148,7 @@ export function PreviewPanel() {
   const attemptId =
     rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
+  const { overrideUrl: customUrl } = usePreviewSettings(attemptId);
   const { data: projectHasDevScript = false } = useHasDevServerScript(projectId);
   const { repos } = useAttemptRepo(attemptId);
 
@@ -222,22 +223,6 @@ export function PreviewPanel() {
     };
   }, [rawPreviewUrl]);
 
-  const sendInspectModeToIframe = (active: boolean) => {
-    const iframe = previewIframeRef.current;
-    if (!iframe?.contentWindow) {
-      return;
-    }
-
-    iframe.contentWindow.postMessage(
-      {
-        source: 'click-to-component',
-        type: 'toggle-inspect',
-        payload: { active },
-      },
-      '*'
-    );
-  };
-
   const handleIframeError = () => {
     clearBridgeBootstrap();
     previewIframeRef.current = null;
@@ -305,12 +290,8 @@ export function PreviewPanel() {
     setIframeError(false);
     setPreviewLoaded(true);
     setShowHelp(false);
-    if (supportsNativeInspect) {
-      window.setTimeout(() => {
-        sendInspectModeToIframe(isSelectModeEnabled);
-      }, 150);
-      return;
-    }
+    // Always bootstrap the companion bridge so element selection works
+    // regardless of whether the URL is proxied through Tauri or not.
     bootstrapPreviewBridge(iframe);
   };
 
@@ -356,10 +337,9 @@ export function PreviewPanel() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.source !== previewIframeRef.current?.contentWindow) {
-        return;
-      }
-
+      // Validate by message format instead of event.source reference, because
+      // cross-origin iframe contentWindow proxy comparison fails in Tauri's
+      // webview when the preview URL goes through the HTTP proxy.
       if (!event.data || event.data.source !== 'click-to-component') {
         return;
       }
@@ -396,12 +376,13 @@ export function PreviewPanel() {
   }, [effectiveUrl, primaryDevServer?.id]);
 
   useEffect(() => {
-    if (!supportsNativeInspect) {
-      return;
+    // Sync select mode state via the companion bridge when it changes
+    const listener = listenerRef.current;
+    const iframe = previewIframeRef.current;
+    if (listener && iframe) {
+      listener.setTargetingEnabled(iframe, isSelectModeEnabled);
     }
-
-    sendInspectModeToIframe(isSelectModeEnabled);
-  }, [isSelectModeEnabled, supportsNativeInspect]);
+  }, [isSelectModeEnabled]);
 
   function startTimer() {
     setLoadingTimeFinished(false);
@@ -504,7 +485,7 @@ export function PreviewPanel() {
 
   const isPreviewReady =
     (previewState.status === 'ready' && Boolean(previewState.url)) ||
-    (customUrl !== null && hasRunningDevServer);
+    customUrl !== null;
   const isPreviewReadyWithoutError = isPreviewReady && !iframeError;
   const showCompanionHelp =
     hasRunningDevServer &&
@@ -526,15 +507,6 @@ export function PreviewPanel() {
   };
 
   const handleToggleSelectMode = (iframe: HTMLIFrameElement | null) => {
-    if (supportsNativeInspect) {
-      previewIframeRef.current = iframe ?? previewIframeRef.current;
-      const nextEnabled = !isSelectModeEnabled;
-      requestedSelectModeRef.current = nextEnabled;
-      setIsSelectModeEnabled(nextEnabled);
-      sendInspectModeToIframe(nextEnabled);
-      return;
-    }
-
     const activeIframe = iframe ?? previewIframeRef.current;
     const nextEnabled = !isSelectModeEnabled;
     requestedSelectModeRef.current = nextEnabled;
@@ -648,6 +620,7 @@ export function PreviewPanel() {
           />
         ) : (
           <NoServerContent
+            workspaceId={attemptId}
             projectHasDevScript={projectHasDevScript}
             runningDevServer={hasRunningDevServer}
             isStartingDevServer={isStartingDevServer}

@@ -124,7 +124,10 @@ impl ProtocolPeer {
                 {
                     Ok(result) => {
                         if let Err(e) = self
-                            .send_hook_response(request_id, serde_json::to_value(&result).unwrap_or_default())
+                            .send_hook_response(
+                                request_id,
+                                serde_json::to_value(&result).unwrap_or_default(),
+                            )
                             .await
                         {
                             tracing::error!("Failed to send permission result: {e}");

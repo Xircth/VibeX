@@ -1,7 +1,6 @@
 ﻿import { useCallback } from 'react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { Check, Copy, FileDiff, GitBranch, Settings } from 'lucide-react';
-import { CreateAttemptDialog } from '@/components/dialogs/tasks/CreateAttemptDialog';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { useOpenInEditor } from '@/hooks/useOpenInEditor';
 import { useDiffSummary } from '@/hooks/useDiffSummary';
@@ -24,15 +23,16 @@ import {
 } from '@/components/ui/tooltip';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
+import { cn } from '@/lib/utils';
 
 type NextActionCardProps = {
   attemptId?: string;
   sessionId?: string;
   containerRef?: string | null;
   failed: boolean;
-  execution_processes: number;
   task?: TaskWithAttemptStatus;
   needsSetup?: boolean;
+  setupHelpText?: string | null;
 };
 
 type NextActionHeaderProps = {
@@ -189,25 +189,19 @@ type PrimaryActionsSectionProps = {
   failed: boolean;
   needsSetup?: boolean;
   setupHelpText: string | null;
-  executionProcesses: number;
   attempt: Awaited<ReturnType<typeof attemptsApi.getWithSession>> | undefined;
   onRunSetup: () => void;
-  onTryAgain: () => void;
 };
 
 function PrimaryActionsSection({
   failed,
   needsSetup,
   setupHelpText,
-  executionProcesses,
   attempt,
   onRunSetup,
-  onTryAgain,
 }: PrimaryActionsSectionProps) {
   const showSetupHelp = needsSetup && setupHelpText;
-  const showAction =
-    failed &&
-    (needsSetup || executionProcesses <= 2);
+  const showAction = failed && needsSetup;
 
   if (!showSetupHelp && !showAction) {
     return null;
@@ -222,32 +216,18 @@ function PrimaryActionsSection({
         </div>
       )}
 
-      {failed &&
-        (needsSetup ? (
-          <Button
-            variant="default"
-            size="sm"
-            onClick={onRunSetup}
-            disabled={!attempt}
-            className="text-sm w-full sm:w-auto"
-            aria-label={'运行设置'}
-          >
-            {'运行设置'}
-          </Button>
-        ) : (
-          executionProcesses <= 2 && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={onTryAgain}
-              disabled={!attempt?.task_id}
-              className="text-sm w-full sm:w-auto"
-              aria-label={'重试'}
-            >
-              {'重试'}
-            </Button>
-          )
-        ))}
+      {showAction && (
+        <Button
+          variant="default"
+          size="sm"
+          onClick={onRunSetup}
+          disabled={!attempt}
+          className="text-sm w-full sm:w-auto"
+          aria-label={'运行设置'}
+        >
+          {'运行设置'}
+        </Button>
+      )}
     </div>
   );
 }
@@ -256,9 +236,9 @@ export function NextActionCard({
   attemptId,
   containerRef,
   failed,
-  execution_processes,
   task,
   needsSetup,
+  setupHelpText: initialSetupHelpText,
 }: NextActionCardProps) {
   const { config, capabilities } = useUserSystem();
   const panelActions = useOptionalPanelActionsContext();
@@ -272,7 +252,7 @@ export function NextActionCard({
   });
 
   const openInEditor = useOpenInEditor(attemptId);
-  const { fileCount, added, deleted, error } = useDiffSummary(
+  const { fileCount, added, deleted, error, isInitialized } = useDiffSummary(
     attemptId ?? null
   );
 
@@ -301,13 +281,6 @@ export function NextActionCard({
     params.set('view', 'diffs');
     navigateWithSearch({ search: `?${params.toString()}` });
   }, [navigateWithSearch, panelActions]);
-
-  const handleTryAgain = useCallback(() => {
-    if (!attempt?.task_id) return;
-    CreateAttemptDialog.show({
-      taskId: attempt.task_id,
-    });
-  }, [attempt?.task_id]);
 
   const handleGitActions = useCallback(() => {
     if (!attemptId) return;
@@ -338,17 +311,18 @@ export function NextActionCard({
     )
   );
 
-  const setupHelpText = canAutoSetup
-    ? `${attempt?.session?.executor} 未正确设置。点击运行设置以安装并登录。`
-    : null;
+  const setupHelpText =
+    initialSetupHelpText ??
+    (canAutoSetup
+      ? `${attempt?.session?.executor} 未正确设置。点击运行设置以安装并登录。`
+      : null);
 
   const editorName = getIdeName(config?.editor?.editor_type);
   const hasDiffs = fileCount > 0 && !error;
+  const showPrimaryActions = !!((failed && needsSetup) || setupHelpText);
+  const shouldShowPlaceholder = !isInitialized && !hasDiffs && !showPrimaryActions;
 
-  if (
-    (!failed || (execution_processes > 2 && !needsSetup)) &&
-    fileCount === 0
-  ) {
+  if (!showPrimaryActions && fileCount === 0 && !shouldShowPlaceholder) {
     return null;
   }
 
@@ -362,14 +336,23 @@ export function NextActionCard({
             failed={failed}
             needsSetup={needsSetup}
             setupHelpText={setupHelpText}
-            executionProcesses={execution_processes}
             attempt={attempt}
             onRunSetup={handleRunSetup}
-            onTryAgain={handleTryAgain}
           />
 
+          {shouldShowPlaceholder && (
+            <div className="px-3 py-2">
+              <div className="h-10 rounded-md bg-muted/40" />
+            </div>
+          )}
+
           {hasDiffs && (
-            <div className="flex min-w-0 flex-col gap-2 border-t border-border px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
+            <div
+              className={cn(
+                'flex min-w-0 flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:gap-3',
+                showPrimaryActions && 'border-t border-border'
+              )}
+            >
               <DiffSummarySection
                 fileCount={fileCount}
                 added={added}

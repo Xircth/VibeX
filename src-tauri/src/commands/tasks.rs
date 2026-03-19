@@ -7,9 +7,8 @@ use db::models::{
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
-use executors::profile::ExecutorConfig;
 use deployment::Deployment;
-use executors::profile::ExecutorProfileId;
+use executors::profile::{ExecutorConfig, ExecutorProfileId};
 use git::GitService;
 use services::services::{container::ContainerService, workspace_manager::WorkspaceManager};
 use uuid::Uuid;
@@ -29,6 +28,12 @@ pub struct CreateAndStartTaskRequest {
     pub task: CreateTask,
     pub executor_profile_id: ExecutorProfileId,
     pub repos: Vec<WorkspaceRepoInput>,
+    #[serde(default = "default_use_worktree")]
+    pub use_worktree: bool,
+}
+
+const fn default_use_worktree() -> bool {
+    true
 }
 
 // --- Commands ---
@@ -45,10 +50,7 @@ pub async fn get_tasks(
 }
 
 #[tauri::command]
-pub async fn get_task(
-    state: tauri::State<'_, AppState>,
-    task_id: Uuid,
-) -> Result<Task, AppError> {
+pub async fn get_task(state: tauri::State<'_, AppState>, task_id: Uuid) -> Result<Task, AppError> {
     let task = Task::find_by_id(&state.deployment.db().pool, task_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
@@ -87,6 +89,12 @@ pub async fn create_task_and_start(
             "At least one repository is required".to_string(),
         ));
     }
+    if !payload.use_worktree && payload.repos.len() != 1 {
+        return Err(AppError::BadRequest(
+            "Opening the current branch without a worktree only supports a single repository"
+                .to_string(),
+        ));
+    }
 
     let pool = &state.deployment.db().pool;
 
@@ -100,34 +108,74 @@ pub async fn create_task_and_start(
 
     // Create workspace (attempt)
     let attempt_id = Uuid::new_v4();
-    let git_branch_name = state
-        .deployment
-        .container()
-        .git_branch_from_workspace(&attempt_id, &task.title)
-        .await;
+    let primary_repo = if payload.repos.len() == 1 {
+        Some(
+            Repo::find_by_id(pool, payload.repos[0].repo_id)
+                .await?
+                .ok_or(RepoError::NotFound)?,
+        )
+    } else {
+        None
+    };
+
+    let git_branch_name = if payload.use_worktree {
+        state
+            .deployment
+            .container()
+            .git_branch_from_workspace(&attempt_id, &task.title)
+            .await
+    } else {
+        let repo = primary_repo.as_ref().ok_or_else(|| {
+            AppError::BadRequest(
+                "Opening the current branch without a worktree requires one repository".to_string(),
+            )
+        })?;
+        state
+            .deployment
+            .git()
+            .get_current_branch(&repo.path)
+            .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?
+    };
 
     // Compute agent_working_dir based on repo count:
     // - Single repo: join repo name with default_working_dir (if set), or just repo name
     // - Multiple repos: use None (agent runs in workspace root)
     let agent_working_dir = if payload.repos.len() == 1 {
-        let repo = Repo::find_by_id(pool, payload.repos[0].repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
-        match repo.default_working_dir {
+        let repo = primary_repo.as_ref().ok_or(RepoError::NotFound)?;
+        match &repo.default_working_dir {
             Some(subdir) => {
-                let path = PathBuf::from(&repo.name).join(&subdir);
-                Some(path.to_string_lossy().to_string())
+                if payload.use_worktree {
+                    let path = PathBuf::from(&repo.name).join(subdir);
+                    Some(path.to_string_lossy().to_string())
+                } else {
+                    Some(subdir.clone())
+                }
             }
-            None => Some(repo.name),
+            None => payload.use_worktree.then(|| repo.name.clone()),
         }
     } else {
         None
+    };
+
+    let container_ref = if payload.use_worktree {
+        None
+    } else {
+        Some(
+            primary_repo
+                .as_ref()
+                .ok_or(RepoError::NotFound)?
+                .path
+                .to_string_lossy()
+                .to_string(),
+        )
     };
 
     let workspace = Workspace::create(
         pool,
         &CreateWorkspace {
             branch: git_branch_name,
+            container_ref,
+            use_worktree: payload.use_worktree,
             agent_working_dir,
         },
         attempt_id,
@@ -144,14 +192,16 @@ pub async fn create_task_and_start(
             target_branch: r.target_branch.clone(),
         })
         .collect();
-    WorkspaceRepo::create_many(&state.deployment.db().pool, workspace.id, &workspace_repos)
-        .await?;
+    WorkspaceRepo::create_many(&state.deployment.db().pool, workspace.id, &workspace_repos).await?;
 
     // Start the workspace
     let is_attempt_running = state
         .deployment
         .container()
-        .start_workspace(&workspace, ExecutorConfig::from(payload.executor_profile_id.clone()))
+        .start_workspace(
+            &workspace,
+            ExecutorConfig::from(payload.executor_profile_id.clone()),
+        )
         .await
         .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
         .is_ok();
@@ -212,10 +262,7 @@ pub async fn update_task(
 }
 
 #[tauri::command]
-pub async fn delete_task(
-    state: tauri::State<'_, AppState>,
-    task_id: Uuid,
-) -> Result<(), AppError> {
+pub async fn delete_task(state: tauri::State<'_, AppState>, task_id: Uuid) -> Result<(), AppError> {
     let task = Task::find_by_id(&state.deployment.db().pool, task_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
@@ -240,11 +287,13 @@ pub async fn delete_task(
     // Collect workspace directories and branch names that need cleanup
     let workspace_dirs: Vec<PathBuf> = attempts
         .iter()
+        .filter(|attempt| attempt.use_worktree)
         .filter_map(|attempt| attempt.container_ref.as_ref().map(PathBuf::from))
         .collect();
 
     let workspace_branches: Vec<String> = attempts
         .iter()
+        .filter(|attempt| attempt.use_worktree)
         .map(|attempt| attempt.branch.clone())
         .collect();
 

@@ -8,6 +8,10 @@ import type {
 
 import { tauriInvoke } from './base';
 
+export type CreateAndStartTaskPayload = CreateAndStartTaskRequest & {
+  use_worktree?: boolean;
+};
+
 // Task Management APIs
 export const tasksApi = {
   getById: async (taskId: string): Promise<Task> => {
@@ -19,7 +23,7 @@ export const tasksApi = {
   },
 
   createAndStart: async (
-    data: CreateAndStartTaskRequest
+    data: CreateAndStartTaskPayload
   ): Promise<TaskWithAttemptStatus> => {
     return tauriInvoke<TaskWithAttemptStatus>('create_task_and_start', {
       payload: data,

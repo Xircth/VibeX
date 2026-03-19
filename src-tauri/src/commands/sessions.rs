@@ -9,7 +9,6 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use serde::Serialize;
 use executors::{
     actions::{
         ExecutorAction, ExecutorActionType,
@@ -20,8 +19,9 @@ use executors::{
     executors::build_review_prompt,
     profile::{ExecutorConfig, ExecutorProfileId},
 };
-use sqlx::types::chrono::{DateTime, Utc};
+use serde::Serialize;
 use services::services::{container::ContainerService, queued_message::QueueStatus};
+use sqlx::types::chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -119,6 +119,40 @@ pub async fn create_session(
     Ok(session)
 }
 
+/// Delete a session by ID.
+#[tauri::command]
+pub async fn delete_session(
+    state: tauri::State<'_, AppState>,
+    session_id: Uuid,
+) -> Result<(), AppError> {
+    let pool = &state.deployment.db().pool;
+
+    let _session = Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    if ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session_id).await? {
+        return Err(AppError::Conflict("会话仍在执行，无法删除".to_string()));
+    }
+
+    Scratch::delete_all_by_id(pool, session_id).await?;
+
+    let deleted_rows = Session::delete(pool, session_id).await?;
+    if deleted_rows == 0 {
+        return Err(AppError::NotFound(format!(
+            "Session {} not found",
+            session_id
+        )));
+    }
+
+    state
+        .deployment
+        .queued_message_service()
+        .cancel_queued(session_id);
+
+    Ok(())
+}
+
 /// Send a follow-up (or initial) prompt to the coding agent within a session.
 #[tauri::command]
 pub async fn follow_up(
@@ -192,7 +226,10 @@ pub async fn follow_up(
 
     // Get repos for cleanup action
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let cleanup_action = state.deployment.container().cleanup_actions_for_repos(&repos);
+    let cleanup_action = state
+        .deployment
+        .container()
+        .cleanup_actions_for_repos(&repos);
 
     // Compute working_dir
     let working_dir = workspace
@@ -295,12 +332,8 @@ pub async fn start_review(
         })?;
 
     // Check no running processes within the same session
-    if ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
-        .await?
-    {
-        return Err(AppError::Conflict(
-            "Process already running".to_string(),
-        ));
+    if ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id).await? {
+        return Err(AppError::Conflict("Process already running".to_string()));
     }
 
     // Ensure container
@@ -324,7 +357,9 @@ pub async fn start_review(
 
         let mut contexts = Vec::new();
         for repo in repos {
-            let worktree_path = workspace_path.join(&repo.repo.name);
+            let worktree_path = workspace
+                .repo_path(&repo.repo)
+                .unwrap_or_else(|| workspace_path.clone());
             if let Ok(base_commit) = state.deployment.git().get_fork_point(
                 &worktree_path,
                 &repo.target_branch,

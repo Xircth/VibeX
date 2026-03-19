@@ -40,7 +40,7 @@ export function AgentSelector({
     <div className="flex-1">
       {showLabel && (
         <Label htmlFor="executor-profile" className="text-sm font-medium">
-          Agent
+          编程代理
         </Label>
       )}
       <DropdownMenu>
@@ -50,11 +50,11 @@ export function AgentSelector({
             size="sm"
             className={`w-full justify-between text-xs ${showLabel ? 'mt-1.5' : ''} ${className}`}
             disabled={disabled}
-            aria-label="Select agent"
+            aria-label="选择编程代理"
           >
             <div className="flex items-center gap-1.5 w-full">
               <Bot className="h-3 w-3" />
-              <span className="truncate">{selectedAgent || 'Agent'}</span>
+              <span className="truncate">{selectedAgent || '编程代理'}</span>
             </div>
             <ArrowDown className="h-3 w-3" />
           </Button>
@@ -62,7 +62,7 @@ export function AgentSelector({
         <DropdownMenuContent className="w-60">
           {agents.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground text-center">
-              No agents available
+              暂无可用代理
             </div>
           ) : (
             agents.map((agent) => (

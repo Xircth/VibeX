@@ -22,7 +22,8 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
-import { ClickedElementsBanner } from '@/components/tasks/ClickedElementsBanner';
+import { buildClickedElementData } from '@/contexts/ClickedElementsProvider';
+import type { ClickedElementData } from '@/components/ui/wysiwyg/nodes/clicked-element-node';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
@@ -60,6 +61,11 @@ interface TaskFollowUpSectionProps {
   session?: Session;
   workspaceId?: string;
   onJumpToPreviousUserMessage?: () => void;
+  showSessionSelector?: boolean;
+  onSessionCreated?: (session: {
+    sessionId: string;
+    workspaceId: string;
+  }) => void;
   sessionState: Pick<
     UseWorkspaceSessionsResult,
     | 'sessions'
@@ -71,13 +77,13 @@ interface TaskFollowUpSectionProps {
 }
 
 function truncateSessionLabel(label: string, maxUnits = 8): string {
-  if (!label) return 'session';
+  if (!label) return '会话';
 
   let units = 0;
   let compact = '';
 
   for (const char of label) {
-    const nextUnits = /[^\x00-\xff]/.test(char) ? 2 : 1;
+    const nextUnits = (char.codePointAt(0) ?? 0) > 255 ? 2 : 1;
     if (units + nextUnits > maxUnits) {
       break;
     }
@@ -93,6 +99,8 @@ export function TaskFollowUpSection({
   session,
   workspaceId: workspaceIdProp,
   onJumpToPreviousUserMessage,
+  showSessionSelector = true,
+  onSessionCreated,
   sessionState,
 }: TaskFollowUpSectionProps) {
   const { projectId } = useProject();
@@ -107,9 +115,8 @@ export function TaskFollowUpSection({
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
   const selectedSessionLabel = isNewSessionMode
-    ? `session${sessions.length + 1}`
-    : sessions.find((s) => s.id === selectedSessionId)?.displayName ??
-      'session';
+    ? `会话${sessions.length + 1}`
+    : (sessions.find((s) => s.id === selectedSessionId)?.displayName ?? '会话');
   const compactSessionLabel = truncateSessionLabel(selectedSessionLabel);
 
   const { isAttemptRunning, stopExecution, isStopping, processes } =
@@ -129,10 +136,28 @@ export function TaskFollowUpSection({
   const { branch: attemptBranch, refetch: refetchAttemptBranch } =
     useAttemptBranch(workspaceId);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
-  const {
-    generateMarkdown: generateClickedMarkdown,
-    clearElements: clearClickedElements,
-  } = useClickedElements();
+  const { registerOnElementAdded, workspaceRoot } = useClickedElements();
+
+  // Clicked element chip insertion bridge
+  const insertClickedElementRef = useRef<
+    ((data: ClickedElementData) => void) | null
+  >(null);
+
+  const handleRegisterClickedElementInsert = useCallback(
+    (insertFn: (data: ClickedElementData) => void) => {
+      insertClickedElementRef.current = insertFn;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const unregister = registerOnElementAdded((entry) => {
+      const data = buildClickedElementData(entry, workspaceRoot);
+      insertClickedElementRef.current?.(data);
+    });
+    return unregister;
+  }, [registerOnElementAdded, workspaceRoot]);
+
   const { enableScope, disableScope } = useHotkeysContext();
 
   const diffSummary = useDiffSummary(workspaceId ?? null);
@@ -141,11 +166,6 @@ export function TaskFollowUpSection({
   const reviewMarkdown = useMemo(
     () => generateReviewMarkdown(),
     [generateReviewMarkdown]
-  );
-
-  const clickedMarkdown = useMemo(
-    () => generateClickedMarkdown(),
-    [generateClickedMarkdown]
   );
 
   const conflictResolutionInstructions = useMemo(() => {
@@ -164,6 +184,7 @@ export function TaskFollowUpSection({
   const {
     scratch,
     updateScratch,
+    deleteScratch,
     isLoading: isScratchLoading,
   } = useScratch(ScratchType.DRAFT_FOLLOW_UP, scratchId ?? '');
 
@@ -280,11 +301,13 @@ export function TaskFollowUpSection({
     }
   }, [effectiveExecutorProfile, isScratchLoading, localMessage, saveToScratch]);
 
+  const hydratedScratchIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (isScratchLoading) return;
-    if (isTextareaFocused) return;
+    if (hydratedScratchIdRef.current === scratchId) return;
+    hydratedScratchIdRef.current = scratchId;
     setLocalMessage(scratchData?.message ?? '');
-  }, [isScratchLoading, scratchData?.message, isTextareaFocused]);
+  }, [isScratchLoading, scratchData?.message, scratchId]);
 
   const { activeRetryProcessId } = useRetryUi();
   const isRetryActive = !!activeRetryProcessId;
@@ -387,16 +410,19 @@ export function TaskFollowUpSection({
       workspaceId,
       isNewSessionMode,
       onSelectSession: selectSession,
+      onSessionCreated,
       message: localMessage,
       conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,
-      clickedMarkdown,
       executorProfileId: effectiveExecutorProfile,
       clearComments,
-      clearClickedElements,
-      onAfterSendCleanup: () => {
+      onAfterSendCleanup: async () => {
         cancelDebouncedSave();
         setLocalMessage('');
+        hydratedScratchIdRef.current = scratchId;
+        if (scratchId) {
+          await deleteScratch();
+        }
       },
     });
 
@@ -410,17 +436,13 @@ export function TaskFollowUpSection({
   const canSendFollowUp = useMemo(() => {
     if (!canTypeFollowUp || !effectiveExecutorProfile?.executor) return false;
     return Boolean(
-      conflictResolutionInstructions ||
-        reviewMarkdown ||
-        clickedMarkdown ||
-        localMessage.trim()
+      conflictResolutionInstructions || reviewMarkdown || localMessage.trim()
     );
   }, [
     canTypeFollowUp,
     effectiveExecutorProfile?.executor,
     conflictResolutionInstructions,
     reviewMarkdown,
-    clickedMarkdown,
     localMessage,
   ]);
   const isEditable = !isRetryActive && !hasPendingApproval;
@@ -429,17 +451,14 @@ export function TaskFollowUpSection({
     if (
       !localMessage.trim() &&
       !conflictResolutionInstructions &&
-      !reviewMarkdown &&
-      !clickedMarkdown
+      !reviewMarkdown
     )
       return;
     cancelDebouncedSave();
     await saveToScratch(localMessage, effectiveExecutorProfile);
     const { prompt } = buildAgentPrompt(
       localMessage,
-      [conflictResolutionInstructions, clickedMarkdown, reviewMarkdown].filter(
-        Boolean
-      )
+      [conflictResolutionInstructions, reviewMarkdown].filter(Boolean)
     );
     if (effectiveExecutorProfile) {
       await queueMessage(prompt, effectiveExecutorProfile);
@@ -448,7 +467,6 @@ export function TaskFollowUpSection({
     localMessage,
     conflictResolutionInstructions,
     reviewMarkdown,
-    clickedMarkdown,
     effectiveExecutorProfile,
     queueMessage,
     cancelDebouncedSave,
@@ -525,7 +543,6 @@ export function TaskFollowUpSection({
     [workspaceId, getQueueState, cancelMutation]
   );
 
-
   const handleReviewChanges = useCallback(async () => {
     if (!sessionId || !effectiveExecutorProfile) return;
     try {
@@ -586,7 +603,12 @@ export function TaskFollowUpSection({
       refetchAttemptBranch();
     }
     prevRunningRef.current = isAttemptRunning;
-  }, [isAttemptRunning, workspaceId, refetchBranchStatus, refetchAttemptBranch]);
+  }, [
+    isAttemptRunning,
+    workspaceId,
+    refetchBranchStatus,
+    refetchAttemptBranch,
+  ]);
 
   if (!workspaceId) return null;
 
@@ -635,8 +657,6 @@ export function TaskFollowUpSection({
                 />
               )}
 
-              <ClickedElementsBanner />
-
               <MessageQueueIndicator isQueued={isQueued && !!queuedMessage} />
             </div>
           </div>
@@ -655,7 +675,7 @@ export function TaskFollowUpSection({
           {/* Top bar */}
           {(diffSummary.fileCount > 0 ||
             tokenUsageInfo ||
-            sessions.length > 0 ||
+            (showSessionSelector && sessions.length > 0) ||
             effectiveExecutorProfile?.executor) && (
             <div className="flex items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">
               <DiffStatsBar
@@ -683,14 +703,16 @@ export function TaskFollowUpSection({
                 <TooltipContent>回到上一条用户消息</TooltipContent>
               </Tooltip>
 
-              <SessionSelector
-                sessions={sessions}
-                selectedSessionId={selectedSessionId}
-                compactSessionLabel={compactSessionLabel}
-                selectedSessionLabel={selectedSessionLabel}
-                onSelectSession={selectSession}
-                onStartNewSession={startNewSession}
-              />
+              {showSessionSelector ? (
+                <SessionSelector
+                  sessions={sessions}
+                  selectedSessionId={selectedSessionId}
+                  compactSessionLabel={compactSessionLabel}
+                  selectedSessionLabel={selectedSessionLabel}
+                  onSelectSession={selectSession}
+                  onStartNewSession={startNewSession}
+                />
+              ) : null}
             </div>
           )}
 
@@ -707,6 +729,7 @@ export function TaskFollowUpSection({
             onCmdEnter={handleSubmitShortcut}
             sendShortcut={config?.send_message_shortcut}
             className="min-h-[40px] break-words overflow-wrap-anywhere"
+            onRegisterClickedElementInsert={handleRegisterClickedElementInsert}
           />
 
           <ActionBar
@@ -724,7 +747,6 @@ export function TaskFollowUpSection({
             localMessage={localMessage}
             conflictResolutionInstructions={conflictResolutionInstructions}
             reviewMarkdown={reviewMarkdown}
-            clickedMarkdown={clickedMarkdown}
             todos={todos}
             comments={comments}
             onQueueMessage={handleQueueMessage}

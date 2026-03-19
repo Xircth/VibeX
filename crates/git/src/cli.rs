@@ -23,8 +23,10 @@ use std::{
 };
 
 use thiserror::Error;
-use utils::{path::ALWAYS_SKIP_DIRS, shell::resolve_executable_path_blocking};
-use utils::process::configure_std_command_no_window;
+use utils::{
+    path::ALWAYS_SKIP_DIRS, process::configure_std_command_no_window,
+    shell::resolve_executable_path_blocking,
+};
 
 use super::Commit;
 
@@ -798,11 +800,7 @@ impl GitCli {
     }
 
     /// Get git log entries with format: hash, summary, author, timestamp, refs.
-    pub fn get_log(
-        &self,
-        worktree_path: &Path,
-        max_count: usize,
-    ) -> Result<String, GitCliError> {
+    pub fn get_log(&self, worktree_path: &Path, max_count: usize) -> Result<String, GitCliError> {
         self.git(
             worktree_path,
             [
@@ -823,7 +821,12 @@ impl GitCli {
     ) -> Result<(usize, usize), GitCliError> {
         let out = self.git(
             worktree_path,
-            ["rev-list", "--left-right", "--count", &format!("{upstream}...{head}")],
+            [
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{upstream}...{head}"),
+            ],
         )?;
         let parts: Vec<&str> = out.trim().split('\t').collect();
         if parts.len() == 2 {
@@ -845,7 +848,12 @@ impl GitCli {
     pub fn get_upstream_branch(&self, worktree_path: &Path) -> Result<Option<String>, GitCliError> {
         match self.git(
             worktree_path,
-            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            [
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}",
+            ],
         ) {
             Ok(out) => {
                 let trimmed = out.trim();
@@ -893,7 +901,11 @@ impl GitCli {
     }
 
     /// Checkout an existing branch.
-    pub fn checkout_branch(&self, worktree_path: &Path, branch_name: &str) -> Result<(), GitCliError> {
+    pub fn checkout_branch(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+    ) -> Result<(), GitCliError> {
         self.ensure_available()?;
         self.git(worktree_path, ["checkout", branch_name])?;
         Ok(())
@@ -927,7 +939,12 @@ impl GitCli {
         // Format: summary\0body\0author\0email\0timestamp
         let out = self.git(
             worktree_path,
-            ["show", sha, "--no-patch", "--format=%s%x00%b%x00%aN%x00%aE%x00%ct"],
+            [
+                "show",
+                sha,
+                "--no-patch",
+                "--format=%s%x00%b%x00%aN%x00%aE%x00%ct",
+            ],
         )?;
         let trimmed = out.trim();
         let parts: Vec<&str> = trimmed.splitn(5, '\0').collect();
@@ -938,10 +955,10 @@ impl GitCli {
         }
         let timestamp = parts[4].trim().parse::<i64>().unwrap_or(0);
         Ok((
-            parts[0].to_string(), // summary
+            parts[0].to_string(),        // summary
             parts[1].trim().to_string(), // body
-            parts[2].to_string(), // author
-            parts[3].to_string(), // author_email
+            parts[2].to_string(),        // author
+            parts[3].to_string(),        // author_email
             timestamp,
         ))
     }
@@ -1006,12 +1023,7 @@ impl GitCli {
     }
 
     /// Reset current branch to a specific commit.
-    pub fn reset_to(
-        &self,
-        worktree_path: &Path,
-        sha: &str,
-        mode: &str,
-    ) -> Result<(), GitCliError> {
+    pub fn reset_to(&self, worktree_path: &Path, sha: &str, mode: &str) -> Result<(), GitCliError> {
         self.ensure_available()?;
         let mode_flag = format!("--{mode}");
         self.git(worktree_path, ["reset", &mode_flag, sha])?;
@@ -1056,7 +1068,10 @@ impl GitCli {
         let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
         let mut cmd = Command::new(&git);
         configure_std_command_no_window(&mut cmd);
-        let out = cmd.arg("--version").output().map_err(|_| GitCliError::NotAvailable)?;
+        let out = cmd
+            .arg("--version")
+            .output()
+            .map_err(|_| GitCliError::NotAvailable)?;
         if out.status.success() {
             Ok(())
         } else {

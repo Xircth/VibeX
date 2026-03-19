@@ -158,8 +158,8 @@ export const useTauriPatchStream = <T extends object>(
         }
 
         // 2. Invoke the subscribe command to start the backend stream.
-        const args = subscribeArgs
-          ? JSON.parse(argsKey) as Record<string, unknown>
+        const args = argsKey
+          ? (JSON.parse(argsKey) as Record<string, unknown>)
           : undefined;
 
         await tauriInvoke(subscribeCommand, args);
@@ -192,7 +192,6 @@ export const useTauriPatchStream = <T extends object>(
       setIsInitialized(false);
       setIsConnected(false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     subscribeCommand,
     argsKey,

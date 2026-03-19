@@ -183,7 +183,12 @@ export function Toolbar() {
     resetLayout,
   } = useLayoutStore();
 
-  const { toggleFileTree, openNewTerminal, toggleCenter1Visibility, toggleCenter2Visibility, isCenter1Visible, isCenter2Visible } = usePanelActions();
+  const {
+    toggleFileTree,
+    openNewTerminal,
+    splitActiveEditor,
+    canSplitActiveEditor,
+  } = usePanelActions();
 
   const handleCreateTask = () => {
     if (projectId) {
@@ -262,29 +267,22 @@ export function Toolbar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-7 w-7", isCenter1Visible() && "bg-accent")}
-                  onClick={toggleCenter1Visibility}
-                  aria-label="Toggle center panel 1"
-                >
-                  <PanelLeft className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Toggle Center 1</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-7 w-7", isCenter2Visible() && "bg-accent")}
-                  onClick={toggleCenter2Visibility}
-                  aria-label="Toggle center panel 2"
+                  className={cn(
+                    'h-7 w-7',
+                    canSplitActiveEditor() && 'bg-accent'
+                  )}
+                  onClick={() => {
+                    splitActiveEditor();
+                  }}
+                  aria-label="Split active editor"
+                  disabled={!canSplitActiveEditor()}
                 >
                   <Columns2 className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Toggle Center 2</TooltipContent>
+              <TooltipContent side="bottom">
+                Split Active Editor
+              </TooltipContent>
             </Tooltip>
 
             <Tooltip>

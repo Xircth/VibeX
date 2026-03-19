@@ -8,7 +8,6 @@
 use std::{path::Path, process::Stdio, sync::Arc};
 
 use async_trait::async_trait;
-
 use rand::seq::SliceRandom as _;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -70,7 +69,8 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let child = workspace_utils::process::group_spawn_no_window(&mut cmd).map_err(ExecutorError::Io)?;
+        let child =
+            workspace_utils::process::group_spawn_no_window(&mut cmd).map_err(ExecutorError::Io)?;
         Ok(SpawnedChild::from(child))
     }
 

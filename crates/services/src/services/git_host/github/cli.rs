@@ -16,10 +16,7 @@ use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use url::Url;
-use utils::{
-    process::configure_std_command_no_window,
-    shell::resolve_executable_path_blocking,
-};
+use utils::{process::configure_std_command_no_window, shell::resolve_executable_path_blocking};
 
 use crate::services::git_host::types::{
     CreatePrRequest, GitHubIssueAuthor, GitHubIssueInfo, GitHubLabel, OpenPrInfo, PrComment,
@@ -594,12 +591,11 @@ impl GhCli {
             color: String,
         }
 
-        let issues: Vec<GhIssueResponse> =
-            serde_json::from_str(raw.trim()).map_err(|err| {
-                GhCliError::UnexpectedOutput(format!(
-                    "Failed to parse gh issue list response: {err}; raw: {raw}"
-                ))
-            })?;
+        let issues: Vec<GhIssueResponse> = serde_json::from_str(raw.trim()).map_err(|err| {
+            GhCliError::UnexpectedOutput(format!(
+                "Failed to parse gh issue list response: {err}; raw: {raw}"
+            ))
+        })?;
 
         Ok(issues
             .into_iter()

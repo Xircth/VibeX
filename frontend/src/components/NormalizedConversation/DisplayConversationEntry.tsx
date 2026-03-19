@@ -30,7 +30,12 @@ import {
 } from './conversation-entry-utils';
 import { CollapsibleEntry } from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
-import { ToolCallCard, ScriptToolCallCard, PlanPresentationCard } from './ToolCallCard';
+import {
+  ToolCallCard,
+  ScriptToolCallCard,
+  PlanPresentationCard,
+  LookupToolCallCard,
+} from './ToolCallCard';
 import { LoadingCard, CopyButton } from './LoadingCard';
 
 type Props = {
@@ -70,7 +75,12 @@ function DisplayConversationEntry({
 
   if (isProcessStart(entry)) {
     return (
-      <div className={cn('conv-entry-item', greyed && 'opacity-50 pointer-events-none')}>
+      <div
+        className={cn(
+          'conv-entry-item',
+          greyed && 'opacity-50 pointer-events-none'
+        )}
+      >
         <div className="px-4 py-1 text-sm">
           <ToolCallCard
             entry={entry}
@@ -173,6 +183,22 @@ function DisplayConversationEntry({
             defaultExpanded={defaultExpanded}
             statusAppearance={statusAppearance}
             taskAttemptId={taskAttempt?.id}
+          />
+        );
+      }
+
+      if (
+        toolEntry.action_type.action === 'file_read' ||
+        toolEntry.action_type.action === 'search' ||
+        toolEntry.action_type.action === 'web_fetch'
+      ) {
+        return (
+          <LookupToolCallCard
+            entry={entry}
+            expansionKey={expansionKey}
+            statusAppearance={statusAppearance}
+            forceExpanded={isPendingApproval}
+            containerRef={taskAttempt?.container_ref}
           />
         );
       }
@@ -287,9 +313,15 @@ function DisplayConversationEntry({
           sessionId={taskAttempt?.session?.id}
           containerRef={taskAttempt?.container_ref}
           failed={entry.entry_type.failed}
-          execution_processes={entry.entry_type.execution_processes}
           task={task}
           needsSetup={entry.entry_type.needs_setup}
+          setupHelpText={
+            'setup_help_text' in entry.entry_type
+              ? typeof entry.entry_type.setup_help_text === 'string'
+                ? entry.entry_type.setup_help_text
+                : null
+              : null
+          }
         />
       </div>
     );

@@ -37,7 +37,11 @@ export type CollapsibleVariant = 'system' | 'error';
 
 export type ToolStatusAppearance = 'default' | 'denied' | 'timed_out';
 
-export type AggregationType = 'file_read' | 'search' | 'web_fetch' | 'command_run';
+export type AggregationType =
+  | 'file_read'
+  | 'search'
+  | 'web_fetch'
+  | 'command_run';
 
 export type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 
@@ -63,10 +67,22 @@ export const AGGREGATION_LABELS: Record<
   AggregationType,
   { icon: ReactNode; label: string }
 > = {
-  file_read: { icon: createElement(Eye, { className: 'h-3 w-3' }), label: '查看文件' },
-  search: { icon: createElement(Search, { className: 'h-3 w-3' }), label: '搜索' },
-  web_fetch: { icon: createElement(Globe, { className: 'h-3 w-3' }), label: '网页抓取' },
-  command_run: { icon: createElement(TerminalSquare, { className: 'h-3 w-3' }), label: '终端' },
+  file_read: {
+    icon: createElement(Eye, { className: 'h-3 w-3' }),
+    label: '查看文件',
+  },
+  search: {
+    icon: createElement(Search, { className: 'h-3 w-3' }),
+    label: '搜索',
+  },
+  web_fetch: {
+    icon: createElement(Globe, { className: 'h-3 w-3' }),
+    label: '网页抓取',
+  },
+  command_run: {
+    icon: createElement(TerminalSquare, { className: 'h-3 w-3' }),
+    label: '终端',
+  },
 };
 
 export const PLAN_APPEARANCE: Record<
@@ -107,7 +123,11 @@ export const PLAN_APPEARANCE: Record<
  ***********************/
 
 export const renderJson = (v: JsonValue) =>
-  createElement('pre', { className: 'whitespace-pre-wrap' }, JSON.stringify(v, null, 2));
+  createElement(
+    'pre',
+    { className: 'whitespace-pre-wrap' },
+    JSON.stringify(v, null, 2)
+  );
 
 export const getEntryIcon = (entryType: NormalizedEntryType) => {
   const iconSize = 'h-3 w-3';
@@ -286,18 +306,24 @@ export const getToolSummary = (
         detail: '',
       };
     case 'todo_management':
-      return { label: 'Todo', detail: at.operation };
+      return {
+        label: 'Todo',
+        detail: `${at.operation}${at.todos.length > 0 ? ` (${at.todos.length})` : ''}`,
+      };
+    case 'plan_presentation':
+      return { label: '计划', detail: '' };
     default:
       return { label: entryType.tool_name || 'Tool', detail: content.trim() };
   }
 };
-
 export const isPendingApprovalStatus = (
   status: ToolStatus
 ): status is Extract<ToolStatus, { status: 'pending_approval' }> =>
   status.status === 'pending_approval';
 
-export const getToolStatusAppearance = (status: ToolStatus): ToolStatusAppearance => {
+export const getToolStatusAppearance = (
+  status: ToolStatus
+): ToolStatusAppearance => {
   if (status.status === 'denied') return 'denied';
   if (status.status === 'timed_out') return 'timed_out';
   return 'default';

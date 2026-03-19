@@ -31,7 +31,8 @@ Generate a commit message following this format:
 
 Base the commit message on the actual code changes shown in the diff."#;
 
-pub const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE: &str = "{title} (Vibe Ultra {id})\n\n{description}";
+pub const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE: &str =
+    "{title} (Vibe Ultra {id})\n\n{description}";
 
 #[derive(Debug, Error)]
 pub enum ConfigError {

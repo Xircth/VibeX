@@ -37,6 +37,10 @@ export const sessionsApi = {
     });
   },
 
+  delete: async (sessionId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_session', { sessionId });
+  },
+
   followUp: async (
     sessionId: string,
     data: CreateFollowUpAttempt

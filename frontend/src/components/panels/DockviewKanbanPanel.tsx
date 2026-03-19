@@ -1,7 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { IDockviewPanelProps } from 'dockview-react';
-import { Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   DndContext,
@@ -19,15 +18,35 @@ import { useTaskMutations } from '@/hooks/useTaskMutations';
 import { paths } from '@/lib/paths';
 import { openTaskForm } from '@/lib/openTaskForm';
 import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
+import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
+import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { cn } from '@/lib/utils';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
 
 const KANBAN_COLUMNS = [
   { key: 'todo' as TaskStatus, label: 'TODO', dotColor: '#EF4444' },
-  { key: 'inprogress' as TaskStatus, label: 'IN PROGRESS', dotColor: '#22C55E' },
+  {
+    key: 'inprogress' as TaskStatus,
+    label: 'IN PROGRESS',
+    dotColor: '#22C55E',
+  },
   { key: 'inreview' as TaskStatus, label: 'IN REVIEW', dotColor: '#EAB308' },
   { key: 'done' as TaskStatus, label: 'DONE', dotColor: '#9CA3AF' },
 ] as const;
+
+function createEmptyStatusBuckets(): Record<
+  TaskStatus,
+  TaskWithAttemptStatus[]
+> {
+  return {
+    todo: [],
+    inprogress: [],
+    inreview: [],
+    done: [],
+    cancelled: [],
+  };
+}
 
 /**
  * Shared KanbanBoard component used by both the dockview panel and the full-width overlay.
@@ -35,13 +54,103 @@ const KANBAN_COLUMNS = [
  * Supports drag-and-drop to move tasks between status columns.
  */
 export function KanbanBoard() {
+  const { isSessionHubVisible, toggleSessionHub } = useKanbanSessionContext();
+
+  return (
+    <div
+      className="group relative h-full w-full overflow-hidden bg-background"
+      data-panel="kanban"
+    >
+      <div className="absolute inset-y-0 left-0 z-20 flex w-10 items-center">
+        <div className="flex h-24 w-full items-center">
+          <button
+            type="button"
+            onClick={toggleSessionHub}
+            aria-label={isSessionHubVisible ? '显示工作区看板' : '显示会话看板'}
+            className={cn(
+              'ml-1 flex h-11 w-7 items-center justify-center rounded-r-full border border-border bg-background/95 text-muted-foreground shadow-sm transition-all duration-200 hover:text-foreground',
+              isSessionHubVisible
+                ? 'translate-x-0 opacity-100'
+                : '-translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 focus-visible:translate-x-0 focus-visible:opacity-100'
+            )}
+          >
+            {isSessionHubVisible ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="flex h-full w-[200%] transition-transform duration-300 ease-out"
+        style={{
+          transform: isSessionHubVisible
+            ? 'translateX(-50%)'
+            : 'translateX(0%)',
+        }}
+      >
+        <div className="h-full w-1/2 shrink-0">
+          <WorkspaceKanbanBoard />
+        </div>
+        <div className="h-full w-1/2 shrink-0 border-l border-border/60">
+          <KanbanSessionHub />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceKanbanBoard() {
   const { projectId } = useProject();
-  const { tasksByStatus } = useProjectTasks(projectId ?? '');
+  const { tasksById } = useProjectTasks(projectId ?? '');
   const { updateTask } = useTaskMutations(projectId);
   const navigate = useNavigate();
   const setActiveTab = useLayoutStore((s) => s.setActiveTab);
 
-  const [activeTask, setActiveTask] = useState<TaskWithAttemptStatus | null>(null);
+  const [activeTask, setActiveTask] = useState<TaskWithAttemptStatus | null>(
+    null
+  );
+  const [optimisticStatusByTaskId, setOptimisticStatusByTaskId] = useState<
+    Record<string, TaskStatus>
+  >({});
+
+  const tasksByStatus = useMemo(() => {
+    const buckets = createEmptyStatusBuckets();
+
+    Object.values(tasksById).forEach((task) => {
+      const effectiveStatus = optimisticStatusByTaskId[task.id] ?? task.status;
+      buckets[effectiveStatus]?.push(task);
+    });
+
+    (Object.values(buckets) as TaskWithAttemptStatus[][]).forEach((list) => {
+      list.sort(
+        (a, b) =>
+          new Date(b.created_at as string).getTime() -
+          new Date(a.created_at as string).getTime()
+      );
+    });
+
+    return buckets;
+  }, [tasksById, optimisticStatusByTaskId]);
+
+  useEffect(() => {
+    setOptimisticStatusByTaskId((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      Object.entries(prev).forEach(([taskId, optimisticStatus]) => {
+        const latest = tasksById[taskId];
+        if (!latest || latest.status === optimisticStatus) {
+          delete next[taskId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [tasksById]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -52,13 +161,15 @@ export function KanbanBoard() {
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const taskId = event.active.id as string;
-      const status = event.active.data.current?.parent as TaskStatus | undefined;
+      const status = event.active.data.current?.parent as
+        | TaskStatus
+        | undefined;
       if (!status) return;
       const tasks = tasksByStatus[status] ?? [];
       const found = tasks.find((t) => t.id === taskId);
       setActiveTask(found ?? null);
     },
-    [tasksByStatus],
+    [tasksByStatus]
   );
 
   const handleTaskClick = useCallback(
@@ -67,7 +178,7 @@ export function KanbanBoard() {
       setActiveTab('workspace');
       navigate(`${paths.task(projectId, task.id)}/attempts/latest`);
     },
-    [projectId, navigate, setActiveTab],
+    [projectId, navigate, setActiveTab]
   );
 
   const handleCreateTask = useCallback(
@@ -75,7 +186,7 @@ export function KanbanBoard() {
       if (!projectId) return;
       openTaskForm({ mode: 'create', projectId, initialStatus: status });
     },
-    [projectId],
+    [projectId]
   );
 
   const handleDeleteTask = useCallback(
@@ -88,7 +199,7 @@ export function KanbanBoard() {
         // User cancelled
       }
     },
-    [projectId],
+    [projectId]
   );
 
   const handleDragEnd = useCallback(
@@ -98,27 +209,45 @@ export function KanbanBoard() {
       if (!over) return;
 
       const taskId = active.id as string;
-      const sourceStatus = active.data.current?.parent as TaskStatus | undefined;
+      const sourceStatus = active.data.current?.parent as
+        | TaskStatus
+        | undefined;
       const targetStatus = over.id as TaskStatus;
 
       if (!sourceStatus || sourceStatus === targetStatus) return;
 
-      updateTask.mutate({
-        taskId,
-        data: {
-          title: null,
-          description: null,
-          status: targetStatus,
-          parent_workspace_id: null,
-          image_ids: null,
+      setOptimisticStatusByTaskId((prev) => ({
+        ...prev,
+        [taskId]: targetStatus,
+      }));
+
+      updateTask.mutate(
+        {
+          taskId,
+          data: {
+            title: null,
+            description: null,
+            status: targetStatus,
+            parent_workspace_id: null,
+            image_ids: null,
+          },
         },
-      });
+        {
+          onError: () => {
+            setOptimisticStatusByTaskId((prev) => {
+              const next = { ...prev };
+              delete next[taskId];
+              return next;
+            });
+          },
+        }
+      );
     },
-    [updateTask],
+    [updateTask]
   );
 
   return (
-    <div className="h-full w-full overflow-auto bg-background p-3" data-panel="kanban">
+    <div className="h-full w-full overflow-auto bg-background p-3">
       <DndContext
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
@@ -161,7 +290,7 @@ export function KanbanBoard() {
   );
 }
 
-function DockviewKanbanPanel(_props: IDockviewPanelProps) {
+function DockviewKanbanPanel() {
   return <KanbanBoard />;
 }
 
@@ -210,7 +339,7 @@ function KanbanColumn({
           <span className="text-sm leading-none">+</span>
         </button>
       </div>
-      <div className="flex-1 p-2 space-y-1.5 overflow-auto">
+      <div className="flex-1 p-2 space-y-1.5 overflow-y-auto overflow-x-hidden">
         {tasks.map((task, index) => (
           <DraggableTaskCard
             key={task.id}
@@ -255,9 +384,10 @@ function DraggableTaskCard({
         isDragging ? 'opacity-0 cursor-grabbing' : ''
       }`}
       style={{
-        transform: transform
-          ? `translateX(${transform.x}px) translateY(${transform.y}px)`
-          : undefined,
+        transform:
+          transform && !isDragging
+            ? `translateX(${transform.x}px) translateY(${transform.y}px)`
+            : undefined,
       }}
     >
       <div className="text-xs font-medium text-foreground line-clamp-2 pr-5">

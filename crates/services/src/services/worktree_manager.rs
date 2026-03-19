@@ -12,8 +12,7 @@ use git2::{Error as GitError, Repository};
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use utils::{
-    path::normalize_macos_private_alias,
-    process::configure_tokio_command_no_window,
+    path::normalize_macos_private_alias, process::configure_tokio_command_no_window,
     shell::resolve_executable_path,
 };
 

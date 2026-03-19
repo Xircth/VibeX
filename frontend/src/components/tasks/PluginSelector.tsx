@@ -11,19 +11,18 @@ import { cn } from '@/lib/utils';
 import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
 interface PluginSelectorProps {
-  /** Currently selected plugin name (null = default, no specific plugin) */
   value: string | null;
   onChange: (plugin: string | null) => void;
   disabled?: boolean;
   className?: string;
 }
 
-/**
- * Plugin/Agent selector for Claude Code.
- * Reads enabled plugins from ~/.claude/settings.json enabledPlugins field.
- * Each plugin entry is a string like "superpowers" or "glm-plan-usage".
- */
-function PluginSelectorInner({ value, onChange, disabled, className }: PluginSelectorProps) {
+function PluginSelectorInner({
+  value,
+  onChange,
+  disabled,
+  className,
+}: PluginSelectorProps) {
   const { settings } = useClaudeSettings();
   const pluginsMap = settings?.enabled_plugins ?? {};
   const plugins = Object.entries(pluginsMap)

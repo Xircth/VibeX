@@ -91,11 +91,9 @@ impl NotificationService {
             // subexpressions, or backtick escapes, making them injection-safe.
             let safe_path = file_path.replace('\'', "''");
             let mut cmd = tokio::process::Command::new("powershell.exe");
-            cmd.arg("-NoProfile")
-                .arg("-Command")
-                .arg(format!(
-                    "(New-Object Media.SoundPlayer '{safe_path}').PlaySync()"
-                ));
+            cmd.arg("-NoProfile").arg("-Command").arg(format!(
+                "(New-Object Media.SoundPlayer '{safe_path}').PlaySync()"
+            ));
             utils::process::configure_tokio_command_no_window(&mut cmd);
             let _ = cmd.spawn();
         }
@@ -172,6 +170,8 @@ impl NotificationService {
 
     /// Send Windows/WSL notification using PowerShell toast script
     async fn send_windows_notification(title: &str, message: &str) {
+        const WINDOWS_TOAST_APP_ID: &str = "com.vibe-ultra.app";
+        const WINDOWS_TOAST_APP_NAME: &str = "VibeUltra";
         let script_path = match utils::get_powershell_script().await {
             Ok(path) => path,
             Err(e) => {
@@ -197,6 +197,10 @@ impl NotificationService {
             .arg("Bypass")
             .arg("-File")
             .arg(script_path_str)
+            .arg("-AppId")
+            .arg(WINDOWS_TOAST_APP_ID)
+            .arg("-AppName")
+            .arg(WINDOWS_TOAST_APP_NAME)
             .arg("-Title")
             .arg(title)
             .arg("-Message")
@@ -216,8 +220,7 @@ impl NotificationService {
             .arg("(Get-Location).Path -replace '^.*::', ''")
             .current_dir("/");
         utils::process::configure_tokio_command_no_window(&mut cmd);
-        match cmd.output().await
-        {
+        match cmd.output().await {
             Ok(output) => {
                 match String::from_utf8(output.stdout) {
                     Ok(pwd_str) => {

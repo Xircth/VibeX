@@ -31,14 +31,11 @@ use serde::{Deserialize, Serialize};
 use services::services::{
     config::DEFAULT_PR_DESCRIPTION_PROMPT,
     container::ContainerService,
-    git_host::{
-        self, CreatePrRequest, GitHostError, GitHostProvider, ProviderKind,
-        github::GhCli,
-    },
+    git_host::{self, CreatePrRequest, GitHostError, GitHostProvider, ProviderKind, github::GhCli},
     workspace_manager::WorkspaceManager,
 };
-use uuid::Uuid;
 use utils::shell::resolve_executable_path;
+use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
 
@@ -287,9 +284,7 @@ pub async fn get_workspace(
 }
 
 #[tauri::command]
-pub async fn get_workspace_count(
-    state: tauri::State<'_, AppState>,
-) -> Result<i64, AppError> {
+pub async fn get_workspace_count(state: tauri::State<'_, AppState>) -> Result<i64, AppError> {
     let pool = &state.deployment.db().pool;
     let count = Workspace::count_all(pool).await?;
     Ok(count)
@@ -339,6 +334,8 @@ pub async fn create_workspace(
         pool,
         &CreateWorkspace {
             branch: git_branch_name,
+            container_ref: None,
+            use_worktree: true,
             agent_working_dir,
         },
         attempt_id,
@@ -360,7 +357,10 @@ pub async fn create_workspace(
     if let Err(err) = state
         .deployment
         .container()
-        .start_workspace(&workspace, ExecutorConfig::from(payload.executor_profile_id.clone()))
+        .start_workspace(
+            &workspace,
+            ExecutorConfig::from(payload.executor_profile_id.clone()),
+        )
         .await
     {
         tracing::error!("Failed to start workspace: {}", err);
@@ -497,8 +497,7 @@ pub async fn delete_workspace(
                 workspace_dir.display()
             );
 
-            if let Err(e) =
-                WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories).await
+            if let Err(e) = WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories).await
             {
                 tracing::error!(
                     "Background workspace cleanup failed for {} at {}: {}",
@@ -608,7 +607,9 @@ pub async fn get_workspace_branch_status(
         };
 
         let repo_merges = merges_by_repo.get(&repo.id).cloned().unwrap_or_default();
-        let worktree_path = workspace_dir.join(&repo.name);
+        let worktree_path = workspace
+            .repo_path(&repo)
+            .unwrap_or_else(|| workspace_dir.clone());
 
         let head_oid = state
             .deployment
@@ -684,11 +685,11 @@ pub async fn get_workspace_branch_status(
             ..
         })) = repo_merges.first()
         {
-            match state
-                .deployment
-                .git()
-                .get_remote_branch_status(&repo.path, &workspace.branch, None)
-            {
+            match state.deployment.git().get_remote_branch_status(
+                &repo.path,
+                &workspace.branch,
+                None,
+            ) {
                 Ok((ahead, behind)) => (Some(ahead), Some(behind)),
                 Err(_) => (None, None),
             }
@@ -733,10 +734,9 @@ pub async fn merge_workspace(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -771,7 +771,9 @@ pub async fn merge_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf());
 
     let task = workspace
         .parent_task(pool)
@@ -845,10 +847,9 @@ pub async fn push_workspace_branch(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -860,13 +861,15 @@ pub async fn push_workspace_branch(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf());
 
-    match state
-        .deployment
-        .git()
-        .push_to_remote(&worktree_path, &workspace.branch, force.unwrap_or(false))
-    {
+    match state.deployment.git().push_to_remote(
+        &worktree_path,
+        &workspace.branch,
+        force.unwrap_or(false),
+    ) {
         Ok(_) => Ok(PushResult { error: None }),
         Err(GitServiceError::GitCLI(GitCliError::PushRejected(_))) => Ok(PushResult {
             error: Some(PushError::ForcePushRequired),
@@ -889,10 +892,9 @@ pub async fn rebase_workspace(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -922,7 +924,9 @@ pub async fn rebase_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf());
 
     let result = state.deployment.git().rebase_branch(
         &repo.path,
@@ -977,7 +981,9 @@ pub async fn continue_rebase_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf());
 
     state.deployment.git().continue_rebase(&worktree_path)?;
 
@@ -1006,7 +1012,9 @@ pub async fn abort_conflicts_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf());
 
     state.deployment.git().abort_conflicts(&worktree_path)?;
 
@@ -1028,10 +1036,9 @@ pub async fn rebase_back_workspace(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -1055,7 +1062,9 @@ pub async fn rebase_back_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.to_path_buf());
 
     // Build commit message from branch commit messages
     let task = workspace
@@ -1209,7 +1218,9 @@ pub async fn rename_workspace_branch(
 
     // Pre-check: verify branch name is available and no rebase in progress
     for repo in &repos {
-        let worktree_path = workspace_dir.join(&repo.name);
+        let worktree_path = workspace
+            .repo_path(repo)
+            .unwrap_or_else(|| workspace_dir.clone());
 
         if state
             .deployment
@@ -1239,7 +1250,9 @@ pub async fn rename_workspace_branch(
     let mut renamed_repos: Vec<&Repo> = Vec::new();
 
     for repo in &repos {
-        let worktree_path = workspace_dir.join(&repo.name);
+        let worktree_path = workspace
+            .repo_path(repo)
+            .unwrap_or_else(|| workspace_dir.clone());
 
         match state.deployment.git().rename_local_branch(
             &worktree_path,
@@ -1252,7 +1265,9 @@ pub async fn rename_workspace_branch(
             Err(e) => {
                 // Rollback already renamed repos
                 for renamed_repo in &renamed_repos {
-                    let rollback_path = workspace_dir.join(&renamed_repo.name);
+                    let rollback_path = workspace
+                        .repo_path(renamed_repo)
+                        .unwrap_or_else(|| workspace_dir.clone());
                     if let Err(rollback_err) = state.deployment.git().rename_local_branch(
                         &rollback_path,
                         new_branch_name,
@@ -1416,10 +1431,9 @@ pub async fn install_web_companion(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -1430,7 +1444,9 @@ pub async fn install_web_companion(
         .clone()
         .ok_or_else(|| AppError::BadRequest("Workspace has no workspace directory".to_string()))?;
 
-    let repo_root = PathBuf::from(container_ref).join(&repo.name);
+    let repo_root = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| PathBuf::from(container_ref));
     if !repo_root.exists() {
         return Err(AppError::BadRequest(format!(
             "Repo directory does not exist: {}",
@@ -1455,15 +1471,12 @@ pub async fn install_web_companion(
     let (package_manager, args) = detect_package_manager(&repo_root);
     let executable = resolve_executable_path(package_manager)
         .await
-        .ok_or_else(|| AppError::BadRequest(format!("{} is not available on PATH", package_manager)))?;
+        .ok_or_else(|| {
+            AppError::BadRequest(format!("{} is not available on PATH", package_manager))
+        })?;
 
-    let mut install_cmd = tokio::process::Command::new(executable);
-    install_cmd.current_dir(&repo_root).args(&args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        install_cmd.creation_flags(0x08000000);
-    }
+    let mut install_cmd = utils::process::new_hidden_tokio_command(&executable, &args);
+    install_cmd.current_dir(&repo_root);
     let output = install_cmd
         .output()
         .await
@@ -1523,8 +1536,10 @@ async fn run_codex_setup_helper(
     workspace: &Workspace,
     codex: &executors::executors::codex::Codex,
 ) -> Result<ExecutionProcess, AppError> {
-    use executors::command::{CommandBuilder, apply_overrides};
-    use executors::executors::codex::Codex;
+    use executors::{
+        command::{CommandBuilder, apply_overrides},
+        executors::codex::Codex,
+    };
 
     let pool = &state.deployment.db().pool;
 
@@ -1537,8 +1552,8 @@ async fn run_codex_setup_helper(
 
     let mut login_command = CommandBuilder::new(Codex::base_command());
     login_command = login_command.extend_params(["login"]);
-    login_command =
-        apply_overrides(login_command, &codex.cmd).map_err(|e| AppError::Internal(e.to_string()))?;
+    login_command = apply_overrides(login_command, &codex.cmd)
+        .map_err(|e| AppError::Internal(e.to_string()))?;
 
     let (program_path, args) = login_command
         .build_initial()
@@ -1554,10 +1569,7 @@ async fn run_codex_setup_helper(
         working_dir: None,
     };
 
-    let setup_action = ExecutorAction::new(
-        ExecutorActionType::ScriptRequest(login_request),
-        None,
-    );
+    let setup_action = ExecutorAction::new(ExecutorActionType::ScriptRequest(login_request), None);
 
     let executor_action = if let Some(latest_process) = latest_process {
         let latest_action = latest_process
@@ -1683,9 +1695,7 @@ async fn get_gh_cli_setup_action() -> Result<ExecutorAction, AppError> {
         use utils::shell::resolve_executable_path;
 
         if resolve_executable_path("brew").await.is_none() {
-            return Err(AppError::BadRequest(
-                "brew is not available".to_string(),
-            ));
+            return Err(AppError::BadRequest("brew is not available".to_string()));
         }
 
         let install_script = r#"#!/bin/bash
@@ -1697,7 +1707,7 @@ if ! command -v gh &> /dev/null; then
 else
     echo "GitHub CLI already installed"
 fi"#
-            .to_string();
+        .to_string();
 
         let install_request = ScriptRequest {
             script: install_script,
@@ -1711,7 +1721,7 @@ set -e
 export GH_PROMPT_DISABLED=1
 gh auth login --web --git-protocol https --skip-ssh-key
 "#
-            .to_string();
+        .to_string();
 
         let auth_request = ScriptRequest {
             script: auth_script,
@@ -1774,11 +1784,7 @@ pub async fn run_setup_script(
         .ok_or_else(|| AppError::NotFound("Parent project not found".to_string()))?;
 
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let executor_action = match state
-        .deployment
-        .container()
-        .setup_actions_for_repos(&repos)
-    {
+    let executor_action = match state.deployment.container().setup_actions_for_repos(&repos) {
         Some(action) => action,
         None => {
             return Ok(RunScriptResult {
@@ -2006,7 +2012,11 @@ pub async fn open_workspace_in_editor(
     // For single-repo projects, open from the repo directory
     let workspace_repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let workspace_path = if workspace_repos.len() == 1 && file_path.is_none() {
-        workspace_path.join(&workspace_repos[0].name)
+        if workspace.use_worktree {
+            workspace_path.join(&workspace_repos[0].name)
+        } else {
+            workspace_path.to_path_buf()
+        }
     } else {
         workspace_path.to_path_buf()
     };
@@ -2121,10 +2131,9 @@ pub async fn get_workspace_commit_history(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -2174,10 +2183,9 @@ pub async fn get_workspace_commit_graph(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -2239,7 +2247,9 @@ async fn resolve_worktree_path(
         .container()
         .ensure_container_exists(&workspace)
         .await?;
-    let worktree_path = PathBuf::from(&container_ref).join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| PathBuf::from(&container_ref));
     Ok((worktree_path, workspace))
 }
 
@@ -2249,8 +2259,7 @@ pub async fn get_workspace_git_status(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<git::DetailedGitStatus, AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.get_detailed_status(&worktree_path)
         .map_err(|e| AppError::Internal(format!("git status failed: {e}")))
@@ -2263,8 +2272,7 @@ pub async fn stage_workspace_file(
     repo_id: Uuid,
     file_path: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.stage_file(&worktree_path, &file_path)
         .map_err(|e| AppError::Internal(format!("stage file failed: {e}")))
@@ -2276,8 +2284,7 @@ pub async fn stage_workspace_all(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.stage_all(&worktree_path)
         .map_err(|e| AppError::Internal(format!("stage all failed: {e}")))
@@ -2290,8 +2297,7 @@ pub async fn unstage_workspace_file(
     repo_id: Uuid,
     file_path: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.unstage_file(&worktree_path, &file_path)
         .map_err(|e| AppError::Internal(format!("unstage file failed: {e}")))
@@ -2304,8 +2310,7 @@ pub async fn revert_workspace_file(
     repo_id: Uuid,
     file_path: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.revert_file(&worktree_path, &file_path)
         .map_err(|e| AppError::Internal(format!("revert file failed: {e}")))
@@ -2317,8 +2322,7 @@ pub async fn revert_workspace_all(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.revert_all(&worktree_path)
         .map_err(|e| AppError::Internal(format!("revert all failed: {e}")))
@@ -2330,8 +2334,7 @@ pub async fn get_workspace_file_diffs(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<Vec<git::GitFileDiffEntry>, AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.get_file_diffs(&worktree_path)
         .map_err(|e| AppError::Internal(format!("get file diffs failed: {e}")))
@@ -2344,8 +2347,7 @@ pub async fn commit_workspace_changes(
     repo_id: Uuid,
     message: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.commit_changes(&worktree_path, &message)
         .map_err(|e| AppError::Internal(format!("commit failed: {e}")))
@@ -2357,8 +2359,7 @@ pub async fn get_workspace_git_log(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<git::GitLogStatus, AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.get_log_status(&worktree_path)
         .map_err(|e| AppError::Internal(format!("git log failed: {e}")))
@@ -2372,8 +2373,7 @@ pub async fn pull_workspace_branch(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<git::PullResult, AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.pull(&worktree_path)
         .map_err(|e| AppError::Internal(format!("git pull failed: {e}")))
@@ -2385,8 +2385,7 @@ pub async fn fetch_workspace(
     workspace_id: Uuid,
     repo_id: Uuid,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.fetch_all(&worktree_path)
         .map_err(|e| AppError::Internal(format!("git fetch failed: {e}")))
@@ -2401,8 +2400,7 @@ pub async fn checkout_workspace_branch(
     repo_id: Uuid,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.checkout_branch(&worktree_path, &branch_name)
         .map_err(|e| AppError::Internal(format!("git checkout failed: {e}")))
@@ -2416,8 +2414,7 @@ pub async fn create_workspace_branch(
     branch_name: String,
     from_ref: Option<String>,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.create_branch(&worktree_path, &branch_name, from_ref.as_deref())
         .map_err(|e| AppError::Internal(format!("git create branch failed: {e}")))
@@ -2430,8 +2427,7 @@ pub async fn delete_workspace_branch(
     repo_id: Uuid,
     branch_name: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = git::GitCli::new();
     git.delete_branch(&worktree_path, &branch_name)
         .map_err(|e| AppError::Internal(format!("git delete branch failed: {e}")))
@@ -2456,10 +2452,9 @@ pub async fn create_workspace_pr(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -2474,22 +2469,23 @@ pub async fn create_workspace_pr(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = PathBuf::from(&container_ref);
-    let worktree_path = workspace_path.join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| workspace_path.clone());
 
     let git = state.deployment.git();
     let push_remote = git.resolve_remote_for_branch(&repo_path, &workspace.branch)?;
 
     // Try to get the remote from the branch name
-    let (target_remote, base_branch) =
-        match git.get_remote_from_branch_name(&repo_path, &target) {
-            Ok(remote) => {
-                let branch = target
-                    .strip_prefix(&format!("{}/", remote.name))
-                    .unwrap_or(&target);
-                (remote, branch.to_string())
-            }
-            Err(_) => (push_remote.clone(), target.clone()),
-        };
+    let (target_remote, base_branch) = match git.get_remote_from_branch_name(&repo_path, &target) {
+        Ok(remote) => {
+            let branch = target
+                .strip_prefix(&format!("{}/", remote.name))
+                .unwrap_or(&target);
+            (remote, branch.to_string())
+        }
+        Err(_) => (push_remote.clone(), target.clone()),
+    };
 
     match git.check_remote_branch_exists(&repo_path, &target_remote.url, &base_branch) {
         Ok(false) => {
@@ -2676,8 +2672,7 @@ async fn trigger_pr_description_follow_up(
         return Ok(());
     };
 
-    let latest_session_info =
-        CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
+    let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
     let working_dir = workspace
         .agent_working_dir
@@ -2734,10 +2729,9 @@ pub async fn attach_workspace_pr(
         .await?
         .ok_or_else(|| AppError::NotFound("Parent task not found".to_string()))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -2869,10 +2863,9 @@ pub async fn get_workspace_pr_comments(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    let workspace_repo =
-        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-            .await?
-            .ok_or(RepoError::NotFound)?;
+    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
 
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
@@ -2996,6 +2989,8 @@ pub async fn create_workspace_from_pr(
         pool,
         &CreateWorkspace {
             branch: target_branch_ref.clone(),
+            container_ref: None,
+            use_worktree: true,
             agent_working_dir,
         },
         workspace_id,
@@ -3022,7 +3017,9 @@ pub async fn create_workspace_from_pr(
     workspace.container_ref = Some(container_ref.clone());
 
     // Use gh pr checkout to fetch and switch to the PR branch
-    let worktree_path = PathBuf::from(&container_ref).join(&repo.name);
+    let worktree_path = workspace
+        .repo_path(&repo)
+        .unwrap_or_else(|| PathBuf::from(&container_ref));
     match GhCli::new().get_repo_info(&remote.url, &worktree_path) {
         Ok(repo_info) => {
             if let Err(e) = GhCli::new().pr_checkout(
@@ -3067,11 +3064,7 @@ pub async fn create_workspace_from_pr(
 
     if payload.run_setup {
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        if let Some(setup_action) = state
-            .deployment
-            .container()
-            .setup_actions_for_repos(&repos)
-        {
+        if let Some(setup_action) = state.deployment.container().setup_actions_for_repos(&repos) {
             let session = Session::create(
                 pool,
                 &CreateSession { executor: None },
@@ -3122,8 +3115,7 @@ pub async fn get_workspace_commit_detail(
     repo_id: Uuid,
     sha: String,
 ) -> Result<git::CommitDetail, AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.get_commit_detail(&worktree_path, &sha)
         .map_err(|e| AppError::Internal(format!("git show commit failed: {e}")))
@@ -3136,8 +3128,7 @@ pub async fn get_workspace_commit_diffs(
     repo_id: Uuid,
     sha: String,
 ) -> Result<Vec<utils::diff::Diff>, AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.get_diffs(
         git::DiffTarget::Commit {
@@ -3156,8 +3147,7 @@ pub async fn git_cherry_pick(
     repo_id: Uuid,
     sha: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.cherry_pick_commit(&worktree_path, &sha)
         .map_err(|e| AppError::Internal(format!("git cherry-pick failed: {e}")))
@@ -3170,8 +3160,7 @@ pub async fn git_revert_commit(
     repo_id: Uuid,
     sha: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.revert_commit(&worktree_path, &sha)
         .map_err(|e| AppError::Internal(format!("git revert failed: {e}")))
@@ -3185,8 +3174,7 @@ pub async fn git_reset_to_commit(
     sha: String,
     mode: git::ResetMode,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.reset_to_commit(&worktree_path, &sha, &mode)
         .map_err(|e| AppError::Internal(format!("git reset failed: {e}")))
@@ -3200,8 +3188,7 @@ pub async fn git_create_branch_at_commit(
     branch_name: String,
     sha: String,
 ) -> Result<(), AppError> {
-    let (worktree_path, _workspace) =
-        resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
     let git = state.deployment.git();
     git.create_branch_at_commit(&worktree_path, &branch_name, &sha)
         .map_err(|e| AppError::Internal(format!("git create branch failed: {e}")))

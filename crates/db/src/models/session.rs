@@ -151,4 +151,13 @@ impl Session {
         .await?;
         Ok(())
     }
+
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(r#"DELETE FROM sessions WHERE id = $1"#)
+            .bind(id)
+            .execute(pool)
+            .await?;
+
+        Ok(result.rows_affected())
+    }
 }

@@ -64,7 +64,7 @@ export function SessionSelector({
           </DropdownMenuItem>
         ))}
         <DropdownMenuItem onClick={onStartNewSession}>
-          {`+ 新建 session${sessions.length + 1}`}
+          {`+ 新建会话${sessions.length + 1}`}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

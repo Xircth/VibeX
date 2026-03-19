@@ -27,12 +27,13 @@ export type PanelId = (typeof PANEL_IDS)[keyof typeof PANEL_IDS];
  */
 export const GROUP_IDS = {
   LEFT: 'group-left',
-  CENTER_1: 'group-center-1',
-  CENTER_2: 'group-center-2',
   BOTTOM: 'group-bottom',
 } as const;
 
 export type GroupId = (typeof GROUP_IDS)[keyof typeof GROUP_IDS];
+
+export const EDITOR_GROUP_PREFIX = 'group-editor-';
+export const MAX_EDITOR_GROUPS = 4;
 
 export type WorkspaceTab = 'workspace' | 'kanban';
 
@@ -103,7 +104,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibe-ultra-ide-layout',
-      version: 14,
+      version: 15,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const nextRightPanelWidth =

@@ -15,7 +15,6 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 use workspace_utils::{
@@ -324,16 +323,14 @@ impl ClaudeCode {
         let (program_path, args) = command_parts.into_resolved().await?;
         let combined_prompt = self.append_prompt.combine_prompt(prompt);
 
-        let mut command = Command::new(program_path);
-        workspace_utils::process::configure_tokio_command_no_window(&mut command);
+        let mut command = workspace_utils::process::new_hidden_tokio_command(&program_path, &args);
         command
             .kill_on_drop(true)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .current_dir(current_dir)
-            .env("NPM_CONFIG_LOGLEVEL", "error")
-            .args(&args);
+            .env("NPM_CONFIG_LOGLEVEL", "error");
 
         env.clone()
             .with_profile(&self.cmd)
@@ -764,7 +761,9 @@ impl ClaudeLogProcessor {
                 }
             }
             ClaudeToolData::Bash { command, .. } => ActionType::CommandRun {
-                category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(command),
+                category: crate::logs::utils::shell_command_parsing::CommandCategory::from_command(
+                    command,
+                ),
                 command: command.clone(),
                 result: None,
             },

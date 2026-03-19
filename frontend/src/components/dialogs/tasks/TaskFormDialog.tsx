@@ -79,6 +79,7 @@ type TaskFormValues = {
   executorProfileId: ExecutorProfileId | null;
   repoBranches: RepoBranch[];
   autoStart: boolean;
+  useWorktree: boolean;
 };
 
 const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
@@ -133,6 +134,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
           autoStart: false,
+          useWorktree: true,
         };
       }
 
@@ -144,6 +146,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
           autoStart: true,
+          useWorktree: true,
         };
 
       case 'subtask':
@@ -157,6 +160,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           repoBranches: defaultRepoBranches,
           autoStart:
             mode === 'create' && props.initialStatus === 'todo' ? false : true,
+          useWorktree: true,
         };
     }
   }, [mode, props, system.config?.executor_profile, defaultRepoBranches]);
@@ -204,6 +208,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             task,
             executor_profile_id: value.executorProfileId!,
             repos,
+            use_worktree: value.useWorktree,
           },
           { onSuccess: () => modal.remove() }
         );
@@ -417,7 +422,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               <div className="text-center">
                 <ImageIcon className="h-12 w-12 mx-auto mb-2 text-foreground" />
                 <p className="text-lg font-medium text-foreground">
-                  {'在此处放置图片'}
+                  {'\u5c06\u56fe\u7247\u62d6\u5230\u8fd9\u91cc'}
                 </p>
               </div>
             </div>
@@ -428,12 +433,12 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             {(titleField) => (
               <div className="space-y-1">
                 <label htmlFor="task-title" className="text-xs font-medium">
-                  任务标题
+                  {'\u4efb\u52a1\u6807\u9898'}
                 </label>
                 <input
                   id="task-title"
                   type="text"
-                  placeholder="输入任务标题..."
+                  placeholder="\u8bf7\u8f93\u5165\u4efb\u52a1\u6807\u9898"
                   value={titleField.state.value}
                   onChange={(e) => titleField.handleChange(e.target.value)}
                   className="w-full px-3 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-1 focus:ring-ring"
@@ -448,7 +453,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             {(field) => (
               <div className="border p-3">
                 <WYSIWYGEditor
-                  placeholder={'添加更多详情（可选）。输入 # 搜索标签或文件。'}
+                  placeholder={'\u5728\u6b64\u586b\u5199\u4f60\u7684\u4efb\u52a1\u5185\u5bb9'}
                   className="w-full min-h-[360px] max-h-[500px] overflow-auto"
                   value={field.state.value}
                   onChange={(desc) => field.handleChange(desc)}
@@ -464,13 +469,14 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               </div>
             )}
           </form.Field>
+
           {/* Edit mode status */}
           {editMode && (
             <form.Field name="status">
               {(field) => (
                 <div className="space-y-2">
                   <Label htmlFor="task-status" className="text-sm font-medium">
-                    {'状态'}
+                    {'\u72b6\u6001'}
                   </Label>
                   <Select
                     value={field.state.value}
@@ -483,11 +489,11 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="todo">{'待办'}</SelectItem>
-                      <SelectItem value="inprogress">{'进行中'}</SelectItem>
-                      <SelectItem value="inreview">{'审查中'}</SelectItem>
-                      <SelectItem value="done">{'完成'}</SelectItem>
-                      <SelectItem value="cancelled">{'已取消'}</SelectItem>
+                      <SelectItem value="todo">{'\u5f85\u529e'}</SelectItem>
+                      <SelectItem value="inprogress">{'\u8fdb\u884c\u4e2d'}</SelectItem>
+                      <SelectItem value="inreview">{'\u5ba1\u67e5\u4e2d'}</SelectItem>
+                      <SelectItem value="done">{'\u5df2\u5b8c\u6210'}</SelectItem>
+                      <SelectItem value="cancelled">{'\u5df2\u53d6\u6d88'}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -503,28 +509,25 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 return (
                   <div
                     className={cn(
-                      'transition-opacity duration-200',
-                      isSingleRepo ? '' : 'space-y-3',
+                      'space-y-3 transition-opacity duration-200',
                       autoStartField.state.value
                         ? 'opacity-100'
                         : 'opacity-0 pointer-events-none'
                     )}
                   >
-                    <div className="flex items-center gap-2">
-                      <form.Field name="executorProfileId">
-                        {(field) => (
-                          <TerminalProfileControls
-                            profiles={profiles}
-                            selectedProfile={field.state.value}
-                            onChange={field.handleChange}
-                            disabled={
-                              isSubmitting || !autoStartField.state.value
-                            }
-                            className="flex items-center gap-1 flex-[2] min-w-0"
-                          />
-                        )}
-                      </form.Field>
-                      {isSingleRepo && (
+                    <form.Field name="executorProfileId">
+                      {(field) => (
+                        <TerminalProfileControls
+                          profiles={profiles}
+                          selectedProfile={field.state.value}
+                          onChange={field.handleChange}
+                          disabled={isSubmitting || !autoStartField.state.value}
+                          className="w-full flex min-w-0 flex-wrap items-center gap-2"
+                        />
+                      )}
+                    </form.Field>
+                    {isSingleRepo && (
+                      <div className="flex flex-wrap items-center gap-2">
                         <form.Field name="repoBranches">
                           {(field) => {
                             const config = repoBranchConfigs[0];
@@ -535,7 +538,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                             return (
                               <div
                                 className={cn(
-                                  'flex-1 min-w-0',
+                                  'min-w-[220px] flex-1',
                                   isSubmitting &&
                                     'opacity-50 pointer-events-none'
                                 )}
@@ -550,16 +553,49 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                                   }}
                                   placeholder={
                                     branchesLoading
-                                      ? '加载分支中...'
-                                      : '选择分支'
+                                      ? '\u52a0\u8f7d\u5206\u652f\u4e2d...'
+                                      : '\u9009\u62e9\u5206\u652f'
                                   }
                                 />
                               </div>
                             );
                           }}
                         </form.Field>
-                      )}
-                    </div>
+                        <form.Field name="useWorktree">
+                          {(field) => (
+                            <div className="flex items-center gap-2 rounded-md border px-3 py-2">
+                              <Switch
+                                id="task-use-worktree"
+                                checked={field.state.value}
+                                onCheckedChange={(checked) =>
+                                  field.handleChange(checked)
+                                }
+                                disabled={
+                                  isSubmitting || !autoStartField.state.value
+                                }
+                              />
+                              <Label
+                                htmlFor="task-use-worktree"
+                                className="text-sm cursor-pointer whitespace-nowrap"
+                              >
+                                {'\u521b\u5efa Worktree'}
+                              </Label>
+                            </div>
+                          )}
+                        </form.Field>
+                      </div>
+                    )}
+                    {isSingleRepo && (
+                      <form.Subscribe selector={(state) => state.values.useWorktree}>
+                        {(useWorktree) => (
+                          <p className="text-xs text-muted-foreground">
+                            {useWorktree
+                              ? '\u4f1a\u521b\u5efa\u72ec\u7acb\u7684 worktree \u548c\u4efb\u52a1\u5206\u652f\u3002'
+                              : '\u5c06\u76f4\u63a5\u5728\u5f53\u524d\u5206\u652f\u4e2d\u6253\u5f00\uff0c\u4e0d\u521b\u5efa worktree\u3002'}
+                          </p>
+                        )}
+                      </form.Subscribe>
+                    )}
                     {!isSingleRepo && (
                       <form.Field name="repoBranches">
                         {(field) => {
@@ -609,7 +645,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 size="sm"
                 onClick={dropzoneOpen}
                 className="h-9 w-9 rounded-md p-0"
-                aria-label={'附加图片'}
+                aria-label={'\u6dfb\u52a0\u56fe\u7247'}
               >
                 <ImageIcon className="h-4 w-4" />
               </Button>
@@ -629,13 +665,13 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                         }
                         disabled={isSubmitting}
                         className="data-[state=checked]:bg-gray-900 dark:data-[state=checked]:bg-gray-100"
-                        aria-label={'开始'}
+                        aria-label={'\u81ea\u52a8\u542f\u52a8'}
                       />
                       <Label
                         htmlFor="autostart-switch"
                         className="text-sm cursor-pointer"
                       >
-                        {'开始'}
+                        {'\u81ea\u52a8\u542f\u52a8'}
                       </Label>
                     </div>
                   )}
@@ -653,13 +689,15 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 {({ canSubmit, isSubmitting, values }) => {
                   const buttonText = editMode
                     ? isSubmitting
-                      ? '更新中...'
-                      : '更新任务'
+                      ? '\u4fdd\u5b58\u4e2d...'
+                      : '\u66f4\u65b0\u4efb\u52a1'
                     : isSubmitting
                       ? values.autoStart
-                        ? '开始中...'
-                        : '创建中...'
-                      : '创建';
+                        ? '\u521b\u5efa\u5e76\u542f\u52a8\u4e2d...'
+                        : '\u521b\u5efa\u4e2d...'
+                      : values.autoStart
+                        ? '\u521b\u5efa\u5e76\u542f\u52a8'
+                        : '\u521b\u5efa\u4efb\u52a1';
 
                   return (
                     <Button onClick={form.handleSubmit} disabled={!canSubmit}>
@@ -682,18 +720,18 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
                 <div className="flex items-center gap-3">
-                  <DialogTitle>{'放弃未保存的更改？'}</DialogTitle>
+                  <DialogTitle>{'\u653e\u5f03\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff1f'}</DialogTitle>
                 </div>
                 <DialogDescription className="text-left pt-2">
-                  {'您有未保存的更改。您确定要放弃它们吗？'}
+                  {'\u60a8\u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff0c\u786e\u5b9a\u8981\u653e\u5f03\u5417\uff1f'}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="gap-2">
                 <Button variant="outline" onClick={handleContinueEditing}>
-                  {'继续编辑'}
+                  {'\u7ee7\u7eed\u7f16\u8f91'}
                 </Button>
                 <Button variant="destructive" onClick={handleDiscardChanges}>
-                  {'放弃更改'}
+                  {'\u653e\u5f03\u66f4\u6539'}
                 </Button>
               </DialogFooter>
             </DialogContent>

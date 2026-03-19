@@ -13,8 +13,7 @@ use reqwest::Client;
 static PROXY_PORT: OnceLock<u16> = OnceLock::new();
 
 const BIPPY_BUNDLE: &str = include_str!("preview_proxy/bippy_bundle.js");
-const CLICK_TO_COMPONENT_SCRIPT: &str =
-    include_str!("preview_proxy/click_to_component_script.js");
+const CLICK_TO_COMPONENT_SCRIPT: &str = include_str!("preview_proxy/click_to_component_script.js");
 
 pub async fn ensure_started() -> Result<(), String> {
     if PROXY_PORT.get().is_some() {
@@ -98,10 +97,7 @@ pub fn parse_target_port_from_host(host: &str) -> Option<u16> {
     prefix.parse::<u16>().ok()
 }
 
-async fn proxy_request(
-    State(client): State<Client>,
-    request: Request<Body>,
-) -> Response<Body> {
+async fn proxy_request(State(client): State<Client>, request: Request<Body>) -> Response<Body> {
     let host = request
         .headers()
         .get(header::HOST)
@@ -305,7 +301,10 @@ mod tests {
 
     #[test]
     fn parses_target_port_from_proxy_host() {
-        assert_eq!(parse_target_port_from_host("3000.localhost:43123"), Some(3000));
+        assert_eq!(
+            parse_target_port_from_host("3000.localhost:43123"),
+            Some(3000)
+        );
         assert_eq!(parse_target_port_from_host("5173.localhost"), Some(5173));
         assert_eq!(parse_target_port_from_host("localhost:43123"), None);
     }

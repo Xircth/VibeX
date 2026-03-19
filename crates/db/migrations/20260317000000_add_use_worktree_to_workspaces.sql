@@ -1,0 +1,2 @@
+ALTER TABLE workspaces
+ADD COLUMN use_worktree BOOLEAN NOT NULL DEFAULT 1;

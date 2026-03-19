@@ -55,7 +55,9 @@ pub async fn compute_diff_stats(
     let mut stats = DiffStats::default();
 
     for repo_with_branch in workspace_repos {
-        let worktree_path = PathBuf::from(container_ref).join(&repo_with_branch.repo.name);
+        let worktree_path = workspace
+            .repo_path(&repo_with_branch.repo)
+            .unwrap_or_else(|| PathBuf::from(container_ref));
         let repo_path = repo_with_branch.repo.path.clone();
 
         let base_commit_result = tokio::task::spawn_blocking({

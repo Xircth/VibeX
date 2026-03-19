@@ -24,11 +24,7 @@ use services::services::{
     worktree_manager::WorktreeManager,
 };
 use tokio::sync::RwLock;
-use utils::{
-    assets::config_path,
-    msg_store::MsgStore,
-    process::configure_std_command_no_window,
-};
+use utils::{assets::config_path, msg_store::MsgStore, process::configure_std_command_no_window};
 
 use crate::{container::LocalContainerService, pty::PtyService};
 mod command;

@@ -1,10 +1,12 @@
 import { useEffect, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import { WorktreeProvider, useWorktree } from '@/contexts/WorktreeContext';
+import { KanbanSessionProvider } from '@/contexts/KanbanSessionContext';
 import { PanelActionsProvider } from '@/contexts/PanelActionsContext';
 import { TerminalProvider } from '@/contexts/TerminalContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { IDELayout } from '@/components/layout/IDELayout';
+import { AcpTerminalBridge } from '@/components/layout/AcpTerminalBridge';
 
 interface WorkspaceLayoutProps {
   /** Content for the right fixed panel (AI Chat area) */
@@ -18,7 +20,10 @@ interface WorkspaceLayoutProps {
  * Must be rendered inside WorktreeProvider.
  */
 function WorktreeSyncFromUrl() {
-  const { attemptId, taskId } = useParams<{ attemptId?: string; taskId?: string }>();
+  const { attemptId, taskId } = useParams<{
+    attemptId?: string;
+    taskId?: string;
+  }>();
   const { setActiveWorktree } = useWorktree();
 
   useEffect(() => {
@@ -39,16 +44,19 @@ export function WorkspaceLayout({
   return (
     <WorktreeProvider>
       <WorktreeSyncFromUrl />
-      <ReviewProvider>
-        <TerminalProvider>
-          <PanelActionsProvider>
-            <IDELayout
-              rightPanelContent={rightPanelContent}
-              toolbarContent={toolbarContent}
-            />
-          </PanelActionsProvider>
-        </TerminalProvider>
-      </ReviewProvider>
+      <KanbanSessionProvider>
+        <ReviewProvider>
+          <TerminalProvider>
+            <PanelActionsProvider>
+              <AcpTerminalBridge />
+              <IDELayout
+                rightPanelContent={rightPanelContent}
+                toolbarContent={toolbarContent}
+              />
+            </PanelActionsProvider>
+          </TerminalProvider>
+        </ReviewProvider>
+      </KanbanSessionProvider>
     </WorktreeProvider>
   );
 }

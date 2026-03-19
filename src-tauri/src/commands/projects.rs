@@ -12,18 +12,13 @@ use uuid::Uuid;
 use crate::{error::AppError, state::AppState};
 
 #[tauri::command]
-pub async fn get_projects(
-    state: tauri::State<'_, AppState>,
-) -> Result<Vec<Project>, AppError> {
+pub async fn get_projects(state: tauri::State<'_, AppState>) -> Result<Vec<Project>, AppError> {
     let projects = Project::find_all(&state.deployment.db().pool).await?;
     Ok(projects)
 }
 
 #[tauri::command]
-pub async fn get_project(
-    state: tauri::State<'_, AppState>,
-    id: Uuid,
-) -> Result<Project, AppError> {
+pub async fn get_project(state: tauri::State<'_, AppState>, id: Uuid) -> Result<Project, AppError> {
     let project = Project::find_by_id(&state.deployment.db().pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Project {} not found", id)))?;
@@ -48,21 +43,24 @@ pub async fn create_project(
         .await
     {
         Ok(project) => Ok(project),
-        Err(ProjectServiceError::DuplicateGitRepoPath) => {
-            Err(AppError::Conflict("Duplicate repository path provided".to_string()))
-        }
-        Err(ProjectServiceError::DuplicateRepositoryName) => {
-            Err(AppError::Conflict("Duplicate repository name provided".to_string()))
-        }
-        Err(ProjectServiceError::PathNotFound(p)) => {
-            Err(AppError::BadRequest(format!("The specified path does not exist: {}", p.display())))
-        }
-        Err(ProjectServiceError::PathNotDirectory(p)) => {
-            Err(AppError::BadRequest(format!("The specified path is not a directory: {}", p.display())))
-        }
-        Err(ProjectServiceError::NotGitRepository(p)) => {
-            Err(AppError::BadRequest(format!("The specified directory is not a git repository: {}", p.display())))
-        }
+        Err(ProjectServiceError::DuplicateGitRepoPath) => Err(AppError::Conflict(
+            "Duplicate repository path provided".to_string(),
+        )),
+        Err(ProjectServiceError::DuplicateRepositoryName) => Err(AppError::Conflict(
+            "Duplicate repository name provided".to_string(),
+        )),
+        Err(ProjectServiceError::PathNotFound(p)) => Err(AppError::BadRequest(format!(
+            "The specified path does not exist: {}",
+            p.display()
+        ))),
+        Err(ProjectServiceError::PathNotDirectory(p)) => Err(AppError::BadRequest(format!(
+            "The specified path is not a directory: {}",
+            p.display()
+        ))),
+        Err(ProjectServiceError::NotGitRepository(p)) => Err(AppError::BadRequest(format!(
+            "The specified directory is not a git repository: {}",
+            p.display()
+        ))),
         Err(e) => Err(AppError::Internal(e.to_string())),
     }
 }
@@ -92,10 +90,7 @@ pub async fn update_project(
 }
 
 #[tauri::command]
-pub async fn delete_project(
-    state: tauri::State<'_, AppState>,
-    id: Uuid,
-) -> Result<(), AppError> {
+pub async fn delete_project(state: tauri::State<'_, AppState>, id: Uuid) -> Result<(), AppError> {
     match state
         .deployment
         .project()
@@ -371,12 +366,8 @@ pub async fn get_project_repository(
     project_id: Uuid,
     repo_id: Uuid,
 ) -> Result<ProjectRepo, AppError> {
-    match ProjectRepo::find_by_project_and_repo(
-        &state.deployment.db().pool,
-        project_id,
-        repo_id,
-    )
-    .await
+    match ProjectRepo::find_by_project_and_repo(&state.deployment.db().pool, project_id, repo_id)
+        .await
     {
         Ok(Some(project_repo)) => Ok(project_repo),
         Ok(None) => Err(AppError::NotFound(

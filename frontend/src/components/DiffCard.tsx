@@ -98,6 +98,21 @@ export default function DiffCard({
     getHighLightLanguageFromPath(newName || oldName || '') || 'plaintext';
   const { label, Icon } = labelAndIcon(diff);
   const isOmitted = !!diff.contentOmitted;
+  const requiresOldContent = diff.change !== 'added';
+  const requiresNewContent = diff.change !== 'deleted';
+  const isMissingRequiredContent =
+    (requiresOldContent && diff.oldContent === null) ||
+    (requiresNewContent && diff.newContent === null);
+  const hasStatChanges = (diff.additions ?? 0) + (diff.deletions ?? 0) > 0;
+  const isLikelyMissingPayloadContent =
+    !isOmitted &&
+    hasStatChanges &&
+    (diff.oldContent ?? '') === '' &&
+    (diff.newContent ?? '') === '' &&
+    diff.change !== 'added' &&
+    diff.change !== 'deleted';
+  const shouldLoadContent =
+    isOmitted || isMissingRequiredContent || isLikelyMissingPayloadContent;
 
   // State for force-loading omitted content
   const [forcedOldContent, setForcedOldContent] = useState<string | null>(null);
@@ -140,26 +155,48 @@ export default function DiffCard({
     }
   }, [diff, selectedAttempt]);
 
-  // Auto-load content when omitted and card is expanded
+  // Auto-load content when omitted or missing in stream payload and card is expanded
   useEffect(() => {
-    if (expanded && isOmitted && forcedOldContent === null && forcedNewContent === null && !isLoadingContent) {
+    if (
+      expanded &&
+      shouldLoadContent &&
+      forcedOldContent === null &&
+      forcedNewContent === null &&
+      !isLoadingContent
+    ) {
       handleLoadContent();
     }
-  }, [expanded, isOmitted, forcedOldContent, forcedNewContent, isLoadingContent, handleLoadContent]);
+  }, [
+    expanded,
+    forcedNewContent,
+    forcedOldContent,
+    handleLoadContent,
+    isLoadingContent,
+    shouldLoadContent,
+  ]);
 
-  // Build a diff from raw contents so the viewer can expand beyond hunks
-  // If content was force-loaded, use that instead of the omitted content
-  const oldContentSafe = (isOmitted && forcedOldContent !== null) ? forcedOldContent : (diff.oldContent || '');
-  const newContentSafe = (isOmitted && forcedNewContent !== null) ? forcedNewContent : (diff.newContent || '');
-  const isContentEqual = oldContentSafe === newContentSafe;
+  // Build a diff from raw contents so the viewer can expand beyond hunks.
+  // If content was force-loaded, use that instead of stream payload content.
+  const oldContentSafe =
+    shouldLoadContent && forcedOldContent !== null
+      ? forcedOldContent
+      : (diff.oldContent ?? '');
+  const newContentSafe =
+    shouldLoadContent && forcedNewContent !== null
+      ? forcedNewContent
+      : (diff.newContent ?? '');
 
   const diffOptions = useMemo(
     () => (ignoreWhitespace ? { ignoreWhitespace: true as const } : undefined),
     [ignoreWhitespace]
   );
 
-  // When content is omitted but we've force-loaded it, treat as not omitted for diffFile
-  const isEffectivelyOmitted = isOmitted && forcedOldContent === null && forcedNewContent === null;
+  // Treat both omitted and missing-payload content as omitted until we force-load it.
+  const isEffectivelyOmitted =
+    shouldLoadContent &&
+    forcedOldContent === null &&
+    forcedNewContent === null;
+  const isContentEqual = !isEffectivelyOmitted && oldContentSafe === newContentSafe;
 
   const diffFile = useMemo(() => {
     if (isEffectivelyOmitted) return null;

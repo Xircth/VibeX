@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Folder, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { GitFileStatusEntry } from 'shared/types';
+import FileIcon from '@/components/FileIcon';
 import { GitFileRow, type FileSection } from './GitFileRow';
 
 interface TreeNode {
@@ -165,25 +166,19 @@ function TreeNodeRenderer({
     <>
       {!isRoot && (
         <div
-          className="group flex items-center gap-1 px-2 py-[3px] cursor-pointer text-xs hover:bg-accent/30 text-muted-foreground"
+          className="group flex min-h-[30px] cursor-pointer items-center gap-1.5 border-b border-border/20 px-2 py-1 text-xs text-muted-foreground hover:bg-accent/30"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={toggle}
           role="button"
           tabIndex={0}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle(); }}
         >
-          {expanded ? (
-            <ChevronDown className="h-3 w-3 shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0" />
-          )}
-          {expanded ? (
-            <FolderOpen className="h-3 w-3 shrink-0 text-yellow-500/70" />
-          ) : (
-            <Folder className="h-3 w-3 shrink-0 text-yellow-500/70" />
-          )}
-          <span className="truncate font-mono">{node.name}</span>
-          <span className="text-muted-foreground/50 text-[10px]">({fileCount})</span>
+          {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+          <FileIcon filePath={node.name} isFolder isOpen={expanded} />
+          <span className="truncate font-mono text-[11px] text-foreground/90">{node.name}</span>
+          <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/80">
+            {fileCount}
+          </span>
         </div>
       )}
 

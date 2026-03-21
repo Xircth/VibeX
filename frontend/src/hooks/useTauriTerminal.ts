@@ -116,6 +116,8 @@ export function useTauriTerminal({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(sessionId ?? null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
+  const themeUnlistenRef = useRef<UnlistenFn | null>(null);
+  const themeObserverRef = useRef<MutationObserver | null>(null);
   const containerElRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const isConnectedRef = useRef(false);
@@ -136,6 +138,16 @@ export function useTauriTerminal({
     if (unlistenRef.current) {
       unlistenRef.current();
       unlistenRef.current = null;
+    }
+
+    if (themeUnlistenRef.current) {
+      themeUnlistenRef.current();
+      themeUnlistenRef.current = null;
+    }
+
+    if (themeObserverRef.current) {
+      themeObserverRef.current.disconnect();
+      themeObserverRef.current = null;
     }
 
     if (terminalRef.current) {
@@ -180,6 +192,50 @@ export function useTauriTerminal({
 
       terminal.open(container);
       terminalOpenedRef.current = true;
+
+      const applyCurrentTheme = () => {
+        if (!terminalRef.current) {
+          return;
+        }
+
+        terminalRef.current.options.theme = getTerminalTheme();
+        try {
+          terminalRef.current.refresh(
+            0,
+            Math.max(0, terminalRef.current.rows - 1)
+          );
+        } catch {
+          // Ignore refresh errors while terminal is hidden.
+        }
+      };
+
+      applyCurrentTheme();
+
+      tauriListen<{ theme: string }>('theme-changed', () => {
+        applyCurrentTheme();
+      }).then((unlisten) => {
+        if (!mountedRef.current || !terminalRef.current) {
+          unlisten();
+          return;
+        }
+        themeUnlistenRef.current = unlisten;
+      });
+
+      const themeObserver = new MutationObserver(() => {
+        applyCurrentTheme();
+      });
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+      });
+      const legacyScope = document.querySelector('.legacy-design');
+      if (legacyScope) {
+        themeObserver.observe(legacyScope, {
+          attributes: true,
+          attributeFilter: ['class', 'style'],
+        });
+      }
+      themeObserverRef.current = themeObserver;
 
       terminal.attachCustomKeyEventHandler((event) => {
         if (!shouldCopyTerminalSelection(event, terminal.hasSelection())) {

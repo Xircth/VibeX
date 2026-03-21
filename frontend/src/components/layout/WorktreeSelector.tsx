@@ -1,40 +1,59 @@
-import { useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Check, ChevronDown, Copy, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ChevronDown, GitBranch } from 'lucide-react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
-import { useLayoutStore } from '@/stores/useLayoutStore';
+import { useTaskAttempt } from '@/hooks/useTaskAttempt';
+import { cn } from '@/lib/utils';
 import { paths } from '@/lib/paths';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 
 export function WorktreeSelector() {
   const [open, setOpen] = useState(false);
+  const [copiedWorktreeId, setCopiedWorktreeId] = useState<string | null>(null);
+  const copiedResetTimerRef = useRef<number | null>(null);
   const navigate = useNavigate();
+  const { attemptId: rawAttemptId } = useParams<{ attemptId?: string }>();
+  const routeWorktreeId =
+    rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
+
   const { projectId, project } = useProject();
   const { activeWorktreeId } = useWorktree();
   const { worktrees } = useProjectWorktrees(projectId);
-  const setActiveTab = useLayoutStore((s) => s.setActiveTab);
+  const { data: routeWorkspace } = useTaskAttempt(routeWorktreeId);
 
-  const activeWorktree = worktrees.find((w) => w.workspace.id === activeWorktreeId);
+  const setActiveTab = useLayoutStore((state) => state.setActiveTab);
+
+  const effectiveWorktreeId = activeWorktreeId ?? routeWorktreeId ?? null;
+  const activeWorktree = worktrees.find(
+    (worktree) => worktree.workspace.id === effectiveWorktreeId
+  );
 
   const handleSelect = useCallback(
-    (worktreeInfo: typeof worktrees[number]) => {
+    (worktreeInfo: (typeof worktrees)[number]) => {
       setOpen(false);
       if (!projectId) return;
-      if (worktreeInfo.workspace.id === activeWorktreeId) return;
+      if (worktreeInfo.workspace.id === effectiveWorktreeId) return;
 
       setActiveTab('workspace');
-      navigate(paths.attempt(projectId, worktreeInfo.workspace.task_id, worktreeInfo.workspace.id));
+      navigate(
+        paths.attempt(
+          projectId,
+          worktreeInfo.workspace.task_id,
+          worktreeInfo.workspace.id
+        )
+      );
     },
-    [activeWorktreeId, projectId, navigate, setActiveTab]
+    [effectiveWorktreeId, navigate, projectId, setActiveTab]
   );
 
   const handleGoToKanban = useCallback(() => {
@@ -43,19 +62,59 @@ export function WorktreeSelector() {
 
     setActiveTab('kanban');
     navigate(paths.projectTasks(projectId));
-  }, [projectId, navigate, setActiveTab]);
+  }, [navigate, projectId, setActiveTab]);
 
-  // Display label
+  useEffect(() => {
+    return () => {
+      if (copiedResetTimerRef.current) {
+        window.clearTimeout(copiedResetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopyWorkspacePath = useCallback(
+    async (
+      event: React.MouseEvent<HTMLButtonElement>,
+      worktree: (typeof worktrees)[number]
+    ) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const containerRef = worktree.workspace.container_ref;
+      if (!containerRef) return;
+
+      try {
+        await navigator.clipboard.writeText(containerRef);
+        setCopiedWorktreeId(worktree.workspace.id);
+        if (copiedResetTimerRef.current) {
+          window.clearTimeout(copiedResetTimerRef.current);
+        }
+        copiedResetTimerRef.current = window.setTimeout(() => {
+          setCopiedWorktreeId((current) =>
+            current === worktree.workspace.id ? null : current
+          );
+        }, 1800);
+      } catch (error) {
+        console.warn('Copy workspace path failed:', error);
+      }
+    },
+    [worktrees]
+  );
+
   const displayLabel = activeWorktree
-    ? activeWorktree.workspace.branch || activeWorktree.task?.title || 'Workspace'
-    : project?.name ?? '选择工作区';
+    ? activeWorktree.workspace.branch ||
+      activeWorktree.task?.title ||
+      'Workspace'
+    : effectiveWorktreeId
+      ? (routeWorkspace?.branch ?? 'Workspace')
+      : (project?.name ?? 'Select workspace');
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="ml-2 h-7 w-36 justify-between gap-1 px-2 sm:w-48 text-xs"
+          className="ml-2 h-7 w-36 justify-between gap-1 px-2 text-xs sm:w-48"
           aria-label="Select worktree"
         >
           <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -63,41 +122,70 @@ export function WorktreeSelector() {
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
+
       <DropdownMenuContent align="start" className="w-72">
-        {/* Kanban overview link */}
         <DropdownMenuItem
           onSelect={(event) => {
             event.preventDefault();
             handleGoToKanban();
           }}
-          className={!activeWorktreeId ? 'bg-accent' : ''}
+          className={!effectiveWorktreeId ? 'bg-accent' : ''}
         >
-          <span className="text-xs">看板总览</span>
+          <span className="text-xs">Kanban overview</span>
         </DropdownMenuItem>
+
         <DropdownMenuSeparator />
 
-        {/* Worktree list */}
         {worktrees.length > 0 ? (
-          worktrees.map((wt) => (
+          worktrees.map((worktree) => (
             <DropdownMenuItem
-              key={wt.workspace.id}
+              key={worktree.workspace.id}
               onSelect={(event) => {
                 event.preventDefault();
-                handleSelect(wt);
+                handleSelect(worktree);
               }}
-              className={wt.workspace.id === activeWorktreeId ? 'bg-accent' : ''}
+              className={cn(
+                'flex items-center gap-2',
+                worktree.workspace.id === effectiveWorktreeId && 'bg-accent'
+              )}
             >
-              <div className="flex flex-col gap-0.5 min-w-0">
-                <span className="text-xs font-mono truncate">{wt.workspace.branch}</span>
-                {wt.task && (
-                  <span className="text-[10px] text-muted-foreground truncate">{wt.task.title}</span>
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-mono">
+                  {worktree.workspace.branch}
+                </span>
+                {worktree.task && (
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {worktree.task.title}
+                  </span>
                 )}
               </div>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                title={
+                  worktree.workspace.container_ref
+                    ? copiedWorktreeId === worktree.workspace.id
+                      ? '已复制工作区路径'
+                      : '复制工作区路径'
+                    : '当前工作区无可复制路径'
+                }
+                disabled={!worktree.workspace.container_ref}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => void handleCopyWorkspacePath(event, worktree)}
+              >
+                {copiedWorktreeId === worktree.workspace.id ? (
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </button>
             </DropdownMenuItem>
           ))
         ) : (
           <DropdownMenuItem disabled>
-            <span className="text-xs text-muted-foreground">暂无活跃工作区</span>
+            <span className="text-xs text-muted-foreground">
+              No active workspaces
+            </span>
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

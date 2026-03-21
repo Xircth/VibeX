@@ -4,7 +4,8 @@ use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
     scratch::{DraftFollowUpData, Scratch, ScratchType},
-    session::{CreateSession, Session},
+    session::{CreateSession, Session, SessionStatus},
+    task::{Task, TaskStatus},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
@@ -22,19 +23,50 @@ use executors::{
 use serde::Serialize;
 use services::services::{container::ContainerService, queued_message::QueueStatus};
 use sqlx::types::chrono::{DateTime, Utc};
+use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
 pub struct SessionSummary {
     pub id: Uuid,
     pub workspace_id: Uuid,
+    pub task_id: Option<Uuid>,
+    pub name: Option<String>,
+    pub display_name: String,
+    pub status: SessionStatus,
     pub executor: Option<String>,
+    pub workspace_name: Option<String>,
+    pub workspace_branch: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub first_prompt: Option<String>,
     pub is_running: bool,
+}
+
+fn build_session_display_name(session: &Session, first_prompt: Option<&str>) -> String {
+    session
+        .name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            first_prompt
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "新会话".to_string())
+}
+
+fn to_task_status(status: SessionStatus) -> TaskStatus {
+    match status {
+        SessionStatus::Todo => TaskStatus::Todo,
+        SessionStatus::InProgress => TaskStatus::InProgress,
+        SessionStatus::InReview => TaskStatus::InReview,
+        SessionStatus::Done => TaskStatus::Done,
+    }
 }
 
 // --- Commands ---
@@ -57,6 +89,9 @@ pub async fn get_session_summaries(
     workspace_id: Uuid,
 ) -> Result<Vec<SessionSummary>, AppError> {
     let pool = &state.deployment.db().pool;
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
     let sessions = Session::find_by_workspace_id(pool, workspace_id).await?;
 
     let mut summaries = Vec::with_capacity(sessions.len());
@@ -70,7 +105,13 @@ pub async fn get_session_summaries(
         summaries.push(SessionSummary {
             id: session.id,
             workspace_id: session.workspace_id,
+            task_id: session.task_id,
+            name: session.name.clone(),
+            display_name: build_session_display_name(&session, first_prompt.as_deref()),
+            status: session.status.clone(),
             executor: session.executor.clone(),
+            workspace_name: workspace.name.clone(),
+            workspace_branch: workspace.branch.clone(),
             created_at: session.created_at,
             updated_at: session.updated_at,
             first_prompt,
@@ -100,6 +141,8 @@ pub async fn create_session(
     state: tauri::State<'_, AppState>,
     workspace_id: Uuid,
     executor: Option<String>,
+    name: Option<String>,
+    task_id: Option<Uuid>,
 ) -> Result<Session, AppError> {
     let pool = &state.deployment.db().pool;
 
@@ -108,15 +151,66 @@ pub async fn create_session(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
+    if let Some(task_id) = task_id {
+        let _task = Task::find_by_id(pool, task_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
+    }
+
     let session = Session::create(
         pool,
-        &CreateSession { executor },
+        &CreateSession {
+            executor,
+            task_id,
+            name,
+            status: Some(SessionStatus::Todo),
+        },
         Uuid::new_v4(),
         workspace_id,
     )
     .await?;
 
     Ok(session)
+}
+
+#[tauri::command]
+pub async fn rename_session(
+    state: tauri::State<'_, AppState>,
+    session_id: Uuid,
+    name: Option<String>,
+) -> Result<Session, AppError> {
+    let pool = &state.deployment.db().pool;
+    let session = Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    Session::update_name(pool, session.id, name.as_deref()).await?;
+
+    Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))
+}
+
+#[tauri::command]
+pub async fn update_session_status(
+    state: tauri::State<'_, AppState>,
+    session_id: Uuid,
+    status: SessionStatus,
+) -> Result<Session, AppError> {
+    let pool = &state.deployment.db().pool;
+    let session = Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    Session::update_status(pool, session.id, status.clone()).await?;
+
+    if let Some(task_id) = session.task_id {
+        Task::update_status(pool, task_id, to_task_status(status)).await?;
+    }
+
+    Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))
 }
 
 /// Delete a session by ID.

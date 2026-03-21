@@ -4,14 +4,17 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   createEmptyKanbanSessionLayoutState,
+  isSameKanbanSession,
   placeCreatedSession,
   placeSessionFromList,
   promoteMonitorSessionToRight,
@@ -43,8 +46,9 @@ const KanbanSessionContext = createContext<KanbanSessionContextValue | null>(
 
 export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const { projectId } = useProject();
-  const { activeTaskId, activeWorktreeId } = useWorktree();
-  const activeTab = useLayoutStore((state) => state.activeTab);
+  const { activeWorktreeId } = useWorktree();
+  const { data: activeWorkspaceWithSession, isLoading: isActiveWorkspaceLoading } =
+    useTaskAttemptWithSession(activeWorktreeId ?? undefined);
   const isRightPanelVisible = useLayoutStore(
     (state) => state.isRightPanelVisible
   );
@@ -56,6 +60,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const [lastActiveWorkspaceId, setLastActiveWorkspaceId] = useState<
     string | null
   >(null);
+  const lastSyncedWorkspaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!activeWorktreeId) return;
@@ -66,13 +71,71 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     setSessionHubVisible(false);
     setLayoutState(createEmptyKanbanSessionLayoutState());
     setLastActiveWorkspaceId(null);
+    lastSyncedWorkspaceIdRef.current = null;
   }, [projectId]);
 
-  const canUseRightPanelForSessions =
-    activeTab === 'kanban' &&
-    isRightPanelVisible &&
-    !activeTaskId &&
-    !activeWorktreeId;
+  // Keep right-panel session in sync when workspace changes.
+  // Do not override if the current right-panel session already belongs to the
+  // target workspace (e.g. switching tabs while preserving session selection).
+  useEffect(() => {
+    if (!activeWorktreeId) {
+      return;
+    }
+
+    if (lastSyncedWorkspaceIdRef.current === activeWorktreeId) {
+      return;
+    }
+
+    if (isActiveWorkspaceLoading || !activeWorkspaceWithSession) {
+      return;
+    }
+
+    lastSyncedWorkspaceIdRef.current = activeWorktreeId;
+
+    const nextSession = activeWorkspaceWithSession.session?.id
+      ? {
+          sessionId: activeWorkspaceWithSession.session.id,
+          workspaceId: activeWorktreeId,
+        }
+      : null;
+
+    setLayoutState((current) => {
+      if (
+        current.rightSession &&
+        current.rightSession.workspaceId === activeWorktreeId
+      ) {
+        return current;
+      }
+
+      if (!nextSession) {
+        if (current.rightSession === null) {
+          return current;
+        }
+        return {
+          ...current,
+          rightSession: null,
+        };
+      }
+
+      if (
+        current.rightSession &&
+        isSameKanbanSession(current.rightSession, nextSession) &&
+        current.rightSession.workspaceId === nextSession.workspaceId
+      ) {
+        return current;
+      }
+
+      return replaceRightSession(current, nextSession, {
+        canUseRightPanel: true,
+      });
+    });
+  }, [
+    activeWorkspaceWithSession,
+    activeWorktreeId,
+    isActiveWorkspaceLoading,
+  ]);
+
+  const canUseRightPanelForSessions = isRightPanelVisible;
 
   const toggleSessionHub = useCallback(() => {
     setSessionHubVisible((current) => !current);
@@ -128,9 +191,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const visibleRightSession = canUseRightPanelForSessions
-    ? layoutState.rightSession
-    : null;
+  const visibleRightSession = layoutState.rightSession;
 
   const value = useMemo<KanbanSessionContextValue>(
     () => ({
@@ -179,4 +240,8 @@ export function useKanbanSessionContext() {
     );
   }
   return context;
+}
+
+export function useOptionalKanbanSessionContext() {
+  return useContext(KanbanSessionContext);
 }

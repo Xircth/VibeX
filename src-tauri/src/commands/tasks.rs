@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use db::models::{
     image::TaskImage,
     repo::{Repo, RepoError},
+    session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
@@ -34,6 +35,17 @@ pub struct CreateAndStartTaskRequest {
 
 const fn default_use_worktree() -> bool {
     true
+}
+
+fn task_status_to_session_status(status: &db::models::task::TaskStatus) -> SessionStatus {
+    match status {
+        db::models::task::TaskStatus::Todo => SessionStatus::Todo,
+        db::models::task::TaskStatus::InProgress => SessionStatus::InProgress,
+        db::models::task::TaskStatus::InReview => SessionStatus::InReview,
+        db::models::task::TaskStatus::Done | db::models::task::TaskStatus::Cancelled => {
+            SessionStatus::Done
+        }
+    }
 }
 
 // --- Commands ---
@@ -89,25 +101,17 @@ pub async fn create_task_and_start(
             "At least one repository is required".to_string(),
         ));
     }
-    if !payload.use_worktree && payload.repos.len() != 1 {
-        return Err(AppError::BadRequest(
-            "Opening the current branch without a worktree only supports a single repository"
-                .to_string(),
-        ));
-    }
 
     let pool = &state.deployment.db().pool;
+    let workspace_repos: Vec<CreateWorkspaceRepo> = payload
+        .repos
+        .iter()
+        .map(|repo| CreateWorkspaceRepo {
+            repo_id: repo.repo_id,
+            target_branch: repo.target_branch.clone(),
+        })
+        .collect();
 
-    // Create the task
-    let task_id = Uuid::new_v4();
-    let task = Task::create(pool, &payload.task, task_id).await?;
-
-    if let Some(image_ids) = &payload.task.image_ids {
-        TaskImage::associate_many_dedup(pool, task.id, image_ids).await?;
-    }
-
-    // Create workspace (attempt)
-    let attempt_id = Uuid::new_v4();
     let primary_repo = if payload.repos.len() == 1 {
         Some(
             Repo::find_by_id(pool, payload.repos[0].repo_id)
@@ -118,88 +122,131 @@ pub async fn create_task_and_start(
         None
     };
 
-    let git_branch_name = if payload.use_worktree {
-        state
-            .deployment
-            .container()
-            .git_branch_from_workspace(&attempt_id, &task.title)
-            .await
-    } else {
-        let repo = primary_repo.as_ref().ok_or_else(|| {
-            AppError::BadRequest(
-                "Opening the current branch without a worktree requires one repository".to_string(),
-            )
-        })?;
-        state
-            .deployment
-            .git()
-            .get_current_branch(&repo.path)
-            .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?
-    };
-
-    // Compute agent_working_dir based on repo count:
-    // - Single repo: join repo name with default_working_dir (if set), or just repo name
-    // - Multiple repos: use None (agent runs in workspace root)
-    let agent_working_dir = if payload.repos.len() == 1 {
-        let repo = primary_repo.as_ref().ok_or(RepoError::NotFound)?;
-        match &repo.default_working_dir {
-            Some(subdir) => {
-                if payload.use_worktree {
-                    let path = PathBuf::from(&repo.name).join(subdir);
-                    Some(path.to_string_lossy().to_string())
-                } else {
-                    Some(subdir.clone())
-                }
-            }
-            None => payload.use_worktree.then(|| repo.name.clone()),
-        }
-    } else {
-        None
-    };
-
-    let container_ref = if payload.use_worktree {
+    let reusable_workspace_id = if payload.use_worktree {
         None
     } else {
-        Some(
-            primary_repo
-                .as_ref()
-                .ok_or(RepoError::NotFound)?
-                .path
-                .to_string_lossy()
-                .to_string(),
+        WorkspaceRepo::find_reusable_non_worktree_workspace_id(
+            pool,
+            payload.task.project_id,
+            &workspace_repos,
         )
+        .await?
     };
 
-    let workspace = Workspace::create(
+    if !payload.use_worktree && reusable_workspace_id.is_none() && payload.repos.len() != 1 {
+        return Err(AppError::BadRequest(
+            "Creating a non-worktree workspace currently requires a single repository unless an existing matching workspace can be reused"
+                .to_string(),
+        ));
+    }
+
+    // Create the task
+    let task_id = Uuid::new_v4();
+    let task = Task::create(pool, &payload.task, task_id).await?;
+
+    if let Some(image_ids) = &payload.task.image_ids {
+        TaskImage::associate_many_dedup(pool, task.id, image_ids).await?;
+    }
+
+    let mut workspace_created = false;
+    let workspace = if let Some(workspace_id) = reusable_workspace_id {
+        Workspace::find_by_id(pool, workspace_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?
+    } else {
+        let attempt_id = Uuid::new_v4();
+        let git_branch_name = if payload.use_worktree {
+            state
+                .deployment
+                .container()
+                .git_branch_from_workspace(&attempt_id, &task.title)
+                .await
+        } else {
+            let repo = primary_repo.as_ref().ok_or_else(|| {
+                AppError::BadRequest(
+                    "Opening the current branch without a worktree requires one repository"
+                        .to_string(),
+                )
+            })?;
+            state
+                .deployment
+                .git()
+                .get_current_branch(&repo.path)
+                .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?
+        };
+
+        let agent_working_dir = if payload.repos.len() == 1 {
+            let repo = primary_repo.as_ref().ok_or(RepoError::NotFound)?;
+            match &repo.default_working_dir {
+                Some(subdir) => {
+                    if payload.use_worktree {
+                        let path = PathBuf::from(&repo.name).join(subdir);
+                        Some(path.to_string_lossy().to_string())
+                    } else {
+                        Some(subdir.clone())
+                    }
+                }
+                None => payload.use_worktree.then(|| repo.name.clone()),
+            }
+        } else {
+            None
+        };
+
+        let container_ref = if payload.use_worktree {
+            None
+        } else {
+            Some(
+                primary_repo
+                    .as_ref()
+                    .ok_or(RepoError::NotFound)?
+                    .path
+                    .to_string_lossy()
+                    .to_string(),
+            )
+        };
+
+        let workspace = Workspace::create(
+            pool,
+            &CreateWorkspace {
+                branch: git_branch_name,
+                container_ref,
+                use_worktree: payload.use_worktree,
+                agent_working_dir,
+            },
+            attempt_id,
+            task.id,
+        )
+        .await?;
+
+        WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
+        Workspace::update(pool, workspace.id, None, None, Some(task.title.as_str())).await?;
+        workspace_created = true;
+
+        Workspace::find_by_id(pool, workspace.id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))?
+    };
+
+    let session = Session::create(
         pool,
-        &CreateWorkspace {
-            branch: git_branch_name,
-            container_ref,
-            use_worktree: payload.use_worktree,
-            agent_working_dir,
+        &CreateSession {
+            executor: Some(payload.executor_profile_id.executor.to_string()),
+            task_id: Some(task.id),
+            name: Some(task.title.clone()),
+            status: Some(task_status_to_session_status(&task.status)),
         },
-        attempt_id,
-        task.id,
+        Uuid::new_v4(),
+        workspace.id,
     )
     .await?;
-
-    // Create workspace repos
-    let workspace_repos: Vec<CreateWorkspaceRepo> = payload
-        .repos
-        .iter()
-        .map(|r| CreateWorkspaceRepo {
-            repo_id: r.repo_id,
-            target_branch: r.target_branch.clone(),
-        })
-        .collect();
-    WorkspaceRepo::create_many(&state.deployment.db().pool, workspace.id, &workspace_repos).await?;
 
     // Start the workspace
     let is_attempt_running = state
         .deployment
         .container()
-        .start_workspace(
+        .start_workspace_with_session(
             &workspace,
+            &session,
             ExecutorConfig::from(payload.executor_profile_id.clone()),
         )
         .await
@@ -210,7 +257,13 @@ pub async fn create_task_and_start(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Task {} not found after creation", task_id)))?;
 
-    tracing::info!("Started attempt for task {}", task.id);
+    tracing::info!(
+        "Started session {} for task {} in workspace {} (created_workspace={})",
+        session.id,
+        task.id,
+        workspace.id,
+        workspace_created
+    );
 
     Ok(TaskWithAttemptStatus {
         task,
@@ -269,17 +322,40 @@ pub async fn delete_task(state: tauri::State<'_, AppState>, task_id: Uuid) -> Re
 
     let pool = &state.deployment.db().pool;
 
-    // Gather task attempts data needed for background cleanup
-    let attempts = Workspace::fetch_all(pool, Some(task.id))
+    // Gather seed workspaces owned by this task. Reused workspaces are linked
+    // through sessions and must not be deleted here.
+    let attempts = Workspace::fetch_seed_by_task_id(pool, task.id)
         .await
         .map_err(|e| {
             tracing::error!("Failed to fetch task attempts for task {}: {}", task.id, e);
             AppError::Internal(e.to_string())
         })?;
 
+    let sessions = Session::find_by_task_id(pool, task.id).await?;
+
     // Stop any running execution processes before deletion
     for workspace in &attempts {
         state.deployment.container().try_stop(workspace, true).await;
+    }
+
+    for session in &sessions {
+        let belongs_to_seed_workspace = attempts
+            .iter()
+            .any(|workspace| workspace.id == session.workspace_id);
+        if belongs_to_seed_workspace {
+            continue;
+        }
+
+        if db::models::execution_process::ExecutionProcess::has_running_non_dev_server_processes_for_session(
+            pool,
+            session.id,
+        )
+        .await?
+        {
+            return Err(AppError::Conflict(
+                "Cannot delete a task while its linked session is still running".to_string(),
+            ));
+        }
     }
 
     let repositories = WorkspaceRepo::find_unique_repos_for_task(pool, task.id).await?;

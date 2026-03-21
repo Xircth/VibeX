@@ -51,6 +51,21 @@ impl std::ops::Deref for TaskWithAttemptStatus {
     }
 }
 
+#[derive(Debug, FromRow)]
+struct TaskWithAttemptStatusRow {
+    id: Uuid,
+    project_id: Uuid,
+    title: String,
+    description: Option<String>,
+    status: TaskStatus,
+    parent_workspace_id: Option<Uuid>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    has_in_progress_attempt: bool,
+    last_attempt_failed: bool,
+    executor: Option<String>,
+}
+
 impl std::ops::DerefMut for TaskWithAttemptStatus {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.task
@@ -117,53 +132,45 @@ impl Task {
         pool: &SqlitePool,
         project_id: Uuid,
     ) -> Result<Vec<TaskWithAttemptStatus>, sqlx::Error> {
-        let records = sqlx::query!(
+        let records = sqlx::query_as::<_, TaskWithAttemptStatusRow>(
             r#"SELECT
-  t.id                            AS "id!: Uuid",
-  t.project_id                    AS "project_id!: Uuid",
-  t.title,
-  t.description,
-  t.status                        AS "status!: TaskStatus",
-  t.parent_workspace_id           AS "parent_workspace_id: Uuid",
-  t.created_at                    AS "created_at!: DateTime<Utc>",
-  t.updated_at                    AS "updated_at!: DateTime<Utc>",
-
-  CASE WHEN EXISTS (
-    SELECT 1
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-       AND ep.status        = 'running'
-       AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     LIMIT 1
-  ) THEN 1 ELSE 0 END            AS "has_in_progress_attempt!: i64",
-
-  CASE WHEN (
-    SELECT ep.status
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      JOIN execution_processes ep ON ep.session_id = s.id
-     WHERE w.task_id       = t.id
-     AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
-     ORDER BY ep.created_at DESC
-     LIMIT 1
-  ) IN ('failed','killed') THEN 1 ELSE 0 END
-                                 AS "last_attempt_failed!: i64",
-
-  ( SELECT s.executor
-      FROM workspaces w
-      JOIN sessions s ON s.workspace_id = w.id
-      WHERE w.task_id = t.id
-     ORDER BY s.created_at DESC
-      LIMIT 1
-    )                               AS "executor!: String"
-
-FROM tasks t
-WHERE t.project_id = $1
-ORDER BY t.created_at DESC"#,
-            project_id
+                   t.id,
+                   t.project_id,
+                   t.title,
+                   t.description,
+                   t.status,
+                   t.parent_workspace_id,
+                   t.created_at,
+                   t.updated_at,
+                   EXISTS (
+                       SELECT 1
+                       FROM sessions s
+                       JOIN execution_processes ep ON ep.session_id = s.id
+                       WHERE s.task_id = t.id
+                         AND ep.status = 'running'
+                         AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                   ) AS has_in_progress_attempt,
+                   CASE WHEN (
+                       SELECT ep.status
+                       FROM sessions s
+                       JOIN execution_processes ep ON ep.session_id = s.id
+                       WHERE s.task_id = t.id
+                         AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                       ORDER BY ep.created_at DESC
+                       LIMIT 1
+                   ) IN ('failed', 'killed') THEN TRUE ELSE FALSE END AS last_attempt_failed,
+                   (
+                       SELECT s.executor
+                       FROM sessions s
+                       WHERE s.task_id = t.id
+                       ORDER BY s.updated_at DESC, s.created_at DESC
+                       LIMIT 1
+                   ) AS executor
+               FROM tasks t
+               WHERE t.project_id = ?
+               ORDER BY t.created_at DESC"#,
         )
+        .bind(project_id)
         .fetch_all(pool)
         .await?;
 
@@ -180,9 +187,9 @@ ORDER BY t.created_at DESC"#,
                     created_at: rec.created_at,
                     updated_at: rec.updated_at,
                 },
-                has_in_progress_attempt: rec.has_in_progress_attempt != 0,
-                last_attempt_failed: rec.last_attempt_failed != 0,
-                executor: rec.executor,
+                has_in_progress_attempt: rec.has_in_progress_attempt,
+                last_attempt_failed: rec.last_attempt_failed,
+                executor: rec.executor.unwrap_or_default(),
             })
             .collect();
 

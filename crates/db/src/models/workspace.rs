@@ -128,57 +128,76 @@ impl Workspace {
         Task::find_by_id(pool, self.task_id).await
     }
 
-    /// Fetch all workspaces, optionally filtered by task_id. Newest first.
+    /// Fetch all workspaces, optionally filtered by task_id.
+    ///
+    /// When `task_id` is provided, include both:
+    /// - the seed workspace whose `workspaces.task_id` matches
+    /// - any reused workspace containing a session linked to that task
     pub async fn fetch_all(
         pool: &SqlitePool,
         task_id: Option<Uuid>,
     ) -> Result<Vec<Self>, WorkspaceError> {
-        let workspaces = match task_id {
-            Some(tid) => sqlx::query_as!(
-                Workspace,
-                r#"SELECT id AS "id!: Uuid",
-                              task_id AS "task_id!: Uuid",
-                              container_ref,
-                              branch,
-                              use_worktree AS "use_worktree!: bool",
-                              agent_working_dir,
-                              setup_completed_at AS "setup_completed_at: DateTime<Utc>",
-                              created_at AS "created_at!: DateTime<Utc>",
-                              updated_at AS "updated_at!: DateTime<Utc>",
-                              archived AS "archived!: bool",
-                              pinned AS "pinned!: bool",
-                              name
-                       FROM workspaces
-                       WHERE task_id = $1
-                       ORDER BY created_at DESC"#,
-                tid
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(WorkspaceError::Database)?,
-            None => sqlx::query_as!(
-                Workspace,
-                r#"SELECT id AS "id!: Uuid",
-                              task_id AS "task_id!: Uuid",
-                              container_ref,
-                              branch,
-                              use_worktree AS "use_worktree!: bool",
-                              agent_working_dir,
-                              setup_completed_at AS "setup_completed_at: DateTime<Utc>",
-                              created_at AS "created_at!: DateTime<Utc>",
-                              updated_at AS "updated_at!: DateTime<Utc>",
-                              archived AS "archived!: bool",
-                              pinned AS "pinned!: bool",
-                              name
-                       FROM workspaces
-                       ORDER BY created_at DESC"#
-            )
-            .fetch_all(pool)
-            .await
-            .map_err(WorkspaceError::Database)?,
-        };
+        let mut query = String::from(
+            r#"SELECT DISTINCT w.id,
+                              w.task_id,
+                              w.container_ref,
+                              w.branch,
+                              w.use_worktree,
+                              w.agent_working_dir,
+                              w.setup_completed_at,
+                              w.created_at,
+                              w.updated_at,
+                              w.archived,
+                              w.pinned,
+                              w.name
+               FROM workspaces w"#,
+        );
 
-        Ok(workspaces)
+        if task_id.is_some() {
+            query.push_str(" LEFT JOIN sessions s ON s.workspace_id = w.id");
+        }
+
+        query.push_str(" WHERE 1 = 1");
+
+        if task_id.is_some() {
+            query.push_str(" AND (w.task_id = ? OR s.task_id = ?)");
+        }
+
+        query.push_str(" ORDER BY w.created_at DESC");
+
+        let mut sql = sqlx::query_as::<_, Workspace>(&query);
+        if let Some(task_id) = task_id {
+            sql = sql.bind(task_id).bind(task_id);
+        }
+
+        sql.fetch_all(pool).await.map_err(WorkspaceError::Database)
+    }
+
+    pub async fn fetch_seed_by_task_id(
+        pool: &SqlitePool,
+        task_id: Uuid,
+    ) -> Result<Vec<Self>, WorkspaceError> {
+        sqlx::query_as::<_, Workspace>(
+            r#"SELECT id,
+                      task_id,
+                      container_ref,
+                      branch,
+                      use_worktree,
+                      agent_working_dir,
+                      setup_completed_at,
+                      created_at,
+                      updated_at,
+                      archived,
+                      pinned,
+                      name
+               FROM workspaces
+               WHERE task_id = ?
+               ORDER BY created_at DESC"#,
+        )
+        .bind(task_id)
+        .fetch_all(pool)
+        .await
+        .map_err(WorkspaceError::Database)
     }
 
     /// Load workspace with full validation - ensures workspace belongs to task and task belongs to project

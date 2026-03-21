@@ -1,8 +1,14 @@
-import type { IDockviewPanelProps } from 'dockview-react';
-import { DiffEditor } from '@monaco-editor/react';
+import { DiffEditor, type BeforeMount } from '@monaco-editor/react';
+import { useCallback } from 'react';
 import { GitCompare } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { useFileContent, useFileAtHead } from '@/hooks/useFileContent';
+import { useTheme } from '@/components/ThemeProvider';
+import {
+  defineAyuMonacoThemes,
+  MONACO_THEME_AYU_DARK,
+  MONACO_THEME_AYU_LIGHT,
+} from '@/utils/monacoThemes';
 
 /**
  * Map file extension to Monaco language identifier.
@@ -46,10 +52,20 @@ function getLanguageFromPath(filePath: string): string {
  * Shows a side-by-side diff of the file at HEAD (original) vs current working copy (modified).
  * Read-only - modifications should be done in the Preview panel.
  */
-function DockviewDiffPanel(_props: IDockviewPanelProps) {
+function DockviewDiffPanel() {
   const { diffFilePath } = useFileTreeStore();
-  const { data: currentContent, isLoading: isLoadingCurrent } = useFileContent(diffFilePath);
-  const { data: headContent, isLoading: isLoadingHead, error: headError } = useFileAtHead(diffFilePath);
+  const { resolvedTheme } = useTheme();
+  const { data: currentContent, isLoading: isLoadingCurrent } =
+    useFileContent(diffFilePath);
+  const {
+    data: headContent,
+    isLoading: isLoadingHead,
+    error: headError,
+  } = useFileAtHead(diffFilePath);
+
+  const handleDiffBeforeMount: BeforeMount = useCallback((monaco) => {
+    defineAyuMonacoThemes(monaco);
+  }, []);
 
   // No file selected for diff
   if (!diffFilePath) {
@@ -100,7 +116,12 @@ function DockviewDiffPanel(_props: IDockviewPanelProps) {
             original={originalContent}
             modified={modifiedContent}
             language={language}
-            theme="vs-dark"
+            theme={
+              resolvedTheme === 'dark'
+                ? MONACO_THEME_AYU_DARK
+                : MONACO_THEME_AYU_LIGHT
+            }
+            beforeMount={handleDiffBeforeMount}
             options={{
               readOnly: true,
               renderSideBySide: true,

@@ -91,6 +91,11 @@ export function ProjectTasks() {
     setActiveTab('kanban');
   }, [attemptId, projectId, setActiveTab, taskId]);
 
+  useEffect(() => {
+    if (!projectId || !taskId || !attemptId) return;
+    setActiveTab('workspace');
+  }, [attemptId, projectId, setActiveTab, taskId]);
+
   // Resolve "latest" attempt to the actual latest attempt ID
   useEffect(() => {
     if (!projectId || !taskId) return;
@@ -164,7 +169,10 @@ export function ProjectTasks() {
   }
 
   const attemptContent = selectedTask ? (
-    <NewCard className="h-full min-h-0 flex flex-col border-0" style={{ backgroundColor: 'hsl(var(--_background))' }}>
+    <NewCard
+      className="h-full min-h-0 flex flex-col border-0"
+      style={{ backgroundColor: 'hsl(var(--_background))' }}
+    >
       {isTaskView ? (
         <TaskPanel task={selectedTask} />
       ) : (

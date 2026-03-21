@@ -1,6 +1,6 @@
 use tauri::Manager;
 
-mod commands;
+pub mod commands;
 mod error;
 mod events;
 mod preview_proxy;
@@ -134,6 +134,8 @@ pub fn run() {
             commands::sessions::get_session_summaries,
             commands::sessions::get_session,
             commands::sessions::create_session,
+            commands::sessions::rename_session,
+            commands::sessions::update_session_status,
             commands::sessions::delete_session,
             commands::sessions::follow_up,
             commands::sessions::reset_session_process,

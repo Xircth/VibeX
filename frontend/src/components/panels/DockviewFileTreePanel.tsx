@@ -36,6 +36,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
 
   // Track previous workspace ID to detect workspace switches
   const prevWorktreeIdRef = useRef<string | null>(null);
+  const prevProjectIdRef = useRef<string | undefined>(projectId);
 
   // Directory listing state
   const [files, setFiles] = useState<string[]>([]);
@@ -63,6 +64,17 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       }
     }
   }, [activeWorktreeId, workspace, workspaceRepos, repos, setRootPath]);
+
+  useEffect(() => {
+    const projectChanged = prevProjectIdRef.current !== projectId;
+    prevProjectIdRef.current = projectId;
+
+    if (!projectChanged || activeWorktreeId || !repos || repos.length === 0) {
+      return;
+    }
+
+    setRootPath(repos[0].path);
+  }, [activeWorktreeId, projectId, repos, setRootPath]);
 
   // Auto-set rootPath from project repos when no workspace is active and no rootPath set
   useEffect(() => {

@@ -1,22 +1,21 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import type {
-  TaskStatus,
-  TaskWithAttemptStatus,
-  Workspace,
-} from 'shared/types';
+import type { TaskWithAttemptStatus, Workspace } from 'shared/types';
+import type { SessionStatus, SessionSummary } from '@/lib/api';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { attemptsApi, sessionsApi } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
-import type { SessionSummary } from '@/lib/api';
 
 export interface KanbanProjectSessionRecord {
   id: string;
   placement: KanbanSessionPlacement;
   workspace: Workspace;
   task: TaskWithAttemptStatus | null;
-  taskStatus: TaskStatus | null;
+  taskId: string | null;
+  status: SessionStatus;
   branch: string;
+  workspaceName: string;
+  workspaceDisplayLabel: string;
   executor: string | null;
   updatedAt: string;
   createdAt: string;
@@ -34,9 +33,50 @@ function truncateSessionName(name: string, length = 7) {
   return chars.slice(0, length).join('');
 }
 
-function getSessionDisplayName(summary: SessionSummary) {
-  const prompt = summary.first_prompt?.trim();
-  return prompt && prompt.length > 0 ? prompt : '新会话';
+function buildDefaultSessionName(
+  summary: SessionSummary,
+  task: TaskWithAttemptStatus | null
+) {
+  const manualName = summary.name?.trim();
+  if (manualName) {
+    return {
+      name: manualName,
+      source: 'manual' as const,
+      prompt: null,
+    };
+  }
+
+  const firstPrompt = summary.first_prompt?.replace(/\s+/g, ' ').trim() ?? '';
+  if (firstPrompt.length > 0) {
+    return {
+      name: Array.from(firstPrompt).slice(0, 6).join(''),
+      source: 'prompt' as const,
+      prompt: firstPrompt,
+    };
+  }
+
+  const taskTitle = task?.title?.trim();
+  if (taskTitle) {
+    return {
+      name: taskTitle,
+      source: 'task' as const,
+      prompt: null,
+    };
+  }
+
+  return {
+    name: summary.display_name?.trim() || '会话',
+    source: 'display' as const,
+    prompt: null,
+  };
+}
+
+function getWorkspaceName(
+  workspace: Workspace,
+  summary: SessionSummary,
+  task: TaskWithAttemptStatus | null
+) {
+  return workspace.name ?? summary.workspace_name ?? task?.title ?? workspace.branch;
 }
 
 export function useKanbanProjectSessions(projectId: string | undefined) {
@@ -60,6 +100,10 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       return results
         .flat()
         .filter((workspace) => !workspace.archived)
+        .filter(
+          (workspace, index, all) =>
+            all.findIndex((candidate) => candidate.id === workspace.id) === index
+        )
         .sort(
           (left, right) =>
             new Date(right.updated_at).getTime() -
@@ -78,14 +122,24 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
   });
 
   const sessions = useMemo<KanbanProjectSessionRecord[]>(() => {
-    return workspaces
+    const nameMetaById = new Map<
+      string,
+      { source: 'manual' | 'prompt' | 'task' | 'display'; prompt: string | null }
+    >();
+
+    const baseSessions = workspaces
       .flatMap((workspace, index) => {
-        const task = tasksById[workspace.task_id] ?? null;
         const summaries = sessionSummaryQueries[index]?.data ?? [];
 
         return summaries.map((summary) => {
-          const fullName = getSessionDisplayName(summary);
-          const taskStatus = task?.status ?? null;
+          const taskId = summary.task_id ?? workspace.task_id;
+          const task = taskId ? tasksById[taskId] ?? null : null;
+          const derivedName = buildDefaultSessionName(summary, task);
+          const workspaceName = getWorkspaceName(workspace, summary, task);
+          nameMetaById.set(summary.id, {
+            source: derivedName.source,
+            prompt: derivedName.prompt,
+          });
 
           return {
             id: summary.id,
@@ -95,16 +149,19 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             },
             workspace,
             task,
-            taskStatus,
-            branch: workspace.branch,
+            taskId,
+            status: summary.status,
+            branch: summary.workspace_branch,
+            workspaceName,
+            workspaceDisplayLabel: `${workspaceName} · ${summary.workspace_branch}`,
             executor: summary.executor,
             updatedAt: summary.updated_at,
             createdAt: summary.created_at,
             firstPrompt: summary.first_prompt,
-            fullName,
-            shortName: truncateSessionName(fullName),
+            fullName: derivedName.name,
+            shortName: truncateSessionName(derivedName.name),
             taskTitle: task?.title ?? null,
-            isCompleted: taskStatus === 'done' || taskStatus === 'cancelled',
+            isCompleted: summary.status === 'done',
             isRunning: summary.is_running,
           };
         });
@@ -114,6 +171,57 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
           new Date(right.updatedAt).getTime() -
           new Date(left.updatedAt).getTime()
       );
+
+    const totalsByBaseName = new Map<string, number>();
+    baseSessions.forEach((session) => {
+      totalsByBaseName.set(
+        session.fullName,
+        (totalsByBaseName.get(session.fullName) ?? 0) + 1
+      );
+    });
+
+    const usedNamesByBaseName = new Map<string, Set<string>>();
+    const occurrenceByBaseName = new Map<string, number>();
+
+    return baseSessions.map((session) => {
+      const baseName = session.fullName;
+      const total = totalsByBaseName.get(baseName) ?? 1;
+
+      if (total <= 1) {
+        return session;
+      }
+
+      const usedNames = usedNamesByBaseName.get(baseName) ?? new Set<string>();
+      usedNamesByBaseName.set(baseName, usedNames);
+
+      let resolvedName = baseName;
+      const meta = nameMetaById.get(session.id);
+      if (meta?.source === 'prompt' && meta.prompt) {
+        const chars = Array.from(meta.prompt);
+        const upperBound = Math.min(20, chars.length);
+        for (let length = 6; length <= upperBound; length += 1) {
+          const candidate = chars.slice(0, length).join('');
+          if (!usedNames.has(candidate)) {
+            resolvedName = candidate;
+            break;
+          }
+        }
+      }
+
+      if (usedNames.has(resolvedName)) {
+        const nextOccurrence = (occurrenceByBaseName.get(baseName) ?? 0) + 1;
+        occurrenceByBaseName.set(baseName, nextOccurrence);
+        resolvedName = `${baseName} #${nextOccurrence}`;
+      }
+
+      usedNames.add(resolvedName);
+
+      return {
+        ...session,
+        fullName: resolvedName,
+        shortName: truncateSessionName(resolvedName),
+      };
+    });
   }, [sessionSummaryQueries, tasksById, workspaces]);
 
   const sessionsById = useMemo(

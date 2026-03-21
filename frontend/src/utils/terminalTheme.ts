@@ -1,63 +1,86 @@
 import type { ITheme } from '@xterm/xterm';
 
-/**
- * Convert HSL CSS variable value (e.g., "210 40% 98%") to hex color.
- */
-function hslToHex(hslValue: string): string {
-  const trimmed = hslValue.trim();
-  if (!trimmed) return '#000000';
-
-  // Parse "H S% L%" format (space-separated, S and L have % suffix)
-  const parts = trimmed.split(/\s+/);
-  if (parts.length < 3) return '#000000';
-
-  const h = parseFloat(parts[0]) / 360;
-  const s = parseFloat(parts[1]) / 100;
-  const l = parseFloat(parts[2]) / 100;
-
-  // HSL to RGB conversion
-  let r: number, g: number, b: number;
-
-  if (s === 0) {
-    r = g = b = l;
-  } else {
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1 / 6) return p + (q - p) * 6 * t;
-      if (t < 1 / 2) return q;
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-      return p;
-    };
-
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1 / 3);
-    g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1 / 3);
-  }
-
-  const toHex = (x: number) => {
-    const hex = Math.round(x * 255).toString(16);
-    return hex.length === 1 ? '0' + hex : hex;
-  };
-
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+function toHex(value: number): string {
+  const clamped = Math.max(0, Math.min(255, Math.round(value)));
+  return clamped.toString(16).padStart(2, '0');
 }
 
-/**
- * Get the CSS variable value from the computed styles.
- * Looks for the variable on .legacy-design element first, then falls back to :root.
- */
-function getCssVariable(name: string): string {
-  const themeEl = document.querySelector('.legacy-design');
-  if (themeEl) {
-    const value = getComputedStyle(themeEl).getPropertyValue(name).trim();
-    if (value) return value;
+function cssColorToHex(colorValue: string): string | null {
+  const value = colorValue.trim();
+  if (!value) return null;
+
+  const hexMatch = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hexMatch) {
+    const raw = hexMatch[1];
+    if (raw.length === 3) {
+      return `#${raw
+        .split('')
+        .map((char) => char + char)
+        .join('')
+        .toLowerCase()}`;
+    }
+    return `#${raw.toLowerCase()}`;
   }
-  return getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
+
+  const rgbMatch = value.match(/^rgba?\(([^)]+)\)$/i);
+  if (!rgbMatch) return null;
+
+  const channels = rgbMatch[1].match(/[\d.]+/g);
+  if (!channels || channels.length < 3) return null;
+
+  const red = Number.parseFloat(channels[0]);
+  const green = Number.parseFloat(channels[1]);
+  const blue = Number.parseFloat(channels[2]);
+
+  if (
+    !Number.isFinite(red) ||
+    !Number.isFinite(green) ||
+    !Number.isFinite(blue)
+  ) {
+    return null;
+  }
+
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+function resolveThemeColor(
+  cssExpression: string,
+  fallbackHex: string,
+  mode: 'color' | 'backgroundColor' = 'color'
+): string {
+  if (typeof document === 'undefined') {
+    return fallbackHex;
+  }
+
+  const scopeEl =
+    (document.querySelector('.legacy-design') as HTMLElement | null) ??
+    document.documentElement;
+  const probe = document.createElement('div');
+
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.style.pointerEvents = 'none';
+  probe.style.width = '0';
+  probe.style.height = '0';
+  probe.style.opacity = '0';
+
+  if (mode === 'backgroundColor') {
+    probe.style.backgroundColor = cssExpression;
+  } else {
+    probe.style.color = cssExpression;
+  }
+
+  scopeEl.appendChild(probe);
+
+  const computedStyle = getComputedStyle(probe);
+  const resolvedValue =
+    mode === 'backgroundColor'
+      ? computedStyle.backgroundColor
+      : computedStyle.color;
+
+  scopeEl.removeChild(probe);
+
+  return cssColorToHex(resolvedValue) ?? fallbackHex;
 }
 
 /**
@@ -69,17 +92,23 @@ export function getTerminalTheme(): ITheme {
   // Detect if we're in dark mode by checking the class on html element
   const isDark = document.documentElement.classList.contains('dark');
 
-  // Read CSS variables with safe fallbacks for when DOM isn't ready
-  const background = getCssVariable('--bg-secondary') || (isDark ? '0 0% 11%' : '0 0% 95%');
-  const foreground = getCssVariable('--text-high') || (isDark ? '0 0% 96%' : '0 0% 5%');
-  const success = getCssVariable('--console-success') || '117 38% 50%';
-  const error = getCssVariable('--console-error') || (isDark ? '0 84% 60%' : '0 59% 57%');
-
-  // Convert the main colors
-  const bgHex = hslToHex(background);
-  const fgHex = hslToHex(foreground);
-  const greenHex = hslToHex(success);
-  const redHex = hslToHex(error);
+  const bgHex = resolveThemeColor(
+    'hsl(var(--console-background))',
+    isDark ? '#10151f' : '#f3f4f6',
+    'backgroundColor'
+  );
+  const fgHex = resolveThemeColor(
+    'hsl(var(--console-foreground))',
+    isDark ? '#c8d2dc' : '#39424e'
+  );
+  const greenHex = resolveThemeColor(
+    'hsl(var(--console-success))',
+    isDark ? '#9adf76' : '#5f9e15'
+  );
+  const redHex = resolveThemeColor(
+    'hsl(var(--console-error))',
+    isDark ? '#f87171' : '#e33636'
+  );
 
   // Define ANSI palette based on light/dark mode
   // These are carefully chosen to be readable on the respective backgrounds

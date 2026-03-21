@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import {
   GitBranch,
   History,
@@ -29,12 +29,11 @@ import {
 } from '@/hooks/git';
 import { GitStagingArea } from './GitStagingArea';
 import { GitCommitBox } from './GitCommitBox';
-import { GitDiffViewer } from './GitDiffViewer';
 import { GitLogView } from './GitLogView';
 import { GitBranchList } from './GitBranchList';
 import { GitIssuesView } from './GitIssuesView';
 import { GitPRsView } from './GitPRsView';
-import { GitDiffModal } from './GitDiffModal';
+import { usePanelActions } from '@/hooks/usePanelActions';
 
 function EmptyState() {
   return (
@@ -56,9 +55,31 @@ function LoadingState() {
   );
 }
 
+function isAbsoluteFilePath(path: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('\\\\') || path.startsWith('/');
+}
+
+function resolveGitFilePath(path: string, repoRootPath: string | null): string {
+  if (!repoRootPath || isAbsoluteFilePath(path)) {
+    return path;
+  }
+
+  const usesWindowsSeparator = repoRootPath.includes('\\');
+  const separator = usesWindowsSeparator ? '\\' : '/';
+  const base = repoRootPath.replace(/[\\/]+$/, '');
+  const normalizedRelative = usesWindowsSeparator
+    ? path.replaceAll('/', '\\')
+    : path.replaceAll('\\', '/');
+
+  return `${base}${separator}${normalizedRelative}`;
+}
+
 export function GitPanel() {
+  const { openDiffPreviewAtPath } = usePanelActions();
   const { activeWorktreeId } = useWorktree();
-  const { selectedRepoId } = useAttemptRepo(activeWorktreeId ?? undefined);
+  const { repos: workspaceRepos, selectedRepoId } = useAttemptRepo(
+    activeWorktreeId ?? undefined
+  );
   const { projectId } = useParams<{ projectId?: string }>();
 
   // When no workspace is active, fall back to the project's first repo
@@ -69,12 +90,25 @@ export function GitPanel() {
 
   const workspaceId = activeWorktreeId ?? null;
   const repoId = selectedRepoId ?? fallbackRepoId;
+  const repoRootPath = useMemo(() => {
+    if (activeWorktreeId) {
+      if (workspaceRepos.length === 0) return null;
+      return (
+        workspaceRepos.find((repo) => repo.id === repoId)?.path ??
+        workspaceRepos[0].path
+      );
+    }
+
+    if (projectRepos.length === 0) return null;
+    return (
+      projectRepos.find((repo) => repo.id === repoId)?.path ??
+      projectRepos[0].path
+    );
+  }, [activeWorktreeId, projectRepos, repoId, workspaceRepos]);
 
   const {
     mode,
     setMode,
-    diffViewStyle,
-    toggleDiffViewStyle,
     diffListView,
     toggleDiffListView,
     selectedDiffPath,
@@ -148,36 +182,21 @@ export function GitPanel() {
     enablePrs: mode === 'prs',
   });
 
-  const [modalDiffPath, setModalDiffPath] = useState<string | null>(null);
-
-  const modalDiffEntry = useMemo(() => {
-    if (!modalDiffPath) return null;
-    return diffs.find((d) => d.path === modalDiffPath) ?? null;
-  }, [modalDiffPath, diffs]);
-
   const handleSelectFile = useCallback(
     (path: string) => {
-      setSelectedDiffPath(path === selectedDiffPath ? null : path);
-      if (diffs.length === 0) {
-        refreshDiffs();
-      }
+      setSelectedDiffPath(path);
+      openDiffPreviewAtPath(resolveGitFilePath(path, repoRootPath));
     },
-    [selectedDiffPath, setSelectedDiffPath, diffs.length, refreshDiffs]
+    [openDiffPreviewAtPath, repoRootPath, setSelectedDiffPath]
   );
 
   const handleDoubleClickFile = useCallback(
     (path: string) => {
-      if (diffs.length === 0) {
-        refreshDiffs();
-      }
-      setModalDiffPath(path);
+      setSelectedDiffPath(path);
+      openDiffPreviewAtPath(resolveGitFilePath(path, repoRootPath));
     },
-    [diffs.length, refreshDiffs]
+    [openDiffPreviewAtPath, repoRootPath, setSelectedDiffPath]
   );
-
-  const handleCloseModal = useCallback(() => {
-    setModalDiffPath(null);
-  }, []);
 
   const handleRevertAll = useCallback(() => {
     revertAll();
@@ -357,17 +376,6 @@ export function GitPanel() {
               />
             </div>
           </div>
-
-          {selectedDiffPath && diffs.length > 0 && (
-            <div className="border-t border-border/30 flex-1 min-h-[200px] max-h-[50%]">
-              <GitDiffViewer
-                diffs={diffs}
-                selectedPath={selectedDiffPath}
-                diffStyle={diffViewStyle}
-                onToggleDiffStyle={toggleDiffViewStyle}
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -421,14 +429,6 @@ export function GitPanel() {
           onRefresh={gitHub.refreshPrs}
         />
       )}
-
-      {/* Full-screen diff modal */}
-      <GitDiffModal
-        entry={modalDiffEntry}
-        diffStyle={diffViewStyle}
-        onToggleDiffStyle={toggleDiffViewStyle}
-        onClose={handleCloseModal}
-      />
     </div>
   );
 }

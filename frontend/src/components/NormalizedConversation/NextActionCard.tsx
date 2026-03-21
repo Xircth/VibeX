@@ -319,8 +319,12 @@ export function NextActionCard({
 
   const editorName = getIdeName(config?.editor?.editor_type);
   const hasDiffs = fileCount > 0 && !error;
-  const showPrimaryActions = !!((failed && needsSetup) || setupHelpText);
-  const shouldShowPlaceholder = !isInitialized && !hasDiffs && !showPrimaryActions;
+  const showPrimaryActions = !!(
+    (failed && needsSetup) ||
+    (needsSetup && setupHelpText)
+  );
+  const shouldShowPlaceholder =
+    !isInitialized && !hasDiffs && !showPrimaryActions;
 
   if (!showPrimaryActions && fileCount === 0 && !shouldShowPlaceholder) {
     return null;

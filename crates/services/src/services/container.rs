@@ -19,7 +19,7 @@ use db::{
             CreateExecutionProcessRepoState, ExecutionProcessRepoState,
         },
         repo::Repo,
-        session::{CreateSession, Session, SessionError},
+        session::{CreateSession, Session, SessionError, SessionStatus},
         task::{Task, TaskStatus},
         workspace::{Workspace, WorkspaceError},
         workspace_repo::WorkspaceRepo,
@@ -221,6 +221,11 @@ pub trait ContainerService {
 
     /// Finalize task execution by updating status to InReview and sending notifications
     async fn finalize_task(&self, ctx: &ExecutionContext) {
+        if let Err(e) = Session::update_status(&self.db().pool, ctx.session.id, SessionStatus::InReview).await
+        {
+            tracing::error!("Failed to update session status to InReview: {e}");
+        }
+
         if let Err(e) =
             Task::update_status(&self.db().pool, ctx.task.id, TaskStatus::InReview).await
         {
@@ -318,13 +323,25 @@ pub trait ContainerService {
                 && let Ok(Some(workspace)) =
                     Workspace::find_by_id(&self.db().pool, session.workspace_id).await
                 && let Ok(Some(task)) = workspace.parent_task(&self.db().pool).await
-                && let Err(e) =
-                    Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await
             {
-                tracing::error!(
-                    "Failed to update task status to InReview for orphaned session: {}",
-                    e
-                );
+                if let Err(e) =
+                    Session::update_status(&self.db().pool, session.id, SessionStatus::InReview)
+                        .await
+                {
+                    tracing::error!(
+                        "Failed to update session status to InReview for orphaned session: {}",
+                        e
+                    );
+                }
+
+                if let Err(e) =
+                    Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await
+                {
+                    tracing::error!(
+                        "Failed to update task status to InReview for orphaned session: {}",
+                        e
+                    );
+                }
             }
         }
         Ok(())
@@ -507,7 +524,12 @@ pub trait ContainerService {
             None => {
                 Session::create(
                     pool,
-                    &CreateSession { executor: None },
+                    &CreateSession {
+                        executor: None,
+                        task_id: None,
+                        name: None,
+                        status: Some(SessionStatus::Todo),
+                    },
                     Uuid::new_v4(),
                     workspace.id,
                 )
@@ -1115,31 +1137,53 @@ pub trait ContainerService {
         workspace: &Workspace,
         executor_config: ExecutorConfig,
     ) -> Result<ExecutionProcess, ContainerError> {
-        // Create container
-        self.create(workspace).await?;
-
         // Get parent task
         let task = workspace
             .parent_task(&self.db().pool)
             .await?
             .ok_or(SqlxError::RowNotFound)?;
 
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-
         let workspace = Workspace::find_by_id(&self.db().pool, workspace.id)
             .await?
             .ok_or(SqlxError::RowNotFound)?;
 
-        // Create a session for this workspace
         let session = Session::create(
             &self.db().pool,
             &CreateSession {
                 executor: Some(executor_config.executor.to_string()),
+                task_id: Some(task.id),
+                name: Some(task.title.clone()),
+                status: Some(SessionStatus::Todo),
             },
             Uuid::new_v4(),
             workspace.id,
         )
         .await?;
+
+        self.start_workspace_with_session(&workspace, &session, executor_config)
+            .await
+    }
+
+    async fn start_workspace_with_session(
+        &self,
+        workspace: &Workspace,
+        session: &Session,
+        executor_config: ExecutorConfig,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        self.create(workspace).await?;
+
+        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
+
+        let task = if let Some(task_id) = session.task_id {
+            Task::find_by_id(&self.db().pool, task_id)
+                .await?
+                .ok_or(SqlxError::RowNotFound)?
+        } else {
+            workspace
+                .parent_task(&self.db().pool)
+                .await?
+                .ok_or(SqlxError::RowNotFound)?
+        };
 
         let prompt = task.to_prompt();
 
@@ -1209,15 +1253,19 @@ pub trait ContainerService {
         executor_action: &ExecutorAction,
         run_reason: &ExecutionProcessRunReason,
     ) -> Result<ExecutionProcess, ContainerError> {
-        // Update task status to InProgress when starting an execution
-        let task = workspace
-            .parent_task(&self.db().pool)
-            .await?
-            .ok_or(SqlxError::RowNotFound)?;
-        if task.status != TaskStatus::InProgress
-            && run_reason != &ExecutionProcessRunReason::DevServer
-        {
-            Task::update_status(&self.db().pool, task.id, TaskStatus::InProgress).await?;
+        // Update linked task/session status when starting a non-dev execution
+        let task = if let Some(task_id) = session.task_id {
+            Task::find_by_id(&self.db().pool, task_id).await?
+        } else {
+            workspace.parent_task(&self.db().pool).await?
+        };
+        if run_reason != &ExecutionProcessRunReason::DevServer {
+            Session::update_status(&self.db().pool, session.id, SessionStatus::InProgress).await?;
+            if let Some(task) = task.as_ref()
+                && task.status != TaskStatus::InProgress
+            {
+                Task::update_status(&self.db().pool, task.id, TaskStatus::InProgress).await?;
+            }
         }
         // Create new execution process record
         // Capture current HEAD per repository as the "before" commit for this execution
@@ -1311,7 +1359,10 @@ pub trait ContainerService {
                     update_error
                 );
             }
-            Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await?;
+            Session::update_status(&self.db().pool, session.id, SessionStatus::InReview).await?;
+            if let Some(task) = task.as_ref() {
+                Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await?;
+            }
 
             // Emit stderr error message
             let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));

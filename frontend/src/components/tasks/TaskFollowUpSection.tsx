@@ -20,6 +20,7 @@ import { useKeySubmitFollowUp, Scope } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { Input } from '@/components/ui/input';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
 import { buildClickedElementData } from '@/contexts/ClickedElementsProvider';
@@ -27,6 +28,7 @@ import type { ClickedElementData } from '@/components/ui/wysiwyg/nodes/clicked-e
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
+import { useDiffSummary } from '@/hooks/useDiffSummary';
 
 import type {
   BaseCodingAgent,
@@ -46,7 +48,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queueApi, imagesApi, sessionsApi } from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
 import { useTokenUsage } from '@/contexts/EntriesContext';
-import { useDiffSummary } from '@/hooks/useDiffSummary';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 
 import { DiffStatsBar } from './follow-up/DiffStatsBar';
@@ -55,6 +56,7 @@ import { SessionSelector } from './follow-up/SessionSelector';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
+import { TerminalProfileControls } from './TerminalProfileControls';
 
 interface TaskFollowUpSectionProps {
   task: TaskWithAttemptStatus;
@@ -63,6 +65,10 @@ interface TaskFollowUpSectionProps {
   onJumpToPreviousUserMessage?: () => void;
   showSessionSelector?: boolean;
   onSessionCreated?: (session: {
+    sessionId: string;
+    workspaceId: string;
+  }) => void;
+  onSessionSelected?: (session: {
     sessionId: string;
     workspaceId: string;
   }) => void;
@@ -77,7 +83,7 @@ interface TaskFollowUpSectionProps {
 }
 
 function truncateSessionLabel(label: string, maxUnits = 8): string {
-  if (!label) return '会话';
+  if (!label) return '\u4f1a\u8bdd';
 
   let units = 0;
   let compact = '';
@@ -101,6 +107,7 @@ export function TaskFollowUpSection({
   onJumpToPreviousUserMessage,
   showSessionSelector = true,
   onSessionCreated,
+  onSessionSelected,
   sessionState,
 }: TaskFollowUpSectionProps) {
   const { projectId } = useProject();
@@ -115,8 +122,8 @@ export function TaskFollowUpSection({
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
   const selectedSessionLabel = isNewSessionMode
-    ? `会话${sessions.length + 1}`
-    : (sessions.find((s) => s.id === selectedSessionId)?.displayName ?? '会话');
+    ? `\u4f1a\u8bdd${sessions.length + 1}`
+    : (sessions.find((s) => s.id === selectedSessionId)?.displayName ?? '\u4f1a\u8bdd');
   const compactSessionLabel = truncateSessionLabel(selectedSessionLabel);
 
   const { isAttemptRunning, stopExecution, isStopping, processes } =
@@ -160,8 +167,8 @@ export function TaskFollowUpSection({
 
   const { enableScope, disableScope } = useHotkeysContext();
 
-  const diffSummary = useDiffSummary(workspaceId ?? null);
   const tokenUsageInfo = useTokenUsage();
+  const { fileCount, added, deleted } = useDiffSummary(workspaceId ?? null);
 
   const reviewMarkdown = useMemo(
     () => generateReviewMarkdown(),
@@ -213,6 +220,7 @@ export function TaskFollowUpSection({
 
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [localMessage, setLocalMessage] = useState('');
+  const [newSessionName, setNewSessionName] = useState('');
 
   const latestProfileId = useMemo(
     () => getLatestProfileFromProcesses(processes),
@@ -314,6 +322,20 @@ export function TaskFollowUpSection({
 
   const queryClient = useQueryClient();
   const QUEUE_STATUS_KEY = 'queue-status';
+  const handleRenameSession = useCallback(
+    async (targetSessionId: string, name: string | null) => {
+      await sessionsApi.rename(targetSessionId, name);
+      if (workspaceId) {
+        await queryClient.invalidateQueries({
+          queryKey: ['workspaceSessions', workspaceId],
+        });
+      }
+      queryClient.invalidateQueries({
+        queryKey: ['session', targetSessionId],
+      });
+    },
+    [queryClient, workspaceId]
+  );
 
   const {
     data: queueStatus = { status: 'empty' as const },
@@ -391,6 +413,19 @@ export function TaskFollowUpSection({
   const displayMessage =
     isQueued && queuedMessage ? queuedMessage.data.message : localMessage;
 
+  const handleSelectSession = useCallback(
+    (nextSessionId: string) => {
+      selectSession(nextSessionId);
+      if (workspaceId) {
+        onSessionSelected?.({
+          sessionId: nextSessionId,
+          workspaceId,
+        });
+      }
+    },
+    [onSessionSelected, selectSession, workspaceId]
+  );
+
   const { entries } = useEntries();
   const { todos } = useTodos(entries);
   const hasPendingApproval = useMemo(() => {
@@ -409,7 +444,8 @@ export function TaskFollowUpSection({
       sessionId,
       workspaceId,
       isNewSessionMode,
-      onSelectSession: selectSession,
+      newSessionName,
+      onSelectSession: handleSelectSession,
       onSessionCreated,
       message: localMessage,
       conflictMarkdown: conflictResolutionInstructions,
@@ -419,6 +455,7 @@ export function TaskFollowUpSection({
       onAfterSendCleanup: async () => {
         cancelDebouncedSave();
         setLocalMessage('');
+        setNewSessionName('');
         hydratedScratchIdRef.current = scratchId;
         if (scratchId) {
           await deleteScratch();
@@ -610,6 +647,12 @@ export function TaskFollowUpSection({
     refetchAttemptBranch,
   ]);
 
+  useEffect(() => {
+    if (!isNewSessionMode) {
+      setNewSessionName('');
+    }
+  }, [isNewSessionMode, workspaceId]);
+
   if (!workspaceId) return null;
 
   if (isScratchLoading) {
@@ -673,16 +716,24 @@ export function TaskFollowUpSection({
           }}
         >
           {/* Top bar */}
-          {(diffSummary.fileCount > 0 ||
-            tokenUsageInfo ||
+          {(tokenUsageInfo ||
             (showSessionSelector && sessions.length > 0) ||
             effectiveExecutorProfile?.executor) && (
             <div className="flex items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">
               <DiffStatsBar
                 executorProfile={effectiveExecutorProfile}
                 sessionExecutor={session?.executor}
-                diffSummary={diffSummary}
               />
+              {fileCount > 0 ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">
+                      {`${fileCount} 个文件更改`}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>{`+${added} -${deleted}`}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <div className="flex-1" />
 
@@ -694,13 +745,13 @@ export function TaskFollowUpSection({
                     type="button"
                     onClick={onJumpToPreviousUserMessage}
                     className="flex items-center justify-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="回到上一条用户消息"
+                    aria-label={'\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'}
                     disabled={!onJumpToPreviousUserMessage}
                   >
                     <ArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>回到上一条用户消息</TooltipContent>
+                <TooltipContent>{'\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'}</TooltipContent>
               </Tooltip>
 
               {showSessionSelector ? (
@@ -709,12 +760,42 @@ export function TaskFollowUpSection({
                   selectedSessionId={selectedSessionId}
                   compactSessionLabel={compactSessionLabel}
                   selectedSessionLabel={selectedSessionLabel}
-                  onSelectSession={selectSession}
+                  onSelectSession={handleSelectSession}
                   onStartNewSession={startNewSession}
+                  onRenameSession={handleRenameSession}
                 />
               ) : null}
             </div>
           )}
+
+          {isNewSessionMode ? (
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-2">
+              <div className="mb-2 text-xs font-medium text-foreground">
+                {'\u65b0\u5efa\u4f1a\u8bdd\u914d\u7f6e'}
+              </div>
+              <div className="mb-2 space-y-1">
+                <div className="text-[11px] text-muted-foreground">
+                  {'\u4f1a\u8bdd\u540d\u79f0\uff08\u53ef\u9009\uff09'}
+                </div>
+                <Input
+                  value={newSessionName}
+                  onChange={(event) => setNewSessionName(event.target.value)}
+                  placeholder={'\u4e0d\u586b\u5219\u4f7f\u7528\u9996\u6761\u6d88\u606f\u81ea\u52a8\u547d\u540d'}
+                  className="h-8 rounded-md border-border/60 bg-background text-sm"
+                  autoFocus
+                />
+              </div>
+              <TerminalProfileControls
+                profiles={profiles}
+                selectedProfile={effectiveExecutorProfile}
+                onChange={(profile) => setSelectedExecutorProfile(profile)}
+                disabled={!isEditable}
+                showLabel={true}
+                className="grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
+              />
+            </div>
+          ) : null}
+
 
           <WYSIWYGEditor
             placeholder=""
@@ -736,6 +817,7 @@ export function TaskFollowUpSection({
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={setSelectedExecutorProfile}
+            showProfileControls={!isNewSessionMode}
             isEditable={isEditable}
             isAttemptRunning={isAttemptRunning}
             isQueued={isQueued}

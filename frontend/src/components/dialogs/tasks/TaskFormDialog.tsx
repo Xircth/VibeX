@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState, useMemo } from 'react';
+import { useEffect, useCallback, useState, useMemo } from 'react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { useDropzone } from 'react-dropzone';
@@ -37,7 +37,6 @@ import {
 } from '@/hooks';
 import {
   useKeySubmitTask,
-  useKeySubmitTaskAlt,
   useKeyExit,
   Scope,
 } from '@/keyboard';
@@ -78,7 +77,6 @@ type TaskFormValues = {
   status: TaskStatus;
   executorProfileId: ExecutorProfileId | null;
   repoBranches: RepoBranch[];
-  autoStart: boolean;
   useWorktree: boolean;
 };
 
@@ -86,8 +84,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const { mode, projectId } = props;
   const editMode = mode === 'edit';
   const modal = useModal();
-  const { createTask, createAndStart, updateTask } =
-    useTaskMutations(projectId);
+  const { createAndStart, updateTask } = useTaskMutations(projectId);
   const { system, profiles, loading: userSystemLoading } = useUserSystem();
   const { upload, uploadForTask } = useImageUpload();
   const { enableScope, disableScope } = useHotkeysContext();
@@ -98,7 +95,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     []
   );
   const [showDiscardWarning, setShowDiscardWarning] = useState(false);
-  const forceCreateOnlyRef = useRef(false);
 
   const { data: taskImages } = useTaskImages(
     editMode ? props.task.id : undefined
@@ -133,7 +129,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           status: props.task.status,
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
-          autoStart: false,
           useWorktree: true,
         };
       }
@@ -145,7 +140,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           status: 'todo',
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
-          autoStart: true,
           useWorktree: true,
         };
 
@@ -158,8 +152,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           status: 'todo',
           executorProfileId: baseProfile,
           repoBranches: defaultRepoBranches,
-          autoStart:
-            mode === 'create' && props.initialStatus === 'todo' ? false : true,
           useWorktree: true,
         };
     }
@@ -197,30 +189,25 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           mode === 'subtask' ? props.parentTaskAttemptId : null,
         image_ids: imageIds,
       };
-      const shouldAutoStart = value.autoStart && !forceCreateOnlyRef.current;
-      if (shouldAutoStart) {
-        const repos = value.repoBranches.map((rb) => ({
-          repo_id: rb.repoId,
-          target_branch: rb.branch,
-        }));
-        await createAndStart.mutateAsync(
-          {
-            task,
-            executor_profile_id: value.executorProfileId!,
-            repos,
-            use_worktree: value.useWorktree,
-          },
-          { onSuccess: () => modal.remove() }
-        );
-      } else {
-        await createTask.mutateAsync(task, { onSuccess: () => modal.remove() });
-      }
+      const repos = value.repoBranches.map((rb) => ({
+        repo_id: rb.repoId,
+        target_branch: rb.branch,
+      }));
+      await createAndStart.mutateAsync(
+        {
+          task,
+          executor_profile_id: value.executorProfileId!,
+          repos,
+          use_worktree: value.useWorktree,
+        },
+        { onSuccess: () => modal.remove() }
+      );
     }
   };
 
   const validator = (value: TaskFormValues): string | undefined => {
     if (!value.title.trim().length) return 'need title';
-    if (value.autoStart && !forceCreateOnlyRef.current) {
+    if (!editMode) {
       if (!value.executorProfileId) return 'need executor profile';
       if (
         value.repoBranches.length === 0 ||
@@ -246,6 +233,14 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const isDirty = useStore(form.store, (state) => state.isDirty);
   const canSubmit = useStore(form.store, (state) => state.canSubmit);
+  const selectedExecutor = useStore(
+    form.store,
+    (state) => state.values.executorProfileId?.executor ?? null
+  );
+  const selectedRepoId = useStore(
+    form.store,
+    (state) => state.values.repoBranches[0]?.repoId
+  );
 
   // Load images for edit mode
   useEffect(() => {
@@ -343,25 +338,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     preventDefault: true,
   });
 
-  const canSubmitAlt = useStore(form.store, (state) => {
-    return state.values.title.trim().length > 0 && !state.isSubmitting;
-  });
-
-  const handleSubmitCreateOnly = useCallback(() => {
-    forceCreateOnlyRef.current = true;
-    const promise = form.handleSubmit();
-    Promise.resolve(promise).finally(() => {
-      forceCreateOnlyRef.current = false;
-    });
-  }, [form]);
-
-  useKeySubmitTaskAlt(handleSubmitCreateOnly, {
-    enabled: modal.visible && canSubmitAlt && !showDiscardWarning,
-    scope: Scope.DIALOG,
-    enableOnFormTags: ['input', 'INPUT', 'textarea', 'TEXTAREA'],
-    preventDefault: true,
-  });
-
   // Dialog close handling
   const handleDialogClose = (open: boolean) => {
     if (open) return;
@@ -438,7 +414,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                 <input
                   id="task-title"
                   type="text"
-                  placeholder="\u8bf7\u8f93\u5165\u4efb\u52a1\u6807\u9898"
+                  placeholder="请输入任务标题"
                   value={titleField.state.value}
                   onChange={(e) => titleField.handleChange(e.target.value)}
                   className="w-full px-3 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-1 focus:ring-ring"
@@ -460,9 +436,10 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                   disabled={isSubmitting}
                   repoIds={projectRepos.map((r) => r.id)}
                   projectId={projectId}
+                  executor={selectedExecutor}
+                  repoId={selectedRepoId}
                   onPasteFiles={onDrop}
                   onCmdEnter={primaryAction}
-                  onShiftCmdEnter={handleSubmitCreateOnly}
                   taskId={editMode ? props.task.id : undefined}
                   localImages={localImages}
                 />
@@ -503,137 +480,116 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
           {/* Create mode dropdowns */}
           {!editMode && (
-            <form.Field name="autoStart" mode="array">
-              {(autoStartField) => {
-                const isSingleRepo = repoBranchConfigs.length === 1;
-                return (
-                  <div
-                    className={cn(
-                      'space-y-3 transition-opacity duration-200',
-                      autoStartField.state.value
-                        ? 'opacity-100'
-                        : 'opacity-0 pointer-events-none'
-                    )}
-                  >
-                    <form.Field name="executorProfileId">
-                      {(field) => (
-                        <TerminalProfileControls
-                          profiles={profiles}
-                          selectedProfile={field.state.value}
-                          onChange={field.handleChange}
-                          disabled={isSubmitting || !autoStartField.state.value}
-                          className="w-full flex min-w-0 flex-wrap items-center gap-2"
-                        />
-                      )}
-                    </form.Field>
-                    {isSingleRepo && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <form.Field name="repoBranches">
-                          {(field) => {
-                            const config = repoBranchConfigs[0];
-                            const selectedBranch =
-                              field.state.value.find(
-                                (v) => v.repoId === config.repoId
-                              )?.branch ?? config.targetBranch;
-                            return (
-                              <div
-                                className={cn(
-                                  'min-w-[220px] flex-1',
-                                  isSubmitting &&
-                                    'opacity-50 pointer-events-none'
-                                )}
-                              >
-                                <BranchSelector
-                                  branches={config.branches}
-                                  selectedBranch={selectedBranch}
-                                  onBranchSelect={(branch) => {
-                                    field.handleChange([
-                                      { repoId: config.repoId, branch },
-                                    ]);
-                                  }}
-                                  placeholder={
-                                    branchesLoading
-                                      ? '\u52a0\u8f7d\u5206\u652f\u4e2d...'
-                                      : '\u9009\u62e9\u5206\u652f'
-                                  }
-                                />
-                              </div>
-                            );
-                          }}
-                        </form.Field>
-                        <form.Field name="useWorktree">
-                          {(field) => (
-                            <div className="flex items-center gap-2 rounded-md border px-3 py-2">
-                              <Switch
-                                id="task-use-worktree"
-                                checked={field.state.value}
-                                onCheckedChange={(checked) =>
-                                  field.handleChange(checked)
-                                }
-                                disabled={
-                                  isSubmitting || !autoStartField.state.value
-                                }
-                              />
-                              <Label
-                                htmlFor="task-use-worktree"
-                                className="text-sm cursor-pointer whitespace-nowrap"
-                              >
-                                {'\u521b\u5efa Worktree'}
-                              </Label>
-                            </div>
+            <div className="space-y-3">
+              <form.Field name="executorProfileId">
+                {(field) => (
+                  <TerminalProfileControls
+                    profiles={profiles}
+                    selectedProfile={field.state.value}
+                    onChange={field.handleChange}
+                    disabled={isSubmitting}
+                    className="w-full flex min-w-0 flex-wrap items-center gap-2"
+                  />
+                )}
+              </form.Field>
+              {repoBranchConfigs.length === 1 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <form.Field name="repoBranches">
+                    {(field) => {
+                      const config = repoBranchConfigs[0];
+                      const selectedBranch =
+                        field.state.value.find((v) => v.repoId === config.repoId)
+                          ?.branch ?? config.targetBranch;
+                      return (
+                        <div
+                          className={cn(
+                            'min-w-[220px] flex-1',
+                            isSubmitting && 'opacity-50 pointer-events-none'
                           )}
-                        </form.Field>
+                        >
+                          <BranchSelector
+                            branches={config.branches}
+                            selectedBranch={selectedBranch}
+                            onBranchSelect={(branch) => {
+                              field.handleChange([
+                                { repoId: config.repoId, branch },
+                              ]);
+                            }}
+                            placeholder={
+                              branchesLoading
+                                ? '\u52a0\u8f7d\u5206\u652f\u4e2d...'
+                                : '\u9009\u62e9\u5206\u652f'
+                            }
+                          />
+                        </div>
+                      );
+                    }}
+                  </form.Field>
+                  <form.Field name="useWorktree">
+                    {(field) => (
+                      <div className="flex items-center gap-2 rounded-md border px-3 py-2">
+                        <Switch
+                          id="task-use-worktree"
+                          checked={field.state.value}
+                          onCheckedChange={(checked) =>
+                            field.handleChange(checked)
+                          }
+                          disabled={isSubmitting}
+                        />
+                        <Label
+                          htmlFor="task-use-worktree"
+                          className="text-sm cursor-pointer whitespace-nowrap"
+                        >
+                          {'\u521b\u5efa Worktree'}
+                        </Label>
                       </div>
                     )}
-                    {isSingleRepo && (
-                      <form.Subscribe selector={(state) => state.values.useWorktree}>
-                        {(useWorktree) => (
-                          <p className="text-xs text-muted-foreground">
-                            {useWorktree
-                              ? '\u4f1a\u521b\u5efa\u72ec\u7acb\u7684 worktree \u548c\u4efb\u52a1\u5206\u652f\u3002'
-                              : '\u5c06\u76f4\u63a5\u5728\u5f53\u524d\u5206\u652f\u4e2d\u6253\u5f00\uff0c\u4e0d\u521b\u5efa worktree\u3002'}
-                          </p>
-                        )}
-                      </form.Subscribe>
-                    )}
-                    {!isSingleRepo && (
-                      <form.Field name="repoBranches">
-                        {(field) => {
-                          const configs = repoBranchConfigs.map((config) => ({
-                            ...config,
-                            targetBranch:
-                              field.state.value.find(
-                                (v) => v.repoId === config.repoId
-                              )?.branch ?? config.targetBranch,
-                          }));
-                          return (
-                            <RepoBranchSelector
-                              configs={configs}
-                              onBranchChange={(repoId, branch) => {
-                                const newValue = field.state.value.map((v) =>
-                                  v.repoId === repoId ? { ...v, branch } : v
-                                );
-                                if (
-                                  !newValue.find((v) => v.repoId === repoId)
-                                ) {
-                                  newValue.push({ repoId, branch });
-                                }
-                                field.handleChange(newValue);
-                              }}
-                              isLoading={branchesLoading}
-                              showLabel={true}
-                              className={cn(
-                                isSubmitting && 'opacity-50 pointer-events-none'
-                              )}
-                            />
+                  </form.Field>
+                </div>
+              )}
+              {repoBranchConfigs.length === 1 && (
+                <form.Subscribe selector={(state) => state.values.useWorktree}>
+                  {(useWorktree) => (
+                    <p className="text-xs text-muted-foreground">
+                      {useWorktree
+                        ? '\u4f1a\u521b\u5efa\u72ec\u7acb\u7684 worktree \u548c\u4efb\u52a1\u5206\u652f\u3002'
+                        : '\u5c06\u76f4\u63a5\u5728\u5f53\u524d\u5206\u652f\u4e2d\u6253\u5f00\uff0c\u4e0d\u521b\u5efa worktree\u3002'}
+                    </p>
+                  )}
+                </form.Subscribe>
+              )}
+              {repoBranchConfigs.length !== 1 && (
+                <form.Field name="repoBranches">
+                  {(field) => {
+                    const configs = repoBranchConfigs.map((config) => ({
+                      ...config,
+                      targetBranch:
+                        field.state.value.find((v) => v.repoId === config.repoId)
+                          ?.branch ?? config.targetBranch,
+                    }));
+                    return (
+                      <RepoBranchSelector
+                        configs={configs}
+                        onBranchChange={(repoId, branch) => {
+                          const newValue = field.state.value.map((v) =>
+                            v.repoId === repoId ? { ...v, branch } : v
                           );
+                          if (!newValue.find((v) => v.repoId === repoId)) {
+                            newValue.push({ repoId, branch });
+                          }
+                          field.handleChange(newValue);
                         }}
-                      </form.Field>
-                    )}
-                  </div>
-                );
-              }}
-            </form.Field>
+                        isLoading={branchesLoading}
+                        showLabel={true}
+                        className={cn(
+                          isSubmitting && 'opacity-50 pointer-events-none'
+                        )}
+                      />
+                    );
+                  }}
+                </form.Field>
+              )}
+            </div>
           )}
 
           {/* Actions */}
@@ -651,53 +607,22 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
               </Button>
             </div>
 
-            {/* Autostart switch */}
             <div className="flex items-center gap-3">
-              {!editMode && (
-                <form.Field name="autoStart">
-                  {(field) => (
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="autostart-switch"
-                        checked={field.state.value}
-                        onCheckedChange={(checked) =>
-                          field.handleChange(checked)
-                        }
-                        disabled={isSubmitting}
-                        className="data-[state=checked]:bg-gray-900 dark:data-[state=checked]:bg-gray-100"
-                        aria-label={'\u81ea\u52a8\u542f\u52a8'}
-                      />
-                      <Label
-                        htmlFor="autostart-switch"
-                        className="text-sm cursor-pointer"
-                      >
-                        {'\u81ea\u52a8\u542f\u52a8'}
-                      </Label>
-                    </div>
-                  )}
-                </form.Field>
-              )}
-
               {/* Create/Start/Update button*/}
               <form.Subscribe
                 selector={(state) => ({
                   canSubmit: state.canSubmit,
                   isSubmitting: state.isSubmitting,
-                  values: state.values,
                 })}
               >
-                {({ canSubmit, isSubmitting, values }) => {
+                {({ canSubmit, isSubmitting }) => {
                   const buttonText = editMode
                     ? isSubmitting
                       ? '\u4fdd\u5b58\u4e2d...'
                       : '\u66f4\u65b0\u4efb\u52a1'
                     : isSubmitting
-                      ? values.autoStart
-                        ? '\u521b\u5efa\u5e76\u542f\u52a8\u4e2d...'
-                        : '\u521b\u5efa\u4e2d...'
-                      : values.autoStart
-                        ? '\u521b\u5efa\u5e76\u542f\u52a8'
-                        : '\u521b\u5efa\u4efb\u52a1';
+                      ? '启动中...'
+                      : '启动';
 
                   return (
                     <Button onClick={form.handleSubmit} disabled={!canSubmit}>

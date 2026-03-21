@@ -8,6 +8,7 @@ type Args = {
   sessionId?: string;
   workspaceId?: string;
   isNewSessionMode?: boolean;
+  newSessionName?: string;
   onSelectSession?: (sessionId: string) => void;
   onSessionCreated?: (session: {
     sessionId: string;
@@ -25,6 +26,7 @@ export function useFollowUpSend({
   sessionId,
   workspaceId,
   isNewSessionMode,
+  newSessionName,
   onSelectSession,
   onSessionCreated,
   message,
@@ -60,6 +62,7 @@ export function useFollowUpSend({
         const session = await sessionsApi.create({
           workspace_id: workspaceId,
           executor: executorProfileId.executor,
+          name: newSessionName?.trim() ? newSessionName.trim() : null,
         });
 
         targetSessionId = session.id;
@@ -69,16 +72,13 @@ export function useFollowUpSend({
           workspaceId: session.workspace_id,
         });
 
-        // Immediately invalidate session cache so useWorkspaceSessions
-        // picks up the new session and ExecutionProcessesProvider can
-        // subscribe to the conversation stream without delay.
         queryClient.invalidateQueries({
           queryKey: ['workspaceSessions', workspaceId],
         });
       }
 
       const body: CreateFollowUpAttempt = {
-        prompt: prompt,
+        prompt,
         executor_profile_id: executorProfileId,
         retry_process_id: null,
         force_when_dirty: null,
@@ -89,7 +89,6 @@ export function useFollowUpSend({
         clearComments();
       }
       await onAfterSendCleanup();
-      // Don't call jumpToLogsTab() - preserves focus on the follow-up editor
     } catch (error: unknown) {
       const err = error as { message?: string };
       setFollowUpError(
@@ -103,6 +102,7 @@ export function useFollowUpSend({
     sessionId,
     workspaceId,
     isNewSessionMode,
+    newSessionName,
     onSelectSession,
     onSessionCreated,
     message,

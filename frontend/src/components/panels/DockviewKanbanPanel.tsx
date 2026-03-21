@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   DndContext,
@@ -12,47 +11,56 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { useQueryClient } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
-import { useTaskMutations } from '@/hooks/useTaskMutations';
-import { paths } from '@/lib/paths';
-import { openTaskForm } from '@/lib/openTaskForm';
-import { DeleteTaskConfirmationDialog } from '@/components/dialogs/tasks/DeleteTaskConfirmationDialog';
-import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import {
+  useKanbanProjectSessions,
+  type KanbanProjectSessionRecord,
+} from '@/hooks/useKanbanProjectSessions';
+import { openTaskForm } from '@/lib/openTaskForm';
+import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { useLayoutStore } from '@/stores/useLayoutStore';
-import type { TaskWithAttemptStatus, TaskStatus } from 'shared/types';
+import type { SessionStatus } from '@/lib/api';
+import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
+import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
+import { SESSION_STATUS_LIGHT_COLORS } from '@/components/kanban/session-hub/utils';
 
 const KANBAN_COLUMNS = [
-  { key: 'todo' as TaskStatus, label: 'TODO', dotColor: '#EF4444' },
   {
-    key: 'inprogress' as TaskStatus,
-    label: 'IN PROGRESS',
-    dotColor: '#22C55E',
+    key: 'todo' as SessionStatus,
+    label: 'TODO',
+    dotColor: SESSION_STATUS_LIGHT_COLORS.todo,
   },
-  { key: 'inreview' as TaskStatus, label: 'IN REVIEW', dotColor: '#EAB308' },
-  { key: 'done' as TaskStatus, label: 'DONE', dotColor: '#9CA3AF' },
+  {
+    key: 'inprogress' as SessionStatus,
+    label: 'IN PROGRESS',
+    dotColor: SESSION_STATUS_LIGHT_COLORS.inprogress,
+  },
+  {
+    key: 'inreview' as SessionStatus,
+    label: 'IN REVIEW',
+    dotColor: SESSION_STATUS_LIGHT_COLORS.inreview,
+  },
+  {
+    key: 'done' as SessionStatus,
+    label: 'DONE',
+    dotColor: SESSION_STATUS_LIGHT_COLORS.done,
+  },
 ] as const;
 
 function createEmptyStatusBuckets(): Record<
-  TaskStatus,
-  TaskWithAttemptStatus[]
+  SessionStatus,
+  KanbanProjectSessionRecord[]
 > {
   return {
     todo: [],
     inprogress: [],
     inreview: [],
     done: [],
-    cancelled: [],
   };
 }
 
-/**
- * Shared KanbanBoard component used by both the dockview panel and the full-width overlay.
- * When onTaskClick navigates, it also switches to workspace tab.
- * Supports drag-and-drop to move tasks between status columns.
- */
 export function KanbanBoard() {
   const { isSessionHubVisible, toggleSessionHub } = useKanbanSessionContext();
 
@@ -66,12 +74,10 @@ export function KanbanBoard() {
           <button
             type="button"
             onClick={toggleSessionHub}
-            aria-label={isSessionHubVisible ? '显示工作区看板' : '显示会话看板'}
+            aria-label={isSessionHubVisible ? '显示工作区面板' : '显示会话看板'}
             className={cn(
-              'ml-1 flex h-11 w-7 items-center justify-center rounded-r-full border border-border bg-background/95 text-muted-foreground shadow-sm transition-all duration-200 hover:text-foreground',
-              isSessionHubVisible
-                ? 'translate-x-0 opacity-100'
-                : '-translate-x-2 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 focus-visible:translate-x-0 focus-visible:opacity-100'
+              'ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:text-foreground',
+              'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
             )}
           >
             {isSessionHubVisible ? (
@@ -92,7 +98,7 @@ export function KanbanBoard() {
         }}
       >
         <div className="h-full w-1/2 shrink-0">
-          <WorkspaceKanbanBoard />
+          <SessionKanbanBoard />
         </div>
         <div className="h-full w-1/2 shrink-0 border-l border-border/60">
           <KanbanSessionHub />
@@ -102,55 +108,58 @@ export function KanbanBoard() {
   );
 }
 
-function WorkspaceKanbanBoard() {
+function SessionKanbanBoard() {
   const { projectId } = useProject();
-  const { tasksById } = useProjectTasks(projectId ?? '');
-  const { updateTask } = useTaskMutations(projectId);
-  const navigate = useNavigate();
-  const setActiveTab = useLayoutStore((s) => s.setActiveTab);
+  const { sessions, isLoading } = useKanbanProjectSessions(projectId);
+  const { replaceRightSession } = useKanbanSessionContext();
+  const queryClient = useQueryClient();
 
-  const [activeTask, setActiveTask] = useState<TaskWithAttemptStatus | null>(
-    null
-  );
-  const [optimisticStatusByTaskId, setOptimisticStatusByTaskId] = useState<
-    Record<string, TaskStatus>
-  >({});
+  const [activeSession, setActiveSession] =
+    useState<KanbanProjectSessionRecord | null>(null);
+  const [optimisticStatusBySessionId, setOptimisticStatusBySessionId] =
+    useState<Record<string, SessionStatus>>({});
 
-  const tasksByStatus = useMemo(() => {
+  const sessionsByStatus = useMemo(() => {
     const buckets = createEmptyStatusBuckets();
 
-    Object.values(tasksById).forEach((task) => {
-      const effectiveStatus = optimisticStatusByTaskId[task.id] ?? task.status;
-      buckets[effectiveStatus]?.push(task);
+    sessions.forEach((session) => {
+      const effectiveStatus =
+        optimisticStatusBySessionId[session.id] ?? session.status;
+      buckets[effectiveStatus].push({
+        ...session,
+        status: effectiveStatus,
+        isCompleted: effectiveStatus === 'done',
+      });
     });
 
-    (Object.values(buckets) as TaskWithAttemptStatus[][]).forEach((list) => {
-      list.sort(
-        (a, b) =>
-          new Date(b.created_at as string).getTime() -
-          new Date(a.created_at as string).getTime()
-      );
-    });
+    (Object.values(buckets) as KanbanProjectSessionRecord[][]).forEach(
+      (list) => {
+        list.sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+      }
+    );
 
     return buckets;
-  }, [tasksById, optimisticStatusByTaskId]);
+  }, [optimisticStatusBySessionId, sessions]);
 
   useEffect(() => {
-    setOptimisticStatusByTaskId((prev) => {
+    setOptimisticStatusBySessionId((prev) => {
       let changed = false;
       const next = { ...prev };
 
-      Object.entries(prev).forEach(([taskId, optimisticStatus]) => {
-        const latest = tasksById[taskId];
+      Object.entries(prev).forEach(([sessionId, optimisticStatus]) => {
+        const latest = sessions.find((session) => session.id === sessionId);
         if (!latest || latest.status === optimisticStatus) {
-          delete next[taskId];
+          delete next[sessionId];
           changed = true;
         }
       });
 
       return changed ? next : prev;
     });
-  }, [tasksById]);
+  }, [sessions]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -160,91 +169,78 @@ function WorkspaceKanbanBoard() {
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
-      const taskId = event.active.id as string;
+      const sessionId = event.active.id as string;
       const status = event.active.data.current?.parent as
-        | TaskStatus
+        | SessionStatus
         | undefined;
       if (!status) return;
-      const tasks = tasksByStatus[status] ?? [];
-      const found = tasks.find((t) => t.id === taskId);
-      setActiveTask(found ?? null);
+      const found = sessionsByStatus[status].find(
+        (session) => session.id === sessionId
+      );
+      setActiveSession(found ?? null);
     },
-    [tasksByStatus]
+    [sessionsByStatus]
   );
 
-  const handleTaskClick = useCallback(
-    (task: TaskWithAttemptStatus) => {
-      if (!projectId) return;
-      setActiveTab('workspace');
-      navigate(`${paths.task(projectId, task.id)}/attempts/latest`);
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveSession(null);
+      const { active, over } = event;
+      if (!over) return;
+
+      const sessionId = active.id as string;
+      const sourceStatus = active.data.current?.parent as
+        | SessionStatus
+        | undefined;
+      const targetStatus = over.id as SessionStatus;
+
+      if (!sourceStatus || sourceStatus === targetStatus) return;
+
+      setOptimisticStatusBySessionId((prev) => ({
+        ...prev,
+        [sessionId]: targetStatus,
+      }));
+
+      void sessionsApi.updateStatus(sessionId, targetStatus).then(
+        () => {
+          queryClient.invalidateQueries({
+            queryKey: ['workspaceSessions'],
+          });
+        },
+        () => {
+          setOptimisticStatusBySessionId((prev) => {
+            const next = { ...prev };
+            delete next[sessionId];
+            return next;
+          });
+        }
+      );
     },
-    [projectId, navigate, setActiveTab]
+    [queryClient]
   );
 
   const handleCreateTask = useCallback(
-    (status?: TaskStatus) => {
+    (status?: SessionStatus) => {
       if (!projectId) return;
       openTaskForm({ mode: 'create', projectId, initialStatus: status });
     },
     [projectId]
   );
 
-  const handleDeleteTask = useCallback(
-    async (e: React.MouseEvent, task: TaskWithAttemptStatus) => {
-      e.stopPropagation();
-      if (!projectId) return;
-      try {
-        await DeleteTaskConfirmationDialog.show({ task, projectId });
-      } catch {
-        // User cancelled
-      }
+  const handleSessionClick = useCallback(
+    (session: KanbanProjectSessionRecord) => {
+      replaceRightSession(session.placement);
     },
-    [projectId]
+    [replaceRightSession]
   );
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      setActiveTask(null);
-      const { active, over } = event;
-      if (!over) return;
-
-      const taskId = active.id as string;
-      const sourceStatus = active.data.current?.parent as
-        | TaskStatus
-        | undefined;
-      const targetStatus = over.id as TaskStatus;
-
-      if (!sourceStatus || sourceStatus === targetStatus) return;
-
-      setOptimisticStatusByTaskId((prev) => ({
-        ...prev,
-        [taskId]: targetStatus,
-      }));
-
-      updateTask.mutate(
-        {
-          taskId,
-          data: {
-            title: null,
-            description: null,
-            status: targetStatus,
-            parent_workspace_id: null,
-            image_ids: null,
-          },
-        },
-        {
-          onError: () => {
-            setOptimisticStatusByTaskId((prev) => {
-              const next = { ...prev };
-              delete next[taskId];
-              return next;
-            });
-          },
-        }
-      );
-    },
-    [updateTask]
-  );
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        正在加载会话看板...
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full overflow-auto bg-background p-3">
@@ -254,35 +250,31 @@ function WorkspaceKanbanBoard() {
         onDragEnd={handleDragEnd}
         sensors={sensors}
       >
-        <div className="flex gap-3 h-full min-w-0">
-          {KANBAN_COLUMNS.map((col) => {
-            const tasks = tasksByStatus[col.key] ?? [];
-            return (
-              <KanbanColumn
-                key={col.key}
-                columnKey={col.key}
-                label={col.label}
-                dotColor={col.dotColor}
-                tasks={tasks}
-                onTaskClick={handleTaskClick}
-                onCreateTask={() => handleCreateTask(col.key)}
-                onDeleteTask={handleDeleteTask}
-              />
-            );
-          })}
+        <div className="flex h-full min-w-0 gap-3">
+          {KANBAN_COLUMNS.map((column) => (
+            <SessionKanbanColumn
+              key={column.key}
+              columnKey={column.key}
+              label={column.label}
+              dotColor={column.dotColor}
+              sessions={sessionsByStatus[column.key]}
+              onSessionClick={handleSessionClick}
+              onCreateTask={() => handleCreateTask(column.key)}
+            />
+          ))}
         </div>
         <DragOverlay dropAnimation={null}>
-          {activeTask ? (
-            <div className="w-[160px] p-2 rounded border border-primary bg-background shadow-lg">
-              <div className="text-xs font-medium text-foreground line-clamp-2">
-                {activeTask.title}
-              </div>
-              {activeTask.description && (
-                <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">
-                  {activeTask.description}
-                </div>
-              )}
-            </div>
+          {activeSession ? (
+            <SessionHubListItem
+              session={activeSession}
+              marker={null}
+              isDeleteMode={false}
+              isSelected={false}
+              onClick={() => undefined}
+              onToggleSelect={() => undefined}
+              displayMode="kanban-board"
+              dragging
+            />
           ) : null}
         </DragOverlay>
       </DndContext>
@@ -290,64 +282,59 @@ function WorkspaceKanbanBoard() {
   );
 }
 
-function DockviewKanbanPanel() {
-  return <KanbanBoard />;
-}
-
-function KanbanColumn({
+function SessionKanbanColumn({
   columnKey,
   label,
   dotColor,
-  tasks,
-  onTaskClick,
+  sessions,
+  onSessionClick,
   onCreateTask,
-  onDeleteTask,
 }: {
-  columnKey: TaskStatus;
+  columnKey: SessionStatus;
   label: string;
   dotColor: string;
-  tasks: TaskWithAttemptStatus[];
-  onTaskClick: (task: TaskWithAttemptStatus) => void;
+  sessions: KanbanProjectSessionRecord[];
+  onSessionClick: (session: KanbanProjectSessionRecord) => void;
   onCreateTask: () => void;
-  onDeleteTask: (e: React.MouseEvent, task: TaskWithAttemptStatus) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: columnKey });
 
   return (
     <div
       ref={setNodeRef}
-      className={`flex-1 min-w-[160px] flex flex-col rounded-lg bg-muted/30 border transition-colors ${
+      className={cn(
+        'flex min-w-[180px] flex-1 flex-col rounded-lg border bg-muted/30 transition-colors',
         isOver ? 'border-primary bg-primary/5' : 'border-border'
-      }`}
+      )}
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border shrink-0">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
         <span
-          className="w-2 h-2 rounded-full shrink-0"
+          className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: dotColor }}
         />
-        <span className="text-xs font-semibold text-foreground tracking-wide">
+        <span className="text-xs font-semibold tracking-wide text-foreground">
           {label}
         </span>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {tasks.length}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {sessions.length}
         </span>
         <button
+          type="button"
           onClick={onCreateTask}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground transition-colors hover:text-foreground"
           title="新建任务"
         >
           <span className="text-sm leading-none">+</span>
         </button>
       </div>
-      <div className="flex-1 p-2 space-y-1.5 overflow-y-auto overflow-x-hidden">
-        {tasks.map((task, index) => (
-          <DraggableTaskCard
-            key={task.id}
-            task={task}
+      <div className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden p-2">
+        {sessions.map((session, index) => (
+          <DraggableSessionCard
+            key={session.id}
+            session={session}
             index={index}
             columnKey={columnKey}
-            onTaskClick={onTaskClick}
-            onDeleteTask={onDeleteTask}
+            onClick={() => onSessionClick(session)}
           />
         ))}
       </div>
@@ -355,22 +342,20 @@ function KanbanColumn({
   );
 }
 
-function DraggableTaskCard({
-  task,
+function DraggableSessionCard({
+  session,
   index,
   columnKey,
-  onTaskClick,
-  onDeleteTask,
+  onClick,
 }: {
-  task: TaskWithAttemptStatus;
+  session: KanbanProjectSessionRecord;
   index: number;
-  columnKey: TaskStatus;
-  onTaskClick: (task: TaskWithAttemptStatus) => void;
-  onDeleteTask: (e: React.MouseEvent, task: TaskWithAttemptStatus) => void;
+  columnKey: SessionStatus;
+  onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
-      id: task.id,
+      id: session.id,
       data: { index, parent: columnKey },
     });
 
@@ -379,10 +364,7 @@ function DraggableTaskCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      onClick={() => onTaskClick(task)}
-      className={`group w-full text-left p-2 rounded border border-border bg-background hover:bg-accent/50 transition-colors relative cursor-grab ${
-        isDragging ? 'opacity-0 cursor-grabbing' : ''
-      }`}
+      className={cn('cursor-grab', isDragging && 'cursor-grabbing opacity-0')}
       style={{
         transform:
           transform && !isDragging
@@ -390,36 +372,21 @@ function DraggableTaskCard({
             : undefined,
       }}
     >
-      <div className="text-xs font-medium text-foreground line-clamp-2 pr-5">
-        {task.title}
-      </div>
-      {task.description && (
-        <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1 pr-5">
-          {task.description}
-        </div>
-      )}
-      {task.executor && (
-        <div className="text-[10px] text-muted-foreground mt-1 truncate pr-5">
-          {task.executor}
-        </div>
-      )}
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => onDeleteTask(e, task)}
-        onPointerDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            onDeleteTask(e as unknown as React.MouseEvent, task);
-          }
-        }}
-        className="absolute top-1.5 right-1.5 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
-        title="删除任务"
-      >
-        <Trash2 className="h-3 w-3" />
-      </span>
+      <SessionHubListItem
+        session={session}
+        marker={null}
+        isDeleteMode={false}
+        isSelected={false}
+        onClick={onClick}
+        onToggleSelect={() => undefined}
+        displayMode="kanban-board"
+      />
     </div>
   );
+}
+
+function DockviewKanbanPanel() {
+  return <KanbanBoard />;
 }
 
 export default DockviewKanbanPanel;

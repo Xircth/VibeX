@@ -1,5 +1,4 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import type { IDockviewPanelProps } from 'dockview-react';
 import {
   GitCompare,
   ChevronsUp,
@@ -20,6 +19,7 @@ import DiffCard from '@/components/DiffCard';
 import DiffViewSwitch from '@/components/DiffViewSwitch';
 import { DiffFileTree } from '@/components/diff/DiffFileTree';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
+import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import type { Diff, DiffChangeKind } from 'shared/types';
 
 type DiffCollapseDefaults = Record<DiffChangeKind, boolean>;
@@ -55,7 +55,7 @@ function formatTimestamp(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString();
 }
 
-function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
+function DockviewDiffsReviewPanel() {
   const { activeWorktreeId } = useWorktree();
   const { data: workspace } = useAttempt(activeWorktreeId ?? undefined);
   const attemptId = workspace?.id ?? null;
@@ -64,6 +64,9 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
   const { commitSha, commitInfo, commitDiffs, isLoading: commitLoading, clearCommitDiff } =
     useCommitDiffStore();
   const isCommitMode = !!commitSha;
+  const targetPath = useGitDiffNavigationStore((state) => state.targetPath);
+  const targetToken = useGitDiffNavigationStore((state) => state.requestToken);
+  const clearTargetPath = useGitDiffNavigationStore((state) => state.clearTargetPath);
 
   // Worktree diff mode (existing functionality)
   const { diffs: worktreeDiffs, error, isInitialized } = useDiffStream(attemptId, true);
@@ -86,12 +89,14 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stickyFileId, setStickyFileId] = useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   // Reset collapse state when switching modes or commit
   useEffect(() => {
     setCollapsedIds(new Set());
     setProcessedIds(new Set());
     setStickyFileId(null);
+    setSelectedFileId(null);
   }, [commitSha]);
 
   // Safety timeout: if not initialized within 5s, stop showing spinner
@@ -155,10 +160,11 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
     setCollapsedIds(allCollapsed ? new Set() : new Set(ids));
   }, [allCollapsed, ids]);
 
-  const scrollToFile = useCallback((id: string) => {
+  const scrollToFile = useCallback((id: string, behavior: ScrollBehavior = 'smooth') => {
     const el = diffRefs.current.get(id);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.scrollIntoView({ behavior, block: 'start' });
+      setSelectedFileId(id);
       setCollapsedIds((prev) => {
         if (prev.has(id)) {
           const next = new Set(prev);
@@ -169,6 +175,25 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
       });
     }
   }, []);
+
+  useEffect(() => {
+    if (!targetPath || diffs.length === 0) return;
+
+    const normalizedTargetPath = targetPath.replace(/\\/g, '/');
+    const targetEntryIndex = diffs.findIndex((diff) => {
+      const candidate = (diff.newPath || diff.oldPath || '').replace(/\\/g, '/');
+      return candidate === normalizedTargetPath;
+    });
+
+    if (targetEntryIndex < 0) return;
+
+    const targetId = getDiffId(diffs[targetEntryIndex], targetEntryIndex);
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+    }
+    scrollToFile(targetId, 'auto');
+    clearTargetPath();
+  }, [clearTargetPath, diffs, scrollToFile, sidebarCollapsed, targetPath, targetToken]);
 
   // Sticky file header tracking via IntersectionObserver
   // Tracks the last diff element that scrolled past the top of the viewport
@@ -433,6 +458,7 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
               </div>
               <div className="flex-1 overflow-y-auto py-1">
                 <DiffFileTree
+                  key={`diff-tree-${targetToken}`}
                   files={diffs.map((diff, idx) => {
                     const id = getDiffId(diff, idx);
                     const badge = changeBadge[diff.change] || changeBadge.modified;
@@ -444,7 +470,8 @@ function DockviewDiffsReviewPanel(_props: IDockviewPanelProps) {
                       deletions: diff.deletions,
                     };
                   })}
-                  onFileClick={scrollToFile}
+                  activeFileId={selectedFileId}
+                  onFileClick={(id) => scrollToFile(id)}
                 />
               </div>
               {/* Summary footer */}

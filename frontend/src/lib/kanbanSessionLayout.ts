@@ -58,10 +58,6 @@ export function placeSessionFromList(
     return state;
   }
 
-  const existsInMonitor = state.monitorSessions.some(
-    (session) => session.sessionId === nextSession.sessionId
-  );
-
   if (options.canUseRightPanel && !state.rightSession) {
     return {
       rightSession: nextSession,
@@ -70,10 +66,6 @@ export function placeSessionFromList(
         nextSession.sessionId
       ),
     };
-  }
-
-  if (existsInMonitor) {
-    return state;
   }
 
   return {

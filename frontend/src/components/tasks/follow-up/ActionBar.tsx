@@ -28,6 +28,7 @@ interface ActionBarProps {
   profiles: Record<string, ExecutorConfig> | null;
   effectiveExecutorProfile: ExecutorProfileId | null;
   onChangeExecutorProfile: (profile: ExecutorProfileId | null) => void;
+  showProfileControls?: boolean;
   isEditable: boolean;
   isAttemptRunning: boolean;
   isQueued: boolean;
@@ -54,6 +55,7 @@ export function ActionBar({
   profiles,
   effectiveExecutorProfile,
   onChangeExecutorProfile,
+  showProfileControls = true,
   isEditable,
   isAttemptRunning,
   isQueued,
@@ -101,14 +103,16 @@ export function ActionBar({
 
   return (
     <div className="flex flex-wrap gap-1 items-center pt-1 border-t border-border/50">
-      <TerminalProfileControls
-        profiles={profiles}
-        selectedProfile={effectiveExecutorProfile}
-        onChange={onChangeExecutorProfile}
-        disabled={!isEditable}
-        lockExecutor={true}
-        className="flex flex-wrap gap-1 items-center"
-      />
+      {showProfileControls ? (
+        <TerminalProfileControls
+          profiles={profiles}
+          selectedProfile={effectiveExecutorProfile}
+          onChange={onChangeExecutorProfile}
+          disabled={!isEditable}
+          lockExecutor={true}
+          className="flex flex-wrap gap-1 items-center"
+        />
+      ) : null}
 
       <input
         ref={fileInputRef}

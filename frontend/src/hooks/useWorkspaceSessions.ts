@@ -1,24 +1,28 @@
-import { useQueries, useQuery } from '@tanstack/react-query';
+﻿import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { queueApi, sessionsApi } from '@/lib/api';
+import type { SessionStatus, SessionSummary as SessionSummaryRecord } from '@/lib/api';
 import type { QueueStatus, Session } from 'shared/types';
-import type { SessionSummary as SessionSummaryRecord } from '@/lib/api';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
   initialSessionId?: string;
 }
 
-/** Discriminated union for session selection state */
 export type SessionSelection =
   | { mode: 'existing'; sessionId: string }
   | { mode: 'new' };
 
 export interface WorkspaceSessionSummary extends Session {
+  taskId: string | null;
+  name: string | null;
+  status: SessionStatus;
   firstPrompt: string | null;
   isRunning: boolean;
   queueStatus: QueueStatus | null;
   displayName: string;
+  workspaceName: string | null;
+  workspaceBranch: string;
   statusLabel: string;
 }
 
@@ -29,17 +33,32 @@ export interface UseWorkspaceSessionsResult {
   selectSession: (sessionId: string) => void;
   selectLatestSession: () => void;
   isLoading: boolean;
-  /** Whether user is creating a new session */
   isNewSessionMode: boolean;
-  /** Enter new session mode */
   startNewSession: () => void;
 }
 
-/**
- * Hook for managing sessions within a workspace.
- * Fetches all sessions for a workspace and provides session switching capability.
- * Sessions are ordered by most recently used (latest non-dev server execution first).
- */
+function getSessionStatusLabel(
+  status: SessionStatus,
+  isRunning: boolean,
+  queueStatus: QueueStatus | null
+) {
+  if (isRunning) return '执行中';
+  if (queueStatus?.status === 'queued') return '排队中';
+
+  switch (status) {
+    case 'todo':
+      return '待开始';
+    case 'inprogress':
+      return '进行中';
+    case 'inreview':
+      return '待检查';
+    case 'done':
+      return '已完成';
+    default:
+      return '空闲';
+  }
+}
+
 export function useWorkspaceSessions(
   workspaceId: string | undefined,
   options: UseWorkspaceSessionsOptions = {}
@@ -71,27 +90,28 @@ export function useWorkspaceSessions(
     () =>
       sessionSummaries.map((session, index) => {
         const queueStatus = queueStatusQueries[index]?.data ?? null;
-        const displayName = session.first_prompt?.trim()
-          ? session.first_prompt.trim()
-          : `会话${sessionSummaries.length - index}`;
-        const statusLabel = session.is_running
-          ? '执行中'
-          : queueStatus?.status === 'queued'
-            ? '排队中'
-            : '空闲';
 
         return {
           id: session.id,
           workspace_id: session.workspace_id,
+          taskId: session.task_id,
+          name: session.name,
+          status: session.status,
           executor: session.executor,
           created_at: session.created_at,
           updated_at: session.updated_at,
           firstPrompt: session.first_prompt,
           isRunning: session.is_running,
           queueStatus,
-          displayName,
-          statusLabel,
-        };
+          displayName: session.display_name,
+          workspaceName: session.workspace_name,
+          workspaceBranch: session.workspace_branch,
+          statusLabel: getSessionStatusLabel(
+            session.status,
+            session.is_running,
+            queueStatus
+          ),
+        } as WorkspaceSessionSummary;
       }),
     [queueStatusQueries, sessionSummaries]
   );

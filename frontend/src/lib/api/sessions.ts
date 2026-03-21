@@ -7,7 +7,7 @@ import type {
 } from 'shared/types';
 
 import { tauriInvoke } from './base';
-import type { SessionSummary } from './base';
+import type { SessionStatus, SessionSummary } from './base';
 
 // Sessions API
 export const sessionsApi = {
@@ -30,10 +30,34 @@ export const sessionsApi = {
   create: async (data: {
     workspace_id: string;
     executor?: string;
+    name?: string | null;
+    task_id?: string | null;
   }): Promise<Session> => {
     return tauriInvoke<Session>('create_session', {
       workspaceId: data.workspace_id,
       executor: data.executor ?? null,
+      name: data.name ?? null,
+      taskId: data.task_id ?? null,
+    });
+  },
+
+  rename: async (
+    sessionId: string,
+    name: string | null
+  ): Promise<Session> => {
+    return tauriInvoke<Session>('rename_session', {
+      sessionId,
+      name,
+    });
+  },
+
+  updateStatus: async (
+    sessionId: string,
+    status: SessionStatus
+  ): Promise<Session> => {
+    return tauriInvoke<Session>('update_session_status', {
+      sessionId,
+      status,
     });
   },
 

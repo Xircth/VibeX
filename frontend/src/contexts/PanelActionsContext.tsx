@@ -20,6 +20,7 @@ import {
   buildPreviewPanelParams,
   type OpenFilePreviewOptions,
 } from '@/types/panels';
+import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 
 const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.FILE_TREE,
@@ -29,6 +30,8 @@ const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
 
 const BOTTOM_PANEL_IDS: ReadonlySet<string> = new Set([PANEL_IDS.TERMINAL]);
 const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([PANEL_IDS.WELCOME]);
+const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
+const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
 
 type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;
 type DockviewPanel = NonNullable<ReturnType<DockviewApi['getPanel']>>;
@@ -39,6 +42,10 @@ type AddPanelOptions = Omit<
 
 function isPlaceholderPanelId(panelId: string): boolean {
   return PLACEHOLDER_PANEL_IDS.has(panelId);
+}
+
+function buildDiffPreviewPanelId(filePath: string): string {
+  return `${DIFF_PREVIEW_PANEL_ID_PREFIX}${filePath.replace(/\\/g, '/')}`;
 }
 
 function isLeftGroup(group: DockviewGroup): boolean {
@@ -100,8 +107,10 @@ export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
   openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
   openDiffPreview: () => void;
+  openDiffPreviewAtPath: (path: string) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
+  toggleEditorArea: () => void;
   openPanelInNewEditorGroup: (panelId: string) => boolean;
   canOpenPanelInNewEditorGroup: (panelId: string) => boolean;
   splitActiveEditor: () => boolean;
@@ -121,10 +130,17 @@ const PanelActionsContext = createContext<PanelActions | null>(null);
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const apiRef = useRef<DockviewApi | null>(null);
+  const diffPreviewPanelQueueRef = useRef<string[]>([]);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
+  const clearGitDiffTargetPath = useGitDiffNavigationStore(
+    (state) => state.clearTargetPath
+  );
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
     apiRef.current = api;
+    if (!api) {
+      diffPreviewPanelQueueRef.current = [];
+    }
   }, []);
 
   const getLeftGroup = useCallback((dockviewApi: DockviewApi) => {
@@ -158,6 +174,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       if (bottomGroup) {
         (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
         bottomGroup.locked = 'no-drop-target';
+        try {
+          const model = (bottomGroup as {
+            model?: { header?: { hidden?: boolean } };
+          }).model;
+          if (typeof model?.header?.hidden !== 'undefined') {
+            model.header.hidden = true;
+          }
+        } catch {
+          // Ignore internal model access failures and rely on CSS class fallback.
+        }
+        getGroupElement(bottomGroup)?.classList.add('dv-header-hidden');
       }
 
       applyLeftGroupHeaderHiding(dockviewApi);
@@ -181,8 +208,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       return existingWelcome.group;
     }
 
+    const bottomGroup = getBottomGroup(dockviewApi);
+    const bottomReferencePanel = bottomGroup?.panels[0];
     const leftGroup = getLeftGroup(dockviewApi);
     const referencePanel =
+      bottomReferencePanel ??
       leftGroup?.panels[0] ??
       dockviewApi.panels.find((panel) => !BOTTOM_PANEL_IDS.has(panel.id));
 
@@ -194,8 +224,12 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         ? {
             position: {
               referencePanel,
-              direction: leftGroup ? 'right' : 'within',
-            } as const,
+              direction: bottomReferencePanel
+                ? ('above' as const)
+                : leftGroup
+                  ? ('right' as const)
+                  : ('within' as const),
+            },
           }
         : {}),
       inactive: true,
@@ -205,7 +239,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       getNextEditorGroupId(dockviewApi);
     normalizeEditorGroupIds(dockviewApi);
     return welcomePanel.group;
-  }, [getEditorGroups, getLeftGroup, normalizeEditorGroupIds]);
+  }, [getBottomGroup, getEditorGroups, getLeftGroup, normalizeEditorGroupIds]);
 
   const getActiveEditorGroup = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -294,6 +328,73 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [addPanelToActiveEditorGroup]
   );
 
+  const syncDiffPreviewPanelQueue = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) {
+      diffPreviewPanelQueueRef.current = [];
+      return;
+    }
+
+    diffPreviewPanelQueueRef.current = diffPreviewPanelQueueRef.current.filter(
+      (panelId) => !!dockviewApi.getPanel(panelId)
+    );
+  }, []);
+
+  const markDiffPreviewPanelAsRecent = useCallback(
+    (panelId: string) => {
+      syncDiffPreviewPanelQueue();
+      diffPreviewPanelQueueRef.current = [
+        ...diffPreviewPanelQueueRef.current.filter((id) => id !== panelId),
+        panelId,
+      ];
+    },
+    [syncDiffPreviewPanelQueue]
+  );
+
+  const enforceDiffPreviewPanelLimit = useCallback(
+    (keepPanelId?: string) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      syncDiffPreviewPanelQueue();
+
+      while (
+        diffPreviewPanelQueueRef.current.length > MAX_OPEN_DIFF_PREVIEW_PANELS
+      ) {
+        const oldestPanelId = diffPreviewPanelQueueRef.current[0];
+        if (!oldestPanelId) break;
+
+        // Keep the just-opened panel when trimming the queue.
+        if (
+          keepPanelId &&
+          oldestPanelId === keepPanelId &&
+          diffPreviewPanelQueueRef.current.length > 1
+        ) {
+          diffPreviewPanelQueueRef.current = [
+            ...diffPreviewPanelQueueRef.current.slice(1),
+            oldestPanelId,
+          ];
+          continue;
+        }
+
+        diffPreviewPanelQueueRef.current =
+          diffPreviewPanelQueueRef.current.slice(1);
+
+        const oldestPanel = dockviewApi.getPanel(oldestPanelId);
+        if (!oldestPanel) {
+          continue;
+        }
+
+        try {
+          dockviewApi.removePanel(oldestPanel);
+        } catch {
+          // Ignore failures caused by concurrent panel transitions.
+        }
+      }
+    },
+    [syncDiffPreviewPanelQueue]
+  );
+
   const openNewTerminal = useCallback(() => {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
@@ -347,6 +448,41 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     getEditorGroups,
     normalizeEditorGroupIds,
   ]);
+
+  const toggleEditorArea = useCallback(() => {
+    const dockviewApi = apiRef.current;
+    if (!dockviewApi) return;
+
+    const editorGroups = getEditorGroups(dockviewApi);
+    if (editorGroups.length === 0) {
+      const welcomeGroup = ensureWelcomeEditorGroup();
+      welcomeGroup?.api.setVisible(true);
+      dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
+      return;
+    }
+
+    const activeEditorGroup =
+      dockviewApi.activeGroup && isEditorGroup(dockviewApi.activeGroup)
+        ? dockviewApi.activeGroup
+        : editorGroups[0];
+
+    activeEditorGroup?.api.setVisible(true);
+
+    const focusPanel =
+      activeEditorGroup?.activePanel ??
+      activeEditorGroup?.panels[0] ??
+      dockviewApi.getPanel(PANEL_IDS.WELCOME);
+
+    if (focusPanel) {
+      focusPanel.api.setActive();
+    } else {
+      const welcomeGroup = ensureWelcomeEditorGroup();
+      welcomeGroup?.api.setVisible(true);
+      dockviewApi.getPanel(PANEL_IDS.WELCOME)?.api.setActive();
+    }
+
+    normalizeEditorGroupIds(dockviewApi);
+  }, [ensureWelcomeEditorGroup, getEditorGroups, normalizeEditorGroupIds]);
 
   const canOpenPanelInNewEditorGroup = useCallback(
     (panelId: string) => {
@@ -599,8 +735,55 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openDiffPreview = useCallback(() => {
     clearCommitDiff();
+    clearGitDiffTargetPath();
     openOrFocusPanel(PANEL_IDS.DIFFS, 'Diffs');
-  }, [clearCommitDiff, openOrFocusPanel]);
+  }, [clearCommitDiff, clearGitDiffTargetPath, openOrFocusPanel]);
+
+  const openDiffPreviewAtPath = useCallback(
+    (path: string) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      clearCommitDiff();
+      clearGitDiffTargetPath();
+
+      const panelId = buildDiffPreviewPanelId(path);
+      const fileName = path.split(/[/\\]/).pop() || path;
+      const params = buildPreviewPanelParams(path, { mode: 'diff' });
+      const existingPanel = dockviewApi.getPanel(panelId);
+
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        if (existingPanel.title !== fileName) {
+          existingPanel.api.setTitle(fileName);
+        }
+        existingPanel.group.api.setVisible(true);
+        existingPanel.api.setActive();
+        markDiffPreviewPanelAsRecent(panelId);
+        return;
+      }
+
+      const panel = addPanelToActiveEditorGroup({
+        id: panelId,
+        component: PANEL_IDS.PREVIEW,
+        title: fileName,
+        params,
+      });
+
+      if (!panel) return;
+
+      panel.api.setActive();
+      markDiffPreviewPanelAsRecent(panelId);
+      enforceDiffPreviewPanelLimit(panelId);
+    },
+    [
+      addPanelToActiveEditorGroup,
+      clearCommitDiff,
+      clearGitDiffTargetPath,
+      enforceDiffPreviewPanelLimit,
+      markDiffPreviewPanelAsRecent,
+    ]
+  );
 
   const openCommitDiff = useCallback(() => {
     openOrFocusPanel(PANEL_IDS.DIFFS, 'Commit Diff');
@@ -643,8 +826,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openOrFocusPanel,
       openFilePreview,
       openDiffPreview,
+      openDiffPreviewAtPath,
       openCommitDiff,
       openNewTerminal,
+      toggleEditorArea,
       openPanelInNewEditorGroup,
       canOpenPanelInNewEditorGroup,
       splitActiveEditor,
@@ -667,6 +852,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       isPanelOpen,
       openCommitDiff,
       openDiffPreview,
+      openDiffPreviewAtPath,
       openFilePreview,
       openLogs,
       openNewTerminal,
@@ -675,6 +861,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openPanelInNewEditorGroup,
       setDockviewApi,
       splitActiveEditor,
+      toggleEditorArea,
       toggleFileTree,
       toggleGitPanel,
       toggleSearchPanel,

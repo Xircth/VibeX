@@ -16,12 +16,20 @@ import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { sessionsApi } from '@/lib/api';
 
+type SessionRecord = Session & {
+  task_id?: string | null;
+};
+
 interface KanbanSessionConversationViewProps {
   workspaceId: string;
   sessionId: string;
   interactive?: boolean;
   showSessionSelector?: boolean;
   onSessionCreated?: (session: {
+    sessionId: string;
+    workspaceId: string;
+  }) => void;
+  onSessionSelected?: (session: {
     sessionId: string;
     workspaceId: string;
   }) => void;
@@ -34,12 +42,17 @@ function KanbanSessionConversationContent({
   interactive,
   showSessionSelector,
   onSessionCreated,
+  onSessionSelected,
 }: {
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus;
   interactive: boolean;
   showSessionSelector: boolean;
   onSessionCreated?: (session: {
+    sessionId: string;
+    workspaceId: string;
+  }) => void;
+  onSessionSelected?: (session: {
     sessionId: string;
     workspaceId: string;
   }) => void;
@@ -93,6 +106,7 @@ function KanbanSessionConversationContent({
                 sessionState={sessionState}
                 showSessionSelector={showSessionSelector}
                 onSessionCreated={onSessionCreated}
+                onSessionSelected={onSessionSelected}
                 onJumpToPreviousUserMessage={() =>
                   logsRef.current?.scrollToPreviousUserMessage()
                 }
@@ -111,15 +125,16 @@ export function KanbanSessionConversationView({
   interactive = false,
   showSessionSelector = false,
   onSessionCreated,
+  onSessionSelected,
   className,
 }: KanbanSessionConversationViewProps) {
   const { projectId } = useProject();
   const { tasksById } = useProjectTasks(projectId ?? '');
   const { data: workspace, isLoading: isWorkspaceLoading } =
     useTaskAttempt(workspaceId);
-  const { data: session, isLoading: isSessionLoading } = useQuery<Session>({
+  const { data: session, isLoading: isSessionLoading } = useQuery<SessionRecord>({
     queryKey: ['session', sessionId],
-    queryFn: () => sessionsApi.getById(sessionId),
+    queryFn: () => sessionsApi.getById(sessionId) as Promise<SessionRecord>,
     enabled: !!sessionId,
   });
 
@@ -143,7 +158,8 @@ export function KanbanSessionConversationView({
     );
   }
 
-  const task = tasksById[workspace.task_id] ?? null;
+  const taskId = session.task_id ?? workspace.task_id;
+  const task = (taskId ? tasksById[taskId] : null) ?? null;
 
   if (!task) {
     return (
@@ -164,6 +180,7 @@ export function KanbanSessionConversationView({
         interactive={interactive}
         showSessionSelector={showSessionSelector}
         onSessionCreated={onSessionCreated}
+        onSessionSelected={onSessionSelected}
       />
     </div>
   );

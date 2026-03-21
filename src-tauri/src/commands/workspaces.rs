@@ -9,7 +9,7 @@ use db::models::{
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
-    session::{CreateSession, Session},
+    session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskRelationships, TaskStatus},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, RepoWithTargetBranch, WorkspaceRepo},
@@ -342,6 +342,8 @@ pub async fn create_workspace(
         payload.task_id,
     )
     .await?;
+
+    Workspace::update(pool, workspace.id, None, None, Some(task.title.as_str())).await?;
 
     let workspace_repos: Vec<CreateWorkspaceRepo> = payload
         .repos
@@ -1383,6 +1385,9 @@ pub async fn start_workspace_dev_server(
                 pool,
                 &CreateSession {
                     executor: Some("dev-server".to_string()),
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
                 },
                 Uuid::new_v4(),
                 workspace.id,
@@ -1593,6 +1598,9 @@ async fn run_codex_setup_helper(
                 pool,
                 &CreateSession {
                     executor: Some("codex".to_string()),
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
                 },
                 Uuid::new_v4(),
                 workspace.id,
@@ -1664,6 +1672,9 @@ pub async fn gh_cli_setup(
                 pool,
                 &CreateSession {
                     executor: Some("gh-cli".to_string()),
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
                 },
                 Uuid::new_v4(),
                 workspace.id,
@@ -1799,7 +1810,12 @@ pub async fn run_setup_script(
         None => {
             Session::create(
                 pool,
-                &CreateSession { executor: None },
+                &CreateSession {
+                    executor: None,
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
+                },
                 Uuid::new_v4(),
                 workspace.id,
             )
@@ -1880,7 +1896,12 @@ pub async fn run_cleanup_script(
         None => {
             Session::create(
                 pool,
-                &CreateSession { executor: None },
+                &CreateSession {
+                    executor: None,
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
+                },
                 Uuid::new_v4(),
                 workspace.id,
             )
@@ -1961,7 +1982,12 @@ pub async fn run_archive_script(
         None => {
             Session::create(
                 pool,
-                &CreateSession { executor: None },
+                &CreateSession {
+                    executor: None,
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
+                },
                 Uuid::new_v4(),
                 workspace.id,
             )
@@ -2654,7 +2680,12 @@ async fn trigger_pr_description_follow_up(
         None => {
             Session::create(
                 pool,
-                &CreateSession { executor: None },
+                &CreateSession {
+                    executor: None,
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
+                },
                 Uuid::new_v4(),
                 workspace.id,
             )
@@ -3067,7 +3098,12 @@ pub async fn create_workspace_from_pr(
         if let Some(setup_action) = state.deployment.container().setup_actions_for_repos(&repos) {
             let session = Session::create(
                 pool,
-                &CreateSession { executor: None },
+                &CreateSession {
+                    executor: None,
+                    task_id: None,
+                    name: None,
+                    status: Some(SessionStatus::Todo),
+                },
                 Uuid::new_v4(),
                 workspace.id,
             )

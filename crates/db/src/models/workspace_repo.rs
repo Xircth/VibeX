@@ -188,6 +188,52 @@ impl WorkspaceRepo {
             .collect())
     }
 
+    pub async fn find_reusable_non_worktree_workspace_id(
+        pool: &SqlitePool,
+        project_id: Uuid,
+        repos: &[CreateWorkspaceRepo],
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        if repos.is_empty() {
+            return Ok(None);
+        }
+
+        let mut query = String::from(
+            r#"SELECT w.id
+               FROM workspaces w
+               JOIN tasks t ON t.id = w.task_id
+               JOIN workspace_repos wr ON wr.workspace_id = w.id
+               WHERE w.use_worktree = FALSE
+                 AND w.archived = FALSE
+                 AND t.project_id = ?
+               GROUP BY w.id
+               HAVING COUNT(*) = ?
+                  AND SUM(CASE WHEN "#,
+        );
+
+        for (index, _) in repos.iter().enumerate() {
+            if index > 0 {
+                query.push_str(" OR ");
+            }
+            query.push_str("(wr.repo_id = ? AND wr.target_branch = ?)");
+        }
+
+        query.push_str(
+            r#" THEN 1 ELSE 0 END) = ?
+               ORDER BY w.created_at ASC
+               LIMIT 1"#,
+        );
+
+        let mut sql = sqlx::query_scalar::<_, Uuid>(&query)
+            .bind(project_id)
+            .bind(repos.len() as i64);
+
+        for repo in repos {
+            sql = sql.bind(repo.repo_id).bind(repo.target_branch.clone());
+        }
+
+        sql.bind(repos.len() as i64).fetch_optional(pool).await
+    }
+
     pub async fn find_by_workspace_and_repo_id(
         pool: &SqlitePool,
         workspace_id: Uuid,

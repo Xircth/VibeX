@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
 import { Eye, Code2, GitCompare, Save } from 'lucide-react';
 import {
@@ -12,6 +12,11 @@ import { Markdown } from '@/components/NormalizedConversation/Markdown';
 import FileContentView from '@/components/NormalizedConversation/FileContentView';
 import { useTheme } from '@/components/ThemeProvider';
 import type { PreviewPanelParams } from '@/types/panels';
+import {
+  defineAyuMonacoThemes,
+  MONACO_THEME_AYU_DARK,
+  MONACO_THEME_AYU_LIGHT,
+} from '@/utils/monacoThemes';
 
 /**
  * Map file extension to Monaco language identifier.
@@ -65,6 +70,13 @@ function getLanguageFromPath(filePath: string): string {
 function isMarkdownFile(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   return ext === 'md' || ext === 'mdx' || ext === 'markdown';
+}
+
+function getPathSegments(filePath: string): string[] {
+  return filePath
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment.length > 0);
 }
 
 /** Persist markdown render state across tab switches (keyed by filePath). */
@@ -144,6 +156,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     [filePath, saveFile]
   );
 
+  const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
+    defineAyuMonacoThemes(monaco);
+  }, []);
+
   useEffect(() => {
     setIsDirty(false);
   }, [filePath, mode]);
@@ -178,8 +194,8 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     );
   }
 
-  const fileName = filePath.split(/[/\\]/).pop() || filePath;
   const language = getLanguageFromPath(filePath);
+  const pathSegments = getPathSegments(filePath);
   const isDiffLoading = isDiffMode && (isLoading || isLoadingHead);
   const diffBadge = diffViewMode === 'inline' ? 'Inline Diff' : 'Split Diff';
   const diffSummary = headError
@@ -197,15 +213,28 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       onMouseDown={handleMouseDown}
     >
       <div className="flex items-center gap-2 px-2 py-1 border-b border-border text-xs shrink-0 bg-background">
-        <span
-          className="truncate text-muted-foreground flex-1"
+        <div
+          className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap text-muted-foreground"
           title={filePath}
         >
-          {fileName}
+          {pathSegments.map((segment, index) => (
+            <span key={`${segment}-${index}`} className="flex items-center">
+              {index > 0 && (
+                <span className="mx-1 text-muted-foreground/50">/</span>
+              )}
+              <span
+                className={
+                  index === pathSegments.length - 1 ? 'text-foreground/85' : ''
+                }
+              >
+                {segment}
+              </span>
+            </span>
+          ))}
           {!isDiffMode && isDirty && (
-            <span className="ml-1 text-yellow-400">*</span>
+            <span className="ml-1 shrink-0 text-yellow-400">*</span>
           )}
-        </span>
+        </div>
 
         {isDiffMode ? (
           <>
@@ -284,7 +313,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             key={filePath}
             defaultValue={content ?? ''}
             language={language}
-            theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
+            theme={
+              resolvedTheme === 'dark'
+                ? MONACO_THEME_AYU_DARK
+                : MONACO_THEME_AYU_LIGHT
+            }
+            beforeMount={handleEditorBeforeMount}
             onMount={handleEditorMount}
             options={{
               readOnly: false,

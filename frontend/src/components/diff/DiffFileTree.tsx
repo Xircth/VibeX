@@ -48,9 +48,10 @@ interface TreeNodeViewProps {
   node: TreeNode;
   depth: number;
   onFileClick: (id: string) => void;
+  activeFileId?: string | null;
 }
 
-function TreeNodeView({ node, depth, onFileClick }: TreeNodeViewProps) {
+function TreeNodeView({ node, depth, onFileClick, activeFileId }: TreeNodeViewProps) {
   const [collapsed, setCollapsed] = useState(false);
   const children = Object.values(node.children);
   const isDir = !node.file && children.length > 0;
@@ -58,10 +59,15 @@ function TreeNodeView({ node, depth, onFileClick }: TreeNodeViewProps) {
 
   if (node.file) {
     const hasStats = node.file.additions != null || node.file.deletions != null;
+    const isActive = node.file.id === activeFileId;
     return (
       <button
         onClick={() => onFileClick(node.file!.id)}
-        className="w-full flex items-center gap-1.5 px-2 py-[3px] text-left hover:bg-accent/50 group"
+        className={`w-full flex items-center gap-1.5 px-2 py-[3px] text-left group border-l-2 ${
+          isActive
+            ? 'bg-accent/60 border-l-primary'
+            : 'border-l-transparent hover:bg-accent/50'
+        }`}
         style={{ paddingLeft: `${10 + indent}px` }}
       >
         <span className={`text-[10px] font-semibold w-4 text-center leading-none shrink-0 rounded-sm ${node.file.badge.color}`}>
@@ -106,6 +112,7 @@ function TreeNodeView({ node, depth, onFileClick }: TreeNodeViewProps) {
             node={child}
             depth={depth + 1}
             onFileClick={onFileClick}
+            activeFileId={activeFileId}
           />
         ))}
       </div>
@@ -118,9 +125,10 @@ function TreeNodeView({ node, depth, onFileClick }: TreeNodeViewProps) {
 interface DiffFileTreeProps {
   files: DiffFile[];
   onFileClick: (id: string) => void;
+  activeFileId?: string | null;
 }
 
-export function DiffFileTree({ files, onFileClick }: DiffFileTreeProps) {
+export function DiffFileTree({ files, onFileClick, activeFileId }: DiffFileTreeProps) {
   const root = buildTree(files);
   const children = Object.values(root.children);
 
@@ -132,6 +140,7 @@ export function DiffFileTree({ files, onFileClick }: DiffFileTreeProps) {
           node={child}
           depth={0}
           onFileClick={onFileClick}
+          activeFileId={activeFileId}
         />
       ))}
     </div>

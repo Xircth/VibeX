@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   DockviewReact,
   type DockviewApi,
@@ -13,7 +14,6 @@ import {
 import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
 import { FolderOpen, GitBranch, Search } from 'lucide-react';
 import { panelComponents } from '@/components/layout/panels/PanelRegistry';
-import { TerminalHeaderActions } from '@/components/layout/panels/TerminalHeaderActions';
 import { StatusBar } from '@/components/layout/StatusBar';
 import {
   EDITOR_GROUP_PREFIX,
@@ -110,17 +110,23 @@ function compareEditorGroups(a: DockviewGroup, b: DockviewGroup): number {
 }
 
 function getLeftGroup(api: DockviewApi): DockviewGroup | undefined {
-  return api.getGroup(GROUP_IDS.LEFT) ?? api.groups.find((group) => isLeftGroup(group));
+  return (
+    api.getGroup(GROUP_IDS.LEFT) ??
+    api.groups.find((group) => isLeftGroup(group))
+  );
 }
 
 function getBottomGroup(api: DockviewApi): DockviewGroup | undefined {
   return (
-    api.getGroup(GROUP_IDS.BOTTOM) ?? api.groups.find((group) => isBottomGroup(group))
+    api.getGroup(GROUP_IDS.BOTTOM) ??
+    api.groups.find((group) => isBottomGroup(group))
   );
 }
 
 function getEditorGroups(api: DockviewApi): DockviewGroup[] {
-  return api.groups.filter((group) => isEditorGroup(group)).sort(compareEditorGroups);
+  return api.groups
+    .filter((group) => isEditorGroup(group))
+    .sort(compareEditorGroups);
 }
 
 function getNextEditorGroupId(api: DockviewApi): string {
@@ -144,6 +150,16 @@ function normalizeGroupIds(api: DockviewApi) {
   if (bottomGroup) {
     (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
     bottomGroup.locked = 'no-drop-target';
+    try {
+      const model = (bottomGroup as { model?: { header?: { hidden?: boolean } } })
+        .model;
+      if (typeof model?.header?.hidden !== 'undefined') {
+        model.header.hidden = true;
+      }
+    } catch {
+      // Ignore internal model access failures and rely on CSS class fallback.
+    }
+    getGroupElement(bottomGroup)?.classList.add('dv-header-hidden');
   }
 
   applyLeftGroupHeaderHiding(api);
@@ -212,9 +228,13 @@ function ensureWelcomeEditorGroup(api: DockviewApi): DockviewGroup | undefined {
     return existingWelcome.group;
   }
 
+  const bottomGroup = getBottomGroup(api);
+  const bottomReferencePanel = bottomGroup?.panels[0];
   const leftGroup = getLeftGroup(api);
   const referencePanel =
-    leftGroup?.panels[0] ?? api.panels.find((panel) => !BOTTOM_PANEL_IDS.has(panel.id));
+    bottomReferencePanel ??
+    leftGroup?.panels[0] ??
+    api.panels.find((panel) => !BOTTOM_PANEL_IDS.has(panel.id));
 
   const welcomePanel = api.addPanel({
     id: PANEL_IDS.WELCOME,
@@ -224,8 +244,12 @@ function ensureWelcomeEditorGroup(api: DockviewApi): DockviewGroup | undefined {
       ? {
           position: {
             referencePanel,
-            direction: leftGroup ? 'right' : 'within',
-          } as const,
+            direction: bottomReferencePanel
+              ? ('above' as const)
+              : leftGroup
+                ? ('right' as const)
+                : ('within' as const),
+          },
         }
       : {}),
     inactive: true,
@@ -263,7 +287,14 @@ function resolvePanelFromTabElement(
   return undefined;
 }
 
-export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps) {
+export function IDELayout({
+  rightPanelContent,
+  toolbarContent,
+}: IDELayoutProps) {
+  const { taskId, attemptId } = useParams<{
+    taskId?: string;
+    attemptId?: string;
+  }>();
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const tabContextMenuRef = useRef<HTMLDivElement>(null);
@@ -277,14 +308,18 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
     setRightPanelWidth,
     activeTab,
   } = useLayoutStore();
+  const routeTab =
+    taskId && attemptId ? 'workspace' : !taskId && !attemptId ? 'kanban' : null;
+  const effectiveActiveTab = routeTab ?? activeTab;
   const serializedLayoutRef = useRef(serializedLayout);
-  const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const isResettingRef = useRef(false);
   const isClampingRef = useRef(false);
   const prevSerializedLayoutRef = useRef(serializedLayout);
-  const [tabContextMenu, setTabContextMenu] = useState<TabContextMenuState | null>(
-    null
-  );
+  const [tabContextMenu, setTabContextMenu] =
+    useState<TabContextMenuState | null>(null);
 
   const {
     setDockviewApi,
@@ -305,7 +340,9 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
       onDone?: () => void
     ) => {
       if (api.width <= 0 && retries > 0) {
-        requestAnimationFrame(() => applyDefaultSizes(api, retries - 1, onDone));
+        requestAnimationFrame(() =>
+          applyDefaultSizes(api, retries - 1, onDone)
+        );
         return;
       }
 
@@ -400,7 +437,8 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
 
       let leftGroup = getLeftGroup(api);
       if (!leftGroup) {
-        const editorGroup = getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+        const editorGroup =
+          getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
         const referencePanel = editorGroup?.panels[0];
         if (!referencePanel) return;
 
@@ -429,7 +467,8 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
 
       let bottomGroup = getBottomGroup(api);
       if (!bottomGroup) {
-        const editorGroup = getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+        const editorGroup =
+          getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
         const referencePanel = editorGroup?.panels[0];
         if (!referencePanel) return;
 
@@ -517,7 +556,10 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
           api.fromJSON(layout);
           normalizeGroupIds(api);
         } catch (error) {
-          console.warn('Failed to restore dockview layout, rebuilding default.', error);
+          console.warn(
+            'Failed to restore dockview layout, rebuilding default.',
+            error
+          );
           rebuildDefaultLayout(api, false);
         }
       } else {
@@ -664,7 +706,10 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
       try {
         ensureWorkspacePanelsVisible(api);
       } catch (error) {
-        console.warn('Failed to restore workspace panels, rebuilding layout.', error);
+        console.warn(
+          'Failed to restore workspace panels, rebuilding layout.',
+          error
+        );
         rebuildDefaultLayout(api);
       }
     });
@@ -786,58 +831,65 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
     <div className="flex h-full w-full flex-col">
       <SearchPalette />
       {toolbarContent && (
-        <div className="z-10 shrink-0 border-b bg-background">{toolbarContent}</div>
+        <div className="z-10 shrink-0 border-b bg-background">
+          {toolbarContent}
+        </div>
       )}
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-10 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-secondary pt-1">
-          <button
-            onClick={toggleFileTree}
-            className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
-              isPanelOpen(PANEL_IDS.FILE_TREE)
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            }`}
-            title="Files"
-          >
-            <FolderOpen className="h-[18px] w-[18px]" />
-          </button>
-          <button
-            onClick={toggleGitPanel}
-            className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
-              isPanelOpen(PANEL_IDS.GIT)
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            }`}
-            title="Git"
-          >
-            <GitBranch className="h-[18px] w-[18px]" />
-          </button>
-          <button
-            onClick={toggleSearchPanel}
-            className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
-              isPanelOpen(PANEL_IDS.SEARCH)
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-            }`}
-            title="Search (Ctrl+Shift+F)"
-          >
-            <Search className="h-[18px] w-[18px]" />
-          </button>
-        </div>
+        {effectiveActiveTab === 'workspace' ? (
+          <div className="flex w-10 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-secondary pt-1">
+            <button
+              onClick={toggleFileTree}
+              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
+                isPanelOpen(PANEL_IDS.FILE_TREE)
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+              title="Files"
+            >
+              <FolderOpen className="h-[18px] w-[18px]" />
+            </button>
+            <button
+              onClick={toggleGitPanel}
+              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
+                isPanelOpen(PANEL_IDS.GIT)
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+              title="Git"
+            >
+              <GitBranch className="h-[18px] w-[18px]" />
+            </button>
+            <button
+              onClick={toggleSearchPanel}
+              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
+                isPanelOpen(PANEL_IDS.SEARCH)
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+              title="Search (Ctrl+Shift+F)"
+            >
+              <Search className="h-[18px] w-[18px]" />
+            </button>
+          </div>
+        ) : null}
 
         <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
-          <div className={activeTab === 'kanban' ? 'invisible h-full' : 'h-full'}>
+          <div
+            className={
+              effectiveActiveTab === 'kanban' ? 'invisible h-full' : 'h-full'
+            }
+          >
             <DockviewReact
               components={panelComponents}
               onReady={handleReady}
               className="dockview-theme-light dockview-theme-ayu"
-              rightHeaderActionsComponent={TerminalHeaderActions}
               disableFloatingGroups={true}
             />
           </div>
 
-          {activeTab === 'kanban' && (
+          {effectiveActiveTab === 'kanban' && (
             <div className="absolute inset-0 z-10">
               <KanbanBoard />
             </div>
@@ -871,7 +923,7 @@ export function IDELayout({ rightPanelContent, toolbarContent }: IDELayoutProps)
           <>
             <div
               ref={resizeHandleRef}
-              className="w-px shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/30"
+              className="relative -mx-px w-px shrink-0 cursor-col-resize bg-transparent transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-all before:duration-150 hover:before:w-[3px] hover:before:bg-primary/40 after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
               onMouseDown={handleResizeMouseDown}
             />
             <div

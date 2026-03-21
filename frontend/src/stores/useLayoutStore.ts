@@ -64,8 +64,8 @@ interface LayoutState {
   resetLayout: () => void;
 }
 
-const DEFAULT_RIGHT_PANEL_WIDTH = 420;
-const MIN_RIGHT_PANEL_WIDTH = 360;
+const DEFAULT_RIGHT_PANEL_WIDTH = 520;
+const MIN_RIGHT_PANEL_WIDTH = 400;
 
 export const useLayoutStore = create<LayoutState>()(
   persist(
@@ -84,7 +84,12 @@ export const useLayoutStore = create<LayoutState>()(
       setFileTreeVisible: (visible) => set({ isFileTreeVisible: visible }),
 
       setRightPanelWidth: (width) =>
-        set({ rightPanelWidth: Math.max(MIN_RIGHT_PANEL_WIDTH, Math.min(800, width)) }),
+        set({
+          rightPanelWidth: Math.max(
+            MIN_RIGHT_PANEL_WIDTH,
+            Math.min(900, width)
+          ),
+        }),
 
       toggleRightPanel: () =>
         set((s) => ({ isRightPanelVisible: !s.isRightPanelVisible })),
@@ -104,15 +109,17 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibe-ultra-ide-layout',
-      version: 15,
+      version: 16,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const nextRightPanelWidth =
-          state.rightPanelWidth == null || state.rightPanelWidth === 500
+          state.rightPanelWidth == null ||
+          state.rightPanelWidth === 420 ||
+          state.rightPanelWidth === 500
             ? DEFAULT_RIGHT_PANEL_WIDTH
             : Math.max(
                 MIN_RIGHT_PANEL_WIDTH,
-                Math.min(800, state.rightPanelWidth)
+                Math.min(900, state.rightPanelWidth)
               );
 
         return {

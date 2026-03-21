@@ -2,7 +2,17 @@
 // All imports from '@/lib/api' continue to work via this re-export barrel
 
 // Base types and utilities
-export type { Ok, Err, Result, RebaseResult, PullResult, CommitGraphNode, CommitGraphResult, SessionSummary } from './base';
+export type {
+  Ok,
+  Err,
+  Result,
+  RebaseResult,
+  PullResult,
+  CommitGraphNode,
+  CommitGraphResult,
+  SessionSummary,
+  SessionStatus,
+} from './base';
 export { invokeAsResult } from './base';
 
 // Projects

@@ -12,7 +12,6 @@ import FileChangeRenderer from './FileChangeRenderer';
 import { Markdown } from './Markdown';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
-import { NextActionCard } from './NextActionCard';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 
@@ -60,7 +59,6 @@ function DisplayConversationEntry({
   expansionKey,
   executionProcessId,
   taskAttempt,
-  task,
 }: Props) {
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
@@ -306,25 +304,7 @@ function DisplayConversationEntry({
   }
 
   if (entry.entry_type.type === 'next_action') {
-    return (
-      <div className="conv-entry-item px-4 py-2 text-sm">
-        <NextActionCard
-          attemptId={taskAttempt?.id}
-          sessionId={taskAttempt?.session?.id}
-          containerRef={taskAttempt?.container_ref}
-          failed={entry.entry_type.failed}
-          task={task}
-          needsSetup={entry.entry_type.needs_setup}
-          setupHelpText={
-            'setup_help_text' in entry.entry_type
-              ? typeof entry.entry_type.setup_help_text === 'string'
-                ? entry.entry_type.setup_help_text
-                : null
-              : null
-          }
-        />
-      </div>
-    );
+    return null;
   }
 
   // Phase 2: Assistant message with hover copy button

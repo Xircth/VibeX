@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Terminal as TerminalIcon, ScrollText, X } from 'lucide-react';
+import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
 import { useTauriTerminal } from '@/hooks/useTauriTerminal';
 import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { detectDevserverUrl } from '@/hooks/useDevserverUrl';
@@ -15,8 +15,10 @@ import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { tauriInvoke } from '@/lib/tauri-api';
 import {
+  TERMINAL_SHELL_OPTIONS,
   getDefaultTerminalShell,
   getTerminalWorkspaceKey,
+  type TerminalShellValue,
 } from '@/lib/terminalPreferences';
 
 function DockviewTerminalPanel() {
@@ -55,6 +57,13 @@ function DockviewTerminalPanel() {
   );
 
   const [autoCreated, setAutoCreated] = useState<string | null>(null);
+  const [selectedShell, setSelectedShell] =
+    useState<TerminalShellValue>(defaultShell);
+
+  useEffect(() => {
+    setSelectedShell(defaultShell);
+  }, [defaultShell, workspaceId]);
+
   useEffect(() => {
     setAutoCreated(null);
   }, [workspaceId]);
@@ -68,6 +77,18 @@ function DockviewTerminalPanel() {
     addSession(workspaceId, tabId, defaultShell || undefined);
     setAutoCreated(workspaceId);
   }, [workspaceId, sessions.length, autoCreated, addSession, defaultShell]);
+
+  useEffect(() => {
+    if (!workspaceId || sessions.length === 0) {
+      return;
+    }
+
+    if (activeTabId && sessions.some((session) => session.tabId === activeTabId)) {
+      return;
+    }
+
+    setActiveTab(workspaceId, sessions[0].tabId);
+  }, [activeTabId, sessions, setActiveTab, workspaceId]);
 
   const handleCloseTab = useCallback(
     async (event: React.MouseEvent, tabId: string) => {
@@ -99,6 +120,13 @@ function DockviewTerminalPanel() {
     },
     [workspaceId, setActiveTab]
   );
+
+  const handleCreateTab = useCallback(() => {
+    if (!workspaceId) return;
+    const tabId = generateTerminalTabId();
+    addSession(workspaceId, tabId, selectedShell || undefined);
+    setActiveTab(workspaceId, tabId);
+  }, [addSession, selectedShell, setActiveTab, workspaceId]);
 
   if (!workspaceId) {
     return (
@@ -145,13 +173,41 @@ function DockviewTerminalPanel() {
         )}
       </div>
 
-      <div className="shrink-0 w-24 min-h-0 bg-secondary border-l border-border overflow-hidden">
-        <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden flex flex-col gap-0">
+      <div className="shrink-0 w-24 min-h-0 border-l border-border bg-secondary overflow-hidden">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="shrink-0 border-b border-border p-1.5">
+            <div className="flex items-center gap-1">
+              <select
+                value={selectedShell}
+                onChange={(event) =>
+                  setSelectedShell(event.target.value as TerminalShellValue)
+                }
+                className="h-6 min-w-0 flex-1 rounded border border-border bg-transparent px-1 text-[10px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                title="Shell type"
+              >
+                {TERMINAL_SHELL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleCreateTab}
+                disabled={!workspaceId}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+                title="New terminal"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           {sessions.map((session) => (
             <button
               key={session.tabId}
               onClick={() => handleSelectTab(session.tabId)}
-              className={`flex items-center gap-1.5 px-2 py-1.5 text-xs border-b border-border shrink-0 transition-colors ${
+              className={`flex w-full shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5 text-xs transition-colors ${
                 activeTabId === session.tabId
                   ? 'bg-console text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
@@ -181,6 +237,7 @@ function DockviewTerminalPanel() {
               </span>
             </button>
           ))}
+          </div>
         </div>
       </div>
     </div>

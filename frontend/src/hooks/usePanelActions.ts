@@ -12,7 +12,9 @@ export function usePanelActions() {
   const {
     openFilePreview,
     openDiffPreview,
+    openDiffPreviewAtPath,
     openNewTerminal,
+    toggleEditorArea,
     splitActiveEditor,
     canSplitActiveEditor,
     closePanel,
@@ -23,7 +25,9 @@ export function usePanelActions() {
   return {
     openFilePreview,
     openDiffPreview,
+    openDiffPreviewAtPath,
     openNewTerminal,
+    toggleEditorArea,
     splitActiveEditor,
     canSplitActiveEditor,
     closePanel,

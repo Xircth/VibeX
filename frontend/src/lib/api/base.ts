@@ -1,6 +1,4 @@
-import type {
-  GitOperationError,
-} from 'shared/types';
+import type { GitOperationError } from 'shared/types';
 
 import { tauriInvoke } from '../tauri-api';
 
@@ -33,15 +31,7 @@ export interface CommitGraphResult {
   target_branch: string;
 }
 
-export interface SessionSummary {
-  id: string;
-  workspace_id: string;
-  executor: string | null;
-  created_at: string;
-  updated_at: string;
-  first_prompt: string | null;
-  is_running: boolean;
-}
+export type { SessionStatus, SessionSummary } from 'shared/types';
 
 // Backend RebaseResult - conflicts are embedded in the Ok response, not as Tauri errors
 export interface RebaseResult {

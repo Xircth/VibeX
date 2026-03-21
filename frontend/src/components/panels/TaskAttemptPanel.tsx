@@ -8,7 +8,8 @@ import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
-import { useRef, type ReactNode } from 'react';
+import { useCallback, useRef, type ReactNode } from 'react';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorkspaceSessions } from '@/hooks/useWorkspaceSessions';
 
 interface TaskAttemptPanelProps {
@@ -22,10 +23,17 @@ const TaskAttemptPanel = ({
   task,
   children,
 }: TaskAttemptPanelProps) => {
+  const kanbanSessionContext = useOptionalKanbanSessionContext();
   const sessionState = useWorkspaceSessions(attempt?.id, {
     initialSessionId: attempt?.session?.id,
   });
   const logsRef = useRef<VirtualizedListRef | null>(null);
+  const syncRightPanelSession = useCallback(
+    (session: { sessionId: string; workspaceId: string }) => {
+      kanbanSessionContext?.replaceRightSession(session);
+    },
+    [kanbanSessionContext]
+  );
 
   if (!attempt) {
     return <div className="p-6 text-muted-foreground">Loading attempt...</div>;
@@ -68,6 +76,8 @@ const TaskAttemptPanel = ({
                 session={activeSession}
                 workspaceId={attempt.id}
                 sessionState={sessionState}
+                onSessionCreated={syncRightPanelSession}
+                onSessionSelected={syncRightPanelSession}
                 onJumpToPreviousUserMessage={() =>
                   logsRef.current?.scrollToPreviousUserMessage()
                 }

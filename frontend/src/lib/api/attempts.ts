@@ -55,6 +55,11 @@ export const attemptsApi = {
     return tauriInvoke<Workspace[]>('get_workspaces', { taskId: null });
   },
 
+  /** Get all workspaces for a project (also syncs local worktrees). */
+  getProjectWorkspaces: async (projectId: string): Promise<Workspace[]> => {
+    return tauriInvoke<Workspace[]>('get_project_workspaces', { projectId });
+  },
+
   /** Get total count of workspaces */
   getCount: async (): Promise<number> => {
     return tauriInvoke<number>('get_workspace_count');

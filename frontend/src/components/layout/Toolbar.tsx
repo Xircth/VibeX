@@ -38,6 +38,7 @@ import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useProjects } from '@/hooks/useProjects';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useProjectRepos } from '@/hooks';
@@ -57,6 +58,24 @@ function ToolbarDivider() {
       role="separator"
       aria-orientation="vertical"
     />
+  );
+}
+
+const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
+const RECENT_PROJECT_MENU_LIMIT = 6;
+
+function matchesBranch(branch: string, expectedBranch: string) {
+  const normalized = branch.trim().toLowerCase();
+  const expected = expectedBranch.trim().toLowerCase();
+  return normalized === expected || normalized.endsWith(`/${expected}`);
+}
+
+function isMainlineBranch(branch: string) {
+  const normalized = branch.trim().toLowerCase();
+  return (
+    MAINLINE_BRANCH_NAMES.has(normalized) ||
+    normalized.endsWith('/main') ||
+    normalized.endsWith('/master')
   );
 }
 
@@ -147,21 +166,57 @@ function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
  */
 function WorkspaceTabSwitcher() {
   const navigate = useNavigate();
-  const { projectId } = useProject();
-  const { activeWorktreeId, activeTaskId } = useWorktree();
+  const { projectId, project } = useProject();
+  const { activeWorktreeId, activeTaskId, setActiveWorktree } = useWorktree();
   const { rightSession } = useKanbanSessionContext();
   const { taskId, attemptId } = useParams<{
     taskId?: string;
     attemptId?: string;
   }>();
+  const { data: repos } = useProjectRepos(projectId);
   const { worktrees } = useProjectWorktrees(projectId);
   const { data: rightSessionWorkspace } = useTaskAttempt(
     rightSession?.workspaceId
   );
   const { activeTab, setActiveTab } = useLayoutStore();
-  const routeTab =
-    taskId && attemptId ? 'workspace' : !taskId && !attemptId ? 'kanban' : null;
+  const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
+  const preferredWorkspaceBranch = useMemo(() => {
+    const repoBranch =
+      repos
+        ?.map((repo) => repo.default_target_branch?.trim().toLowerCase() ?? '')
+        .find((branch) => branch.length > 0) ?? null;
+
+    if (repoBranch) {
+      return repoBranch;
+    }
+
+    const projectBranch = project?.default_main_branch?.trim().toLowerCase();
+    return projectBranch && projectBranch.length > 0 ? projectBranch : null;
+  }, [project?.default_main_branch, repos]);
+
+  const resolveFallbackWorktree = useCallback(() => {
+    const currentWorktree =
+      worktrees.find((worktree) => worktree.workspace.id === activeWorktreeId) ??
+      null;
+    if (currentWorktree) {
+      return currentWorktree;
+    }
+
+    if (preferredWorkspaceBranch) {
+      const preferredWorktree = worktrees.find((worktree) =>
+        matchesBranch(worktree.workspace.branch, preferredWorkspaceBranch)
+      );
+      if (preferredWorktree) {
+        return preferredWorktree;
+      }
+    }
+
+    const mainlineWorktree = worktrees.find((worktree) =>
+      isMainlineBranch(worktree.workspace.branch)
+    );
+    return mainlineWorktree ?? worktrees[0] ?? null;
+  }, [activeWorktreeId, preferredWorkspaceBranch, worktrees]);
 
   const tabs: {
     key: WorkspaceTab;
@@ -183,14 +238,10 @@ function WorkspaceTabSwitcher() {
       }
 
       const navigateToFallbackWorkspace = () => {
+        const fallbackWorktree = resolveFallbackWorktree();
         const currentAttemptId =
           attemptId && attemptId !== 'latest' ? attemptId : null;
         const currentTaskId = taskId ?? null;
-        const activeWorktree =
-          worktrees.find(
-            (worktree) => worktree.workspace.id === activeWorktreeId
-          ) ?? null;
-        const fallbackWorktree = activeWorktree ?? worktrees[0] ?? null;
         const targetAttemptId =
           currentAttemptId ??
           activeWorktreeId ??
@@ -202,10 +253,22 @@ function WorkspaceTabSwitcher() {
           fallbackWorktree?.workspace.task_id ??
           null;
 
+        setActiveWorktree(targetAttemptId, targetTaskId);
+
         if (targetTaskId && targetAttemptId) {
           navigate(paths.attempt(projectId, targetTaskId, targetAttemptId));
         }
       };
+
+      if (!taskId && !attemptId) {
+        const fallbackWorktree = resolveFallbackWorktree();
+        setActiveWorktree(
+          fallbackWorktree?.workspace.id ?? null,
+          fallbackWorktree?.workspace.task_id ?? null
+        );
+        navigate(paths.projectTasks(projectId));
+        return;
+      }
 
       if (effectiveActiveTab === 'kanban' && rightSession) {
         const targetTaskId = rightSessionWorkspace?.task_id;
@@ -244,9 +307,10 @@ function WorkspaceTabSwitcher() {
       projectId,
       rightSession,
       rightSessionWorkspace?.task_id,
+      resolveFallbackWorktree,
       setActiveTab,
+      setActiveWorktree,
       taskId,
-      worktrees,
     ]
   );
 
@@ -279,15 +343,16 @@ export function Toolbar() {
     taskId?: string;
     attemptId?: string;
   }>();
+  const navigate = useNavigate();
   const workspaceId =
     attemptId && attemptId !== 'latest' ? attemptId : undefined;
   const { projectId, project } = useProject();
+  const { projects } = useProjects();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
   const activeTab = useLayoutStore((state) => state.activeTab);
-  const routeTab =
-    taskId && attemptId ? 'workspace' : !taskId && !attemptId ? 'kanban' : null;
+  const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
 
@@ -299,6 +364,10 @@ export function Toolbar() {
     openNewTerminal,
     toggleEditorArea,
   } = usePanelActions();
+  const recentProjects = useMemo(
+    () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
+    [projects]
+  );
 
   const handleCreateTask = () => {
     if (projectId) {
@@ -314,27 +383,68 @@ export function Toolbar() {
     settingsWindowApi.open();
   }, []);
 
+  const handleOpenHome = useCallback(() => {
+    navigate(paths.projects());
+  }, [navigate]);
+
+  const handleOpenProjectInNewWindow = useCallback((nextProjectId: string) => {
+    const url = new URL(
+      paths.projectTasks(nextProjectId),
+      window.location.origin
+    ).toString();
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="w-full px-1.5 bg-secondary/50">
         <div className="relative flex items-center h-9 gap-0.5">
           {/* Left section: Logo + project selector */}
-          <div
-            className={cn(
-              'flex items-center shrink-0 min-w-0',
-              !isWorkspaceTab && 'invisible pointer-events-none'
-            )}
-            aria-hidden={!isWorkspaceTab}
-          >
+          <div className="flex items-center shrink-0 min-w-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="返回首页或打开最近项目"
+                  title="返回首页或打开最近项目"
+                >
+                  <Logo showText={false} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuItem onSelect={handleOpenHome}>
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  回到首页
+                </DropdownMenuItem>
+                <div className="px-2 py-1 text-[11px] text-muted-foreground">
+                  最近项目
+                </div>
+                {recentProjects.length > 0 ? (
+                  recentProjects.map((item) => (
+                    <DropdownMenuItem
+                      key={item.id}
+                      onSelect={() => handleOpenProjectInNewWindow(item.id)}
+                      title={item.name}
+                    >
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      <span className="truncate">{item.name}</span>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled>暂无最近项目</DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Link
               to="/local-projects"
-              className="shrink-0"
+              className="hidden"
               aria-label="返回首页"
               title="返回首页"
             >
               <Logo showText={false} />
             </Link>
-            <WorktreeSelector />
+            {isWorkspaceTab ? <WorktreeSelector /> : null}
           </div>
 
           {/* Branch status badge (visible when viewing a workspace) */}

@@ -44,6 +44,9 @@ export const useConversationHistory = ({
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
+  const activeStreamControllersRef = useRef<Map<string, { close: () => void }>>(
+    new Map()
+  );
   const onEntriesUpdatedRef = useRef<OnEntriesUpdated | null>(null);
   const previousStatusMapRef = useRef<Map<string, ExecutionProcessStatus>>(
     new Map()
@@ -61,6 +64,15 @@ export const useConversationHistory = ({
     const state = displayedExecutionProcesses.current;
     mutator(state);
   };
+
+  const closeAllRunningStreams = useCallback(() => {
+    for (const controller of activeStreamControllersRef.current.values()) {
+      controller.close();
+    }
+    activeStreamControllersRef.current.clear();
+    streamingProcessIdsRef.current.clear();
+  }, []);
+
   useEffect(() => {
     onEntriesUpdatedRef.current = onEntriesUpdated;
   }, [onEntriesUpdated]);
@@ -430,7 +442,19 @@ export const useConversationHistory = ({
         executionProcess.executor_action.typ.type !== 'ScriptRequest';
 
       return new Promise((resolve, reject) => {
-        const controller = streamJsonPatchEntries<PatchType>(
+        activeStreamControllersRef.current.get(executionProcess.id)?.close();
+        activeStreamControllersRef.current.delete(executionProcess.id);
+
+        let controller: { close: () => void } | null = null;
+        let closed = false;
+        const closeController = () => {
+          if (closed) return;
+          closed = true;
+          activeStreamControllersRef.current.delete(executionProcess.id);
+          controller?.close();
+        };
+
+        controller = streamJsonPatchEntries<PatchType>(
           {
             executionProcessId: executionProcess.id,
             normalized,
@@ -458,7 +482,7 @@ export const useConversationHistory = ({
                 'running',
                 false
               );
-              controller.close();
+              closeController();
               resolve();
             },
             onError: (err) => {
@@ -466,11 +490,12 @@ export const useConversationHistory = ({
                 `Error streaming entries for execution process ${executionProcess.id}`,
                 err
               );
-              controller.close();
+              closeController();
               reject(err);
             },
           }
         );
+        activeStreamControllersRef.current.set(executionProcess.id, controller);
       });
     },
     [emitEntries]
@@ -768,9 +793,9 @@ export const useConversationHistory = ({
     if (prevConversationKeyRef.current === conversationKey) return;
     prevConversationKeyRef.current = conversationKey;
 
+    closeAllRunningStreams();
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
-    streamingProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
     // If there are no execution processes and data is ready, skip the loading state
     const hasNoHistory =
@@ -781,7 +806,15 @@ export const useConversationHistory = ({
     emitEntries,
     executionProcessesLoading,
     executionProcessesRaw.length,
+    closeAllRunningStreams,
   ]);
+
+  useEffect(
+    () => () => {
+      closeAllRunningStreams();
+    },
+    [closeAllRunningStreams]
+  );
 
   return {};
 };

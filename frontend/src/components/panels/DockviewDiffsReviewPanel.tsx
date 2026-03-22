@@ -287,9 +287,9 @@ function DockviewDiffsReviewPanel() {
   }
 
   return (
-    <div className="h-full w-full flex" data-panel="diffs">
+    <div className="h-full w-full flex gap-2 p-2" data-panel="diffs">
       {/* Left: Diff content */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-background">
         {/* Commit info header (only in commit mode) */}
         {isCommitMode && commitInfo && (
           <div className="shrink-0 border-b border-border bg-muted/20">
@@ -390,7 +390,7 @@ function DockviewDiffsReviewPanel() {
         )}
 
         {/* Diff cards */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 pb-3">
           {diffs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
               {showLoading ? (
@@ -430,7 +430,7 @@ function DockviewDiffsReviewPanel() {
       {/* Right: Changes directory sidebar */}
       {diffs.length > 0 && (
         <div
-          className={`shrink-0 border-l border-border bg-muted/20 flex flex-col transition-[width] duration-150 ${
+          className={`shrink-0 overflow-hidden rounded-xl border border-border/60 bg-muted/20 flex flex-col transition-[width] duration-150 ${
             sidebarCollapsed ? 'w-8' : 'w-60'
           }`}
         >

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -25,7 +25,7 @@ use executors::{
     executors::{CodingAgent, ExecutorError},
     profile::{ExecutorConfig, ExecutorConfigs, ExecutorProfileId},
 };
-use git::{ConflictOp, GitCliError, GitRemote, GitService, GitServiceError};
+use git::{ConflictOp, GitCli, GitCliError, GitRemote, GitService, GitServiceError};
 use git2::BranchType;
 use serde::{Deserialize, Serialize};
 use services::services::{
@@ -259,6 +259,340 @@ pub struct PushResult {
     pub error: Option<PushError>,
 }
 
+async fn recover_workspace_container_ref(
+    state: &tauri::State<'_, AppState>,
+    workspace: &mut Workspace,
+) -> Result<(), AppError> {
+    if !workspace.use_worktree {
+        return Ok(());
+    }
+
+    if let Some(container_ref) = workspace.container_ref.as_ref()
+        && Path::new(container_ref).exists()
+    {
+        return Ok(());
+    }
+
+    let pool = &state.deployment.db().pool;
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+    if repos.is_empty() {
+        return Ok(());
+    }
+
+    for repo in repos {
+        let found_worktree = match state
+            .deployment
+            .git()
+            .find_worktree_path_for_branch(&repo.path, &workspace.branch)
+        {
+            Ok(path) => path,
+            Err(err) => {
+                tracing::debug!(
+                    "Failed to discover worktree for workspace {} branch '{}' in repo '{}': {}",
+                    workspace.id,
+                    workspace.branch,
+                    repo.name,
+                    err
+                );
+                continue;
+            }
+        };
+
+        let Some(found_worktree_path) = found_worktree else {
+            continue;
+        };
+
+        let workspace_root =
+            derive_workspace_root_from_worktree_path(&repo, &found_worktree_path);
+
+        if !workspace_root.exists() {
+            continue;
+        }
+
+        let recovered_container_ref = workspace_root.to_string_lossy().to_string();
+        if workspace.container_ref.as_deref() != Some(recovered_container_ref.as_str()) {
+            Workspace::update_container_ref(pool, workspace.id, &recovered_container_ref).await?;
+            tracing::info!(
+                "Recovered workspace {} container_ref to {}",
+                workspace.id,
+                recovered_container_ref
+            );
+        }
+        workspace.container_ref = Some(recovered_container_ref);
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+fn normalize_branch_name(branch: &str) -> String {
+    branch.trim().to_lowercase()
+}
+
+fn derive_workspace_root_from_worktree_path(repo: &Repo, worktree_path: &Path) -> PathBuf {
+    if worktree_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == repo.name)
+    {
+        worktree_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| worktree_path.to_path_buf())
+    } else {
+        worktree_path.to_path_buf()
+    }
+}
+
+async fn sync_project_workspaces_from_local_worktrees(
+    state: &tauri::State<'_, AppState>,
+    project_id: Uuid,
+) -> Result<(), AppError> {
+    let pool = &state.deployment.db().pool;
+    let repos = ProjectRepo::find_repos_for_project(pool, project_id).await?;
+    if repos.is_empty() {
+        return Ok(());
+    }
+
+    let existing_workspaces = Workspace::fetch_by_project_id(pool, project_id).await?;
+    let mut active_workspace_repo_branches: HashSet<(Uuid, String)> = HashSet::new();
+    let mut workspace_ref_by_repo_branch: HashMap<(Uuid, String), (Uuid, bool, Option<String>)> =
+        HashMap::new();
+    let mut workspace_by_root_and_branch: HashMap<(String, String), Uuid> = HashMap::new();
+    for workspace in &existing_workspaces {
+        let normalized_branch = normalize_branch_name(&workspace.branch);
+        if let Some(container_ref) = workspace.container_ref.as_ref() {
+            workspace_by_root_and_branch.insert(
+                (container_ref.clone(), normalized_branch.clone()),
+                workspace.id,
+            );
+        }
+        for workspace_repo in WorkspaceRepo::find_by_workspace_id(pool, workspace.id).await? {
+            let repo_branch_key = (workspace_repo.repo_id, normalized_branch.clone());
+            if !workspace.archived {
+                active_workspace_repo_branches.insert(repo_branch_key.clone());
+            }
+
+            let candidate = (workspace.id, workspace.archived, workspace.container_ref.clone());
+            match workspace_ref_by_repo_branch.get(&repo_branch_key) {
+                Some((_, existing_archived, _)) if *existing_archived && !workspace.archived => {
+                    workspace_ref_by_repo_branch.insert(repo_branch_key, candidate);
+                }
+                None => {
+                    workspace_ref_by_repo_branch.insert(repo_branch_key, candidate);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let git_cli = GitCli::new();
+    for repo in repos {
+        let worktrees = match git_cli.list_worktrees(&repo.path) {
+            Ok(entries) => entries,
+            Err(err) => {
+                tracing::debug!(
+                    "Skipping worktree sync for repo '{}': list_worktrees failed: {}",
+                    repo.name,
+                    err
+                );
+                continue;
+            }
+        };
+
+        for worktree in worktrees {
+            let Some(branch) = worktree.branch else {
+                continue;
+            };
+
+            let normalized_branch = normalize_branch_name(&branch);
+            let repo_branch_key = (repo.id, normalized_branch.clone());
+            if active_workspace_repo_branches.contains(&repo_branch_key) {
+                continue;
+            }
+
+            let worktree_path = PathBuf::from(&worktree.path);
+            if worktree_path == repo.path || !worktree_path.exists() {
+                continue;
+            }
+
+            let workspace_root = derive_workspace_root_from_worktree_path(&repo, &worktree_path);
+            if !workspace_root.exists() {
+                continue;
+            }
+            let workspace_root_ref = workspace_root.to_string_lossy().to_string();
+            let root_branch_key = (workspace_root_ref.clone(), normalized_branch.clone());
+
+            if let Some((existing_workspace_id, existing_archived, existing_container_ref)) =
+                workspace_ref_by_repo_branch.get(&repo_branch_key).cloned()
+            {
+                if existing_archived
+                    && let Err(err) =
+                        Workspace::update(pool, existing_workspace_id, Some(false), None, None)
+                            .await
+                {
+                    tracing::warn!(
+                        "Failed to restore archived workspace {} for branch '{}': {}",
+                        existing_workspace_id,
+                        branch,
+                        err
+                    );
+                    continue;
+                }
+
+                if existing_container_ref.as_deref() != Some(workspace_root_ref.as_str()) {
+                    let _ =
+                        Workspace::update_container_ref(pool, existing_workspace_id, &workspace_root_ref)
+                            .await;
+                }
+
+                workspace_by_root_and_branch.insert(root_branch_key, existing_workspace_id);
+                active_workspace_repo_branches.insert(repo_branch_key.clone());
+                workspace_ref_by_repo_branch.insert(
+                    repo_branch_key,
+                    (existing_workspace_id, false, Some(workspace_root_ref)),
+                );
+                continue;
+            }
+
+            if let Some(existing_workspace_id) =
+                workspace_by_root_and_branch.get(&root_branch_key).copied()
+            {
+                let target_branch = repo
+                    .default_target_branch
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| "main".to_string());
+
+                if let Err(err) = WorkspaceRepo::create_many(
+                    pool,
+                    existing_workspace_id,
+                    &[CreateWorkspaceRepo {
+                        repo_id: repo.id,
+                        target_branch,
+                    }],
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "Failed to attach repo '{}' to imported workspace {}: {}",
+                        repo.name,
+                        existing_workspace_id,
+                        err
+                    );
+                    continue;
+                }
+
+                active_workspace_repo_branches.insert(repo_branch_key.clone());
+                workspace_ref_by_repo_branch.insert(
+                    repo_branch_key,
+                    (existing_workspace_id, false, Some(workspace_root_ref)),
+                );
+                continue;
+            }
+
+            let task_title = format!("Workspace: {}", branch);
+            let task = match Task::create(
+                pool,
+                &CreateTask {
+                    project_id,
+                    title: task_title.clone(),
+                    description: Some(
+                        "Imported from an existing local git worktree.".to_string(),
+                    ),
+                    status: Some(TaskStatus::Todo),
+                    parent_workspace_id: None,
+                    image_ids: None,
+                },
+                Uuid::new_v4(),
+            )
+            .await
+            {
+                Ok(task) => task,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to create task for discovered worktree '{}' in repo '{}': {}",
+                        branch,
+                        repo.name,
+                        err
+                    );
+                    continue;
+                }
+            };
+
+            let workspace = match Workspace::create(
+                pool,
+                &CreateWorkspace {
+                    branch: branch.clone(),
+                    container_ref: Some(workspace_root_ref.clone()),
+                    use_worktree: true,
+                    agent_working_dir: None,
+                },
+                Uuid::new_v4(),
+                task.id,
+            )
+            .await
+            {
+                Ok(workspace) => workspace,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to create workspace for discovered worktree '{}' in repo '{}': {}",
+                        branch,
+                        repo.name,
+                        err
+                    );
+                    let _ = Task::delete(pool, task.id).await;
+                    continue;
+                }
+            };
+
+            let target_branch = repo
+                .default_target_branch
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "main".to_string());
+
+            if let Err(err) = WorkspaceRepo::create_many(
+                pool,
+                workspace.id,
+                &[CreateWorkspaceRepo {
+                    repo_id: repo.id,
+                    target_branch,
+                }],
+            )
+            .await
+            {
+                tracing::warn!(
+                    "Failed to create workspace_repo for imported workspace '{}' in repo '{}': {}",
+                    branch,
+                    repo.name,
+                    err
+                );
+                let _ = Workspace::delete(pool, workspace.id).await;
+                let _ = Task::delete(pool, task.id).await;
+                continue;
+            }
+
+            let _ = Workspace::update(pool, workspace.id, None, None, Some(task_title.as_str())).await;
+
+            workspace_by_root_and_branch.insert(root_branch_key, workspace.id);
+            active_workspace_repo_branches.insert(repo_branch_key.clone());
+            workspace_ref_by_repo_branch.insert(
+                repo_branch_key,
+                (workspace.id, false, Some(workspace_root_ref)),
+            );
+            tracing::info!(
+                "Imported local worktree '{}' for project {} as workspace {}",
+                branch,
+                project_id,
+                workspace.id
+            );
+        }
+    }
+
+    Ok(())
+}
+
 // --- Commands ---
 
 #[tauri::command]
@@ -267,7 +601,24 @@ pub async fn get_workspaces(
     task_id: Option<Uuid>,
 ) -> Result<Vec<Workspace>, AppError> {
     let pool = &state.deployment.db().pool;
-    let workspaces = Workspace::fetch_all(pool, task_id).await?;
+    let mut workspaces = Workspace::fetch_all(pool, task_id).await?;
+    for workspace in &mut workspaces {
+        recover_workspace_container_ref(&state, workspace).await?;
+    }
+    Ok(workspaces)
+}
+
+#[tauri::command]
+pub async fn get_project_workspaces(
+    state: tauri::State<'_, AppState>,
+    project_id: Uuid,
+) -> Result<Vec<Workspace>, AppError> {
+    sync_project_workspaces_from_local_worktrees(&state, project_id).await?;
+    let pool = &state.deployment.db().pool;
+    let mut workspaces = Workspace::fetch_by_project_id(pool, project_id).await?;
+    for workspace in &mut workspaces {
+        recover_workspace_container_ref(&state, workspace).await?;
+    }
     Ok(workspaces)
 }
 
@@ -277,9 +628,10 @@ pub async fn get_workspace(
     workspace_id: Uuid,
 ) -> Result<Workspace, AppError> {
     let pool = &state.deployment.db().pool;
-    let workspace = Workspace::find_by_id(pool, workspace_id)
+    let mut workspace = Workspace::find_by_id(pool, workspace_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+    recover_workspace_container_ref(&state, &mut workspace).await?;
     Ok(workspace)
 }
 
@@ -400,15 +752,14 @@ pub async fn update_workspace(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    if is_archiving {
-        if let Err(e) = state
+    if is_archiving
+        && let Err(e) = state
             .deployment
             .container()
             .archive_workspace(workspace.id)
             .await
-        {
-            tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
-        }
+    {
+        tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
     }
 
     Ok(updated)
@@ -793,11 +1144,11 @@ pub async fn merge_workspace(
         Ok(messages) if !messages.is_empty() => messages.join("\n\n"),
         _ => {
             let mut msg = format!("{} (Vibe Ultra {})", task.title, first_uuid_section);
-            if let Some(description) = &task.description {
-                if !description.trim().is_empty() {
-                    msg.push_str("\n\n");
-                    msg.push_str(description);
-                }
+            if let Some(description) = &task.description
+                && !description.trim().is_empty()
+            {
+                msg.push_str("\n\n");
+                msg.push_str(description);
             }
             msg
         }
@@ -822,15 +1173,14 @@ pub async fn merge_workspace(
 
     Task::update_status(pool, task.id, TaskStatus::Done).await?;
 
-    if !workspace.pinned {
-        if let Err(e) = state
+    if !workspace.pinned
+        && let Err(e) = state
             .deployment
             .container()
             .archive_workspace(workspace.id)
             .await
-        {
-            tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
-        }
+    {
+        tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
     }
 
     Ok(())
@@ -2462,6 +2812,7 @@ pub async fn delete_workspace_branch(
 // --- PR operations ---
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_workspace_pr(
     state: tauri::State<'_, AppState>,
     workspace_id: Uuid,
@@ -2609,21 +2960,20 @@ pub async fn create_workspace_pr(
             }
 
             // Trigger auto-description follow-up if enabled
-            if auto_generate_description.unwrap_or(false) {
-                if let Err(e) = trigger_pr_description_follow_up(
+            if auto_generate_description.unwrap_or(false)
+                && let Err(e) = trigger_pr_description_follow_up(
                     &state,
                     &workspace,
                     pr_info.number,
                     &pr_info.url,
                 )
                 .await
-                {
-                    tracing::warn!(
-                        "Failed to trigger PR description follow-up for workspace {}: {}",
-                        workspace.id,
-                        e
-                    );
-                }
+            {
+                tracing::warn!(
+                    "Failed to trigger PR description follow-up for workspace {}: {}",
+                    workspace.id,
+                    e
+                );
             }
 
             Ok(CreatePrResult {
@@ -2848,15 +3198,14 @@ pub async fn attach_workspace_pr(
         // If PR is merged, mark task as done and archive workspace
         if matches!(pr_info.status, MergeStatus::Merged) {
             Task::update_status(pool, task.id, TaskStatus::Done).await?;
-            if !workspace.pinned {
-                if let Err(e) = state
+            if !workspace.pinned
+                && let Err(e) = state
                     .deployment
                     .container()
                     .archive_workspace(workspace.id)
                     .await
-                {
-                    tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
-                }
+            {
+                tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
             }
         }
 

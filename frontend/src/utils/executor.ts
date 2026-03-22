@@ -1,3 +1,4 @@
+import { BaseCodingAgent as BaseCodingAgentEnum } from 'shared/types';
 import type {
   BaseCodingAgent,
   ExecutorConfigs,
@@ -11,6 +12,27 @@ const RESERVED_KEYS = new Set(['recently_used_models']);
 type RuntimeExecutorConfigLike = {
   executor: BaseCodingAgent;
   variant?: string | null;
+};
+
+const CODEX_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CODEX;
+const CODEX_MODEL_LABELS: Record<string, string> = {
+  'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
+  'gpt-5.2': 'GPT-5.2',
+  'gpt-5.2-codex': 'GPT-5.2 Codex',
+  'gpt-5.3-codex': 'GPT-5.3 Codex',
+};
+
+export type CodexPermissionMode = 'auto' | 'ask';
+
+export type CodexModelOption = {
+  value: string | null;
+  label: string;
+};
+
+export type CodexVariantConfig = {
+  model: string | null;
+  permissionMode: CodexPermissionMode;
+  variant: string | null;
 };
 
 export function getExecutorVariantKeys(
@@ -103,6 +125,109 @@ export function getVariantOptions(
   return getSortedExecutorVariantKeys(
     executorConfig as Record<string, unknown>
   );
+}
+
+function getCodexVariantRecord(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  variant: string | null
+): Record<string, unknown> | null {
+  const executorProfiles = profiles?.[CODEX_EXECUTOR] as
+    | Record<string, unknown>
+    | undefined;
+  if (!executorProfiles) return null;
+
+  const variantKey = variant ?? 'DEFAULT';
+  const variantEntry = executorProfiles[variantKey] as
+    | Record<string, unknown>
+    | undefined;
+  if (!variantEntry) return null;
+
+  return (variantEntry[CODEX_EXECUTOR] as Record<string, unknown> | undefined) ?? null;
+}
+
+export function getCodexVariantConfig(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  variant: string | null
+): CodexVariantConfig {
+  const record = getCodexVariantRecord(profiles, variant);
+  const askForApproval = record?.ask_for_approval;
+  const model = typeof record?.model === 'string' ? record.model : null;
+
+  return {
+    model,
+    permissionMode:
+      typeof askForApproval === 'string' && askForApproval !== 'never'
+        ? 'ask'
+        : 'auto',
+    variant,
+  };
+}
+
+export function formatCodexModelLabel(model: string | null): string {
+  if (!model) return 'Default';
+  return CODEX_MODEL_LABELS[model] ?? model;
+}
+
+export function getCodexModelOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): CodexModelOption[] {
+  const variants = getVariantOptions(CODEX_EXECUTOR, profiles);
+  const seen = new Set<string>();
+  const options: CodexModelOption[] = [];
+
+  for (const variantKey of variants) {
+    const variant = variantKey === 'DEFAULT' ? null : variantKey;
+    const model = getCodexVariantConfig(profiles, variant).model;
+    const modelKey = model ?? 'DEFAULT';
+    if (seen.has(modelKey)) continue;
+
+    seen.add(modelKey);
+    options.push({
+      value: model,
+      label: formatCodexModelLabel(model),
+    });
+  }
+
+  const sortPriority = (value: string | null): number => {
+    switch (value) {
+      case 'gpt-5.1-codex-max':
+        return 0;
+      case 'gpt-5.2':
+        return 1;
+      case 'gpt-5.2-codex':
+        return 2;
+      case 'gpt-5.3-codex':
+        return 3;
+      case null:
+        return 99;
+      default:
+        return 50;
+    }
+  };
+
+  return (options.length > 0 ? options : [{ value: null, label: 'Default' }]).sort(
+    (a, b) => sortPriority(a.value) - sortPriority(b.value)
+  );
+}
+
+export function getCodexVariantFromSelection(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  selectedModel: string | null,
+  permissionMode: CodexPermissionMode
+): string | null {
+  const variants = getVariantOptions(CODEX_EXECUTOR, profiles);
+
+  const matchedVariant = variants.find((variantKey) => {
+    const variant = variantKey === 'DEFAULT' ? null : variantKey;
+    const config = getCodexVariantConfig(profiles, variant);
+    return config.model === selectedModel && config.permissionMode === permissionMode;
+  });
+
+  if (!matchedVariant) {
+    return getDefaultVariantForExecutor(CODEX_EXECUTOR, profiles);
+  }
+
+  return matchedVariant === 'DEFAULT' ? null : matchedVariant;
 }
 
 function toProfileId(

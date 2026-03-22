@@ -63,10 +63,10 @@ function TreeNodeView({ node, depth, onFileClick, activeFileId }: TreeNodeViewPr
     return (
       <button
         onClick={() => onFileClick(node.file!.id)}
-        className={`w-full flex items-center gap-1.5 px-2 py-[3px] text-left group border-l-2 ${
+        className={`group flex w-full items-center gap-1.5 rounded-md border px-2 py-[3px] text-left transition-colors ${
           isActive
-            ? 'bg-accent/60 border-l-primary'
-            : 'border-l-transparent hover:bg-accent/50'
+            ? 'border-primary/40 bg-accent/60'
+            : 'border-transparent hover:bg-accent/50'
         }`}
         style={{ paddingLeft: `${10 + indent}px` }}
       >
@@ -95,7 +95,7 @@ function TreeNodeView({ node, depth, onFileClick, activeFileId }: TreeNodeViewPr
       <div>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-accent/30"
+          className="flex w-full items-center gap-1 rounded-md px-2 py-[3px] text-left transition-colors hover:bg-accent/30"
           style={{ paddingLeft: `${10 + indent}px` }}
         >
           {collapsed

@@ -265,7 +265,7 @@ export function NextActionCard({
     } catch (err) {
       console.warn('Copy to clipboard failed:', err);
     }
-  }, [containerRef]);
+  }, [containerRef, triggerCopied]);
 
   const handleOpenInEditor = useCallback(() => {
     openInEditor();

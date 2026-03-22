@@ -315,8 +315,6 @@ fn build_git_status_map(root: &Path) -> HashMap<PathBuf, String> {
                 "renamed"
             } else if status.contains(git2::Status::CONFLICTED) {
                 "conflicted"
-            } else if status.contains(git2::Status::IGNORED) {
-                continue;
             } else {
                 continue;
             };
@@ -400,10 +398,10 @@ fn derive_dir_git_status(children: &[FileTreeEntry]) -> Option<String> {
         if child.git_status.is_some() {
             return Some("modified".to_string());
         }
-        if let Some(ref grandchildren) = child.children {
-            if derive_dir_git_status(grandchildren).is_some() {
-                return Some("modified".to_string());
-            }
+        if let Some(ref grandchildren) = child.children
+            && derive_dir_git_status(grandchildren).is_some()
+        {
+            return Some("modified".to_string());
         }
     }
     None
@@ -565,13 +563,13 @@ pub async fn read_file_content(path: String) -> Result<String, AppError> {
 #[tauri::command]
 pub async fn save_file_content(path: String, content: String) -> Result<(), AppError> {
     let file_path = sanitize_file_path(&path)?;
-    if let Some(parent) = file_path.parent() {
-        if !parent.exists() {
-            return Err(AppError::NotFound(format!(
-                "Parent directory does not exist: {}",
-                parent.display()
-            )));
-        }
+    if let Some(parent) = file_path.parent()
+        && !parent.exists()
+    {
+        return Err(AppError::NotFound(format!(
+            "Parent directory does not exist: {}",
+            parent.display()
+        )));
     }
     std::fs::write(&file_path, &content)
         .map_err(|e| AppError::Internal(format!("Failed to save file {}: {}", path, e)))
@@ -704,7 +702,6 @@ fn scan_tree_recursive(
     repo: &Option<git2::Repository>,
 ) -> Result<DirectoryChildrenResponse, AppError> {
     let started_at = Instant::now();
-    let mut scanned = 0usize;
     let max_files = 10_000usize;
     let max_directories = 20_000usize;
 
@@ -741,11 +738,10 @@ fn scan_tree_recursive(
         })
         .build();
 
-    for result in walker {
+    for (scanned, result) in walker.enumerate() {
         if scan_budget_reached(started_at, scanned) {
             break;
         }
-        scanned += 1;
 
         let entry = match result {
             Ok(e) => e,
@@ -869,7 +865,7 @@ fn scan_single_directory(
         })
         .collect();
 
-    dir_entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    dir_entries.sort_by_key(|a| a.file_name());
 
     for entry in dir_entries {
         let name = entry.file_name().to_string_lossy().to_string();

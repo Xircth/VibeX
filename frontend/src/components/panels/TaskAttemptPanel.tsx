@@ -11,6 +11,7 @@ import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useCallback, useRef, type ReactNode } from 'react';
 import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorkspaceSessions } from '@/hooks/useWorkspaceSessions';
+import { resolveActiveSession } from '@/hooks/useWorkspaceSessions';
 
 interface TaskAttemptPanelProps {
   attempt: WorkspaceWithSession | undefined;
@@ -42,14 +43,7 @@ const TaskAttemptPanel = ({
   if (!task) {
     return <div className="p-6 text-muted-foreground">Loading task...</div>;
   }
-  const activeSession = sessionState.isNewSessionMode
-    ? undefined
-    : sessionState.selectedSessionId
-      ? sessionState.selectedSession ??
-        (attempt.session?.id === sessionState.selectedSessionId
-          ? attempt.session
-          : undefined)
-      : attempt.session;
+  const activeSession = resolveActiveSession(attempt.session, sessionState);
   const activeAttempt = createWorkspaceWithSession(attempt, activeSession);
   const conversationKey = `${attempt.id}:${activeSession?.id ?? 'new'}`;
 
@@ -67,7 +61,6 @@ const TaskAttemptPanel = ({
                 ref={logsRef}
                 attempt={activeAttempt}
                 task={task}
-                conversationKey={conversationKey}
               />
             ),
             followUp: (

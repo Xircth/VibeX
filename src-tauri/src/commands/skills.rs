@@ -170,7 +170,7 @@ fn is_aimax_installed() -> bool {
         .map(|entries| {
             entries
                 .filter_map(|e| e.ok())
-                .any(|entry| entry.path().extension().map_or(false, |ext| ext == "md"))
+                .any(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
         })
         .unwrap_or(false)
 }

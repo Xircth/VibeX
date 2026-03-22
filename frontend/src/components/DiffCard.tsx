@@ -45,6 +45,37 @@ type Props = {
   selectedAttempt: Workspace | null;
 };
 
+function isAbsolutePath(path: string): boolean {
+  return (
+    /^[a-zA-Z]:[\\/]/.test(path) ||
+    path.startsWith('/') ||
+    path.startsWith('\\\\')
+  );
+}
+
+function normalizeRelativePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function joinPath(basePath: string, relativePath: string): string {
+  const normalizedBase = basePath.replace(/[\\/]+$/, '');
+  const normalizedRelative = relativePath.replace(/^[/\\]+/, '');
+  return `${normalizedBase}/${normalizedRelative}`;
+}
+
+function buildRelativePathVariants(relativePath: string): string[] {
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized) return [];
+
+  const variants = [normalized];
+  const firstSlash = normalized.indexOf('/');
+  if (firstSlash > 0 && firstSlash < normalized.length - 1) {
+    variants.push(normalized.slice(firstSlash + 1));
+  }
+
+  return [...new Set(variants)];
+}
+
 function labelAndIcon(diff: Diff) {
   const c = diff.change;
   if (c === 'deleted') return { label: 'Deleted', Icon: Trash2 };
@@ -120,30 +151,68 @@ export default function DiffCard({
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   const handleLoadContent = useCallback(async () => {
-    if (!selectedAttempt?.agent_working_dir) return;
-    const workdir = selectedAttempt.agent_working_dir;
     setIsLoadingContent(true);
     try {
-      const sep = workdir.endsWith('/') || workdir.endsWith('\\') ? '' : '/';
+      const basePaths: string[] = [];
+      const containerRef = selectedAttempt?.container_ref?.trim();
+      if (containerRef) {
+        basePaths.push(containerRef);
+      }
+      const agentWorkingDir = selectedAttempt?.agent_working_dir?.trim();
+      if (agentWorkingDir) {
+        if (isAbsolutePath(agentWorkingDir)) {
+          basePaths.push(agentWorkingDir);
+        } else if (containerRef) {
+          basePaths.push(joinPath(containerRef, agentWorkingDir));
+        } else {
+          basePaths.push(agentWorkingDir);
+        }
+      }
+      const uniqueBasePaths = [...new Set(basePaths)];
       // The HEAD path: for renamed/copied use oldPath; for all others use newPath
       // (modified files have oldPath=null but the HEAD version lives at newPath)
       const headRelPath = diff.oldPath || diff.newPath;
       // The working-tree path is always newPath (or oldPath for deleted)
       const wtRelPath = diff.newPath || diff.oldPath;
+      const loadFromCandidates = async (
+        relativePath: string,
+        loader: (absolutePath: string) => Promise<string>
+      ): Promise<string | null> => {
+        const relativeVariants = buildRelativePathVariants(relativePath);
+        for (const basePath of uniqueBasePaths) {
+          for (const relativeVariant of relativeVariants) {
+            const absolutePath = joinPath(basePath, relativeVariant);
+            try {
+              return await loader(absolutePath);
+            } catch {
+              // Try next candidate path.
+            }
+          }
+        }
+        return null;
+      };
 
       // Load new (working tree) content — empty for deleted files
       if (wtRelPath && diff.change !== 'deleted') {
-        const absNew = `${workdir}${sep}${wtRelPath}`;
-        const newContent = await fileTreeApi.readFile(absNew).catch(() => '');
-        setForcedNewContent(newContent);
+        const newContent =
+          uniqueBasePaths.length > 0
+            ? await loadFromCandidates(wtRelPath, (path) =>
+                fileTreeApi.readFile(path)
+              )
+            : null;
+        setForcedNewContent(newContent ?? '');
       } else {
         setForcedNewContent('');
       }
       // Load old (HEAD) content — empty for added files
       if (headRelPath && diff.change !== 'added') {
-        const absOld = `${workdir}${sep}${headRelPath}`;
-        const oldContent = await fileTreeApi.getFileAtHead(absOld).catch(() => '');
-        setForcedOldContent(oldContent);
+        const oldContent =
+          uniqueBasePaths.length > 0
+            ? await loadFromCandidates(headRelPath, (path) =>
+                fileTreeApi.getFileAtHead(path)
+              )
+            : null;
+        setForcedOldContent(oldContent ?? '');
       } else {
         setForcedOldContent('');
       }
@@ -354,8 +423,8 @@ export default function DiffCard({
   const expandable = true;
 
   return (
-    <div className="my-4 border">
-      <div className="sticky top-0 z-[5] flex items-center px-4 py-2 bg-background border-b">
+    <div className="my-4 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
+      <div className="sticky top-0 z-[5] flex items-center border-b border-border/70 bg-muted/20 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         {expandable && (
           <Button
             variant="ghost"
@@ -409,7 +478,7 @@ export default function DiffCard({
       )}
       {expanded && !diffFile && (
         <div
-          className="px-4 pb-4 text-xs font-mono"
+          className="px-4 pb-4 pt-2 text-xs font-mono"
           style={{ color: 'hsl(var(--muted-foreground) / 0.9)' }}
         >
           {isEffectivelyOmitted

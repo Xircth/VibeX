@@ -147,7 +147,6 @@
 /* Tab strip polish + remove header/right-divider seam */
 [class*='dockview-theme-ayu'] .dv-groupview > .dv-tabs-and-actions-container {
   border-bottom: 1px solid var(--dv-paneview-header-border-color);
-  border-right: 1px solid var(--dv-paneview-header-border-color);
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container > .dv-scrollable {
@@ -165,6 +164,13 @@
   .dv-tabs-and-actions-container
   .dv-right-actions-container {
   align-items: center;
+  border-left: 0;
+  padding-inline: 0;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-and-actions-container
+  .dv-right-actions-container:not(:empty) {
   border-left: 1px solid var(--dv-tab-divider-color);
   padding-inline: 2px;
 }
@@ -214,7 +220,6 @@
   .dv-groupview
   > .dv-tabs-and-actions-container {
   border-bottom: 1px solid var(--dv-theme-border, #2a2f3a);
-  border-right: 1px solid var(--dv-theme-border, #2a2f3a);
 }
 
 .dark
@@ -292,6 +297,13 @@
 
 [class*='dockview-theme-ayu'] .dv-tabs-overflow-container .dv-tab {
   font-size: inherit !important;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-view-container
+  > .dv-view:not(:first-child)::before {
+  display: none;
 }
 
 [class*='dockview-theme-ayu']

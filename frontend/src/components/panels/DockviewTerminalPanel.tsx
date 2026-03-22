@@ -13,7 +13,7 @@ import { useLogStream } from '@/hooks/useLogStream';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
-import { tauriInvoke } from '@/lib/tauri-api';
+import { tauriInvoke } from '@/lib/tauriApi';
 import {
   TERMINAL_SHELL_OPTIONS,
   getDefaultTerminalShell,

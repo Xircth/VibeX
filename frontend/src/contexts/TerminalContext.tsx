@@ -9,7 +9,7 @@ import {
 } from 'react';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import { tauriInvoke, tauriListen } from '../lib/tauri-api';
+import { tauriInvoke, tauriListen } from '../lib/tauriApi';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 export interface TerminalInstance {

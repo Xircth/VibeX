@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
-import { tauriListen } from '@/lib/tauri-api';
+import { tauriListen } from '@/lib/tauriApi';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
   generateTerminalTabId,

@@ -232,15 +232,13 @@ fn copy_response_headers(
             continue;
         }
 
-        if name == header::LOCATION {
-            if let (Some(proxy_port), Ok(location)) = (proxy_port, value.to_str()) {
-                if let Some(rewritten) = rewrite_location(location, target_port, proxy_port) {
-                    if let Ok(header_value) = HeaderValue::from_str(&rewritten) {
-                        destination.insert(name.clone(), header_value);
-                        continue;
-                    }
-                }
-            }
+        if name == header::LOCATION
+            && let (Some(proxy_port), Ok(location)) = (proxy_port, value.to_str())
+            && let Some(rewritten) = rewrite_location(location, target_port, proxy_port)
+            && let Ok(header_value) = HeaderValue::from_str(&rewritten)
+        {
+            destination.insert(name.clone(), header_value);
+            continue;
         }
 
         destination.insert(name.clone(), value.clone());

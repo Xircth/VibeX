@@ -14,7 +14,6 @@ import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   createEmptyKanbanSessionLayoutState,
-  isSameKanbanSession,
   placeCreatedSession,
   placeSessionFromList,
   promoteMonitorSessionToRight,
@@ -74,9 +73,9 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     lastSyncedWorkspaceIdRef.current = null;
   }, [projectId]);
 
-  // Keep right-panel session in sync when workspace changes.
-  // Do not override if the current right-panel session already belongs to the
-  // target workspace (e.g. switching tabs while preserving session selection).
+  // Seed the right panel from the active workspace when nothing is selected yet.
+  // Once the user has chosen a session for the right panel, keep that selection
+  // stable across kanban/workspace switches until they explicitly change it.
   useEffect(() => {
     if (!activeWorktreeId) {
       return;
@@ -100,28 +99,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       : null;
 
     setLayoutState((current) => {
-      if (
-        current.rightSession &&
-        current.rightSession.workspaceId === activeWorktreeId
-      ) {
+      if (current.rightSession) {
         return current;
       }
 
       if (!nextSession) {
-        if (current.rightSession === null) {
-          return current;
-        }
-        return {
-          ...current,
-          rightSession: null,
-        };
-      }
-
-      if (
-        current.rightSession &&
-        isSameKanbanSession(current.rightSession, nextSession) &&
-        current.rightSession.workspaceId === nextSession.workspaceId
-      ) {
         return current;
       }
 

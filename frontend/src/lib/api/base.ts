@@ -1,6 +1,6 @@
 import type { GitOperationError } from 'shared/types';
 
-import { tauriInvoke } from '../tauri-api';
+import { tauriInvoke } from '../tauriApi';
 
 // Re-export tauriInvoke for use by other modules
 export { tauriInvoke };

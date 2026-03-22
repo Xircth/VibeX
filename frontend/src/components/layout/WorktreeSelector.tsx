@@ -98,7 +98,7 @@ export function WorktreeSelector() {
         console.warn('Copy workspace path failed:', error);
       }
     },
-    [worktrees]
+    []
   );
 
   const displayLabel = activeWorktree

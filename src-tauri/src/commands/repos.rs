@@ -142,10 +142,10 @@ fn github_token_from_env() -> Option<String> {
 }
 
 fn summarize_github_api_error_body(body: &str) -> String {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
-        if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
-            return message.to_string();
-        }
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body)
+        && let Some(message) = json.get("message").and_then(|v| v.as_str())
+    {
+        return message.to_string();
     }
 
     let compact = body.replace('\n', " ").trim().to_string();

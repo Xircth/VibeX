@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ThemeMode } from 'shared/types';
-import { tauriListen } from '@/lib/tauri-api';
+import { tauriListen } from '@/lib/tauriApi';
 
 type ResolvedTheme = 'light' | 'dark';
 

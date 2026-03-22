@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2, Wrench, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
@@ -223,6 +223,13 @@ export function PreviewPanel() {
     };
   }, [rawPreviewUrl]);
 
+  const clearBridgeBootstrap = useCallback(() => {
+    if (bridgeBootstrapTimerRef.current !== null) {
+      window.clearInterval(bridgeBootstrapTimerRef.current);
+      bridgeBootstrapTimerRef.current = null;
+    }
+  }, []);
+
   const handleIframeError = () => {
     clearBridgeBootstrap();
     previewIframeRef.current = null;
@@ -236,54 +243,50 @@ export function PreviewPanel() {
     setIsSelectModeEnabled(false);
   };
 
-  const clearBridgeBootstrap = () => {
-    if (bridgeBootstrapTimerRef.current !== null) {
-      window.clearInterval(bridgeBootstrapTimerRef.current);
-      bridgeBootstrapTimerRef.current = null;
-    }
-  };
+  const bootstrapPreviewBridge = useCallback(
+    (iframe: HTMLIFrameElement | null) => {
+      previewIframeRef.current = iframe;
 
-  const bootstrapPreviewBridge = (iframe: HTMLIFrameElement | null) => {
-    previewIframeRef.current = iframe;
-
-    if (!iframe) {
-      return;
-    }
-
-    clearBridgeBootstrap();
-
-    let attempts = 0;
-    const syncBridge = () => {
-      const listener = listenerRef.current;
-      const activeIframe = previewIframeRef.current;
-      if (!listener || !activeIframe) {
-        clearBridgeBootstrap();
+      if (!iframe) {
         return;
       }
 
-      listener.enableButton(activeIframe);
+      clearBridgeBootstrap();
 
-      if (requestedSelectModeRef.current !== null) {
-        listener.setTargetingEnabled(
-          activeIframe,
-          requestedSelectModeRef.current
-        );
-      }
+      let attempts = 0;
+      const syncBridge = () => {
+        const listener = listenerRef.current;
+        const activeIframe = previewIframeRef.current;
+        if (!listener || !activeIframe) {
+          clearBridgeBootstrap();
+          return;
+        }
 
-      attempts += 1;
-      if (
-        attempts >= 12 ||
-        (companionReadyRef.current &&
-          (toolbarBridgeReadyRef.current ||
-            requestedSelectModeRef.current === null))
-      ) {
-        clearBridgeBootstrap();
-      }
-    };
+        listener.enableButton(activeIframe);
 
-    syncBridge();
-    bridgeBootstrapTimerRef.current = window.setInterval(syncBridge, 250);
-  };
+        if (requestedSelectModeRef.current !== null) {
+          listener.setTargetingEnabled(
+            activeIframe,
+            requestedSelectModeRef.current
+          );
+        }
+
+        attempts += 1;
+        if (
+          attempts >= 12 ||
+          (companionReadyRef.current &&
+            (toolbarBridgeReadyRef.current ||
+              requestedSelectModeRef.current === null))
+        ) {
+          clearBridgeBootstrap();
+        }
+      };
+
+      syncBridge();
+      bridgeBootstrapTimerRef.current = window.setInterval(syncBridge, 250);
+    },
+    [clearBridgeBootstrap]
+  );
 
   const handleIframeLoad = (iframe: HTMLIFrameElement | null) => {
     previewIframeRef.current = iframe;
@@ -333,7 +336,7 @@ export function PreviewPanel() {
       listenerRef.current = null;
       clearBridgeBootstrap();
     };
-  }, [addElement]);
+  }, [addElement, bootstrapPreviewBridge, clearBridgeBootstrap]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -373,7 +376,7 @@ export function PreviewPanel() {
     setShowHelp(false);
     setIsCompanionHelpDismissed(false);
     setDevServerStartError(null);
-  }, [effectiveUrl, primaryDevServer?.id]);
+  }, [clearBridgeBootstrap, effectiveUrl, primaryDevServer?.id]);
 
   useEffect(() => {
     // Sync select mode state via the companion bridge when it changes

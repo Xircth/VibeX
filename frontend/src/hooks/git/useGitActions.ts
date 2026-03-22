@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { attemptsApi, repoApi } from '@/lib/api';
 
 interface UseGitActionsOptions {
@@ -53,36 +53,74 @@ export function useGitActions({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const deps = [workspaceId, repoId, onSuccess];
-
-  const stageFile = useCallback(
-    makeGitAction(workspaceId, repoId, setIsLoading, setError, onSuccess,
-      attemptsApi.stageFile, repoApi.stageFile),
-    deps
+  const stageFile = useMemo(
+    () =>
+      makeGitAction(
+        workspaceId,
+        repoId,
+        setIsLoading,
+        setError,
+        onSuccess,
+        attemptsApi.stageFile,
+        repoApi.stageFile
+      ),
+    [workspaceId, repoId, onSuccess]
   );
 
-  const unstageFile = useCallback(
-    makeGitAction(workspaceId, repoId, setIsLoading, setError, onSuccess,
-      attemptsApi.unstageFile, repoApi.unstageFile),
-    deps
+  const unstageFile = useMemo(
+    () =>
+      makeGitAction(
+        workspaceId,
+        repoId,
+        setIsLoading,
+        setError,
+        onSuccess,
+        attemptsApi.unstageFile,
+        repoApi.unstageFile
+      ),
+    [workspaceId, repoId, onSuccess]
   );
 
-  const revertFile = useCallback(
-    makeGitAction(workspaceId, repoId, setIsLoading, setError, onSuccess,
-      attemptsApi.revertFile, repoApi.revertFile),
-    deps
+  const revertFile = useMemo(
+    () =>
+      makeGitAction(
+        workspaceId,
+        repoId,
+        setIsLoading,
+        setError,
+        onSuccess,
+        attemptsApi.revertFile,
+        repoApi.revertFile
+      ),
+    [workspaceId, repoId, onSuccess]
   );
 
-  const stageAll = useCallback(
-    makeGitAction(workspaceId, repoId, setIsLoading, setError, onSuccess,
-      attemptsApi.stageAll, repoApi.stageAll),
-    deps
+  const stageAll = useMemo(
+    () =>
+      makeGitAction(
+        workspaceId,
+        repoId,
+        setIsLoading,
+        setError,
+        onSuccess,
+        attemptsApi.stageAll,
+        repoApi.stageAll
+      ),
+    [workspaceId, repoId, onSuccess]
   );
 
-  const revertAll = useCallback(
-    makeGitAction(workspaceId, repoId, setIsLoading, setError, onSuccess,
-      attemptsApi.revertAll, repoApi.revertAll),
-    deps
+  const revertAll = useMemo(
+    () =>
+      makeGitAction(
+        workspaceId,
+        repoId,
+        setIsLoading,
+        setError,
+        onSuccess,
+        attemptsApi.revertAll,
+        repoApi.revertAll
+      ),
+    [workspaceId, repoId, onSuccess]
   );
 
   return {

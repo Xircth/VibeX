@@ -10,6 +10,14 @@ import { PANEL_IDS } from '@/stores/useLayoutStore';
  * acting as a reliable post-restore fallback.
  */
 export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
+  type GroupWithHeaderModel = {
+    model?: {
+      header?: {
+        hidden?: boolean;
+      };
+    };
+  };
+
   const leftPanel =
     api.getPanel(PANEL_IDS.FILE_TREE) ?? api.getPanel(PANEL_IDS.GIT);
 
@@ -20,7 +28,7 @@ export function applyLeftGroupHeaderHiding(api: DockviewApi): void {
 
   // Use the documented `hidden` setter on the group header model
   try {
-    const model = (group as any).model;
+    const model = (group as GroupWithHeaderModel).model;
     if (model?.header && typeof model.header.hidden !== 'undefined') {
       model.header.hidden = true;
     }

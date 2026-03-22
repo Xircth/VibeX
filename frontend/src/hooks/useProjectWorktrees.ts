@@ -13,26 +13,29 @@ export interface WorktreeInfo {
  * enriched with their parent task info.
  */
 export function useProjectWorktrees(projectId: string | undefined) {
-  const { tasks, tasksById } = useProjectTasks(projectId ?? '');
+  const { tasksById } = useProjectTasks(projectId ?? '');
 
-  // Collect all workspace IDs by iterating through tasks that have attempts
-  const activeTaskIds = tasks
-    .filter((t) => t.has_in_progress_attempt || t.status === 'inprogress' || t.status === 'inreview')
-    .map((t) => t.id);
-
-  const { data: worktrees, isLoading } = useQuery({
-    queryKey: ['projectWorktrees', projectId, activeTaskIds],
+  const { data: projectWorkspaces, isLoading } = useQuery({
+    queryKey: ['projectWorktrees', projectId],
     queryFn: async () => {
-      if (!activeTaskIds.length) return [];
-      const results = await Promise.all(
-        activeTaskIds.map((taskId) => attemptsApi.getAll(taskId))
-      );
-      return results.flat().filter((w) => !w.archived);
+      if (!projectId) return [];
+      const workspaces = await attemptsApi.getProjectWorkspaces(projectId);
+      return workspaces
+        .filter((workspace) => !workspace.archived)
+        .filter(
+          (workspace, index, all) =>
+            all.findIndex((candidate) => candidate.id === workspace.id) === index
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.updated_at).getTime() -
+            new Date(left.updated_at).getTime()
+        );
     },
-    enabled: !!projectId && activeTaskIds.length > 0,
+    enabled: !!projectId,
   });
 
-  const enriched: WorktreeInfo[] = (worktrees ?? []).map((ws) => ({
+  const enriched: WorktreeInfo[] = (projectWorkspaces ?? []).map((ws) => ({
     workspace: ws,
     task: tasksById[ws.task_id] ?? null,
   }));

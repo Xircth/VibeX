@@ -12,6 +12,7 @@ import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorkspaceSessions } from '@/hooks/useWorkspaceSessions';
+import { resolveActiveSession } from '@/hooks/useWorkspaceSessions';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { sessionsApi } from '@/lib/api';
@@ -64,14 +65,7 @@ function KanbanSessionConversationContent({
   });
 
   const activeSession = interactive
-    ? sessionState.isNewSessionMode
-      ? undefined
-      : sessionState.selectedSessionId
-        ? (sessionState.selectedSession ??
-          (attempt.session?.id === sessionState.selectedSessionId
-            ? attempt.session
-            : undefined))
-        : attempt.session
+    ? resolveActiveSession(attempt.session, sessionState)
     : attempt.session;
 
   const activeAttempt = useMemo(
@@ -90,12 +84,11 @@ function KanbanSessionConversationContent({
       >
         <RetryUiProvider attemptId={attempt.id}>
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <VirtualizedList
                 ref={logsRef}
                 attempt={activeAttempt}
                 task={task}
-                conversationKey={conversationKey}
               />
             </div>
             {interactive ? (

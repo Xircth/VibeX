@@ -308,8 +308,7 @@ export function IDELayout({
     setRightPanelWidth,
     activeTab,
   } = useLayoutStore();
-  const routeTab =
-    taskId && attemptId ? 'workspace' : !taskId && !attemptId ? 'kanban' : null;
+  const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const serializedLayoutRef = useRef(serializedLayout);
   const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(

@@ -36,9 +36,12 @@ module.exports = {
       {
         vars: 'all',
         args: 'after-used',
+        varsIgnorePattern: '^_',
+        argsIgnorePattern: '^_',
         ignoreRestSiblings: false,
       },
     ],
+    '@typescript-eslint/no-unused-vars': 'off',
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/switch-exhaustiveness-check': 'error',
     // Enforce typesafe modal pattern

@@ -1,7 +1,7 @@
 // streamJsonPatchEntries.ts - Tauri Events JSON patch streaming utility
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
-import { tauriInvoke, tauriListen } from '@/lib/tauri-api';
+import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 
 type PatchContainer<E = unknown> = { entries: E[] };
 

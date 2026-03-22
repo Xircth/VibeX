@@ -91,6 +91,53 @@ impl LocalContainerService {
         }
     }
 
+    fn discover_workspace_dir_from_existing_worktree(
+        &self,
+        repositories: &[Repo],
+        branch_name: &str,
+    ) -> Option<PathBuf> {
+        for repo in repositories {
+            let worktree_path = match self
+                .git()
+                .find_worktree_path_for_branch(&repo.path, branch_name)
+            {
+                Ok(path) => path,
+                Err(err) => {
+                    tracing::debug!(
+                        "Failed to discover worktree for branch '{}' in repo '{}': {}",
+                        branch_name,
+                        repo.name,
+                        err
+                    );
+                    continue;
+                }
+            };
+
+            let Some(found_worktree_path) = worktree_path else {
+                continue;
+            };
+
+            let workspace_root = if found_worktree_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == repo.name)
+            {
+                found_worktree_path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or(found_worktree_path.clone())
+            } else {
+                found_worktree_path
+            };
+
+            if workspace_root.exists() {
+                return Some(workspace_root);
+            }
+        }
+
+        None
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         db: DBService,
@@ -1102,13 +1149,19 @@ impl ContainerService for LocalContainerService {
         let workspace_dir = if let Some(container_ref) = &workspace.container_ref {
             PathBuf::from(container_ref)
         } else {
-            let task = workspace
-                .parent_task(&self.db.pool)
-                .await?
-                .ok_or(sqlx::Error::RowNotFound)?;
-            let workspace_dir_name =
-                LocalContainerService::dir_name_from_workspace(&workspace.id, &task.title);
-            WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
+            if let Some(discovered_workspace_dir) = self
+                .discover_workspace_dir_from_existing_worktree(&repositories, &workspace.branch)
+            {
+                discovered_workspace_dir
+            } else {
+                let task = workspace
+                    .parent_task(&self.db.pool)
+                    .await?
+                    .ok_or(sqlx::Error::RowNotFound)?;
+                let workspace_dir_name =
+                    LocalContainerService::dir_name_from_workspace(&workspace.id, &task.title);
+                WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
+            }
         };
 
         WorkspaceManager::ensure_workspace_exists(&workspace_dir, &repositories, &workspace.branch)

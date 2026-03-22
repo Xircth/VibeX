@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
-import { tauriInvoke, tauriListen } from '@/lib/tauri-api';
+import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
@@ -90,7 +90,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
                 return;
               }
 
-              // Handle Finished â€” no further events expected
+              // Handle Finished â€?no further events expected
               if (msg === 'Finished') {
                 return;
               }

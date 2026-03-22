@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { tauriInvoke, tauriListen } from '@/lib/tauri-api';
+import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 import { getTerminalTheme } from '@/utils/terminalTheme';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 

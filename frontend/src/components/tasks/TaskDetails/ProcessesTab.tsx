@@ -61,7 +61,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
     } catch (err) {
       console.warn('Copy to clipboard failed:', err);
     }
-  }, [logs]);
+  }, [logs, triggerCopied]);
 
   const getStatusIcon = (status: ExecutionProcessStatus) => {
     switch (status) {

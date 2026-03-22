@@ -935,6 +935,15 @@ impl GitService {
         Ok(None)
     }
 
+    /// Find the local worktree path where a branch is currently checked out.
+    pub fn find_worktree_path_for_branch(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<Option<std::path::PathBuf>, GitServiceError> {
+        self.find_checkout_path_for_branch(repo_path, branch_name)
+    }
+
     /// Merge changes from a task branch into the base branch.
     pub fn merge_changes(
         &self,
@@ -1093,12 +1102,12 @@ impl GitService {
         let mut messages = Vec::new();
         for oid_result in revwalk {
             let oid = oid_result?;
-            if let Ok(commit) = repo.find_commit(oid) {
-                if let Some(msg) = commit.message() {
-                    let trimmed = msg.trim();
-                    if !trimmed.is_empty() {
-                        messages.push(trimmed.to_string());
-                    }
+            if let Ok(commit) = repo.find_commit(oid)
+                && let Some(msg) = commit.message()
+            {
+                let trimmed = msg.trim();
+                if !trimmed.is_empty() {
+                    messages.push(trimmed.to_string());
                 }
             }
         }
@@ -1131,16 +1140,14 @@ impl GitService {
         // Collect all branch refs for labeling
         let mut ref_map: HashMap<git2::Oid, Vec<String>> = HashMap::new();
         if let Ok(branches) = repo.branches(None) {
-            for branch_result in branches {
-                if let Ok((b, _)) = branch_result {
-                    if let Ok(Some(name)) = b.name() {
-                        if let Ok(commit) = b.get().peel_to_commit() {
-                            ref_map
-                                .entry(commit.id())
-                                .or_default()
-                                .push(name.to_string());
-                        }
-                    }
+            for (b, _) in branches.flatten() {
+                if let Ok(Some(name)) = b.name()
+                    && let Ok(commit) = b.get().peel_to_commit()
+                {
+                    ref_map
+                        .entry(commit.id())
+                        .or_default()
+                        .push(name.to_string());
                 }
             }
         }
@@ -1160,12 +1167,11 @@ impl GitService {
         revwalk.set_sorting(Sort::TIME)?;
 
         let mut nodes = Vec::new();
-        let mut count = 0usize;
         let past_merge_base_limit = 5;
         let mut past_merge_base = 0usize;
         let mut found_merge_base = false;
 
-        for oid_result in revwalk {
+        for (count, oid_result) in revwalk.enumerate() {
             if count >= max_commits {
                 break;
             }
@@ -1213,7 +1219,6 @@ impl GitService {
                 refs,
                 is_current_branch,
             });
-            count += 1;
         }
 
         Ok(CommitGraph {
@@ -2632,11 +2637,11 @@ impl GitService {
         let git = GitCli::new();
         let (summary, body, author, author_email, timestamp) = git
             .show_commit(worktree_path, sha)
-            .map_err(|e| GitServiceError::from(e))?;
+            .map_err(GitServiceError::from)?;
 
         let raw_files = git
             .show_commit_files(worktree_path, sha)
-            .map_err(|e| GitServiceError::from(e))?;
+            .map_err(GitServiceError::from)?;
 
         let files = raw_files
             .into_iter()
@@ -2667,14 +2672,14 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.cherry_pick(worktree_path, sha)
-            .map_err(|e| GitServiceError::from(e))
+            .map_err(GitServiceError::from)
     }
 
     /// Revert a commit (creates a new undo commit).
     pub fn revert_commit(&self, worktree_path: &Path, sha: &str) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.revert_commit(worktree_path, sha)
-            .map_err(|e| GitServiceError::from(e))
+            .map_err(GitServiceError::from)
     }
 
     /// Reset current branch to a specific commit.
@@ -2691,7 +2696,7 @@ impl GitService {
         };
         let git = GitCli::new();
         git.reset_to(worktree_path, sha, mode_str)
-            .map_err(|e| GitServiceError::from(e))
+            .map_err(GitServiceError::from)
     }
 
     /// Create a new branch at a specific commit.
@@ -2703,7 +2708,7 @@ impl GitService {
     ) -> Result<(), GitServiceError> {
         let git = GitCli::new();
         git.create_branch_at(worktree_path, branch_name, sha)
-            .map_err(|e| GitServiceError::from(e))
+            .map_err(GitServiceError::from)
     }
 
     // ── Helper functions ──────────────────────────────────────────────

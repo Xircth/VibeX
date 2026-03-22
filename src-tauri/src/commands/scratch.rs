@@ -11,7 +11,7 @@ pub async fn create_scratch(
     id: Uuid,
     payload: CreateScratch,
 ) -> Result<Scratch, AppError> {
-    payload.payload.validate_type(scratch_type.clone())?;
+    payload.payload.validate_type(scratch_type)?;
 
     let scratch = Scratch::create(&state.deployment.db().pool, id, &payload).await?;
     Ok(scratch)
@@ -39,7 +39,7 @@ pub async fn update_scratch(
     id: Uuid,
     payload: UpdateScratch,
 ) -> Result<(), AppError> {
-    payload.payload.validate_type(scratch_type.clone())?;
+    payload.payload.validate_type(scratch_type)?;
     Scratch::update(&state.deployment.db().pool, id, &scratch_type, &payload).await?;
     Ok(())
 }

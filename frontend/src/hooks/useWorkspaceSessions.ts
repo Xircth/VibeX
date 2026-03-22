@@ -37,6 +37,34 @@ export interface UseWorkspaceSessionsResult {
   startNewSession: () => void;
 }
 
+export type ActiveSessionSelectionState = Pick<
+  UseWorkspaceSessionsResult,
+  'selectedSession' | 'selectedSessionId' | 'isNewSessionMode'
+>;
+
+export function resolveActiveSession(
+  sessionFromAttempt: Session | undefined,
+  sessionState: ActiveSessionSelectionState
+): Session | undefined {
+  if (sessionState.isNewSessionMode) {
+    return undefined;
+  }
+
+  if (!sessionState.selectedSessionId) {
+    return sessionFromAttempt;
+  }
+
+  if (sessionState.selectedSession?.id === sessionState.selectedSessionId) {
+    return sessionState.selectedSession;
+  }
+
+  if (sessionFromAttempt?.id === sessionState.selectedSessionId) {
+    return sessionFromAttempt;
+  }
+
+  return undefined;
+}
+
 function getSessionStatusLabel(
   status: SessionStatus,
   isRunning: boolean,

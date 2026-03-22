@@ -1,4 +1,4 @@
-import { tauriInvoke } from '@/lib/tauri-api';
+import { tauriInvoke } from '@/lib/tauriApi';
 import type { BaseCodingAgent } from 'shared/types';
 
 /**

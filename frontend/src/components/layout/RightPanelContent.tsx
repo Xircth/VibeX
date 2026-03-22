@@ -12,26 +12,17 @@ export function RightPanelContent() {
     attemptId?: string;
   }>();
   const activeTab = useLayoutStore((state) => state.activeTab);
-  const routeTab =
-    taskId && attemptId ? 'workspace' : !taskId && !attemptId ? 'kanban' : null;
+  const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const { visibleRightSession, replaceRightSession } =
     useKanbanSessionContext();
-  const showKanbanSession = !!visibleRightSession;
+  const showRightSession = !!visibleRightSession;
 
   return (
     <div className="h-full flex overflow-hidden bg-background">
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <BranchInfoHeader />
-        <div
-          className={cn(
-            'flex-1 min-h-0 overflow-hidden',
-            showKanbanSession && 'hidden'
-          )}
-        >
-          <Outlet />
-        </div>
-        {showKanbanSession && visibleRightSession ? (
+        {showRightSession && visibleRightSession ? (
           <div className="flex-1 min-h-0 overflow-hidden">
             <KanbanSessionConversationView
               workspaceId={visibleRightSession.workspaceId}
@@ -43,7 +34,16 @@ export function RightPanelContent() {
               className="h-full"
             />
           </div>
-        ) : null}
+        ) : (
+          <div
+            className={cn(
+              'flex-1 min-h-0 overflow-hidden',
+              effectiveActiveTab === 'kanban' && 'hidden'
+            )}
+          >
+            <Outlet />
+          </div>
+        )}
       </div>
       {effectiveActiveTab === 'workspace' ? <RightPanelSidebar /> : null}
     </div>

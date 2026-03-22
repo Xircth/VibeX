@@ -181,7 +181,7 @@ export function ProjectTasks() {
             <>
               <GitErrorBanner />
               <div className="flex-1 min-h-0 flex flex-col">
-                <div className="flex-1 min-h-0 flex flex-col">{logs}</div>
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{logs}</div>
                 {followUp}
               </div>
             </>

@@ -74,6 +74,10 @@ fn add_path(repo_path: &Path, path: &str) {
     git.git(repo_path, ["add", path]).unwrap();
 }
 
+fn normalize_line_endings(content: &str) -> String {
+    content.replace("\r\n", "\n")
+}
+
 use git::DiffTarget;
 
 // Non-conflicting setup used by several tests
@@ -592,10 +596,10 @@ fn merge_preserves_unstaged_changes_on_base() {
         .unwrap();
     // local edit preserved
     let loc = std::fs::read_to_string(repo_path.join("common.txt")).unwrap();
-    assert_eq!(loc, "local edited\n");
+    assert_eq!(normalize_line_endings(&loc), "local edited\n");
     // merged file updated
     let m = std::fs::read_to_string(repo_path.join("merged.txt")).unwrap();
-    assert_eq!(m, "merged content\n");
+    assert_eq!(normalize_line_endings(&m), "merged content\n");
 }
 
 #[test]
@@ -765,8 +769,8 @@ fn rebase_applies_multiple_commits_onto_ahead_base() {
     // Verify both files exist with expected content in the rebased worktree
     let feat = std::fs::read_to_string(worktree_path.join("feat.txt")).unwrap();
     let feat2 = std::fs::read_to_string(worktree_path.join("feat2.txt")).unwrap();
-    assert_eq!(feat, "feat change\n");
-    assert_eq!(feat2, "second change\n");
+    assert_eq!(normalize_line_endings(&feat), "feat change\n");
+    assert_eq!(normalize_line_endings(&feat2), "second change\n");
 }
 
 #[test]
@@ -940,7 +944,7 @@ fn merge_refreshes_main_worktree_when_on_base() {
     // Since main is on base branch and we use safe CLI merge, both working tree
     // and ref should reflect the merged content.
     let content = std::fs::read_to_string(repo_path.join("file.txt")).unwrap();
-    assert_eq!(content, "feature change\n");
+    assert_eq!(normalize_line_endings(&content), "feature change\n");
     let oid = s.get_branch_oid(&repo_path, "main").unwrap();
     assert_eq!(oid, merge_sha);
 }

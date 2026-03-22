@@ -1214,8 +1214,8 @@ pub trait ContainerService {
                 if let Some(action) = Self::setup_action_for_repo(repo)
                     && let Err(e) = self
                         .start_execution(
-                            &workspace,
-                            &session,
+                            workspace,
+                            session,
                             &action,
                             &ExecutionProcessRunReason::SetupScript,
                         )
@@ -1225,8 +1225,8 @@ pub trait ContainerService {
                 }
             }
             self.start_execution(
-                &workspace,
-                &session,
+                workspace,
+                session,
                 &coding_action,
                 &ExecutionProcessRunReason::CodingAgent,
             )
@@ -1235,8 +1235,8 @@ pub trait ContainerService {
             // Any sequential: chain ALL setups → coding agent via next_action
             let main_action = Self::build_sequential_setup_chain(&repos_with_setup, coding_action);
             self.start_execution(
-                &workspace,
-                &session,
+                workspace,
+                session,
                 &main_action,
                 &ExecutionProcessRunReason::SetupScript,
             )

@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { BaseCodingAgent, ExecutorConfigs, ExecutorProfileId } from 'shared/types';
+import type {
+  BaseCodingAgent,
+  ExecutorConfigs,
+  ExecutorProfileId,
+} from 'shared/types';
 import { BaseCodingAgent as BaseCodingAgentEnum } from 'shared/types';
 import { AgentSelector } from '@/components/tasks/AgentSelector';
 import { ConfigSelector } from '@/components/tasks/ConfigSelector';
-import {
-  CodexModelSelector,
-  type CodexModelOption,
-} from '@/components/tasks/CodexModelSelector';
+import { CodexModelSelector } from '@/components/tasks/CodexModelSelector';
 import { ModelSelector, type ModelKey } from '@/components/tasks/ModelSelector';
-import { PermissionSelector, type PermissionMode } from '@/components/tasks/PermissionSelector';
 import {
-  getDefaultVariantForExecutor,
+  PermissionSelector,
+  type PermissionMode,
+} from '@/components/tasks/PermissionSelector';
+import {
+  type CodexPermissionMode,
+  getCodexModelOptions,
+  getCodexVariantConfig,
+  getCodexVariantFromSelection,
   getDefaultProfileForExecutor,
-  getVariantOptions,
   isClaudeCodeExecutor,
 } from '@/utils/executor';
 
@@ -59,120 +65,6 @@ function getClaudeVariant(
   }
 }
 
-type CodexVariantConfig = {
-  model: string | null;
-  permissionMode: Extract<PermissionMode, 'auto' | 'ask'>;
-  variant: string | null;
-};
-
-const CODEX_MODEL_LABELS: Record<string, string> = {
-  'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
-  'gpt-5.2': 'GPT-5.2',
-  'gpt-5.2-codex': 'GPT-5.2 Codex',
-  'gpt-5.3-codex': 'GPT-5.3 Codex',
-};
-
-function getVariantRecord(
-  profiles: ExecutorConfigs['executors'] | null,
-  executor: BaseCodingAgent,
-  variant: string | null
-): Record<string, unknown> | null {
-  const executorProfiles = profiles?.[executor] as Record<string, unknown> | undefined;
-  if (!executorProfiles) return null;
-
-  const variantKey = variant ?? 'DEFAULT';
-  const variantEntry = executorProfiles[variantKey] as Record<string, unknown> | undefined;
-  if (!variantEntry) return null;
-
-  return (variantEntry[executor] as Record<string, unknown> | undefined) ?? null;
-}
-
-function getCodexVariantConfig(
-  profiles: ExecutorConfigs['executors'] | null,
-  variant: string | null
-): CodexVariantConfig {
-  const record = getVariantRecord(profiles, BaseCodingAgentEnum.CODEX, variant);
-  const askForApproval = record?.ask_for_approval;
-  const model = typeof record?.model === 'string' ? record.model : null;
-
-  return {
-    model,
-    permissionMode:
-      typeof askForApproval === 'string' && askForApproval !== 'never'
-        ? 'ask'
-        : 'auto',
-    variant,
-  };
-}
-
-function formatCodexModelLabel(model: string | null): string {
-  if (!model) return '默认';
-  return CODEX_MODEL_LABELS[model] ?? model;
-}
-
-function getCodexModelOptions(
-  profiles: ExecutorConfigs['executors'] | null
-): CodexModelOption[] {
-  const variants = getVariantOptions(BaseCodingAgentEnum.CODEX, profiles);
-  const seen = new Set<string>();
-  const options: CodexModelOption[] = [];
-
-  for (const variantKey of variants) {
-    const variant = variantKey === 'DEFAULT' ? null : variantKey;
-    const model = getCodexVariantConfig(profiles, variant).model;
-    const modelKey = model ?? 'DEFAULT';
-    if (seen.has(modelKey)) continue;
-
-    seen.add(modelKey);
-    options.push({
-      value: model,
-      label: formatCodexModelLabel(model),
-    });
-  }
-
-  const sortPriority = (value: string | null): number => {
-    switch (value) {
-      case 'gpt-5.1-codex-max':
-        return 0;
-      case 'gpt-5.2':
-        return 1;
-      case 'gpt-5.2-codex':
-        return 2;
-      case 'gpt-5.3-codex':
-        return 3;
-      case null:
-        return 99;
-      default:
-        return 50;
-    }
-  };
-
-  return (options.length > 0
-    ? options
-    : [{ value: null, label: '默认' }]
-  ).sort((a, b) => sortPriority(a.value) - sortPriority(b.value));
-}
-
-function getCodexVariantFromSelection(
-  profiles: ExecutorConfigs['executors'] | null,
-  selectedModel: string | null,
-  permissionMode: Extract<PermissionMode, 'auto' | 'ask'>
-): string | null {
-  const variants = getVariantOptions(BaseCodingAgentEnum.CODEX, profiles);
-
-  const matchedVariant = variants.find((variantKey) => {
-    const variant = variantKey === 'DEFAULT' ? null : variantKey;
-    const config = getCodexVariantConfig(profiles, variant);
-    return config.model === selectedModel && config.permissionMode === permissionMode;
-  });
-
-  if (!matchedVariant) {
-    return getDefaultVariantForExecutor(BaseCodingAgentEnum.CODEX, profiles);
-  }
-
-  return matchedVariant === 'DEFAULT' ? null : matchedVariant;
-}
-
 export function TerminalProfileControls({
   profiles,
   selectedProfile,
@@ -191,19 +83,19 @@ export function TerminalProfileControls({
     [selectedProfile?.variant]
   );
 
-  const [permissionMode, setPermissionMode] =
-    useState<PermissionMode>(initialClaudeUiState.permissionMode);
-  const [selectedModelKey, setSelectedModelKey] =
-    useState<ModelKey>(initialClaudeUiState.modelKey);
-  const [codexPermissionMode, setCodexPermissionMode] = useState<
-    Extract<PermissionMode, 'auto' | 'ask'>
-  >('auto');
-  const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(null);
-
-  const codexModelOptions = useMemo(
-    () => getCodexModelOptions(profiles),
-    [profiles]
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
+    initialClaudeUiState.permissionMode
   );
+  const [selectedModelKey, setSelectedModelKey] = useState<ModelKey>(
+    initialClaudeUiState.modelKey
+  );
+  const [codexPermissionMode, setCodexPermissionMode] =
+    useState<CodexPermissionMode>('auto');
+  const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
+    null
+  );
+
+  const codexModelOptions = useMemo(() => getCodexModelOptions(profiles), [profiles]);
 
   useEffect(() => {
     if (!isClaude) return;
@@ -267,7 +159,7 @@ export function TerminalProfileControls({
   };
 
   const handleCodexControlChange = (
-    nextPermissionMode: Extract<PermissionMode, 'auto' | 'ask'>,
+    nextPermissionMode: CodexPermissionMode,
     nextModel: string | null
   ) => {
     if (!executor) return;
@@ -320,7 +212,7 @@ export function TerminalProfileControls({
           <PermissionSelector
             value={codexPermissionMode}
             onChange={(mode) => {
-              const nextMode = mode === 'ask' ? 'ask' : 'auto';
+              const nextMode: CodexPermissionMode = mode === 'ask' ? 'ask' : 'auto';
               setCodexPermissionMode(nextMode);
               handleCodexControlChange(nextMode, selectedCodexModel);
             }}

@@ -12,6 +12,7 @@ import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
+import { deriveWorkspaceRootPath } from './workspaceRootPath';
 
 /**
  * DockviewFileTreePanel - File tree sidebar panel for browsing project files.
@@ -48,13 +49,9 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   // Switch rootPath to workspace worktree path when workspace changes
   useEffect(() => {
     if (activeWorktreeId && activeWorktreeId !== prevWorktreeIdRef.current) {
-      if (workspace?.container_ref && workspaceRepos.length > 0) {
-        const containerRef = workspace.container_ref;
-        const repoName = workspaceRepos[0].name;
-        // Use the same separator as the containerRef path
-        const sep = containerRef.includes("\\") ? "\\" : "/";
-        const worktreePath = containerRef.replace(/[\\/]+$/, '') + sep + repoName;
-        setRootPath(worktreePath);
+      const workspaceRootPath = deriveWorkspaceRootPath(workspace, workspaceRepos);
+      if (workspaceRootPath) {
+        setRootPath(workspaceRootPath);
         prevWorktreeIdRef.current = activeWorktreeId;
       }
     } else if (!activeWorktreeId && prevWorktreeIdRef.current !== null) {

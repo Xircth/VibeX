@@ -7,7 +7,6 @@ use std::{
 use git::{DiffTarget, GitCli, GitService};
 use git2::{Repository, build::CheckoutBuilder};
 use tempfile::TempDir;
-use utils::diff::DiffChangeKind;
 
 fn add_path(repo_path: &Path, path: &str) {
     let git = GitCli::new();
@@ -191,9 +190,8 @@ fn diff_added_binary_file_has_no_content() {
     // branch with binary file
     create_branch(&repo_path, "feature");
     checkout_branch(&repo_path, "feature");
-    // write binary with null byte
-    let mut f = fs::File::create(repo_path.join("bin.dat")).unwrap();
-    f.write_all(&[0u8, 1, 2, 3]).unwrap();
+    // Write binary bytes and close handle immediately so git reads stable content on Windows.
+    fs::write(repo_path.join("bin.dat"), [0u8, 1, 2, 3]).unwrap();
     let _ = s.commit(&repo_path, "add binary").unwrap();
 
     let s = GitService::new();
@@ -211,7 +209,11 @@ fn diff_added_binary_file_has_no_content() {
         .iter()
         .find(|d| d.new_path.as_deref() == Some("bin.dat"))
         .expect("binary diff present");
-    assert!(bin.new_content.is_none());
+    assert!(
+        bin.new_content.is_none(),
+        "expected binary diff to omit new_content, got: {:?}",
+        bin.new_content
+    );
 }
 
 #[test]

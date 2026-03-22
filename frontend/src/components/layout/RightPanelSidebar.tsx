@@ -38,7 +38,7 @@ export function RightPanelSidebar() {
   const { activeWorktreeId } = useWorktree();
   const { visibleRightSession } = useKanbanSessionContext();
   const effectiveWorkspaceId =
-    activeWorktreeId ?? visibleRightSession?.workspaceId ?? undefined;
+    visibleRightSession?.workspaceId ?? activeWorktreeId ?? undefined;
   const effectiveSessionId = visibleRightSession?.sessionId;
   const { data: attempt } = useTaskAttemptWithSession(effectiveWorkspaceId);
   const aiHostedDevStart = useAiHostedDevServerStart(effectiveWorkspaceId);

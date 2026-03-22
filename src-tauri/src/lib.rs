@@ -77,6 +77,7 @@ pub fn run() {
             commands::tasks::update_task,
             commands::tasks::delete_task,
             commands::workspaces::get_workspaces,
+            commands::workspaces::get_project_workspaces,
             commands::workspaces::get_workspace,
             commands::workspaces::get_workspace_count,
             commands::workspaces::create_workspace,

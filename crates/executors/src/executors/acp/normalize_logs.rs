@@ -348,10 +348,6 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         })
                     };
                     ActionType::CommandRun {
-                        category:
-                            crate::logs::utils::shell_command_parsing::CommandCategory::from_command(
-                                &command,
-                            ),
                         command,
                         result,
                     }

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
-import { tauriInvoke, tauriListen } from '@/lib/tauri-api';
+import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 
 // ------------------------------------------------------------------
 // Tauri event payload types

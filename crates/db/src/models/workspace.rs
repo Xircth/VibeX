@@ -173,6 +173,34 @@ impl Workspace {
         sql.fetch_all(pool).await.map_err(WorkspaceError::Database)
     }
 
+    pub async fn fetch_by_project_id(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<Self>, WorkspaceError> {
+        sqlx::query_as::<_, Workspace>(
+            r#"SELECT w.id,
+                      w.task_id,
+                      w.container_ref,
+                      w.branch,
+                      w.use_worktree,
+                      w.agent_working_dir,
+                      w.setup_completed_at,
+                      w.created_at,
+                      w.updated_at,
+                      w.archived,
+                      w.pinned,
+                      w.name
+               FROM workspaces w
+               JOIN tasks t ON t.id = w.task_id
+               WHERE t.project_id = ?
+               ORDER BY w.updated_at DESC, w.created_at DESC"#,
+        )
+        .bind(project_id)
+        .fetch_all(pool)
+        .await
+        .map_err(WorkspaceError::Database)
+    }
+
     pub async fn fetch_seed_by_task_id(
         pool: &SqlitePool,
         task_id: Uuid,

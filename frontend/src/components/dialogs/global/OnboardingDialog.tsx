@@ -31,6 +31,12 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
 import { toPrettyCase } from '@/utils/string';
+import {
+  getCodexModelOptions,
+  getCodexVariantConfig,
+  getCodexVariantFromSelection,
+  getVariantOptions,
+} from '@/utils/executor';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, type NoProps } from '@/lib/modals';
 import { useEditorAvailability } from '@/hooks/useEditorAvailability';
@@ -93,6 +99,11 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
   const agentAvailability = useAgentAvailability(profile.executor);
 
   const isClaudeCode = profile.executor === BaseCodingAgent.CLAUDE_CODE;
+  const isCodex = profile.executor === BaseCodingAgent.CODEX;
+  const codexModelOptions = isCodex ? getCodexModelOptions(profiles) : [];
+  const codexVariantConfig = isCodex
+    ? getCodexVariantConfig(profiles, profile.variant ?? null)
+    : null;
 
   const handleComplete = () => {
     modal.resolve({
@@ -193,13 +204,54 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               </div>
             )}
 
-            {/* Non-Claude agents: show profile variants */}
-            {!isClaudeCode && (() => {
-              const selectedProfile = profiles?.[profile.executor];
-              const hasVariants =
-                selectedProfile && Object.keys(selectedProfile).length > 0;
+            {!isClaudeCode && isCodex && codexModelOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">模型</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full px-3 flex items-center justify-between"
+                    >
+                      <span className="text-sm truncate">
+                        {codexModelOptions.find(
+                          (option) => option.value === codexVariantConfig?.model
+                        )?.label ?? codexModelOptions[0]?.label ?? 'Default'}
+                      </span>
+                      <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    {codexModelOptions.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value ?? 'DEFAULT'}
+                        onClick={() =>
+                          setProfile({
+                            ...profile,
+                            variant: getCodexVariantFromSelection(
+                              profiles,
+                              option.value,
+                              codexVariantConfig?.permissionMode ?? 'auto'
+                            ),
+                          })
+                        }
+                        className={
+                          codexVariantConfig?.model === option.value ? 'bg-muted' : ''
+                        }
+                      >
+                        {option.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
 
-              if (!hasVariants) return null;
+            {/* Non-Claude agents: show profile variants */}
+            {!isClaudeCode && !isCodex && (() => {
+              const variantOptions = getVariantOptions(profile.executor, profiles);
+              if (variantOptions.length === 0) return null;
+              const selectedVariant = profile.variant ?? 'DEFAULT';
 
               return (
                 <div className="space-y-2">
@@ -211,20 +263,23 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                         className="w-full px-3 flex items-center justify-between"
                       >
                         <span className="text-sm truncate">
-                          {profile.variant || 'DEFAULT'}
+                          {selectedVariant}
                         </span>
                         <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                      {Object.keys(selectedProfile).map((variant) => (
+                      {variantOptions.map((variant) => (
                         <DropdownMenuItem
                           key={variant}
                           onClick={() =>
-                            setProfile({ ...profile, variant })
+                            setProfile({
+                              ...profile,
+                              variant: variant === 'DEFAULT' ? null : variant,
+                            })
                           }
                           className={
-                            profile.variant === variant ? 'bg-muted' : ''
+                            selectedVariant === variant ? 'bg-muted' : ''
                           }
                         >
                           {variant}

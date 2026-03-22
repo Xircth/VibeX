@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { tauriEmit } from '@/lib/tauri-api';
+import { tauriEmit } from '@/lib/tauriApi';
 // Deep clone: structuredClone (native), deep equal: JSON comparison, deep merge: manual
 function deepMerge<T extends Record<string, unknown>>(target: T, ...sources: Partial<T>[]): T {
   const result = { ...target };

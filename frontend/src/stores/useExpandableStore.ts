@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 type State = {
   expanded: Record<string, boolean>;
+  revision: number;
   setKey: (key: string, value: boolean) => void;
   toggleKey: (key: string, fallback?: boolean) => void;
   clear: () => void;
@@ -9,18 +10,22 @@ type State = {
 
 const useExpandableStore = create<State>((set) => ({
   expanded: {},
+  revision: 0,
   setKey: (key, value) =>
     set((s) =>
       s.expanded[key] === value
         ? s
-        : { expanded: { ...s.expanded, [key]: value } }
+        : { expanded: { ...s.expanded, [key]: value }, revision: s.revision + 1 }
     ),
   toggleKey: (key, fallback = false) =>
     set((s) => {
       const next = !(s.expanded[key] ?? fallback);
-      return { expanded: { ...s.expanded, [key]: next } };
+      return {
+        expanded: { ...s.expanded, [key]: next },
+        revision: s.revision + 1,
+      };
     }),
-  clear: () => set({ expanded: {} }),
+  clear: () => set((s) => ({ expanded: {}, revision: s.revision + 1 })),
 }));
 
 export function useExpandable(
@@ -37,4 +42,8 @@ export function useExpandable(
   };
 
   return [expandedValue ?? defaultValue, set];
+}
+
+export function useExpandableRevision(): number {
+  return useExpandableStore((s) => s.revision);
 }

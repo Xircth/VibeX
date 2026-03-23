@@ -302,8 +302,7 @@ async fn recover_workspace_container_ref(
             continue;
         };
 
-        let workspace_root =
-            derive_workspace_root_from_worktree_path(&repo, &found_worktree_path);
+        let workspace_root = derive_workspace_root_from_worktree_path(&repo, &found_worktree_path);
 
         if !workspace_root.exists() {
             continue;
@@ -373,7 +372,11 @@ async fn sync_project_workspaces_from_local_worktrees(
                 active_workspace_repo_branches.insert(repo_branch_key.clone());
             }
 
-            let candidate = (workspace.id, workspace.archived, workspace.container_ref.clone());
+            let candidate = (
+                workspace.id,
+                workspace.archived,
+                workspace.container_ref.clone(),
+            );
             match workspace_ref_by_repo_branch.get(&repo_branch_key) {
                 Some((_, existing_archived, _)) if *existing_archived && !workspace.archived => {
                     workspace_ref_by_repo_branch.insert(repo_branch_key, candidate);
@@ -441,9 +444,12 @@ async fn sync_project_workspaces_from_local_worktrees(
                 }
 
                 if existing_container_ref.as_deref() != Some(workspace_root_ref.as_str()) {
-                    let _ =
-                        Workspace::update_container_ref(pool, existing_workspace_id, &workspace_root_ref)
-                            .await;
+                    let _ = Workspace::update_container_ref(
+                        pool,
+                        existing_workspace_id,
+                        &workspace_root_ref,
+                    )
+                    .await;
                 }
 
                 workspace_by_root_and_branch.insert(root_branch_key, existing_workspace_id);
@@ -497,9 +503,7 @@ async fn sync_project_workspaces_from_local_worktrees(
                 &CreateTask {
                     project_id,
                     title: task_title.clone(),
-                    description: Some(
-                        "Imported from an existing local git worktree.".to_string(),
-                    ),
+                    description: Some("Imported from an existing local git worktree.".to_string()),
                     status: Some(TaskStatus::Todo),
                     parent_workspace_id: None,
                     image_ids: None,
@@ -573,7 +577,8 @@ async fn sync_project_workspaces_from_local_worktrees(
                 continue;
             }
 
-            let _ = Workspace::update(pool, workspace.id, None, None, Some(task_title.as_str())).await;
+            let _ =
+                Workspace::update(pool, workspace.id, None, None, Some(task_title.as_str())).await;
 
             workspace_by_root_and_branch.insert(root_branch_key, workspace.id);
             active_workspace_repo_branches.insert(repo_branch_key.clone());

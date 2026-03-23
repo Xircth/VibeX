@@ -42,6 +42,7 @@ import {
 } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { cn } from '@/lib/utils';
+import { getFirstAvailableProfile } from '@/utils/executor';
 import type {
   TaskStatus,
   ExecutorProfileId,
@@ -119,7 +120,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   // Get default form values based on mode
   const defaultValues = useMemo((): TaskFormValues => {
-    const baseProfile = system.config?.executor_profile || null;
+    const baseProfile = system.config?.executor_profile ?? getFirstAvailableProfile(profiles);
 
     switch (mode) {
       case 'edit': {
@@ -155,7 +156,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           useWorktree: true,
         };
     }
-  }, [mode, props, system.config?.executor_profile, defaultRepoBranches]);
+  }, [mode, props, system.config?.executor_profile, profiles, defaultRepoBranches]);
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {

@@ -922,11 +922,11 @@ export function IDELayout({
           <>
             <div
               ref={resizeHandleRef}
-              className="relative -mx-px w-px shrink-0 cursor-col-resize bg-transparent transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-all before:duration-150 hover:before:w-[3px] hover:before:bg-primary/40 after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
+              className="relative -mx-px w-px shrink-0 cursor-col-resize bg-transparent transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-all before:duration-150 hover:before:w-[3px] hover:before:bg-primary/40 after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-[''] z-20"
               onMouseDown={handleResizeMouseDown}
             />
             <div
-              className="shrink-0 overflow-hidden bg-background"
+              className="shrink-0 overflow-hidden bg-background z-20"
               style={{ width: rightPanelWidth }}
             >
               {rightPanelContent}

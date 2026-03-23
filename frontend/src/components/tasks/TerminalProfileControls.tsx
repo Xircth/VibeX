@@ -14,6 +14,11 @@ import {
   type PermissionMode,
 } from '@/components/tasks/PermissionSelector';
 import {
+  ReasoningEffortSelector,
+  type CodexReasoningEffort,
+  CODEX_DEFAULT_REASONING_EFFORT,
+} from '@/components/tasks/ReasoningEffortSelector';
+import {
   type CodexPermissionMode,
   getCodexModelOptions,
   getCodexVariantConfig,
@@ -94,6 +99,8 @@ export function TerminalProfileControls({
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     null
   );
+  const [codexReasoningEffort, setCodexReasoningEffort] =
+    useState<CodexReasoningEffort>(CODEX_DEFAULT_REASONING_EFFORT);
 
   const codexModelOptions = useMemo(() => getCodexModelOptions(profiles), [profiles]);
 
@@ -114,6 +121,7 @@ export function TerminalProfileControls({
     );
     setCodexPermissionMode(codexConfig.permissionMode);
     setSelectedCodexModel(codexConfig.model);
+    setCodexReasoningEffort(codexConfig.reasoningEffort);
   }, [isCodex, profiles, selectedProfile?.variant]);
 
   const handleExecutorChange = (nextExecutor: BaseCodingAgent) => {
@@ -134,7 +142,8 @@ export function TerminalProfileControls({
       const variant = getCodexVariantFromSelection(
         profiles,
         selectedCodexModel,
-        codexPermissionMode
+        codexPermissionMode,
+        codexReasoningEffort
       );
       onChange({
         executor: nextExecutor,
@@ -160,13 +169,14 @@ export function TerminalProfileControls({
 
   const handleCodexControlChange = (
     nextPermissionMode: CodexPermissionMode,
-    nextModel: string | null
+    nextModel: string | null,
+    nextReasoningEffort: CodexReasoningEffort = codexReasoningEffort
   ) => {
     if (!executor) return;
 
     onChange({
       executor,
-      variant: getCodexVariantFromSelection(profiles, nextModel, nextPermissionMode),
+      variant: getCodexVariantFromSelection(profiles, nextModel, nextPermissionMode, nextReasoningEffort),
     });
   };
 
@@ -214,7 +224,7 @@ export function TerminalProfileControls({
             onChange={(mode) => {
               const nextMode: CodexPermissionMode = mode === 'ask' ? 'ask' : 'auto';
               setCodexPermissionMode(nextMode);
-              handleCodexControlChange(nextMode, selectedCodexModel);
+              handleCodexControlChange(nextMode, selectedCodexModel, codexReasoningEffort);
             }}
             modes={['auto', 'ask']}
             disabled={disabled}
@@ -225,10 +235,19 @@ export function TerminalProfileControls({
             options={codexModelOptions}
             onChange={(model) => {
               setSelectedCodexModel(model);
-              handleCodexControlChange(codexPermissionMode, model);
+              handleCodexControlChange(codexPermissionMode, model, codexReasoningEffort);
             }}
             disabled={disabled}
             className="max-w-full shrink-0"
+          />
+          <ReasoningEffortSelector
+            value={codexReasoningEffort}
+            onChange={(effort) => {
+              setCodexReasoningEffort(effort);
+              handleCodexControlChange(codexPermissionMode, selectedCodexModel, effort);
+            }}
+            disabled={disabled}
+            className="shrink-0"
           />
         </>
       ) : (

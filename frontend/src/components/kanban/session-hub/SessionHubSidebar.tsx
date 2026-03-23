@@ -267,7 +267,7 @@ function DraggableSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={cn('touch-none', !isDeleteMode && 'cursor-grab')}
+      className={cn('min-w-0 touch-none', !isDeleteMode && 'cursor-grab')}
       style={{
         transform:
           transform && !isDragging
@@ -461,7 +461,7 @@ export function SessionHubSidebar({
 
             <div className="flex items-center gap-1">
               <Popover
-                modal={false}
+                modal={true}
                 open={isCreatePopoverOpen}
                 onOpenChange={onCreatePopoverOpenChange}
               >
@@ -549,7 +549,7 @@ export function SessionHubSidebar({
                         selectedProfile={selectedExecutorProfile}
                         onChange={onSelectedExecutorProfileChange}
                         disabled={isCreatePending}
-                        className="grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
+                        className="flex flex-wrap items-center gap-2"
                       />
                     </div>
 

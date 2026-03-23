@@ -24,6 +24,21 @@ const CODEX_MODEL_LABELS: Record<string, string> = {
 
 export type CodexPermissionMode = 'auto' | 'ask';
 
+export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+
+export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
+  value: CodexReasoningEffort;
+  label: string;
+  description: string;
+}> = [
+  { value: 'low', label: 'Low', description: '快速响应，推理较轻' },
+  { value: 'medium', label: 'Medium', description: '平衡速度和推理深度' },
+  { value: 'high', label: 'High', description: '更高的推理深度' },
+  { value: 'xhigh', label: 'Extra High', description: '极高的推理深度' },
+];
+
+export const CODEX_DEFAULT_REASONING_EFFORT: CodexReasoningEffort = 'high';
+
 export type CodexModelOption = {
   value: string | null;
   label: string;
@@ -32,6 +47,7 @@ export type CodexModelOption = {
 export type CodexVariantConfig = {
   model: string | null;
   permissionMode: CodexPermissionMode;
+  reasoningEffort: CodexReasoningEffort;
   variant: string | null;
 };
 
@@ -152,6 +168,9 @@ export function getCodexVariantConfig(
   const record = getCodexVariantRecord(profiles, variant);
   const askForApproval = record?.ask_for_approval;
   const model = typeof record?.model === 'string' ? record.model : null;
+  const reasoningEffort = typeof record?.model_reasoning_effort === 'string'
+    ? record.model_reasoning_effort as CodexReasoningEffort
+    : CODEX_DEFAULT_REASONING_EFFORT;
 
   return {
     model,
@@ -159,6 +178,7 @@ export function getCodexVariantConfig(
       typeof askForApproval === 'string' && askForApproval !== 'never'
         ? 'ask'
         : 'auto',
+    reasoningEffort,
     variant,
   };
 }
@@ -213,14 +233,17 @@ export function getCodexModelOptions(
 export function getCodexVariantFromSelection(
   profiles: ExecutorConfigs['executors'] | null | undefined,
   selectedModel: string | null,
-  permissionMode: CodexPermissionMode
+  permissionMode: CodexPermissionMode,
+  reasoningEffort: CodexReasoningEffort = CODEX_DEFAULT_REASONING_EFFORT
 ): string | null {
   const variants = getVariantOptions(CODEX_EXECUTOR, profiles);
 
   const matchedVariant = variants.find((variantKey) => {
     const variant = variantKey === 'DEFAULT' ? null : variantKey;
     const config = getCodexVariantConfig(profiles, variant);
-    return config.model === selectedModel && config.permissionMode === permissionMode;
+    return config.model === selectedModel &&
+      config.permissionMode === permissionMode &&
+      config.reasoningEffort === reasoningEffort;
   });
 
   if (!matchedVariant) {

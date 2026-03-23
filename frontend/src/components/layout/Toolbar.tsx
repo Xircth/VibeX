@@ -239,36 +239,21 @@ function WorkspaceTabSwitcher() {
 
       const navigateToFallbackWorkspace = () => {
         const fallbackWorktree = resolveFallbackWorktree();
-        const currentAttemptId =
-          attemptId && attemptId !== 'latest' ? attemptId : null;
-        const currentTaskId = taskId ?? null;
         const targetAttemptId =
-          currentAttemptId ??
-          activeWorktreeId ??
-          fallbackWorktree?.workspace.id ??
-          null;
+          activeWorktreeId ?? fallbackWorktree?.workspace.id ?? null;
         const targetTaskId =
-          currentTaskId ??
           activeTaskId ??
           fallbackWorktree?.workspace.task_id ??
           null;
 
-        setActiveWorktree(targetAttemptId, targetTaskId);
+        if (targetAttemptId) {
+          setActiveWorktree(targetAttemptId, targetTaskId);
+        }
 
         if (targetTaskId && targetAttemptId) {
           navigate(paths.attempt(projectId, targetTaskId, targetAttemptId));
         }
       };
-
-      if (!taskId && !attemptId) {
-        const fallbackWorktree = resolveFallbackWorktree();
-        setActiveWorktree(
-          fallbackWorktree?.workspace.id ?? null,
-          fallbackWorktree?.workspace.task_id ?? null
-        );
-        navigate(paths.projectTasks(projectId));
-        return;
-      }
 
       if (effectiveActiveTab === 'kanban' && rightSession) {
         const targetTaskId = rightSessionWorkspace?.task_id;

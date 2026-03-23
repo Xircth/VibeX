@@ -86,7 +86,7 @@
 .conv-tool-details {
   border: 1px solid var(--conv-border-subtle);
   border-top: none;
-  border-radius: 0 0 10px 10px;
+  border-radius: 0 0 8px 8px;
   background: var(--conv-surface-card);
   max-height: 400px;
   overflow-y: auto;
@@ -100,13 +100,15 @@
   color: var(--conv-text-tertiary);
   background: var(--conv-surface-control);
   border-bottom: 1px dashed var(--conv-border-subtle);
-  padding: 4px 10px;
+  padding: 6px 12px;
+  font-weight: 500;
 }
 
 .conv-tool-details-content {
-  padding: 6px 10px;
+  padding: 8px 12px;
   white-space: pre-wrap;
   word-break: break-all;
+  line-height: 1.5;
 }
 
 /* =========================================

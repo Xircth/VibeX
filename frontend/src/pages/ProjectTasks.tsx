@@ -87,11 +87,6 @@ export function ProjectTasks() {
   );
 
   useEffect(() => {
-    if (!projectId || taskId || attemptId) return;
-    setActiveTab('kanban');
-  }, [attemptId, projectId, setActiveTab, taskId]);
-
-  useEffect(() => {
     if (!projectId || !taskId || !attemptId) return;
     setActiveTab('workspace');
   }, [attemptId, projectId, setActiveTab, taskId]);

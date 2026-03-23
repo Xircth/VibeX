@@ -37,7 +37,7 @@ export function AgentSelector({
   if (!profiles) return null;
 
   return (
-    <div className="flex-1">
+    <div className={showLabel ? 'flex-1 flex flex-col' : 'flex-1'}>
       {showLabel && (
         <Label htmlFor="executor-profile" className="text-sm font-medium">
           编程代理

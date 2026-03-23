@@ -5,6 +5,7 @@ pub mod events;
 pub mod execution_processes;
 pub mod file_tree;
 pub mod filesystem;
+pub mod local_usage;
 pub mod projects;
 pub mod repos;
 pub mod scratch;

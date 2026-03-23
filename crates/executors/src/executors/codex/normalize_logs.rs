@@ -98,6 +98,7 @@ impl ToNormalizedEntry for CommandState {
                             build_command_output(Some(&self.stdout), Some(&self.stderr))
                         },
                     }),
+                    category: Default::default(),
                 },
                 status: self.status.clone(),
             },

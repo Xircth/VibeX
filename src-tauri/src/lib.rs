@@ -247,6 +247,8 @@ pub fn run() {
             commands::skills::install_skill,
             commands::skills::uninstall_skill,
             commands::skills::ensure_aimax_installed,
+            // Local usage commands
+            commands::local_usage::get_project_usage_statistics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

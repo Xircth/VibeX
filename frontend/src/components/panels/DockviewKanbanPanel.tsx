@@ -21,8 +21,14 @@ import {
 import { openTaskForm } from '@/lib/openTaskForm';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import {
+  shouldShowLeftArrow,
+  shouldShowRightArrow,
+  getKanbanPanelTranslateX,
+} from '@/lib/kanbanPanelView';
 import type { SessionStatus } from '@/lib/api';
 import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
+import { KanbanUsageDashboard } from '@/components/kanban/KanbanUsageDashboard';
 import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
 import { SESSION_STATUS_LIGHT_COLORS } from '@/components/kanban/session-hub/utils';
 
@@ -62,46 +68,97 @@ function createEmptyStatusBuckets(): Record<
 }
 
 export function KanbanBoard() {
-  const { isSessionHubVisible, toggleSessionHub } = useKanbanSessionContext();
+  const { panelView, goToBoard, goToSessionHub, goToUsageDashboard } =
+    useKanbanSessionContext();
+
+  const showLeftArrow = shouldShowLeftArrow(panelView);
+  const showRightArrow = shouldShowRightArrow(panelView);
+
+  const handleLeftArrowClick = () => {
+    if (panelView === 'sessionHub') {
+      goToBoard();
+    } else if (panelView === 'usageDashboard') {
+      goToSessionHub();
+    }
+  };
+
+  const handleRightArrowClick = () => {
+    if (panelView === 'board') {
+      goToSessionHub();
+    } else if (panelView === 'sessionHub') {
+      goToUsageDashboard();
+    }
+  };
+
+  const getLeftArrowLabel = () => {
+    if (panelView === 'sessionHub') return '返回看板';
+    if (panelView === 'usageDashboard') return '返回会话中心';
+    return '';
+  };
+
+  const getRightArrowLabel = () => {
+    if (panelView === 'board') return '进入会话中心';
+    if (panelView === 'sessionHub') return '进入计量统计';
+    return '';
+  };
 
   return (
     <div
       className="group relative h-full w-full overflow-hidden bg-background"
       data-panel="kanban"
     >
-      <div className="absolute inset-y-0 left-0 z-20 flex w-10 items-center">
-        <div className="flex h-24 w-full items-center">
-          <button
-            type="button"
-            onClick={toggleSessionHub}
-            aria-label={isSessionHubVisible ? '显示工作区面板' : '显示会话看板'}
-            className={cn(
-              'ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:text-foreground',
-              'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
-            )}
-          >
-            {isSessionHubVisible ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
+      {/* Left arrow button */}
+      {showLeftArrow && (
+        <div className="absolute inset-y-0 left-0 z-20 flex w-10 items-center">
+          <div className="flex h-24 w-full items-center">
+            <button
+              type="button"
+              onClick={handleLeftArrowClick}
+              aria-label={getLeftArrowLabel()}
+              className={cn(
+                'ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:text-foreground',
+                'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
+              )}
+            >
               <ChevronLeft className="h-4 w-4" />
-            )}
-          </button>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Right arrow button */}
+      {showRightArrow && (
+        <div className="absolute inset-y-0 right-0 z-20 flex w-10 items-center">
+          <div className="flex h-24 w-full items-center justify-end">
+            <button
+              type="button"
+              onClick={handleRightArrowClick}
+              aria-label={getRightArrowLabel()}
+              className={cn(
+                'mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:text-foreground',
+                'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
+              )}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div
-        className="flex h-full w-[200%] transition-transform duration-300 ease-out"
+        className="flex h-full w-[300%] transition-transform duration-300 ease-out"
         style={{
-          transform: isSessionHubVisible
-            ? 'translateX(-50%)'
-            : 'translateX(0%)',
+          transform: getKanbanPanelTranslateX(panelView),
         }}
       >
-        <div className="h-full w-1/2 shrink-0">
+        <div className="h-full w-1/3 shrink-0">
           <SessionKanbanBoard />
         </div>
-        <div className="h-full w-1/2 shrink-0 border-l border-border/60">
+        <div className="h-full w-1/3 shrink-0 border-x border-border/60">
           <KanbanSessionHub />
+        </div>
+        <div className="h-full w-1/3 shrink-0">
+          <KanbanUsageDashboard />
         </div>
       </div>
     </div>
@@ -364,7 +421,7 @@ function DraggableSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={cn('cursor-grab', isDragging && 'cursor-grabbing opacity-0')}
+      className={cn('min-w-0 cursor-grab', isDragging && 'cursor-grabbing opacity-0')}
       style={{
         transform:
           transform && !isDragging

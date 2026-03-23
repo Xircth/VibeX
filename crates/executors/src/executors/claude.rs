@@ -763,6 +763,7 @@ impl ClaudeLogProcessor {
             ClaudeToolData::Bash { command, .. } => ActionType::CommandRun {
                 command: command.clone(),
                 result: None,
+                category: Default::default(),
             },
             ClaudeToolData::Grep { pattern, .. } => ActionType::Search {
                 query: pattern.clone(),
@@ -1144,6 +1145,7 @@ impl ClaudeLogProcessor {
                                     action_type: ActionType::CommandRun {
                                         command: info.content.clone(),
                                         result,
+                                        category: Default::default(),
                                     },
                                     status,
                                 },

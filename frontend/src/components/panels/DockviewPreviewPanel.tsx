@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
-import { Eye, Code2, GitCompare, Save } from 'lucide-react';
+import { Eye, Code2, GitCompare } from 'lucide-react';
 import {
   useFileAtHead,
   useFileContent,
@@ -11,6 +11,7 @@ import {
 import { Markdown } from '@/components/NormalizedConversation/Markdown';
 import FileContentView from '@/components/NormalizedConversation/FileContentView';
 import { useTheme } from '@/components/ThemeProvider';
+import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import type { PreviewPanelParams } from '@/types/panels';
 import {
   defineAyuMonacoThemes,
@@ -79,6 +80,24 @@ function getPathSegments(filePath: string): string[] {
     .filter((segment) => segment.length > 0);
 }
 
+function getRelativePathSegments(filePath: string, rootPath: string | null): string[] {
+  if (!rootPath) {
+    return getPathSegments(filePath);
+  }
+
+  const normalizedFilePath = filePath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedRootPath = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+
+  if (normalizedFilePath.startsWith(normalizedRootPath)) {
+    const relativePath = normalizedFilePath.slice(normalizedRootPath.length).replace(/^\//, '');
+    if (relativePath) {
+      return relativePath.split('/').filter((segment) => segment.length > 0);
+    }
+  }
+
+  return getPathSegments(filePath);
+}
+
 /** Persist markdown render state across tab switches (keyed by filePath). */
 const markdownRenderStateMap = new Map<string, boolean>();
 
@@ -91,6 +110,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const mode = params.mode ?? 'editor';
   const diffViewMode = params.diffViewMode ?? 'split';
   const modifiedContentOverride = params.modifiedContent ?? null;
+  const rootPath = useFileTreeStore((state) => state.rootPath);
 
   const { data: content, isLoading } = useFileContent(filePath);
   const {
@@ -164,17 +184,6 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     setIsDirty(false);
   }, [filePath, mode]);
 
-  const handleSave = useCallback(() => {
-    if (!filePath || !editorRef.current) return;
-    const currentValue = editorRef.current.getValue();
-    saveFile.mutate(
-      { path: filePath, content: currentValue },
-      {
-        onSuccess: () => setIsDirty(false),
-      }
-    );
-  }, [filePath, saveFile]);
-
   if (!filePath) {
     return (
       <div
@@ -195,7 +204,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }
 
   const language = getLanguageFromPath(filePath);
-  const pathSegments = getPathSegments(filePath);
+  const pathSegments = useMemo(() => getRelativePathSegments(filePath, rootPath), [filePath, rootPath]);
   const isDiffLoading = isDiffMode && (isLoading || isLoadingHead);
   const diffBadge = diffViewMode === 'inline' ? 'Inline Diff' : 'Split Diff';
   const diffSummary = headError
@@ -214,7 +223,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     >
       <div className="flex items-center gap-2 px-2 py-1 border-b border-border text-xs shrink-0 bg-background">
         <div
-          className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap text-muted-foreground"
+          className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap text-muted-foreground scrollbar-thin"
           title={filePath}
         >
           {pathSegments.map((segment, index) => (
@@ -249,9 +258,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         ) : (
           <>
             {isMd && (
-              <span
-                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground bg-muted rounded select-none"
-                title="Middle-click to toggle"
+              <button
+                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground bg-muted rounded select-none hover:bg-accent hover:text-foreground transition-colors"
+                title="Click to toggle preview"
+                onClick={() => setIsRendered((prev) => !prev)}
               >
                 {isRendered ? (
                   <>
@@ -264,17 +274,6 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                     Source
                   </>
                 )}
-              </span>
-            )}
-            {(!isMd || !isRendered) && (
-              <button
-                className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-accent rounded transition-colors disabled:opacity-40"
-                onClick={handleSave}
-                disabled={!isDirty || saveFile.isPending}
-                title="Save (Ctrl+S)"
-              >
-                <Save className="w-3 h-3" />
-                {saveFile.isPending ? 'Saving...' : 'Save'}
               </button>
             )}
           </>

@@ -4,7 +4,9 @@ import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useLayoutStore } from '@/stores/useLayoutStore';
-import { cn } from '@/lib/utils';
+import { useProject } from '@/contexts/ProjectContext';
+import { openTaskForm } from '@/lib/openTaskForm';
+import { Plus } from 'lucide-react';
 
 export function RightPanelContent() {
   const { taskId, attemptId } = useParams<{
@@ -16,7 +18,14 @@ export function RightPanelContent() {
   const effectiveActiveTab = routeTab ?? activeTab;
   const { visibleRightSession, replaceRightSession } =
     useKanbanSessionContext();
+  const { projectId } = useProject();
   const showRightSession = !!visibleRightSession;
+
+  const handleCreateTask = () => {
+    if (projectId) {
+      openTaskForm({ mode: 'create', projectId });
+    }
+  };
 
   return (
     <div className="h-full flex overflow-hidden bg-background">
@@ -34,14 +43,22 @@ export function RightPanelContent() {
               className="h-full"
             />
           </div>
-        ) : (
-          <div
-            className={cn(
-              'flex-1 min-h-0 overflow-hidden',
-              effectiveActiveTab === 'kanban' && 'hidden'
-            )}
-          >
+        ) : effectiveActiveTab === 'workspace' && taskId ? (
+          <div className="flex-1 min-h-0 overflow-hidden">
             <Outlet />
+          </div>
+        ) : (
+          <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3">
+            <p className="text-sm text-muted-foreground">
+              创建新任务开始工作
+            </p>
+            <button
+              onClick={handleCreateTask}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90 transition-opacity"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              新建任务
+            </button>
           </div>
         )}
       </div>

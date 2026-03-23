@@ -49,6 +49,7 @@ export function SessionHubListItem({
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [draftName, setDraftName] = useState(session.fullName);
+  const [isHovered, setIsHovered] = useState(false);
 
   useEffect(() => {
     if (!isEditing) {
@@ -87,6 +88,8 @@ export function SessionHubListItem({
       role="button"
       tabIndex={0}
       onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -94,7 +97,7 @@ export function SessionHubListItem({
         }
       }}
       className={cn(
-        'group relative flex items-start gap-2 overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm',
+        'relative flex min-w-0 items-start gap-2 overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm',
         isSelected && 'border-primary/50 bg-primary/5',
         dragging && 'shadow-lg'
       )}
@@ -214,7 +217,10 @@ export function SessionHubListItem({
                 ) : (
                   <button
                     type="button"
-                    className="text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                    className={cn(
+                      'text-muted-foreground transition-opacity hover:text-foreground',
+                      isHovered ? 'opacity-100' : 'opacity-0'
+                    )}
                     onClick={(event) => {
                       event.stopPropagation();
                       setDraftName(session.fullName);

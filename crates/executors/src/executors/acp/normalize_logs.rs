@@ -350,6 +350,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     ActionType::CommandRun {
                         command,
                         result,
+                        category: Default::default(),
                     }
                 }
                 agent_client_protocol::ToolKind::Delete => ActionType::FileEdit {

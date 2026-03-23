@@ -1013,6 +1013,7 @@ impl ToolCallState {
                     exit_status: exit_code.map(|code| CommandExitStatus::ExitCode { code }),
                     output: output.as_deref().or(error.as_deref()).map(str::to_string),
                 }),
+                category: Default::default(),
             },
             ToolData::Read { file_path } => ActionType::FileRead {
                 path: file_path

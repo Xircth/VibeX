@@ -57,3 +57,18 @@ export type {
   TextSearchOptions,
   PopularSkill,
 } from './misc';
+
+// Local Usage Statistics
+export { localUsageApi } from './localUsage';
+export type {
+  ProjectUsageUsageData,
+  ProjectUsageDailyUsage,
+  ProjectUsageModelUsage,
+  ProjectUsageSessionSummary,
+  ProjectUsageWeekData,
+  ProjectUsageTrends,
+  ProjectUsageWeeklyComparison,
+  ProjectUsageProviderStatus,
+  ProjectUsageStatistics,
+  GetProjectUsageStatisticsParams,
+} from './localUsage';

@@ -22,8 +22,17 @@ import {
   type KanbanSessionLayoutState,
   type KanbanSessionPlacement,
 } from '@/lib/kanbanSessionLayout';
+import {
+  DEFAULT_KANBAN_VIEW,
+  type KanbanPanelView,
+} from '@/lib/kanbanPanelView';
 
 interface KanbanSessionContextValue {
+  panelView: KanbanPanelView;
+  setPanelView: (view: KanbanPanelView) => void;
+  goToBoard: () => void;
+  goToSessionHub: () => void;
+  goToUsageDashboard: () => void;
   isSessionHubVisible: boolean;
   setSessionHubVisible: (visible: boolean) => void;
   toggleSessionHub: () => void;
@@ -52,7 +61,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     (state) => state.isRightPanelVisible
   );
 
-  const [isSessionHubVisible, setSessionHubVisible] = useState(false);
+  const [panelView, setPanelView] = useState<KanbanPanelView>(DEFAULT_KANBAN_VIEW);
   const [layoutState, setLayoutState] = useState<KanbanSessionLayoutState>(
     createEmptyKanbanSessionLayoutState()
   );
@@ -61,13 +70,16 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   >(null);
   const lastSyncedWorkspaceIdRef = useRef<string | null>(null);
 
+  // Derived state for backward compatibility
+  const isSessionHubVisible = panelView === 'sessionHub';
+
   useEffect(() => {
     if (!activeWorktreeId) return;
     setLastActiveWorkspaceId(activeWorktreeId);
   }, [activeWorktreeId]);
 
   useEffect(() => {
-    setSessionHubVisible(false);
+    setPanelView(DEFAULT_KANBAN_VIEW);
     setLayoutState(createEmptyKanbanSessionLayoutState());
     setLastActiveWorkspaceId(null);
     lastSyncedWorkspaceIdRef.current = null;
@@ -81,7 +93,9 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (lastSyncedWorkspaceIdRef.current === activeWorktreeId) {
+    // When right panel is empty, always try to re-seed from the current workspace
+    // (even if we previously synced this workspace).
+    if (lastSyncedWorkspaceIdRef.current === activeWorktreeId && layoutState.rightSession) {
       return;
     }
 
@@ -89,14 +103,16 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    lastSyncedWorkspaceIdRef.current = activeWorktreeId;
-
     const nextSession = activeWorkspaceWithSession.session?.id
       ? {
           sessionId: activeWorkspaceWithSession.session.id,
           workspaceId: activeWorktreeId,
         }
       : null;
+
+    if (nextSession) {
+      lastSyncedWorkspaceIdRef.current = activeWorktreeId;
+    }
 
     setLayoutState((current) => {
       if (current.rightSession) {
@@ -115,12 +131,34 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     activeWorkspaceWithSession,
     activeWorktreeId,
     isActiveWorkspaceLoading,
+    layoutState.rightSession,
   ]);
 
   const canUseRightPanelForSessions = isRightPanelVisible;
 
+  const goToBoard = useCallback(() => {
+    setPanelView('board');
+  }, []);
+
+  const goToSessionHub = useCallback(() => {
+    setPanelView('sessionHub');
+  }, []);
+
+  const goToUsageDashboard = useCallback(() => {
+    setPanelView('usageDashboard');
+  }, []);
+
   const toggleSessionHub = useCallback(() => {
-    setSessionHubVisible((current) => !current);
+    setPanelView((current) => {
+      if (current === 'sessionHub') {
+        return 'board';
+      }
+      return 'sessionHub';
+    });
+  }, []);
+
+  const setSessionHubVisible = useCallback((visible: boolean) => {
+    setPanelView(visible ? 'sessionHub' : 'board');
   }, []);
 
   const openSessionFromList = useCallback(
@@ -177,6 +215,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<KanbanSessionContextValue>(
     () => ({
+      panelView,
+      setPanelView,
+      goToBoard,
+      goToSessionHub,
+      goToUsageDashboard,
       isSessionHubVisible,
       setSessionHubVisible,
       toggleSessionHub,
@@ -192,8 +235,12 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       pruneSessions,
     }),
     [
-      canUseRightPanelForSessions,
+      panelView,
+      goToBoard,
+      goToSessionHub,
+      goToUsageDashboard,
       isSessionHubVisible,
+      canUseRightPanelForSessions,
       lastActiveWorkspaceId,
       layoutState.monitorSessions,
       layoutState.rightSession,

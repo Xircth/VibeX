@@ -93,21 +93,20 @@ export function ProjectRecentSessionsPopover({
   return (
     <div
       className={cn(
-        'z-50 min-w-[300px] rounded-2xl border border-border/80 bg-popover/95 p-2.5 shadow-2xl backdrop-blur-md',
+        'z-50 min-w-72 rounded-lg border border-border bg-popover p-2 shadow-xl',
         align === 'right'
           ? 'absolute left-14 top-1/2 -translate-y-1/2'
           : 'absolute bottom-7 left-0'
       )}
     >
-      <div className="mb-2 flex items-center gap-2 border-b border-border/70 px-1 pb-2 text-[11px] font-medium text-muted-foreground">
-        <span className="h-2 w-2 rounded-full bg-primary/80" />
+      <div className="mb-2 text-[11px] font-medium text-muted-foreground">
         {projectName} · 最近会话
       </div>
       <div className="space-y-1.5">
         {recentSessions.map((session) => (
           <div
             key={session.sessionId}
-            className="rounded-xl border border-border/60 bg-background/70 px-2.5 py-2"
+            className="rounded-md border border-border/60 bg-background/60 px-2 py-1.5"
           >
             <div className="flex items-center gap-2">
               {session.visualState === 'loading' ? (
@@ -127,11 +126,11 @@ export function ProjectRecentSessionsPopover({
               <span className="truncate text-[11px] font-medium">
                 {session.title}
               </span>
-              <span className="ml-auto rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="ml-auto text-[10px] text-muted-foreground">
                 {session.statusLabel}
               </span>
             </div>
-            <div className="mt-1 truncate text-[10px] text-muted-foreground/90">
+            <div className="mt-1 truncate text-[10px] text-muted-foreground">
               {session.subtitle}
             </div>
           </div>

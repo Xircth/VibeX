@@ -48,7 +48,7 @@ export function AgentSelector({
           <Button
             variant="outline"
             size="sm"
-            className={`w-full justify-between text-xs ${showLabel ? 'mt-1.5' : ''} ${className}`}
+            className={`w-full justify-between text-xs ${className}`}
             disabled={disabled}
             aria-label="选择代理"
           >

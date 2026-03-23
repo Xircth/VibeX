@@ -189,18 +189,12 @@ export function ProjectRail() {
     <div className="pointer-events-none fixed left-3 top-1/2 z-40 -translate-y-1/2">
       <div
         ref={railRef}
-        className="project-rail-panel pointer-events-auto relative flex w-[84px] flex-col items-center gap-3 rounded-[30px] border px-2.5 py-3.5"
+        className="pointer-events-auto flex w-16 flex-col items-center gap-2 rounded-3xl border border-border/80 bg-background/95 px-2 py-3 shadow-xl backdrop-blur"
       >
-        <div className="project-rail-orb" aria-hidden="true" />
-        <div className="project-rail-header">
-          <span className="project-rail-header-dot" />
-          <span className="project-rail-header-text">Projects</span>
-        </div>
-
         <Button
           variant="ghost"
           size="icon"
-          className="project-rail-action h-11 w-11 rounded-[18px]"
+          className="h-10 w-10 rounded-2xl"
           onClick={handleCreateProject}
           aria-label="创建新项目"
           title="创建新项目"
@@ -211,7 +205,7 @@ export function ProjectRail() {
         <Button
           variant="ghost"
           size="icon"
-          className="project-rail-action h-11 w-11 rounded-[18px]"
+          className="h-10 w-10 rounded-2xl"
           onClick={handleOpenProject}
           aria-label="打开项目"
           title="打开项目"
@@ -219,12 +213,12 @@ export function ProjectRail() {
           <FolderOpen className="h-4 w-4" />
         </Button>
 
-        <div className="project-rail-divider" />
+        <div className="h-px w-8 bg-border/70" />
 
         <div
           ref={projectListRef}
           className={cn(
-            'project-rail-scroll flex max-h-[60vh] w-full flex-col items-center gap-2.5 overflow-y-auto pb-1',
+            'project-rail-scroll flex max-h-[60vh] w-full flex-col items-center gap-2 overflow-y-auto pr-0.5',
             isDragging && 'is-dragging'
           )}
           onWheel={handleProjectListWheel}
@@ -262,33 +256,29 @@ export function ProjectRail() {
                   onClick={() => handleProjectClick(project.id)}
                   title={`${project.name}: ${meta.label}`}
                   className={cn(
-                    'project-rail-project relative flex h-12 w-12 items-center justify-center rounded-[18px] border text-[11px] font-semibold transition-all duration-200',
+                    'relative flex h-10 w-10 items-center justify-center rounded-2xl border text-[11px] font-semibold transition-all',
                     isActive
-                      ? 'project-rail-project-active border-primary text-primary-foreground'
-                      : 'border-border/70 bg-secondary/60 text-foreground hover:border-primary/40 hover:bg-secondary/90'
+                      ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                      : 'border-border/70 bg-secondary/60 text-foreground hover:border-primary/40 hover:bg-secondary'
                   )}
                 >
-                  <span className="max-w-[30px] truncate text-[11px] font-bold uppercase tracking-[0.08em]">
+                  <span className="max-w-[26px] truncate">
                     {Array.from(project.name).slice(0, 2).join('') || '项目'}
                   </span>
                   {visualState === 'loading' ? (
-                    <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-background bg-background shadow-sm">
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-background bg-background">
                       <span className="h-2 w-2 animate-spin rounded-full border border-primary border-t-transparent" />
                     </span>
                   ) : (
                     <span
                       className={cn(
-                        'absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border border-background shadow-sm',
+                        'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background',
                         meta.dotClassName,
                         meta.pulseClassName
                       )}
                     />
                   )}
                 </button>
-
-                <div className="pointer-events-none mt-1 max-w-[64px] truncate text-center text-[10px] font-medium text-muted-foreground/90">
-                  {project.name}
-                </div>
 
                 {isHovered && snapshot ? (
                   <ProjectRecentSessionsPopover

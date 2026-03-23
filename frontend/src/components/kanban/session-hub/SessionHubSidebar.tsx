@@ -22,6 +22,7 @@ import {
   ListFilter,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 import type {
   Workspace,
@@ -485,8 +486,15 @@ export function SessionHubSidebar({
                   align="end"
                   side="bottom"
                   sideOffset={8}
-                  className="w-[340px] space-y-4 p-4"
+                  className="w-[340px] space-y-4 p-4 relative"
                 >
+                  <button
+                    className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    onClick={() => onCreatePopoverOpenChange(false)}
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">关闭</span>
+                  </button>
                   <div className="space-y-1">
                     <div className="text-sm font-semibold text-foreground">
                       新建会话

@@ -39,6 +39,7 @@ export function ProjectRail() {
     startScrollTop: number;
     didDrag: boolean;
   } | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const visibleProjects = useMemo(() => {
@@ -85,6 +86,14 @@ export function ProjectRail() {
       window.removeEventListener('pointerdown', handlePointerDown, true);
     };
   }, [railVisible, setRailVisible]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleCreateProject = async () => {
     const result = await ProjectFormDialog.show({});
@@ -181,6 +190,27 @@ export function ProjectRail() {
     switchProject(nextProjectId);
   };
 
+  const handleProjectMouseEnter = (nextProjectId: string) => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+    }
+
+    hoverTimerRef.current = setTimeout(() => {
+      setHoveredProjectId(nextProjectId);
+    }, 500);
+  };
+
+  const handleProjectMouseLeave = (nextProjectId: string) => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+
+    setHoveredProjectId((current) =>
+      current === nextProjectId ? null : current
+    );
+  };
+
   if (!railVisible) {
     return null;
   }
@@ -189,7 +219,7 @@ export function ProjectRail() {
     <div className="pointer-events-none fixed left-3 top-1/2 z-40 -translate-y-1/2">
       <div
         ref={railRef}
-        className="project-rail-shell pointer-events-auto flex w-[74px] flex-col items-center gap-2 rounded-3xl border-2 border-border/95 bg-background/55 px-2 py-3 shadow-xl backdrop-blur-xl"
+        className="project-rail-shell pointer-events-auto flex w-[66px] flex-col items-center gap-2 rounded-3xl border-2 border-border/95 bg-background/55 px-1.5 py-3 shadow-xl backdrop-blur-xl"
       >
         <div
           ref={projectListRef}
@@ -216,12 +246,8 @@ export function ProjectRail() {
               <div
                 key={project.id}
                 className="relative"
-                onMouseEnter={() => setHoveredProjectId(project.id)}
-                onMouseLeave={() =>
-                  setHoveredProjectId((current) =>
-                    current === project.id ? null : current
-                  )
-                }
+                onMouseEnter={() => handleProjectMouseEnter(project.id)}
+                onMouseLeave={() => handleProjectMouseLeave(project.id)}
               >
                 <button
                   type="button"
@@ -232,7 +258,7 @@ export function ProjectRail() {
                   onClick={() => handleProjectClick(project.id)}
                   title={`${project.name}: ${meta.label}`}
                   className={cn(
-                    'relative flex h-10 w-10 items-center justify-center rounded-2xl border text-[11px] font-semibold transition-all',
+                    'relative flex h-10 w-10 items-center justify-center rounded-2xl border text-[11px] font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.04] hover:shadow-lg',
                     isActive
                       ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                       : 'border-border/70 bg-secondary/60 text-foreground hover:border-primary/40 hover:bg-secondary'
@@ -271,13 +297,13 @@ export function ProjectRail() {
           })}
         </div>
 
-        <div className="h-px w-10 bg-border/75" />
+        <div className="h-px w-8 bg-border/75" />
 
         <div className="flex flex-col items-center gap-2 pt-0.5">
           <Button
             variant="ghost"
             size="icon"
-            className="project-rail-action-button h-10 w-10 rounded-2xl"
+            className="project-rail-action-button h-9 w-9 rounded-2xl"
             onClick={handleCreateProject}
             aria-label="创建新项目"
             title="创建新项目"
@@ -288,7 +314,7 @@ export function ProjectRail() {
           <Button
             variant="ghost"
             size="icon"
-            className="project-rail-action-button h-10 w-10 rounded-2xl"
+            className="project-rail-action-button h-9 w-9 rounded-2xl"
             onClick={handleOpenProject}
             aria-label="打开项目"
             title="打开项目"

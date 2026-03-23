@@ -9,6 +9,8 @@ import { useLocation } from 'react-router-dom';
 import type { Project } from 'shared/types';
 import { useProjects } from '@/hooks/useProjects';
 import { APP_NAME } from '@/lib/branding';
+import { useLayoutStore } from '@/stores/useLayoutStore';
+import { getProjectScopeKey } from '@/lib/projectScope';
 
 interface ProjectContextValue {
   projectId: string | undefined;
@@ -26,6 +28,9 @@ interface ProjectProviderProps {
 
 export function ProjectProvider({ children }: ProjectProviderProps) {
   const location = useLocation();
+  const setCurrentLayoutProject = useLayoutStore(
+    (state) => state.setCurrentProject
+  );
 
   // Extract projectId from current route path
   const projectId = useMemo(() => {
@@ -55,6 +60,10 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       document.title = APP_NAME;
     }
   }, [project]);
+
+  useEffect(() => {
+    setCurrentLayoutProject(getProjectScopeKey(projectId));
+  }, [projectId, setCurrentLayoutProject]);
 
   return (
     <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>

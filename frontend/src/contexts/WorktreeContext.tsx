@@ -1,4 +1,14 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react';
+import { useProject } from '@/contexts/ProjectContext';
+import { getProjectScopeKey } from '@/lib/projectScope';
+import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 
 export interface WorktreeState {
   activeWorktreeId: string | null;
@@ -9,8 +19,23 @@ export interface WorktreeState {
 const WorktreeContext = createContext<WorktreeState | null>(null);
 
 export function WorktreeProvider({ children }: { children: ReactNode }) {
+  const { projectId } = useProject();
+  const projectKey = getProjectScopeKey(projectId);
   const [activeWorktreeId, setWorktreeId] = useState<string | null>(null);
   const [activeTaskId, setTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = useProjectViewStateStore.getState().getWorktreeState(projectKey);
+    setWorktreeId(stored.activeWorktreeId);
+    setTaskId(stored.activeTaskId);
+  }, [projectKey]);
+
+  useEffect(() => {
+    useProjectViewStateStore.getState().setWorktreeState(projectKey, {
+      activeWorktreeId,
+      activeTaskId,
+    });
+  }, [activeTaskId, activeWorktreeId, projectKey]);
 
   const setActiveWorktree = useCallback((worktreeId: string | null, taskId: string | null) => {
     setWorktreeId(worktreeId);

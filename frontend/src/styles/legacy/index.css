@@ -7,7 +7,8 @@
 /* 1) THEME TOKENS scoped to .legacy-design */
 @layer base {
   .legacy-design {
-    color-scheme: light;
+    /* 避免主题闪烁：不设置默认 color-scheme，由 CSS 变量根据 .dark 类动态设置 */
+    color-scheme: light dark;
     /* Ayu Light */
     --_background: 0 0% 98%;
     --_foreground: 213 10% 37%;

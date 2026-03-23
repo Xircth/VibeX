@@ -12,6 +12,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
+import { getProjectScopeKey } from '@/lib/projectScope';
 import {
   createEmptyKanbanSessionLayoutState,
   placeCreatedSession,
@@ -26,6 +27,7 @@ import {
   DEFAULT_KANBAN_VIEW,
   type KanbanPanelView,
 } from '@/lib/kanbanPanelView';
+import { useProjectViewStateStore } from '@/stores/useProjectViewStateStore';
 
 interface KanbanSessionContextValue {
   panelView: KanbanPanelView;
@@ -54,6 +56,7 @@ const KanbanSessionContext = createContext<KanbanSessionContextValue | null>(
 
 export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const { projectId } = useProject();
+  const projectKey = getProjectScopeKey(projectId);
   const { activeWorktreeId } = useWorktree();
   const { data: activeWorkspaceWithSession, isLoading: isActiveWorkspaceLoading } =
     useTaskAttemptWithSession(activeWorktreeId ?? undefined);
@@ -74,15 +77,36 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const isSessionHubVisible = panelView === 'sessionHub';
 
   useEffect(() => {
+    const stored = useProjectViewStateStore.getState().getKanbanState(projectKey);
+    setPanelView(stored.panelView);
+    setLayoutState(stored.layoutState);
+    setLastActiveWorkspaceId(stored.lastActiveWorkspaceId);
+    lastSyncedWorkspaceIdRef.current = null;
+  }, [projectKey]);
+
+  useEffect(() => {
+    useProjectViewStateStore.getState().setKanbanState(projectKey, {
+      panelView,
+      layoutState,
+      lastActiveWorkspaceId,
+    });
+  }, [projectKey, panelView, layoutState, lastActiveWorkspaceId]);
+
+  useEffect(() => {
     if (!activeWorktreeId) return;
     setLastActiveWorkspaceId(activeWorktreeId);
   }, [activeWorktreeId]);
 
   useEffect(() => {
-    setPanelView(DEFAULT_KANBAN_VIEW);
-    setLayoutState(createEmptyKanbanSessionLayoutState());
-    setLastActiveWorkspaceId(null);
-    lastSyncedWorkspaceIdRef.current = null;
+    if (!projectId) {
+      setPanelView(DEFAULT_KANBAN_VIEW);
+      setLayoutState(createEmptyKanbanSessionLayoutState());
+      setLastActiveWorkspaceId(null);
+      lastSyncedWorkspaceIdRef.current = null;
+      useProjectViewStateStore
+        .getState()
+        .resetKanbanState(getProjectScopeKey(projectId));
+    }
   }, [projectId]);
 
   // Seed the right panel from the active workspace when nothing is selected yet.

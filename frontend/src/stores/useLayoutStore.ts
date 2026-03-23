@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SerializedDockview } from 'dockview';
+import { GLOBAL_PROJECT_SCOPE } from '@/lib/projectScope';
 
 /**
  * Panel IDs used to register and identify panels in the dockview layout.
@@ -38,6 +39,12 @@ export const MAX_EDITOR_GROUPS = 4;
 export type WorkspaceTab = 'workspace' | 'kanban';
 
 interface LayoutState {
+  /** Current project scope key */
+  currentProjectKey: string;
+
+  /** Cached layout state per project */
+  projectLayouts: Record<string, LayoutSnapshot>;
+
   /** Serialized dockview layout for persistence */
   serializedLayout: SerializedDockview | null;
 
@@ -54,6 +61,7 @@ interface LayoutState {
   activeTab: WorkspaceTab;
 
   /** Actions */
+  setCurrentProject: (projectKey: string) => void;
   setSerializedLayout: (layout: SerializedDockview | null) => void;
   toggleFileTree: () => void;
   setFileTreeVisible: (visible: boolean) => void;
@@ -61,81 +69,282 @@ interface LayoutState {
   toggleRightPanel: () => void;
   setRightPanelVisible: (visible: boolean) => void;
   setActiveTab: (tab: WorkspaceTab) => void;
+  setProjectActiveTab: (projectKey: string, tab: WorkspaceTab) => void;
   resetLayout: () => void;
 }
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 520;
 const MIN_RIGHT_PANEL_WIDTH = 400;
 
+interface LayoutSnapshot {
+  serializedLayout: SerializedDockview | null;
+  isFileTreeVisible: boolean;
+  rightPanelWidth: number;
+  isRightPanelVisible: boolean;
+  activeTab: WorkspaceTab;
+}
+
+const DEFAULT_LAYOUT_SNAPSHOT: LayoutSnapshot = {
+  serializedLayout: null,
+  isFileTreeVisible: true,
+  rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
+  isRightPanelVisible: true,
+  activeTab: 'kanban',
+};
+
+function buildProjectLayoutState(
+  partial?: Partial<LayoutSnapshot> | null
+): LayoutSnapshot {
+  return {
+    ...DEFAULT_LAYOUT_SNAPSHOT,
+    ...partial,
+    rightPanelWidth:
+      partial?.rightPanelWidth == null ||
+      partial.rightPanelWidth === 420 ||
+      partial.rightPanelWidth === 500
+        ? DEFAULT_RIGHT_PANEL_WIDTH
+        : Math.max(
+            MIN_RIGHT_PANEL_WIDTH,
+            Math.min(900, partial.rightPanelWidth)
+          ),
+  };
+}
+
+function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
+  return {
+    serializedLayout: state.serializedLayout,
+    isFileTreeVisible: state.isFileTreeVisible,
+    rightPanelWidth: state.rightPanelWidth,
+    isRightPanelVisible: state.isRightPanelVisible,
+    activeTab: state.activeTab,
+  };
+}
+
+function applySnapshot(
+  state: LayoutState,
+  nextSnapshot: LayoutSnapshot
+): Partial<LayoutState> {
+  return {
+    serializedLayout: nextSnapshot.serializedLayout,
+    isFileTreeVisible: nextSnapshot.isFileTreeVisible,
+    rightPanelWidth: nextSnapshot.rightPanelWidth,
+    isRightPanelVisible: nextSnapshot.isRightPanelVisible,
+    activeTab: nextSnapshot.activeTab,
+  };
+}
+
 export const useLayoutStore = create<LayoutState>()(
   persist(
     (set) => ({
-      serializedLayout: null,
-      isFileTreeVisible: true,
-      rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
-      isRightPanelVisible: true,
-      activeTab: 'kanban' as WorkspaceTab,
+      currentProjectKey: GLOBAL_PROJECT_SCOPE,
+      projectLayouts: {
+        [GLOBAL_PROJECT_SCOPE]: DEFAULT_LAYOUT_SNAPSHOT,
+      },
+      ...DEFAULT_LAYOUT_SNAPSHOT,
 
-      setSerializedLayout: (layout) => set({ serializedLayout: layout }),
+      setCurrentProject: (projectKey) =>
+        set((state) => {
+          if (state.currentProjectKey === projectKey) {
+            return state;
+          }
+
+          const currentSnapshot = getCurrentSnapshot(state);
+          const projectLayouts = {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: currentSnapshot,
+          };
+          const nextSnapshot = buildProjectLayoutState(projectLayouts[projectKey]);
+
+          return {
+            currentProjectKey: projectKey,
+            projectLayouts,
+            ...applySnapshot(state, nextSnapshot),
+          };
+        }),
+
+      setSerializedLayout: (layout) =>
+        set((state) => ({
+          serializedLayout: layout,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              serializedLayout: layout,
+            },
+          },
+        })),
 
       toggleFileTree: () =>
-        set((s) => ({ isFileTreeVisible: !s.isFileTreeVisible })),
+        set((state) => {
+          const nextValue = !state.isFileTreeVisible;
+          return {
+            isFileTreeVisible: nextValue,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                isFileTreeVisible: nextValue,
+              },
+            },
+          };
+        }),
 
-      setFileTreeVisible: (visible) => set({ isFileTreeVisible: visible }),
+      setFileTreeVisible: (visible) =>
+        set((state) => ({
+          isFileTreeVisible: visible,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              isFileTreeVisible: visible,
+            },
+          },
+        })),
 
       setRightPanelWidth: (width) =>
-        set({
-          rightPanelWidth: Math.max(
+        set((state) => {
+          const nextWidth = Math.max(
             MIN_RIGHT_PANEL_WIDTH,
             Math.min(900, width)
-          ),
+          );
+
+          return {
+            rightPanelWidth: nextWidth,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                rightPanelWidth: nextWidth,
+              },
+            },
+          };
         }),
 
       toggleRightPanel: () =>
-        set((s) => ({ isRightPanelVisible: !s.isRightPanelVisible })),
+        set((state) => {
+          const nextVisible = !state.isRightPanelVisible;
+          return {
+            isRightPanelVisible: nextVisible,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                isRightPanelVisible: nextVisible,
+              },
+            },
+          };
+        }),
 
-      setRightPanelVisible: (visible) => set({ isRightPanelVisible: visible }),
+      setRightPanelVisible: (visible) =>
+        set((state) => ({
+          isRightPanelVisible: visible,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              isRightPanelVisible: visible,
+            },
+          },
+        })),
 
-      setActiveTab: (tab) => set({ activeTab: tab }),
+      setActiveTab: (tab) =>
+        set((state) => ({
+          activeTab: tab,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              activeTab: tab,
+            },
+          },
+        })),
+
+      setProjectActiveTab: (projectKey, tab) =>
+        set((state) => {
+          const nextProjectSnapshot = buildProjectLayoutState(
+            state.projectLayouts[projectKey]
+          );
+          const projectLayouts = {
+            ...state.projectLayouts,
+            [projectKey]: {
+              ...nextProjectSnapshot,
+              activeTab: tab,
+            },
+          };
+
+          if (projectKey !== state.currentProjectKey) {
+            return { projectLayouts };
+          }
+
+          return {
+            activeTab: tab,
+            projectLayouts: {
+              ...projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                activeTab: tab,
+              },
+            },
+          };
+        }),
 
       resetLayout: () =>
-        set((s) => ({
-          serializedLayout: null,
-          isFileTreeVisible: true,
-          rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
-          isRightPanelVisible: true,
-          activeTab: s.activeTab,
-        })),
+        set((state) => {
+          const nextSnapshot = {
+            ...DEFAULT_LAYOUT_SNAPSHOT,
+            activeTab: state.activeTab,
+          };
+
+          return {
+            ...applySnapshot(state, nextSnapshot),
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: nextSnapshot,
+            },
+          };
+        }),
     }),
     {
       name: 'vibe-ultra-ide-layout',
-      version: 16,
+      version: 17,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
-        const nextRightPanelWidth =
-          state.rightPanelWidth == null ||
-          state.rightPanelWidth === 420 ||
-          state.rightPanelWidth === 500
-            ? DEFAULT_RIGHT_PANEL_WIDTH
-            : Math.max(
-                MIN_RIGHT_PANEL_WIDTH,
-                Math.min(900, state.rightPanelWidth)
-              );
+        const legacySnapshot = buildProjectLayoutState({
+          serializedLayout: null,
+          isFileTreeVisible: state.isFileTreeVisible,
+          rightPanelWidth: state.rightPanelWidth,
+          isRightPanelVisible: state.isRightPanelVisible,
+          activeTab: state.activeTab,
+        });
+        const currentProjectKey =
+          state.currentProjectKey ?? GLOBAL_PROJECT_SCOPE;
+        const projectLayouts = Object.entries(state.projectLayouts ?? {}).reduce<
+          Record<string, LayoutSnapshot>
+        >((accumulator, [projectKey, projectState]) => {
+          accumulator[projectKey] = buildProjectLayoutState(projectState);
+          return accumulator;
+        }, {});
+
+        if (!projectLayouts[currentProjectKey]) {
+          projectLayouts[currentProjectKey] = legacySnapshot;
+        }
+
+        const activeSnapshot = buildProjectLayoutState(
+          projectLayouts[currentProjectKey]
+        );
 
         return {
-          serializedLayout: null,
-          isFileTreeVisible: state.isFileTreeVisible ?? true,
-          rightPanelWidth: nextRightPanelWidth,
-          isRightPanelVisible: state.isRightPanelVisible ?? true,
-          activeTab: state.activeTab ?? ('kanban' as WorkspaceTab),
+          currentProjectKey,
+          projectLayouts,
+          ...activeSnapshot,
         };
       },
       partialize: (state) => ({
-        serializedLayout: state.serializedLayout,
-        isFileTreeVisible: state.isFileTreeVisible,
-        rightPanelWidth: state.rightPanelWidth,
-        isRightPanelVisible: state.isRightPanelVisible,
-        activeTab: state.activeTab,
+        currentProjectKey: state.currentProjectKey,
+        projectLayouts: {
+          ...state.projectLayouts,
+          [state.currentProjectKey]: getCurrentSnapshot(state),
+        },
       }),
     }
   )

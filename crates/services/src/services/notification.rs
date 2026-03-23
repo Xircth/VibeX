@@ -101,17 +101,16 @@ impl NotificationService {
 
     /// Send a cross-platform push notification
     async fn send_push_notification(title: &str, message: &str) {
-        if cfg!(target_os = "macos") {
-            Self::send_macos_notification(title, message).await;
-        } else if cfg!(target_os = "linux") && !utils::is_wsl2() {
-            Self::send_linux_notification(title, message).await;
-        } else if cfg!(target_os = "windows") || (cfg!(target_os = "linux") && utils::is_wsl2()) {
-            Self::send_windows_notification(title, message).await;
-        }
+        let _ = (title, message);
+        // Session-complete push notifications are handled in the frontend with
+        // custom in-app toasts so users can jump directly back into the
+        // matching project/session context without relying on OS-native
+        // notifications.
     }
 
     /// Send macOS notification using osascript.
     /// Sanitize inputs with strict character whitelist to prevent AppleScript injection.
+    #[allow(dead_code)]
     async fn send_macos_notification(title: &str, message: &str) {
         // Strict sanitization: only allow alphanumeric, spaces, and basic punctuation.
         // This prevents all AppleScript injection vectors including backslash sequences,
@@ -149,6 +148,7 @@ impl NotificationService {
     }
 
     /// Send Linux notification using notify-rust
+    #[allow(dead_code)]
     async fn send_linux_notification(title: &str, message: &str) {
         use notify_rust::Notification;
 
@@ -169,6 +169,7 @@ impl NotificationService {
     }
 
     /// Send Windows/WSL notification using PowerShell toast script
+    #[allow(dead_code)]
     async fn send_windows_notification(title: &str, message: &str) {
         const WINDOWS_TOAST_APP_ID: &str = "com.vibe-ultra.app";
         const WINDOWS_TOAST_APP_NAME: &str = "VibeUltra";

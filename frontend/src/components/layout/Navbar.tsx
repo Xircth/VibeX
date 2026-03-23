@@ -28,6 +28,8 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useProjectRepos } from '@/hooks';
 import { useProjects } from '@/hooks/useProjects';
+import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
+import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 
 const INTERNAL_NAV = [
   { label: 'Projects', icon: FolderOpen, to: '/local-projects' },
@@ -68,6 +70,7 @@ export function Navbar() {
   const { query, setQuery, active, clear, registerInputRef } = useSearch();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { projects } = useProjects();
+  const switchProject = useProjectSwitcher();
 
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
@@ -109,9 +112,9 @@ export function Navbar() {
         return;
       }
 
-      navigate(`/local-projects/${nextProjectId}/tasks`);
+      switchProject(nextProjectId);
     },
-    [location.pathname, location.search, navigate, projectId]
+    [location.pathname, location.search, navigate, projectId, switchProject]
   );
 
   return (
@@ -122,6 +125,7 @@ export function Navbar() {
             <Link to="/local-projects">
               <Logo />
             </Link>
+            <ProjectRailToggleButton />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button

@@ -20,6 +20,8 @@ import {
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
+import { Toaster } from '@/components/ui/sonner';
+import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
@@ -42,6 +44,13 @@ function AppContent() {
 
   // Sync UI preferences with server scratch storage
   useUiPreferencesScratch();
+
+  useEffect(() => {
+    document.body.classList.add('legacy-design');
+    return () => {
+      document.body.classList.remove('legacy-design');
+    };
+  }, []);
 
   // Silently install ai-max commands on first launch
   useEffect(() => {
@@ -98,6 +107,8 @@ function AppContent() {
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
+        <ProjectWindowManager />
+        <Toaster />
         <Routes>
           {/* ========== FULL-PAGE ROUTES (outside layout) ========== */}
           <Route

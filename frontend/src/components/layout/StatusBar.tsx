@@ -1,6 +1,8 @@
 import { useProject } from '@/contexts/ProjectContext';
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { APP_NAME } from '@/lib/branding';
+import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { BaseCodingAgent } from 'shared/types';
 
 const CORE_AGENTS = [
@@ -48,11 +50,16 @@ function AgentStatusCluster() {
 
 export function StatusBar() {
   const { project } = useProject();
+  const railVisible = useWindowProjectsStore((state) => state.railVisible);
 
   return (
     <div className="flex h-6 shrink-0 select-none items-center justify-between border-t border-border bg-secondary px-2 text-[11px] text-secondary-foreground">
       <div className="min-w-0 pr-2">
-        {project && <span className="truncate opacity-90">{project.name}</span>}
+        {railVisible ? (
+          project && <span className="truncate opacity-90">{project.name}</span>
+        ) : (
+          <ProjectWindowStatusSummary />
+        )}
       </div>
 
       <div className="flex items-center gap-2">

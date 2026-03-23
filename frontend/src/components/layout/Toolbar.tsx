@@ -50,6 +50,8 @@ import { usePanelActions } from '@/hooks/usePanelActions';
 import { cn } from '@/lib/utils';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
+import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
+import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 
 function ToolbarDivider() {
   return (
@@ -286,7 +288,6 @@ function WorkspaceTabSwitcher() {
     [
       activeTaskId,
       activeWorktreeId,
-      attemptId,
       effectiveActiveTab,
       navigate,
       projectId,
@@ -295,7 +296,6 @@ function WorkspaceTabSwitcher() {
       resolveFallbackWorktree,
       setActiveTab,
       setActiveWorktree,
-      taskId,
     ]
   );
 
@@ -336,6 +336,7 @@ export function Toolbar() {
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
+  const switchProject = useProjectSwitcher();
   const activeTab = useLayoutStore((state) => state.activeTab);
   const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
@@ -372,13 +373,12 @@ export function Toolbar() {
     navigate(paths.projects());
   }, [navigate]);
 
-  const handleOpenProjectInNewWindow = useCallback((nextProjectId: string) => {
-    const url = new URL(
-      paths.projectTasks(nextProjectId),
-      window.location.origin
-    ).toString();
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }, []);
+  const handleSwitchProject = useCallback(
+    (nextProjectId: string) => {
+      switchProject(nextProjectId, paths.projectTasks(nextProjectId));
+    },
+    [switchProject]
+  );
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -409,7 +409,7 @@ export function Toolbar() {
                   recentProjects.map((item) => (
                     <DropdownMenuItem
                       key={item.id}
-                      onSelect={() => handleOpenProjectInNewWindow(item.id)}
+                      onSelect={() => handleSwitchProject(item.id)}
                       title={item.name}
                     >
                       <FolderOpen className="mr-2 h-4 w-4" />
@@ -421,6 +421,7 @@ export function Toolbar() {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
+            <ProjectRailToggleButton />
             <Link
               to="/local-projects"
               className="hidden"
@@ -443,13 +444,7 @@ export function Toolbar() {
           </div>
 
           {/* Right section: Actions */}
-          <div
-            className={cn(
-              'ml-auto flex items-center shrink-0 gap-0.5',
-              !isWorkspaceTab && 'invisible pointer-events-none'
-            )}
-            aria-hidden={!isWorkspaceTab}
-          >
+          <div className="ml-auto flex items-center shrink-0 gap-0.5">
             <div
               className={cn(
                 'flex items-center gap-0.5',

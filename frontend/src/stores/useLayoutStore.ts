@@ -120,10 +120,7 @@ function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
   };
 }
 
-function applySnapshot(
-  state: LayoutState,
-  nextSnapshot: LayoutSnapshot
-): Partial<LayoutState> {
+function applySnapshot(nextSnapshot: LayoutSnapshot): Partial<LayoutState> {
   return {
     serializedLayout: nextSnapshot.serializedLayout,
     isFileTreeVisible: nextSnapshot.isFileTreeVisible,
@@ -158,7 +155,7 @@ export const useLayoutStore = create<LayoutState>()(
           return {
             currentProjectKey: projectKey,
             projectLayouts,
-            ...applySnapshot(state, nextSnapshot),
+            ...applySnapshot(nextSnapshot),
           };
         }),
 
@@ -296,7 +293,7 @@ export const useLayoutStore = create<LayoutState>()(
           };
 
           return {
-            ...applySnapshot(state, nextSnapshot),
+            ...applySnapshot(nextSnapshot),
             projectLayouts: {
               ...state.projectLayouts,
               [state.currentProjectKey]: nextSnapshot,

@@ -266,6 +266,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       isSessionHubVisible,
       canUseRightPanelForSessions,
       lastActiveWorkspaceId,
+      setSessionHubVisible,
       layoutState.monitorSessions,
       layoutState.rightSession,
       openSessionFromList,

@@ -1,11 +1,14 @@
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, Loader2, Plus } from 'lucide-react';
+import { FolderOpen, Loader2, Plus, Settings } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectRepos } from '@/hooks';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
+import { Button } from '@/components/ui/button';
+import { settingsWindowApi } from '@/lib/api';
+import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 
 function WelcomeSection({
   title,
@@ -103,13 +106,29 @@ export function WelcomePage() {
   return (
     <div className="h-full overflow-auto bg-background">
       <div className="max-w-2xl mx-auto py-16 px-8">
-        <div className="flex items-center gap-3 mb-12">
-          <Logo showText={false} />
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-              {APP_NAME}
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">{APP_TAGLINE}</p>
+        <div className="mb-12 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Logo showText={false} />
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+                {APP_NAME}
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {APP_TAGLINE}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <ProjectRailToggleButton />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => settingsWindowApi.open()}
+              aria-label="Settings"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 

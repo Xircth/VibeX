@@ -181,7 +181,9 @@ export function TerminalProfileControls({
   };
 
   const contentClassName =
-    className || 'flex flex-wrap items-center gap-2 flex-1 min-w-0';
+    className || 'flex flex-col gap-2 w-full';
+
+  const isOpencode = executor === BaseCodingAgentEnum.OPENCODE;
 
   return (
     <div className={contentClassName}>
@@ -192,12 +194,11 @@ export function TerminalProfileControls({
           onChange={(profile) => handleExecutorChange(profile.executor)}
           disabled={disabled}
           showLabel={showLabel}
-          className="flex-1 min-w-0"
         />
       )}
 
-      {isClaude ? (
-        <>
+      {isClaude && !lockExecutor && (
+        <div className="flex flex-wrap items-center gap-2">
           <PermissionSelector
             value={permissionMode}
             onChange={(mode) => {
@@ -205,7 +206,6 @@ export function TerminalProfileControls({
               handleClaudeControlChange(mode, selectedModelKey);
             }}
             disabled={disabled}
-            className="shrink-0"
           />
           <ModelSelector
             value={selectedModelKey}
@@ -214,11 +214,12 @@ export function TerminalProfileControls({
               handleClaudeControlChange(permissionMode, modelKey);
             }}
             disabled={disabled}
-            className="max-w-full shrink-0"
           />
-        </>
-      ) : isCodex ? (
-        <>
+        </div>
+      )}
+
+      {isCodex && !lockExecutor && (
+        <div className="flex flex-wrap items-center gap-2">
           <PermissionSelector
             value={codexPermissionMode}
             onChange={(mode) => {
@@ -228,7 +229,6 @@ export function TerminalProfileControls({
             }}
             modes={['auto', 'ask']}
             disabled={disabled}
-            className="shrink-0"
           />
           <CodexModelSelector
             value={selectedCodexModel}
@@ -238,7 +238,6 @@ export function TerminalProfileControls({
               handleCodexControlChange(codexPermissionMode, model, codexReasoningEffort);
             }}
             disabled={disabled}
-            className="max-w-full shrink-0"
           />
           <ReasoningEffortSelector
             value={codexReasoningEffort}
@@ -247,17 +246,17 @@ export function TerminalProfileControls({
               handleCodexControlChange(codexPermissionMode, selectedCodexModel, effort);
             }}
             disabled={disabled}
-            className="shrink-0"
           />
-        </>
-      ) : (
+        </div>
+      )}
+
+      {(lockExecutor || isOpencode) && (
         <ConfigSelector
           profiles={profiles}
           selectedExecutorProfile={selectedProfile}
           onChange={onChange}
           disabled={disabled}
           showLabel={showLabel && lockExecutor}
-          className={lockExecutor ? 'flex-1 min-w-0' : ''}
         />
       )}
     </div>

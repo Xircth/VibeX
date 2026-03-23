@@ -189,32 +189,8 @@ export function ProjectRail() {
     <div className="pointer-events-none fixed left-3 top-1/2 z-40 -translate-y-1/2">
       <div
         ref={railRef}
-        className="pointer-events-auto flex w-16 flex-col items-center gap-2 rounded-3xl border border-border/80 bg-background/95 px-2 py-3 shadow-xl backdrop-blur"
+        className="project-rail-shell pointer-events-auto flex w-[74px] flex-col items-center gap-2 rounded-3xl border-2 border-border/95 bg-background/55 px-2 py-3 shadow-xl backdrop-blur-xl"
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10 rounded-2xl"
-          onClick={handleCreateProject}
-          aria-label="创建新项目"
-          title="创建新项目"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10 rounded-2xl"
-          onClick={handleOpenProject}
-          aria-label="打开项目"
-          title="打开项目"
-        >
-          <FolderOpen className="h-4 w-4" />
-        </Button>
-
-        <div className="h-px w-8 bg-border/70" />
-
         <div
           ref={projectListRef}
           className={cn(
@@ -262,8 +238,11 @@ export function ProjectRail() {
                       : 'border-border/70 bg-secondary/60 text-foreground hover:border-primary/40 hover:bg-secondary'
                   )}
                 >
-                  <span className="max-w-[26px] truncate">
-                    {Array.from(project.name).slice(0, 2).join('') || '项目'}
+                  <span className="max-w-[30px] truncate text-[14px] font-bold uppercase leading-none">
+                    {Array.from(project.name)
+                      .slice(0, 2)
+                      .join('')
+                      .toUpperCase() || '项目'}
                   </span>
                   {visualState === 'loading' ? (
                     <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-background bg-background">
@@ -290,6 +269,32 @@ export function ProjectRail() {
               </div>
             );
           })}
+        </div>
+
+        <div className="h-px w-10 bg-border/75" />
+
+        <div className="flex flex-col items-center gap-2 pt-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="project-rail-action-button h-10 w-10 rounded-2xl"
+            onClick={handleCreateProject}
+            aria-label="创建新项目"
+            title="创建新项目"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="project-rail-action-button h-10 w-10 rounded-2xl"
+            onClick={handleOpenProject}
+            aria-label="打开项目"
+            title="打开项目"
+          >
+            <FolderOpen className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>

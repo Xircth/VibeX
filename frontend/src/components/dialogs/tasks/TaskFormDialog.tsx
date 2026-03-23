@@ -3,7 +3,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { useDropzone } from 'react-dropzone';
 import { useForm, useStore } from '@tanstack/react-form';
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -392,6 +392,15 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           {...getRootProps()}
           className="h-full flex flex-col gap-4 p-4 relative min-h-0"
         >
+          {!showDiscardWarning && (
+            <button
+              className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              onClick={() => modal.remove()}
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">关闭</span>
+            </button>
+          )}
           <input {...getInputProps()} />
           {/* Drag overlay */}
           {isDragActive && (

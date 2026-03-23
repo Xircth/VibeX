@@ -193,7 +193,6 @@ export function TerminalProfileControls({
           selectedExecutorProfile={selectedProfile}
           onChange={(profile) => handleExecutorChange(profile.executor)}
           disabled={disabled}
-          showLabel={showLabel}
         />
       )}
 

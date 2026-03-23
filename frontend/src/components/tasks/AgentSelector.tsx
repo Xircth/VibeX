@@ -37,12 +37,7 @@ export function AgentSelector({
   if (!profiles) return null;
 
   return (
-    <div className={showLabel ? 'flex flex-col w-full' : 'flex-1'}>
-      {showLabel && (
-        <Label htmlFor="executor-profile" className="text-sm font-medium">
-          Agent
-        </Label>
-      )}
+    <div className="flex-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

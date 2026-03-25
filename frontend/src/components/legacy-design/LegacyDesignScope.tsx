@@ -11,7 +11,7 @@ export function LegacyDesignScope({ children }: LegacyDesignScopeProps) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
 
   return (
-    <div ref={setContainer} className="legacy-design min-h-screen">
+    <div ref={setContainer} className="legacy-design min-h-screen w-full">
       {container && (
         <PortalContainerContext.Provider value={container}>
           <NiceModal.Provider>{children}</NiceModal.Provider>

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+} from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
@@ -8,16 +16,25 @@ import {
   useFileContent,
   useSaveFile,
 } from '@/hooks/useFileContent';
-import { Markdown } from '@/components/NormalizedConversation/Markdown';
-import FileContentView from '@/components/NormalizedConversation/FileContentView';
 import { useTheme } from '@/components/ThemeProvider';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import type { PreviewPanelParams } from '@/types/panels';
+import {
+  deriveRelativeFilePath,
+  resolveFilePathFromRoot,
+} from '@/utils/filePaths';
 import {
   defineAyuMonacoThemes,
   MONACO_THEME_AYU_DARK,
   MONACO_THEME_AYU_LIGHT,
 } from '@/utils/monacoThemes';
+
+const LazyMarkdown = lazy(
+  () => import('@/components/NormalizedConversation/Markdown')
+);
+const LazyFileContentView = lazy(
+  () => import('@/components/NormalizedConversation/FileContentView')
+);
 
 /**
  * Map file extension to Monaco language identifier.
@@ -80,22 +97,12 @@ function getPathSegments(filePath: string): string[] {
     .filter((segment) => segment.length > 0);
 }
 
-function getRelativePathSegments(filePath: string, rootPath: string | null): string[] {
-  if (!rootPath) {
-    return getPathSegments(filePath);
-  }
-
-  const normalizedFilePath = filePath.replace(/\\/g, '/').replace(/\/+$/, '');
-  const normalizedRootPath = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-
-  if (normalizedFilePath.startsWith(normalizedRootPath)) {
-    const relativePath = normalizedFilePath.slice(normalizedRootPath.length).replace(/^\//, '');
-    if (relativePath) {
-      return relativePath.split('/').filter((segment) => segment.length > 0);
-    }
-  }
-
-  return getPathSegments(filePath);
+function ContentLoadingFallback({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+      {label}
+    </div>
+  );
 }
 
 /** Persist markdown render state across tab switches (keyed by filePath). */
@@ -107,29 +114,62 @@ const markdownRenderStateMap = new Map<string, boolean>();
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const params = (props.params ?? {}) as Partial<PreviewPanelParams>;
   const filePath = params.filePath ?? null;
+  const displayPath = params.displayPath ?? null;
   const mode = params.mode ?? 'editor';
   const diffViewMode = params.diffViewMode ?? 'split';
   const modifiedContentOverride = params.modifiedContent ?? null;
+  const originalContentOverride = params.originalContent ?? null;
   const rootPath = useFileTreeStore((state) => state.rootPath);
+  const resolvedFilePath = useMemo(
+    () => (filePath ? resolveFilePathFromRoot(filePath, rootPath) : null),
+    [filePath, rootPath]
+  );
+  const shouldFetchFileContent = !(
+    mode === 'diff' && modifiedContentOverride !== null
+  );
+  const shouldFetchHeadContent = !(
+    mode === 'diff' && originalContentOverride !== null
+  );
 
-  const { data: content, isLoading } = useFileContent(filePath);
+  const { data: content, isLoading } = useFileContent(
+    shouldFetchFileContent ? resolvedFilePath : null
+  );
   const {
     data: headContent,
     isLoading: isLoadingHead,
     error: headError,
-  } = useFileAtHead(mode === 'diff' ? filePath : null);
+  } = useFileAtHead(
+    mode === 'diff' && shouldFetchHeadContent ? resolvedFilePath : null
+  );
   const saveFile = useSaveFile();
   const { resolvedTheme } = useTheme();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const resolvedDisplayPath = useMemo(() => {
+    if (!filePath) {
+      return null;
+    }
+
+    return (
+      displayPath ??
+      deriveRelativeFilePath(filePath, rootPath) ??
+      deriveRelativeFilePath(resolvedFilePath ?? filePath, rootPath) ??
+      filePath
+    );
+  }, [displayPath, filePath, resolvedFilePath, rootPath]);
 
   const isMd = filePath ? isMarkdownFile(filePath) : false;
   const isDiffMode = mode === 'diff';
   const modifiedContent = modifiedContentOverride ?? content ?? '';
-  const originalContent = headError ? '' : (headContent ?? '');
+  const originalContent =
+    originalContentOverride ?? (headError ? '' : (headContent ?? ''));
 
   const [isRendered, setIsRendered] = useState(() =>
     filePath ? (markdownRenderStateMap.get(filePath) ?? false) : false
+  );
+  const pathSegments = useMemo(
+    () => (resolvedDisplayPath ? getPathSegments(resolvedDisplayPath) : []),
+    [resolvedDisplayPath]
   );
 
   useEffect(() => {
@@ -159,10 +199,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       editorRef.current = editor;
 
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        if (!filePath) return;
+        if (!resolvedFilePath) return;
         const currentValue = editor.getValue();
         saveFile.mutate(
-          { path: filePath, content: currentValue },
+          { path: resolvedFilePath, content: currentValue },
           {
             onSuccess: () => setIsDirty(false),
           }
@@ -173,7 +213,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         setIsDirty(true);
       });
     },
-    [filePath, saveFile]
+    [resolvedFilePath, saveFile]
   );
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
@@ -204,8 +244,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }
 
   const language = getLanguageFromPath(filePath);
-  const pathSegments = useMemo(() => getRelativePathSegments(filePath, rootPath), [filePath, rootPath]);
-  const isDiffLoading = isDiffMode && (isLoading || isLoadingHead);
+  const isDiffLoading =
+    isDiffMode &&
+    ((shouldFetchFileContent && isLoading) ||
+      (shouldFetchHeadContent && isLoadingHead));
   const diffBadge = diffViewMode === 'inline' ? 'Inline Diff' : 'Split Diff';
   const diffSummary = headError
     ? modifiedContentOverride !== null
@@ -224,7 +266,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       <div className="flex items-center gap-2 px-2 py-1 border-b border-border text-xs shrink-0 bg-background">
         <div
           className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap text-muted-foreground scrollbar-thin"
-          title={filePath}
+          title={resolvedDisplayPath ?? filePath}
         >
           {pathSegments.map((segment, index) => (
             <span key={`${segment}-${index}`} className="flex items-center">
@@ -288,15 +330,19 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             </div>
           ) : (
             <div className="h-full overflow-auto">
-              <FileContentView
-                content={modifiedContent}
-                originalContent={originalContent}
-                lang={language}
-                theme={resolvedTheme}
-                diffMode={diffViewMode === 'inline' ? 'unified' : 'split'}
-                emptyMessage="No differences against HEAD."
-                className="h-full"
-              />
+              <Suspense
+                fallback={<ContentLoadingFallback label="Loading diff..." />}
+              >
+                <LazyFileContentView
+                  content={modifiedContent}
+                  originalContent={originalContent}
+                  lang={language}
+                  theme={resolvedTheme}
+                  diffMode={diffViewMode === 'inline' ? 'unified' : 'split'}
+                  emptyMessage="No differences against HEAD."
+                  className="h-full"
+                />
+              </Suspense>
             </div>
           )
         ) : isLoading ? (
@@ -304,12 +350,16 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             Loading file...
           </div>
         ) : isMd && isRendered ? (
-          <div className="h-full overflow-auto px-6 py-4">
-            <Markdown value={content ?? ''} />
-          </div>
+          <Suspense
+            fallback={<ContentLoadingFallback label="Loading preview..." />}
+          >
+            <div className="h-full overflow-auto px-6 py-4">
+              <LazyMarkdown value={content ?? ''} />
+            </div>
+          </Suspense>
         ) : (
           <Editor
-            key={filePath}
+            key={resolvedFilePath ?? filePath}
             defaultValue={content ?? ''}
             language={language}
             theme={

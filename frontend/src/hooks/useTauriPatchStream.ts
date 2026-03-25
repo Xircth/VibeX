@@ -123,6 +123,10 @@ export const useTauriPatchStream = <T extends object>(
                 ? deduplicatePatches(patches)
                 : patches;
 
+              if (!isInitialized) {
+                setIsInitialized(true);
+              }
+
               const current = dataRef.current;
               if (!filtered.length || !current) return;
 
@@ -143,6 +147,7 @@ export const useTauriPatchStream = <T extends object>(
             // Handle Finished
             if (msg === 'Finished') {
               finishedRef.current = true;
+              setIsInitialized(true);
               setIsConnected(false);
               return;
             }

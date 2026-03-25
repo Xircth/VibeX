@@ -44,11 +44,7 @@ export function TagManager() {
 
   const handleDelete = useCallback(
     async (tag: Tag) => {
-      if (
-        !confirm(
-          `您确定要删除标签 ${tag.tag_name} 吗？`
-        )
-      ) {
+      if (!confirm(`您确定要删除提示词 ${tag.tag_name} 吗？`)) {
         return;
       }
 
@@ -73,18 +69,20 @@ export function TagManager() {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">
-          {'任务标签'}
-        </h3>
+        <h3 className="text-lg font-semibold">固定提示词</h3>
         <Button variant="outline" onClick={() => handleOpenDialog()}>
           <Plus className="mr-2 h-4 w-4" />
-          {'添加标签'}
+          新增提示词
         </Button>
       </div>
 
       {tags.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          {'还没有标签。为常见任务描述创建可重用的文本片段。在任何任务中使用 #tag_name。'}
+          还没有固定提示词。为常见任务描述创建可重用的文本片段，在任何任务中使用
+          {' '}
+          #tag_name
+          {' '}
+          插入。
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
@@ -92,15 +90,9 @@ export function TagManager() {
             <table className="w-full">
               <thead className="border-b bg-muted/50 sticky top-0">
                 <tr>
-                  <th className="text-left p-2 text-sm font-medium">
-                    {'标签名称'}
-                  </th>
-                  <th className="text-left p-2 text-sm font-medium">
-                    {'内容'}
-                  </th>
-                  <th className="text-right p-2 text-sm font-medium">
-                    {'操作'}
-                  </th>
+                  <th className="text-left p-2 text-sm font-medium">名称</th>
+                  <th className="text-left p-2 text-sm font-medium">内容</th>
+                  <th className="text-right p-2 text-sm font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -111,10 +103,7 @@ export function TagManager() {
                   >
                     <td className="p-2 text-sm font-medium">#{tag.tag_name}</td>
                     <td className="p-2 text-sm">
-                      <div
-                        className="max-w-[400px] truncate"
-                        title={tag.content || ''}
-                      >
+                      <div className="max-w-[400px] truncate" title={tag.content || ''}>
                         {tag.content || (
                           <span className="text-muted-foreground">-</span>
                         )}
@@ -127,7 +116,7 @@ export function TagManager() {
                           size="icon"
                           aria-label="edit"
                           onClick={() => handleOpenDialog(tag)}
-                          title={'编辑标签'}
+                          title="编辑提示词"
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -136,7 +125,7 @@ export function TagManager() {
                           size="icon"
                           aria-label="delete"
                           onClick={() => handleDelete(tag)}
-                          title={'删除标签'}
+                          title="删除提示词"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

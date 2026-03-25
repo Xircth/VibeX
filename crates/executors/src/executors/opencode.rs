@@ -379,6 +379,10 @@ impl StandardCodingAgentExecutor for Opencode {
         _reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // OpenCode follow-ups fork from the provided session snapshot. After a
+        // reset/retry, the caller passes the latest remaining snapshot
+        // session_id, which already corresponds to the context before the
+        // retried message. No message-level rollback parameter is required.
         let env = setup_permissions_env(self.auto_approve, env);
         let env = setup_compaction_env(self.auto_compact, &env);
         self.spawn_inner(current_dir, prompt, Some(session_id), &env)

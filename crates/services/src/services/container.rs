@@ -221,7 +221,8 @@ pub trait ContainerService {
 
     /// Finalize task execution by updating status to InReview and sending notifications
     async fn finalize_task(&self, ctx: &ExecutionContext) {
-        if let Err(e) = Session::update_status(&self.db().pool, ctx.session.id, SessionStatus::InReview).await
+        if let Err(e) =
+            Session::update_status(&self.db().pool, ctx.session.id, SessionStatus::InReview).await
         {
             tracing::error!("Failed to update session status to InReview: {e}");
         }

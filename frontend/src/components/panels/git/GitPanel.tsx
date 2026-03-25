@@ -15,6 +15,7 @@ import {
 import { useParams } from 'react-router-dom';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
+import { useAttempt } from '@/hooks/useAttempt';
 import { useProjectRepos } from '@/hooks';
 import {
   useGitStatus,
@@ -77,21 +78,28 @@ function resolveGitFilePath(path: string, repoRootPath: string | null): string {
 export function GitPanel() {
   const { openDiffPreviewAtPath } = usePanelActions();
   const { activeWorktreeId } = useWorktree();
+  const { attemptId: rawAttemptId, projectId } = useParams<{
+    attemptId?: string;
+    projectId?: string;
+  }>();
+  const routeAttemptId =
+    rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
+  const effectiveWorkspaceId = activeWorktreeId ?? routeAttemptId ?? null;
+  const { data: workspace } = useAttempt(effectiveWorkspaceId ?? undefined);
   const { repos: workspaceRepos, selectedRepoId } = useAttemptRepo(
-    activeWorktreeId ?? undefined
+    effectiveWorkspaceId ?? undefined
   );
-  const { projectId } = useParams<{ projectId?: string }>();
 
   // When no workspace is active, fall back to the project's first repo
   const { data: projectRepos = [] } = useProjectRepos(projectId, {
-    enabled: !activeWorktreeId && !!projectId,
+    enabled: !effectiveWorkspaceId && !!projectId,
   });
   const fallbackRepoId = projectRepos[0]?.id ?? null;
 
-  const workspaceId = activeWorktreeId ?? null;
+  const workspaceId = effectiveWorkspaceId;
   const repoId = selectedRepoId ?? fallbackRepoId;
   const repoRootPath = useMemo(() => {
-    if (activeWorktreeId) {
+    if (workspaceId) {
       if (workspaceRepos.length === 0) return null;
       return (
         workspaceRepos.find((repo) => repo.id === repoId)?.path ??
@@ -104,7 +112,7 @@ export function GitPanel() {
       projectRepos.find((repo) => repo.id === repoId)?.path ??
       projectRepos[0].path
     );
-  }, [activeWorktreeId, projectRepos, repoId, workspaceRepos]);
+  }, [projectRepos, repoId, workspaceId, workspaceRepos]);
 
   const {
     mode,
@@ -124,6 +132,7 @@ export function GitPanel() {
     isLoading: statusLoading,
     refresh: refreshStatus,
   } = useGitStatus({ workspaceId, repoId });
+  const displayedBranchName = workspace?.branch || branchName;
 
   const {
     stageFile,
@@ -202,8 +211,8 @@ export function GitPanel() {
     revertAll();
   }, [revertAll]);
 
-  if (!activeWorktreeId && !repoId) return <EmptyState />;
-  if (statusLoading && !branchName) return <LoadingState />;
+  if (!workspaceId && !repoId) return <EmptyState />;
+  if (statusLoading && !displayedBranchName) return <LoadingState />;
 
   return (
     <div className="h-full w-full flex flex-col bg-background overflow-hidden" data-panel="git">
@@ -211,7 +220,9 @@ export function GitPanel() {
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
         <div className="flex items-center gap-1 text-xs text-foreground mr-1">
           <GitBranch className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono font-medium truncate max-w-[120px]">{branchName}</span>
+          <span className="font-mono font-medium truncate max-w-[120px]">
+            {displayedBranchName}
+          </span>
         </div>
 
         {(totalAdditions > 0 || totalDeletions > 0) && (
@@ -387,7 +398,7 @@ export function GitPanel() {
           ahead={gitLog.ahead}
           behind={gitLog.behind}
           upstream={gitLog.upstream}
-          branchName={gitLog.branchName || branchName}
+          branchName={gitLog.branchName || displayedBranchName}
           loading={gitLog.isLoading}
           workspaceId={workspaceId}
           repoId={repoId}

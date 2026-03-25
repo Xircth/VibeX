@@ -6,24 +6,26 @@ import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useProject } from '@/contexts/ProjectContext';
 import { openTaskForm } from '@/lib/openTaskForm';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 
 export function RightPanelContent() {
-  const { taskId, attemptId } = useParams<{
+  const { projectId: routeProjectId, taskId, attemptId } = useParams<{
+    projectId?: string;
     taskId?: string;
     attemptId?: string;
   }>();
   const activeTab = useLayoutStore((state) => state.activeTab);
   const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
-  const { visibleRightSession, replaceRightSession } =
+  const { visibleRightSession, replaceRightSession, isRightSessionPending } =
     useKanbanSessionContext();
   const { projectId } = useProject();
+  const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
 
   const handleCreateTask = () => {
-    if (projectId) {
-      openTaskForm({ mode: 'create', projectId });
+    if (effectiveProjectId) {
+      openTaskForm({ mode: 'create', projectId: effectiveProjectId });
     }
   };
 
@@ -47,11 +49,14 @@ export function RightPanelContent() {
           <div className="flex-1 min-h-0 overflow-hidden">
             <Outlet />
           </div>
+        ) : isRightSessionPending ? (
+          <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <p className="text-sm">Loading session...</p>
+          </div>
         ) : (
           <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3">
-            <p className="text-sm text-muted-foreground">
-              创建新任务开始工作
-            </p>
+            <p className="text-sm text-muted-foreground">创建新任务开始工作</p>
             <button
               onClick={handleCreateTask}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90 transition-opacity"

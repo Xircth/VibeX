@@ -10,7 +10,7 @@ import {
   type KanbanProjectSessionRecord,
 } from '@/hooks/useKanbanProjectSessions';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { attemptsApi } from '@/lib/api';
+import { attemptsApi, configApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
 import { ProjectRail } from '@/components/layout/ProjectRail';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
@@ -39,7 +39,9 @@ function findLatestSessionForTask(
   sessions: KanbanProjectSessionRecord[],
   taskId: string
 ) {
-  return sessions.find((session) => session.taskId === taskId) ?? sessions[0] ?? null;
+  return (
+    sessions.find((session) => session.taskId === taskId) ?? sessions[0] ?? null
+  );
 }
 
 function ProjectActivityTracker({
@@ -60,20 +62,27 @@ function ProjectActivityTracker({
   const setProjectSnapshot = useWindowProjectsStore(
     (state) => state.setProjectSnapshot
   );
-  const setProjectAlert = useWindowProjectsStore((state) => state.setProjectAlert);
+  const setProjectAlert = useWindowProjectsStore(
+    (state) => state.setProjectAlert
+  );
   const markProjectAlertRead = useWindowProjectsStore(
     (state) => state.markProjectAlertRead
   );
   const requestProjectFocus = useWindowProjectsStore(
     (state) => state.requestProjectFocus
   );
-  const setRailVisible = useWindowProjectsStore((state) => state.setRailVisible);
+  const setRailVisible = useWindowProjectsStore(
+    (state) => state.setRailVisible
+  );
   const projectAlert = useWindowProjectsStore(
     (state) => state.projectAlerts[projectId]
   );
-  const setProjectActiveTab = useLayoutStore((state) => state.setProjectActiveTab);
+  const setProjectActiveTab = useLayoutStore(
+    (state) => state.setProjectActiveTab
+  );
   const previousTaskStateRef = useRef<Record<string, { running: boolean }>>({});
   const hasInitializedRef = useRef(false);
+  const previousSnapshotSignatureRef = useRef<string>('');
 
   const snapshot = useMemo(() => {
     const recentSessions = sessions.slice(0, 5).map((session) => {
@@ -108,6 +117,12 @@ function ProjectActivityTracker({
   }, [isLoading, sessions, tasks]);
 
   useEffect(() => {
+    const nextSignature = JSON.stringify(snapshot);
+    if (previousSnapshotSignatureRef.current === nextSignature) {
+      return;
+    }
+
+    previousSnapshotSignatureRef.current = nextSignature;
     ensureProjectOpen(projectId);
     setProjectSnapshot(projectId, snapshot);
   }, [ensureProjectOpen, projectId, setProjectSnapshot, snapshot]);
@@ -169,6 +184,13 @@ function ProjectActivityTracker({
       });
 
       if (config?.notifications.push_enabled) {
+        if (config.notifications.sound_enabled) {
+          void configApi
+            .playNotificationSound(config.notifications.sound_file)
+            .catch((error) => {
+              console.error('Failed to play toast notification sound:', error);
+            });
+        }
         toast.custom(
           (toastId) => (
             <div className="relative overflow-hidden rounded-2xl">
@@ -228,6 +250,8 @@ function ProjectActivityTracker({
     previousTaskStateRef.current = currentTaskStates;
   }, [
     config?.notifications.push_enabled,
+    config?.notifications.sound_enabled,
+    config?.notifications.sound_file,
     ensureProjectOpen,
     isActive,
     navigate,
@@ -253,7 +277,9 @@ export function ProjectWindowManager() {
   const rememberProjectRoute = useWindowProjectsStore(
     (state) => state.rememberProjectRoute
   );
-  const openProjectIds = useWindowProjectsStore((state) => state.openProjectIds);
+  const openProjectIds = useWindowProjectsStore(
+    (state) => state.openProjectIds
+  );
 
   useEffect(() => {
     if (!projectId) {
@@ -276,10 +302,16 @@ export function ProjectWindowManager() {
 
   const trackedProjectIds = useMemo(
     () =>
-      Array.from(new Set([...(projectId ? [projectId] : []), ...openProjectIds])),
+      Array.from(
+        new Set([...(projectId ? [projectId] : []), ...openProjectIds])
+      ),
     [openProjectIds, projectId]
   );
+
+  const isProjectHomeRoute =
+    location.pathname === '/' || location.pathname === '/local-projects';
   const showProjectRail =
+    !isProjectHomeRoute &&
     !location.pathname.startsWith('/settings') &&
     !location.pathname.endsWith('/full');
 

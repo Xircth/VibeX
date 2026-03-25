@@ -1,39 +1,30 @@
 import { useEffect } from 'react';
-import { useSearchStore } from '@/stores/useSearchStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 
 /**
- * Global keyboard shortcuts for search features.
+ * Global keyboard shortcut for workspace search.
  *
- * - Ctrl+P / Cmd+P → Open quick search palette
- * - Ctrl+Shift+F / Cmd+Shift+F → Toggle workspace search panel
+ * Ctrl+Shift+F / Cmd+Shift+F -> open workspace search panel
  */
 export function useGlobalSearchShortcut() {
-  const openSearchPalette = useSearchStore((s) => s.openSearchPalette);
-  const { toggleSearchPanel } = usePanelActionsContext();
+  const { toggleSearchPanel, isPanelOpen } = usePanelActionsContext();
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return;
 
-      const isMod = e.metaKey || e.ctrlKey;
+      const isMod = event.metaKey || event.ctrlKey;
+      if (!isMod || event.altKey) return;
 
-      // Ctrl+P / Cmd+P → Quick search palette
-      if (isMod && e.key === 'p' && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        openSearchPalette();
-        return;
-      }
-
-      // Ctrl+Shift+F / Cmd+Shift+F → Workspace text search panel
-      if (isMod && e.shiftKey && e.key === 'F' && !e.altKey) {
-        e.preventDefault();
-        toggleSearchPanel();
-        return;
+      if (event.shiftKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        if (!isPanelOpen('search')) {
+          toggleSearchPanel();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [openSearchPalette, toggleSearchPanel]);
+  }, [isPanelOpen, toggleSearchPanel]);
 }

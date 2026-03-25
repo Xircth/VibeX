@@ -225,6 +225,37 @@ export function McpSettings() {
     }
   };
 
+  const removeServer = (key: string) => {
+    if (!mcpConfig) return;
+    try {
+      const existing = mcpServers.trim() ? JSON.parse(mcpServers) : {};
+      const fullConfig = structuredClone(existing) as Record<string, unknown>;
+      let current: Record<string, unknown> | null = fullConfig;
+
+      for (const part of mcpConfig.servers_path.slice(0, -1)) {
+        const next: unknown = current?.[part];
+        current =
+          next && typeof next === 'object' && !Array.isArray(next)
+            ? (next as Record<string, unknown>)
+            : null;
+      }
+
+      const lastKey = mcpConfig.servers_path.at(-1);
+      if (!current || !lastKey) return;
+
+      const servers = current[lastKey];
+      if (servers && typeof servers === 'object' && !Array.isArray(servers)) {
+        delete (servers as Record<string, unknown>)[key];
+      }
+
+      setMcpServers(JSON.stringify(fullConfig, null, 2));
+      setSelectedServer(null);
+      setMcpError(null);
+    } catch (err) {
+      setMcpError(err instanceof Error ? err.message : '删除 MCP 服务器失败');
+    }
+  };
+
   // Preconfigured servers
   const preconfigured = useMemo(() => {
     if (!mcpConfig?.preconfigured) return { servers: {} as Record<string, unknown>, meta: {} as Record<string, { name?: string; description?: string; url?: string; icon?: string }> };
@@ -426,6 +457,14 @@ export function McpSettings() {
                   <span className="rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400">
                     {String(selectedServerEntry.config.type ?? 'stdio')}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-7 text-xs text-destructive hover:text-destructive"
+                    onClick={() => removeServer(selectedServerEntry.name)}
+                  >
+                    删除
+                  </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {selectedServerEntry.config.command && (

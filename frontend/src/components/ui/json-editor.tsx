@@ -1,11 +1,4 @@
 import React from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { json, jsonParseLinter } from '@codemirror/lang-json';
-import { linter } from '@codemirror/lint';
-import { indentOnInput } from '@codemirror/language';
-import { EditorView } from '@codemirror/view';
-import { useTheme } from '@/components/ThemeProvider';
-import { ThemeMode } from 'shared/types';
 import { cn } from '@/lib/utils';
 
 interface JSONEditorProps {
@@ -27,21 +20,6 @@ export const JSONEditor: React.FC<JSONEditorProps> = ({
   className,
   id,
 }) => {
-  const { theme } = useTheme();
-
-  // Convert app theme to CodeMirror theme
-  const getCodeMirrorTheme = () => {
-    if (theme === ThemeMode.SYSTEM) {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light';
-    }
-    return theme === ThemeMode.DARK ? 'dark' : 'light';
-  };
-
-  // Avoid SSR errors
-  if (typeof window === 'undefined') return null;
-
   return (
     <div
       id={id}
@@ -51,28 +29,15 @@ export const JSONEditor: React.FC<JSONEditorProps> = ({
         className
       )}
     >
-      <CodeMirror
+      <textarea
         value={value}
-        height={`${minHeight}px`}
-        basicSetup={{
-          lineNumbers: true,
-          autocompletion: true,
-          bracketMatching: true,
-          closeBrackets: true,
-          searchKeymap: false,
-        }}
-        extensions={[
-          json(),
-          linter(jsonParseLinter()),
-          indentOnInput(),
-          EditorView.lineWrapping,
-          disabled ? EditorView.editable.of(false) : [],
-        ]}
-        theme={getCodeMirrorTheme()}
-        onChange={onChange}
+        onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        disabled={disabled}
+        spellCheck={false}
+        className="w-full resize-y border-0 bg-transparent px-3 py-2 text-sm font-mono leading-6 text-foreground outline-none"
         style={{
-          fontSize: '14px',
+          minHeight: `${minHeight}px`,
           fontFamily:
             'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
         }}

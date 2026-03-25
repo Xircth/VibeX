@@ -11,6 +11,7 @@ import { skillsApi } from '@/lib/api';
 
 import {
   AgentSettings,
+  EditorSettings,
   McpSettings,
   SkillsSettings,
   ShortcutSettings,
@@ -156,6 +157,7 @@ function AppContent() {
             <Route path="mcp" element={<McpSettings />} />
             <Route path="skills" element={<SkillsSettings />} />
             <Route path="shortcuts" element={<ShortcutSettings />} />
+            <Route path="editor" element={<EditorSettings />} />
             <Route path="system" element={<SystemSettings />} />
           </Route>
 

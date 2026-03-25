@@ -4,6 +4,7 @@ pub mod normalize_logs;
 pub mod review;
 pub mod session;
 pub mod slash_commands;
+pub mod terminal;
 use std::{
     collections::HashMap,
     env,
@@ -37,6 +38,7 @@ use strum_macros::AsRefStr;
 use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
+pub use self::terminal::{CodexTerminalLifecycleEvent, codex_terminal_registry};
 use self::{
     client::{AppServerClient, LogWriter},
     jsonrpc::{ExitSignalSender, JsonRpcPeer},
@@ -248,6 +250,11 @@ impl StandardCodingAgentExecutor for Codex {
         _reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
+        // Codex follow-ups always resume from a per-turn rollout snapshot.
+        // The caller passes the latest surviving snapshot session_id after any
+        // reset/retry trimming, so resuming this session already restores the
+        // context to "before the retried message". We intentionally do not use
+        // reset_to_message_id here.
         self.spawn_slash_command(current_dir, prompt, Some(session_id), env)
             .await
     }

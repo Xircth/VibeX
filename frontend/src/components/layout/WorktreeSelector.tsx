@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useProjectRepos } from '@/hooks';
+import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { cn } from '@/lib/utils';
@@ -29,6 +31,11 @@ export function WorktreeSelector() {
   const { projectId, project } = useProject();
   const { activeWorktreeId } = useWorktree();
   const { worktrees } = useProjectWorktrees(projectId);
+  const { data: repos } = useProjectRepos(projectId);
+  const primaryRepo = repos?.[0];
+  const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
+    enabled: Boolean(primaryRepo?.id),
+  });
   const { data: routeWorkspace } = useTaskAttempt(routeWorktreeId);
 
   const setActiveTab = useLayoutStore((state) => state.setActiveTab);
@@ -37,6 +44,11 @@ export function WorktreeSelector() {
   const activeWorktree = worktrees.find(
     (worktree) => worktree.workspace.id === effectiveWorktreeId
   );
+  const projectRootBranchLabel =
+    primaryRepoBranches.find((branch) => branch.is_current)?.name ??
+    primaryRepo?.default_target_branch ??
+    project?.default_main_branch ??
+    null;
 
   const handleSelect = useCallback(
     (worktreeInfo: (typeof worktrees)[number]) => {
@@ -107,7 +119,7 @@ export function WorktreeSelector() {
       'Workspace'
     : effectiveWorktreeId
       ? (routeWorkspace?.branch ?? 'Workspace')
-      : (project?.name ?? 'Select workspace');
+      : (projectRootBranchLabel ?? project?.name ?? 'Select workspace');
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -182,11 +194,20 @@ export function WorktreeSelector() {
             </DropdownMenuItem>
           ))
         ) : (
-          <DropdownMenuItem disabled>
-            <span className="text-xs text-muted-foreground">
-              No active workspaces
-            </span>
-          </DropdownMenuItem>
+          <>
+            {projectRootBranchLabel ? (
+              <DropdownMenuItem disabled>
+                <span className="text-xs text-muted-foreground">
+                  Current project branch: {projectRootBranchLabel}
+                </span>
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem disabled>
+              <span className="text-xs text-muted-foreground">
+                No active workspaces
+              </span>
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

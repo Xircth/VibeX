@@ -170,6 +170,9 @@ export const desktopApi = {
   getPreviewProxyUrl: async (url: string): Promise<string> => {
     return tauriInvoke<string>('get_preview_proxy_url', { url });
   },
+  revealInFileManager: async (path: string): Promise<void> => {
+    return tauriInvoke<void>('reveal_in_file_manager', { path });
+  },
 };
 
 // File System APIs

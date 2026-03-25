@@ -1,21 +1,28 @@
 import type { RepoWithTargetBranch, Workspace } from 'shared/types';
 
-type WorkspacePathSource = Pick<Workspace, 'container_ref' | 'use_worktree'>;
+type WorkspacePathSource = Pick<
+  Workspace,
+  'container_ref' | 'use_worktree' | 'agent_working_dir'
+>;
 type WorkspaceRepoPathSource = Pick<RepoWithTargetBranch, 'name'>;
+
+export function deriveWorkspaceRootPathCandidates(
+  workspace: WorkspacePathSource | null | undefined,
+  _workspaceRepos: WorkspaceRepoPathSource[] = []
+): string[] {
+  const containerRef = workspace?.container_ref?.trim();
+  if (!workspace || !containerRef) {
+    return [];
+  }
+
+  return [containerRef];
+}
 
 export function deriveWorkspaceRootPath(
   workspace: WorkspacePathSource | null | undefined,
   workspaceRepos: WorkspaceRepoPathSource[] = []
 ): string | null {
-  const containerRef = workspace?.container_ref;
-  if (!containerRef) {
-    return null;
-  }
-
-  if (!workspace.use_worktree || workspaceRepos.length === 0) {
-    return containerRef;
-  }
-
-  const separator = containerRef.includes('\\') ? '\\' : '/';
-  return `${containerRef.replace(/[\\/]+$/, '')}${separator}${workspaceRepos[0].name}`;
+  return (
+    deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)[0] ?? null
+  );
 }

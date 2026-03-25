@@ -99,7 +99,7 @@ export function SessionHubListItem({
       className={cn(
         'relative flex min-w-0 items-start gap-2 overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm',
         isSelected && 'border-primary/50 bg-primary/5',
-        dragging && 'shadow-lg'
+        dragging && 'scale-[1.01] rotate-[0.75deg] shadow-xl ring-1 ring-primary/20'
       )}
     >
       <div
@@ -121,7 +121,7 @@ export function SessionHubListItem({
       <div className={cn('min-w-0 flex-1', !isDeleteMode && 'pl-2')}>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               {isEditing ? (
                 <Input
                   value={draftName}
@@ -144,14 +144,14 @@ export function SessionHubListItem({
                 />
               ) : (
                 <div
-                  className="truncate text-[13px] font-semibold text-foreground"
+                  className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground"
                   title={session.fullName}
                 >
                   {session.fullName}
                 </div>
               )}
               {!isEditing ? (
-                <div className="ml-auto flex max-w-[60%] shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                <div className="ml-auto flex min-w-0 max-w-[50%] shrink items-center gap-1.5 text-[10px] text-muted-foreground">
                   <span
                     className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}
                   >
@@ -159,7 +159,7 @@ export function SessionHubListItem({
                   </span>
                   <span className="shrink-0 text-muted-foreground/50">·</span>
                   <span
-                    className="inline-flex min-w-0 items-center gap-1"
+                    className="inline-flex min-w-0 flex-1 items-center gap-1"
                     title={branchHoverText}
                   >
                     <GitBranch className="h-3 w-3 shrink-0 opacity-80" />

@@ -28,8 +28,6 @@
 }
 
 /* Inline code inside user bubble — transparent bg + subtle border only */
-.conv-user-bubble .bg-muted,
-.conv-user-bubble .bg-panel,
 .conv-user-bubble .ProseMirror code,
 .conv-user-bubble code {
   background: transparent !important;

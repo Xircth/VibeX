@@ -14,8 +14,6 @@ import {
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
 
-const PROJECT_LIST_LIMIT = 8;
-
 export function ProjectRail() {
   const { projects } = useProjects();
   const { projectId } = useProject();
@@ -30,7 +28,11 @@ export function ProjectRail() {
     (state) => state.ensureProjectOpen
   );
   const setRailVisible = useWindowProjectsStore((state) => state.setRailVisible);
-  const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
+  const [hoveredProjectState, setHoveredProjectState] = useState<{
+    projectId: string;
+    top: number;
+    left: number;
+  } | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
   const projectListRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{
@@ -46,11 +48,11 @@ export function ProjectRail() {
     const byId = new Map(projects.map((project) => [project.id, project]));
     const orderedIds = Array.from(
       new Set([
-        ...(projectId ? [projectId] : []),
         ...openProjectIds,
+        ...(projectId ? [projectId] : []),
         ...projects.map((project) => project.id),
       ])
-    ).slice(0, PROJECT_LIST_LIMIT);
+    );
 
     return orderedIds
       .map((id) => byId.get(id))
@@ -190,13 +192,21 @@ export function ProjectRail() {
     switchProject(nextProjectId);
   };
 
-  const handleProjectMouseEnter = (nextProjectId: string) => {
+  const handleProjectMouseEnter = (
+    nextProjectId: string,
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
     if (hoverTimerRef.current) {
       clearTimeout(hoverTimerRef.current);
     }
 
+    const rect = event.currentTarget.getBoundingClientRect();
     hoverTimerRef.current = setTimeout(() => {
-      setHoveredProjectId(nextProjectId);
+      setHoveredProjectState({
+        projectId: nextProjectId,
+        top: rect.top + rect.height / 2,
+        left: rect.right + 12,
+      });
     }, 500);
   };
 
@@ -206,8 +216,8 @@ export function ProjectRail() {
       hoverTimerRef.current = null;
     }
 
-    setHoveredProjectId((current) =>
-      current === nextProjectId ? null : current
+    setHoveredProjectState((current) =>
+      current?.projectId === nextProjectId ? null : current
     );
   };
 
@@ -219,12 +229,12 @@ export function ProjectRail() {
     <div className="pointer-events-none fixed left-3 top-1/2 z-40 -translate-y-1/2">
       <div
         ref={railRef}
-        className="project-rail-shell pointer-events-auto flex w-[66px] flex-col items-center gap-2 rounded-3xl border-2 border-border/95 bg-background/55 px-1.5 py-3 shadow-xl backdrop-blur-xl"
+        className="project-rail-shell pointer-events-auto flex w-[60px] flex-col items-center gap-2 rounded-3xl border-2 border-border/95 bg-background/55 px-1 py-3 shadow-xl backdrop-blur-xl"
       >
         <div
           ref={projectListRef}
           className={cn(
-            'project-rail-scroll flex max-h-[60vh] w-full flex-col items-center gap-2 overflow-y-auto pr-0.5',
+            'project-rail-scroll flex max-h-[292px] w-full flex-col items-center gap-2 overflow-y-auto px-0 py-2',
             isDragging && 'is-dragging'
           )}
           onWheel={handleProjectListWheel}
@@ -240,13 +250,13 @@ export function ProjectRail() {
               ? deriveProjectVisualState(snapshot, projectAlerts[project.id])
               : 'idle';
             const meta = resolveProjectVisualStateMeta(visualState);
-            const isHovered = hoveredProjectId === project.id;
+            const isHovered = hoveredProjectState?.projectId === project.id;
 
             return (
               <div
                 key={project.id}
                 className="relative"
-                onMouseEnter={() => handleProjectMouseEnter(project.id)}
+                onMouseEnter={(event) => handleProjectMouseEnter(project.id, event)}
                 onMouseLeave={() => handleProjectMouseLeave(project.id)}
               >
                 <button
@@ -290,6 +300,11 @@ export function ProjectRail() {
                     projectName={project.name}
                     recentSessions={snapshot.recentSessions}
                     align="right"
+                    style={{
+                      top: hoveredProjectState?.top,
+                      left: hoveredProjectState?.left,
+                      transform: 'translateY(-50%)',
+                    }}
                   />
                 ) : null}
               </div>
@@ -303,7 +318,7 @@ export function ProjectRail() {
           <Button
             variant="ghost"
             size="icon"
-            className="project-rail-action-button h-9 w-9 rounded-2xl"
+            className="project-rail-action-button h-8 w-8 rounded-2xl"
             onClick={handleCreateProject}
             aria-label="创建新项目"
             title="创建新项目"
@@ -314,7 +329,7 @@ export function ProjectRail() {
           <Button
             variant="ghost"
             size="icon"
-            className="project-rail-action-button h-9 w-9 rounded-2xl"
+            className="project-rail-action-button h-8 w-8 rounded-2xl"
             onClick={handleOpenProject}
             aria-label="打开项目"
             title="打开项目"

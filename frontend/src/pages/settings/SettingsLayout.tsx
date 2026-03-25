@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bot,
   BookOpenText,
+  Code2,
   Keyboard,
   PlugZap,
   Settings,
@@ -25,6 +26,7 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
   { path: '/settings/skills', label: '技能', icon: BookOpenText },
   { path: '/settings/shortcuts', label: '快捷键', icon: Keyboard },
+  { path: '/settings/editor', label: '编辑', icon: Code2 },
   { path: '/settings/system', label: '系统', icon: Settings },
 ];
 
@@ -50,16 +52,14 @@ export function SettingsLayout() {
     navigate(-1);
   }, [navigate]);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    // Only start dragging on left mouse button and direct target (not child buttons)
-    if (e.button !== 0) return;
-    e.preventDefault();
+  const handleDragStart = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
     getCurrentWindow().startDragging().catch(() => {});
   }, []);
 
   return (
     <div className="settings-page h-screen flex flex-col overflow-hidden bg-background text-foreground">
-      {/* Integrated title bar */}
       <div
         className="relative h-10 shrink-0 border-b bg-muted/70 select-none"
         onMouseDown={isStandaloneWindow ? handleDragStart : undefined}
@@ -70,7 +70,6 @@ export function SettingsLayout() {
             isStandaloneWindow && isWindows && 'pr-[138px]'
           )}
         >
-          {/* Back button (only in main window mode) */}
           {!isStandaloneWindow && (
             <Button
               variant="ghost"
@@ -81,18 +80,23 @@ export function SettingsLayout() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
           )}
-          {/* Logo + "设置" — pointer-events-none so drag region works in standalone */}
-          <div className={cn('flex items-center gap-3', isStandaloneWindow && 'pointer-events-none')}>
+          <div
+            className={cn(
+              'flex items-center gap-3',
+              isStandaloneWindow && 'pointer-events-none'
+            )}
+          >
             <Logo showText={false} />
-            <span className="text-sm font-semibold tracking-tight text-foreground">设置</span>
+            <span className="text-sm font-semibold tracking-tight text-foreground">
+              设置
+            </span>
           </div>
         </div>
 
-        {/* Window controls — only in standalone window */}
         {isStandaloneWindow && isWindows && (
           <div
             className="absolute right-0 top-0 z-30 flex items-center h-full"
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
           >
             <WindowControls />
           </div>
@@ -100,7 +104,6 @@ export function SettingsLayout() {
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        {/* Left sidebar navigation */}
         <aside className="w-56 shrink-0 border-r p-3">
           <div className="px-1 pb-2 text-[11px] font-medium text-muted-foreground">
             偏好设置
@@ -132,8 +135,10 @@ export function SettingsLayout() {
           </nav>
         </aside>
 
-        {/* Main content area */}
-        <section className="flex-1 min-w-0 min-h-0 p-4 overflow-y-auto">
+        <section
+          className="flex-1 min-w-0 min-h-0 p-4 overflow-y-auto"
+          style={{ scrollbarGutter: 'stable' }}
+        >
           <Outlet />
         </section>
       </div>

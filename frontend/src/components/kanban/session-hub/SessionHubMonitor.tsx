@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
+import { createSessionSnapshot } from '@/components/kanban/sessionSnapshot';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { cn } from '@/lib/utils';
 import {
@@ -53,19 +54,10 @@ export function SessionHubMonitor({
               <div
                 key={session.id}
                 className={cn(
-                  'flex min-h-0 flex-col overflow-hidden rounded-2xl border p-3 shadow-sm cursor-pointer transition-colors hover:bg-background/30',
+                  'flex min-h-0 flex-col overflow-hidden rounded-2xl border p-3 shadow-sm transition-colors hover:bg-background/30',
                   MONITOR_SLOT_STYLES[index]?.shell,
                   getMonitorItemClassName(monitorRecords.length, index)
                 )}
-                role="button"
-                tabIndex={0}
-                onClick={() => onOpenInExecutionArea(session)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onOpenInExecutionArea(session);
-                  }
-                }}
               >
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -116,6 +108,9 @@ export function SessionHubMonitor({
                   <KanbanSessionConversationView
                     workspaceId={session.workspace.id}
                     sessionId={session.id}
+                    initialWorkspace={session.workspace}
+                    initialSession={createSessionSnapshot(session)}
+                    initialTask={session.task}
                     className="h-full"
                   />
                 </div>

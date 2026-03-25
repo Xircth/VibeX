@@ -6,6 +6,7 @@ use db::models::{
     workspace::{Workspace, WorkspaceWithStatus},
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
+use services::services::config::Config;
 use ts_rs::TS;
 use vibe_ultra::commands::sessions::SessionSummary;
 
@@ -113,6 +114,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Session>(&mut decls);
     insert_declaration::<CreateSession>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
+    insert_declaration::<Config>(&mut decls);
 
     insert_declaration::<TaskStatus>(&mut decls);
     insert_declaration::<Task>(&mut decls);

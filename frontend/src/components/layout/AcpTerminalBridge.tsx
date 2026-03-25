@@ -11,13 +11,16 @@ import {
 type AcpTerminalEvent =
   | {
       type: 'created';
+      source: 'acp' | 'codex';
       session_id: string;
       workspace_id: string | null;
+      title: string;
       command: string;
       cwd: string | null;
     }
   | {
       type: 'released';
+      source: 'acp' | 'codex';
       session_id: string;
       workspace_id: string | null;
     };
@@ -33,7 +36,7 @@ export function AcpTerminalBridge() {
     let mounted = true;
     let unlisten: (() => void) | null = null;
 
-    void tauriListen<AcpTerminalEvent>('acp-terminal-events', (event) => {
+    void tauriListen<AcpTerminalEvent>('agent-terminal-events', (event) => {
       if (!mounted) return;
 
       if (event.type === 'created') {
@@ -46,8 +49,9 @@ export function AcpTerminalBridge() {
         if (!existingSession) {
           const tabId = generateTerminalTabId();
           addSession(workspaceId, tabId, undefined, {
+            title: event.title,
             readOnly: true,
-            source: 'acp',
+            source: event.source,
           });
           setSessionId(tabId, event.session_id);
         }

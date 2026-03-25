@@ -70,6 +70,68 @@ interface WindowProjectsState {
   consumeProjectFocus: (projectId: string) => ProjectFocusRequest | undefined;
 }
 
+function arraysEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function isSameSnapshot(
+  left: ProjectActivitySnapshot | undefined,
+  right: ProjectActivitySnapshot
+) {
+  if (!left) {
+    return false;
+  }
+
+  if (
+    left.isLoading !== right.isLoading ||
+    left.hasRunning !== right.hasRunning ||
+    left.hasError !== right.hasError ||
+    left.hasSessions !== right.hasSessions ||
+    left.recentSessions.length !== right.recentSessions.length
+  ) {
+    return false;
+  }
+
+  return left.recentSessions.every((session, index) => {
+    const nextSession = right.recentSessions[index];
+    return (
+      session.sessionId === nextSession.sessionId &&
+      session.workspaceId === nextSession.workspaceId &&
+      session.taskId === nextSession.taskId &&
+      session.title === nextSession.title &&
+      session.subtitle === nextSession.subtitle &&
+      session.statusLabel === nextSession.statusLabel &&
+      session.visualState === nextSession.visualState &&
+      session.updatedAt === nextSession.updatedAt
+    );
+  });
+}
+
+function isSameAlert(
+  left: ProjectActivityAlert | undefined,
+  right: ProjectActivityAlert
+) {
+  if (!left) {
+    return false;
+  }
+
+  return (
+    left.projectId === right.projectId &&
+    left.workspaceId === right.workspaceId &&
+    left.sessionId === right.sessionId &&
+    left.taskId === right.taskId &&
+    left.kind === right.kind &&
+    left.unread === right.unread &&
+    left.createdAt === right.createdAt &&
+    left.title === right.title &&
+    left.description === right.description
+  );
+}
+
 export const useWindowProjectsStore = create<WindowProjectsState>()(
   persist(
     (set, get) => ({
@@ -79,42 +141,84 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       projectSnapshots: {},
       projectAlerts: {},
       focusRequests: {},
-      setRailVisible: (visible) => set({ railVisible: visible }),
+      setRailVisible: (visible) =>
+        set((state) =>
+          state.railVisible === visible ? state : { railVisible: visible }
+        ),
       toggleRailVisible: () =>
         set((state) => ({ railVisible: !state.railVisible })),
       ensureProjectOpen: (projectId) =>
-        set((state) => ({
-          openProjectIds: state.openProjectIds.includes(projectId)
-            ? state.openProjectIds
-            : [projectId, ...state.openProjectIds].slice(0, 8),
-        })),
+        set((state) => {
+          const nextOpenProjectIds = [
+            projectId,
+            ...state.openProjectIds.filter((id) => id !== projectId),
+          ].slice(0, 8);
+
+          return arraysEqual(state.openProjectIds, nextOpenProjectIds)
+            ? state
+            : { openProjectIds: nextOpenProjectIds };
+        }),
       rememberProjectRoute: (projectId, route) =>
-        set((state) => ({
-          lastRouteByProject: {
-            ...state.lastRouteByProject,
-            [projectId]: route,
-          },
-        })),
+        set((state) =>
+          state.lastRouteByProject[projectId] === route
+            ? state
+            : {
+                lastRouteByProject: {
+                  ...state.lastRouteByProject,
+                  [projectId]: route,
+                },
+              }
+        ),
       setProjectSnapshot: (projectId, snapshot) =>
-        set((state) => ({
-          openProjectIds: state.openProjectIds.includes(projectId)
+        set((state) => {
+          const nextOpenProjectIds = state.openProjectIds.includes(projectId)
             ? state.openProjectIds
-            : [projectId, ...state.openProjectIds].slice(0, 8),
-          projectSnapshots: {
-            ...state.projectSnapshots,
-            [projectId]: snapshot,
-          },
-        })),
+            : [projectId, ...state.openProjectIds].slice(0, 8);
+          const sameOrder = arraysEqual(state.openProjectIds, nextOpenProjectIds);
+          const sameSnapshot = isSameSnapshot(
+            state.projectSnapshots[projectId],
+            snapshot
+          );
+
+          if (sameOrder && sameSnapshot) {
+            return state;
+          }
+
+          return {
+            openProjectIds: nextOpenProjectIds,
+            projectSnapshots: sameSnapshot
+              ? state.projectSnapshots
+              : {
+                  ...state.projectSnapshots,
+                  [projectId]: snapshot,
+                },
+          };
+        }),
       setProjectAlert: (alert) =>
-        set((state) => ({
-          projectAlerts: {
-            ...state.projectAlerts,
-            [alert.projectId]: alert,
-          },
-          openProjectIds: state.openProjectIds.includes(alert.projectId)
+        set((state) => {
+          const nextOpenProjectIds = state.openProjectIds.includes(alert.projectId)
             ? state.openProjectIds
-            : [alert.projectId, ...state.openProjectIds].slice(0, 8),
-        })),
+            : [alert.projectId, ...state.openProjectIds].slice(0, 8);
+          const sameOrder = arraysEqual(state.openProjectIds, nextOpenProjectIds);
+          const sameAlert = isSameAlert(
+            state.projectAlerts[alert.projectId],
+            alert
+          );
+
+          if (sameOrder && sameAlert) {
+            return state;
+          }
+
+          return {
+            openProjectIds: nextOpenProjectIds,
+            projectAlerts: sameAlert
+              ? state.projectAlerts
+              : {
+                  ...state.projectAlerts,
+                  [alert.projectId]: alert,
+                },
+          };
+        }),
       markProjectAlertRead: (projectId) =>
         set((state) => {
           const existingAlert = state.projectAlerts[projectId];

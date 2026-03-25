@@ -16,14 +16,45 @@ export interface SearchOptions {
   projectId?: string;
 }
 
+const TAG_CACHE_TTL_MS = 30_000;
+
+let cachedTags: Tag[] | null = null;
+let cachedTagsAt = 0;
+let pendingTagsRequest: Promise<Tag[]> | null = null;
+
+async function loadCachedTags(): Promise<Tag[]> {
+  const now = Date.now();
+  if (cachedTags && now - cachedTagsAt < TAG_CACHE_TTL_MS) {
+    return cachedTags;
+  }
+
+  if (pendingTagsRequest) {
+    return pendingTagsRequest;
+  }
+
+  pendingTagsRequest = tagsApi
+    .list()
+    .then((tags) => {
+      cachedTags = tags;
+      cachedTagsAt = Date.now();
+      return tags;
+    })
+    .finally(() => {
+      pendingTagsRequest = null;
+    });
+
+  return pendingTagsRequest;
+}
+
 export async function searchTagsAndFiles(
   query: string,
   options?: SearchOptions
 ): Promise<SearchResultItem[]> {
   const results: SearchResultItem[] = [];
 
-  // Fetch all tags and filter client-side
-  const tags = await tagsApi.list();
+  // Tags are global and rarely change. Cache them to avoid hammering the
+  // SQLite pool on every keystroke in the typeahead menu.
+  const tags = await loadCachedTags();
   const filteredTags = tags.filter((tag) =>
     tag.tag_name.toLowerCase().includes(query.toLowerCase())
   );

@@ -1,7 +1,5 @@
-import { useState, useCallback } from 'react';
-import { Reorder, useDragControls } from 'framer-motion';
+import { useState, useCallback, useEffect } from 'react';
 import {
-  GripVertical,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
@@ -30,27 +28,31 @@ import type {
   AgentSettingInfo,
   PreflightCheck,
 } from '@/lib/api';
-import { agentSettingsApi } from '@/lib/api';
+import { agentSettingsApi, claudeSettingsApi } from '@/lib/api';
+import type { BaseCodingAgent } from 'shared/types';
 
 // Agent display info
 const AGENT_META: Record<
   string,
-  { name: string; description: string; icon: string }
+  { name: string; description: string; icon: string; installSource: string }
 > = {
   claude_code: {
     name: 'Claude Code',
     description: 'Anthropic Claude Code - AI 编码助手',
     icon: 'CC',
+    installSource: 'npm -g @anthropic-ai/claude-code',
   },
   codex: {
     name: 'Codex',
     description: 'OpenAI Codex CLI - AI 编码助手',
     icon: 'CX',
+    installSource: 'npm -g @openai/codex',
   },
   open_code: {
     name: 'OpenCode',
     description: 'OpenCode - 开源 AI 编码助手',
     icon: 'OC',
+    installSource: 'go install github.com/opencode-ai/opencode@latest',
   },
 };
 
@@ -259,6 +261,19 @@ interface AgentCardProps {
   onReload: () => void;
 }
 
+function toBaseCodingAgent(agentType: string): BaseCodingAgent | null {
+  switch (agentType) {
+    case 'claude_code':
+      return 'CLAUDE_CODE' as BaseCodingAgent;
+    case 'codex':
+      return 'CODEX' as BaseCodingAgent;
+    case 'open_code':
+      return 'OPENCODE' as BaseCodingAgent;
+    default:
+      return null;
+  }
+}
+
 export function AgentCard({
   agent,
   selected,
@@ -266,11 +281,11 @@ export function AgentCard({
   onSave,
   onReload,
 }: AgentCardProps) {
-  const dragControls = useDragControls();
   const meta = AGENT_META[agent.agent_type] ?? {
     name: agent.agent_type,
     description: '',
     icon: '??',
+    installSource: 'manual',
   };
 
   const [draft, setDraft] = useState<AgentDraft>(() => createEmptyDraft(agent));
@@ -281,6 +296,22 @@ export function AgentCard({
   const [expandedChecks, setExpandedChecks] = useState<
     Record<string, boolean>
   >({});
+  const [runningFixActions, setRunningFixActions] = useState<
+    Record<string, boolean>
+  >({});
+  const [nativeConfigLoading, setNativeConfigLoading] = useState(false);
+  const [nativeConfigSaving, setNativeConfigSaving] = useState(false);
+  const [nativeConfigError, setNativeConfigError] = useState<string | null>(
+    null
+  );
+  const [claudeSettingsText, setClaudeSettingsText] = useState('');
+  const [codexConfigTomlText, setCodexConfigTomlText] = useState('');
+  const [codexAuthJsonText, setCodexAuthJsonText] = useState('');
+  const [opencodeConfigJsonText, setOpencodeConfigJsonText] = useState('');
+  const [opencodeAuthJsonText, setOpencodeAuthJsonText] = useState('');
+  const [nativeConfigPath, setNativeConfigPath] = useState<string | null>(
+    null
+  );
 
   const summary = summarizeChecks(checks);
 
@@ -311,6 +342,49 @@ export function AgentCard({
     }
   }, [agent.agent_type]);
 
+  useEffect(() => {
+    if (selected && checks.length === 0 && !isChecking) {
+      void handlePreflight();
+    }
+  }, [checks.length, handlePreflight, isChecking, selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+
+    const loadNativeConfig = async () => {
+      setNativeConfigLoading(true);
+      setNativeConfigError(null);
+      try {
+        if (agent.agent_type === 'claude_code') {
+          const settings = await claudeSettingsApi.get();
+          setClaudeSettingsText(JSON.stringify(settings, null, 2));
+          setNativeConfigPath('~/.claude/settings.json');
+          return;
+        }
+
+        const baseAgent = toBaseCodingAgent(agent.agent_type);
+        if (!baseAgent) return;
+
+        const nativeConfig = await agentSettingsApi.readNativeConfigs(baseAgent);
+        setCodexConfigTomlText(nativeConfig.codex_config_toml ?? '');
+        setCodexAuthJsonText(nativeConfig.codex_auth_json ?? '');
+        setOpencodeConfigJsonText(nativeConfig.opencode_config_json ?? '');
+        setOpencodeAuthJsonText(nativeConfig.opencode_auth_json ?? '');
+        setNativeConfigPath(
+          nativeConfig.codex_home_path ?? nativeConfig.opencode_config_path ?? null
+        );
+      } catch (error) {
+        setNativeConfigError(
+          error instanceof Error ? error.message : '加载配置文件失败'
+        );
+      } finally {
+        setNativeConfigLoading(false);
+      }
+    };
+
+    void loadNativeConfig();
+  }, [agent.agent_type, selected]);
+
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
@@ -331,6 +405,58 @@ export function AgentCard({
     }
   }, [agent.agent_type, draft, onSave, onReload]);
 
+  const handleSaveNativeConfig = useCallback(async () => {
+    setNativeConfigSaving(true);
+    setNativeConfigError(null);
+    try {
+      if (agent.agent_type === 'claude_code') {
+        const parsed = JSON.parse(claudeSettingsText || '{}') as {
+          env?: Record<string, string>;
+          enabled_plugins?: Record<string, boolean>;
+          enabledPlugins?: Record<string, boolean>;
+        };
+        await claudeSettingsApi.update({
+          env: parsed.env ?? {},
+          enabled_plugins:
+            parsed.enabled_plugins ?? parsed.enabledPlugins ?? {},
+        });
+      } else {
+        const baseAgent = toBaseCodingAgent(agent.agent_type);
+        if (!baseAgent) return;
+
+        await agentSettingsApi.writeNativeConfig({
+          agentType: baseAgent,
+          codexConfigToml:
+            agent.agent_type === 'codex' ? codexConfigTomlText : null,
+          codexAuthJson:
+            agent.agent_type === 'codex' ? codexAuthJsonText : null,
+          opencodeConfigJson:
+            agent.agent_type === 'open_code' ? opencodeConfigJsonText : null,
+          opencodeAuthJson:
+            agent.agent_type === 'open_code' ? opencodeAuthJsonText : null,
+        });
+      }
+
+      onReload();
+      await handlePreflight();
+    } catch (error) {
+      setNativeConfigError(
+        error instanceof Error ? error.message : '保存配置文件失败'
+      );
+    } finally {
+      setNativeConfigSaving(false);
+    }
+  }, [
+    agent.agent_type,
+    claudeSettingsText,
+    codexAuthJsonText,
+    codexConfigTomlText,
+    handlePreflight,
+    onReload,
+    opencodeAuthJsonText,
+    opencodeConfigJsonText,
+  ]);
+
   const handleToggleEnabled = useCallback(
     async (enabled: boolean) => {
       updateDraft({ enabled });
@@ -347,15 +473,31 @@ export function AgentCard({
     [agent.agent_type, updateDraft, onReload]
   );
 
+  const handleRunFix = useCallback(
+    async (action: string) => {
+      const key = `${agent.agent_type}:${action}`;
+      setRunningFixActions((prev) => ({ ...prev, [key]: true }));
+      setNativeConfigError(null);
+      try {
+        await agentSettingsApi.runFix({
+          agentType: agent.agent_type,
+          action,
+        });
+        await onReload();
+        await handlePreflight();
+      } catch (error) {
+        setNativeConfigError(
+          error instanceof Error ? error.message : '执行修复操作失败'
+        );
+      } finally {
+        setRunningFixActions((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [agent.agent_type, handlePreflight, onReload]
+  );
+
   return (
-    <Reorder.Item
-      as="section"
-      value={agent}
-      drag="y"
-      dragListener={false}
-      dragControls={dragControls}
-      dragMomentum={false}
-      layout="position"
+    <section
       className={cn(
         'rounded-lg border bg-card p-3 transition-colors cursor-pointer',
         selected && 'border-primary/60 bg-primary/5',
@@ -365,15 +507,6 @@ export function AgentCard({
     >
       {/* Header */}
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="cursor-grab touch-none text-muted-foreground hover:text-foreground"
-          onPointerDown={(e) => dragControls.start(e)}
-          aria-label="Drag to reorder"
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-
         <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-xs font-bold">
           {meta.icon}
         </div>
@@ -384,6 +517,9 @@ export function AgentCard({
             {agent.installed_version
               ? `v${agent.installed_version}`
               : meta.description}
+          </div>
+          <div className="text-[10px] text-muted-foreground/80 truncate">
+            {meta.installSource}
           </div>
         </div>
 
@@ -433,8 +569,7 @@ export function AgentCard({
             </div>
             {checks.map((check) => {
               const key = `${agent.agent_type}:${check.check_id}`;
-              const expanded =
-                expandedChecks[key] ?? check.status !== 'pass';
+              const expanded = expandedChecks[key] ?? false;
               return (
                 <div
                   key={check.check_id}
@@ -472,8 +607,33 @@ export function AgentCard({
                     </span>
                   </button>
                   {expanded && (
-                    <div className="text-[11px] text-muted-foreground pl-5">
-                      {check.message}
+                    <div className="space-y-2 pl-5">
+                      <div className="text-[11px] text-muted-foreground">
+                        {check.message}
+                      </div>
+                      {check.fixes.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {check.fixes.map((fix) => {
+                            const fixKey = `${agent.agent_type}:${fix.action}`;
+                            const isRunning = runningFixActions[fixKey] === true;
+                            return (
+                              <Button
+                                key={fixKey}
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => void handleRunFix(fix.action)}
+                                disabled={isRunning}
+                              >
+                                {isRunning ? (
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                ) : null}
+                                {fix.label}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -515,6 +675,91 @@ export function AgentCard({
             />
           </div>
 
+          <div className="space-y-2 rounded-md border bg-muted/10 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-medium text-foreground">
+                  配置文件配置
+                </div>
+                <div className="hidden text-[11px] text-muted-foreground">
+                  直接编辑代理自己的配置文件。
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSaveNativeConfig}
+                disabled={nativeConfigSaving || nativeConfigLoading}
+              >
+                {nativeConfigSaving ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3 mr-1" />
+                )}
+                保存文件
+              </Button>
+            </div>
+
+            {nativeConfigPath && (
+              <div className="text-[11px] text-muted-foreground">
+                路径：
+                {' '}
+                <code className="font-mono">{nativeConfigPath}</code>
+              </div>
+            )}
+
+            {nativeConfigLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                正在加载配置文件...
+              </div>
+            ) : (
+              <>
+                {agent.agent_type === 'claude_code' && (
+                  <Textarea
+                    value={claudeSettingsText}
+                    onChange={(e) => setClaudeSettingsText(e.target.value)}
+                    className="min-h-72 font-mono text-xs"
+                  />
+                )}
+                {agent.agent_type === 'codex' && (
+                  <div className="grid gap-3">
+                    <Textarea
+                      value={codexConfigTomlText}
+                      onChange={(e) => setCodexConfigTomlText(e.target.value)}
+                      className="min-h-56 font-mono text-xs"
+                    />
+                    <Textarea
+                      value={codexAuthJsonText}
+                      onChange={(e) => setCodexAuthJsonText(e.target.value)}
+                      className="min-h-56 font-mono text-xs"
+                    />
+                  </div>
+                )}
+                {agent.agent_type === 'open_code' && (
+                  <div className="grid gap-3">
+                    <Textarea
+                      value={opencodeConfigJsonText}
+                      onChange={(e) => setOpencodeConfigJsonText(e.target.value)}
+                      className="min-h-56 font-mono text-xs"
+                    />
+                    <Textarea
+                      value={opencodeAuthJsonText}
+                      onChange={(e) => setOpencodeAuthJsonText(e.target.value)}
+                      className="min-h-56 font-mono text-xs"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            {nativeConfigError && (
+              <div className="text-[11px] text-destructive">
+                {nativeConfigError}
+              </div>
+            )}
+          </div>
+
           {/* Save button */}
           <div className="flex justify-end">
             <Button size="sm" onClick={handleSave} disabled={isSaving}>
@@ -528,7 +773,7 @@ export function AgentCard({
           </div>
         </div>
       )}
-    </Reorder.Item>
+    </section>
   );
 }
 

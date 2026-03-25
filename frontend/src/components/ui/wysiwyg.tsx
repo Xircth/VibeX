@@ -14,7 +14,12 @@ import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { AutoFocusPlugin } from '@lexical/react/LexicalAutoFocusPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
-import { TRANSFORMERS, CODE, HEADING, type Transformer } from '@lexical/markdown';
+import {
+  TRANSFORMERS,
+  CODE,
+  HEADING,
+  type Transformer,
+} from '@lexical/markdown';
 import { ImageNode, IMAGE_TRANSFORMER } from './wysiwyg/nodes/image-node';
 import {
   PrCommentNode,
@@ -30,6 +35,11 @@ import {
   SlashCommandNode,
   SLASH_COMMAND_TRANSFORMER,
 } from './wysiwyg/nodes/slash-command-node';
+import {
+  FileReferenceNode,
+  FILE_REFERENCE_TRANSFORMER,
+  $createFileReferenceNode,
+} from './wysiwyg/nodes/file-reference-node';
 import {
   ClickedElementNode,
   CLICKED_ELEMENT_TRANSFORMER,
@@ -64,9 +74,23 @@ import { CODE_HIGHLIGHT_CLASSES } from './wysiwyg/lib/code-highlight-theme';
 import { LinkNode } from '@lexical/link';
 import { TableNode, TableRowNode, TableCellNode } from '@lexical/table';
 import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
-import { EditorState, type LexicalEditor } from 'lexical';
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $getRoot,
+  $getSelection,
+  $isElementNode,
+  $isRangeSelection,
+  EditorState,
+  type LexicalEditor,
+} from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { cn } from '@/lib/utils';
+import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
+import {
+  FILE_REFERENCE_DRAG_MIME,
+  parseFileReferencePayload,
+} from '@/utils/fileReferences';
 import { Check, Clipboard, Pencil, Trash2 } from 'lucide-react';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import type { SendMessageShortcut } from 'shared/types';
@@ -122,6 +146,8 @@ type WysiwygProps = {
   onRegisterClickedElementInsert?: (
     insertFn: (data: ClickedElementData) => void
   ) => void;
+  /** Whether to enable the floating selection toolbar */
+  enableFloatingToolbar?: boolean;
 };
 
 /** Ref interface for WYSIWYGEditor, exposing imperative methods */
@@ -154,6 +180,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       onPasteFiles,
       className,
       repoIds,
+      projectId,
       executor = null,
       onCmdEnter,
       onShiftCmdEnter,
@@ -171,6 +198,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       showStaticToolbar = false,
       saveStatus,
       onRegisterClickedElementInsert,
+      enableFloatingToolbar = true,
     }: WysiwygProps,
     ref: React.ForwardedRef<WYSIWYGEditorRef>
   ) {
@@ -197,6 +225,39 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         // noop – bridge handles fallback
       }
     }, [value, triggerCopied]);
+
+    const insertFileReference = useCallback(
+      (payload: ReturnType<typeof parseFileReferencePayload>) => {
+        if (!payload || !editorInstanceRef.current) {
+          return;
+        }
+
+        editorInstanceRef.current.focus();
+        editorInstanceRef.current.update(() => {
+          const node = $createFileReferenceNode(payload);
+          const spaceNode = $createTextNode(' ');
+          const selection = $getSelection();
+
+          if ($isRangeSelection(selection)) {
+            selection.insertNodes([node, spaceNode]);
+            return;
+          }
+
+          const root = $getRoot();
+          const lastChild = root.getLastChild();
+
+          if (lastChild && $isElementNode(lastChild)) {
+            lastChild.append(node, spaceNode);
+            return;
+          }
+
+          const paragraph = $createParagraphNode();
+          paragraph.append(node, spaceNode);
+          root.append(paragraph);
+        });
+      },
+      []
+    );
 
     const initialConfig = useMemo(
       () => ({
@@ -251,6 +312,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           PrCommentNode,
           TagReferenceNode,
           SlashCommandNode,
+          FileReferenceNode,
           ClickedElementNode,
           TableNode,
           TableRowNode,
@@ -269,6 +331,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         PR_COMMENT_TRANSFORMER, // Import transformer for fenced code block
         TAG_REFERENCE_TRANSFORMER, // Export-only transformer for tag reference chips
         SLASH_COMMAND_TRANSFORMER, // Export-only transformer for slash command chips
+        FILE_REFERENCE_TRANSFORMER, // Export-only transformer for dragged file reference chips
         CLICKED_ELEMENT_TRANSFORMER, // Export-only transformer for clicked element chips
         CODE,
         ...TRANSFORMERS,
@@ -288,18 +351,49 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       (event: React.ClipboardEvent) => {
         if (!onPasteFiles || disabled) return;
 
-        const dt = event.clipboardData;
-        if (!dt) return;
-
-        const files: File[] = Array.from(dt.files || []).filter((f) =>
-          f.type.startsWith('image/')
-        );
+        const files = extractImageFilesFromClipboardData(event.clipboardData);
 
         if (files.length > 0) {
+          event.preventDefault();
           onPasteFiles(files);
         }
       },
       [onPasteFiles, disabled]
+    );
+
+    const handleDragOver = useCallback(
+      (event: React.DragEvent) => {
+        if (disabled) {
+          return;
+        }
+
+        if (
+          Array.from(event.dataTransfer.types).includes(FILE_REFERENCE_DRAG_MIME)
+        ) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }
+      },
+      [disabled]
+    );
+
+    const handleDrop = useCallback(
+      (event: React.DragEvent) => {
+        if (disabled) {
+          return;
+        }
+
+        const payload = parseFileReferencePayload(
+          event.dataTransfer.getData(FILE_REFERENCE_DRAG_MIME)
+        );
+        if (!payload) {
+          return;
+        }
+
+        event.preventDefault();
+        insertFileReference(payload);
+      },
+      [disabled, insertFileReference]
     );
 
     // Memoized placeholder element
@@ -331,7 +425,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   editable={!disabled}
                   transformers={extendedTransformers}
                 />
-                {!disabled && <ToolbarPlugin />}
+                {!disabled && enableFloatingToolbar && <ToolbarPlugin />}
                 <div className="relative">
                   <RichTextPlugin
                     contentEditable={
@@ -341,6 +435,8 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                           disabled ? 'Markdown content' : 'Markdown editor'
                         }
                         onPaste={handlePaste}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
                       />
                     }
                     placeholder={placeholderElement}
@@ -365,7 +461,10 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     />
                     <PasteMarkdownPlugin transformers={extendedTransformers} />
                     <TypeaheadOpenProvider>
-                      <FileTagTypeaheadPlugin repoIds={repoIds} />
+                      <FileTagTypeaheadPlugin
+                        repoIds={repoIds}
+                        projectId={projectId}
+                      />
                       {executor && (
                         <SlashCommandTypeaheadPlugin
                           agent={executor}

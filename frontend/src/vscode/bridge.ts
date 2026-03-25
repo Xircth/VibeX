@@ -97,6 +97,16 @@ function activeEditable():
   return null;
 }
 
+function isTextInputElement(
+  el:
+    | HTMLInputElement
+    | HTMLTextAreaElement
+    | (HTMLElement & { isContentEditable: boolean })
+    | null
+): el is HTMLInputElement | HTMLTextAreaElement {
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
 /** Attempt to write to the OS clipboard. Returns true on success. */
 async function writeClipboardText(text: string): Promise<boolean> {
   try {
@@ -406,7 +416,7 @@ export function installVSCodeIframeKeyboardBridge() {
         | HTMLTextAreaElement
         | (HTMLElement & { isContentEditable: boolean })
         | null;
-      if (el) {
+      if (isTextInputElement(el)) {
         e.preventDefault();
         e.stopPropagation();
         let text = await readClipboardText();

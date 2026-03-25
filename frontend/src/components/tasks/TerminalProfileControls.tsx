@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Brain, KeyRound, Shield, Workflow } from 'lucide-react';
 import type {
   BaseCodingAgent,
   ExecutorConfigs,
@@ -6,24 +6,35 @@ import type {
 } from 'shared/types';
 import { BaseCodingAgent as BaseCodingAgentEnum } from 'shared/types';
 import { AgentSelector } from '@/components/tasks/AgentSelector';
-import { ConfigSelector } from '@/components/tasks/ConfigSelector';
 import { CodexModelSelector } from '@/components/tasks/CodexModelSelector';
-import { ModelSelector, type ModelKey } from '@/components/tasks/ModelSelector';
+import { ConfigSelector } from '@/components/tasks/ConfigSelector';
+import { OptionSelector } from '@/components/tasks/OptionSelector';
 import {
-  PermissionSelector,
-  type PermissionMode,
-} from '@/components/tasks/PermissionSelector';
-import {
-  ReasoningEffortSelector,
+  CODEX_REASONING_EFFORT_OPTIONS,
+  type ClaudePermissionMode,
   type CodexReasoningEffort,
-  CODEX_DEFAULT_REASONING_EFFORT,
-} from '@/components/tasks/ReasoningEffortSelector';
-import {
-  type CodexPermissionMode,
+  type OpenCodePermissionMode,
+  formatApprovalPolicyLabel,
+  formatClaudePermissionLabel,
+  formatOpenCodeModeLabel,
+  formatOpenCodePermissionLabel,
+  formatSandboxModeLabel,
+  getClaudeModelOptions,
+  getClaudePermissionOptions,
+  getClaudeVariantConfig,
+  getClaudeVariantFromSelection,
+  getCodexApprovalOptions,
   getCodexModelOptions,
+  getCodexReasoningOptions,
+  getCodexSandboxOptions,
   getCodexVariantConfig,
-  getCodexVariantFromSelection,
+  getCodexVariantFromConfigSelection,
   getDefaultProfileForExecutor,
+  getOpenCodeModelOptions,
+  getOpenCodeModeOptions,
+  getOpenCodePermissionOptions,
+  getOpenCodeVariantConfig,
+  getOpenCodeVariantFromSelection,
   isClaudeCodeExecutor,
 } from '@/utils/executor';
 
@@ -35,40 +46,10 @@ interface TerminalProfileControlsProps {
   className?: string;
   lockExecutor?: boolean;
   showLabel?: boolean;
+  iconOnly?: boolean;
 }
 
-function getClaudeUiState(variant: string | null | undefined): {
-  permissionMode: PermissionMode;
-  modelKey: ModelKey;
-} {
-  switch (variant ?? 'DEFAULT') {
-    case 'OPUS':
-      return { permissionMode: 'auto', modelKey: 'opus' };
-    case 'PLAN':
-      return { permissionMode: 'plan', modelKey: 'default' };
-    case 'APPROVALS':
-      return { permissionMode: 'ask', modelKey: 'default' };
-    default:
-      return { permissionMode: 'auto', modelKey: 'default' };
-  }
-}
-
-function getClaudeVariant(
-  permissionMode: PermissionMode,
-  modelKey: ModelKey
-): string | null {
-  if (modelKey === 'opus') return 'OPUS';
-
-  switch (permissionMode) {
-    case 'plan':
-      return 'PLAN';
-    case 'ask':
-      return 'APPROVALS';
-    case 'auto':
-    default:
-      return null;
-  }
-}
+const OPEN_CODE_DEFAULT_MODE = '__DEFAULT__';
 
 export function TerminalProfileControls({
   profiles,
@@ -78,51 +59,18 @@ export function TerminalProfileControls({
   className = '',
   lockExecutor = false,
   showLabel = false,
+  iconOnly = false,
 }: TerminalProfileControlsProps) {
   const executor = selectedProfile?.executor ?? null;
   const isClaude = isClaudeCodeExecutor(executor);
   const isCodex = executor === BaseCodingAgentEnum.CODEX;
+  const isOpencode = executor === BaseCodingAgentEnum.OPENCODE;
 
-  const initialClaudeUiState = useMemo(
-    () => getClaudeUiState(selectedProfile?.variant),
-    [selectedProfile?.variant]
-  );
+  const contentClassName = className || 'flex flex-col gap-2 w-full';
 
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
-    initialClaudeUiState.permissionMode
-  );
-  const [selectedModelKey, setSelectedModelKey] = useState<ModelKey>(
-    initialClaudeUiState.modelKey
-  );
-  const [codexPermissionMode, setCodexPermissionMode] =
-    useState<CodexPermissionMode>('auto');
-  const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
-    null
-  );
-  const [codexReasoningEffort, setCodexReasoningEffort] =
-    useState<CodexReasoningEffort>(CODEX_DEFAULT_REASONING_EFFORT);
-
-  const codexModelOptions = useMemo(() => getCodexModelOptions(profiles), [profiles]);
-
-  useEffect(() => {
-    if (!isClaude) return;
-
-    const uiState = getClaudeUiState(selectedProfile?.variant);
-    setPermissionMode(uiState.permissionMode);
-    setSelectedModelKey(uiState.modelKey);
-  }, [isClaude, selectedProfile?.variant]);
-
-  useEffect(() => {
-    if (!isCodex) return;
-
-    const codexConfig = getCodexVariantConfig(
-      profiles,
-      selectedProfile?.variant ?? null
-    );
-    setCodexPermissionMode(codexConfig.permissionMode);
-    setSelectedCodexModel(codexConfig.model);
-    setCodexReasoningEffort(codexConfig.reasoningEffort);
-  }, [isCodex, profiles, selectedProfile?.variant]);
+  if (!profiles || !selectedProfile || !executor) {
+    return null;
+  }
 
   const handleExecutorChange = (nextExecutor: BaseCodingAgent) => {
     const nextProfile = getDefaultProfileForExecutor(nextExecutor, profiles) ?? {
@@ -130,134 +78,298 @@ export function TerminalProfileControls({
       variant: null,
     };
 
-    if (nextExecutor === BaseCodingAgentEnum.CLAUDE_CODE) {
-      onChange({
-        executor: nextExecutor,
-        variant: getClaudeVariant(permissionMode, selectedModelKey),
-      });
-      return;
-    }
-
-    if (nextExecutor === BaseCodingAgentEnum.CODEX) {
-      const variant = getCodexVariantFromSelection(
-        profiles,
-        selectedCodexModel,
-        codexPermissionMode,
-        codexReasoningEffort
-      );
-      onChange({
-        executor: nextExecutor,
-        variant,
-      });
-      return;
-    }
-
     onChange(nextProfile);
   };
 
-  const handleClaudeControlChange = (
-    nextPermissionMode: PermissionMode,
-    nextModelKey: ModelKey
-  ) => {
-    if (!executor) return;
+  const variantSelector = (
+    <ConfigSelector
+      profiles={profiles}
+      selectedExecutorProfile={selectedProfile}
+      onChange={onChange}
+      disabled={disabled}
+      showLabel={showLabel && lockExecutor}
+      iconOnly={iconOnly}
+    />
+  );
 
-    onChange({
-      executor,
-      variant: getClaudeVariant(nextPermissionMode, nextModelKey),
-    });
+  const renderClaudeControls = () => {
+    const currentConfig = getClaudeVariantConfig(
+      profiles,
+      selectedProfile.variant ?? null
+    );
+    const permissionOptions = getClaudePermissionOptions(profiles);
+    const modelOptions = getClaudeModelOptions(profiles);
+    const hasRichControls =
+      permissionOptions.length > 1 || modelOptions.length > 1;
+
+    if (!hasRichControls) {
+      return variantSelector;
+    }
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {permissionOptions.length > 1 ? (
+          <OptionSelector<ClaudePermissionMode>
+            value={currentConfig.permissionMode}
+            options={permissionOptions.map((permissionMode) => ({
+              value: permissionMode,
+              label: formatClaudePermissionLabel(permissionMode),
+              icon: Shield,
+            }))}
+            onChange={(permissionMode) =>
+              onChange({
+                executor,
+                variant: getClaudeVariantFromSelection(
+                  profiles,
+                  permissionMode,
+                  currentConfig.model
+                ),
+              })
+            }
+            disabled={disabled}
+            menuLabel="Permissions"
+            iconOnly={iconOnly}
+          />
+        ) : null}
+
+        {modelOptions.length > 1 ? (
+          <CodexModelSelector
+            value={currentConfig.model}
+            options={modelOptions}
+            onChange={(model) =>
+              onChange({
+                executor,
+                variant: getClaudeVariantFromSelection(
+                  profiles,
+                  currentConfig.permissionMode,
+                  model
+                ),
+              })
+            }
+            disabled={disabled}
+            iconOnly={iconOnly}
+          />
+        ) : null}
+      </div>
+    );
   };
 
-  const handleCodexControlChange = (
-    nextPermissionMode: CodexPermissionMode,
-    nextModel: string | null,
-    nextReasoningEffort: CodexReasoningEffort = codexReasoningEffort
-  ) => {
-    if (!executor) return;
+  const renderCodexControls = () => {
+    const currentConfig = getCodexVariantConfig(
+      profiles,
+      selectedProfile.variant ?? null
+    );
+    const sandboxOptions = getCodexSandboxOptions(profiles);
+    const approvalOptions = getCodexApprovalOptions(profiles);
+    const modelOptions = getCodexModelOptions(profiles);
+    const reasoningOptions = CODEX_REASONING_EFFORT_OPTIONS.filter((option) =>
+      getCodexReasoningOptions(profiles).includes(option.value)
+    );
 
-    onChange({
-      executor,
-      variant: getCodexVariantFromSelection(profiles, nextModel, nextPermissionMode, nextReasoningEffort),
-    });
+    const hasRichControls =
+      sandboxOptions.length > 1 ||
+      approvalOptions.length > 1 ||
+      modelOptions.length > 1 ||
+      reasoningOptions.length > 1;
+
+    if (!hasRichControls) {
+      return variantSelector;
+    }
+
+    const updateVariant = (next: {
+      model?: string | null;
+      sandbox?: typeof currentConfig.sandbox;
+      approvalPolicy?: typeof currentConfig.approvalPolicy;
+      reasoningEffort?: CodexReasoningEffort;
+    }) => {
+      onChange({
+        executor,
+        variant: getCodexVariantFromConfigSelection(profiles, {
+          model: next.model === undefined ? currentConfig.model : next.model,
+          sandbox:
+            next.sandbox === undefined
+              ? currentConfig.sandbox
+              : next.sandbox,
+          approvalPolicy:
+            next.approvalPolicy === undefined
+              ? currentConfig.approvalPolicy
+              : next.approvalPolicy,
+          reasoningEffort:
+            next.reasoningEffort ?? currentConfig.reasoningEffort,
+        }),
+      });
+    };
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {sandboxOptions.length > 1 ? (
+          <OptionSelector
+            value={currentConfig.sandbox}
+            options={sandboxOptions.map((sandbox) => ({
+              value: sandbox,
+              label: formatSandboxModeLabel(sandbox),
+              icon: Shield,
+            }))}
+            onChange={(sandbox) => updateVariant({ sandbox })}
+            disabled={disabled}
+            menuLabel="Sandbox"
+            iconOnly={iconOnly}
+          />
+        ) : null}
+
+        {approvalOptions.length > 1 ? (
+          <OptionSelector
+            value={currentConfig.approvalPolicy}
+            options={approvalOptions.map((approvalPolicy) => ({
+              value: approvalPolicy,
+              label: formatApprovalPolicyLabel(approvalPolicy),
+              icon: KeyRound,
+            }))}
+            onChange={(approvalPolicy) => updateVariant({ approvalPolicy })}
+            disabled={disabled}
+            menuLabel="Approvals"
+            iconOnly={iconOnly}
+          />
+        ) : null}
+
+        {modelOptions.length > 1 ? (
+          <CodexModelSelector
+            value={currentConfig.model}
+            options={modelOptions}
+            onChange={(model) => updateVariant({ model })}
+            disabled={disabled}
+            iconOnly={iconOnly}
+          />
+        ) : null}
+
+        {reasoningOptions.length > 1 ? (
+          <OptionSelector<CodexReasoningEffort>
+            value={currentConfig.reasoningEffort}
+            options={reasoningOptions.map((option) => ({
+              value: option.value,
+              label: option.label,
+              description: option.description,
+              icon: Brain,
+            }))}
+            onChange={(reasoningEffort) => updateVariant({ reasoningEffort })}
+            disabled={disabled}
+            menuLabel="Reasoning"
+            iconOnly={iconOnly}
+          />
+        ) : null}
+      </div>
+    );
   };
 
-  const contentClassName =
-    className || 'flex flex-col gap-2 w-full';
+  const renderOpenCodeControls = () => {
+    const currentConfig = getOpenCodeVariantConfig(
+      profiles,
+      selectedProfile.variant ?? null
+    );
+    const modelOptions = getOpenCodeModelOptions(profiles);
+    const permissionOptions = getOpenCodePermissionOptions(profiles);
+    const modeOptions = getOpenCodeModeOptions(profiles);
+    const encodedModeValue =
+      currentConfig.agentMode ?? OPEN_CODE_DEFAULT_MODE;
 
-  const isOpencode = executor === BaseCodingAgentEnum.OPENCODE;
+    const hasRichControls =
+      modelOptions.length > 1 ||
+      permissionOptions.length > 1 ||
+      modeOptions.length > 1;
+
+    if (!hasRichControls) {
+      return variantSelector;
+    }
+
+    const updateVariant = (next: {
+      model?: string | null;
+      permissionMode?: OpenCodePermissionMode;
+      agentMode?: string | null;
+    }) => {
+      onChange({
+        executor,
+        variant: getOpenCodeVariantFromSelection(profiles, {
+          model:
+            next.model === undefined ? currentConfig.model : next.model,
+          permissionMode:
+            next.permissionMode ?? currentConfig.permissionMode,
+          agentMode:
+            next.agentMode === undefined
+              ? currentConfig.agentMode
+              : next.agentMode,
+        }),
+      });
+    };
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {modeOptions.length > 1 ? (
+          <OptionSelector
+            value={encodedModeValue}
+            options={modeOptions.map((agentMode) => ({
+              value: agentMode ?? OPEN_CODE_DEFAULT_MODE,
+              label: formatOpenCodeModeLabel(agentMode),
+              icon: Workflow,
+            }))}
+            onChange={(value) =>
+              updateVariant({
+                agentMode:
+                  value === OPEN_CODE_DEFAULT_MODE ? null : value,
+              })
+            }
+            disabled={disabled}
+            menuLabel="Mode"
+            iconOnly={iconOnly}
+          />
+        ) : null}
+
+        {permissionOptions.length > 1 ? (
+          <OptionSelector<OpenCodePermissionMode>
+            value={currentConfig.permissionMode}
+            options={permissionOptions.map((permissionMode) => ({
+              value: permissionMode,
+              label: formatOpenCodePermissionLabel(permissionMode),
+              icon: Shield,
+            }))}
+            onChange={(permissionMode) => updateVariant({ permissionMode })}
+            disabled={disabled}
+            menuLabel="Permissions"
+            iconOnly={iconOnly}
+          />
+        ) : null}
+
+        {modelOptions.length > 1 ? (
+          <CodexModelSelector
+            value={currentConfig.model}
+            options={modelOptions}
+            onChange={(model) => updateVariant({ model })}
+            disabled={disabled}
+            iconOnly={iconOnly}
+          />
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className={contentClassName}>
-      {!lockExecutor && (
+      {!lockExecutor ? (
         <AgentSelector
           profiles={profiles}
           selectedExecutorProfile={selectedProfile}
           onChange={(profile) => handleExecutorChange(profile.executor)}
           disabled={disabled}
+          iconOnly={iconOnly}
         />
-      )}
+      ) : null}
 
-      {isClaude && !lockExecutor && (
-        <div className="flex flex-wrap items-center gap-2">
-          <PermissionSelector
-            value={permissionMode}
-            onChange={(mode) => {
-              setPermissionMode(mode);
-              handleClaudeControlChange(mode, selectedModelKey);
-            }}
-            disabled={disabled}
-          />
-          <ModelSelector
-            value={selectedModelKey}
-            onChange={(modelKey) => {
-              setSelectedModelKey(modelKey);
-              handleClaudeControlChange(permissionMode, modelKey);
-            }}
-            disabled={disabled}
-          />
-        </div>
-      )}
-
-      {isCodex && !lockExecutor && (
-        <div className="flex flex-wrap items-center gap-2">
-          <PermissionSelector
-            value={codexPermissionMode}
-            onChange={(mode) => {
-              const nextMode: CodexPermissionMode = mode === 'ask' ? 'ask' : 'auto';
-              setCodexPermissionMode(nextMode);
-              handleCodexControlChange(nextMode, selectedCodexModel, codexReasoningEffort);
-            }}
-            modes={['auto', 'ask']}
-            disabled={disabled}
-          />
-          <CodexModelSelector
-            value={selectedCodexModel}
-            options={codexModelOptions}
-            onChange={(model) => {
-              setSelectedCodexModel(model);
-              handleCodexControlChange(codexPermissionMode, model, codexReasoningEffort);
-            }}
-            disabled={disabled}
-          />
-          <ReasoningEffortSelector
-            value={codexReasoningEffort}
-            onChange={(effort) => {
-              setCodexReasoningEffort(effort);
-              handleCodexControlChange(codexPermissionMode, selectedCodexModel, effort);
-            }}
-            disabled={disabled}
-          />
-        </div>
-      )}
-
-      {(lockExecutor || isOpencode) && (
-        <ConfigSelector
-          profiles={profiles}
-          selectedExecutorProfile={selectedProfile}
-          onChange={onChange}
-          disabled={disabled}
-          showLabel={showLabel && lockExecutor}
-        />
-      )}
+      {isClaude
+        ? renderClaudeControls()
+        : isCodex
+          ? renderCodexControls()
+          : isOpencode
+            ? renderOpenCodeControls()
+            : variantSelector}
     </div>
   );
 }

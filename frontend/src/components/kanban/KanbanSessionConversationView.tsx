@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Session, TaskWithAttemptStatus } from 'shared/types';
+import { Loader2 } from 'lucide-react';
+import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
 import VirtualizedList, {
@@ -11,11 +12,12 @@ import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useProject } from '@/contexts/ProjectContext';
-import { useWorkspaceSessions } from '@/hooks/useWorkspaceSessions';
-import { resolveActiveSession } from '@/hooks/useWorkspaceSessions';
+import {
+  resolveActiveSession,
+  useWorkspaceSessions,
+} from '@/hooks/useWorkspaceSessions';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
-import { useTaskAttempt } from '@/hooks/useTaskAttempt';
-import { sessionsApi } from '@/lib/api';
+import { attemptsApi, sessionsApi } from '@/lib/api';
 
 type SessionRecord = Session & {
   task_id?: string | null;
@@ -34,7 +36,59 @@ interface KanbanSessionConversationViewProps {
     sessionId: string;
     workspaceId: string;
   }) => void;
+  initialWorkspace?: Workspace | null;
+  initialSession?: Session | null;
+  initialTask?: TaskWithAttemptStatus | null;
   className?: string;
+}
+
+function createFallbackWorkspace(
+  workspaceId: string,
+  initialWorkspace?: Workspace | null
+): Workspace {
+  if (initialWorkspace) {
+    return initialWorkspace;
+  }
+
+  const now = new Date(0).toISOString();
+
+  return {
+    id: workspaceId,
+    task_id: '',
+    container_ref: null,
+    branch: '',
+    use_worktree: true,
+    agent_working_dir: null,
+    setup_completed_at: null,
+    created_at: now,
+    updated_at: now,
+    archived: false,
+    pinned: false,
+    name: null,
+  };
+}
+
+function createFallbackSession(
+  sessionId: string,
+  workspaceId: string,
+  initialSession?: Session | null
+): SessionRecord {
+  if (initialSession) {
+    return initialSession;
+  }
+
+  const now = new Date(0).toISOString();
+
+  return {
+    id: sessionId,
+    workspace_id: workspaceId,
+    task_id: null,
+    name: null,
+    status: 'todo',
+    executor: null,
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 function KanbanSessionConversationContent({
@@ -46,7 +100,7 @@ function KanbanSessionConversationContent({
   onSessionSelected,
 }: {
   attempt: WorkspaceWithSession;
-  task: TaskWithAttemptStatus;
+  task: TaskWithAttemptStatus | null;
   interactive: boolean;
   showSessionSelector: boolean;
   onSessionCreated?: (session: {
@@ -91,7 +145,7 @@ function KanbanSessionConversationContent({
                 task={task}
               />
             </div>
-            {interactive ? (
+            {interactive && task ? (
               <TaskFollowUpSection
                 task={task}
                 session={activeSession}
@@ -119,58 +173,62 @@ export function KanbanSessionConversationView({
   showSessionSelector = false,
   onSessionCreated,
   onSessionSelected,
+  initialWorkspace,
+  initialSession,
+  initialTask,
   className,
 }: KanbanSessionConversationViewProps) {
   const { projectId } = useProject();
   const { tasksById } = useProjectTasks(projectId ?? '');
-  const { data: workspace, isLoading: isWorkspaceLoading } =
-    useTaskAttempt(workspaceId);
-  const { data: session, isLoading: isSessionLoading } = useQuery<SessionRecord>({
-    queryKey: ['session', sessionId],
-    queryFn: () => sessionsApi.getById(sessionId) as Promise<SessionRecord>,
-    enabled: !!sessionId,
-  });
+  const { data: workspace, isLoading: isWorkspaceLoading } = useQuery<Workspace>(
+    {
+      queryKey: ['taskAttempt', workspaceId],
+      queryFn: () => attemptsApi.get(workspaceId),
+      enabled: !!workspaceId,
+      placeholderData: (previousData) =>
+        previousData?.id === workspaceId
+          ? previousData
+          : initialWorkspace ?? undefined,
+    }
+  );
+  const { data: session, isFetching: isSessionFetching } =
+    useQuery<SessionRecord>({
+      queryKey: ['session', sessionId],
+      queryFn: () => sessionsApi.getById(sessionId) as Promise<SessionRecord>,
+      enabled: !!sessionId,
+      placeholderData: (previousData) =>
+        previousData?.id === sessionId
+          ? previousData
+          : initialSession ?? undefined,
+    });
 
-  if (isWorkspaceLoading || isSessionLoading) {
-    return (
-      <div
-        className={`flex h-full items-center justify-center text-sm text-muted-foreground ${className ?? ''}`}
-      >
-        正在加载会话...
-      </div>
-    );
-  }
+  const resolvedWorkspace =
+    workspace ?? createFallbackWorkspace(workspaceId, initialWorkspace);
+  const resolvedSession =
+    session ?? createFallbackSession(sessionId, workspaceId, initialSession);
+  const taskId = resolvedSession.task_id ?? resolvedWorkspace.task_id;
+  const task = (taskId ? tasksById[taskId] : null) ?? initialTask ?? null;
 
-  if (!workspace || !session) {
-    return (
-      <div
-        className={`flex h-full items-center justify-center text-sm text-muted-foreground ${className ?? ''}`}
-      >
-        会话不可用。
-      </div>
-    );
-  }
-
-  const taskId = session.task_id ?? workspace.task_id;
-  const task = (taskId ? tasksById[taskId] : null) ?? null;
-
-  if (!task) {
-    return (
-      <div
-        className={`flex h-full items-center justify-center text-sm text-muted-foreground ${className ?? ''}`}
-      >
-        任务不可用。
-      </div>
-    );
-  }
+  const isBootstrapping =
+    (!workspace && isWorkspaceLoading && !initialWorkspace) ||
+    (!session && isSessionFetching && !initialSession);
 
   return (
-    <div className={className}>
+    <div className={`relative ${className ?? ''}`}>
+      {isBootstrapping ? (
+        <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>正在加载会话...</span>
+        </div>
+      ) : null}
       <KanbanSessionConversationContent
-        key={`${workspace.id}:${session.id}:${interactive ? 'interactive' : 'readonly'}`}
-        attempt={createWorkspaceWithSession(workspace, session)}
+        key={`${resolvedWorkspace.id}:${resolvedSession.id}:${interactive ? 'interactive' : 'readonly'}`}
+        attempt={createWorkspaceWithSession(
+          resolvedWorkspace,
+          resolvedSession
+        )}
         task={task}
-        interactive={interactive}
+        interactive={interactive && !!task && !!session}
         showSessionSelector={showSessionSelector}
         onSessionCreated={onSessionCreated}
         onSessionSelected={onSessionSelected}

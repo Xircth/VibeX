@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    project_repo::ProjectRepo,
     scratch::{DraftFollowUpData, Scratch, ScratchType},
     session::{CreateSession, Session, SessionStatus},
-    task::{Task, TaskStatus},
-    workspace::Workspace,
-    workspace_repo::WorkspaceRepo,
+    task::{CreateTask, Task, TaskStatus},
+    workspace::{CreateWorkspace, Workspace},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
 use executors::{
@@ -67,6 +68,92 @@ fn to_task_status(status: SessionStatus) -> TaskStatus {
         SessionStatus::InReview => TaskStatus::InReview,
         SessionStatus::Done => TaskStatus::Done,
     }
+}
+
+const PROJECT_ROOT_TASK_TITLE: &str = "Project Root Workspace";
+
+async fn ensure_project_root_workspace(
+    state: &AppState,
+    project_id: Uuid,
+) -> Result<Workspace, AppError> {
+    let pool = &state.deployment.db().pool;
+
+    let repos = ProjectRepo::find_repos_for_project(pool, project_id).await?;
+    let primary_repo = repos
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::BadRequest("Project has no repositories".to_string()))?;
+
+    let current_branch = state
+        .deployment
+        .git()
+        .get_current_branch(&primary_repo.path)
+        .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?;
+
+    let workspace_repos = vec![CreateWorkspaceRepo {
+        repo_id: primary_repo.id,
+        target_branch: current_branch.clone(),
+    }];
+
+    if let Some(workspace_id) =
+        WorkspaceRepo::find_reusable_non_worktree_workspace_id(pool, project_id, &workspace_repos)
+            .await?
+        && let Some(workspace) = Workspace::find_by_id(pool, workspace_id).await?
+    {
+        return Ok(workspace);
+    }
+
+    let owner_task = if let Some(task) = Task::find_by_project_id_with_attempt_status(pool, project_id)
+        .await?
+        .into_iter()
+        .map(|task| task.task)
+        .next()
+    {
+        task
+    } else {
+        Task::create(
+            pool,
+            &CreateTask {
+                project_id,
+                title: format!("{} ({})", PROJECT_ROOT_TASK_TITLE, primary_repo.name),
+                description: Some(
+                    "Auto-created to support sessions on the project root branch.".to_string(),
+                ),
+                status: Some(TaskStatus::Todo),
+                parent_workspace_id: None,
+                image_ids: None,
+            },
+            Uuid::new_v4(),
+        )
+        .await?
+    };
+
+    let workspace = Workspace::create(
+        pool,
+        &CreateWorkspace {
+            branch: current_branch.clone(),
+            container_ref: Some(primary_repo.path.to_string_lossy().to_string()),
+            use_worktree: false,
+            agent_working_dir: primary_repo.default_working_dir.clone(),
+        },
+        Uuid::new_v4(),
+        owner_task.id,
+    )
+    .await?;
+
+    WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
+
+    let workspace_display_name = if primary_repo.display_name.trim().is_empty() {
+        primary_repo.name.as_str()
+    } else {
+        primary_repo.display_name.as_str()
+    };
+    let workspace_name = format!("{} · {}", workspace_display_name, current_branch);
+    Workspace::update(pool, workspace.id, Some(false), None, Some(workspace_name.as_str())).await?;
+
+    Workspace::find_by_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))
 }
 
 // --- Commands ---
@@ -167,6 +254,34 @@ pub async fn create_session(
         },
         Uuid::new_v4(),
         workspace_id,
+    )
+    .await?;
+
+    Ok(session)
+}
+
+/// Create a session by reusing/creating a non-worktree workspace that points to
+/// the project's current repository branch.
+#[tauri::command]
+pub async fn create_project_root_session(
+    state: tauri::State<'_, AppState>,
+    project_id: Uuid,
+    executor: Option<String>,
+    name: Option<String>,
+) -> Result<Session, AppError> {
+    let pool = &state.deployment.db().pool;
+    let workspace = ensure_project_root_workspace(state.inner(), project_id).await?;
+
+    let session = Session::create(
+        pool,
+        &CreateSession {
+            executor,
+            task_id: Some(workspace.task_id),
+            name,
+            status: Some(SessionStatus::Todo),
+        },
+        Uuid::new_v4(),
+        workspace.id,
     )
     .await?;
 
@@ -315,7 +430,16 @@ pub async fn follow_up(
             .await?;
     }
 
-    // Get latest session info for follow-up vs initial
+    // Get latest session info after any reset has been applied.
+    //
+    // Important executor-specific behavior:
+    // - Claude keeps one underlying session and needs reset_to_message_id to
+    //   truncate history inside that session.
+    // - Codex and OpenCode fork a new snapshot session on every follow-up.
+    //   After reset_session_to_process() drops the target process and later
+    //   turns, the "latest" remaining agent_session_id already represents the
+    //   exact context from before the retried message. In those executors the
+    //   session_id is the rollback mechanism; reset_to_message_id is not used.
     let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
     // Get repos for cleanup action

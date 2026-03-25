@@ -204,6 +204,37 @@
     @apply border-border;
   }
 
+  .legacy-design,
+  .legacy-design * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+
+  .legacy-design ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .legacy-design ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .legacy-design ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / 0.28);
+    background-clip: padding-box;
+  }
+
+  .legacy-design ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.42);
+    background-clip: padding-box;
+  }
+
+  .legacy-design ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
   :where(.legacy-design) button,
   :where(.legacy-design) input:not([type='checkbox']):not([type='radio']),
   :where(.legacy-design) textarea,
@@ -214,11 +245,16 @@
   html,
   body,
   #root {
-    @apply min-h-screen;
+    @apply min-h-screen w-full;
+  }
+
+  html,
+  body {
+    margin: 0;
   }
 
   .legacy-design {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply min-h-screen w-full bg-background text-foreground font-sans antialiased;
   }
 
   .legacy-design *:focus {
@@ -248,11 +284,16 @@
 /* ANSI color classes for fancy-ansi */
 @layer components {
   .project-rail-shell {
-    background: hsl(var(--background) / 0.55);
-    backdrop-filter: blur(22px);
-    -webkit-backdrop-filter: blur(22px);
+    background:
+      linear-gradient(
+        180deg,
+        hsl(var(--background) / 0.42),
+        hsl(var(--secondary) / 0.3)
+      );
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
     box-shadow:
-      0 18px 40px hsl(220 40% 2% / 0.24),
+      0 18px 40px hsl(220 40% 2% / 0.2),
       inset 0 1px 0 hsl(0 0% 100% / 0.08);
   }
 

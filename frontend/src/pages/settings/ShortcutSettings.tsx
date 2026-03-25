@@ -1,114 +1,67 @@
-/**
- * Shortcut Settings page.
- *
- * Displays all keyboard shortcuts organized by group.
- * Currently read-only — shows the registered bindings from registry.ts.
- */
-
-import { useMemo } from 'react';
 import { Keyboard } from 'lucide-react';
-import {
-  keyBindings,
-  sequentialBindings,
-  formatSequentialKeys,
-} from '@/keyboard/registry';
-import type { KeyBinding, SequentialBinding } from '@/keyboard/registry';
 
-// ── Helpers ────────────────────────────────────────────────────
-
-function formatKeys(keys: string | string[]): string {
-  const keyList = Array.isArray(keys) ? keys : [keys];
-  return keyList
-    .map((k) =>
-      k
-        .replace(/meta/gi, 'Cmd')
-        .replace(/ctrl/gi, 'Ctrl')
-        .replace(/shift/gi, 'Shift')
-        .replace(/alt/gi, 'Alt')
-        .replace(/\+/g, ' + ')
-        .replace(/^(.)/, (m) => m.toUpperCase())
-    )
-    .join(' / ');
-}
-
-interface GroupedBindings {
-  group: string;
-  items: Array<{
-    description: string;
-    keysLabel: string;
-  }>;
-}
-
-function groupBindings(
-  bindings: KeyBinding[],
-  sequential: SequentialBinding[]
-): GroupedBindings[] {
-  const map = new Map<string, GroupedBindings['items']>();
-
-  for (const binding of bindings) {
-    const group = binding.group ?? 'Other';
-    if (!map.has(group)) map.set(group, []);
-    map.get(group)!.push({
-      description: binding.description,
-      keysLabel: formatKeys(binding.keys),
-    });
-  }
-
-  for (const seq of sequential) {
-    const group = seq.group ?? 'Sequential';
-    if (!map.has(group)) map.set(group, []);
-    map.get(group)!.push({
-      description: seq.description,
-      keysLabel: formatSequentialKeys(seq.keys),
-    });
-  }
-
-  return Array.from(map.entries()).map(([group, items]) => ({ group, items }));
-}
-
-// ── Component ──────────────────────────────────────────────────
+const SHORTCUT_ITEMS = [
+  {
+    name: 'Markdown 文件预览/编辑切换',
+    keys: '鼠标中键',
+    description: '在文件预览标签页中切换 Markdown 预览与源码编辑。',
+  },
+  {
+    name: '打开终端栏',
+    keys: 'Ctrl + ~',
+    description: '在当前工作区中打开终端栏。',
+  },
+  {
+    name: '打开左侧文件管理器',
+    keys: 'Ctrl + P',
+    description: '切换左侧文件管理器面板。',
+  },
+  {
+    name: '打开全局搜索',
+    keys: 'Ctrl + Shift + F',
+    description: '打开工作区全局搜索面板。',
+  },
+  {
+    name: '消息发送',
+    keys: 'Ctrl + Enter',
+    description: '在执行区发送消息。',
+  },
+  {
+    name: '打开设置',
+    keys: 'Ctrl + ,',
+    description: '打开设置窗口。',
+  },
+  {
+    name: '保存文件',
+    keys: 'Ctrl + S',
+    description: '在文件预览标签页保存当前文件。',
+  },
+] as const;
 
 export function ShortcutSettings() {
-  const groups = useMemo(
-    () => groupBindings(keyBindings, sequentialBindings),
-    []
-  );
-
   return (
     <div className="max-w-2xl mx-auto py-6 px-4">
       <div className="mb-4">
         <h2 className="text-base font-semibold">快捷键</h2>
         <p className="text-xs text-muted-foreground mt-1">
-          查看所有可用的键盘快捷键。
+          当前提供的默认快捷键如下。
         </p>
       </div>
 
       <div className="space-y-3">
-        {groups.map((group) => (
+        {SHORTCUT_ITEMS.map((item) => (
           <section
-            key={group.group}
-            className="rounded-xl border bg-card p-4 space-y-3"
+            key={item.name}
+            className="rounded-xl border bg-card p-4 space-y-2"
           >
             <div className="flex items-center gap-2">
               <Keyboard className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">{group.group}</h3>
+              <h3 className="text-sm font-semibold">{item.name}</h3>
             </div>
-
-            <div className="space-y-1">
-              {group.items.map((item, idx) => (
-                <div
-                  key={`${group.group}-${idx}`}
-                  className="rounded-lg border px-3 py-2 flex items-center justify-between gap-4 hover:bg-muted/30 transition-colors"
-                >
-                  <span className="text-xs text-foreground min-w-0 truncate">
-                    {item.description}
-                  </span>
-                  <kbd className="shrink-0 rounded-md border bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-                    {item.keysLabel}
-                  </kbd>
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-muted-foreground">{item.description}</p>
+            <kbd className="inline-flex rounded-md border bg-muted px-2 py-1 text-[11px] font-mono text-muted-foreground">
+              {item.keys}
+            </kbd>
           </section>
         ))}
       </div>

@@ -65,6 +65,7 @@ coverage/
 
 # ===== Tauri =====
 src-tauri/gen/
+src-tauri/tauri.dev.generated.conf.json
 
 # ===== Dev tooling =====
 .dev-ports.json

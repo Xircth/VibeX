@@ -1,10 +1,15 @@
 import { BaseCodingAgent as BaseCodingAgentEnum } from 'shared/types';
 import type {
+  AskForApproval,
   BaseCodingAgent,
-  ExecutorConfigs,
+  ClaudeCode,
+  Codex,
   ExecutorAction,
+  ExecutorConfigs,
   ExecutorProfileId,
   ExecutionProcess,
+  Opencode,
+  SandboxMode,
 } from 'shared/types';
 
 const RESERVED_KEYS = new Set(['recently_used_models']);
@@ -14,7 +19,15 @@ type RuntimeExecutorConfigLike = {
   variant?: string | null;
 };
 
+type ExecutorVariantRecord<T extends Record<string, unknown>> = {
+  variant: string | null;
+  record: T;
+};
+
+const CLAUDE_CODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CLAUDE_CODE;
 const CODEX_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CODEX;
+const OPENCODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.OPENCODE;
+
 const CODEX_MODEL_LABELS: Record<string, string> = {
   'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
   'gpt-5.2': 'GPT-5.2',
@@ -22,8 +35,9 @@ const CODEX_MODEL_LABELS: Record<string, string> = {
   'gpt-5.3-codex': 'GPT-5.3 Codex',
 };
 
+export type ClaudePermissionMode = 'auto' | 'ask' | 'plan';
 export type CodexPermissionMode = 'auto' | 'ask';
-
+export type OpenCodePermissionMode = 'auto' | 'ask';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 
 export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
@@ -31,25 +45,131 @@ export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
   label: string;
   description: string;
 }> = [
-  { value: 'low', label: 'Low', description: '快速响应，推理较轻' },
-  { value: 'medium', label: 'Medium', description: '平衡速度和推理深度' },
-  { value: 'high', label: 'High', description: '更高的推理深度' },
-  { value: 'xhigh', label: 'Extra High', description: '极高的推理深度' },
+  {
+    value: 'low',
+    label: 'Low',
+    description: 'Fast responses with lighter reasoning',
+  },
+  {
+    value: 'medium',
+    label: 'Medium',
+    description: 'Balances speed and reasoning depth',
+  },
+  {
+    value: 'high',
+    label: 'High',
+    description: 'Greater reasoning depth for complex problems',
+  },
+  {
+    value: 'xhigh',
+    label: 'Extra High',
+    description: 'Maximum reasoning depth for hardest problems',
+  },
 ];
 
 export const CODEX_DEFAULT_REASONING_EFFORT: CodexReasoningEffort = 'high';
+export const CODEX_DEFAULT_SANDBOX_MODE: SandboxMode = 'danger-full-access';
+export const CODEX_DEFAULT_APPROVAL_POLICY: AskForApproval = 'never';
 
 export type CodexModelOption = {
   value: string | null;
   label: string;
 };
 
+export type ClaudeVariantConfig = {
+  model: string | null;
+  permissionMode: ClaudePermissionMode;
+  variant: string | null;
+};
+
 export type CodexVariantConfig = {
   model: string | null;
+  sandbox: SandboxMode;
+  approvalPolicy: AskForApproval;
   permissionMode: CodexPermissionMode;
   reasoningEffort: CodexReasoningEffort;
   variant: string | null;
 };
+
+export type OpenCodeVariantConfig = {
+  model: string | null;
+  agentMode: string | null;
+  autoApprove: boolean;
+  permissionMode: OpenCodePermissionMode;
+  variant: string | null;
+};
+
+function formatSimpleLabel(value: string | null): string {
+  if (!value) return 'Default';
+
+  return value
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => {
+      if (/^[a-z]+$/i.test(part) && part.length <= 3) {
+        return part.toUpperCase();
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
+}
+
+function getExecutorVariantRecord<T extends Record<string, unknown>>(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  executor: BaseCodingAgent,
+  variant: string | null
+): T | null {
+  const executorProfiles = profiles?.[executor] as
+    | Record<string, unknown>
+    | undefined;
+  if (!executorProfiles) return null;
+
+  const variantKey = variant ?? 'DEFAULT';
+  const variantEntry = executorProfiles[variantKey] as
+    | Record<string, unknown>
+    | undefined;
+  if (!variantEntry) return null;
+
+  return (variantEntry[executor] as T | undefined) ?? null;
+}
+
+function getExecutorVariantRecords<T extends Record<string, unknown>>(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  executor: BaseCodingAgent
+): ExecutorVariantRecord<T>[] {
+  return getVariantOptions(executor, profiles)
+    .map((variantKey) => {
+      const variant = variantKey === 'DEFAULT' ? null : variantKey;
+      const record = getExecutorVariantRecord<T>(profiles, executor, variant);
+
+      if (!record) return null;
+
+      return { variant, record };
+    })
+    .filter(
+      (entry): entry is ExecutorVariantRecord<T> => entry !== null
+    );
+}
+
+function findBestMatchingVariant<T extends { variant: string | null }>(
+  variants: T[],
+  scoreVariant: (variant: T) => number
+): string | null {
+  let bestVariant: T | null = null;
+  let bestScore = -1;
+
+  for (const variant of variants) {
+    const score = scoreVariant(variant);
+    if (score > bestScore) {
+      bestVariant = variant;
+      bestScore = score;
+    }
+  }
+
+  return bestVariant?.variant ?? null;
+}
 
 export function getExecutorVariantKeys(
   executorProfile: Record<string, unknown> | null | undefined
@@ -72,7 +192,7 @@ export function getSortedExecutorVariantKeys(
 export function isClaudeCodeExecutor(
   executor: BaseCodingAgent | null | undefined
 ): boolean {
-  return executor === 'CLAUDE_CODE';
+  return executor === CLAUDE_CODE_EXECUTOR;
 }
 
 export function getDefaultVariantForExecutor(
@@ -120,7 +240,7 @@ export function areProfilesEqual(
 ): boolean {
   if (!a || !b) return a === b;
   if (a.executor !== b.executor) return false;
-  // Normalize variants: null/undefined -> 'DEFAULT'
+
   const variantA = a.variant ?? 'DEFAULT';
   const variantB = b.variant ?? 'DEFAULT';
   return variantA === variantB;
@@ -143,41 +263,126 @@ export function getVariantOptions(
   );
 }
 
-function getCodexVariantRecord(
+export function getClaudeVariantConfig(
   profiles: ExecutorConfigs['executors'] | null | undefined,
   variant: string | null
-): Record<string, unknown> | null {
-  const executorProfiles = profiles?.[CODEX_EXECUTOR] as
-    | Record<string, unknown>
-    | undefined;
-  if (!executorProfiles) return null;
+): ClaudeVariantConfig {
+  const record = getExecutorVariantRecord<ClaudeCode>(
+    profiles,
+    CLAUDE_CODE_EXECUTOR,
+    variant
+  );
 
-  const variantKey = variant ?? 'DEFAULT';
-  const variantEntry = executorProfiles[variantKey] as
-    | Record<string, unknown>
-    | undefined;
-  if (!variantEntry) return null;
+  return {
+    model: typeof record?.model === 'string' ? record.model : null,
+    permissionMode: record?.plan
+      ? 'plan'
+      : record?.approvals
+        ? 'ask'
+        : 'auto',
+    variant,
+  };
+}
 
-  return (variantEntry[CODEX_EXECUTOR] as Record<string, unknown> | undefined) ?? null;
+export function getClaudePermissionOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): ClaudePermissionMode[] {
+  const seen = new Set<ClaudePermissionMode>();
+  const options: ClaudePermissionMode[] = [];
+
+  for (const entry of getExecutorVariantRecords<ClaudeCode>(
+    profiles,
+    CLAUDE_CODE_EXECUTOR
+  )) {
+    const permissionMode = getClaudeVariantConfig(
+      profiles,
+      entry.variant
+    ).permissionMode;
+    if (seen.has(permissionMode)) continue;
+    seen.add(permissionMode);
+    options.push(permissionMode);
+  }
+
+  return options;
+}
+
+export function getClaudeModelOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): CodexModelOption[] {
+  const seen = new Set<string>();
+  const options: CodexModelOption[] = [];
+
+  for (const entry of getExecutorVariantRecords<ClaudeCode>(
+    profiles,
+    CLAUDE_CODE_EXECUTOR
+  )) {
+    const model = getClaudeVariantConfig(profiles, entry.variant).model;
+    const modelKey = model ?? 'DEFAULT';
+    if (seen.has(modelKey)) continue;
+
+    seen.add(modelKey);
+    options.push({
+      value: model,
+      label: formatSimpleLabel(model),
+    });
+  }
+
+  return options.length > 0 ? options : [{ value: null, label: 'Default' }];
+}
+
+export function getClaudeVariantFromSelection(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  permissionMode: ClaudePermissionMode,
+  selectedModel: string | null
+): string | null {
+  const variants = getExecutorVariantRecords<ClaudeCode>(
+    profiles,
+    CLAUDE_CODE_EXECUTOR
+  ).map((entry) => getClaudeVariantConfig(profiles, entry.variant));
+
+  const exactMatch = variants.find(
+    (config) =>
+      config.permissionMode === permissionMode &&
+      config.model === selectedModel
+  );
+  if (exactMatch) return exactMatch.variant;
+
+  return findBestMatchingVariant(variants, (config) => {
+    let score = 0;
+    if (config.permissionMode === permissionMode) score += 2;
+    if (config.model === selectedModel) score += 1;
+    return score;
+  });
 }
 
 export function getCodexVariantConfig(
   profiles: ExecutorConfigs['executors'] | null | undefined,
   variant: string | null
 ): CodexVariantConfig {
-  const record = getCodexVariantRecord(profiles, variant);
-  const askForApproval = record?.ask_for_approval;
+  const record = getExecutorVariantRecord<Codex>(
+    profiles,
+    CODEX_EXECUTOR,
+    variant
+  );
+  const approvalPolicy =
+    typeof record?.ask_for_approval === 'string'
+      ? (record.ask_for_approval as AskForApproval)
+      : CODEX_DEFAULT_APPROVAL_POLICY;
+  const sandbox =
+    typeof record?.sandbox === 'string'
+      ? (record.sandbox as SandboxMode)
+      : CODEX_DEFAULT_SANDBOX_MODE;
   const model = typeof record?.model === 'string' ? record.model : null;
-  const reasoningEffort = typeof record?.model_reasoning_effort === 'string'
-    ? record.model_reasoning_effort as CodexReasoningEffort
-    : CODEX_DEFAULT_REASONING_EFFORT;
+  const reasoningEffort =
+    typeof record?.model_reasoning_effort === 'string'
+      ? (record.model_reasoning_effort as CodexReasoningEffort)
+      : CODEX_DEFAULT_REASONING_EFFORT;
 
   return {
     model,
-    permissionMode:
-      typeof askForApproval === 'string' && askForApproval !== 'never'
-        ? 'ask'
-        : 'auto',
+    sandbox,
+    approvalPolicy,
+    permissionMode: approvalPolicy !== 'never' ? 'ask' : 'auto',
     reasoningEffort,
     variant,
   };
@@ -185,7 +390,7 @@ export function getCodexVariantConfig(
 
 export function formatCodexModelLabel(model: string | null): string {
   if (!model) return 'Default';
-  return CODEX_MODEL_LABELS[model] ?? model;
+  return CODEX_MODEL_LABELS[model] ?? formatSimpleLabel(model);
 }
 
 export function getCodexModelOptions(
@@ -225,9 +430,72 @@ export function getCodexModelOptions(
     }
   };
 
-  return (options.length > 0 ? options : [{ value: null, label: 'Default' }]).sort(
-    (a, b) => sortPriority(a.value) - sortPriority(b.value)
-  );
+  return (
+    options.length > 0 ? options : [{ value: null, label: 'Default' }]
+  ).sort((a, b) => sortPriority(a.value) - sortPriority(b.value));
+}
+
+export function getCodexSandboxOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): SandboxMode[] {
+  const seen = new Set<SandboxMode>();
+  const options: SandboxMode[] = [];
+
+  for (const entry of getExecutorVariantRecords<Codex>(
+    profiles,
+    CODEX_EXECUTOR
+  )) {
+    const sandbox = getCodexVariantConfig(profiles, entry.variant).sandbox;
+    if (seen.has(sandbox)) continue;
+    seen.add(sandbox);
+    options.push(sandbox);
+  }
+
+  return options;
+}
+
+export function getCodexApprovalOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): AskForApproval[] {
+  const seen = new Set<AskForApproval>();
+  const options: AskForApproval[] = [];
+
+  for (const entry of getExecutorVariantRecords<Codex>(
+    profiles,
+    CODEX_EXECUTOR
+  )) {
+    const approvalPolicy = getCodexVariantConfig(
+      profiles,
+      entry.variant
+    ).approvalPolicy;
+    if (seen.has(approvalPolicy)) continue;
+    seen.add(approvalPolicy);
+    options.push(approvalPolicy);
+  }
+
+  return options;
+}
+
+export function getCodexReasoningOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): CodexReasoningEffort[] {
+  const seen = new Set<CodexReasoningEffort>();
+  const options: CodexReasoningEffort[] = [];
+
+  for (const entry of getExecutorVariantRecords<Codex>(
+    profiles,
+    CODEX_EXECUTOR
+  )) {
+    const reasoningEffort = getCodexVariantConfig(
+      profiles,
+      entry.variant
+    ).reasoningEffort;
+    if (seen.has(reasoningEffort)) continue;
+    seen.add(reasoningEffort);
+    options.push(reasoningEffort);
+  }
+
+  return options;
 }
 
 export function getCodexVariantFromSelection(
@@ -241,9 +509,11 @@ export function getCodexVariantFromSelection(
   const matchedVariant = variants.find((variantKey) => {
     const variant = variantKey === 'DEFAULT' ? null : variantKey;
     const config = getCodexVariantConfig(profiles, variant);
-    return config.model === selectedModel &&
+    return (
+      config.model === selectedModel &&
       config.permissionMode === permissionMode &&
-      config.reasoningEffort === reasoningEffort;
+      config.reasoningEffort === reasoningEffort
+    );
   });
 
   if (!matchedVariant) {
@@ -251,6 +521,211 @@ export function getCodexVariantFromSelection(
   }
 
   return matchedVariant === 'DEFAULT' ? null : matchedVariant;
+}
+
+export function getCodexVariantFromConfigSelection(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  selection: {
+    model: string | null;
+    sandbox: SandboxMode;
+    approvalPolicy: AskForApproval;
+    reasoningEffort: CodexReasoningEffort;
+  }
+): string | null {
+  const variants = getExecutorVariantRecords<Codex>(
+    profiles,
+    CODEX_EXECUTOR
+  ).map((entry) => getCodexVariantConfig(profiles, entry.variant));
+
+  const exactMatch = variants.find(
+    (config) =>
+      config.model === selection.model &&
+      config.sandbox === selection.sandbox &&
+      config.approvalPolicy === selection.approvalPolicy &&
+      config.reasoningEffort === selection.reasoningEffort
+  );
+  if (exactMatch) return exactMatch.variant;
+
+  return findBestMatchingVariant(variants, (config) => {
+    let score = 0;
+    if (config.model === selection.model) score += 4;
+    if (config.sandbox === selection.sandbox) score += 3;
+    if (config.approvalPolicy === selection.approvalPolicy) score += 2;
+    if (config.reasoningEffort === selection.reasoningEffort) score += 1;
+    return score;
+  });
+}
+
+export function getOpenCodeVariantConfig(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  variant: string | null
+): OpenCodeVariantConfig {
+  const record = getExecutorVariantRecord<Opencode>(
+    profiles,
+    OPENCODE_EXECUTOR,
+    variant
+  );
+
+  return {
+    model: typeof record?.model === 'string' ? record.model : null,
+    agentMode:
+      typeof record?.agent === 'string'
+        ? record.agent
+        : null,
+    autoApprove: record?.auto_approve ?? true,
+    permissionMode: record?.auto_approve ?? true ? 'auto' : 'ask',
+    variant,
+  };
+}
+
+export function getOpenCodePermissionOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): OpenCodePermissionMode[] {
+  const seen = new Set<OpenCodePermissionMode>();
+  const options: OpenCodePermissionMode[] = [];
+
+  for (const entry of getExecutorVariantRecords<Opencode>(
+    profiles,
+    OPENCODE_EXECUTOR
+  )) {
+    const permissionMode = getOpenCodeVariantConfig(
+      profiles,
+      entry.variant
+    ).permissionMode;
+    if (seen.has(permissionMode)) continue;
+    seen.add(permissionMode);
+    options.push(permissionMode);
+  }
+
+  return options;
+}
+
+export function getOpenCodeModeOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): Array<string | null> {
+  const seen = new Set<string>();
+  const options: Array<string | null> = [];
+
+  for (const entry of getExecutorVariantRecords<Opencode>(
+    profiles,
+    OPENCODE_EXECUTOR
+  )) {
+    const agentMode = getOpenCodeVariantConfig(
+      profiles,
+      entry.variant
+    ).agentMode;
+    const modeKey = agentMode ?? 'DEFAULT';
+    if (seen.has(modeKey)) continue;
+    seen.add(modeKey);
+    options.push(agentMode);
+  }
+
+  return options;
+}
+
+export function getOpenCodeModelOptions(
+  profiles: ExecutorConfigs['executors'] | null | undefined
+): CodexModelOption[] {
+  const seen = new Set<string>();
+  const options: CodexModelOption[] = [];
+
+  for (const entry of getExecutorVariantRecords<Opencode>(
+    profiles,
+    OPENCODE_EXECUTOR
+  )) {
+    const model = getOpenCodeVariantConfig(profiles, entry.variant).model;
+    const modelKey = model ?? 'DEFAULT';
+    if (seen.has(modelKey)) continue;
+    seen.add(modelKey);
+    options.push({
+      value: model,
+      label: formatSimpleLabel(model),
+    });
+  }
+
+  return options.length > 0 ? options : [{ value: null, label: 'Default' }];
+}
+
+export function getOpenCodeVariantFromSelection(
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  selection: {
+    model: string | null;
+    agentMode: string | null;
+    permissionMode: OpenCodePermissionMode;
+  }
+): string | null {
+  const variants = getExecutorVariantRecords<Opencode>(
+    profiles,
+    OPENCODE_EXECUTOR
+  ).map((entry) => getOpenCodeVariantConfig(profiles, entry.variant));
+
+  const exactMatch = variants.find(
+    (config) =>
+      config.model === selection.model &&
+      config.agentMode === selection.agentMode &&
+      config.permissionMode === selection.permissionMode
+  );
+  if (exactMatch) return exactMatch.variant;
+
+  return findBestMatchingVariant(variants, (config) => {
+    let score = 0;
+    if (config.model === selection.model) score += 3;
+    if (config.agentMode === selection.agentMode) score += 2;
+    if (config.permissionMode === selection.permissionMode) score += 1;
+    return score;
+  });
+}
+
+export function formatSandboxModeLabel(mode: SandboxMode): string {
+  switch (mode) {
+    case 'danger-full-access':
+      return 'Full Access';
+    case 'workspace-write':
+      return 'Workspace Write';
+    case 'read-only':
+      return 'Read Only';
+    case 'auto':
+    default:
+      return 'Auto';
+  }
+}
+
+export function formatApprovalPolicyLabel(policy: AskForApproval): string {
+  switch (policy) {
+    case 'unless-trusted':
+      return 'Ask';
+    case 'on-failure':
+      return 'On Failure';
+    case 'on-request':
+      return 'On Request';
+    case 'never':
+    default:
+      return 'Never';
+  }
+}
+
+export function formatClaudePermissionLabel(
+  permissionMode: ClaudePermissionMode
+): string {
+  switch (permissionMode) {
+    case 'plan':
+      return 'Plan';
+    case 'ask':
+      return 'Ask';
+    case 'auto':
+    default:
+      return 'Auto';
+  }
+}
+
+export function formatOpenCodeModeLabel(mode: string | null): string {
+  return formatSimpleLabel(mode);
+}
+
+export function formatOpenCodePermissionLabel(
+  mode: OpenCodePermissionMode
+): string {
+  return mode === 'auto' ? 'Auto Approve' : 'Ask';
 }
 
 function toProfileId(

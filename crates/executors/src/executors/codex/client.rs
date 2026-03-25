@@ -17,7 +17,7 @@ use codex_app_server_protocol::{
     ListMcpServerStatusResponse, NewConversationParams, NewConversationResponse, RequestId,
     ResumeConversationParams, ResumeConversationResponse, ReviewStartParams, ReviewStartResponse,
     ReviewTarget, SendUserMessageParams, SendUserMessageResponse, ServerNotification,
-    ServerRequest,
+    ServerRequest, ThreadItem,
 };
 use codex_protocol::{ThreadId, protocol::ReviewDecision};
 use serde::{Serialize, de::DeserializeOwned};
@@ -33,7 +33,10 @@ use super::jsonrpc::{JsonRpcCallbacks, JsonRpcPeer};
 use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
     env::RepoContext,
-    executors::{ExecutorError, codex::normalize_logs::Approval},
+    executors::{
+        ExecutorError,
+        codex::{codex_terminal_registry, normalize_logs::Approval},
+    },
 };
 
 pub struct AppServerClient {
@@ -485,21 +488,23 @@ impl JsonRpcCallbacks for AppServerClient {
         raw: &str,
         notification: JSONRPCNotification,
     ) -> Result<bool, ExecutorError> {
-        let raw =
-            if let Ok(mut server_notification) = serde_json::from_str::<ServerNotification>(raw) {
-                if let ServerNotification::SessionConfigured(session_configured) =
-                    &mut server_notification
-                {
-                    // history can be large, which might get truncated during transmission, corrupting the JSON line and losing valuable session and model information.
-                    session_configured.initial_messages = None;
-                    Cow::Owned(serde_json::to_string(&server_notification)?)
-                } else {
-                    Cow::Borrowed(raw)
-                }
-            } else {
-                Cow::Borrowed(raw)
-            };
+        let parsed_server_notification = serde_json::from_str::<ServerNotification>(raw).ok();
+        let raw = if let Some(ServerNotification::SessionConfigured(mut session_configured)) =
+            parsed_server_notification.clone()
+        {
+            // history can be large, which might get truncated during transmission, corrupting the JSON line and losing valuable session and model information.
+            session_configured.initial_messages = None;
+            Cow::Owned(serde_json::to_string(
+                &ServerNotification::SessionConfigured(session_configured),
+            )?)
+        } else {
+            Cow::Borrowed(raw)
+        };
         self.log_writer.log_raw(&raw).await?;
+
+        if let Some(server_notification) = parsed_server_notification {
+            self.handle_server_notification(server_notification).await;
+        }
 
         let method = notification.method.as_str();
         if !method.starts_with("codex/event") {
@@ -534,6 +539,46 @@ impl JsonRpcCallbacks for AppServerClient {
     async fn on_non_json(&self, raw: &str) -> Result<(), ExecutorError> {
         self.log_writer.log_raw(raw).await?;
         Ok(())
+    }
+}
+
+impl AppServerClient {
+    async fn handle_server_notification(&self, notification: ServerNotification) {
+        match notification {
+            ServerNotification::ItemStarted(item_started) => {
+                if let ThreadItem::CommandExecution {
+                    id,
+                    command,
+                    cwd,
+                    process_id,
+                    ..
+                } = item_started.item
+                {
+                    codex_terminal_registry()
+                        .register_command(id, cwd, command, process_id)
+                        .await;
+                }
+            }
+            ServerNotification::CommandExecutionOutputDelta(output) => {
+                codex_terminal_registry()
+                    .append_output(&output.item_id, output.delta.as_bytes())
+                    .await;
+            }
+            ServerNotification::TerminalInteraction(interaction) => {
+                codex_terminal_registry()
+                    .register_terminal_interaction(
+                        &interaction.item_id,
+                        Some(interaction.process_id),
+                    )
+                    .await;
+            }
+            ServerNotification::ItemCompleted(item_completed) => {
+                if let ThreadItem::CommandExecution { id, .. } = item_completed.item {
+                    codex_terminal_registry().complete_command(&id).await;
+                }
+            }
+            _ => {}
+        }
     }
 }
 

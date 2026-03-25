@@ -34,6 +34,10 @@ export interface UseWorkspaceSessionsResult {
   selectLatestSession: () => void;
   isLoading: boolean;
   isNewSessionMode: boolean;
+  isPendingNewSessionMode: boolean;
+  requestNewSession: () => void;
+  confirmNewSession: () => void;
+  cancelNewSession: () => void;
   startNewSession: () => void;
 }
 
@@ -95,6 +99,7 @@ export function useWorkspaceSessions(
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
+  const [isPendingNewSessionMode, setIsPendingNewSessionMode] = useState(false);
   const pendingSessionIdRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | undefined>(workspaceId);
 
@@ -150,6 +155,7 @@ export function useWorkspaceSessions(
 
     if (workspaceChanged) {
       pendingSessionIdRef.current = null;
+      setIsPendingNewSessionMode(false);
     }
 
     if (sessions.length > 0) {
@@ -201,19 +207,43 @@ export function useWorkspaceSessions(
 
   const selectSession = useCallback((sessionId: string) => {
     pendingSessionIdRef.current = sessionId;
+    setIsPendingNewSessionMode(false);
     setSelection({ mode: 'existing', sessionId });
   }, []);
 
   const selectLatestSession = useCallback(() => {
     if (sessions.length > 0) {
       pendingSessionIdRef.current = null;
+      setIsPendingNewSessionMode(false);
       setSelection({ mode: 'existing', sessionId: sessions[0].id });
     }
   }, [sessions]);
 
   const startNewSession = useCallback(() => {
     pendingSessionIdRef.current = null;
+    setIsPendingNewSessionMode(false);
     setSelection({ mode: 'new' });
+  }, []);
+
+  const requestNewSession = useCallback(() => {
+    if (sessions.length === 0) {
+      pendingSessionIdRef.current = null;
+      setIsPendingNewSessionMode(false);
+      setSelection({ mode: 'new' });
+      return;
+    }
+
+    setIsPendingNewSessionMode(true);
+  }, [sessions.length]);
+
+  const confirmNewSession = useCallback(() => {
+    pendingSessionIdRef.current = null;
+    setIsPendingNewSessionMode(false);
+    setSelection({ mode: 'new' });
+  }, []);
+
+  const cancelNewSession = useCallback(() => {
+    setIsPendingNewSessionMode(false);
   }, []);
 
   return {
@@ -224,6 +254,10 @@ export function useWorkspaceSessions(
     selectLatestSession,
     isLoading,
     isNewSessionMode,
+    isPendingNewSessionMode,
+    requestNewSession,
+    confirmNewSession,
+    cancelNewSession,
     startNewSession,
   };
 }

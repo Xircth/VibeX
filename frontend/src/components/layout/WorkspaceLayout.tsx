@@ -1,8 +1,10 @@
 import { useEffect, type ReactNode } from 'react';
-import { useParams } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
-import { WorktreeProvider, useWorktree } from '@/contexts/WorktreeContext';
-import { KanbanSessionProvider, useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { WorktreeProvider } from '@/contexts/WorktreeContext';
+import {
+  KanbanSessionProvider,
+  useKanbanSessionContext,
+} from '@/contexts/KanbanSessionContext';
 import { PanelActionsProvider } from '@/contexts/PanelActionsContext';
 import { TerminalProvider } from '@/contexts/TerminalContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
@@ -17,24 +19,6 @@ interface WorkspaceLayoutProps {
   rightPanelContent?: ReactNode;
   /** Content for the toolbar area */
   toolbarContent?: ReactNode;
-}
-
-/**
- * Syncs URL params (attemptId, taskId) to WorktreeContext.
- * Must be rendered inside WorktreeProvider.
- */
-function WorktreeSyncFromUrl() {
-  const { attemptId, taskId } = useParams<{
-    attemptId?: string;
-    taskId?: string;
-  }>();
-  const { setActiveWorktree } = useWorktree();
-
-  useEffect(() => {
-    setActiveWorktree(attemptId ?? null, taskId ?? null);
-  }, [attemptId, taskId, setActiveWorktree]);
-
-  return null;
 }
 
 function PendingProjectFocusBridge() {
@@ -91,7 +75,6 @@ export function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   return (
     <WorktreeProvider>
-      <WorktreeSyncFromUrl />
       <KanbanSessionProvider>
         <PendingProjectFocusBridge />
         <ReviewProvider>

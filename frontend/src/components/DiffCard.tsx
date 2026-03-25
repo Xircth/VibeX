@@ -37,6 +37,7 @@ import {
   useWrapTextDiff,
 } from '@/stores/useDiffViewStore';
 import { useProject } from '@/contexts/ProjectContext';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 
 type Props = {
   diff: Diff;
@@ -120,6 +121,7 @@ export default function DiffCard({
   const ignoreWhitespace = useIgnoreWhitespaceDiff();
   const wrapText = useWrapTextDiff();
   const { projectId } = useProject();
+  const panelActions = useOptionalPanelActionsContext();
 
   const oldName = diff.oldPath || undefined;
   const newName = diff.newPath || oldName || 'unknown';
@@ -402,21 +404,40 @@ export default function DiffCard({
     </div>
   );
 
-  const handleOpenInIDE = async () => {
+  const handleOpenDiffInTab = async () => {
+    const openPath =
+      diff.change === 'deleted'
+        ? (oldName ?? newName)
+        : (newName ?? oldName);
+
+    if (!openPath) return;
+
+    const diffViewMode = globalMode === 'unified' ? 'inline' : 'split';
+
+    if (panelActions?.openDiffPreviewAtPath) {
+      const fileName = (newName || oldName || openPath).split(/[/\\]/).pop() || openPath;
+      panelActions.openDiffPreviewAtPath(openPath, {
+        title: `◐ ${fileName}`,
+        diffViewMode,
+        originalContent: oldContentSafe,
+        modifiedContent: newContentSafe,
+      });
+      return;
+    }
+
     if (!selectedAttempt?.id) return;
+
     try {
-      const openPath = newName || oldName;
       const response = await attemptsApi.openEditor(selectedAttempt.id, {
         editor_type: null,
-        file_path: openPath ?? null,
+        file_path: openPath,
       });
 
-      // If a URL is returned, open it in a new window/tab
       if (response.url) {
         window.open(response.url, '_blank');
       }
     } catch (err) {
-      console.error('Failed to open file in IDE:', err);
+      console.error('Failed to open diff in tab:', err);
     }
   };
 
@@ -447,11 +468,10 @@ export default function DiffCard({
           size="sm"
           onClick={(e) => {
             e.stopPropagation();
-            handleOpenInIDE();
+            handleOpenDiffInTab();
           }}
           className="h-6 w-6 p-0 ml-2"
-          title="Open in IDE"
-          disabled={diff.change === 'deleted'}
+          title="Open diff in tab"
         >
           <ExternalLink className="h-3 w-3" aria-hidden />
         </Button>
@@ -504,10 +524,10 @@ export default function DiffCard({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={handleOpenInIDE}
+                        onClick={handleOpenDiffInTab}
                         className="h-7 text-xs"
                       >
-                        在编辑器中打开
+                        在标签页中打开
                       </Button>
                     </div>
                   </div>

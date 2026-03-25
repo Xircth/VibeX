@@ -64,7 +64,5 @@ fn generate_empty_static_library(out_dir: &Path) -> Option<PathBuf> {
         out_dir.join("libcodex_windows_sandbox_empty_resource.a"),
     ];
 
-    candidates
-        .into_iter()
-        .find(|candidate| candidate.exists())
+    candidates.into_iter().find(|candidate| candidate.exists())
 }

@@ -47,7 +47,13 @@ pnpm install
 pnpm run dev
 ```
 
-> 默认以桌面模式启动，不会单独开启 Vite web 服务器。Tauri 加载 `frontend/dist`，并通过 `vite build --watch` 保持实时更新。
+等价命令：
+
+```bash
+pnpm run dev:desktop
+```
+
+> 默认以桌面模式启动。开发时会启动 Vite dev server 并通过 Tauri `devUrl` 连接，支持 HMR，CPU 占用也明显低于 `vite build --watch` 模式。
 
 ### 仅构建前端
 

@@ -134,6 +134,8 @@ function EditDiffRenderer({
             openFilePreview(resolveFilePath(path, containerRef), {
               mode: 'diff',
               diffViewMode: 'inline',
+              displayPath: path,
+              title: path,
             });
           }}
         >

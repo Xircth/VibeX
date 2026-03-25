@@ -1,10 +1,12 @@
 # Desktop-Only Dev Mode Implementation Plan
 
+> Historical note: this plan described an earlier `vite build --watch` desktop dev workflow. The current repository uses `vite dev` + Tauri `devUrl` instead.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** 为项目增加桌面端 only 的开发模式，不再依赖独立的 Vite Web 前端服务，同时保持现有默认开发流程不被直接破坏。
 
-**Architecture:** 通过新增一份 `tauri.desktop.conf.json` 覆盖开发态 Tauri 配置，让 Tauri 使用 `frontend/dist` 作为前端来源，并通过 `vite build --watch` 持续构建静态资源。默认 `dev` 与 `tauri:dev` 保持不变，仅新增一组桌面端 only 脚本与文档入口。
+**Architecture:** 历史方案通过新增 `tauri.desktop.conf.json` 覆盖开发态 Tauri 配置，让 Tauri 使用 `frontend/dist` 作为前端来源，并通过 `vite build --watch` 持续构建静态资源。当前实现已改为共享 `tauri.conf.json` + 启动脚本生成临时 dev 配置，并直接连接 Vite dev server。
 
 **Tech Stack:** Tauri v2、Vite、Node.js 脚本、npm package scripts。
 

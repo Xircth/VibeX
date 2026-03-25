@@ -40,9 +40,20 @@ export function useAttemptRepo(
     [queryClient, attemptId]
   );
 
-  // Auto-select first repo when none selected
+  // Auto-select first repo when none selected or when the current selection
+  // does not belong to the active workspace anymore.
   useEffect(() => {
-    if (repos.length > 0 && selectedRepoId === null) {
+    if (repos.length === 0) {
+      if (selectedRepoId !== null) {
+        setSelectedRepoId(null);
+      }
+      return;
+    }
+
+    const hasSelectedRepo =
+      selectedRepoId !== null && repos.some((repo) => repo.id === selectedRepoId);
+
+    if (!hasSelectedRepo) {
       setSelectedRepoId(repos[0].id);
     }
   }, [repos, selectedRepoId, setSelectedRepoId]);

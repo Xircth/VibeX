@@ -1,4 +1,4 @@
-import { Loader2, AlertCircle, ArrowUp } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowUp, Check, X } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Tooltip,
@@ -42,10 +42,11 @@ import {
   getLatestProfileFromProcesses,
 } from '@/utils/executor';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
+import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { queueApi, imagesApi, sessionsApi } from '@/lib/api';
+import { queueApi, imagesApi, sessionsApi, configApi } from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
 import { useTokenUsage } from '@/contexts/EntriesContext';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
@@ -77,10 +78,15 @@ interface TaskFollowUpSectionProps {
     | 'sessions'
     | 'selectedSessionId'
     | 'selectSession'
-    | 'startNewSession'
+    | 'requestNewSession'
+    | 'confirmNewSession'
+    | 'cancelNewSession'
+    | 'isPendingNewSessionMode'
     | 'isNewSessionMode'
   >;
 }
+
+const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
 
 function truncateSessionLabel(label: string, maxUnits = 8): string {
   if (!label) return '\u4f1a\u8bdd';
@@ -100,6 +106,31 @@ function truncateSessionLabel(label: string, maxUnits = 8): string {
   return compact || label;
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return 'Unknown enhancement error';
+  }
+}
+
 export function TaskFollowUpSection({
   task,
   session,
@@ -116,9 +147,16 @@ export function TaskFollowUpSection({
     sessions,
     selectedSessionId,
     selectSession,
-    startNewSession,
+    requestNewSession,
+    confirmNewSession,
+    cancelNewSession,
+    isPendingNewSessionMode,
     isNewSessionMode,
   } = sessionState;
+  const isNewSessionConfigVisible =
+    isNewSessionMode || isPendingNewSessionMode;
+  const isAwaitingNewSessionConfirmation =
+    isPendingNewSessionMode && !isNewSessionMode;
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
   const selectedSessionLabel = isNewSessionMode
@@ -221,6 +259,7 @@ export function TaskFollowUpSection({
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [localMessage, setLocalMessage] = useState('');
   const [newSessionName, setNewSessionName] = useState('');
+  const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
 
   const latestProfileId = useMemo(
     () => getLatestProfileFromProcesses(processes),
@@ -342,7 +381,8 @@ export function TaskFollowUpSection({
     refetch: refreshQueueStatus,
   } = useQuery<QueueStatus>({
     queryKey: [QUEUE_STATUS_KEY, sessionId],
-    queryFn: () => queueApi.getStatus(sessionId!),
+    queryFn: () =>
+      sessionId ? queueApi.getStatus(sessionId) : Promise.resolve(EMPTY_QUEUE_STATUS),
     enabled: !!sessionId,
   });
 
@@ -427,6 +467,10 @@ export function TaskFollowUpSection({
   );
 
   const { entries } = useEntries();
+  const promptEnhancementContext = useMemo(
+    () => buildPromptEnhancementContext(entries),
+    [entries]
+  );
   const { todos } = useTodos(entries);
   const hasPendingApproval = useMemo(() => {
     return entries.some((entry) => {
@@ -472,16 +516,26 @@ export function TaskFollowUpSection({
 
   const canSendFollowUp = useMemo(() => {
     if (!canTypeFollowUp || !effectiveExecutorProfile?.executor) return false;
+    if (isAwaitingNewSessionConfirmation) return false;
     return Boolean(
       conflictResolutionInstructions || reviewMarkdown || localMessage.trim()
     );
   }, [
     canTypeFollowUp,
+    isAwaitingNewSessionConfirmation,
     effectiveExecutorProfile?.executor,
     conflictResolutionInstructions,
     reviewMarkdown,
     localMessage,
   ]);
+  const canEnhancePrompt = useMemo(
+    () =>
+      Boolean(
+        canTypeFollowUp &&
+          localMessage.trim()
+      ),
+    [canTypeFollowUp, localMessage]
+  );
   const isEditable = !isRetryActive && !hasPendingApproval;
 
   const handleQueueMessage = useCallback(async () => {
@@ -604,6 +658,43 @@ export function TaskFollowUpSection({
     [setFollowUpError, getQueueState, cancelMutation]
   );
 
+  const handleEnhancePrompt = useCallback(async () => {
+    if (isEnhancingPrompt) return;
+    if (!localMessage.trim()) return;
+
+    setIsEnhancingPrompt(true);
+    setFollowUpError(null);
+
+    try {
+      const result = await configApi.enhancePrompt({
+        draftPrompt: localMessage,
+        sessionId: sessionId ?? null,
+        workspaceId: workspaceId ?? null,
+        contextMessages: promptEnhancementContext,
+      });
+
+      const enhancedPrompt = result.enhancedPrompt.trim();
+      if (!enhancedPrompt) {
+        throw new Error('Prompt enhancement returned empty content');
+      }
+
+      handleEditorChange(enhancedPrompt);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setFollowUpError(`Failed to enhance prompt: ${message}`);
+    } finally {
+      setIsEnhancingPrompt(false);
+    }
+  }, [
+    isEnhancingPrompt,
+    localMessage,
+    sessionId,
+    workspaceId,
+    promptEnhancementContext,
+    handleEditorChange,
+    setFollowUpError,
+  ]);
+
   useKeySubmitFollowUp(handleSubmitShortcut, {
     scope: Scope.FOLLOW_UP_READY,
     enableOnFormTags: ['textarea', 'TEXTAREA'],
@@ -648,10 +739,20 @@ export function TaskFollowUpSection({
   ]);
 
   useEffect(() => {
-    if (!isNewSessionMode) {
+    if (!isNewSessionConfigVisible) {
       setNewSessionName('');
     }
-  }, [isNewSessionMode, workspaceId]);
+  }, [isNewSessionConfigVisible, workspaceId]);
+
+  const handleConfirmNewSession = useCallback(() => {
+    confirmNewSession();
+  }, [confirmNewSession]);
+
+  const handleCancelNewSession = useCallback(() => {
+    cancelNewSession();
+    setNewSessionName('');
+    setSelectedExecutorProfile(defaultExecutorProfile);
+  }, [cancelNewSession, defaultExecutorProfile]);
 
   if (!workspaceId) return null;
 
@@ -761,17 +862,41 @@ export function TaskFollowUpSection({
                   compactSessionLabel={compactSessionLabel}
                   selectedSessionLabel={selectedSessionLabel}
                   onSelectSession={handleSelectSession}
-                  onStartNewSession={startNewSession}
+                  onStartNewSession={requestNewSession}
                   onRenameSession={handleRenameSession}
                 />
               ) : null}
             </div>
           )}
 
-          {isNewSessionMode ? (
+          {isNewSessionConfigVisible ? (
             <div className="rounded-lg border border-border/60 bg-muted/20 p-2">
-              <div className="mb-2 text-xs font-medium text-foreground">
-                {'\u65b0\u5efa\u4f1a\u8bdd\u914d\u7f6e'}
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-foreground">
+                  {'\u65b0\u5efa\u4f1a\u8bdd\u914d\u7f6e'}
+                </div>
+                {isAwaitingNewSessionConfirmation ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handleCancelNewSession}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label="取消新建会话"
+                      title="取消新建会话"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmNewSession}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label="确认新建会话"
+                      title="确认新建会话"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : null}
               </div>
               <div className="mb-2 space-y-1">
                 <div className="text-[11px] text-muted-foreground">
@@ -791,6 +916,7 @@ export function TaskFollowUpSection({
                 onChange={(profile) => setSelectedExecutorProfile(profile)}
                 disabled={!isEditable}
                 showLabel={true}
+                iconOnly={false}
                 className="grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
               />
             </div>
@@ -811,13 +937,14 @@ export function TaskFollowUpSection({
             sendShortcut={config?.send_message_shortcut}
             className="min-h-[40px] break-words overflow-wrap-anywhere"
             onRegisterClickedElementInsert={handleRegisterClickedElementInsert}
+            enableFloatingToolbar={false}
           />
 
           <ActionBar
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={setSelectedExecutorProfile}
-            showProfileControls={!isNewSessionMode}
+            showProfileControls={!isNewSessionConfigVisible}
             isEditable={isEditable}
             isAttemptRunning={isAttemptRunning}
             isQueued={isQueued}
@@ -825,6 +952,12 @@ export function TaskFollowUpSection({
             isStopping={isStopping}
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}
+            isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}
+            promptEnhancementEnabled={
+              config?.prompt_enhancement_enabled ?? false
+            }
+            isEnhancingPrompt={isEnhancingPrompt}
+            canEnhancePrompt={canEnhancePrompt}
             sessionId={sessionId}
             localMessage={localMessage}
             conflictResolutionInstructions={conflictResolutionInstructions}
@@ -835,6 +968,7 @@ export function TaskFollowUpSection({
             onCancelQueue={cancelQueue}
             onStopExecution={stopExecution}
             onSendFollowUp={onSendFollowUp}
+            onEnhancePrompt={handleEnhancePrompt}
             onClearComments={clearComments}
             onReviewChanges={handleReviewChanges}
             onPasteFiles={handlePasteFiles}

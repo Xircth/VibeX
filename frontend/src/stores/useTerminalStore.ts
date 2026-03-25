@@ -22,7 +22,7 @@ export interface TerminalSession {
   /** Whether this terminal should reject user input */
   readOnly?: boolean;
   /** Logical source of the terminal session */
-  source?: 'workspace' | 'acp' | 'log-viewer';
+  source?: 'workspace' | 'acp' | 'codex' | 'log-viewer';
 }
 
 interface TerminalState {
@@ -41,7 +41,7 @@ interface TerminalState {
       type?: 'pty' | 'log-viewer';
       processId?: string;
       readOnly?: boolean;
-      source?: 'workspace' | 'acp' | 'log-viewer';
+      source?: 'workspace' | 'acp' | 'codex' | 'log-viewer';
     }
   ) => void;
   /** Set the PTY session ID once the backend creates it */

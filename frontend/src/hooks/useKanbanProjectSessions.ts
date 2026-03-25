@@ -12,6 +12,7 @@ export interface KanbanProjectSessionRecord {
   workspace: Workspace;
   task: TaskWithAttemptStatus | null;
   taskId: string | null;
+  name: string | null;
   status: SessionStatus;
   branch: string;
   workspaceName: string;
@@ -150,6 +151,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             workspace,
             task,
             taskId,
+            name: summary.name,
             status: summary.status,
             branch: summary.workspace_branch,
             workspaceName,

@@ -11,6 +11,7 @@ import {
   Hash,
   X,
 } from 'lucide-react';
+import { useParams } from 'react-router-dom';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttempt } from '@/hooks/useAttempt';
 import { useDiffStream } from '@/hooks/useDiffStream';
@@ -25,9 +26,9 @@ import type { Diff, DiffChangeKind } from 'shared/types';
 type DiffCollapseDefaults = Record<DiffChangeKind, boolean>;
 
 const DEFAULT_COLLAPSE: DiffCollapseDefaults = {
-  added: false,
+  added: true,
   deleted: true,
-  modified: false,
+  modified: true,
   renamed: true,
   copied: true,
   permissionChange: true,
@@ -57,8 +58,16 @@ function formatTimestamp(timestamp: number): string {
 
 function DockviewDiffsReviewPanel() {
   const { activeWorktreeId } = useWorktree();
-  const { data: workspace } = useAttempt(activeWorktreeId ?? undefined);
-  const attemptId = workspace?.id ?? null;
+  const { attemptId: routeAttemptIdParam } = useParams<{
+    attemptId?: string;
+  }>();
+  const routeAttemptId =
+    routeAttemptIdParam && routeAttemptIdParam !== 'latest'
+      ? routeAttemptIdParam
+      : undefined;
+  const effectiveAttemptId = activeWorktreeId ?? routeAttemptId ?? undefined;
+  const { data: workspace } = useAttempt(effectiveAttemptId);
+  const attemptId = workspace?.id ?? effectiveAttemptId ?? null;
 
   // Commit diff mode from store
   const { commitSha, commitInfo, commitDiffs, isLoading: commitLoading, clearCommitDiff } =
@@ -263,7 +272,7 @@ function DockviewDiffsReviewPanel() {
     return diffs[idx];
   }, [stickyFileId, ids, diffs]);
 
-  if (!isCommitMode && !activeWorktreeId) {
+  if (!isCommitMode && !attemptId) {
     return (
       <div
         className="h-full w-full flex items-center justify-center text-muted-foreground text-sm"

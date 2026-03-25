@@ -21,6 +21,22 @@ fn default_commit_reminder_enabled() -> bool {
     true
 }
 
+fn default_prompt_enhancement_enabled() -> bool {
+    false
+}
+
+fn default_prompt_enhancement_model() -> String {
+    "opencode/minimax-m2.5-free".to_string()
+}
+
+fn default_prompt_enhancement_prompt() -> Option<String> {
+    None
+}
+
+fn default_files_changed_default_collapsed() -> bool {
+    false
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
     pub config_version: String,
@@ -56,8 +72,16 @@ pub struct Config {
     pub merge_commit_message_template: Option<String>,
     #[serde(default)]
     pub send_message_shortcut: SendMessageShortcut,
+    #[serde(default = "default_prompt_enhancement_enabled")]
+    pub prompt_enhancement_enabled: bool,
+    #[serde(default = "default_prompt_enhancement_model")]
+    pub prompt_enhancement_model: String,
+    #[serde(default = "default_prompt_enhancement_prompt")]
+    pub prompt_enhancement_prompt: Option<String>,
     #[serde(default)]
     pub default_terminal_shell: Option<String>,
+    #[serde(default = "default_files_changed_default_collapsed")]
+    pub files_changed_default_collapsed: bool,
     /// Agents that have been disabled by the user in settings
     #[serde(default)]
     pub disabled_agents: Vec<BaseCodingAgent>,
@@ -91,7 +115,11 @@ impl Config {
             commit_reminder_prompt: old_config.commit_reminder_prompt,
             merge_commit_message_template: old_config.merge_commit_message_template,
             send_message_shortcut: old_config.send_message_shortcut,
+            prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
+            prompt_enhancement_model: default_prompt_enhancement_model(),
+            prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
             default_terminal_shell: None,
+            files_changed_default_collapsed: default_files_changed_default_collapsed(),
             disabled_agents: Vec::new(),
             agent_order: None,
         }
@@ -149,7 +177,11 @@ impl Default for Config {
             commit_reminder_prompt: None,
             merge_commit_message_template: None,
             send_message_shortcut: SendMessageShortcut::default(),
+            prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
+            prompt_enhancement_model: default_prompt_enhancement_model(),
+            prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
             default_terminal_shell: None,
+            files_changed_default_collapsed: default_files_changed_default_collapsed(),
             disabled_agents: Vec::new(),
             agent_order: None,
         }

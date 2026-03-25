@@ -1,7 +1,7 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use sqlx::{
-    Error, Pool, Sqlite, SqlitePool,
+    Error, Pool, Sqlite,
     migrate::MigrateError,
     sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions},
 };
@@ -81,7 +81,12 @@ impl DBService {
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Delete);
-        let pool = SqlitePool::connect_with(options).await?;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(20)
+            .min_connections(1)
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_with(options)
+            .await?;
         run_migrations(&pool).await?;
         Ok(DBService { pool })
     }
@@ -117,9 +122,13 @@ impl DBService {
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Delete);
+        let pool_options = SqlitePoolOptions::new()
+            .max_connections(20)
+            .min_connections(1)
+            .acquire_timeout(Duration::from_secs(30));
 
         let pool = if let Some(hook) = after_connect {
-            SqlitePoolOptions::new()
+            pool_options
                 .after_connect(move |conn, _meta| {
                     let hook = hook.clone();
                     Box::pin(async move {
@@ -130,7 +139,7 @@ impl DBService {
                 .connect_with(options)
                 .await?
         } else {
-            SqlitePool::connect_with(options).await?
+            pool_options.connect_with(options).await?
         };
 
         run_migrations(&pool).await?;

@@ -3,16 +3,16 @@
   "short_name": "VibeUltra",
   "icons": [
     {
-      "src": "/favicon-vk-light.svg",
-      "sizes": "any",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
       "purpose": "any",
-      "type": "image/svg+xml"
+      "type": "image/png"
     },
     {
-      "src": "/favicon-vk-light-maskable.svg",
-      "sizes": "any",
+      "src": "/icon-512.png",
+      "sizes": "512x512",
       "purpose": "maskable",
-      "type": "image/svg+xml"
+      "type": "image/png"
     }
   ],
   "theme_color": "#ffffff",

@@ -1,5 +1,6 @@
 import { BaseCodingAgent, ThemeMode } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
+import { cn } from '@/lib/utils';
 
 type AgentIconProps = {
   agent: BaseCodingAgent | null | undefined;
@@ -91,5 +92,11 @@ export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
       return null;
   }
 
-  return <img src={iconPath} alt={agentName} className={className} />;
+  return (
+    <img
+      src={iconPath}
+      alt={agentName}
+      className={cn('block shrink-0 object-contain', className)}
+    />
+  );
 }

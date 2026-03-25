@@ -32,7 +32,18 @@ export { repoApi } from './repos';
 
 // Config, Settings, MCP, Profiles, Agent Settings, Queue, Settings Window
 export { configApi, claudeSettingsApi, mcpServersApi, profilesApi, agentSettingsApi, settingsWindowApi, queueApi } from './config';
-export type { ClaudeSettings, AgentSettingInfo, PreflightCheck, PreflightFix, PreflightResult } from './config';
+export type {
+  ClaudeSettings,
+  AgentSettingInfo,
+  PreflightCheck,
+  PreflightFix,
+  PreflightResult,
+  RunAgentFixRequest,
+  OpencodeModelsResponse,
+  PromptEnhancementContextMessage,
+  PromptEnhancementRequest,
+  PromptEnhancementResponse,
+} from './config';
 
 // Misc: Execution Processes, File Tree, Desktop, File System, Tags, Images, Approvals, Scratch, Search, Skills
 export {

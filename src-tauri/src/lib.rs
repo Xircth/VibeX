@@ -51,7 +51,7 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
             events::start_event_forwarding(&app.handle().clone(), &state);
-            events::start_acp_terminal_forwarding(&app.handle().clone(), &state);
+            events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
             app.manage(state);
             Ok(())
         })
@@ -135,6 +135,7 @@ pub fn run() {
             commands::sessions::get_session_summaries,
             commands::sessions::get_session,
             commands::sessions::create_session,
+            commands::sessions::create_project_root_session,
             commands::sessions::rename_session,
             commands::sessions::update_session_status,
             commands::sessions::delete_session,
@@ -164,6 +165,7 @@ pub fn run() {
             // Filesystem commands
             commands::filesystem::list_directory,
             commands::filesystem::list_git_repos,
+            commands::filesystem::reveal_in_file_manager,
             // Repo commands
             commands::repos::get_repos,
             commands::repos::register_repo,
@@ -206,6 +208,9 @@ pub fn run() {
             commands::config::update_profiles,
             commands::config::check_editor_availability,
             commands::config::check_agent_availability,
+            commands::config::play_notification_sound,
+            commands::config::enhance_prompt,
+            commands::config::list_opencode_models,
             commands::config::get_claude_settings,
             commands::config::update_claude_settings,
             commands::config::read_agent_native_configs,
@@ -216,6 +221,7 @@ pub fn run() {
             commands::agent_settings::reorder_agents,
             commands::agent_settings::agent_preflight,
             commands::agent_settings::detect_agent_local_version,
+            commands::agent_settings::run_agent_fix,
             // Settings window commands
             commands::settings_window::open_settings_window,
             // Tag commands

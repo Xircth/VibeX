@@ -40,6 +40,7 @@ interface KanbanSessionContextValue {
   toggleSessionHub: () => void;
   rightSession: KanbanSessionPlacement | null;
   visibleRightSession: KanbanSessionPlacement | null;
+  isRightSessionPending: boolean;
   monitorSessions: KanbanSessionPlacement[];
   lastActiveWorkspaceId: string | null;
   canUseRightPanelForSessions: boolean;
@@ -58,13 +59,16 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const { projectId } = useProject();
   const projectKey = getProjectScopeKey(projectId);
   const { activeWorktreeId } = useWorktree();
-  const { data: activeWorkspaceWithSession, isLoading: isActiveWorkspaceLoading } =
-    useTaskAttemptWithSession(activeWorktreeId ?? undefined);
+  const {
+    data: activeWorkspaceWithSession,
+    isLoading: isActiveWorkspaceLoading,
+  } = useTaskAttemptWithSession(activeWorktreeId ?? undefined);
   const isRightPanelVisible = useLayoutStore(
     (state) => state.isRightPanelVisible
   );
 
-  const [panelView, setPanelView] = useState<KanbanPanelView>(DEFAULT_KANBAN_VIEW);
+  const [panelView, setPanelView] =
+    useState<KanbanPanelView>(DEFAULT_KANBAN_VIEW);
   const [layoutState, setLayoutState] = useState<KanbanSessionLayoutState>(
     createEmptyKanbanSessionLayoutState()
   );
@@ -77,7 +81,9 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const isSessionHubVisible = panelView === 'sessionHub';
 
   useEffect(() => {
-    const stored = useProjectViewStateStore.getState().getKanbanState(projectKey);
+    const stored = useProjectViewStateStore
+      .getState()
+      .getKanbanState(projectKey);
     setPanelView(stored.panelView);
     setLayoutState(stored.layoutState);
     setLastActiveWorkspaceId(stored.lastActiveWorkspaceId);
@@ -119,7 +125,10 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
 
     // When right panel is empty, always try to re-seed from the current workspace
     // (even if we previously synced this workspace).
-    if (lastSyncedWorkspaceIdRef.current === activeWorktreeId && layoutState.rightSession) {
+    if (
+      lastSyncedWorkspaceIdRef.current === activeWorktreeId &&
+      layoutState.rightSession
+    ) {
       return;
     }
 
@@ -236,6 +245,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const visibleRightSession = layoutState.rightSession;
+  const isRightSessionPending =
+    !visibleRightSession &&
+    !!activeWorktreeId &&
+    (isActiveWorkspaceLoading ||
+      typeof activeWorkspaceWithSession === 'undefined');
 
   const value = useMemo<KanbanSessionContextValue>(
     () => ({
@@ -249,6 +263,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       toggleSessionHub,
       rightSession: layoutState.rightSession,
       visibleRightSession,
+      isRightSessionPending,
       monitorSessions: layoutState.monitorSessions,
       lastActiveWorkspaceId,
       canUseRightPanelForSessions,
@@ -276,6 +291,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       pruneSessions,
       toggleSessionHub,
       visibleRightSession,
+      isRightSessionPending,
     ]
   );
 

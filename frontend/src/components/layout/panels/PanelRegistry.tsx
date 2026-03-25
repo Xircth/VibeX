@@ -1,6 +1,7 @@
 import React from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
+import DockviewPreviewPanel from '@/components/panels/DockviewPreviewPanel';
 
 /**
  * Lazy-loaded panel components.
@@ -11,9 +12,6 @@ const LazyKanbanPanel = React.lazy(
 );
 const LazyFileTreePanel = React.lazy(
   () => import('@/components/panels/DockviewFileTreePanel')
-);
-const LazyPreviewPanel = React.lazy(
-  () => import('@/components/panels/DockviewPreviewPanel')
 );
 const LazyDevPreviewPanel = React.lazy(
   () => import('@/components/panels/DockviewDevPreviewPanel')
@@ -59,11 +57,13 @@ function PanelLoadingFallback() {
  */
 const PANEL_COMPONENT_MAP: Record<
   PanelId,
-  React.LazyExoticComponent<React.ComponentType<IDockviewPanelProps>>
+  React.ComponentType<IDockviewPanelProps>
 > = {
   [PANEL_IDS.KANBAN]: LazyKanbanPanel,
   [PANEL_IDS.FILE_TREE]: LazyFileTreePanel,
-  [PANEL_IDS.PREVIEW]: LazyPreviewPanel,
+  // Keep Preview eagerly loaded to avoid occasional unresolved lazy chunk state
+  // in packaged desktop builds.
+  [PANEL_IDS.PREVIEW]: DockviewPreviewPanel,
   [PANEL_IDS.DEV_PREVIEW]: LazyDevPreviewPanel,
   [PANEL_IDS.DIFFS]: LazyDiffPanel,
   [PANEL_IDS.TERMINAL]: LazyTerminalPanel,

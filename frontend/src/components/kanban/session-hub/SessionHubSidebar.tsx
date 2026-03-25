@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   DndContext,
@@ -15,6 +16,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowUpDown,
   ChevronDown,
@@ -270,10 +272,8 @@ function DraggableSessionCard({
       {...attributes}
       className={cn('min-w-0 touch-none', !isDeleteMode && 'cursor-grab')}
       style={{
-        transform:
-          transform && !isDragging
-            ? `translateX(${transform.x}px) translateY(${transform.y}px)`
-            : undefined,
+        transform: transform ? CSS.Translate.toString(transform) : undefined,
+        opacity: isDragging ? 0.25 : undefined,
       }}
     >
       <SessionHubListItem
@@ -416,6 +416,8 @@ export function SessionHubSidebar({
       activationConstraint: { distance: 8 },
     })
   );
+  const overlayContainer =
+    typeof document !== 'undefined' ? document.body : null;
 
   const handleDragStart = (event: DragStartEvent) => {
     if (!canDragAcrossSections) {
@@ -926,23 +928,30 @@ export function SessionHubSidebar({
                 })
               )}
             </div>
-            <DragOverlay dropAnimation={null}>
-              {activeDragSession ? (
-                <SessionHubListItem
-                  session={activeDragSession}
-                  marker={getSessionMarker(
-                    activeDragSession.id,
-                    monitorPlacements,
-                    currentExecutionPlacement
-                  )}
-                  isDeleteMode={false}
-                  isSelected={false}
-                  onClick={() => undefined}
-                  onToggleSelect={() => undefined}
-                  dragging
-                />
-              ) : null}
-            </DragOverlay>
+            {overlayContainer
+              ? createPortal(
+                  <DragOverlay dropAnimation={null}>
+                    {activeDragSession ? (
+                      <div className="w-[320px] max-w-[calc(100vw-32px)]">
+                        <SessionHubListItem
+                          session={activeDragSession}
+                          marker={getSessionMarker(
+                            activeDragSession.id,
+                            monitorPlacements,
+                            currentExecutionPlacement
+                          )}
+                          isDeleteMode={false}
+                          isSelected={false}
+                          onClick={() => undefined}
+                          onToggleSelect={() => undefined}
+                          dragging
+                        />
+                      </div>
+                    ) : null}
+                  </DragOverlay>,
+                  overlayContainer
+                )
+              : null}
           </DndContext>
         </ScrollArea>
       </aside>

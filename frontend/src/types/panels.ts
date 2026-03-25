@@ -6,6 +6,9 @@ export interface OpenFilePreviewOptions {
   mode?: PreviewPanelMode;
   diffViewMode?: PreviewDiffViewMode;
   modifiedContent?: string | null;
+  originalContent?: string | null;
+  displayPath?: string | null;
+  title?: string | null;
 }
 
 export interface PreviewPanelParams {
@@ -13,6 +16,8 @@ export interface PreviewPanelParams {
   mode: PreviewPanelMode;
   diffViewMode: PreviewDiffViewMode;
   modifiedContent: string | null;
+  originalContent: string | null;
+  displayPath: string | null;
 }
 
 export function buildPreviewPanelParams(
@@ -24,5 +29,7 @@ export function buildPreviewPanelParams(
     mode: options?.mode ?? 'editor',
     diffViewMode: options?.diffViewMode ?? 'split',
     modifiedContent: options?.modifiedContent ?? null,
+    originalContent: options?.originalContent ?? null,
+    displayPath: options?.displayPath ?? null,
   };
 }

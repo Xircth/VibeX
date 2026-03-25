@@ -11,7 +11,6 @@ import {
 import {
   FolderOpen,
   Settings,
-  Menu,
   Plus,
   PanelLeft,
   PanelRight,
@@ -81,16 +80,11 @@ function isMainlineBranch(branch: string) {
   );
 }
 
-/**
- * BranchStatusBadge - Shows branch ahead/behind status in the toolbar.
- * Only renders when viewing a workspace with branch status data.
- */
 function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   const { data: branchStatus } = useWorkspaceBranchStatus(workspaceId);
 
   const statusSummary = useMemo(() => {
     if (!branchStatus?.length) return null;
-    // Aggregate across repos
     let totalAhead = 0;
     let totalBehind = 0;
     let hasConflicts = false;
@@ -157,15 +151,6 @@ function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-/**
- * Toolbar - The top toolbar for the IDE layout.
- *
- * Contains:
- * - Logo and project selector
- * - Search bar
- * - Panel toggle buttons (file tree, terminal, right panel)
- * - Create task, open in IDE, settings, and navigation menu
- */
 function WorkspaceTabSwitcher() {
   const navigate = useNavigate();
   const { projectId, project } = useProject();
@@ -243,10 +228,7 @@ function WorkspaceTabSwitcher() {
         const fallbackWorktree = resolveFallbackWorktree();
         const targetAttemptId =
           activeWorktreeId ?? fallbackWorktree?.workspace.id ?? null;
-        const targetTaskId =
-          activeTaskId ??
-          fallbackWorktree?.workspace.task_id ??
-          null;
+        const targetTaskId = activeTaskId ?? fallbackWorktree?.workspace.task_id ?? null;
 
         if (targetAttemptId) {
           setActiveWorktree(targetAttemptId, targetTaskId);
@@ -254,7 +236,13 @@ function WorkspaceTabSwitcher() {
 
         if (targetTaskId && targetAttemptId) {
           navigate(paths.attempt(projectId, targetTaskId, targetAttemptId));
+          return;
         }
+
+        // No workspace entity yet: keep workspace tab active and fall back to
+        // project root directory context.
+        setActiveWorktree(null, null);
+        navigate(paths.projectTasks(projectId));
       };
 
       if (effectiveActiveTab === 'kanban' && rightSession) {
@@ -345,11 +333,8 @@ export function Toolbar() {
   const { toggleRightPanel, isRightPanelVisible, resetLayout } =
     useLayoutStore();
 
-  const {
-    toggleFileTree,
-    openNewTerminal,
-    toggleEditorArea,
-  } = usePanelActions();
+  const { toggleFileTree, openNewTerminal, toggleEditorArea } =
+    usePanelActions();
   const recentProjects = useMemo(
     () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
     [projects]
@@ -384,66 +369,19 @@ export function Toolbar() {
     <TooltipProvider delayDuration={300}>
       <div className="w-full px-1.5 bg-secondary/50">
         <div className="relative flex items-center h-9 gap-0.5">
-          {/* Left section: Logo + project selector */}
           <div className="flex items-center shrink-0 min-w-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label="返回首页或打开最近项目"
-                  title="返回首页或打开最近项目"
-                >
-                  <Logo showText={false} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                <DropdownMenuItem onSelect={handleOpenHome}>
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  回到首页
-                </DropdownMenuItem>
-                <div className="px-2 py-1 text-[11px] text-muted-foreground">
-                  最近项目
-                </div>
-                {recentProjects.length > 0 ? (
-                  recentProjects.map((item) => (
-                    <DropdownMenuItem
-                      key={item.id}
-                      onSelect={() => handleSwitchProject(item.id)}
-                      title={item.name}
-                    >
-                      <FolderOpen className="mr-2 h-4 w-4" />
-                      <span className="truncate">{item.name}</span>
-                    </DropdownMenuItem>
-                  ))
-                ) : (
-                  <DropdownMenuItem disabled>暂无最近项目</DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
             <ProjectRailToggleButton />
-            <Link
-              to="/local-projects"
-              className="hidden"
-              aria-label="返回首页"
-              title="返回首页"
-            >
-              <Logo showText={false} />
-            </Link>
             {isWorkspaceTab ? <WorktreeSelector /> : null}
           </div>
 
-          {/* Branch status badge (visible when viewing a workspace) */}
           {workspaceId && <BranchStatusBadge workspaceId={workspaceId} />}
 
-          {/* Center section: Tab switcher */}
           <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
             <div className="pointer-events-auto">
               <WorkspaceTabSwitcher />
             </div>
           </div>
 
-          {/* Right section: Actions */}
           <div className="ml-auto flex items-center shrink-0 gap-0.5">
             <div
               className={cn(
@@ -452,7 +390,6 @@ export function Toolbar() {
               )}
               aria-hidden={!isWorkspaceTab}
             >
-              {/* Panel toggle buttons */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -542,7 +479,6 @@ export function Toolbar() {
               <ToolbarDivider />
             </div>
 
-            {/* Create task + Open in IDE */}
             {projectId && (
               <>
                 <Tooltip>
@@ -569,7 +505,6 @@ export function Toolbar() {
               </>
             )}
 
-            {/* Settings + Nav menu */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -587,16 +522,37 @@ export function Toolbar() {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  aria-label="Main navigation"
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="返回首页或打开最近项目"
+                  title="返回首页或打开最近项目"
                 >
-                  <Menu className="h-3.5 w-3.5" />
-                </Button>
+                  <Logo showText={false} />
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={handleOpenHome}>
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  回到首页
+                </DropdownMenuItem>
+                <div className="px-2 py-1 text-[11px] text-muted-foreground">
+                  最近项目
+                </div>
+                {recentProjects.length > 0 ? (
+                  recentProjects.map((item) => (
+                    <DropdownMenuItem
+                      key={item.id}
+                      onSelect={() => handleSwitchProject(item.id)}
+                      title={item.name}
+                    >
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      <span className="truncate">{item.name}</span>
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled>暂无最近项目</DropdownMenuItem>
+                )}
                 <DropdownMenuItem asChild>
                   <Link to="/local-projects">
                     <FolderOpen className="mr-2 h-4 w-4" />

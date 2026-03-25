@@ -1,10 +1,12 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ExecutionProcessStatus } from 'shared/types';
-import { useConversationHistory } from './useConversationHistory';
+import type { ExecutionProcess } from 'shared/types';
+import { BaseCodingAgent, ExecutionProcessStatus } from 'shared/types';
+import type { WorkspaceWithSession } from '@/types/attempt';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
+import { useConversationHistory } from './useConversationHistory';
 
 vi.mock('@tanstack/react-query', async () => {
   const actual = await vi.importActual('@tanstack/react-query');
@@ -31,8 +33,47 @@ describe('useConversationHistory', () => {
     vi.clearAllMocks();
   });
 
-  it('在卸载时关闭运行中的会话流订阅', async () => {
+  it('closes the active session stream on unmount', async () => {
     const close = vi.fn();
+    const runningProcess: ExecutionProcess = {
+      id: 'proc-1',
+      session_id: 'session-1',
+      run_reason: 'codingagent',
+      executor_action: {
+        typ: {
+          type: 'CodingAgentInitialRequest',
+          prompt: 'hello',
+          executor_profile_id: {
+            executor: BaseCodingAgent.CODEX,
+            variant: null,
+          },
+          working_dir: null,
+        },
+        next_action: null,
+      },
+      status: ExecutionProcessStatus.running,
+      exit_code: null,
+      dropped: false,
+      started_at: '2026-03-22T00:00:00.000Z',
+      completed_at: null,
+      created_at: '2026-03-22T00:00:00.000Z',
+      updated_at: '2026-03-22T00:00:00.000Z',
+    };
+    const attempt: WorkspaceWithSession = {
+      id: 'workspace-1',
+      task_id: 'task-1',
+      container_ref: null,
+      branch: 'main',
+      use_worktree: true,
+      agent_working_dir: null,
+      setup_completed_at: null,
+      created_at: '2026-03-22T00:00:00.000Z',
+      updated_at: '2026-03-22T00:00:00.000Z',
+      archived: false,
+      pinned: false,
+      name: null,
+      session: undefined,
+    };
 
     vi.mocked(useEntries).mockReturnValue({
       entries: [],
@@ -43,23 +84,16 @@ describe('useConversationHistory', () => {
     });
 
     vi.mocked(useExecutionProcessesContext).mockReturnValue({
-      executionProcessesVisible: [
-        {
-          id: 'proc-1',
-          status: ExecutionProcessStatus.running,
-          run_reason: 'codingagent',
-          created_at: '2026-03-22T00:00:00.000Z',
-          updated_at: '2026-03-22T00:00:00.000Z',
-          executor_action: {
-            typ: {
-              type: 'CodingAgentInitialRequest',
-              prompt: 'hello',
-            },
-          },
-        },
-      ],
+      executionProcessesAll: [runningProcess],
+      executionProcessesByIdAll: { 'proc-1': runningProcess },
+      isAttemptRunningAll: true,
+      executionProcessesVisible: [runningProcess],
+      executionProcessesByIdVisible: { 'proc-1': runningProcess },
+      isAttemptRunningVisible: true,
       isLoading: false,
-    } as any);
+      isConnected: true,
+      error: null,
+    });
 
     vi.mocked(streamJsonPatchEntries).mockReturnValue({
       getEntries: () => [],
@@ -71,10 +105,7 @@ describe('useConversationHistory', () => {
 
     const { unmount } = renderHook(() =>
       useConversationHistory({
-        attempt: {
-          id: 'workspace-1',
-          session: undefined,
-        } as any,
+        attempt,
         onEntriesUpdated: vi.fn(),
       })
     );

@@ -7,6 +7,7 @@ import {
   CheckSquare,
   FileSearch,
   Clock,
+  Lightbulb,
 } from 'lucide-react';
 import { useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ interface ActionBarProps {
   effectiveExecutorProfile: ExecutorProfileId | null;
   onChangeExecutorProfile: (profile: ExecutorProfileId | null) => void;
   showProfileControls?: boolean;
+  isAwaitingNewSessionConfirmation?: boolean;
   isEditable: boolean;
   isAttemptRunning: boolean;
   isQueued: boolean;
@@ -36,6 +38,9 @@ interface ActionBarProps {
   isStopping: boolean;
   isSendingFollowUp: boolean;
   canSendFollowUp: boolean;
+  promptEnhancementEnabled: boolean;
+  isEnhancingPrompt: boolean;
+  canEnhancePrompt: boolean;
   sessionId?: string;
   localMessage: string;
   conflictResolutionInstructions: string | null;
@@ -46,6 +51,7 @@ interface ActionBarProps {
   onCancelQueue: () => void;
   onStopExecution: () => void;
   onSendFollowUp: () => void;
+  onEnhancePrompt: () => void;
   onClearComments: () => void;
   onReviewChanges: () => void;
   onPasteFiles: (files: File[]) => void;
@@ -56,6 +62,7 @@ export function ActionBar({
   effectiveExecutorProfile,
   onChangeExecutorProfile,
   showProfileControls = true,
+  isAwaitingNewSessionConfirmation = false,
   isEditable,
   isAttemptRunning,
   isQueued,
@@ -63,6 +70,9 @@ export function ActionBar({
   isStopping,
   isSendingFollowUp,
   canSendFollowUp,
+  promptEnhancementEnabled,
+  isEnhancingPrompt,
+  canEnhancePrompt,
   sessionId,
   localMessage,
   conflictResolutionInstructions,
@@ -73,6 +83,7 @@ export function ActionBar({
   onCancelQueue,
   onStopExecution,
   onSendFollowUp,
+  onEnhancePrompt,
   onClearComments,
   onReviewChanges,
   onPasteFiles,
@@ -97,9 +108,7 @@ export function ActionBar({
   );
 
   const hasQueueableContent =
-    localMessage.trim() ||
-    conflictResolutionInstructions ||
-    reviewMarkdown;
+    localMessage.trim() || conflictResolutionInstructions || reviewMarkdown;
 
   return (
     <div className="flex flex-wrap gap-1 items-center pt-1 border-t border-border/50">
@@ -110,6 +119,7 @@ export function ActionBar({
           onChange={onChangeExecutorProfile}
           disabled={!isEditable}
           lockExecutor={true}
+          iconOnly={true}
           className="flex flex-wrap gap-1 items-center"
         />
       ) : null}
@@ -146,6 +156,24 @@ export function ActionBar({
       >
         <FileSearch className="h-3.5 w-3.5" />
       </Button>
+
+      {promptEnhancementEnabled ? (
+        <Button
+          onClick={onEnhancePrompt}
+          disabled={!canEnhancePrompt || isEnhancingPrompt}
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          title="提示词优化"
+          aria-label="提示词优化"
+        >
+          {isEnhancingPrompt ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Lightbulb className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      ) : null}
 
       <Popover>
         <PopoverTrigger asChild>
@@ -279,7 +307,9 @@ export function ActionBar({
           )}
           <Button
             onClick={onSendFollowUp}
-            disabled={!canSendFollowUp || !isEditable}
+            disabled={
+              !canSendFollowUp || !isEditable || isAwaitingNewSessionConfirmation
+            }
             size="sm"
             className="h-7 px-2 text-xs rounded-lg"
           >

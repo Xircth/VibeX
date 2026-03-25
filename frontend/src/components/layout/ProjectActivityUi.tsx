@@ -81,10 +81,12 @@ export function ProjectRecentSessionsPopover({
   projectName,
   recentSessions,
   align = 'right',
+  style,
 }: {
   projectName: string;
   recentSessions: ProjectRecentSessionSnapshot[];
   align?: 'right' | 'top';
+  style?: React.CSSProperties;
 }) {
   if (recentSessions.length === 0) {
     return null;
@@ -93,11 +95,12 @@ export function ProjectRecentSessionsPopover({
   return (
     <div
       className={cn(
-        'z-50 min-w-72 rounded-lg border border-border bg-popover p-2 shadow-xl',
+        'z-50 min-w-72 rounded-lg border border-border bg-popover p-2 shadow-xl pointer-events-none',
         align === 'right'
-          ? 'absolute left-14 top-1/2 -translate-y-1/2'
+          ? 'fixed'
           : 'absolute bottom-7 left-0'
       )}
+      style={style}
     >
       <div className="mb-2 text-[11px] font-medium text-muted-foreground">
         {projectName} · 最近会话

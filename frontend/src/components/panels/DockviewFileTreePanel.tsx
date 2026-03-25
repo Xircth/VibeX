@@ -12,7 +12,14 @@ import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
-import { deriveWorkspaceRootPath } from './workspaceRootPath';
+import {
+  deriveWorkspaceRootPath,
+  deriveWorkspaceRootPathCandidates,
+} from './workspaceRootPath';
+
+function isAbsolutePath(path: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('/');
+}
 
 /**
  * DockviewFileTreePanel - File tree sidebar panel for browsing project files.
@@ -21,11 +28,7 @@ import { deriveWorkspaceRootPath } from './workspaceRootPath';
  * rich file icons, git status, and file preview.
  */
 function DockviewFileTreePanel(_props: IDockviewPanelProps) {
-  const {
-    rootPath,
-    setRootPath,
-    setSelectedFilePath,
-  } = useFileTreeStore();
+  const { rootPath, setRootPath, setSelectedFilePath } = useFileTreeStore();
   const { openFilePreview } = usePanelActions();
   const { projectId } = useProject();
   const { data: repos } = useProjectRepos(projectId);
@@ -33,7 +36,9 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   // Active workspace context
   const { activeWorktreeId } = useWorktree();
   const { data: workspace } = useAttempt(activeWorktreeId ?? undefined);
-  const { repos: workspaceRepos } = useAttemptRepo(activeWorktreeId ?? undefined);
+  const { repos: workspaceRepos } = useAttemptRepo(
+    activeWorktreeId ?? undefined
+  );
 
   // Track previous workspace ID to detect workspace switches
   const prevWorktreeIdRef = useRef<string | null>(null);
@@ -42,14 +47,25 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   // Directory listing state
   const [files, setFiles] = useState<string[]>([]);
   const [directories, setDirectories] = useState<string[]>([]);
-  const [gitignoredFiles, setGitignoredFiles] = useState<Set<string>>(new Set());
-  const [gitignoredDirectories, setGitignoredDirectories] = useState<Set<string>>(new Set());
+  const [gitignoredFiles, setGitignoredFiles] = useState<Set<string>>(
+    new Set()
+  );
+  const [gitignoredDirectories, setGitignoredDirectories] = useState<
+    Set<string>
+  >(new Set());
   const [isLoading, setIsLoading] = useState(false);
+
+  const workspaceRootCandidates = activeWorktreeId
+    ? deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)
+    : [];
 
   // Switch rootPath to workspace worktree path when workspace changes
   useEffect(() => {
     if (activeWorktreeId && activeWorktreeId !== prevWorktreeIdRef.current) {
-      const workspaceRootPath = deriveWorkspaceRootPath(workspace, workspaceRepos);
+      const workspaceRootPath = deriveWorkspaceRootPath(
+        workspace,
+        workspaceRepos
+      );
       if (workspaceRootPath) {
         setRootPath(workspaceRootPath);
         prevWorktreeIdRef.current = activeWorktreeId;
@@ -84,22 +100,63 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const loadRootChildren = useCallback(async () => {
     if (!rootPath) return;
     setIsLoading(true);
+
+    const candidatePaths = Array.from(
+      new Set(
+        [rootPath, ...workspaceRootCandidates].filter(
+          (candidate): candidate is string => Boolean(candidate)
+        )
+      )
+    );
+
     try {
-      const response: DirectoryChildrenResponse = await fileTreeApi.listDirectoryChildren(
-        rootPath,
-        '',
+      let resolvedResponse: DirectoryChildrenResponse | null = null;
+      let resolvedRootPath = rootPath;
+
+      for (const candidatePath of candidatePaths) {
+        try {
+          const response: DirectoryChildrenResponse =
+            await fileTreeApi.listDirectoryChildren(candidatePath, '');
+          const hasEntries =
+            response.files.length > 0 ||
+            response.directories.length > 0 ||
+            response.gitignored_files.length > 0 ||
+            response.gitignored_directories.length > 0;
+
+          resolvedResponse = response;
+          resolvedRootPath = candidatePath;
+
+          if (hasEntries || candidatePath === candidatePaths.at(-1)) {
+            break;
+          }
+        } catch {
+          // Try the next candidate root before giving up.
+        }
+      }
+
+      if (!resolvedResponse) {
+        throw new Error('Failed to load workspace files');
+      }
+
+      if (resolvedRootPath !== rootPath) {
+        setRootPath(resolvedRootPath);
+      }
+
+      setFiles(resolvedResponse.files);
+      setDirectories(resolvedResponse.directories);
+      setGitignoredFiles(new Set(resolvedResponse.gitignored_files));
+      setGitignoredDirectories(
+        new Set(resolvedResponse.gitignored_directories)
       );
-      setFiles(response.files);
-      setDirectories(response.directories);
-      setGitignoredFiles(new Set(response.gitignored_files));
-      setGitignoredDirectories(new Set(response.gitignored_directories));
     } catch {
       setFiles([]);
       setDirectories([]);
+      setGitignoredFiles(new Set());
+      setGitignoredDirectories(new Set());
     } finally {
       setIsLoading(false);
     }
-  }, [rootPath]);
+  }, [rootPath, setRootPath, workspaceRootCandidates]);
 
   useEffect(() => {
     void loadRootChildren();
@@ -108,13 +165,17 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   const handleOpenFile = useCallback(
     (relativePath: string) => {
       if (!rootPath) return;
-      const usesWindowsSeparator = rootPath.includes("\\");
-      const separator = usesWindowsSeparator ? "\\" : "/";
-      const base = rootPath.replace(/[\\/]+$/, "");
-      const normalizedRelative = usesWindowsSeparator
-        ? relativePath.replaceAll("/", "\\")
-        : relativePath;
-      const absolutePath = `${base}${separator}${normalizedRelative}`;
+      const absolutePath = isAbsolutePath(relativePath)
+        ? relativePath
+        : (() => {
+            const usesWindowsSeparator = rootPath.includes('\\');
+            const separator = usesWindowsSeparator ? '\\' : '/';
+            const base = rootPath.replace(/[\\/]+$/, '');
+            const normalizedRelative = usesWindowsSeparator
+              ? relativePath.replaceAll('/', '\\')
+              : relativePath;
+            return `${base}${separator}${normalizedRelative}`;
+          })();
       setSelectedFilePath(absolutePath);
       openFilePreview(absolutePath);
     },
@@ -139,7 +200,10 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   // No root path selected - show folder picker
   if (!rootPath) {
     return (
-      <div className="h-full w-full overflow-auto bg-background p-2" data-panel="file-tree">
+      <div
+        className="h-full w-full overflow-auto bg-background p-2"
+        data-panel="file-tree"
+      >
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm gap-3">
           <FolderTree className="h-8 w-8 opacity-40" />
           <div className="text-center space-y-2">

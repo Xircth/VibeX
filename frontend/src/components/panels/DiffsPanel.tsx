@@ -26,9 +26,9 @@ interface DiffsPanelProps {
 type DiffCollapseDefaults = Record<DiffChangeKind, boolean>;
 
 const DEFAULT_DIFF_COLLAPSE_DEFAULTS: DiffCollapseDefaults = {
-  added: false,
+  added: true,
   deleted: true,
-  modified: false,
+  modified: true,
   renamed: true,
   copied: true,
   permissionChange: true,

@@ -15,11 +15,18 @@ import { useTypeaheadOpen } from '@/components/ui/wysiwyg/context/typeahead-open
 import { TypeaheadMenu } from './typeahead-menu-components';
 
 class SlashCommandOption extends MenuOption {
-  command: SlashCommandDescription;
+  command: SlashCommandDescription | null;
+  meta: 'loading' | 'empty' | null;
 
-  constructor(command: SlashCommandDescription) {
-    super(`slash-command-${command.name}`);
+  constructor(
+    command: SlashCommandDescription | null,
+    meta: 'loading' | 'empty' | null = null
+  ) {
+    super(
+      command ? `slash-command-${command.name}` : `slash-command-meta-${meta}`
+    );
     this.command = command;
+    this.meta = meta;
   }
 }
 
@@ -61,6 +68,22 @@ export function SlashCommandTypeaheadPlugin({
   const isLoading = !slashCommandsQuery.isInitialized && !!agent;
   const isDiscovering = slashCommandsQuery.discovering;
 
+  const menuOptions = useMemo(() => {
+    if (!agent || activeQuery === null) {
+      return [] as SlashCommandOption[];
+    }
+
+    if (isLoading || isDiscovering) {
+      return [new SlashCommandOption(null, 'loading')];
+    }
+
+    if (options.length === 0) {
+      return [new SlashCommandOption(null, 'empty')];
+    }
+
+    return options;
+  }, [activeQuery, agent, isDiscovering, isLoading, options]);
+
   const updateOptions = useCallback(
     (query: string | null) => {
       setActiveQuery(query);
@@ -92,28 +115,34 @@ export function SlashCommandTypeaheadPlugin({
   return (
     <LexicalTypeaheadMenuPlugin<SlashCommandOption>
       triggerFn={(text) => {
-        const match = /^(\s*)\/([^\s/]*)$/.exec(text);
+        const match = /(?:^|\s)\/([^\s/]*)$/.exec(text);
         if (!match) return null;
 
-        const slashOffset = match[1].length;
+        const fullMatch = match[0];
+        const slashOffset = text.length - fullMatch.length + fullMatch.indexOf('/');
         return {
           leadOffset: slashOffset,
-          matchingString: match[2],
-          replaceableString: match[0].slice(slashOffset),
+          matchingString: match[1],
+          replaceableString: fullMatch.slice(fullMatch.indexOf('/')),
         };
       }}
-      options={options}
+      options={menuOptions}
       onQueryChange={updateOptions}
       onOpen={() => setIsOpen(true)}
       onClose={() => setIsOpen(false)}
       onSelectOption={(option, nodeToReplace, closeMenu) => {
+        const selectedCommand = option.command;
+        if (!selectedCommand) {
+          return;
+        }
+
         editor.update(() => {
           if (!nodeToReplace) return;
 
           // Insert a compact slash command chip (DecoratorNode)
           const commandNode = $createSlashCommandNode({
-            commandName: option.command.name,
-            description: option.command.description ?? undefined,
+            commandName: selectedCommand.name,
+            description: selectedCommand.description ?? undefined,
           });
           nodeToReplace.replace(commandNode);
 
@@ -133,8 +162,13 @@ export function SlashCommandTypeaheadPlugin({
         if (!agent) return null;
         if (!hasVisibleResults) return null;
 
+        const commandOptions = menuOptions.flatMap((option) =>
+          option.command ? [{ option, command: option.command }] : []
+        );
+        const metaState = menuOptions.find((option) => option.meta)?.meta ?? null;
         const isEmpty =
-          !isLoading && !isDiscovering && allCommands.length === 0;
+          metaState === 'empty' ||
+          (!isLoading && !isDiscovering && allCommands.length === 0);
         const showLoadingRow = isLoading || isDiscovering;
         const loadingText = isLoading
           ? 'Loading commands…'
@@ -151,15 +185,15 @@ export function SlashCommandTypeaheadPlugin({
               <TypeaheadMenu.Empty>
                 {'此代理没有可用的命令。'}
               </TypeaheadMenu.Empty>
-            ) : options.length === 0 && !showLoadingRow ? null : (
+            ) : commandOptions.length === 0 && !showLoadingRow ? null : (
               <TypeaheadMenu.ScrollArea>
                 {showLoadingRow && (
                   <div className="px-3 py-2 text-sm text-muted-foreground select-none">
                     {loadingText}
                   </div>
                 )}
-                {options.map((option, index) => {
-                  const details = option.command.description ?? null;
+                {commandOptions.map(({ option, command }, index) => {
+                  const details = command.description ?? null;
 
                   return (
                     <TypeaheadMenu.Item
@@ -171,7 +205,7 @@ export function SlashCommandTypeaheadPlugin({
                     >
                       <div className="flex items-center gap-2 font-medium">
                         <span className="font-mono">
-                          /{option.command.name}
+                          /{command.name}
                         </span>
                       </div>
                       {details && (

@@ -4,6 +4,7 @@ import {
   ExecutionProcessStatus,
   NormalizedEntry,
   PatchType,
+  QueueStatus,
   TokenUsageInfo,
   ToolStatus,
 } from 'shared/types';
@@ -27,6 +28,8 @@ import {
   nextActionPatch,
   REMAINING_BATCH_SIZE,
 } from './constants';
+
+const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
 
 export const useConversationHistory = ({
   attempt,
@@ -54,7 +57,8 @@ export const useConversationHistory = ({
   const prevConversationKeyRef = useRef<string | null>(null);
   const { data: queueStatus } = useQuery({
     queryKey: ['queue-status', sessionId],
-    queryFn: () => queueApi.getStatus(sessionId!),
+    queryFn: () =>
+      sessionId ? queueApi.getStatus(sessionId) : Promise.resolve(EMPTY_QUEUE_STATUS),
     enabled: !!sessionId,
   });
 

@@ -107,7 +107,10 @@ export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
   openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
   openDiffPreview: () => void;
-  openDiffPreviewAtPath: (path: string) => void;
+  openDiffPreviewAtPath: (
+    path: string,
+    options?: OpenFilePreviewOptions & { title?: string }
+  ) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
   toggleEditorArea: () => void;
@@ -175,9 +178,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
         bottomGroup.locked = 'no-drop-target';
         try {
-          const model = (bottomGroup as {
-            model?: { header?: { hidden?: boolean } };
-          }).model;
+          const model = (
+            bottomGroup as {
+              model?: { header?: { hidden?: boolean } };
+            }
+          ).model;
           if (typeof model?.header?.hidden !== 'undefined') {
             model.header.hidden = true;
           }
@@ -306,11 +311,15 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const panelId = `file:${filePath}`;
       const fileName = filePath.split(/[/\\]/).pop() || filePath;
+      const title = options?.title ?? options?.displayPath ?? fileName;
       const params = buildPreviewPanelParams(filePath, options);
 
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
         existingPanel.api.updateParameters(params);
+        if (existingPanel.title !== title) {
+          existingPanel.api.setTitle(title);
+        }
         existingPanel.group.api.setVisible(true);
         existingPanel.api.setActive();
         return;
@@ -319,7 +328,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const panel = addPanelToActiveEditorGroup({
         id: panelId,
         component: PANEL_IDS.PREVIEW,
-        title: fileName,
+        title,
         params,
       });
 
@@ -403,18 +412,33 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     let bottomGroup = getBottomGroup(dockviewApi);
 
     if (existingTerminal && bottomGroup) {
-      bottomGroup.api.setVisible(!bottomGroup.api.isVisible);
+      const nextVisible = !bottomGroup.api.isVisible;
+      bottomGroup.api.setVisible(nextVisible);
+      if (nextVisible) {
+        existingTerminal.api.setActive();
+        try {
+          bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
+        } catch {
+          // Ignore resize failures while the layout is settling.
+        }
+      }
       return;
     }
 
     if (bottomGroup && !existingTerminal) {
       bottomGroup.api.setVisible(true);
-      dockviewApi.addPanel({
+      const terminalPanel = dockviewApi.addPanel({
         id: PANEL_IDS.TERMINAL,
         component: PANEL_IDS.TERMINAL,
         title: 'Terminal',
         position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
       });
+      terminalPanel.api.setActive();
+      try {
+        bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
+      } catch {
+        // Ignore resize failures while the layout is settling.
+      }
       normalizeEditorGroupIds(dockviewApi);
       return;
     }
@@ -433,13 +457,18 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     });
     bottomGroup.locked = 'no-drop-target';
 
-    dockviewApi.addPanel({
+    const terminalPanel = dockviewApi.addPanel({
       id: PANEL_IDS.TERMINAL,
       component: PANEL_IDS.TERMINAL,
       title: 'Terminal',
       position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
-      inactive: true,
     });
+    terminalPanel.api.setActive();
+    try {
+      bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
+    } catch {
+      // Ignore resize failures while the layout is settling.
+    }
 
     normalizeEditorGroupIds(dockviewApi);
   }, [
@@ -740,7 +769,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   }, [clearCommitDiff, clearGitDiffTargetPath, openOrFocusPanel]);
 
   const openDiffPreviewAtPath = useCallback(
-    (path: string) => {
+    (path: string, options?: OpenFilePreviewOptions & { title?: string }) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
@@ -748,8 +777,13 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       clearGitDiffTargetPath();
 
       const panelId = buildDiffPreviewPanelId(path);
-      const fileName = path.split(/[/\\]/).pop() || path;
-      const params = buildPreviewPanelParams(path, { mode: 'diff' });
+      const fileName = options?.title ?? (path.split(/[/\\]/).pop() || path);
+      const params = buildPreviewPanelParams(path, {
+        mode: 'diff',
+        diffViewMode: options?.diffViewMode,
+        modifiedContent: options?.modifiedContent,
+        originalContent: options?.originalContent,
+      });
       const existingPanel = dockviewApi.getPanel(panelId);
 
       if (existingPanel) {

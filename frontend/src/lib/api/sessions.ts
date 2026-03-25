@@ -41,6 +41,18 @@ export const sessionsApi = {
     });
   },
 
+  createProjectRoot: async (data: {
+    project_id: string;
+    executor?: string;
+    name?: string | null;
+  }): Promise<Session> => {
+    return tauriInvoke<Session>('create_project_root_session', {
+      projectId: data.project_id,
+      executor: data.executor ?? null,
+      name: data.name ?? null,
+    });
+  },
+
   rename: async (
     sessionId: string,
     name: string | null

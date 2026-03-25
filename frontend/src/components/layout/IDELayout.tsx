@@ -1,6 +1,8 @@
 import {
+  Suspense,
   useCallback,
   useEffect,
+  lazy,
   useRef,
   useState,
   type ReactNode,
@@ -25,11 +27,11 @@ import {
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
-import { KanbanBoard } from '@/components/panels/DockviewKanbanPanel';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import { SearchPalette } from '@/components/search/SearchPalette';
 import { useGlobalSearchShortcut } from '@/hooks/useGlobalSearchShortcut';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
+import { settingsWindowApi } from '@/lib/api';
 
 const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.FILE_TREE,
@@ -64,6 +66,12 @@ interface TabContextMenuState {
   panelId: string;
   title: string;
 }
+
+const LazyKanbanBoard = lazy(() =>
+  import('@/components/panels/DockviewKanbanPanel').then((module) => ({
+    default: module.KanbanBoard,
+  }))
+);
 
 function isLeftGroup(group: DockviewGroup): boolean {
   return (
@@ -151,8 +159,9 @@ function normalizeGroupIds(api: DockviewApi) {
     (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
     bottomGroup.locked = 'no-drop-target';
     try {
-      const model = (bottomGroup as { model?: { header?: { hidden?: boolean } } })
-        .model;
+      const model = (
+        bottomGroup as { model?: { header?: { hidden?: boolean } } }
+      ).model;
       if (typeof model?.header?.hidden !== 'undefined') {
         model.header.hidden = true;
       }
@@ -295,6 +304,8 @@ export function IDELayout({
     taskId?: string;
     attemptId?: string;
   }>();
+  const routeWorkspaceId =
+    attemptId && attemptId !== 'latest' ? attemptId : null;
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const tabContextMenuRef = useRef<HTMLDivElement>(null);
@@ -308,6 +319,7 @@ export function IDELayout({
     setRightPanelWidth,
     activeTab,
   } = useLayoutStore();
+  const effectiveWorkspaceId = activeWorktreeId ?? routeWorkspaceId;
   const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const serializedLayoutRef = useRef(serializedLayout);
@@ -322,6 +334,7 @@ export function IDELayout({
 
   const {
     setDockviewApi,
+    openOrFocusPanel,
     toggleFileTree,
     toggleGitPanel,
     toggleSearchPanel,
@@ -432,7 +445,7 @@ export function IDELayout({
 
   const ensureWorkspacePanelsVisible = useCallback(
     (api: DockviewApi) => {
-      if (!activeWorktreeId) return;
+      if (effectiveActiveTab !== 'workspace' && !effectiveWorkspaceId) return;
 
       let leftGroup = getLeftGroup(api);
       if (!leftGroup) {
@@ -495,9 +508,18 @@ export function IDELayout({
       }
 
       bottomGroup.api.setVisible(true);
+      const terminalPanel = api.getPanel(PANEL_IDS.TERMINAL);
+      if (terminalPanel && !terminalPanel.api.isVisible) {
+        terminalPanel.api.setActive();
+      }
+      try {
+        bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
+      } catch {
+        // Ignore size restoration failures during layout transitions.
+      }
       normalizeGroupIds(api);
     },
-    [activeWorktreeId]
+    [effectiveActiveTab, effectiveWorkspaceId]
   );
 
   const registerDndGuard = useCallback((api: DockviewApi) => {
@@ -699,7 +721,8 @@ export function IDELayout({
 
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || !activeWorktreeId) return;
+    if (!api) return;
+    if (effectiveActiveTab !== 'workspace' && !effectiveWorkspaceId) return;
 
     const frame = requestAnimationFrame(() => {
       try {
@@ -714,17 +737,22 @@ export function IDELayout({
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [activeWorktreeId, ensureWorkspacePanelsVisible, rebuildDefaultLayout]);
+  }, [
+    effectiveActiveTab,
+    effectiveWorkspaceId,
+    ensureWorkspacePanelsVisible,
+    rebuildDefaultLayout,
+  ]);
 
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || activeWorktreeId) return;
+    if (!api || effectiveWorkspaceId || effectiveActiveTab === 'workspace') return;
 
     const bottomGroup = getBottomGroup(api);
     if (bottomGroup) {
       bottomGroup.api.setVisible(false);
     }
-  }, [activeWorktreeId]);
+  }, [effectiveActiveTab, effectiveWorkspaceId]);
 
   useEffect(() => {
     const root = dockviewRootRef.current;
@@ -826,6 +854,38 @@ export function IDELayout({
 
   useGlobalSearchShortcut();
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) return;
+
+      const isMod = event.metaKey || event.ctrlKey;
+      if (!isMod || event.altKey) return;
+
+      if (!event.shiftKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        toggleFileTree();
+        return;
+      }
+
+      if (
+        !event.shiftKey &&
+        (event.key === '`' || event.code === 'Backquote')
+      ) {
+        event.preventDefault();
+        openOrFocusPanel(PANEL_IDS.TERMINAL, 'Terminal');
+        return;
+      }
+
+      if (!event.shiftKey && event.key === ',') {
+        event.preventDefault();
+        void settingsWindowApi.open();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openOrFocusPanel, toggleFileTree]);
+
   return (
     <div className="flex h-full w-full flex-col">
       <SearchPalette />
@@ -890,7 +950,15 @@ export function IDELayout({
 
           {effectiveActiveTab === 'kanban' && (
             <div className="absolute inset-0 z-10">
-              <KanbanBoard />
+              <Suspense
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+                    加载中...
+                  </div>
+                }
+              >
+                <LazyKanbanBoard />
+              </Suspense>
             </div>
           )}
 
@@ -922,7 +990,7 @@ export function IDELayout({
           <>
             <div
               ref={resizeHandleRef}
-              className="relative -mx-px w-px shrink-0 cursor-col-resize bg-transparent transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-all before:duration-150 hover:before:w-[3px] hover:before:bg-primary/40 after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-[''] z-20"
+              className="relative w-px shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-[''] z-20"
               onMouseDown={handleResizeMouseDown}
             />
             <div

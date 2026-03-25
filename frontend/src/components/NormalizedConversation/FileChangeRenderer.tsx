@@ -183,15 +183,21 @@ const FileChangeRenderer = ({
               targetPath,
               containerRef
             );
+            const displayPath = targetPath;
             if (isWrite(change)) {
               openFilePreview(resolvedTargetPath, {
                 mode: 'diff',
                 diffViewMode: 'inline',
                 modifiedContent: change.content,
+                displayPath,
+                title: displayPath,
               });
               return;
             }
-            openFilePreview(resolvedTargetPath);
+            openFilePreview(resolvedTargetPath, {
+              displayPath,
+              title: displayPath,
+            });
           }}
         >
           {titleText}

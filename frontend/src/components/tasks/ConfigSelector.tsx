@@ -17,6 +17,7 @@ interface ConfigSelectorProps {
   disabled?: boolean;
   className?: string;
   showLabel?: boolean;
+  iconOnly?: boolean;
 }
 
 export function ConfigSelector({
@@ -26,6 +27,7 @@ export function ConfigSelector({
   disabled,
   className = '',
   showLabel = false,
+  iconOnly = false,
 }: ConfigSelectorProps) {
   const selectedAgent = selectedExecutorProfile?.executor;
   const configs = selectedAgent && profiles ? profiles[selectedAgent] : null;
@@ -42,26 +44,29 @@ export function ConfigSelector({
   }
 
   return (
-    <div className="flex-1">
-      {showLabel && (
+    <div className={iconOnly ? 'shrink-0' : 'flex-1'}>
+      {showLabel ? (
         <Label htmlFor="executor-variant" className="text-sm font-medium">
           配置
         </Label>
-      )}
+      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
+            variant={iconOnly ? 'ghost' : 'outline'}
             size="sm"
-            className={`w-full justify-between text-xs ${showLabel ? 'mt-1.5' : ''} ${className}`}
+            className={`${iconOnly ? 'h-7 w-7 px-0 justify-center gap-0 border-0 shadow-none' : 'w-full justify-between'} text-xs ${showLabel ? 'mt-1.5' : ''} ${className}`}
             disabled={disabled}
             aria-label="选择配置"
+            title={selectedVariant}
           >
             <div className="flex items-center gap-1.5 w-full">
               <Settings2 className="h-3 w-3" />
-              <span className="truncate">{selectedVariant}</span>
+              {!iconOnly ? (
+                <span className="truncate">{selectedVariant}</span>
+              ) : null}
             </div>
-            <ArrowDown className="h-3 w-3" />
+            {!iconOnly ? <ArrowDown className="h-3 w-3" /> : null}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-60">

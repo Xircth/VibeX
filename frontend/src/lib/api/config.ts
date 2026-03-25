@@ -10,9 +10,32 @@ import type {
   GetMcpServerResponse,
   ExecutorProfileId,
   QueueStatus,
+  SoundFile,
 } from 'shared/types';
 
 import { tauriInvoke } from './base';
+
+export interface PromptEnhancementContextMessage {
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  timestamp: string | null;
+}
+
+export interface PromptEnhancementRequest {
+  draftPrompt: string;
+  sessionId?: string | null;
+  workspaceId?: string | null;
+  contextMessages: PromptEnhancementContextMessage[];
+}
+
+export interface PromptEnhancementResponse {
+  enhancedPrompt: string;
+  model: string;
+}
+
+export interface OpencodeModelsResponse {
+  models: string[];
+}
 
 // Config APIs
 export const configApi = {
@@ -36,6 +59,21 @@ export const configApi = {
     return tauriInvoke<AvailabilityInfo>('check_agent_availability', {
       executor: agent,
     });
+  },
+  playNotificationSound: async (soundFile: SoundFile): Promise<void> => {
+    return tauriInvoke<void>('play_notification_sound', {
+      soundFile,
+    });
+  },
+  enhancePrompt: async (
+    payload: PromptEnhancementRequest
+  ): Promise<PromptEnhancementResponse> => {
+    return tauriInvoke<PromptEnhancementResponse>('enhance_prompt', {
+      payload,
+    });
+  },
+  listOpencodeModels: async (): Promise<OpencodeModelsResponse> => {
+    return tauriInvoke<OpencodeModelsResponse>('list_opencode_models');
   },
 };
 
@@ -110,6 +148,20 @@ export interface PreflightResult {
   checks: PreflightCheck[];
 }
 
+export interface RunAgentFixRequest {
+  agentType: string;
+  action: string;
+}
+
+export interface AgentNativeConfigs {
+  codex_config_toml: string | null;
+  codex_auth_json: string | null;
+  codex_home_path: string | null;
+  opencode_config_json: string | null;
+  opencode_auth_json: string | null;
+  opencode_config_path: string | null;
+}
+
 export const agentSettingsApi = {
   list: async (): Promise<AgentSettingInfo[]> => {
     return tauriInvoke<AgentSettingInfo[]>('list_agents');
@@ -128,9 +180,37 @@ export const agentSettingsApi = {
   preflight: async (agentType: string): Promise<PreflightResult> => {
     return tauriInvoke<PreflightResult>('agent_preflight', { agentType });
   },
+  runFix: async (payload: RunAgentFixRequest): Promise<void> => {
+    return tauriInvoke<void>('run_agent_fix', {
+      agentType: payload.agentType,
+      action: payload.action,
+    });
+  },
   detectVersion: async (agentType: string): Promise<string | null> => {
     return tauriInvoke<string | null>('detect_agent_local_version', {
       agentType,
+    });
+  },
+  readNativeConfigs: async (
+    agentType: BaseCodingAgent
+  ): Promise<AgentNativeConfigs> => {
+    return tauriInvoke<AgentNativeConfigs>('read_agent_native_configs', {
+      agentType,
+    });
+  },
+  writeNativeConfig: async (params: {
+    agentType: BaseCodingAgent;
+    codexConfigToml?: string | null;
+    codexAuthJson?: string | null;
+    opencodeConfigJson?: string | null;
+    opencodeAuthJson?: string | null;
+  }): Promise<void> => {
+    return tauriInvoke<void>('write_agent_native_config', {
+      agentType: params.agentType,
+      codexConfigToml: params.codexConfigToml ?? null,
+      codexAuthJson: params.codexAuthJson ?? null,
+      opencodeConfigJson: params.opencodeConfigJson ?? null,
+      opencodeAuthJson: params.opencodeAuthJson ?? null,
     });
   },
 };

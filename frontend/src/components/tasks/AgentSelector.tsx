@@ -6,9 +6,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Label } from '@/components/ui/label';
 import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
 import { isSupportedAgent, AGENT_DISPLAY_NAMES } from '@/constants/agents';
+import { AgentIcon } from '@/components/agents/AgentIcon';
 
 interface AgentSelectorProps {
   profiles: Record<string, Record<string, unknown>> | null;
@@ -16,7 +16,7 @@ interface AgentSelectorProps {
   onChange: (profile: ExecutorProfileId) => void;
   disabled?: boolean;
   className?: string;
-  showLabel?: boolean;
+  iconOnly?: boolean;
 }
 
 export function AgentSelector({
@@ -25,7 +25,7 @@ export function AgentSelector({
   onChange,
   disabled,
   className = '',
-  showLabel = false,
+  iconOnly = false,
 }: AgentSelectorProps) {
   const agents = profiles
     ? (Object.keys(profiles)
@@ -33,25 +33,42 @@ export function AgentSelector({
         .sort() as BaseCodingAgent[])
     : [];
   const selectedAgent = selectedExecutorProfile?.executor;
+  const selectedAgentLabel = selectedAgent
+    ? (AGENT_DISPLAY_NAMES as Record<string, string>)[selectedAgent] ??
+      selectedAgent
+    : 'Agent';
 
   if (!profiles) return null;
 
   return (
-    <div className="flex-1">
+    <div className={iconOnly ? 'shrink-0' : 'flex-1'}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
+            variant={iconOnly ? 'ghost' : 'outline'}
             size="sm"
-            className={`w-full justify-between text-xs ${className}`}
+            className={`${iconOnly ? 'h-7 w-7 px-0 justify-center gap-0 border-0 shadow-none' : 'w-full justify-between'} text-xs ${className}`}
             disabled={disabled}
             aria-label="选择代理"
+            title={selectedAgentLabel}
           >
-            <div className="flex items-center gap-1.5 w-full">
-              <Bot className="h-3 w-3" />
-              <span className="truncate">{selectedAgent || 'Agent'}</span>
+            <div
+              className={
+                iconOnly
+                  ? 'flex items-center justify-center'
+                  : 'flex items-center gap-1.5 w-full'
+              }
+            >
+              {selectedAgent ? (
+                <AgentIcon agent={selectedAgent} className="h-3.5 w-3.5" />
+              ) : (
+                <Bot className="h-3.5 w-3.5" />
+              )}
+              {!iconOnly ? (
+                <span className="truncate">{selectedAgentLabel}</span>
+              ) : null}
             </div>
-            <ArrowDown className="h-3 w-3" />
+            {!iconOnly ? <ArrowDown className="h-3 w-3" /> : null}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-60">
@@ -71,7 +88,11 @@ export function AgentSelector({
                 }}
                 className={selectedAgent === agent ? 'bg-accent' : ''}
               >
-                {(AGENT_DISPLAY_NAMES as Record<string, string>)[agent] ?? agent}
+                <span className="flex items-center gap-2">
+                  <AgentIcon agent={agent} className="h-3.5 w-3.5" />
+                  {(AGENT_DISPLAY_NAMES as Record<string, string>)[agent] ??
+                    agent}
+                </span>
               </DropdownMenuItem>
             ))
           )}

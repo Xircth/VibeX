@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
+import type { IDockviewPanelProps } from 'dockview-react';
+import { useParams } from 'react-router-dom';
 import { useTauriTerminal } from '@/hooks/useTauriTerminal';
 import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { detectDevserverUrl } from '@/hooks/useDevserverUrl';
@@ -21,15 +23,22 @@ import {
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
 
-function DockviewTerminalPanel() {
+function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
+  const { attemptId: rawAttemptId } = useParams<{ attemptId?: string }>();
+  const routeWorktreeId =
+    rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
   const { config } = useUserSystem();
   const { openOrFocusPanel } = usePanelActionsContext();
-  const workspaceId = getTerminalWorkspaceKey(activeWorktreeId) || undefined;
+  const workspaceId =
+    getTerminalWorkspaceKey(activeWorktreeId ?? routeWorktreeId ?? null) ||
+    undefined;
   const defaultShell = getDefaultTerminalShell(config);
   const { setOverrideUrl } = usePreviewSettings(workspaceId);
 
-  const sessionsByWorkspace = useTerminalStore((state) => state.sessionsByWorkspace);
+  const sessionsByWorkspace = useTerminalStore(
+    (state) => state.sessionsByWorkspace
+  );
   const activeTabByWorkspace = useTerminalStore(
     (state) => state.activeTabByWorkspace
   );
@@ -44,7 +53,7 @@ function DockviewTerminalPanel() {
   );
 
   const activeTabId = workspaceId
-    ? activeTabByWorkspace[workspaceId] ?? null
+    ? (activeTabByWorkspace[workspaceId] ?? null)
     : null;
 
   const openPreviewUrl = useCallback(
@@ -56,34 +65,73 @@ function DockviewTerminalPanel() {
     [openOrFocusPanel, setOverrideUrl]
   );
 
-  const [autoCreated, setAutoCreated] = useState<string | null>(null);
+  const lastEnsuredWorkspaceRef = useRef<string | null>(null);
   const [selectedShell, setSelectedShell] =
     useState<TerminalShellValue>(defaultShell);
+  const [panelRefitVersion, setPanelRefitVersion] = useState(0);
+  const isPanelVisible = props.api.isVisible;
 
   useEffect(() => {
     setSelectedShell(defaultShell);
   }, [defaultShell, workspaceId]);
 
   useEffect(() => {
-    setAutoCreated(null);
-  }, [workspaceId]);
+    const disposeVisibility = props.api.onDidVisibilityChange(() => {
+      setPanelRefitVersion((value) => value + 1);
+    });
+    const disposeDimensions = props.api.onDidDimensionsChange(() => {
+      setPanelRefitVersion((value) => value + 1);
+    });
+    const disposeActive = props.api.onDidActiveChange(() => {
+      setPanelRefitVersion((value) => value + 1);
+    });
+
+    return () => {
+      disposeVisibility.dispose();
+      disposeDimensions.dispose();
+      disposeActive.dispose();
+    };
+  }, [props.api]);
 
   useEffect(() => {
-    if (!workspaceId || sessions.length !== 0 || autoCreated === workspaceId) {
+    if (!workspaceId) {
+      lastEnsuredWorkspaceRef.current = null;
+      return;
+    }
+
+    if (lastEnsuredWorkspaceRef.current === workspaceId) {
+      return;
+    }
+
+    lastEnsuredWorkspaceRef.current = workspaceId;
+    const currentSessions =
+      useTerminalStore.getState().sessionsByWorkspace[workspaceId] || [];
+    if (currentSessions.length > 0) {
       return;
     }
 
     const tabId = generateTerminalTabId();
     addSession(workspaceId, tabId, defaultShell || undefined);
-    setAutoCreated(workspaceId);
-  }, [workspaceId, sessions.length, autoCreated, addSession, defaultShell]);
+  }, [workspaceId, addSession, defaultShell]);
+
+  useEffect(() => {
+    if (!workspaceId || !isPanelVisible || sessions.length > 0) {
+      return;
+    }
+
+    const tabId = generateTerminalTabId();
+    addSession(workspaceId, tabId, defaultShell || undefined);
+  }, [addSession, defaultShell, isPanelVisible, sessions.length, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId || sessions.length === 0) {
       return;
     }
 
-    if (activeTabId && sessions.some((session) => session.tabId === activeTabId)) {
+    if (
+      activeTabId &&
+      sessions.some((session) => session.tabId === activeTabId)
+    ) {
       return;
     }
 
@@ -96,11 +144,7 @@ function DockviewTerminalPanel() {
       if (!workspaceId) return;
 
       const session = sessions.find((item) => item.tabId === tabId);
-      if (
-        session?.type === 'pty' &&
-        session.sessionId &&
-        session.source !== 'acp'
-      ) {
+      if (session?.type === 'pty' && session.sessionId && !session.readOnly) {
         try {
           await tauriInvoke('close_terminal', { sessionId: session.sessionId });
         } catch (error) {
@@ -166,6 +210,8 @@ function DockviewTerminalPanel() {
               isActive={activeTabId === session.tabId}
               shell={session.shell}
               readOnly={session.readOnly}
+              isPanelVisible={isPanelVisible}
+              refitSignal={panelRefitVersion}
               onSessionId={setSessionId}
               onOpenUrl={openPreviewUrl}
             />
@@ -203,40 +249,42 @@ function DockviewTerminalPanel() {
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-          {sessions.map((session) => (
-            <button
-              key={session.tabId}
-              onClick={() => handleSelectTab(session.tabId)}
-              className={`flex w-full shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5 text-xs transition-colors ${
-                activeTabId === session.tabId
-                  ? 'bg-console text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              }`}
-            >
-              {session.type === 'log-viewer' ? (
-                <ScrollText className="h-3 w-3 shrink-0" />
-              ) : (
-                <TerminalIcon className="h-3 w-3 shrink-0" />
-              )}
-              <span className="truncate flex-1 text-left">{session.title}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(event) => void handleCloseTab(event, session.tabId)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    void handleCloseTab(
-                      event as unknown as React.MouseEvent,
-                      session.tabId
-                    );
-                  }
-                }}
-                className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+            {sessions.map((session) => (
+              <button
+                key={session.tabId}
+                onClick={() => handleSelectTab(session.tabId)}
+                className={`flex w-full shrink-0 items-center gap-1.5 border-b border-border px-2 py-1.5 text-xs transition-colors ${
+                  activeTabId === session.tabId
+                    ? 'bg-console text-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                }`}
               >
-                <X className="h-2.5 w-2.5" />
-              </span>
-            </button>
-          ))}
+                {session.type === 'log-viewer' ? (
+                  <ScrollText className="h-3 w-3 shrink-0" />
+                ) : (
+                  <TerminalIcon className="h-3 w-3 shrink-0" />
+                )}
+                <span className="truncate flex-1 text-left">
+                  {session.title}
+                </span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => void handleCloseTab(event, session.tabId)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      void handleCloseTab(
+                        event as unknown as React.MouseEvent,
+                        session.tabId
+                      );
+                    }
+                  }}
+                  className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -251,6 +299,8 @@ function TerminalTabContent({
   isActive,
   shell,
   readOnly,
+  isPanelVisible,
+  refitSignal,
   onSessionId,
   onOpenUrl,
 }: {
@@ -260,6 +310,8 @@ function TerminalTabContent({
   isActive: boolean;
   shell?: string;
   readOnly?: boolean;
+  isPanelVisible: boolean;
+  refitSignal: number;
   onSessionId: (tabId: string, sessionId: string) => void;
   onOpenUrl: (url: string) => void;
 }) {
@@ -275,11 +327,11 @@ function TerminalTabContent({
   });
 
   useEffect(() => {
-    if (isActive) {
+    if (isActive && isPanelVisible) {
       const timer = window.setTimeout(() => refit(), 50);
       return () => window.clearTimeout(timer);
     }
-  }, [isActive, refit]);
+  }, [isActive, isPanelVisible, refit, refitSignal]);
 
   return (
     <div

@@ -19,6 +19,7 @@ import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { ExpandChevron } from './MessageCard';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { deriveRelativeFilePath } from '@/utils/filePaths';
 import {
   renderJson,
   getEntryIcon,
@@ -150,7 +151,13 @@ export const LookupToolCallCard: React.FC<{
       event.stopPropagation();
       if (!canOpenPreview) return;
 
-      openFilePreview(resolveLookupPath(normalizedDetail, containerRef));
+      const resolvedPath = resolveLookupPath(normalizedDetail, containerRef);
+      const displayPath =
+        deriveRelativeFilePath(resolvedPath, containerRef) ?? normalizedDetail;
+      openFilePreview(resolvedPath, {
+        displayPath,
+        title: displayPath,
+      });
     },
     [canOpenPreview, containerRef, normalizedDetail, openFilePreview]
   );

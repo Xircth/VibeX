@@ -1,4 +1,10 @@
-use std::{borrow::Cow, collections::HashMap, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 
 use deployment::Deployment;
 use executors::{
@@ -175,22 +181,11 @@ pub async fn update_config(
         ));
     }
 
-    // Get old config state before updating
-    let old_config = state.deployment.config().read().await.clone();
-
     save_config_to_file(&new_config, &config_path).await?;
 
     let mut config = state.deployment.config().write().await;
     *config = new_config.clone();
     drop(config);
-
-    // Handle config events (e.g., auto project setup on disclaimer acknowledgement)
-    if !old_config.disclaimer_acknowledged && new_config.disclaimer_acknowledged {
-        let deployment_clone = state.deployment.clone();
-        tokio::spawn(async move {
-            deployment_clone.trigger_auto_project_setup().await;
-        });
-    }
 
     Ok(new_config)
 }
@@ -456,7 +451,7 @@ fn strip_list_prefix(value: &str) -> String {
 fn split_prompt_sentences(value: &str) -> Vec<String> {
     value
         .replace("\r\n", "\n")
-        .split(|ch| matches!(ch, '\n' | '。' | '；' | ';'))
+        .split(['\n', '。', '；', ';'])
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .map(ToString::to_string)
@@ -789,7 +784,7 @@ fn build_prompt_enhancement_payload(
 }
 
 async fn write_prompt_enhancement_attachment(
-    current_dir: &PathBuf,
+    current_dir: &Path,
     config: &Config,
     payload: &PromptEnhancementRequest,
 ) -> Result<PathBuf, AppError> {
@@ -838,10 +833,10 @@ fn extract_enhanced_prompt(raw: &str) -> Option<String> {
         return None;
     }
 
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        if let Some(prompt) = extract_enhanced_prompt_from_json_value(&value) {
-            return Some(prompt);
-        }
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed)
+        && let Some(prompt) = extract_enhanced_prompt_from_json_value(&value)
+    {
+        return Some(prompt);
     }
 
     for line in trimmed
@@ -849,10 +844,10 @@ fn extract_enhanced_prompt(raw: &str) -> Option<String> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        if let Ok(value) = serde_json::from_str::<Value>(line) {
-            if let Some(prompt) = extract_enhanced_prompt_from_json_value(&value) {
-                return Some(prompt);
-            }
+        if let Ok(value) = serde_json::from_str::<Value>(line)
+            && let Some(prompt) = extract_enhanced_prompt_from_json_value(&value)
+        {
+            return Some(prompt);
         }
     }
 

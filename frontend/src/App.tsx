@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+} from 'react-router-dom';
 import { Projects } from '@/pages/Projects';
 import { ProjectTasks } from '@/pages/ProjectTasks';
 import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
@@ -39,6 +45,7 @@ import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope'
 
 function AppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
+  const navigate = useNavigate();
 
   // Track previous path for back navigation
   usePreviousPath();
@@ -70,6 +77,7 @@ function AppContent() {
         await DisclaimerDialog.show();
         if (!cancelled) {
           await updateAndSaveConfig({ disclaimer_acknowledged: true });
+          navigate('/local-projects', { replace: true });
         }
         DisclaimerDialog.hide();
         return;
@@ -84,6 +92,7 @@ function AppContent() {
             executor_profile: result.profile,
             editor: result.editor,
           });
+          navigate('/local-projects', { replace: true });
         }
         OnboardingDialog.hide();
         return;
@@ -103,7 +112,7 @@ function AppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config, updateAndSaveConfig]);
+  }, [config, navigate, updateAndSaveConfig]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>

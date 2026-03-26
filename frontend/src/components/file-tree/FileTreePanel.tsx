@@ -17,7 +17,6 @@ import {
   Plus,
   SquareMinus,
   Trash2,
-  TreePine,
 } from "lucide-react";
 import FileIcon from "../FileIcon";
 import { desktopApi, fileTreeApi } from "../../lib/api";
@@ -1158,9 +1157,6 @@ export function FileTreePanel({
             >
               <span className={`file-tree-chevron${isRootVisibleExpanded ? " is-open" : ""}`}>
                 ›
-              </span>
-              <span className="file-tree-icon file-tree-icon-root-special" aria-hidden>
-                <TreePine size={13} />
               </span>
               <span className="file-tree-name">{workspaceRootLabel}</span>
             </button>

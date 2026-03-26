@@ -14,6 +14,7 @@ import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
+import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
 
 // Re-exported from extracted modules
 export { getAggregatableAction } from './conversation-entry-utils';
@@ -70,6 +71,7 @@ function DisplayConversationEntry({
 
   const { isProcessGreyed } = useRetryUi();
   const greyed = isProcessGreyed(executionProcessId);
+  const { isStopping } = useTaskStopping(taskAttempt?.task_id ?? '');
 
   if (isProcessStart(entry)) {
     return (
@@ -296,6 +298,14 @@ function DisplayConversationEntry({
   }
 
   if (isLoading) {
+    if (isStopping) {
+      return (
+        <div
+          className="conv-entry-item h-px overflow-hidden opacity-0 pointer-events-none"
+          aria-hidden="true"
+        />
+      );
+    }
     return (
       <div className="conv-entry-item px-4 py-2 text-sm">
         <LoadingCard />

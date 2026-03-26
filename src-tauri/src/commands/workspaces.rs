@@ -2390,10 +2390,15 @@ pub async fn open_workspace_in_editor(
 
     let workspace_path = Path::new(&container_ref);
 
-    // For single-repo projects, open from the repo directory
     let workspace_repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let workspace_path = if workspace_repos.len() == 1 && file_path.is_none() {
-        if workspace.use_worktree {
+    let workspace_path = if file_path.is_none() {
+        if let Some(agent_working_dir) = workspace
+            .agent_working_dir
+            .as_deref()
+            .filter(|dir| !dir.trim().is_empty())
+        {
+            workspace_path.join(agent_working_dir)
+        } else if workspace_repos.len() == 1 && workspace.use_worktree {
             workspace_path.join(&workspace_repos[0].name)
         } else {
             workspace_path.to_path_buf()

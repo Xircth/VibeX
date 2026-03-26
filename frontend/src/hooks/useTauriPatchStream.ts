@@ -79,6 +79,7 @@ export const useTauriPatchStream = <T extends object>(
   const [error, setError] = useState<string | null>(null);
   const dataRef = useRef<T | undefined>(undefined);
   const finishedRef = useRef<boolean>(false);
+  const isInitializedRef = useRef<boolean>(false);
 
   // Serialise subscribeArgs to a stable string so we can safely depend on it
   // without causing infinite re-renders when the caller creates a new object
@@ -94,6 +95,7 @@ export const useTauriPatchStream = <T extends object>(
       setError(null);
       dataRef.current = undefined;
       finishedRef.current = false;
+      isInitializedRef.current = false;
       return;
     }
 
@@ -104,6 +106,7 @@ export const useTauriPatchStream = <T extends object>(
     }
     dataRef.current = init;
     finishedRef.current = false;
+    isInitializedRef.current = false;
 
     let cancelled = false;
     let unlisten: (() => void) | null = null;
@@ -123,7 +126,8 @@ export const useTauriPatchStream = <T extends object>(
                 ? deduplicatePatches(patches)
                 : patches;
 
-              if (!isInitialized) {
+              if (!isInitializedRef.current) {
+                isInitializedRef.current = true;
                 setIsInitialized(true);
               }
 
@@ -140,14 +144,20 @@ export const useTauriPatchStream = <T extends object>(
 
             // Handle Ready
             if (msg === 'Ready') {
-              setIsInitialized(true);
+              if (!isInitializedRef.current) {
+                isInitializedRef.current = true;
+                setIsInitialized(true);
+              }
               return;
             }
 
             // Handle Finished
             if (msg === 'Finished') {
               finishedRef.current = true;
-              setIsInitialized(true);
+              if (!isInitializedRef.current) {
+                isInitializedRef.current = true;
+                setIsInitialized(true);
+              }
               setIsConnected(false);
               return;
             }
@@ -193,6 +203,7 @@ export const useTauriPatchStream = <T extends object>(
       unlisten?.();
       dataRef.current = undefined;
       finishedRef.current = false;
+      isInitializedRef.current = false;
       setData(undefined);
       setIsInitialized(false);
       setIsConnected(false);

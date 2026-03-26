@@ -13,7 +13,7 @@ use ts_rs::TS;
 
 // ============= Type Definitions =============
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ProjectUsageUsageData {
     pub input_tokens: i64,
@@ -21,18 +21,6 @@ pub struct ProjectUsageUsageData {
     pub cache_write_tokens: i64,
     pub cache_read_tokens: i64,
     pub total_tokens: i64,
-}
-
-impl Default for ProjectUsageUsageData {
-    fn default() -> Self {
-        Self {
-            input_tokens: 0,
-            output_tokens: 0,
-            cache_write_tokens: 0,
-            cache_read_tokens: 0,
-            total_tokens: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -446,10 +434,10 @@ fn parse_claude_session(path: &Path) -> Result<Option<ProjectUsageSessionSummary
         }
 
         let entry_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if summary.is_none() && entry_type == "summary" {
-            if let Some(text) = value.get("summary").and_then(|v| v.as_str()) {
-                summary = truncate_summary(text);
-            }
+        if summary.is_none() && entry_type == "summary"
+            && let Some(text) = value.get("summary").and_then(|v| v.as_str())
+        {
+            summary = truncate_summary(text);
         }
 
         if entry_type != "assistant" {
@@ -461,10 +449,8 @@ fn parse_claude_session(path: &Path) -> Result<Option<ProjectUsageSessionSummary
         };
 
         let message_model = message.get("model").and_then(|v| v.as_str());
-        if model == "unknown" {
-            if let Some(message_model) = message_model {
-                model = message_model.to_string();
-            }
+        if model == "unknown" && let Some(message_model) = message_model {
+            model = message_model.to_string();
         }
 
         let Some(usage_map) = message.get("usage").and_then(|v| v.as_object()) else {
@@ -631,16 +617,15 @@ fn parse_codex_session(
             .and_then(|value| value.as_str())
             .unwrap_or("");
 
-        if entry_type == "session_meta" || entry_type == "turn_context" {
-            if let Some(cwd) = extract_cwd(&value) {
-                if !workspace_paths.is_empty() {
-                    matches_workspace = workspace_paths
-                        .iter()
-                        .any(|filter| path_matches_workspace(&cwd, filter));
-                    if !matches_workspace {
-                        break;
-                    }
-                }
+        if (entry_type == "session_meta" || entry_type == "turn_context")
+            && let Some(cwd) = extract_cwd(&value)
+            && !workspace_paths.is_empty()
+        {
+            matches_workspace = workspace_paths
+                .iter()
+                .any(|filter| path_matches_workspace(&cwd, filter));
+            if !matches_workspace {
+                break;
             }
         }
 
@@ -655,17 +640,17 @@ fn parse_codex_session(
             continue;
         }
 
-        if summary.is_none() && entry_type == "event_msg" {
-            if let Some(payload) = value.get("payload").and_then(|payload| payload.as_object()) {
-                let payload_type = payload
-                    .get("type")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("");
-                if payload_type == "user_message" {
-                    if let Some(message) = payload.get("message").and_then(|value| value.as_str()) {
-                        summary = truncate_summary(message);
-                    }
-                }
+        if summary.is_none() && entry_type == "event_msg"
+            && let Some(payload) = value.get("payload").and_then(|payload| payload.as_object())
+        {
+            let payload_type = payload
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            if payload_type == "user_message"
+                && let Some(message) = payload.get("message").and_then(|value| value.as_str())
+            {
+                summary = truncate_summary(message);
             }
         }
 

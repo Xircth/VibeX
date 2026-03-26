@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -206,6 +207,9 @@ export function KanbanSessionHub() {
   const [createSessionName, setCreateSessionName] = useState('');
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
+  const createWorkspaceIdRef = useRef(createWorkspaceId);
+  const createSessionNameRef = useRef(createSessionName);
+  const selectedExecutorProfileRef = useRef(selectedExecutorProfile);
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [workspaceFilterIds, setWorkspaceFilterIds] = useState<string[]>([]);
@@ -221,6 +225,9 @@ export function KanbanSessionHub() {
     string | null
   >(null);
   const [isDeletingSessions, setIsDeletingSessions] = useState(false);
+  const [pendingCreatedSessionIds, setPendingCreatedSessionIds] = useState<
+    string[]
+  >([]);
   const [expandedSections, setExpandedSections] = useState<
     Record<SessionStatusKey, boolean>
   >({
@@ -253,6 +260,24 @@ export function KanbanSessionHub() {
     width: number;
   } | null>(null);
 
+  const updateCreateWorkspaceId = useCallback((value: string) => {
+    createWorkspaceIdRef.current = value;
+    setCreateWorkspaceId(value);
+  }, []);
+
+  const updateCreateSessionName = useCallback((value: string) => {
+    createSessionNameRef.current = value;
+    setCreateSessionName(value);
+  }, []);
+
+  const updateSelectedExecutorProfile = useCallback(
+    (value: ExecutorProfileId | null) => {
+      selectedExecutorProfileRef.current = value;
+      setSelectedExecutorProfile(value);
+    },
+    []
+  );
+
   useEffect(() => {
     if (
       !createWorkspaceId ||
@@ -260,13 +285,20 @@ export function KanbanSessionHub() {
         (workspace) => workspace.id === createWorkspaceId
       )
     ) {
-      setCreateWorkspaceId(defaultWorkspaceId);
+      updateCreateWorkspaceId(defaultWorkspaceId);
     }
-  }, [createWorkspaceId, createWorkspaceSelectionOptions, defaultWorkspaceId]);
+  }, [
+    createWorkspaceId,
+    createWorkspaceSelectionOptions,
+    defaultWorkspaceId,
+    updateCreateWorkspaceId,
+  ]);
 
   useEffect(() => {
-    setSelectedExecutorProfile((current) => current ?? defaultExecutorProfile);
-  }, [defaultExecutorProfile]);
+    updateSelectedExecutorProfile(
+      selectedExecutorProfileRef.current ?? defaultExecutorProfile
+    );
+  }, [defaultExecutorProfile, updateSelectedExecutorProfile]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -284,8 +316,24 @@ export function KanbanSessionHub() {
       return;
     }
 
-    pruneSessions(new Set(sessions.map((session) => session.id)));
-  }, [isLoading, pruneSessions, sessions]);
+    const availableSessionIds = new Set([
+      ...sessions.map((session) => session.id),
+      ...pendingCreatedSessionIds,
+    ]);
+    pruneSessions(availableSessionIds);
+  }, [isLoading, pendingCreatedSessionIds, pruneSessions, sessions]);
+
+  useEffect(() => {
+    if (pendingCreatedSessionIds.length === 0 || isLoading) {
+      return;
+    }
+
+    const availableSessionIds = new Set(sessions.map((session) => session.id));
+    setPendingCreatedSessionIds((current) => {
+      const next = current.filter((sessionId) => !availableSessionIds.has(sessionId));
+      return next.length === current.length ? current : next;
+    });
+  }, [isLoading, pendingCreatedSessionIds.length, sessions]);
 
   useEffect(() => {
     const availableSessionIds = new Set(sessions.map((session) => session.id));
@@ -298,13 +346,21 @@ export function KanbanSessionHub() {
   }, [sessions]);
 
   const createSessionMutation = useMutation({
-    mutationFn: async () => {
-      if (!createWorkspaceId) {
+    mutationFn: async ({
+      workspaceId,
+      sessionName,
+      executorProfile,
+    }: {
+      workspaceId: string;
+      sessionName: string;
+      executorProfile: ExecutorProfileId | null;
+    }) => {
+      if (!workspaceId) {
         throw new Error('Workspace is required');
       }
 
       const session =
-        createWorkspaceId === PROJECT_ROOT_WORKSPACE_ID
+        workspaceId === PROJECT_ROOT_WORKSPACE_ID
           ? await (() => {
               if (!projectId) {
                 throw new Error('Project is required');
@@ -312,23 +368,23 @@ export function KanbanSessionHub() {
 
               return sessionsApi.createProjectRoot({
                 project_id: projectId,
-                executor: selectedExecutorProfile?.executor ?? undefined,
-                name: createSessionName.trim() || null,
+                executor: executorProfile?.executor ?? undefined,
+                name: sessionName.trim() || null,
               });
             })()
           : await sessionsApi.create({
-              workspace_id: createWorkspaceId,
-              executor: selectedExecutorProfile?.executor ?? undefined,
-              name: createSessionName.trim() || null,
+              workspace_id: workspaceId,
+              executor: executorProfile?.executor ?? undefined,
+              name: sessionName.trim() || null,
             });
 
-      if (selectedExecutorProfile?.executor) {
+      if (executorProfile?.executor) {
         await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, session.id, {
           payload: {
             type: 'DRAFT_FOLLOW_UP',
             data: {
               message: '',
-              executor_profile_id: selectedExecutorProfile,
+              executor_profile_id: executorProfile,
             },
           },
         });
@@ -350,7 +406,10 @@ export function KanbanSessionHub() {
         sessionId: session.id,
         workspaceId: session.workspace_id,
       });
-      setCreateSessionName('');
+      setPendingCreatedSessionIds((current) =>
+        current.includes(session.id) ? current : [...current, session.id]
+      );
+      updateCreateSessionName('');
       setIsCreatePopoverOpen(false);
     },
   });
@@ -489,9 +548,9 @@ export function KanbanSessionHub() {
     setIsCreatePopoverOpen(open);
 
     if (open) {
-      setCreateWorkspaceId(defaultWorkspaceId);
-      setSelectedExecutorProfile(defaultExecutorProfile);
-      setCreateSessionName('');
+      updateCreateWorkspaceId(defaultWorkspaceId);
+      updateSelectedExecutorProfile(defaultExecutorProfile);
+      updateCreateSessionName('');
       setDeleteErrorMessage(null);
     } else {
       createSessionMutation.reset();
@@ -740,12 +799,16 @@ export function KanbanSessionHub() {
           currentExecutionPlacement={currentExecutionPlacement}
           onResizeMouseDown={handleSessionListResizeMouseDown}
           onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
-          onCreateSession={() => createSessionMutation.mutate()}
-          onCreateWorkspaceIdChange={setCreateWorkspaceId}
-          onCreateSessionNameChange={setCreateSessionName}
-          onSelectedExecutorProfileChange={(value) =>
-            setSelectedExecutorProfile(value)
+          onCreateSession={() =>
+            createSessionMutation.mutate({
+              workspaceId: createWorkspaceIdRef.current,
+              sessionName: createSessionNameRef.current,
+              executorProfile: selectedExecutorProfileRef.current,
+            })
           }
+          onCreateWorkspaceIdChange={updateCreateWorkspaceId}
+          onCreateSessionNameChange={updateCreateSessionName}
+          onSelectedExecutorProfileChange={updateSelectedExecutorProfile}
           onSortFieldChange={setSortField}
           onWorkspaceFilterIdsChange={setWorkspaceFilterIds}
           onExecutorFilterValuesChange={setExecutorFilterValues}

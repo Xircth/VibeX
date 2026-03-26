@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { tauriListen } from '@/lib/tauriApi';
@@ -31,22 +31,43 @@ export function AcpTerminalBridge() {
   const addSession = useTerminalStore((state) => state.addSession);
   const setSessionId = useTerminalStore((state) => state.setSessionId);
   const removeSession = useTerminalStore((state) => state.removeSession);
+  const activeWorktreeIdRef = useRef<string | null>(activeWorktreeId);
+  const pendingSessionsRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    activeWorktreeIdRef.current = activeWorktreeId;
+  }, [activeWorktreeId]);
 
   useEffect(() => {
     let mounted = true;
     let unlisten: (() => void) | null = null;
+    const pendingSessions = pendingSessionsRef.current;
 
     void tauriListen<AcpTerminalEvent>('agent-terminal-events', (event) => {
       if (!mounted) return;
 
-      if (event.type === 'created') {
-        const workspaceId = event.workspace_id ?? activeWorktreeId;
-        if (!workspaceId) return;
+      const pendingKey = `${event.source}:${event.session_id}`;
 
-        const existingSession = (
-          useTerminalStore.getState().sessionsByWorkspace[workspaceId] ?? []
-        ).find((session) => session.sessionId === event.session_id);
-        if (!existingSession) {
+      if (event.type === 'created') {
+        if (pendingSessions.has(pendingKey)) {
+          return;
+        }
+
+        const timerId = window.setTimeout(() => {
+          pendingSessions.delete(pendingKey);
+          if (!mounted) return;
+
+          const workspaceId =
+            event.workspace_id ?? activeWorktreeIdRef.current ?? null;
+          if (!workspaceId) return;
+
+          const existingSession = (
+            useTerminalStore.getState().sessionsByWorkspace[workspaceId] ?? []
+          ).find((session) => session.sessionId === event.session_id);
+          if (existingSession) {
+            return;
+          }
+
           const tabId = generateTerminalTabId();
           addSession(workspaceId, tabId, undefined, {
             title: event.title,
@@ -54,12 +75,20 @@ export function AcpTerminalBridge() {
             source: event.source,
           });
           setSessionId(tabId, event.session_id);
-        }
 
-        if (workspaceId === activeWorktreeId) {
-          openOrFocusPanel(PANEL_IDS.TERMINAL, 'Terminal');
-        }
+          if (workspaceId === activeWorktreeIdRef.current) {
+            openOrFocusPanel(PANEL_IDS.TERMINAL, 'Terminal');
+          }
+        }, 2000);
+
+        pendingSessions.set(pendingKey, timerId);
         return;
+      }
+
+      const pendingTimerId = pendingSessions.get(pendingKey);
+      if (pendingTimerId) {
+        window.clearTimeout(pendingTimerId);
+        pendingSessions.delete(pendingKey);
       }
 
       const targetWorkspaceIds = event.workspace_id
@@ -80,10 +109,13 @@ export function AcpTerminalBridge() {
 
     return () => {
       mounted = false;
+      for (const timerId of pendingSessions.values()) {
+        window.clearTimeout(timerId);
+      }
+      pendingSessions.clear();
       unlisten?.();
     };
   }, [
-    activeWorktreeId,
     addSession,
     setSessionId,
     removeSession,

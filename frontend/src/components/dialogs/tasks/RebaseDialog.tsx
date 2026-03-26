@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight } from 'lucide-react';import {
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -17,13 +17,14 @@ export interface RebaseDialogProps {
   branches: GitBranch[];
   isRebasing?: boolean;
   initialTargetBranch?: string;
-  initialUpstreamBranch?: string;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
 }
 
 export type RebaseDialogResult = {
   action: 'confirmed' | 'canceled';
   branchName?: string;
-  upstreamBranch?: string;
 };
 
 const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
@@ -31,13 +32,13 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
     branches,
     isRebasing = false,
     initialTargetBranch,
-    initialUpstreamBranch,
+    title = '选择目标分支',
+    description = '选择一个目标分支继续执行当前 Git 操作。',
+    confirmLabel = '确认',
   }) => {
-    const modal = useModal();    const [selectedBranch, setSelectedBranch] = useState<string>(
+    const modal = useModal();
+    const [selectedBranch, setSelectedBranch] = useState<string>(
       initialTargetBranch ?? ''
-    );
-    const [selectedUpstream, setSelectedUpstream] = useState<string>(
-      initialUpstreamBranch ?? ''
     );
 
     useEffect(() => {
@@ -46,23 +47,16 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
       }
     }, [initialTargetBranch]);
 
-    useEffect(() => {
-      if (initialUpstreamBranch) {
-        setSelectedUpstream(initialUpstreamBranch);
-      }
-    }, [initialUpstreamBranch]);
-
-    const [showAdvanced, setShowAdvanced] = useState(false);
-
     const handleConfirm = () => {
-      if (selectedBranch) {
-        modal.resolve({
-          action: 'confirmed',
-          branchName: selectedBranch,
-          upstreamBranch: selectedUpstream,
-        } as RebaseDialogResult);
-        modal.hide();
+      if (!selectedBranch) {
+        return;
       }
+
+      modal.resolve({
+        action: 'confirmed',
+        branchName: selectedBranch,
+      } as RebaseDialogResult);
+      modal.hide();
     };
 
     const handleCancel = () => {
@@ -70,81 +64,33 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
       modal.hide();
     };
 
-    const handleOpenChange = (open: boolean) => {
-      if (!open) {
-        handleCancel();
-      }
-    };
-
     return (
-      <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
+      <Dialog open={modal.visible} onOpenChange={(open) => !open && handleCancel()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{'变基任务尝试'}</DialogTitle>
-            <DialogDescription>
-              {'选择一个新的基础分支以将此任务尝试变基到其上。'}
-            </DialogDescription>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="target-branch" className="text-sm font-medium">
-                {'目标分支'}
-              </label>
-              <BranchSelector
-                branches={branches}
-                selectedBranch={selectedBranch}
-                onBranchSelect={setSelectedBranch}
-                placeholder={'选择目标分支'}
-                excludeCurrentBranch={false}
-              />
-            </div>
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((prev) => !prev)}
-                className="flex w-full items-center gap-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ChevronRight
-                  className={`h-3 w-3 transition-transform ${showAdvanced ? 'rotate-90' : ''}`}
-                />
-                <span>{'高级'}</span>
-              </button>
-              {showAdvanced && (
-                <div className="space-y-2">
-                  <label
-                    htmlFor="upstream-branch"
-                    className="text-sm font-medium"
-                  >
-                    {'上游分支'}
-                  </label>
-                  <BranchSelector
-                    branches={branches}
-                    selectedBranch={selectedUpstream}
-                    onBranchSelect={setSelectedUpstream}
-                    placeholder={'选择上游分支'}
-                    excludeCurrentBranch={false}
-                  />
-                </div>
-              )}
-            </div>
+          <div className="space-y-2">
+            <label htmlFor="target-branch" className="text-sm font-medium">
+              目标分支
+            </label>
+            <BranchSelector
+              branches={branches}
+              selectedBranch={selectedBranch}
+              onBranchSelect={setSelectedBranch}
+              placeholder="选择目标分支"
+              excludeCurrentBranch={false}
+            />
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={handleCancel}
-              disabled={isRebasing}
-            >
-              {'取消'}
+            <Button variant="outline" onClick={handleCancel} disabled={isRebasing}>
+              取消
             </Button>
-            <Button
-              onClick={handleConfirm}
-              disabled={isRebasing || !selectedBranch}
-            >
-              {isRebasing
-                ? '变基中...'
-                : '变基'}
+            <Button onClick={handleConfirm} disabled={isRebasing || !selectedBranch}>
+              {isRebasing ? '处理中...' : confirmLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

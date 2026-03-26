@@ -44,6 +44,7 @@ export function ProjectTasks() {
 
   const {
     projectId,
+    project,
     isLoading: projectLoading,
     error: projectError,
   } = useProject();
@@ -85,6 +86,12 @@ export function ProjectTasks() {
     },
     [navigate, searchParams]
   );
+
+  useEffect(() => {
+    if (!projectLoading && !project && projectId) {
+      navigate('/local-projects', { replace: true });
+    }
+  }, [navigate, project, projectId, projectLoading]);
 
   useEffect(() => {
     if (!projectId || !taskId || !attemptId) return;

@@ -880,7 +880,12 @@ pub trait ContainerService {
             Some(
                 store
                     .history_plus_stream() // BoxStream<Result<LogMsg, io::Error>>
-                    .filter(|msg| future::ready(matches!(msg, Ok(LogMsg::JsonPatch(..)))))
+                    .filter(|msg| {
+                        future::ready(matches!(
+                            msg,
+                            Ok(LogMsg::JsonPatch(..) | LogMsg::Finished)
+                        ))
+                    })
                     .chain(futures::stream::once(async {
                         Ok::<_, std::io::Error>(LogMsg::Finished)
                     }))
@@ -1171,7 +1176,9 @@ pub trait ContainerService {
         session: &Session,
         executor_config: ExecutorConfig,
     ) -> Result<ExecutionProcess, ContainerError> {
-        self.create(workspace).await?;
+        let container_ref = self.create(workspace).await?;
+        let mut runnable_workspace = workspace.clone();
+        runnable_workspace.container_ref = Some(container_ref);
 
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
 
@@ -1215,7 +1222,7 @@ pub trait ContainerService {
                 if let Some(action) = Self::setup_action_for_repo(repo)
                     && let Err(e) = self
                         .start_execution(
-                            workspace,
+                            &runnable_workspace,
                             session,
                             &action,
                             &ExecutionProcessRunReason::SetupScript,
@@ -1226,7 +1233,7 @@ pub trait ContainerService {
                 }
             }
             self.start_execution(
-                workspace,
+                &runnable_workspace,
                 session,
                 &coding_action,
                 &ExecutionProcessRunReason::CodingAgent,
@@ -1236,7 +1243,7 @@ pub trait ContainerService {
             // Any sequential: chain ALL setups → coding agent via next_action
             let main_action = Self::build_sequential_setup_chain(&repos_with_setup, coding_action);
             self.start_execution(
-                workspace,
+                &runnable_workspace,
                 session,
                 &main_action,
                 &ExecutionProcessRunReason::SetupScript,

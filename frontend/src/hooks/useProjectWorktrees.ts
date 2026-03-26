@@ -3,6 +3,11 @@ import { attemptsApi } from '@/lib/api';
 import type { Workspace, TaskWithAttemptStatus } from 'shared/types';
 import { useProjectTasks } from './useProjectTasks';
 
+export const projectWorktreeKeys = {
+  byProject: (projectId: string | undefined) =>
+    ['projectWorktrees', projectId] as const,
+};
+
 export interface WorktreeInfo {
   workspace: Workspace;
   task: TaskWithAttemptStatus | null;
@@ -16,7 +21,7 @@ export function useProjectWorktrees(projectId: string | undefined) {
   const { tasksById } = useProjectTasks(projectId ?? '');
 
   const { data: projectWorkspaces, isLoading } = useQuery({
-    queryKey: ['projectWorktrees', projectId],
+    queryKey: projectWorktreeKeys.byProject(projectId),
     queryFn: async () => {
       if (!projectId) return [];
       const workspaces = await attemptsApi.getProjectWorkspaces(projectId);

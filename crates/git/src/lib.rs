@@ -288,6 +288,24 @@ impl Default for GitService {
 }
 
 impl GitService {
+    fn summarize_cli_failure(output: &str) -> String {
+        output
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty() && !line.starts_with("--- "))
+            .unwrap_or("Command failed with no output")
+            .to_string()
+    }
+
+    fn looks_like_conflict_text(output: &str) -> bool {
+        let lowered = output.to_lowercase();
+        output.contains("CONFLICT")
+            || output.contains("Automatic merge failed")
+            || output.contains("could not apply")
+            || lowered.contains("resolve all conflicts")
+            || lowered.contains("merge conflict")
+    }
+
     /// Create a new GitService for the given repository path
     pub fn new() -> Self {
         Self {}
@@ -1700,10 +1718,13 @@ impl GitService {
                 return Err(GitServiceError::RebaseInProgress);
             }
             Err(GitCliError::CommandFailed(stderr)) => {
-                // If the CLI indicates conflicts, return a concise, actionable error.
-                let looks_like_conflict = stderr.contains("could not apply")
-                    || stderr.contains("CONFLICT")
-                    || stderr.to_lowercase().contains("resolve all conflicts");
+                // Prefer state-based conflict detection so locale/CLI formatting differences
+                // do not hide merge conflicts from the caller.
+                let conflicted_files = git.get_conflicted_files(worktree_path).unwrap_or_default();
+                let has_conflict_state =
+                    !conflicted_files.is_empty() || git.is_rebase_in_progress(worktree_path).unwrap_or(false);
+                let looks_like_conflict =
+                    has_conflict_state || Self::looks_like_conflict_text(&stderr);
                 if looks_like_conflict {
                     // Determine current attempt branch name for clarity
                     let attempt_branch = worktree_repo
@@ -1711,9 +1732,6 @@ impl GitService {
                         .ok()
                         .and_then(|h| h.shorthand().map(|s| s.to_string()))
                         .unwrap_or_else(|| "(unknown)".to_string());
-                    // List conflicted files (best-effort)
-                    let conflicted_files =
-                        git.get_conflicted_files(worktree_path).unwrap_or_default();
                     let files_part = if conflicted_files.is_empty() {
                         "".to_string()
                     } else {
@@ -1742,7 +1760,7 @@ impl GitService {
                 }
                 return Err(GitServiceError::InvalidRepository(format!(
                     "Rebase failed: {}",
-                    stderr.lines().next().unwrap_or("")
+                    Self::summarize_cli_failure(&stderr)
                 )));
             }
             Err(e) => {
@@ -1768,11 +1786,11 @@ impl GitService {
     /// 4. Checkout back to the workspace branch
     pub fn rebase_back(
         &self,
-        _repo_path: &Path,
+        repo_path: &Path,
         worktree_path: &Path,
         workspace_branch: &str,
         target_branch: &str,
-        commit_message: &str,
+        _commit_message: &str,
     ) -> Result<String, GitServiceError> {
         let worktree_repo = Repository::open(worktree_path)?;
 
@@ -1786,25 +1804,56 @@ impl GitService {
             return Err(GitServiceError::RebaseInProgress);
         }
 
-        // Ensure identity for any commits produced
-        self.ensure_cli_commit_identity(worktree_path)?;
+        // Rebase-back step 2 should happen in the target branch checkout context
+        // (typically the project main directory), not in the attempt worktree.
+        let target_checkout_path = self
+            .find_checkout_path_for_branch(repo_path, target_branch)?
+            .unwrap_or_else(|| repo_path.to_path_buf());
+        let target_repo = Repository::open(&target_checkout_path)?;
 
-        // Perform the merge: checkout target, merge workspace branch, then checkout back
-        let sha = match git.merge_ff_or_merge(
-            worktree_path,
-            target_branch,
-            workspace_branch,
-            commit_message,
-        ) {
+        // Safety guard for target checkout worktree as well.
+        self.check_worktree_clean(&target_repo)?;
+
+        if git
+            .is_rebase_in_progress(&target_checkout_path)
+            .unwrap_or(false)
+        {
+            return Err(GitServiceError::RebaseInProgress);
+        }
+
+        // Ensure identity for any commits produced in target checkout context.
+        self.ensure_cli_commit_identity(&target_checkout_path)?;
+
+        // Ensure target branch is checked out in target checkout context.
+        let current_branch = git.get_current_branch(&target_checkout_path).map_err(|e| {
+            GitServiceError::InvalidRepository(format!("git current-branch failed: {e}"))
+        })?;
+        if current_branch.trim() != target_branch {
+            git.checkout_branch(&target_checkout_path, target_branch)
+                .map_err(|e| {
+                    GitServiceError::InvalidRepository(format!(
+                        "git checkout target branch failed: {e}"
+                    ))
+                })?;
+        }
+
+        // Fast-forward target branch to workspace branch. Step 1 already rebases
+        // workspace onto target, so this should not produce conflicts.
+        let sha = match git.merge_ff_only(&target_checkout_path, workspace_branch) {
             Ok(sha) => sha,
             Err(GitCliError::CommandFailed(stderr)) => {
-                // Check if conflicts occurred
-                let looks_like_conflict = stderr.contains("CONFLICT")
-                    || stderr.contains("Automatic merge failed")
-                    || stderr.to_lowercase().contains("resolve all conflicts");
+                // Prefer state-based conflict detection so locale/CLI formatting differences
+                // do not hide merge conflicts from the caller.
+                let conflicted_files = git
+                    .get_conflicted_files(&target_checkout_path)
+                    .unwrap_or_default();
+                let has_conflict_state = !conflicted_files.is_empty()
+                    || git
+                        .is_merge_in_progress(&target_checkout_path)
+                        .unwrap_or(false);
+                let looks_like_conflict =
+                    has_conflict_state || Self::looks_like_conflict_text(&stderr);
                 if looks_like_conflict {
-                    let conflicted_files =
-                        git.get_conflicted_files(worktree_path).unwrap_or_default();
                     let msg = format!(
                         "Merge conflicts while merging '{}' into '{}'. Resolve conflicts and continue.",
                         workspace_branch, target_branch
@@ -1814,26 +1863,25 @@ impl GitService {
                         conflicted_files,
                     });
                 }
+                let lowered = stderr.to_lowercase();
+                if lowered.contains("not possible to fast-forward")
+                    || lowered.contains("non-fast-forward")
+                {
+                    return Err(GitServiceError::BranchesDiverged(format!(
+                        "Cannot fast-forward '{target_branch}' to '{workspace_branch}'. The target branch moved after step 1. Please rerun Rebase Back."
+                    )));
+                }
                 return Err(GitServiceError::InvalidRepository(format!(
                     "Rebase-back failed: {}",
-                    stderr.lines().next().unwrap_or("")
+                    Self::summarize_cli_failure(&stderr)
                 )));
             }
             Err(e) => {
                 return Err(GitServiceError::InvalidRepository(format!(
-                    "git merge failed: {e}"
+                    "git fast-forward failed: {e}"
                 )));
             }
         };
-
-        // Checkout back to workspace branch
-        if let Err(e) = git.git(worktree_path, ["checkout", workspace_branch]) {
-            tracing::warn!(
-                "Failed to checkout back to workspace branch '{}': {}",
-                workspace_branch,
-                e
-            );
-        }
 
         Ok(sha)
     }

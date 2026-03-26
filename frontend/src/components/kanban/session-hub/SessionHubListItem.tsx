@@ -44,7 +44,9 @@ export function SessionHubListItem({
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const showRenameControls = !isDeleteMode && !isKanbanBoardMode;
   const branchHoverText = session.workspaceName || session.branch;
-  const previewText = session.firstPrompt ?? session.taskTitle ?? '';
+  const previewText = (session.firstPrompt ?? session.taskTitle ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -97,7 +99,7 @@ export function SessionHubListItem({
         }
       }}
       className={cn(
-        'relative flex min-w-0 items-start gap-2 overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm',
+        'relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm',
         isSelected && 'border-primary/50 bg-primary/5',
         dragging && 'scale-[1.01] rotate-[0.75deg] shadow-xl ring-1 ring-primary/20'
       )}
@@ -118,9 +120,11 @@ export function SessionHubListItem({
         </div>
       ) : null}
 
-      <div className={cn('min-w-0 flex-1', !isDeleteMode && 'pl-2')}>
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
+      <div
+        className={cn('min-w-0 w-0 flex-1 overflow-hidden', !isDeleteMode && 'pl-2')}
+      >
+        <div className="flex w-full min-w-0 items-start gap-2">
+          <div className="min-w-0 w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-center gap-2">
               {isEditing ? (
                 <Input
@@ -150,39 +154,36 @@ export function SessionHubListItem({
                   {session.fullName}
                 </div>
               )}
-              {!isEditing ? (
-                <div className="ml-auto flex min-w-0 max-w-[50%] shrink items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <span
-                    className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}
-                  >
-                    {formatTimeAgo(session.updatedAt)}
-                  </span>
-                  <span className="shrink-0 text-muted-foreground/50">·</span>
-                  <span
-                    className="inline-flex min-w-0 flex-1 items-center gap-1"
-                    title={branchHoverText}
-                  >
-                    <GitBranch className="h-3 w-3 shrink-0 opacity-80" />
-                    <span className="min-w-0 truncate">{session.branch}</span>
-                  </span>
-                </div>
-              ) : null}
-              {session.isRunning && !isEditing ? (
-                <span className="ml-2 shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-                  运行中
-                </span>
-              ) : null}
             </div>
 
-            {previewText ? (
-              <div className="mt-0.5 min-w-0">
-                <span
-                  className="block truncate text-[11px] text-muted-foreground"
-                  title={previewText}
-                >
-                  {previewText}
+            {!isEditing ? (
+              <div className="mt-0.5 flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-muted-foreground">
+                <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
+                  {formatTimeAgo(session.updatedAt)}
                 </span>
+                <span className="shrink-0 text-muted-foreground/50">·</span>
+                <span
+                  className="flex min-w-0 max-w-full items-center gap-1"
+                  title={branchHoverText}
+                >
+                  <GitBranch className="h-3 w-3 shrink-0 opacity-80" />
+                  <span className="min-w-0 truncate">{session.branch}</span>
+                </span>
+                {session.isRunning ? (
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    运行中
+                  </span>
+                ) : null}
               </div>
+            ) : null}
+
+            {previewText ? (
+              <p
+                className="mt-0.5 block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground"
+                title={previewText}
+              >
+                {previewText}
+              </p>
             ) : null}
           </div>
 

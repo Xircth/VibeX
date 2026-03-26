@@ -66,7 +66,7 @@ export function resolveActiveSession(
     return sessionFromAttempt;
   }
 
-  return undefined;
+  return sessionFromAttempt;
 }
 
 function getSessionStatusLabel(
@@ -102,6 +102,9 @@ export function useWorkspaceSessions(
   const [isPendingNewSessionMode, setIsPendingNewSessionMode] = useState(false);
   const pendingSessionIdRef = useRef<string | null>(null);
   const previousWorkspaceIdRef = useRef<string | undefined>(workspaceId);
+  const previousInitialSessionIdRef = useRef<string | undefined>(
+    initialSessionId
+  );
 
   const { data: sessionSummaries = [], isLoading } = useQuery<
     SessionSummaryRecord[]
@@ -148,6 +151,20 @@ export function useWorkspaceSessions(
       }),
     [queueStatusQueries, sessionSummaries]
   );
+
+  useEffect(() => {
+    const initialSessionChanged =
+      previousInitialSessionIdRef.current !== initialSessionId;
+    previousInitialSessionIdRef.current = initialSessionId;
+
+    if (!initialSessionChanged || !initialSessionId) {
+      return;
+    }
+
+    pendingSessionIdRef.current = initialSessionId;
+    setIsPendingNewSessionMode(false);
+    setSelection({ mode: 'existing', sessionId: initialSessionId });
+  }, [initialSessionId]);
 
   useEffect(() => {
     const workspaceChanged = previousWorkspaceIdRef.current !== workspaceId;

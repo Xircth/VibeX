@@ -187,10 +187,75 @@ export const useTerminalStore = create<TerminalState>()(
     }),
     {
       name: 'vibe-ultra-terminal-sessions',
-      version: 1,
+      version: 2,
+      migrate: (persistedState) => {
+        const state = (persistedState ?? {}) as Partial<TerminalState>;
+        const sessionsByWorkspace = Object.fromEntries(
+          Object.entries(state.sessionsByWorkspace ?? {}).map(
+            ([workspaceId, sessions]) => [
+              workspaceId,
+              (sessions ?? []).filter(
+                (session) =>
+                  !session.readOnly &&
+                  session.source !== 'acp' &&
+                  session.source !== 'codex'
+              ),
+            ]
+          )
+        );
+
+        const activeTabByWorkspace = Object.fromEntries(
+          Object.entries(state.activeTabByWorkspace ?? {}).map(
+            ([workspaceId, activeTabId]) => {
+              const sessions = sessionsByWorkspace[workspaceId] ?? [];
+              const nextActiveTab = sessions.some(
+                (session) => session.tabId === activeTabId
+              )
+                ? activeTabId
+                : (sessions[0]?.tabId ?? null);
+              return [workspaceId, nextActiveTab];
+            }
+          )
+        );
+
+        return {
+          sessionsByWorkspace,
+          activeTabByWorkspace,
+        };
+      },
       partialize: (state) => ({
-        sessionsByWorkspace: state.sessionsByWorkspace,
-        activeTabByWorkspace: state.activeTabByWorkspace,
+        sessionsByWorkspace: Object.fromEntries(
+          Object.entries(state.sessionsByWorkspace).map(
+            ([workspaceId, sessions]) => [
+              workspaceId,
+              sessions.filter(
+                (session) =>
+                  !session.readOnly &&
+                  session.source !== 'acp' &&
+                  session.source !== 'codex'
+              ),
+            ]
+          )
+        ),
+        activeTabByWorkspace: Object.fromEntries(
+          Object.entries(state.activeTabByWorkspace).map(
+            ([workspaceId, activeTabId]) => {
+              const persistedSessions =
+                state.sessionsByWorkspace[workspaceId]?.filter(
+                  (session) =>
+                    !session.readOnly &&
+                    session.source !== 'acp' &&
+                    session.source !== 'codex'
+                ) ?? [];
+              const nextActiveTab = persistedSessions.some(
+                (session) => session.tabId === activeTabId
+              )
+                ? activeTabId
+                : (persistedSessions[0]?.tabId ?? null);
+              return [workspaceId, nextActiveTab];
+            }
+          )
+        ),
       }),
     }
   )

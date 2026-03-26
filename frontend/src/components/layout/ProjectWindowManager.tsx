@@ -308,10 +308,7 @@ export function ProjectWindowManager() {
     [openProjectIds, projectId]
   );
 
-  const isProjectHomeRoute =
-    location.pathname === '/' || location.pathname === '/local-projects';
   const showProjectRail =
-    !isProjectHomeRoute &&
     !location.pathname.startsWith('/settings') &&
     !location.pathname.endsWith('/full');
 

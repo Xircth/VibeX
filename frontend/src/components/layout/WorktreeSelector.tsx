@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Check, ChevronDown, Copy, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,17 @@ export function WorktreeSelector() {
   const activeWorktree = worktrees.find(
     (worktree) => worktree.workspace.id === effectiveWorktreeId
   );
+  const visibleWorktrees = useMemo(() => {
+    if (worktrees.length > 0) {
+      return worktrees;
+    }
+
+    if (routeWorkspace && effectiveWorktreeId) {
+      return [{ workspace: routeWorkspace, task: null }];
+    }
+
+    return [];
+  }, [effectiveWorktreeId, routeWorkspace, worktrees]);
   const projectRootBranchLabel =
     primaryRepoBranches.find((branch) => branch.is_current)?.name ??
     primaryRepo?.default_target_branch ??
@@ -148,8 +159,8 @@ export function WorktreeSelector() {
 
         <DropdownMenuSeparator />
 
-        {worktrees.length > 0 ? (
-          worktrees.map((worktree) => (
+        {visibleWorktrees.length > 0 ? (
+          visibleWorktrees.map((worktree) => (
             <DropdownMenuItem
               key={worktree.workspace.id}
               onSelect={(event) => {

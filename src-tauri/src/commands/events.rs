@@ -82,6 +82,10 @@ pub async fn subscribe_conversation_stream(
                 }
             }
         }
+
+        // Best-effort completion signal so frontend historic log loaders
+        // don't wait forever when backend streams end without an explicit Finished.
+        let _ = app.emit(&channel, &LogMsg::Finished);
     });
 
     Ok(())

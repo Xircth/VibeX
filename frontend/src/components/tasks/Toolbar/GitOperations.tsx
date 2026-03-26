@@ -32,6 +32,7 @@ import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useGitOperations } from '@/hooks/useGitOperations';
 import { useRepoBranches } from '@/hooks';
 import type { RebaseResult } from '@/lib/api';
+import { useGitOperationsError } from '@/contexts/GitOperationsContext';
 
 interface GitOperationsProps {
   selectedAttempt: Workspace;
@@ -57,6 +58,7 @@ function GitOperations({
     selectedAttempt.id
   );
   const git = useGitOperations(selectedAttempt.id, selectedRepoId ?? undefined);
+  const { setError } = useGitOperationsError();
   const { data: branches = [] } = useRepoBranches(selectedRepoId);
   const isChangingTargetBranch = git.states.changeTargetBranchPending;
 
@@ -236,18 +238,20 @@ function GitOperations({
     }
   };
 
-  const handleRebaseWithNewBranchAndUpstream = async (
-    newBaseBranch: string,
-    selectedUpstream: string
-  ) => {
+  const handleRebaseToTargetBranch = async (newBaseBranch: string) => {
     setRebasing(true);
     try {
       const repoId = getSelectedRepoId();
       if (!repoId) return;
+      const currentTargetBranch =
+        getSelectedRepoStatus()?.target_branch_name ?? null;
       await git.actions.rebase({
         repoId,
-        newBaseBranch: newBaseBranch,
-        oldBaseBranch: selectedUpstream,
+        newBaseBranch,
+        oldBaseBranch:
+          currentTargetBranch && currentTargetBranch !== newBaseBranch
+            ? currentTargetBranch
+            : undefined,
       });
       triggerRebaseSuccess();
     } catch (error) {
@@ -258,23 +262,23 @@ function GitOperations({
   };
 
   const handleRebaseDialogOpen = async () => {
+    if (!selectedAttempt.use_worktree) {
+      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      return;
+    }
+
     try {
       const defaultTargetBranch = getSelectedRepoStatus()?.target_branch_name;
       const result = await RebaseDialog.show({
         branches,
         isRebasing: rebasing,
         initialTargetBranch: defaultTargetBranch,
-        initialUpstreamBranch: defaultTargetBranch,
+        title: '变基当前 Worktree',
+        description: '选择一个目标分支，将该分支的最新更改变基到当前 Worktree。',
+        confirmLabel: '变基',
       });
-      if (
-        result.action === 'confirmed' &&
-        result.branchName &&
-        result.upstreamBranch
-      ) {
-        await handleRebaseWithNewBranchAndUpstream(
-          result.branchName,
-          result.upstreamBranch
-        );
+      if (result.action === 'confirmed' && result.branchName) {
+        await handleRebaseToTargetBranch(result.branchName);
       }
     } catch (error) {
       // User cancelled - do nothing
@@ -282,10 +286,40 @@ function GitOperations({
   };
 
   const handleRebaseBack = async () => {
+    if (!selectedAttempt.use_worktree) {
+      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      return;
+    }
+
+    const defaultTargetBranch = getSelectedRepoStatus()?.target_branch_name;
+    const result = await RebaseDialog.show({
+      branches,
+      isRebasing: rebasingBack,
+      initialTargetBranch: defaultTargetBranch,
+      title: '回基到目标分支',
+      description:
+        '选择一个目标分支。系统会先将该分支的最新更改变基到当前 Worktree，再把当前 Worktree 的更改合并回目标分支。',
+      confirmLabel: '回基',
+    });
+
+    if (result.action !== 'confirmed' || !result.branchName) {
+      return;
+    }
+
     setRebasingBack(true);
     try {
       const repoId = getSelectedRepoId();
       if (!repoId) return;
+      const currentTargetBranch =
+        getSelectedRepoStatus()?.target_branch_name ?? null;
+      await git.actions.rebase({
+        repoId,
+        newBaseBranch: result.branchName,
+        oldBaseBranch:
+          currentTargetBranch && currentTargetBranch !== result.branchName
+            ? currentTargetBranch
+            : undefined,
+      });
       await git.actions.rebaseBack({ repoId });
       triggerRebaseBackSuccess();
     } catch (error) {
@@ -525,7 +559,6 @@ function GitOperations({
                 mergeInfo.hasOpenPR ||
                 merging ||
                 hasConflictsCalculated ||
-                isAttemptRunning ||
                 selectedRepoStatus?.is_target_remote ||
                 ((selectedRepoStatus?.commits_ahead ?? 0) === 0 &&
                   !pushSuccess &&
@@ -545,7 +578,6 @@ function GitOperations({
               disabled={
                 mergeInfo.hasMergedPR ||
                 pushing ||
-                isAttemptRunning ||
                 hasConflictsCalculated ||
                 (mergeInfo.hasOpenPR &&
                   (selectedRepoStatus?.remote_commits_ahead ?? 0) === 0) ||
@@ -565,7 +597,7 @@ function GitOperations({
 
             <Button
               onClick={handleRebaseDialogOpen}
-              disabled={rebasing || isAttemptRunning || hasConflictsCalculated}
+              disabled={rebasing || hasConflictsCalculated}
               variant="outline"
               size="xs"
               className={`gap-1 shrink-0 ${rebaseSuccess ? 'border-success text-success hover:bg-success' : 'border-warning text-warning hover:bg-warning'}`}
@@ -583,7 +615,7 @@ function GitOperations({
 
             <Button
               onClick={handleRebaseBack}
-              disabled={rebasingBack || isAttemptRunning || hasConflictsCalculated}
+              disabled={rebasingBack || hasConflictsCalculated}
               variant="outline"
               size="xs"
               className={`gap-1 shrink-0 ${rebaseBackSuccess ? 'border-success text-success hover:bg-success' : 'border-warning text-warning hover:bg-warning'}`}

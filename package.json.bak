@@ -1,0 +1,50 @@
+{
+  "name": "vibe-ultra",
+  "version": "0.1.8",
+  "private": true,
+  "bin": {
+    "vibe-ultra": "npx-cli/bin/cli.js"
+  },
+  "files": [
+    "npx-cli/bin/cli.js",
+    "npx-cli/dist/**"
+  ],
+  "scripts": {
+    "lint": "pnpm run frontend:lint && pnpm run backend:lint",
+    "format": "cargo fmt --all && cd frontend && pnpm run format",
+    "check": "pnpm run frontend:check && pnpm run backend:check",
+    "dev": "pnpm run dev:desktop",
+    "dev:desktop": "pnpm run tauri:dev:desktop",
+    "test:npm": "./test-npm-package.sh",
+    "frontend:build": "cd frontend && pnpm run build",
+    "frontend:lint": "cd frontend && pnpm run lint",
+    "frontend:build:watch": "cd frontend && pnpm run build:watch",
+    "frontend:check": "cd frontend && pnpm run check",
+    "backend:lint": "cargo clippy --workspace --all-targets --features qa-mode -- -D warnings",
+    "backend:dev": "node scripts/run-backend-standalone.js",
+    "backend:check": "cargo check",
+    "backend:dev:watch": "node scripts/run-backend-dev.js",
+    "generate-types": "cargo run --bin generate_types",
+    "generate-types:check": "cargo run --bin generate_types -- --check",
+    "prepare-db": "node scripts/prepare-db.js",
+    "prepare-db:check": "node scripts/prepare-db.js --check",
+    "build:npx": "bash ./local-build.sh",
+    "prepack": "pnpm run build:npx",
+    "tauri:dev": "pnpm run tauri:dev:desktop",
+    "tauri:dev:desktop": "node scripts/run-tauri-dev-desktop.js",
+    "tauri:build": "node scripts/build-with-wix.js",
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.10.0",
+    "concurrently": "^8.2.2",
+    "vite": "^6.3.5"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@10.13.1",
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.23"
+  }
+}

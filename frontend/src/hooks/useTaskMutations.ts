@@ -4,6 +4,7 @@ import { tasksApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { taskRelationshipsKeys } from '@/hooks/useTaskRelationships';
+import { projectWorktreeKeys } from './useProjectWorktrees';
 import type {
   CreateTask,
   Task,
@@ -20,6 +21,9 @@ export function useTaskMutations(projectId?: string) {
 
   const invalidateQueries = (taskId?: string) => {
     queryClient.invalidateQueries({ queryKey: taskKeys.all });
+    queryClient.invalidateQueries({
+      queryKey: projectWorktreeKeys.byProject(projectId),
+    });
     if (taskId) {
       queryClient.invalidateQueries({ queryKey: taskKeys.byId(taskId) });
     }

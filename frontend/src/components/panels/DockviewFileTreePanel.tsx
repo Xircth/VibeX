@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { FolderTree, FolderOpen } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
@@ -55,9 +55,13 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   >(new Set());
   const [isLoading, setIsLoading] = useState(false);
 
-  const workspaceRootCandidates = activeWorktreeId
-    ? deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)
-    : [];
+  const workspaceRootCandidates = useMemo(
+    () =>
+      activeWorktreeId
+        ? deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)
+        : [],
+    [activeWorktreeId, workspace, workspaceRepos]
+  );
 
   // Switch rootPath to workspace worktree path when workspace changes
   useEffect(() => {

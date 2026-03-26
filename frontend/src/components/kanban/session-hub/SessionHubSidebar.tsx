@@ -270,7 +270,10 @@ function DraggableSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={cn('min-w-0 touch-none', !isDeleteMode && 'cursor-grab')}
+      className={cn(
+        'w-full max-w-full min-w-0 overflow-hidden touch-none',
+        !isDeleteMode && 'cursor-grab'
+      )}
       style={{
         transform: transform ? CSS.Translate.toString(transform) : undefined,
         opacity: isDragging ? 0.25 : undefined,
@@ -310,7 +313,7 @@ function renderSessionList(
   ) => Promise<void>
 ) {
   return (
-    <div className="space-y-1.5">
+    <div className="w-full max-w-full min-w-0 space-y-1.5">
       {sessions.map((session) => (
         enableDrag && status ? (
           <DraggableSessionCard
@@ -464,7 +467,7 @@ export function SessionHubSidebar({
 
             <div className="flex items-center gap-1">
               <Popover
-                modal={true}
+                modal={false}
                 open={isCreatePopoverOpen}
                 onOpenChange={onCreatePopoverOpenChange}
               >
@@ -861,7 +864,7 @@ export function SessionHubSidebar({
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div className="space-y-3 px-3 py-3">
+            <div className="space-y-3 px-3 py-3 pr-4">
               {isLoading ? (
                 <div className="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
                   正在加载会话...

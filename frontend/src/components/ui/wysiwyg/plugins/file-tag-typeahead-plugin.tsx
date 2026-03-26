@@ -207,7 +207,7 @@ export function FileTagTypeaheadPlugin({
         }
       }
     },
-    [diffPaths, effectiveRepoIds]
+    [diffPaths, effectiveRepoIds, projectId]
   );
 
   const menuOptions = useMemo(() => {

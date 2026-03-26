@@ -1148,20 +1148,18 @@ impl ContainerService for LocalContainerService {
 
         let workspace_dir = if let Some(container_ref) = &workspace.container_ref {
             PathBuf::from(container_ref)
+        } else if let Some(discovered_workspace_dir) =
+            self.discover_workspace_dir_from_existing_worktree(&repositories, &workspace.branch)
+        {
+            discovered_workspace_dir
         } else {
-            if let Some(discovered_workspace_dir) =
-                self.discover_workspace_dir_from_existing_worktree(&repositories, &workspace.branch)
-            {
-                discovered_workspace_dir
-            } else {
-                let task = workspace
-                    .parent_task(&self.db.pool)
-                    .await?
-                    .ok_or(sqlx::Error::RowNotFound)?;
-                let workspace_dir_name =
-                    LocalContainerService::dir_name_from_workspace(&workspace.id, &task.title);
-                WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
-            }
+            let task = workspace
+                .parent_task(&self.db.pool)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)?;
+            let workspace_dir_name =
+                LocalContainerService::dir_name_from_workspace(&workspace.id, &task.title);
+            WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
         };
 
         WorkspaceManager::ensure_workspace_exists(&workspace_dir, &repositories, &workspace.branch)

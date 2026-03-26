@@ -20,6 +20,8 @@ use std::{
     io::Write as _,
     path::Path,
     process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use thiserror::Error;
@@ -81,6 +83,8 @@ pub struct StatusDiffOptions {
 }
 
 impl GitCli {
+    const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+
     pub fn new() -> Self {
         Self {}
     }
@@ -697,6 +701,21 @@ impl GitCli {
         Ok(sha)
     }
 
+    /// Fast-forward merge the source branch into the currently checked-out branch.
+    /// Returns the new HEAD sha.
+    pub fn merge_ff_only(
+        &self,
+        repo_path: &Path,
+        source_branch: &str,
+    ) -> Result<String, GitCliError> {
+        self.git(repo_path, ["merge", "--ff-only", source_branch])?;
+        let sha = self
+            .git(repo_path, ["rev-parse", "HEAD"])?
+            .trim()
+            .to_string();
+        Ok(sha)
+    }
+
     /// Update a ref to a specific sha in the repo.
     pub fn update_ref(
         &self,
@@ -1108,6 +1127,8 @@ impl GitCli {
         let mut cmd = Command::new(&git);
         configure_std_command_no_window(&mut cmd);
         cmd.arg("-C").arg(repo_path);
+        cmd.env("GIT_TERMINAL_PROMPT", "0");
+        cmd.env("GCM_INTERACTIVE", "Never");
 
         if let Some(envs) = envs {
             for (k, v) in envs {
@@ -1147,20 +1168,44 @@ impl GitCli {
             None
         };
 
+        let started_at = Instant::now();
+        loop {
+            match child
+                .try_wait()
+                .map_err(|e| GitCliError::CommandFailed(e.to_string()))?
+            {
+                Some(_) => break,
+                None => {
+                    if started_at.elapsed() >= Self::DEFAULT_COMMAND_TIMEOUT {
+                        let _ = child.kill();
+                        let out = child
+                            .wait_with_output()
+                            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+                        let output = Self::format_command_output(&out.stdout, &out.stderr);
+                        return Err(GitCliError::CommandFailed(format!(
+                            "git command timed out after {}s{}",
+                            Self::DEFAULT_COMMAND_TIMEOUT.as_secs(),
+                            if output.is_empty() {
+                                String::new()
+                            } else {
+                                format!("\n{output}")
+                            }
+                        )));
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+
         let out = child
             .wait_with_output()
             .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
 
         if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let combined = match (stdout.is_empty(), stderr.is_empty()) {
-                (true, true) => "Command failed with no output".to_string(),
-                (false, false) => format!("--- stderr\n{stderr}\n--- stdout\n{stdout}"),
-                (false, true) => format!("--- stderr\n{stdout}"),
-                (true, false) => format!("--- stdout\n{stderr}"),
-            };
-            return Err(GitCliError::CommandFailed(combined));
+            return Err(GitCliError::CommandFailed(Self::format_command_output(
+                &out.stdout,
+                &out.stderr,
+            )));
         }
         if let Some(Err(e)) = stdin_write_result {
             return Err(GitCliError::CommandFailed(format!(
@@ -1206,6 +1251,17 @@ impl GitCli {
     {
         let out = self.git_impl(repo_path, args, envs, Some(stdin))?;
         Ok(String::from_utf8_lossy(&out).to_string())
+    }
+
+    fn format_command_output(stdout: &[u8], stderr: &[u8]) -> String {
+        let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+        match (stdout.is_empty(), stderr.is_empty()) {
+            (true, true) => "Command failed with no output".to_string(),
+            (false, false) => format!("--- stderr\n{stderr}\n--- stdout\n{stdout}"),
+            (false, true) => format!("--- stdout\n{stdout}"),
+            (true, false) => format!("--- stderr\n{stderr}"),
+        }
     }
 
     fn apply_default_excludes<I, S>(args: I) -> Vec<OsString>

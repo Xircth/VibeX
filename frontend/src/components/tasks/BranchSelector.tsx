@@ -190,6 +190,7 @@ function BranchSelector({
 
   return (
     <DropdownMenu
+      modal={false}
       open={open}
       onOpenChange={(next) => {
         setOpen(next);

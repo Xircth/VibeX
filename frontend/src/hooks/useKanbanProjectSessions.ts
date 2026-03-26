@@ -1,6 +1,6 @@
-﻿import { useMemo } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
-import type { TaskWithAttemptStatus, Workspace } from 'shared/types';
+﻿import { useEffect, useMemo } from 'react';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { SessionStatus, SessionSummary } from '@/lib/api';
 import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { attemptsApi, sessionsApi } from '@/lib/api';
@@ -81,6 +81,7 @@ function getWorkspaceName(
 }
 
 export function useKanbanProjectSessions(projectId: string | undefined) {
+  const queryClient = useQueryClient();
   const {
     tasks,
     tasksById,
@@ -121,6 +122,43 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       enabled: !!workspace.id,
     })),
   });
+
+  const sessionSummaries = useMemo(
+    () => sessionSummaryQueries.flatMap((query) => query.data ?? []),
+    [sessionSummaryQueries]
+  );
+
+  useEffect(() => {
+    workspaces.forEach((workspace) => {
+      queryClient.setQueryData<Workspace>(
+        ['taskAttempt', workspace.id],
+        (current) => current ?? workspace
+      );
+    });
+
+    sessionSummaries.forEach((summary) => {
+      const session: Session = {
+        id: summary.id,
+        workspace_id: summary.workspace_id,
+        task_id: summary.task_id,
+        name: summary.name,
+        status: summary.status,
+        executor: summary.executor,
+        created_at: summary.created_at,
+        updated_at: summary.updated_at,
+      };
+
+      queryClient.setQueryData<Session>(['session', summary.id], (current) => {
+        if (!current) {
+          return session;
+        }
+        return {
+          ...session,
+          ...current,
+        };
+      });
+    });
+  }, [queryClient, sessionSummaries, workspaces]);
 
   const sessions = useMemo<KanbanProjectSessionRecord[]>(() => {
     const nameMetaById = new Map<

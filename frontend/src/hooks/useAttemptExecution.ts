@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { attemptsApi, executionProcessesApi } from '@/lib/api';
 import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
@@ -59,12 +59,17 @@ export function useAttemptExecution(attemptId?: string, taskId?: string) {
       setIsStopping(true);
       await attemptsApi.stop(attemptId);
     } catch (error) {
+      setIsStopping(false);
       console.error('Failed to stop executions:', error);
       throw error;
-    } finally {
-      setIsStopping(false);
     }
   }, [attemptId, isStopping, setIsStopping]);
+
+  useEffect(() => {
+    if (isStopping && !isAttemptRunning) {
+      setIsStopping(false);
+    }
+  }, [isAttemptRunning, isStopping, setIsStopping]);
 
   const isLoading =
     streamLoading || processDetailQueries.some((q) => q.isLoading);

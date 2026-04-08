@@ -650,10 +650,13 @@ export function TaskFollowUpSection({
         additional_prompt: reviewMarkdown.trim() || null,
         use_all_workspace_commits: true,
       });
+      if (reviewMarkdown.trim()) {
+        clearComments();
+      }
     } catch (error) {
       console.error('Failed to start review:', error);
     }
-  }, [sessionId, effectiveExecutorProfile, reviewMarkdown]);
+  }, [sessionId, effectiveExecutorProfile, reviewMarkdown, clearComments]);
 
   const handleEditorChange = useCallback(
     (value: string) => {

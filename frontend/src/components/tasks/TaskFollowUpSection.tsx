@@ -647,13 +647,13 @@ export function TaskFollowUpSection({
     try {
       await sessionsApi.startReview(sessionId, {
         executor_profile_id: effectiveExecutorProfile,
-        additional_prompt: null,
+        additional_prompt: reviewMarkdown.trim() || null,
         use_all_workspace_commits: true,
       });
     } catch (error) {
       console.error('Failed to start review:', error);
     }
-  }, [sessionId, effectiveExecutorProfile]);
+  }, [sessionId, effectiveExecutorProfile, reviewMarkdown]);
 
   const handleEditorChange = useCallback(
     (value: string) => {

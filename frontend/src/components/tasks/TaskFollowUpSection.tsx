@@ -939,7 +939,7 @@ export function TaskFollowUpSection({
             onPasteFiles={handlePasteFiles}
             repoIds={repos.map((r) => r.id)}
             projectId={projectId}
-            executor={effectiveExecutorProfile?.executor ?? null}
+            executorProfile={effectiveExecutorProfile}
             taskAttemptId={workspaceId}
             onCmdEnter={handleSubmitShortcut}
             sendShortcut={config?.send_message_shortcut}

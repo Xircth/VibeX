@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import type { BaseCodingAgent, SlashCommandDescription } from 'shared/types';
+import type { ExecutorProfileId, SlashCommandDescription } from 'shared/types';
 import { useTauriPatchStream } from '@/hooks/useTauriPatchStream';
 
 type SlashCommandsStreamState = {
@@ -17,30 +17,32 @@ type SlashCommandsStreamState = {
  * and dynamically discovered custom commands / skills.
  */
 export function useSlashCommands(
-  agent: BaseCodingAgent | null | undefined,
+  executorProfile: ExecutorProfileId | null | undefined,
   opts?: { workspaceId?: string; repoId?: string }
 ) {
   const workspaceId = opts?.workspaceId;
   const repoId = opts?.repoId;
+  const executor = executorProfile?.executor;
+  const variant = executorProfile?.variant ?? null;
 
-  const variantStr = 'default';
+  const variantStr = variant ?? 'default';
   const wsStr = workspaceId ?? 'none';
   const repoStr = repoId ?? 'none';
 
-  const eventChannel = agent
-    ? `slash-commands-stream:${agent}:${variantStr}:${wsStr}:${repoStr}`
+  const eventChannel = executor
+    ? `slash-commands-stream:${executor}:${variantStr}:${wsStr}:${repoStr}`
     : '';
 
   const subscribeArgs = useMemo(
     () =>
-      agent
+      executor
         ? {
-            executorProfileId: { executor: agent, variant: null },
+            executorProfileId: { executor, variant },
             workspaceId: workspaceId ?? null,
             repoId: repoId ?? null,
           }
         : undefined,
-    [agent, workspaceId, repoId]
+    [executor, variant, workspaceId, repoId]
   );
 
   const initialData = useCallback(
@@ -62,7 +64,7 @@ export function useSlashCommands(
     subscribeArgs,
     eventChannel,
     initialData,
-    enabled: !!agent,
+    enabled: !!executor,
   });
 
   const error = data?.error ?? streamError;

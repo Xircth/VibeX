@@ -147,6 +147,7 @@ export function RetryEditorInline({
           onPasteFiles={handlePasteFiles}
           className={cn('min-h-[40px]', 'bg-background')}
           projectId={projectId}
+          executorProfile={effectiveProfile}
           taskAttemptId={attemptId}
         />
         {isSending && (

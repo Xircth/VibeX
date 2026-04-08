@@ -234,9 +234,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const isSubmitting = useStore(form.store, (state) => state.isSubmitting);
   const isDirty = useStore(form.store, (state) => state.isDirty);
   const canSubmit = useStore(form.store, (state) => state.canSubmit);
-  const selectedExecutor = useStore(
+  const selectedExecutorProfile = useStore(
     form.store,
-    (state) => state.values.executorProfileId?.executor ?? null
+    (state) => state.values.executorProfileId
   );
   const selectedRepoId = useStore(
     form.store,
@@ -460,7 +460,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                   disabled={isSubmitting}
                   repoIds={projectRepos.map((r) => r.id)}
                   projectId={projectId}
-                  executor={selectedExecutor}
+                  executorProfile={selectedExecutorProfile}
                   repoId={selectedRepoId}
                   onPasteFiles={onDrop}
                   onCmdEnter={primaryAction}

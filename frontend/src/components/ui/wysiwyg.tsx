@@ -93,8 +93,7 @@ import {
 } from '@/utils/fileReferences';
 import { Check, Clipboard, Pencil, Trash2 } from 'lucide-react';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
-import type { SendMessageShortcut } from 'shared/types';
-import type { BaseCodingAgent } from 'shared/types';
+import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
 
 /** Markdown string representing the editor content */
 export type SerializedEditorState = string;
@@ -112,8 +111,8 @@ type WysiwygProps = {
   repoIds?: string[];
   /** Project ID for file search in typeahead (fallback if repoIds not provided) */
   projectId?: string;
-  /** Enables `/` command autocomplete (agent-specific). */
-  executor?: BaseCodingAgent | null;
+  /** Enables `/` command autocomplete (profile-aware). */
+  executorProfile?: ExecutorProfileId | null;
   onCmdEnter?: () => void;
   onShiftCmdEnter?: () => void;
   /** Keyboard shortcut mode for sending messages */
@@ -181,7 +180,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       className,
       repoIds,
       projectId,
-      executor = null,
+      executorProfile = null,
       onCmdEnter,
       onShiftCmdEnter,
       sendShortcut,
@@ -465,9 +464,9 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                         repoIds={repoIds}
                         projectId={projectId}
                       />
-                      {executor && (
+                      {executorProfile && (
                         <SlashCommandTypeaheadPlugin
-                          agent={executor}
+                          executorProfile={executorProfile}
                           repoId={repoId}
                         />
                       )}

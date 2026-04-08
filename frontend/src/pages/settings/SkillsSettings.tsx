@@ -32,7 +32,6 @@ import {
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
 import { skillsApi, type PopularSkill } from '@/lib/api';
-import type { BaseCodingAgent } from 'shared/types';
 
 /* ── helpers ─────────────────────────────────────────────── */
 
@@ -99,11 +98,11 @@ function usePopularSkills() {
 
 export function SkillsSettings() {
   const { config } = useUserSystem();
-  const defaultAgent = config?.executor_profile?.executor as
-    | BaseCodingAgent
-    | undefined;
+  const defaultExecutorProfile = config?.executor_profile ?? null;
+  const defaultAgentLabel = defaultExecutorProfile?.executor ?? null;
+  const defaultAgent = defaultAgentLabel;
 
-  const { commands, discovering } = useSlashCommands(defaultAgent ?? null);
+  const { commands, discovering } = useSlashCommands(defaultExecutorProfile);
   const { skills: popularSkills, loading: skillsLoading, refresh: refreshSkills } = usePopularSkills();
   const [search, setSearch] = useState('');
   const [selectedCmd, setSelectedCmd] = useState<SlashCommand | null>(null);
@@ -170,7 +169,7 @@ export function SkillsSettings() {
         <div className="shrink-0 border-b px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground">技能与命令</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {defaultAgent
+            {defaultAgentLabel
               ? `当前代理：${defaultAgent}`
               : '未配置默认代理'}
           </p>
@@ -198,7 +197,7 @@ export function SkillsSettings() {
             </div>
           )}
 
-          {!defaultAgent && !discovering && (
+          {!defaultAgentLabel && !discovering && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
               <p className="text-xs text-amber-600 dark:text-amber-400">
                 请在"代理"设置中选择默认代理。
@@ -253,7 +252,7 @@ export function SkillsSettings() {
           )}
 
           {/* Empty */}
-          {!discovering && defaultAgent && filtered.length === 0 && (
+          {!discovering && defaultAgentLabel && filtered.length === 0 && (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
               <p className="text-xs text-muted-foreground">

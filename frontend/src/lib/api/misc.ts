@@ -20,6 +20,19 @@ import type {
 
 import { tauriInvoke } from './base';
 
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
 // Execution Process APIs
 export const executionProcessesApi = {
   getDetails: async (processId: string): Promise<ExecutionProcess> => {
@@ -212,20 +225,27 @@ export const tagsApi = {
 };
 
 // Images API
-// TODO: Image upload functions need special handling for Tauri (no FormData support).
-// File reading + base64 encoding via Tauri fs API will be implemented in a follow-up task.
 export const imagesApi = {
-  upload: async (_file: File): Promise<ImageResponse> => {
-    // TODO: Implement via Tauri fs API + base64 invoke
-    throw new Error('Image upload not yet implemented for Tauri');
+  upload: async (file: File): Promise<ImageResponse> => {
+    return tauriInvoke<ImageResponse>('upload_image', {
+      payload: {
+        fileName: file.name,
+        dataBase64: await fileToBase64(file),
+      },
+    });
   },
 
   uploadForTask: async (
-    _taskId: string,
-    _file: File
+    taskId: string,
+    file: File
   ): Promise<ImageResponse> => {
-    // TODO: Implement via Tauri fs API + base64 invoke
-    throw new Error('Image upload not yet implemented for Tauri');
+    return tauriInvoke<ImageResponse>('upload_image_for_task', {
+      taskId,
+      payload: {
+        fileName: file.name,
+        dataBase64: await fileToBase64(file),
+      },
+    });
   },
 
   /**
@@ -233,21 +253,24 @@ export const imagesApi = {
    * Returns the image with a file_path that can be used in markdown.
    */
   uploadForAttempt: async (
-    _attemptId: string,
-    _file: File
+    attemptId: string,
+    file: File
   ): Promise<ImageResponse> => {
-    // TODO: Implement via Tauri fs API + base64 invoke
-    throw new Error('Image upload not yet implemented for Tauri');
+    return tauriInvoke<ImageResponse>('upload_image_for_workspace', {
+      workspaceId: attemptId,
+      payload: {
+        fileName: file.name,
+        dataBase64: await fileToBase64(file),
+      },
+    });
   },
 
-  delete: async (_imageId: string): Promise<void> => {
-    // TODO: Implement image deletion via Tauri command
-    throw new Error('Image delete not yet implemented for Tauri');
+  delete: async (imageId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_image', { imageId });
   },
 
-  getTaskImages: async (_taskId: string): Promise<ImageResponse[]> => {
-    // TODO: Implement via Tauri command
-    throw new Error('getTaskImages not yet implemented for Tauri');
+  getTaskImages: async (taskId: string): Promise<ImageResponse[]> => {
+    return tauriInvoke<ImageResponse[]>('get_task_images', { taskId });
   },
 
   getImageUrl: (_imageId: string): string => {

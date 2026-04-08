@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use db::models::{
-    image::TaskImage,
+    image::{Image, TaskImage},
     repo::{Repo, RepoError},
     session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskWithAttemptStatus, UpdateTask},
@@ -31,6 +32,12 @@ pub struct CreateAndStartTaskRequest {
     pub repos: Vec<WorkspaceRepoInput>,
     #[serde(default = "default_use_worktree")]
     pub use_worktree: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UploadImageRequest {
+    pub file_name: String,
+    pub data_base64: String,
 }
 
 const fn default_use_worktree() -> bool {
@@ -67,6 +74,117 @@ pub async fn get_task(state: tauri::State<'_, AppState>, task_id: Uuid) -> Resul
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
     Ok(task)
+}
+
+#[tauri::command]
+pub async fn get_task_images(
+    state: tauri::State<'_, AppState>,
+    task_id: Uuid,
+) -> Result<Vec<Image>, AppError> {
+    let _task = Task::find_by_id(&state.deployment.db().pool, task_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
+
+    Ok(Image::find_by_task_id(&state.deployment.db().pool, task_id).await?)
+}
+
+#[tauri::command]
+pub async fn upload_image(
+    state: tauri::State<'_, AppState>,
+    payload: UploadImageRequest,
+) -> Result<Image, AppError> {
+    let bytes = STANDARD
+        .decode(payload.data_base64.as_bytes())
+        .map_err(|e| AppError::BadRequest(format!("Invalid image payload: {}", e)))?;
+
+    state
+        .deployment
+        .image()
+        .store_image(&bytes, &payload.file_name)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn upload_image_for_task(
+    state: tauri::State<'_, AppState>,
+    task_id: Uuid,
+    payload: UploadImageRequest,
+) -> Result<Image, AppError> {
+    let task = Task::find_by_id(&state.deployment.db().pool, task_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
+
+    let bytes = STANDARD
+        .decode(payload.data_base64.as_bytes())
+        .map_err(|e| AppError::BadRequest(format!("Invalid image payload: {}", e)))?;
+
+    let image = state
+        .deployment
+        .image()
+        .store_image(&bytes, &payload.file_name)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    TaskImage::associate_many_dedup(&state.deployment.db().pool, task.id, &[image.id]).await?;
+
+    Ok(image)
+}
+
+#[tauri::command]
+pub async fn upload_image_for_workspace(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    payload: UploadImageRequest,
+) -> Result<Image, AppError> {
+    let workspace = Workspace::find_by_id(&state.deployment.db().pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+
+    let bytes = STANDARD
+        .decode(payload.data_base64.as_bytes())
+        .map_err(|e| AppError::BadRequest(format!("Invalid image payload: {}", e)))?;
+
+    let image = state
+        .deployment
+        .image()
+        .store_image(&bytes, &payload.file_name)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    TaskImage::associate_many_dedup(&state.deployment.db().pool, workspace.task_id, &[image.id])
+        .await?;
+
+    if let Some(container_ref) = &workspace.container_ref {
+        let workspace_path = PathBuf::from(container_ref);
+        if workspace_path.exists() {
+            state
+                .deployment
+                .image()
+                .copy_images_by_task_to_worktree(
+                    &workspace_path,
+                    workspace.task_id,
+                    workspace.agent_working_dir.as_deref(),
+                )
+                .await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+        }
+    }
+
+    Ok(image)
+}
+
+#[tauri::command]
+pub async fn delete_image(
+    state: tauri::State<'_, AppState>,
+    image_id: Uuid,
+) -> Result<(), AppError> {
+    state
+        .deployment
+        .image()
+        .delete_image(image_id)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))
 }
 
 #[tauri::command]

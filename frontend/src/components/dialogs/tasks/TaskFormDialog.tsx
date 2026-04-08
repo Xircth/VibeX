@@ -87,7 +87,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const modal = useModal();
   const { createAndStart, updateTask } = useTaskMutations(projectId);
   const { system, profiles, loading: userSystemLoading } = useUserSystem();
-  const { upload, uploadForTask } = useImageUpload();
+  const { upload, uploadForTask, deleteImage } = useImageUpload();
   const { enableScope, disableScope } = useHotkeysContext();
 
   // Local UI state
@@ -403,9 +403,19 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const loading = branchesLoading || userSystemLoading;
   if (loading) return <></>;
 
-  const handleRemoveImage = (imageId: string) => {
+  const handleRemoveImage = async (imageId: string) => {
+    const isNewUpload = newlyUploadedImageIds.includes(imageId);
+
     setImages((prev) => prev.filter((image) => image.id !== imageId));
     setNewlyUploadedImageIds((prev) => prev.filter((id) => id !== imageId));
+
+    if (isNewUpload) {
+      try {
+        await deleteImage(imageId);
+      } catch (error) {
+        console.error('Failed to delete unsaved image:', error);
+      }
+    }
   };
 
   return (

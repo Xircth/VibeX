@@ -8,6 +8,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { AgentCard } from '@/components/settings/AgentCard';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { agentSettingsApi } from '@/lib/api';
 import type { AgentSettingInfo } from '@/lib/api';
 
@@ -15,6 +16,7 @@ export function AgentSettings() {
   const [agents, setAgents] = useState<AgentSettingInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const { reloadSystem } = useUserSystem();
 
   const loadAgents = useCallback(async () => {
     try {
@@ -30,6 +32,11 @@ export function AgentSettings() {
   useEffect(() => {
     loadAgents();
   }, [loadAgents]);
+
+  const reloadAgentSettingsAndRuntime = useCallback(async () => {
+    await loadAgents();
+    await reloadSystem();
+  }, [loadAgents, reloadSystem]);
 
   if (isLoading) {
     return (
@@ -60,7 +67,7 @@ export function AgentSettings() {
               )
             }
             onSave={() => {}}
-            onReload={loadAgents}
+            onReload={reloadAgentSettingsAndRuntime}
           />
         ))}
       </div>

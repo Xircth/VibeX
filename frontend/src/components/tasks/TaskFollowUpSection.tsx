@@ -159,10 +159,17 @@ export function TaskFollowUpSection({
     isPendingNewSessionMode && !isNewSessionMode;
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
+  const selectedSessionSummary = sessions.find((s) => s.id === selectedSessionId);
   const selectedSessionLabel = isNewSessionMode
     ? `\u4f1a\u8bdd${sessions.length + 1}`
-    : (sessions.find((s) => s.id === selectedSessionId)?.displayName ?? '\u4f1a\u8bdd');
-  const compactSessionLabel = truncateSessionLabel(selectedSessionLabel);
+    : selectedSessionSummary
+      ? `${selectedSessionSummary.displayName} · ${selectedSessionSummary.continuityLabel}`
+      : '\u4f1a\u8bdd';
+  const compactSessionLabel = truncateSessionLabel(
+    isNewSessionMode
+      ? `\u4f1a\u8bdd${sessions.length + 1}`
+      : (selectedSessionSummary?.displayName ?? '\u4f1a\u8bdd')
+  );
 
   const { isAttemptRunning, stopExecution, isStopping, processes } =
     useAttemptExecution(workspaceId, task.id);
@@ -486,6 +493,7 @@ export function TaskFollowUpSection({
   const { isSendingFollowUp, followUpError, setFollowUpError, onSendFollowUp } =
     useFollowUpSend({
       sessionId,
+      sessionExecutor: session?.executor,
       workspaceId,
       isNewSessionMode,
       newSessionName,

@@ -2,7 +2,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { queueApi, sessionsApi } from '@/lib/api';
 import type { SessionStatus, SessionSummary as SessionSummaryRecord } from '@/lib/api';
-import type { QueueStatus, Session } from 'shared/types';
+import type { QueueStatus, Session, SessionContinuityMode } from 'shared/types';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
@@ -24,6 +24,20 @@ export interface WorkspaceSessionSummary extends Session {
   workspaceName: string | null;
   workspaceBranch: string;
   statusLabel: string;
+  continuityMode: SessionContinuityMode;
+  continuityLabel: string;
+}
+
+function getContinuityLabel(mode: SessionContinuityMode) {
+  switch (mode) {
+    case 'resume_in_place':
+      return '原地续写';
+    case 'fork_snapshot':
+      return '快照分叉';
+    case 'new_session':
+    default:
+      return '全新上下文';
+  }
 }
 
 export interface UseWorkspaceSessionsResult {
@@ -147,6 +161,8 @@ export function useWorkspaceSessions(
             session.is_running,
             queueStatus
           ),
+          continuityMode: session.continuity_mode,
+          continuityLabel: getContinuityLabel(session.continuity_mode),
         } as WorkspaceSessionSummary;
       }),
     [queueStatusQueries, sessionSummaries]

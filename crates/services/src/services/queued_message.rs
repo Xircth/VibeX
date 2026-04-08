@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use db::models::scratch::DraftFollowUpData;
+use db::models::scratch::{DraftFollowUpData, Scratch, ScratchPayload};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -51,8 +51,30 @@ impl QueuedMessageService {
             data,
             queued_at: Utc::now(),
         };
-        self.queue.insert(session_id, queued.clone());
+        self.insert_restored(queued.clone());
         queued
+    }
+
+    /// Restore a queued message with an existing timestamp.
+    pub fn insert_restored(&self, queued: QueuedMessage) {
+        self.queue.insert(queued.session_id, queued);
+    }
+
+    /// Restore all queued follow-ups from scratch records.
+    pub fn restore_from_scratches(&self, scratches: &[Scratch]) {
+        self.queue.clear();
+
+        for scratch in scratches {
+            let ScratchPayload::DraftFollowUp(data) = &scratch.payload else {
+                continue;
+            };
+
+            self.insert_restored(QueuedMessage {
+                session_id: scratch.id,
+                data: data.clone(),
+                queued_at: scratch.updated_at,
+            });
+        }
     }
 
     /// Cancel/remove a queued message for a session
@@ -88,5 +110,54 @@ impl QueuedMessageService {
 impl Default for QueuedMessageService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::models::scratch::{DraftWorkspaceData, ScratchPayload};
+
+    #[test]
+    fn restore_from_scratches_only_loads_followups() {
+        let service = QueuedMessageService::new();
+        let followup_session = Uuid::new_v4();
+        let other_session = Uuid::new_v4();
+        let queued_at = Utc::now();
+
+        let scratches = vec![
+            Scratch {
+                id: followup_session,
+                payload: ScratchPayload::DraftFollowUp(DraftFollowUpData {
+                    message: "resume me".to_string(),
+                    executor_config: executors::profile::ExecutorConfig::from(
+                        executors::profile::ExecutorProfileId::new(
+                            executors::executors::BaseCodingAgent::Codex,
+                        ),
+                    ),
+                }),
+                created_at: queued_at,
+                updated_at: queued_at,
+            },
+            Scratch {
+                id: other_session,
+                payload: ScratchPayload::DraftWorkspace(DraftWorkspaceData {
+                    message: "ignore me".to_string(),
+                    project_id: None,
+                    repos: vec![],
+                    selected_profile: None,
+                    linked_issue: None,
+                }),
+                created_at: queued_at,
+                updated_at: queued_at,
+            },
+        ];
+
+        service.restore_from_scratches(&scratches);
+
+        let restored = service.get_queued(followup_session).expect("follow-up restored");
+        assert_eq!(restored.data.message, "resume me");
+        assert_eq!(restored.queued_at, queued_at);
+        assert!(service.get_queued(other_session).is_none());
     }
 }

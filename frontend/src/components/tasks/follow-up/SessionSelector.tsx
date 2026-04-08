@@ -13,6 +13,7 @@ interface SessionItem {
   id: string;
   displayName: string;
   statusLabel: string;
+  continuityLabel: string;
 }
 
 interface SessionSelectorProps {
@@ -128,9 +129,14 @@ export function SessionSelector({
                     />
                   ) : (
                     <div className="flex min-w-0 items-center justify-between gap-3">
-                      <span className="truncate max-w-[180px]">
-                        {session.displayName}
-                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate max-w-[180px]">
+                          {session.displayName}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {session.continuityLabel}
+                        </div>
+                      </div>
                       <span className="shrink-0 text-[10px] text-muted-foreground">
                         {session.statusLabel}
                       </span>

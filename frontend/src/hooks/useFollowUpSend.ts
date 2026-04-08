@@ -6,6 +6,7 @@ import { buildAgentPrompt } from '@/utils/promptMessage';
 
 type Args = {
   sessionId?: string;
+  sessionExecutor?: string | null;
   workspaceId?: string;
   isNewSessionMode?: boolean;
   newSessionName?: string;
@@ -24,6 +25,7 @@ type Args = {
 
 export function useFollowUpSend({
   sessionId,
+  sessionExecutor,
   workspaceId,
   isNewSessionMode,
   newSessionName,
@@ -56,7 +58,12 @@ export function useFollowUpSend({
       setFollowUpError(null);
 
       let targetSessionId = sessionId;
-      if (isNewSessionMode || !targetSessionId) {
+      const shouldCreateNewSession =
+        isNewSessionMode ||
+        !targetSessionId ||
+        (!!sessionExecutor && sessionExecutor !== executorProfileId.executor);
+
+      if (shouldCreateNewSession) {
         if (!workspaceId) return;
 
         const session = await sessionsApi.create({
@@ -84,6 +91,9 @@ export function useFollowUpSend({
         force_when_dirty: null,
         perform_git_reset: null,
       };
+      if (!targetSessionId) {
+        throw new Error('No target session available for follow-up');
+      }
       await sessionsApi.followUp(targetSessionId, body);
       if (!isSlashCommand) {
         clearComments();
@@ -100,6 +110,7 @@ export function useFollowUpSend({
   }, [
     queryClient,
     sessionId,
+    sessionExecutor,
     workspaceId,
     isNewSessionMode,
     newSessionName,

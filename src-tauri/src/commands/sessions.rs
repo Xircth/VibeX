@@ -29,6 +29,29 @@ use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
 
+fn queue_status_from_scratch(scratch: Scratch) -> Result<QueueStatus, AppError> {
+    let Scratch {
+        id,
+        payload,
+        updated_at,
+        ..
+    } = scratch;
+
+    match payload {
+        db::models::scratch::ScratchPayload::DraftFollowUp(data) => Ok(QueueStatus::Queued {
+            message: services::services::queued_message::QueuedMessage {
+                session_id: id,
+                data,
+                queued_at: updated_at,
+            },
+        }),
+        other => Err(AppError::Internal(format!(
+            "Invalid scratch payload for queued follow-up: {:?}",
+            other.scratch_type()
+        ))),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct SessionSummary {
     pub id: Uuid,
@@ -44,6 +67,29 @@ pub struct SessionSummary {
     pub updated_at: DateTime<Utc>,
     pub first_prompt: Option<String>,
     pub is_running: bool,
+    pub continuity_mode: SessionContinuityMode,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionContinuityMode {
+    NewSession,
+    ResumeInPlace,
+    ForkSnapshot,
+}
+
+fn derive_session_continuity_mode(
+    executor: Option<&str>,
+    has_resume_context: bool,
+) -> SessionContinuityMode {
+    if !has_resume_context {
+        return SessionContinuityMode::NewSession;
+    }
+
+    match executor {
+        Some("CODEX") | Some("OPENCODE") => SessionContinuityMode::ForkSnapshot,
+        _ => SessionContinuityMode::ResumeInPlace,
+    }
 }
 
 fn build_session_display_name(session: &Session, first_prompt: Option<&str>) -> String {
@@ -185,9 +231,12 @@ pub async fn get_session_summaries(
     for session in sessions {
         let first_prompt =
             CodingAgentTurn::find_first_prompt_by_session_id(pool, session.id).await?;
+        let latest_resume_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
         let is_running =
             ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
                 .await?;
+        let continuity_mode =
+            derive_session_continuity_mode(session.executor.as_deref(), latest_resume_info.is_some());
 
         summaries.push(SessionSummary {
             id: session.id,
@@ -203,6 +252,7 @@ pub async fn get_session_summaries(
             updated_at: session.updated_at,
             first_prompt,
             is_running,
+            continuity_mode,
         });
     }
 
@@ -637,7 +687,8 @@ pub async fn queue_message(
     executor_profile_id: ExecutorProfileId,
 ) -> Result<QueueStatus, AppError> {
     // Look up session (validate it exists)
-    let _session = Session::find_by_id(&state.deployment.db().pool, session_id)
+    let pool = &state.deployment.db().pool;
+    let _session = Session::find_by_id(pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
 
@@ -646,12 +697,27 @@ pub async fn queue_message(
         executor_config: ExecutorConfig::from(executor_profile_id),
     };
 
+    let scratch = Scratch::update(
+        pool,
+        session_id,
+        &ScratchType::DraftFollowUp,
+        &db::models::scratch::UpdateScratch {
+            payload: db::models::scratch::ScratchPayload::DraftFollowUp(data.clone()),
+        },
+    )
+    .await?;
+
     let queued = state
         .deployment
         .queued_message_service()
         .queue_message(session_id, data);
 
-    Ok(QueueStatus::Queued { message: queued })
+    Ok(QueueStatus::Queued {
+        message: services::services::queued_message::QueuedMessage {
+            queued_at: scratch.updated_at,
+            ..queued
+        },
+    })
 }
 
 /// Cancel a queued follow-up message.
@@ -661,9 +727,12 @@ pub async fn cancel_queued_message(
     session_id: Uuid,
 ) -> Result<QueueStatus, AppError> {
     // Look up session (validate it exists)
-    let _session = Session::find_by_id(&state.deployment.db().pool, session_id)
+    let pool = &state.deployment.db().pool;
+    let _session = Session::find_by_id(pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    let _ = Scratch::delete(pool, session_id, &ScratchType::DraftFollowUp).await?;
 
     state
         .deployment
@@ -680,14 +749,31 @@ pub async fn get_queue_status(
     session_id: Uuid,
 ) -> Result<QueueStatus, AppError> {
     // Look up session (validate it exists)
-    let _session = Session::find_by_id(&state.deployment.db().pool, session_id)
+    let pool = &state.deployment.db().pool;
+    let _session = Session::find_by_id(pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
 
-    let status = state
+    let in_memory_status = state
         .deployment
         .queued_message_service()
         .get_status(session_id);
 
-    Ok(status)
+    if matches!(in_memory_status, QueueStatus::Queued { .. }) {
+        return Ok(in_memory_status);
+    }
+
+    if let Some(scratch) = Scratch::find_by_id(pool, session_id, &ScratchType::DraftFollowUp).await?
+    {
+        let status = queue_status_from_scratch(scratch.clone())?;
+        if let QueueStatus::Queued { message } = &status {
+            state
+                .deployment
+                .queued_message_service()
+                .insert_restored(message.clone());
+        }
+        return Ok(status);
+    }
+
+    Ok(QueueStatus::Empty)
 }

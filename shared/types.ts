@@ -370,7 +370,7 @@ export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_pa
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, 
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, 
 /**
  * Agents that have been disabled by the user in settings
  */
@@ -669,4 +669,6 @@ export type CreateSession = { executor: string | null, task_id: string | null, n
 
 export type SessionStatus = "todo" | "inprogress" | "inreview" | "done";
 
-export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, };
+export type SessionContinuityMode = "new_session" | "resume_in_place" | "fork_snapshot";
+
+export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, };

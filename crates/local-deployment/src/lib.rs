@@ -5,7 +5,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use db::DBService;
+use anyhow::anyhow;
+use db::{DBService, models::scratch::Scratch};
 use deployment::{Deployment, DeploymentError};
 use executors::profile::ExecutorConfigs;
 use git::GitService;
@@ -117,6 +118,10 @@ impl Deployment for LocalDeployment {
 
         let approvals = Approvals::new(msg_stores.clone());
         let queued_message_service = QueuedMessageService::new();
+        let scratches = Scratch::find_all(&db.pool)
+            .await
+            .map_err(|e| anyhow!("failed to load scratch state for queue restore: {e}"))?;
+        queued_message_service.restore_from_scratches(&scratches);
 
         let container = LocalContainerService::new(
             db.clone(),

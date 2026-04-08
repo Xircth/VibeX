@@ -116,20 +116,6 @@ export const attemptsApi = {
     });
   },
 
-  linkToIssue: async (
-    _workspaceId: string,
-    _projectId: string,
-    _issueId: string
-  ): Promise<void> => {
-    // TODO: link_workspace not yet implemented in Tauri commands
-    throw new Error('linkToIssue not yet implemented in Tauri');
-  },
-
-  unlinkFromIssue: async (_workspaceId: string): Promise<void> => {
-    // TODO: unlink_workspace not yet implemented in Tauri commands
-    throw new Error('unlinkFromIssue not yet implemented in Tauri');
-  },
-
   runAgentSetup: async (
     attemptId: string,
     data: RunAgentSetupRequest

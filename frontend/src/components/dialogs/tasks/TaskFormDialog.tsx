@@ -3,7 +3,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { useDropzone } from 'react-dropzone';
 import { useForm, useStore } from '@tanstack/react-form';
-import { Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -403,6 +403,11 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const loading = branchesLoading || userSystemLoading;
   if (loading) return <></>;
 
+  const handleRemoveImage = (imageId: string) => {
+    setImages((prev) => prev.filter((image) => image.id !== imageId));
+    setNewlyUploadedImageIds((prev) => prev.filter((id) => id !== imageId));
+  };
+
   return (
     <>
       <Dialog
@@ -619,16 +624,40 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           {/* Actions */}
           <div className="flex items-center justify-between gap-3">
             {/* Attach Image*/}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={dropzoneOpen}
-                className="h-9 w-9 rounded-md p-0"
+                className="h-9 w-9 rounded-md p-0 shrink-0"
                 aria-label={'\u6dfb\u52a0\u56fe\u7247'}
               >
                 <ImageIcon className="h-4 w-4" />
               </Button>
+              {images.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  {images.map((image) => (
+                    <div
+                      key={image.id}
+                      className="inline-flex max-w-[220px] items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate" title={image.original_name}>
+                        {image.original_name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveImage(image.id)}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                        aria-label={`Remove ${image.original_name}`}
+                        title={`Remove ${image.original_name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-3">

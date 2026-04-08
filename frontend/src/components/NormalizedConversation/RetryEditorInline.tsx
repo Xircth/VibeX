@@ -13,6 +13,10 @@ import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useBranchStatus } from '@/hooks/useBranchStatus';
 import { useRetryProcess } from '@/hooks/useRetryProcess';
 import { extractProfileFromAction } from '@/utils/executor';
+import {
+  getContinuityActionCopy,
+  getExecutorContinuityMode,
+} from '@/utils/sessionContinuity';
 
 export function RetryEditorInline({
   attempt,
@@ -50,6 +54,9 @@ export function RetryEditorInline({
     useState(processProfile);
 
   const effectiveProfile = selectedExecutorProfile ?? processProfile;
+  const continuityCopy = getContinuityActionCopy(
+    getExecutorContinuityMode(effectiveProfile?.executor ?? null)
+  );
 
   const retryMutation = useRetryProcess(
     sessionId ?? '',
@@ -167,6 +174,9 @@ export function RetryEditorInline({
           onChange={handleFileInputChange}
         />
         <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {continuityCopy.retryDescription}
+          </span>
           <Button
             variant="outline"
             onClick={handleAttachClick}
@@ -180,7 +190,12 @@ export function RetryEditorInline({
             <X className="h-3 w-3 mr-1" />{' '}
             {'取消'}
           </Button>
-          <Button onClick={onSend} disabled={!canSend || isSending}>
+          <Button
+            onClick={onSend}
+            disabled={!canSend || isSending}
+            title={continuityCopy.retryLabel}
+            aria-label={continuityCopy.retryLabel}
+          >
             <Send className="h-3 w-3 mr-1" />{' '}
             {'发送'}
           </Button>

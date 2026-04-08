@@ -12,6 +12,10 @@ import { sessionsApi } from '@/lib/api';
 import { RestoreLogsDialog } from '@/components/dialogs';
 import { RetryEditorInline } from './RetryEditorInline';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
+import {
+  getContinuityActionCopy,
+  getExecutorContinuityMode,
+} from '@/utils/sessionContinuity';
 
 const COLLAPSED_MAX_HEIGHT = 120;
 
@@ -37,6 +41,9 @@ const UserMessage = ({
     useRetryUi();
   const { isAttemptRunning } = useAttemptExecution(taskAttempt?.id);
   const { data: branchStatus } = useBranchStatus(taskAttempt?.id);
+  const continuityCopy = getContinuityActionCopy(
+    getExecutorContinuityMode(taskAttempt?.session?.executor ?? null)
+  );
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -112,6 +119,7 @@ const UserMessage = ({
           executionProcessId,
           branchStatus,
           processes: [],
+          mode: 'reset',
         });
       } catch {
         return;
@@ -203,8 +211,8 @@ const UserMessage = ({
                 <button
                   onClick={startRetry}
                   className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                  title="Edit"
-                  aria-label="Edit"
+                  title={continuityCopy.retryLabel}
+                  aria-label={continuityCopy.retryLabel}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
@@ -214,8 +222,8 @@ const UserMessage = ({
                   onClick={handleRollback}
                   disabled={isRollingBack}
                   className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                  title="Rollback"
-                  aria-label="Rollback"
+                  title="回滚到此处"
+                  aria-label="回滚到此处"
                 >
                   <Undo2 className="h-3.5 w-3.5" />
                 </button>

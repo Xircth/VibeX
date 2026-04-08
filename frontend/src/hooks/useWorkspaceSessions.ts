@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { queueApi, sessionsApi } from '@/lib/api';
 import type { SessionStatus, SessionSummary as SessionSummaryRecord } from '@/lib/api';
 import type { QueueStatus, Session, SessionContinuityMode } from 'shared/types';
+import { getContinuityActionCopy } from '@/utils/sessionContinuity';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
@@ -29,15 +30,7 @@ export interface WorkspaceSessionSummary extends Session {
 }
 
 function getContinuityLabel(mode: SessionContinuityMode) {
-  switch (mode) {
-    case 'resume_in_place':
-      return '原地续写';
-    case 'fork_snapshot':
-      return '快照分叉';
-    case 'new_session':
-    default:
-      return '全新上下文';
-  }
+  return getContinuityActionCopy(mode).shortLabel;
 }
 
 export interface UseWorkspaceSessionsResult {

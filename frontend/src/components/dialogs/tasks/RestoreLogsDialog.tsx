@@ -21,7 +21,9 @@ import type {
   ExecutionProcess,
   ExecutionProcessRepoState,
   RepoBranchStatus,
+  SessionContinuityMode,
 } from 'shared/types';
+import { getContinuityActionCopy } from '@/utils/sessionContinuity';
 
 export interface RestoreLogsDialogProps {
   executionProcessId: string;
@@ -30,6 +32,7 @@ export interface RestoreLogsDialogProps {
   initialWorktreeResetOn?: boolean;
   initialForceReset?: boolean;
   mode?: 'retry' | 'reset';
+  continuityMode?: SessionContinuityMode;
 }
 
 export type RestoreLogsDialogResult = {
@@ -46,6 +49,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
     initialWorktreeResetOn = false,
     initialForceReset = false,
     mode = 'retry',
+    continuityMode = 'resume_in_place',
   }) => {
     const modal = useModal();    const [isLoading, setIsLoading] = useState(true);
     const [worktreeResetOn, setWorktreeResetOn] = useState(
@@ -141,6 +145,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
 
     const hasProcessesToDelete = deletedCount > 0;
     const repoCount = repoInfo.length;
+    const continuityCopy = getContinuityActionCopy(continuityMode);
 
     const isConfirmDisabled =
       isLoading ||
@@ -198,6 +203,11 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {mode === 'retry' && (
+                    <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+                      {continuityCopy.retryDescription}
+                    </div>
+                  )}
                   {hasProcessesToDelete && (
                     <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3">
                       <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />

@@ -81,6 +81,8 @@ pub fn run() {
             commands::tasks::upload_image_for_task,
             commands::tasks::upload_image_for_workspace,
             commands::tasks::delete_image,
+            commands::tasks::get_task_image_metadata,
+            commands::tasks::get_workspace_image_metadata,
             commands::workspaces::get_workspaces,
             commands::workspaces::get_project_workspaces,
             commands::workspaces::get_workspace,

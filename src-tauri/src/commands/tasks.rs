@@ -40,6 +40,46 @@ pub struct UploadImageRequest {
     pub data_base64: String,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct ImageMetadataResponse {
+    pub exists: bool,
+    pub file_name: Option<String>,
+    pub path: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub format: Option<String>,
+    pub proxy_url: Option<String>,
+}
+
+fn image_metadata_response(
+    image_service: &services::services::image::ImageService,
+    image: Option<Image>,
+) -> ImageMetadataResponse {
+    if let Some(image) = image {
+        let absolute_path = image_service.get_absolute_path(&image);
+        ImageMetadataResponse {
+            exists: absolute_path.exists(),
+            file_name: Some(image.original_name),
+            path: Some(absolute_path.to_string_lossy().to_string()),
+            size_bytes: Some(image.size_bytes),
+            format: image
+                .mime_type
+                .as_deref()
+                .and_then(|mime| mime.split('/').nth(1))
+                .map(|value| value.to_string()),
+            proxy_url: Some(absolute_path.to_string_lossy().to_string()),
+        }
+    } else {
+        ImageMetadataResponse {
+            exists: false,
+            file_name: None,
+            path: None,
+            size_bytes: None,
+            format: None,
+            proxy_url: None,
+        }
+    }
+}
+
 const fn default_use_worktree() -> bool {
     true
 }
@@ -185,6 +225,64 @@ pub async fn delete_image(
         .delete_image(image_id)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))
+}
+
+#[tauri::command]
+pub async fn get_task_image_metadata(
+    state: tauri::State<'_, AppState>,
+    task_id: Uuid,
+    path: String,
+) -> Result<ImageMetadataResponse, AppError> {
+    let _task = Task::find_by_id(&state.deployment.db().pool, task_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Task {} not found", task_id)))?;
+
+    let file_name = path
+        .strip_prefix(".vibe-images/")
+        .unwrap_or(path.as_str())
+        .to_string();
+    let image = Image::find_by_file_path(&state.deployment.db().pool, &file_name).await?;
+    Ok(image_metadata_response(state.deployment.image(), image))
+}
+
+#[tauri::command]
+pub async fn get_workspace_image_metadata(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    path: String,
+) -> Result<ImageMetadataResponse, AppError> {
+    let workspace = Workspace::find_by_id(&state.deployment.db().pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+
+    let file_name = path
+        .strip_prefix(".vibe-images/")
+        .unwrap_or(path.as_str())
+        .to_string();
+    let image = Image::find_by_file_path(&state.deployment.db().pool, &file_name).await?;
+
+    let metadata = image_metadata_response(state.deployment.image(), image);
+    if !metadata.exists {
+        return Ok(metadata);
+    }
+
+    if let Some(container_ref) = &workspace.container_ref {
+        let candidate = PathBuf::from(container_ref)
+            .join(utils::path::VIBE_IMAGES_DIR)
+            .join(&file_name);
+        if candidate.exists() {
+            return Ok(ImageMetadataResponse {
+                exists: true,
+                file_name: metadata.file_name,
+                path: Some(candidate.to_string_lossy().to_string()),
+                size_bytes: metadata.size_bytes,
+                format: metadata.format,
+                proxy_url: Some(candidate.to_string_lossy().to_string()),
+            });
+        }
+    }
+
+    Ok(metadata)
 }
 
 #[tauri::command]

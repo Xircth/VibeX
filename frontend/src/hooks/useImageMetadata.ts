@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ImageMetadata } from 'shared/types';
 import type { LocalImageMetadata } from '@/components/ui/wysiwyg/context/task-attempt-context';
+import { tauriInvoke } from '@/lib/tauriApi';
 
 export function useImageMetadata(
   taskAttemptId: string | undefined,
@@ -40,20 +42,23 @@ export function useImageMetadata(
   const query = useQuery({
     queryKey: ['imageMetadata', taskAttemptId, taskId, src],
     queryFn: async (): Promise<ImageMetadata | null> => {
-      // Pure API logic - no local image handling
       if (taskAttemptId) {
-        const res = await fetch(
-          `/api/task-attempts/${taskAttemptId}/images/metadata?path=${encodeURIComponent(src)}`
-        );
-        const data = await res.json();
-        return data.data as ImageMetadata | null;
+        const data = await tauriInvoke<ImageMetadata>('get_workspace_image_metadata', {
+          workspaceId: taskAttemptId,
+          path: src,
+        });
+        return data.proxy_url
+          ? { ...data, proxy_url: convertFileSrc(data.proxy_url) }
+          : data;
       }
       if (taskId) {
-        const res = await fetch(
-          `/api/images/task/${taskId}/metadata?path=${encodeURIComponent(src)}`
-        );
-        const data = await res.json();
-        return data.data as ImageMetadata | null;
+        const data = await tauriInvoke<ImageMetadata>('get_task_image_metadata', {
+          taskId,
+          path: src,
+        });
+        return data.proxy_url
+          ? { ...data, proxy_url: convertFileSrc(data.proxy_url) }
+          : data;
       }
       return null;
     },

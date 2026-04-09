@@ -1,9 +1,23 @@
 import type { IDockviewPanelProps } from 'dockview-react';
+import { Loader2, ScrollText } from 'lucide-react';
+
+import VirtualizedList from '@/components/logs/VirtualizedList';
+import { EntriesProvider } from '@/contexts/EntriesContext';
+import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
+import { useProject } from '@/contexts/ProjectContext';
+import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
-import { ScrollText } from 'lucide-react';
+import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
+import { useProjectTasks } from '@/hooks/useProjectTasks';
 
 function DockviewLogsPanel(_props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
+  const { projectId } = useProject();
+  const { data: attempt, isLoading: isLoadingAttempt } =
+    useTaskAttemptWithSession(activeWorktreeId ?? undefined);
+  const taskId = attempt?.task_id;
+  const { tasksById } = useProjectTasks(projectId ?? '');
+  const task = taskId ? tasksById[taskId] ?? null : null;
 
   if (!activeWorktreeId) {
     return (
@@ -16,11 +30,44 @@ function DockviewLogsPanel(_props: IDockviewPanelProps) {
     );
   }
 
+  if (isLoadingAttempt) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-background text-muted-foreground text-sm">
+        <div className="text-center space-y-2">
+          <Loader2 className="h-8 w-8 animate-spin opacity-70 mx-auto" />
+          <p>Loading logs...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!attempt || !task) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-background text-muted-foreground text-sm">
+        <div className="text-center space-y-2">
+          <ScrollText className="h-8 w-8 opacity-40 mx-auto" />
+          <p>Logs unavailable for this workspace.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const conversationKey = `${attempt.id}:${attempt.session?.id ?? 'unknown'}:logs`;
+
   return (
-    <div className="h-full w-full overflow-auto bg-background p-3 text-xs font-mono" data-panel="logs">
-      <p className="text-muted-foreground">Logs for workspace {activeWorktreeId}</p>
-      {/* TODO: integrate with VirtualizedList / EntriesProvider from TaskAttemptPanel */}
-    </div>
+    <EntriesProvider key={conversationKey} cacheKey={conversationKey}>
+      <ExecutionProcessesProvider
+        key={conversationKey}
+        attemptId={attempt.id}
+        sessionId={attempt.session?.id}
+      >
+        <RetryUiProvider attemptId={attempt.id}>
+          <div className="h-full w-full bg-background" data-panel="logs">
+            <VirtualizedList attempt={attempt} task={task} />
+          </div>
+        </RetryUiProvider>
+      </ExecutionProcessesProvider>
+    </EntriesProvider>
   );
 }
 

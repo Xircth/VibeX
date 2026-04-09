@@ -17,6 +17,7 @@ import {
   getContinuityActionCopy,
   getExecutorContinuityMode,
 } from '@/utils/sessionContinuity';
+import { toVibeImagePath } from '@/utils/images';
 
 export function RetryEditorInline({
   attempt,
@@ -105,7 +106,7 @@ export function RetryEditorInline({
       for (const file of files) {
         try {
           const response = await imagesApi.uploadForAttempt(attemptId, file);
-          const imageMarkdown = `![${response.original_name}](${response.file_path})`;
+          const imageMarkdown = `![${response.original_name}](${toVibeImagePath(response.file_path)})`;
           setMessage((prev) =>
             prev ? `${prev}\n\n${imageMarkdown}` : imageMarkdown
           );

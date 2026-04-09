@@ -43,6 +43,7 @@ import {
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { cn } from '@/lib/utils';
 import { getFirstAvailableProfile } from '@/utils/executor';
+import { toVibeImagePath } from '@/utils/images';
 import type {
   TaskStatus,
   ExecutorProfileId,
@@ -283,7 +284,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             : await upload(file);
 
           // Add markdown image reference to description
-          const markdownText = `![${img.original_name}](${img.file_path})`;
+          const markdownText = `![${img.original_name}](${toVibeImagePath(img.file_path)})`;
           form.setFieldValue('description', (prev) =>
             prev.trim() === '' ? markdownText : `${prev} ${markdownText}`
           );
@@ -314,8 +315,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const localImages: LocalImageMetadata[] = useMemo(
     () =>
       images.map((img) => ({
-        path: img.file_path,
-        proxy_url: `/api/images/${img.id}/file`,
+        path: toVibeImagePath(img.file_path),
+        proxy_url: '',
         file_name: img.original_name,
         size_bytes: Number(img.size_bytes),
         format: img.mime_type?.split('/')[1] ?? 'png',

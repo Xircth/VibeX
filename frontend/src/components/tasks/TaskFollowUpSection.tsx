@@ -48,6 +48,7 @@ import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queueApi, imagesApi, sessionsApi, configApi } from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
+import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 
@@ -612,7 +613,7 @@ export function TaskFollowUpSection({
       for (const file of files) {
         try {
           const response = await imagesApi.uploadForAttempt(workspaceId, file);
-          const imageMarkdown = `![${response.original_name}](${response.file_path})`;
+          const imageMarkdown = `![${response.original_name}](${toVibeImagePath(response.file_path)})`;
           const {
             isQueued: currentlyQueued,
             queuedMessage: currentQueuedMessage,

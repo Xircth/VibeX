@@ -93,6 +93,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   // Local UI state
   const [images, setImages] = useState<ImageResponse[]>([]);
+  const [localImagePreviews, setLocalImagePreviews] = useState<
+    LocalImageMetadata[]
+  >([]);
   const [newlyUploadedImageIds, setNewlyUploadedImageIds] = useState<string[]>(
     []
   );
@@ -289,6 +292,16 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             prev.trim() === '' ? markdownText : `${prev} ${markdownText}`
           );
           setImages((prev) => [...prev, img]);
+          setLocalImagePreviews((prev) => [
+            ...prev,
+            {
+              path: toVibeImagePath(img.file_path),
+              proxy_url: URL.createObjectURL(file),
+              file_name: img.original_name,
+              size_bytes: Number(img.size_bytes),
+              format: img.mime_type?.split('/')[1] ?? 'png',
+            },
+          ]);
           setNewlyUploadedImageIds((prev) => [...prev, img.id]);
         } catch {
           // Silently ignore upload errors for now
@@ -313,15 +326,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   // Compute localImages for WYSIWYG rendering of uploaded images
   const localImages: LocalImageMetadata[] = useMemo(
-    () =>
-      images.map((img) => ({
-        path: toVibeImagePath(img.file_path),
-        proxy_url: '',
-        file_name: img.original_name,
-        size_bytes: Number(img.size_bytes),
-        format: img.mime_type?.split('/')[1] ?? 'png',
-      })),
-    [images]
+    () => localImagePreviews,
+    [localImagePreviews]
   );
 
   // Unsaved changes detection
@@ -374,8 +380,14 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   };
 
   const handleDiscardChanges = () => {
+    localImagePreviews.forEach((image) => {
+      if (image.proxy_url.startsWith('blob:')) {
+        URL.revokeObjectURL(image.proxy_url);
+      }
+    });
     form.reset();
     setImages([]);
+    setLocalImagePreviews([]);
     setNewlyUploadedImageIds([]);
     setShowDiscardWarning(false);
     modal.remove();
@@ -404,11 +416,32 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   const loading = branchesLoading || userSystemLoading;
   if (loading) return <></>;
 
+  useEffect(() => {
+    return () => {
+      localImagePreviews.forEach((image) => {
+        if (image.proxy_url.startsWith('blob:')) {
+          URL.revokeObjectURL(image.proxy_url);
+        }
+      });
+    };
+  }, [localImagePreviews]);
+
   const handleRemoveImage = async (imageId: string) => {
     const isNewUpload = newlyUploadedImageIds.includes(imageId);
+    const imageToRemove = images.find((image) => image.id === imageId);
 
     setImages((prev) => prev.filter((image) => image.id !== imageId));
     setNewlyUploadedImageIds((prev) => prev.filter((id) => id !== imageId));
+    if (imageToRemove) {
+      const normalizedPath = toVibeImagePath(imageToRemove.file_path);
+      setLocalImagePreviews((prev) => {
+        const preview = prev.find((image) => image.path === normalizedPath);
+        if (preview?.proxy_url?.startsWith('blob:')) {
+          URL.revokeObjectURL(preview.proxy_url);
+        }
+        return prev.filter((image) => image.path !== normalizedPath);
+      });
+    }
 
     if (isNewUpload) {
       try {

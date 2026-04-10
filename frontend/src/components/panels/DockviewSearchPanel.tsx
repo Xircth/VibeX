@@ -108,7 +108,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
   }, []);
 
   const handleOpenFile = useCallback(
-    (filePath: string) => {
+    (filePath: string, location?: { line: number; column: number }) => {
       if (!rootPath) return;
       const usesBackslash = rootPath.includes('\\');
       const separator = usesBackslash ? '\\' : '/';
@@ -117,7 +117,9 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
         ? filePath.replaceAll('/', '\\')
         : filePath;
       const absolutePath = `${base}${separator}${normalizedRel}`;
-      openFilePreview(absolutePath);
+      openFilePreview(absolutePath, {
+        location: location ?? null,
+      });
     },
     [rootPath, openFilePreview],
   );
@@ -147,7 +149,12 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                   key={`${result.path}-${match.line}-${match.column}-${idx}`}
                   type="button"
                   className="w-full flex items-center gap-2 px-2 py-0.5 text-left text-xs hover:bg-accent/50 transition-colors"
-                  onClick={() => handleOpenFile(result.path)}
+                  onClick={() =>
+                    handleOpenFile(result.path, {
+                      line: match.line,
+                      column: match.column,
+                    })
+                  }
                 >
                   <span className="shrink-0 text-muted-foreground w-12 text-right tabular-nums">
                     {match.line}:{match.column}

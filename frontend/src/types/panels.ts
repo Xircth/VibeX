@@ -1,3 +1,5 @@
+import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
+
 export type PreviewPanelMode = 'editor' | 'diff';
 
 export type PreviewDiffViewMode = 'inline' | 'split';
@@ -9,6 +11,7 @@ export interface OpenFilePreviewOptions {
   originalContent?: string | null;
   displayPath?: string | null;
   title?: string | null;
+  location?: FileOpenLocation | null;
 }
 
 export interface PreviewPanelParams {
@@ -18,6 +21,7 @@ export interface PreviewPanelParams {
   modifiedContent: string | null;
   originalContent: string | null;
   displayPath: string | null;
+  location: FileOpenLocation | null;
 }
 
 export function buildPreviewPanelParams(
@@ -31,5 +35,6 @@ export function buildPreviewPanelParams(
     modifiedContent: options?.modifiedContent ?? null,
     originalContent: options?.originalContent ?? null,
     displayPath: options?.displayPath ?? null,
+    location: options?.location ?? null,
   };
 }

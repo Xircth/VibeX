@@ -119,6 +119,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const diffViewMode = params.diffViewMode ?? 'split';
   const modifiedContentOverride = params.modifiedContent ?? null;
   const originalContentOverride = params.originalContent ?? null;
+  const location = params.location ?? null;
   const rootPath = useFileTreeStore((state) => state.rootPath);
   const resolvedFilePath = useMemo(
     () => (filePath ? resolveFilePathFromRoot(filePath, rootPath) : null),
@@ -212,9 +213,28 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       editor.onDidChangeModelContent(() => {
         setIsDirty(true);
       });
+
+      if (location) {
+        editor.setPosition({
+          lineNumber: location.line,
+          column: location.column,
+        });
+        editor.revealLineInCenter(location.line);
+        editor.focus();
+      }
     },
-    [resolvedFilePath, saveFile]
+    [location, resolvedFilePath, saveFile]
   );
+
+  useEffect(() => {
+    if (!location || !editorRef.current) return;
+
+    editorRef.current.setPosition({
+      lineNumber: location.line,
+      column: location.column,
+    });
+    editorRef.current.revealLineInCenter(location.line);
+  }, [filePath, location]);
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);

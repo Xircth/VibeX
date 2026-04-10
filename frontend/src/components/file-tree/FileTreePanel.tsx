@@ -9,6 +9,7 @@ import type { MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import { toast } from "sonner";
 import {
   Copy,
   FilePlus,
@@ -670,8 +671,8 @@ export function FileTreePanel({
         }
         onRefreshFiles?.();
       } catch (e) {
-        // TODO: surface error to user via toast/notification
         console.error('Failed to trash item:', e);
+        toast.error('Failed to delete item');
       }
     },
     [resolvePath, onRefreshFiles, selectedNodePath],
@@ -684,8 +685,8 @@ export function FileTreePanel({
         await fileTreeApi.copyItem(absolutePath);
         onRefreshFiles?.();
       } catch (e) {
-        // TODO: surface error to user via toast/notification
         console.error('Failed to duplicate item:', e);
+        toast.error('Failed to duplicate item');
       }
     },
     [resolvePath, onRefreshFiles],
@@ -721,8 +722,8 @@ export function FileTreePanel({
       await fileTreeApi.saveFile(absolutePath, "");
       onRefreshFiles?.();
     } catch (e) {
-      // TODO: surface error to user via toast/notification
       console.error('Failed to create file:', e);
+      toast.error('Failed to create file');
     }
     setNewFileParent(null);
     setNewFileName("");
@@ -763,8 +764,8 @@ export function FileTreePanel({
       await fileTreeApi.createDirectory(absolutePath);
       onRefreshFiles?.();
     } catch (e) {
-      // TODO: surface error to user via toast/notification
       console.error('Failed to create folder:', e);
+      toast.error('Failed to create folder');
     }
     setNewFolderParent(null);
     setNewFolderName("");

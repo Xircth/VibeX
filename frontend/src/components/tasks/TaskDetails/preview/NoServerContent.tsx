@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  Copy,
   ExternalLink,
+  FolderOpen,
   Loader2,
   Play,
   Settings,
@@ -13,7 +15,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useProjectRepos } from '@/hooks';
 import { useAiHostedDevServerStart } from '@/hooks/useAiHostedDevServerStart';
-import { repoApi, settingsWindowApi } from '@/lib/api';
+import { desktopApi, repoApi, settingsWindowApi } from '@/lib/api';
 import type { Project, Repo } from 'shared/types';
 
 interface NoServerContentProps {
@@ -74,6 +76,7 @@ export function NoServerContent({
   });
 
   const effectiveStartError = startError ?? aiHostedDevStart.state?.error ?? null;
+  const resultPath = aiHostedDevStart.state?.resultPath ?? null;
 
   const handleSaveAndStart = () => {
     const trimmed = scriptInput.trim();
@@ -88,6 +91,16 @@ export function NoServerContent({
 
   const handleConfigureDevScript = () => {
     settingsWindowApi.open();
+  };
+
+  const handleCopyResultPath = async () => {
+    if (!resultPath) return;
+    await navigator.clipboard.writeText(resultPath);
+  };
+
+  const handleRevealResultPath = async () => {
+    if (!resultPath) return;
+    await desktopApi.revealInFileManager(resultPath);
   };
 
   const isBusy =
@@ -107,6 +120,33 @@ export function NoServerContent({
             <Alert variant="destructive" className="text-left text-sm">
               <p className="font-medium">开发服务器启动失败</p>
               <p>{effectiveStartError}</p>
+            </Alert>
+          )}
+
+          {resultPath && !effectiveStartError && (
+            <Alert className="text-left text-sm">
+              <p className="font-medium">AI 已返回构建产物路径</p>
+              <p className="break-all text-muted-foreground">{resultPath}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleCopyResultPath()}
+                  className="gap-1"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  复制路径
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleRevealResultPath()}
+                  className="gap-1"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  打开位置
+                </Button>
+              </div>
             </Alert>
           )}
 

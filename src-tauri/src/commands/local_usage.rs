@@ -1373,7 +1373,9 @@ mod tests {
         let workspaces = vec![
             Workspace {
                 id: Uuid::nil(),
+                project_id: Uuid::nil(),
                 task_id: Uuid::nil(),
+                parent_workspace_id: None,
                 container_ref: Some(repo_root.to_string_lossy().to_string()),
                 branch: "main".to_string(),
                 use_worktree: false,
@@ -1387,7 +1389,9 @@ mod tests {
             },
             Workspace {
                 id: Uuid::nil(),
+                project_id: Uuid::nil(),
                 task_id: Uuid::nil(),
+                parent_workspace_id: None,
                 container_ref: Some(workspace_root.to_string_lossy().to_string()),
                 branch: "feature-a".to_string(),
                 use_worktree: true,

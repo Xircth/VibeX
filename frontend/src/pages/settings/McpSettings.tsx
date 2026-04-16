@@ -24,12 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { JSONEditor } from '@/components/ui/json-editor';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Carousel,
   CarouselContent,
@@ -112,11 +107,16 @@ export function McpSettings() {
           executor: selectedAgent as BaseCodingAgent,
         });
         setMcpConfig(result.mcp_config);
-        const fullConfig = McpConfigStrategyGeneral.createFullConfig(result.mcp_config);
+        const fullConfig = McpConfigStrategyGeneral.createFullConfig(
+          result.mcp_config
+        );
         setMcpServers(JSON.stringify(fullConfig, null, 2));
         setMcpConfigPath(result.config_path);
       } catch (err: unknown) {
-        if (err instanceof Error && err.message.includes('does not support MCP')) {
+        if (
+          err instanceof Error &&
+          err.message.includes('does not support MCP')
+        ) {
           setMcpError(err.message);
         } else {
           setMcpError(err instanceof Error ? err.message : '加载 MCP 配置失败');
@@ -138,7 +138,7 @@ export function McpSettings() {
       if (!servers) return [];
       return Object.entries(servers).map(([name, cfg]) => ({
         name,
-        config: isJsonObject(cfg) ? cfg as Record<string, JsonValue> : {},
+        config: isJsonObject(cfg) ? (cfg as Record<string, JsonValue>) : {},
       }));
     } catch {
       return [];
@@ -154,7 +154,11 @@ export function McpSettings() {
 
   // Auto-select first server
   useEffect(() => {
-    if (selectedServer && filteredServers.some((s) => s.name === selectedServer)) return;
+    if (
+      selectedServer &&
+      filteredServers.some((s) => s.name === selectedServer)
+    )
+      return;
     setSelectedServer(filteredServers[0]?.name ?? null);
   }, [filteredServers, selectedServer]);
 
@@ -192,7 +196,10 @@ export function McpSettings() {
       if (mcpServers.trim()) {
         const fullConfig = JSON.parse(mcpServers);
         McpConfigStrategyGeneral.validateFullConfig(mcpConfig, fullConfig);
-        const mcpServersConfig = McpConfigStrategyGeneral.extractServersForApi(mcpConfig, fullConfig);
+        const mcpServersConfig = McpConfigStrategyGeneral.extractServersForApi(
+          mcpConfig,
+          fullConfig
+        );
 
         await mcpServersApi.save(
           { executor: selectedAgent as BaseCodingAgent },
@@ -216,7 +223,11 @@ export function McpSettings() {
     if (!mcpConfig) return;
     try {
       const existing = mcpServers.trim() ? JSON.parse(mcpServers) : {};
-      const updated = McpConfigStrategyGeneral.addPreconfiguredToConfig(mcpConfig, existing, key);
+      const updated = McpConfigStrategyGeneral.addPreconfiguredToConfig(
+        mcpConfig,
+        existing,
+        key
+      );
       setMcpServers(JSON.stringify(updated, null, 2));
       setMcpError(null);
       setSelectedServer(key);
@@ -258,12 +269,24 @@ export function McpSettings() {
 
   // Preconfigured servers
   const preconfigured = useMemo(() => {
-    if (!mcpConfig?.preconfigured) return { servers: {} as Record<string, unknown>, meta: {} as Record<string, { name?: string; description?: string; url?: string; icon?: string }> };
+    if (!mcpConfig?.preconfigured)
+      return {
+        servers: {} as Record<string, unknown>,
+        meta: {} as Record<
+          string,
+          { name?: string; description?: string; url?: string; icon?: string }
+        >,
+      };
     const obj = mcpConfig.preconfigured as Record<string, unknown>;
-    const meta = (typeof obj.meta === 'object' && obj.meta !== null
-      ? obj.meta
-      : {}) as Record<string, { name?: string; description?: string; url?: string; icon?: string }>;
-    const servers = Object.fromEntries(Object.entries(obj).filter(([k]) => k !== 'meta'));
+    const meta = (
+      typeof obj.meta === 'object' && obj.meta !== null ? obj.meta : {}
+    ) as Record<
+      string,
+      { name?: string; description?: string; url?: string; icon?: string }
+    >;
+    const servers = Object.fromEntries(
+      Object.entries(obj).filter(([k]) => k !== 'meta')
+    );
     return { servers, meta };
   }, [mcpConfig?.preconfigured]);
 
@@ -305,16 +328,19 @@ export function McpSettings() {
                 onClick={() => setSelectedAgent(agentKey)}
                 className={`
                   w-full text-left rounded-md px-2.5 py-1.5 transition-colors
-                  ${selectedAgent === agentKey
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-muted/50 text-foreground'
+                  ${
+                    selectedAgent === agentKey
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-muted/50 text-foreground'
                   }
                 `}
               >
                 <div className="flex items-center gap-2">
                   <PlugZap className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="text-xs font-medium truncate">
-                    {(AGENT_DISPLAY_NAMES as Record<string, string>)[agentKey] ?? agentKey}
+                    {(AGENT_DISPLAY_NAMES as Record<string, string>)[
+                      agentKey
+                    ] ?? agentKey}
                   </span>
                   {selectedAgent === agentKey && (
                     <ChevronRight className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
@@ -364,32 +390,34 @@ export function McpSettings() {
             </div>
           )}
 
-          {!mcpLoading && filteredServers.map((server) => (
-            <button
-              key={server.name}
-              type="button"
-              onClick={() => setSelectedServer(server.name)}
-              className={`
+          {!mcpLoading &&
+            filteredServers.map((server) => (
+              <button
+                key={server.name}
+                type="button"
+                onClick={() => setSelectedServer(server.name)}
+                className={`
                 w-full text-left rounded-md px-2.5 py-1.5 transition-colors
-                ${selectedServer === server.name
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-muted/50 text-foreground'
+                ${
+                  selectedServer === server.name
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-muted/50 text-foreground'
                 }
               `}
-            >
-              <div className="flex items-center gap-2">
-                <Server className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <code className="text-[11px] font-mono font-medium truncate flex-1">
-                  {server.name}
-                </code>
-              </div>
-              {server.config.command && (
-                <p className="text-[10px] text-muted-foreground mt-0.5 truncate pl-5">
-                  {String(server.config.command)}
-                </p>
-              )}
-            </button>
-          ))}
+              >
+                <div className="flex items-center gap-2">
+                  <Server className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <code className="text-[11px] font-mono font-medium truncate flex-1">
+                    {server.name}
+                  </code>
+                </div>
+                {server.config.command && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate pl-5">
+                    {String(server.config.command)}
+                  </p>
+                )}
+              </button>
+            ))}
         </div>
       </div>
 
@@ -408,12 +436,16 @@ export function McpSettings() {
           <div className="shrink-0 px-6 pt-4">
             <Alert variant="success">
               <CheckCircle2 className="h-4 w-4" />
-              <AlertDescription className="font-medium">MCP 配置保存成功</AlertDescription>
+              <AlertDescription className="font-medium">
+                MCP 配置保存成功
+              </AlertDescription>
             </Alert>
           </div>
         )}
 
-        {selectedAgent && !mcpLoading && !mcpError?.includes('does not support MCP') ? (
+        {selectedAgent &&
+        !mcpLoading &&
+        !mcpError?.includes('does not support MCP') ? (
           <div className="p-6 space-y-6">
             {/* Agent Header */}
             <div>
@@ -423,7 +455,9 @@ export function McpSettings() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-semibold text-foreground">
-                    {(AGENT_DISPLAY_NAMES as Record<string, string>)[selectedAgent] ?? selectedAgent}
+                    {(AGENT_DISPLAY_NAMES as Record<string, string>)[
+                      selectedAgent
+                    ] ?? selectedAgent}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {serverEntries.length} 个 MCP 服务器已配置
@@ -468,14 +502,26 @@ export function McpSettings() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {selectedServerEntry.config.command && (
-                    <MetaItem label="命令" value={String(selectedServerEntry.config.command)} />
+                    <MetaItem
+                      label="命令"
+                      value={String(selectedServerEntry.config.command)}
+                    />
                   )}
                   {selectedServerEntry.config.url && (
-                    <MetaItem label="URL" value={String(selectedServerEntry.config.url)} />
+                    <MetaItem
+                      label="URL"
+                      value={String(selectedServerEntry.config.url)}
+                    />
                   )}
-                  {selectedServerEntry.config.args && Array.isArray(selectedServerEntry.config.args) && (
-                    <MetaItem label="参数" value={(selectedServerEntry.config.args as string[]).join(' ')} />
-                  )}
+                  {selectedServerEntry.config.args &&
+                    Array.isArray(selectedServerEntry.config.args) && (
+                      <MetaItem
+                        label="参数"
+                        value={(
+                          selectedServerEntry.config.args as string[]
+                        ).join(' ')}
+                      />
+                    )}
                   {selectedServerEntry.config.env && (
                     <MetaItem
                       label="环境变量"
@@ -490,11 +536,17 @@ export function McpSettings() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <FileJson className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">完整配置（JSON）</span>
+                <span className="text-xs font-medium text-foreground">
+                  完整配置（JSON）
+                </span>
               </div>
               <JSONEditor
                 id="mcp-servers"
-                placeholder={mcpLoading ? '加载中...' : '{\n  "server-name": {\n    "type": "stdio",\n    "command": "your-command"\n  }\n}'}
+                placeholder={
+                  mcpLoading
+                    ? '加载中...'
+                    : '{\n  "server-name": {\n    "type": "stdio",\n    "command": "your-command"\n  }\n}'
+                }
                 value={mcpLoading ? '加载中...' : mcpServers}
                 onChange={handleMcpServersChange}
                 disabled={mcpLoading}
@@ -514,7 +566,9 @@ export function McpSettings() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">热门服务器</span>
+                  <span className="text-xs font-medium text-foreground">
+                    热门服务器
+                  </span>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   点击卡片将该 MCP 服务器添加到配置中。
@@ -529,7 +583,10 @@ export function McpSettings() {
                         const icon = metaObj.icon ? `/${metaObj.icon}` : null;
 
                         return (
-                          <CarouselItem key={key} className="sm:basis-1/3 lg:basis-1/4">
+                          <CarouselItem
+                            key={key}
+                            className="sm:basis-1/3 lg:basis-1/4"
+                          >
                             <button
                               type="button"
                               onClick={() => addServer(key)}
@@ -540,9 +597,15 @@ export function McpSettings() {
                                   <div className="flex items-center gap-2">
                                     <div className="w-5 h-5 rounded border bg-muted grid place-items-center overflow-hidden shrink-0">
                                       {icon ? (
-                                        <img src={icon} alt="" className="w-full h-full object-cover" />
+                                        <img
+                                          src={icon}
+                                          alt=""
+                                          className="w-full h-full object-cover"
+                                        />
                                       ) : (
-                                        <span className="text-[10px] font-semibold">{name.slice(0, 1).toUpperCase()}</span>
+                                        <span className="text-[10px] font-semibold">
+                                          {name.slice(0, 1).toUpperCase()}
+                                        </span>
                                       )}
                                     </div>
                                     <CardTitle className="text-xs font-medium truncate">
@@ -574,7 +637,10 @@ export function McpSettings() {
               <AlertCircle className="mx-auto h-10 w-10 opacity-30" />
               <p className="mt-3 text-sm font-medium">不支持 MCP</p>
               <p className="mt-1 text-xs">
-                {(AGENT_DISPLAY_NAMES as Record<string, string>)[selectedAgent ?? ''] ?? selectedAgent} 不支持 MCP 服务器。请选择其他代理。
+                {(AGENT_DISPLAY_NAMES as Record<string, string>)[
+                  selectedAgent ?? ''
+                ] ?? selectedAgent}{' '}
+                不支持 MCP 服务器。请选择其他代理。
               </p>
             </div>
           </div>
@@ -597,7 +663,10 @@ export function McpSettings() {
 
 /* ── helpers ──────────────────────────────────────────────── */
 
-function extractServers(mcpConfig: McpConfig, parsed: unknown): JsonObject | null {
+function extractServers(
+  mcpConfig: McpConfig,
+  parsed: unknown
+): JsonObject | null {
   if (!isJsonObject(parsed)) return null;
   let current: unknown = parsed;
   for (const key of mcpConfig.servers_path) {
@@ -605,7 +674,7 @@ function extractServers(mcpConfig: McpConfig, parsed: unknown): JsonObject | nul
     current = (current as JsonObject)[key];
     if (current === undefined) return null;
   }
-  return isJsonObject(current) ? current as JsonObject : null;
+  return isJsonObject(current) ? (current as JsonObject) : null;
 }
 
 function MetaItem({ label, value }: { label: string; value: string }) {
@@ -614,7 +683,10 @@ function MetaItem({ label, value }: { label: string; value: string }) {
       <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
         {label}
       </span>
-      <span className="text-xs font-medium text-foreground truncate" title={value}>
+      <span
+        className="text-xs font-medium text-foreground truncate"
+        title={value}
+      >
         {value}
       </span>
     </div>

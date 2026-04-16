@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Plus } from 'lucide-react';
-import { openTaskForm } from '@/lib/openTaskForm';
+import { useEffect, useMemo } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttempts } from '@/hooks/useTaskAttempts';
@@ -9,68 +8,90 @@ import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { paths } from '@/lib/paths';
 import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
-import {
-  GitOperationsProvider,
-  useGitOperationsError,
-} from '@/contexts/GitOperationsContext';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
-import { useLayoutStore } from '@/stores/useLayoutStore';
+import { GitOperationsProvider } from '@/contexts/GitOperationsContext';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
-import TaskPanel from '@/components/panels/TaskPanel';
 import { NewCard } from '@/components/ui/new-card';
+import { KanbanBoard } from '@/components/panels/DockviewKanbanPanel';
+import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 
-function GitErrorBanner() {
-  const { error: gitError } = useGitOperationsError();
+function ProjectSessionsHome() {
+  return <KanbanBoard />;
+}
 
-  if (!gitError) return null;
+function ProjectWorkspaceSessionRoute({
+  workspaceId,
+  sessionId,
+}: {
+  workspaceId: string;
+  sessionId?: string;
+}) {
+  const { data: attempt, isLoading: isLoadingAttempt } =
+    useTaskAttemptWithSession(workspaceId);
+  const { syncAttempt } = useClickedElements();
+
+  useEffect(() => {
+    syncAttempt(attempt?.id, attempt?.container_ref ?? undefined);
+  }, [attempt?.container_ref, attempt?.id, syncAttempt]);
+
+  if (isLoadingAttempt || !attempt) {
+    return <Loader message={'加载会话中...'} size={32} className="py-8" />;
+  }
+
+  const effectiveSessionId = sessionId ?? attempt.session?.id;
+
+  if (!effectiveSessionId) {
+    return (
+      <div className="p-4">
+        <Alert>
+          <AlertTitle className="flex items-center gap-2">
+            <AlertTriangle size="16" />
+            {'会话不存在'}
+          </AlertTitle>
+          <AlertDescription>当前工作区没有可显示的会话。</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-4 mt-4 p-3 border border-destructive rounded">
-      <div className="text-destructive text-sm">{gitError}</div>
-    </div>
+    <GitOperationsProvider attemptId={attempt.id}>
+      <ReviewProvider attemptId={attempt.id}>
+        <div className="h-full flex flex-col">
+          <NewCard
+            className="h-full min-h-0 flex flex-col border-0"
+            style={{ backgroundColor: 'hsl(var(--_background))' }}
+          >
+            <KanbanSessionConversationView
+              workspaceId={attempt.id}
+              sessionId={effectiveSessionId}
+              initialWorkspace={attempt}
+              initialSession={attempt.session}
+              interactive={true}
+              showSessionSelector={true}
+              className="h-full"
+            />
+          </NewCard>
+        </div>
+      </ReviewProvider>
+    </GitOperationsProvider>
   );
 }
 
-export function ProjectTasks() {
-  const { taskId, attemptId } = useParams<{
-    projectId: string;
-    taskId?: string;
-    attemptId?: string;
-  }>();
+function ProjectLegacyAttemptRoute({
+  taskId,
+  attemptId,
+}: {
+  taskId: string;
+  attemptId: string;
+}) {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const setActiveTab = useLayoutStore((state) => state.setActiveTab);
-
-  const {
-    projectId,
-    project,
-    isLoading: projectLoading,
-    error: projectError,
-  } = useProject();
-
-  const {
-    tasks,
-    tasksById,
-    isLoading,
-    error: streamError,
-  } = useProjectTasks(projectId || '');
-
-  const selectedTask = useMemo(
-    () => (taskId ? (tasksById[taskId] ?? null) : null),
-    [taskId, tasksById]
-  );
-
-  const isLatest = attemptId === 'latest';
-  const { data: attempts = [], isLoading: isAttemptsLoading } = useTaskAttempts(
-    taskId,
-    {
-      enabled: !!taskId && isLatest,
-    }
-  );
+  const { projectId } = useProject();
+  const { data: attempts = [], isLoading } = useTaskAttempts(taskId, {
+    enabled: attemptId === 'latest',
+  });
 
   const latestAttemptId = useMemo(() => {
-    if (!attempts?.length) return undefined;
+    if (!attempts.length) return undefined;
     return [...attempts].sort((a, b) => {
       const diff =
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -79,76 +100,63 @@ export function ProjectTasks() {
     })[0].id;
   }, [attempts]);
 
-  const navigateWithSearch = useCallback(
-    (pathname: string, options?: { replace?: boolean }) => {
-      const search = searchParams.toString();
-      navigate({ pathname, search: search ? `?${search}` : '' }, options);
-    },
-    [navigate, searchParams]
-  );
+  useEffect(() => {
+    if (!projectId) return;
+    if (attemptId !== 'latest') return;
+    if (isLoading) return;
+
+    if (latestAttemptId) {
+      navigate(paths.projectWorkspace(projectId, latestAttemptId), {
+        replace: true,
+      });
+      return;
+    }
+
+    navigate(paths.task(projectId, taskId), { replace: true });
+  }, [attemptId, isLoading, latestAttemptId, navigate, projectId, taskId]);
+
+  if (attemptId === 'latest') {
+    return (
+      <Loader message={'解析最新工作区中...'} size={32} className="py-8" />
+    );
+  }
+
+  return <ProjectWorkspaceSessionRoute workspaceId={attemptId} />;
+}
+
+function ProjectLegacyTaskRoute({ taskId }: { taskId: string }) {
+  const navigate = useNavigate();
+  const { projectId } = useProject();
+
+  useEffect(() => {
+    if (!projectId) return;
+    navigate(paths.projectTasks(projectId), { replace: true });
+  }, [navigate, projectId, taskId]);
+
+  return <Loader message={'跳转到会话视图中...'} size={32} className="py-8" />;
+}
+
+export function ProjectTasks() {
+  const { taskId, attemptId, workspaceId, sessionId } = useParams<{
+    projectId: string;
+    taskId?: string;
+    attemptId?: string;
+    workspaceId?: string;
+    sessionId?: string;
+  }>();
+  const navigate = useNavigate();
+  const {
+    projectId,
+    project,
+    isLoading: projectLoading,
+    error: projectError,
+  } = useProject();
 
   useEffect(() => {
     if (!projectLoading && !project && projectId) {
       navigate('/local-projects', { replace: true });
     }
   }, [navigate, project, projectId, projectLoading]);
-
-  useEffect(() => {
-    if (!projectId || !taskId || !attemptId) return;
-    setActiveTab('workspace');
-  }, [attemptId, projectId, setActiveTab, taskId]);
-
-  // Resolve "latest" attempt to the actual latest attempt ID
-  useEffect(() => {
-    if (!projectId || !taskId) return;
-    if (!isLatest) return;
-    if (isAttemptsLoading) return;
-
-    if (!latestAttemptId) {
-      navigateWithSearch(paths.task(projectId, taskId), { replace: true });
-      return;
-    }
-
-    navigateWithSearch(paths.attempt(projectId, taskId, latestAttemptId), {
-      replace: true,
-    });
-  }, [
-    projectId,
-    taskId,
-    isLatest,
-    isAttemptsLoading,
-    latestAttemptId,
-    navigate,
-    navigateWithSearch,
-  ]);
-
-  // Redirect away if selected task doesn't exist
-  useEffect(() => {
-    if (!projectId || !taskId || isLoading) return;
-    if (selectedTask === null) {
-      navigate(`/local-projects/${projectId}/tasks`, { replace: true });
-    }
-  }, [projectId, taskId, isLoading, selectedTask, navigate]);
-
-  const effectiveAttemptId = attemptId === 'latest' ? undefined : attemptId;
-  const isTaskView = !!taskId && !effectiveAttemptId;
-  const { data: attempt } = useTaskAttemptWithSession(effectiveAttemptId);
-
-  // Sync attempt info to the shared ClickedElements context so that
-  // dockview panels (e.g. PreviewPanel) and this page share the same state.
-  const { syncAttempt } = useClickedElements();
-  useEffect(() => {
-    syncAttempt(attempt?.id, attempt?.container_ref ?? undefined);
-  }, [attempt?.id, attempt?.container_ref, syncAttempt]);
-
-  const isInitialTasksLoad = isLoading && tasks.length === 0;
-
-  // Must be declared before any conditional returns to satisfy React Hooks rules
-  const handleCreateTask = useCallback(() => {
-    if (projectId) {
-      openTaskForm({ mode: 'create', projectId });
-    }
-  }, [projectId]);
 
   if (projectError) {
     return (
@@ -166,60 +174,26 @@ export function ProjectTasks() {
     );
   }
 
-  if (projectLoading && isInitialTasksLoad) {
-    return <Loader message={'加载任务中...'} size={32} className="py-8" />;
+  if (projectLoading) {
+    return <Loader message={'加载项目中...'} size={32} className="py-8" />;
   }
 
-  const attemptContent = selectedTask ? (
-    <NewCard
-      className="h-full min-h-0 flex flex-col border-0"
-      style={{ backgroundColor: 'hsl(var(--_background))' }}
-    >
-      {isTaskView ? (
-        <TaskPanel task={selectedTask} />
-      ) : (
-        <TaskAttemptPanel attempt={attempt} task={selectedTask}>
-          {({ logs, followUp }) => (
-            <>
-              <GitErrorBanner />
-              <div className="flex-1 min-h-0 flex flex-col">
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{logs}</div>
-                {followUp}
-              </div>
-            </>
-          )}
-        </TaskAttemptPanel>
-      )}
-    </NewCard>
-  ) : (
-    <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
-      <p className="text-sm mb-3">从看板中选择一个任务，或创建新任务</p>
-      <button
-        onClick={handleCreateTask}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90 transition-opacity"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        新建任务
-      </button>
-    </div>
-  );
+  if (workspaceId) {
+    return (
+      <ProjectWorkspaceSessionRoute
+        workspaceId={workspaceId}
+        sessionId={sessionId}
+      />
+    );
+  }
 
-  return (
-    <GitOperationsProvider attemptId={attempt?.id}>
-      <ReviewProvider attemptId={attempt?.id}>
-        <div className="h-full flex flex-col">
-          {streamError && (
-            <Alert className="w-full z-30 xl:sticky xl:top-0">
-              <AlertTitle className="flex items-center gap-2">
-                <AlertTriangle size="16" />
-                {'重新连接中'}
-              </AlertTitle>
-              <AlertDescription>{streamError}</AlertDescription>
-            </Alert>
-          )}
-          <div className="flex-1 min-h-0">{attemptContent}</div>
-        </div>
-      </ReviewProvider>
-    </GitOperationsProvider>
-  );
+  if (taskId && attemptId) {
+    return <ProjectLegacyAttemptRoute taskId={taskId} attemptId={attemptId} />;
+  }
+
+  if (!taskId) {
+    return <ProjectSessionsHome />;
+  }
+
+  return <ProjectLegacyTaskRoute taskId={taskId} />;
 }

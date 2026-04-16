@@ -15,7 +15,9 @@ const BOTTOM_STATUS_LIMIT = 6;
 export function ProjectWindowStatusSummary() {
   const { projectId: currentProjectId } = useProject();
   const { projectsById } = useProjects();
-  const openProjectIds = useWindowProjectsStore((state) => state.openProjectIds);
+  const openProjectIds = useWindowProjectsStore(
+    (state) => state.openProjectIds
+  );
   const projectSnapshots = useWindowProjectsStore(
     (state) => state.projectSnapshots
   );

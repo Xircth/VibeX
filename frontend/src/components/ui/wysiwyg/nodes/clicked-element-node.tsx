@@ -234,7 +234,11 @@ function ClickedElementChip({
     [editor, nodeKey, componentName, isEditable]
   );
 
-  const tooltipText = buildTooltipContent(filePath, htmlPreview, componentChain);
+  const tooltipText = buildTooltipContent(
+    filePath,
+    htmlPreview,
+    componentChain
+  );
 
   const chip = (
     <span

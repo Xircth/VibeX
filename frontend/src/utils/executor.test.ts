@@ -49,6 +49,21 @@ const profiles = {
         ask_for_approval: 'unless-trusted',
       },
     },
+    GPT_5_4: {
+      CODEX: {
+        append_prompt: null,
+        model: 'gpt-5.4',
+        sandbox: 'danger-full-access',
+      },
+    },
+    GPT_5_4_APPROVALS: {
+      CODEX: {
+        append_prompt: null,
+        model: 'gpt-5.4',
+        sandbox: 'workspace-write',
+        ask_for_approval: 'unless-trusted',
+      },
+    },
     GPT_5_2: {
       CODEX: {
         append_prompt: null,
@@ -119,6 +134,17 @@ describe('executor utilities', () => {
         reasoningEffort: 'high',
       })
     ).toBe('GPT_5_2_APPROVALS');
+  });
+
+  it('maps GPT-5.4 back to a real Codex variant when available', () => {
+    expect(
+      getCodexVariantFromConfigSelection(profiles, {
+        model: 'gpt-5.4',
+        sandbox: 'danger-full-access',
+        approvalPolicy: 'never',
+        reasoningEffort: 'high',
+      })
+    ).toBe('GPT_5_4');
   });
 
   it('derives OpenCode config from the selected variant', () => {

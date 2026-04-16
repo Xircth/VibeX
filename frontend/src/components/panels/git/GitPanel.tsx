@@ -57,7 +57,11 @@ function LoadingState() {
 }
 
 function isAbsoluteFilePath(path: string): boolean {
-  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('\\\\') || path.startsWith('/');
+  return (
+    /^[a-zA-Z]:[\\/]/.test(path) ||
+    path.startsWith('\\\\') ||
+    path.startsWith('/')
+  );
 }
 
 function resolveGitFilePath(path: string, repoRootPath: string | null): string {
@@ -134,18 +138,10 @@ export function GitPanel() {
   } = useGitStatus({ workspaceId, repoId });
   const displayedBranchName = workspace?.branch || branchName;
 
-  const {
-    stageFile,
-    unstageFile,
-    revertFile,
-    stageAll,
-    revertAll,
-  } = useGitActions({ workspaceId, repoId, onSuccess: refreshStatus });
+  const { stageFile, unstageFile, revertFile, stageAll, revertAll } =
+    useGitActions({ workspaceId, repoId, onSuccess: refreshStatus });
 
-  const {
-    diffs,
-    refresh: refreshDiffs,
-  } = useGitDiffs({ workspaceId, repoId });
+  const { diffs, refresh: refreshDiffs } = useGitDiffs({ workspaceId, repoId });
 
   useEffect(() => {
     if (mode === 'diff' && shouldAutoPreloadDiffs(stagedFiles, unstagedFiles)) {
@@ -215,7 +211,10 @@ export function GitPanel() {
   if (statusLoading && !displayedBranchName) return <LoadingState />;
 
   return (
-    <div className="h-full w-full flex flex-col bg-background overflow-hidden" data-panel="git">
+    <div
+      className="h-full w-full flex flex-col bg-background overflow-hidden"
+      data-panel="git"
+    >
       {/* Header bar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-border/30 shrink-0">
         <div className="flex items-center gap-1 text-xs text-foreground mr-1">
@@ -227,9 +226,15 @@ export function GitPanel() {
 
         {(totalAdditions > 0 || totalDeletions > 0) && (
           <span className="text-[10px] font-mono shrink-0">
-            {totalAdditions > 0 && <span className="text-green-500">+{totalAdditions}</span>}
-            {totalAdditions > 0 && totalDeletions > 0 && <span className="text-muted-foreground">/</span>}
-            {totalDeletions > 0 && <span className="text-red-500">-{totalDeletions}</span>}
+            {totalAdditions > 0 && (
+              <span className="text-green-500">+{totalAdditions}</span>
+            )}
+            {totalAdditions > 0 && totalDeletions > 0 && (
+              <span className="text-muted-foreground">/</span>
+            )}
+            {totalDeletions > 0 && (
+              <span className="text-red-500">-{totalDeletions}</span>
+            )}
           </span>
         )}
 
@@ -258,7 +263,11 @@ export function GitPanel() {
               }`}
               onClick={onPull}
               disabled={pullLoading}
-              title={gitLog.behind > 0 ? `Pull ${gitLog.behind} commit${gitLog.behind > 1 ? 's' : ''}` : 'Pull from remote'}
+              title={
+                gitLog.behind > 0
+                  ? `Pull ${gitLog.behind} commit${gitLog.behind > 1 ? 's' : ''}`
+                  : 'Pull from remote'
+              }
             >
               {pullLoading ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -279,7 +288,11 @@ export function GitPanel() {
           <button
             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors mr-1"
             onClick={toggleDiffListView}
-            title={diffListView === 'flat' ? 'Switch to tree view (Alt+Shift+V)' : 'Switch to flat view (Alt+Shift+V)'}
+            title={
+              diffListView === 'flat'
+                ? 'Switch to tree view (Alt+Shift+V)'
+                : 'Switch to flat view (Alt+Shift+V)'
+            }
           >
             {diffListView === 'flat' ? (
               <FolderTree className="h-3 w-3" />

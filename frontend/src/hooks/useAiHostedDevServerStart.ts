@@ -80,8 +80,8 @@ export function useAiHostedDevServerStart(workspaceId: string | undefined) {
   const { profiles, config } = useUserSystem();
   const { openOrFocusPanel } = usePanelActionsContext();
   const { setOverrideUrl } = usePreviewSettings(workspaceId);
-  const workspaceState = useAiDevServerStartStore(
-    (state) => (workspaceId ? state.byWorkspace[workspaceId] : undefined)
+  const workspaceState = useAiDevServerStartStore((state) =>
+    workspaceId ? state.byWorkspace[workspaceId] : undefined
   );
   const setStateForWorkspace = useAiDevServerStartStore(
     (state) => state.setStateForWorkspace
@@ -266,4 +266,3 @@ export function useAiHostedDevServerStart(workspaceId: string | undefined) {
       workspaceState?.status === 'waiting_for_reply',
   };
 }
-

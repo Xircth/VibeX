@@ -140,7 +140,9 @@ function TreeNodeRenderer({
   const toggle = useCallback(() => setExpanded((prev) => !prev), []);
 
   const sortedDirs = useMemo(() => {
-    return [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...node.children.values()].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
   }, [node.children]);
 
   const sortedFiles = useMemo(() => {
@@ -171,11 +173,19 @@ function TreeNodeRenderer({
           onClick={toggle}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') toggle();
+          }}
         >
-          {expanded ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+          {expanded ? (
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0" />
+          )}
           <FileIcon filePath={node.name} isFolder isOpen={expanded} />
-          <span className="truncate font-mono text-[11px] text-foreground/90">{node.name}</span>
+          <span className="truncate font-mono text-[11px] text-foreground/90">
+            {node.name}
+          </span>
           <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground/80">
             {fileCount}
           </span>
@@ -201,7 +211,10 @@ function TreeNodeRenderer({
             />
           ))}
           {sortedFiles.map((file) => (
-            <div key={file.path} style={{ paddingLeft: `${(isRoot ? 0 : depth + 1) * 12}px` }}>
+            <div
+              key={file.path}
+              style={{ paddingLeft: `${(isRoot ? 0 : depth + 1) * 12}px` }}
+            >
               <GitFileRow
                 file={file}
                 section={section}

@@ -36,6 +36,10 @@ import {
   SLASH_COMMAND_TRANSFORMER,
 } from './wysiwyg/nodes/slash-command-node';
 import {
+  DollarCommandNode,
+  DOLLAR_COMMAND_TRANSFORMER,
+} from './wysiwyg/nodes/dollar-command-node';
+import {
   FileReferenceNode,
   FILE_REFERENCE_TRANSFORMER,
   $createFileReferenceNode,
@@ -55,6 +59,7 @@ import {
 import { TypeaheadOpenProvider } from './wysiwyg/context/typeahead-open-context';
 import { FileTagTypeaheadPlugin } from './wysiwyg/plugins/file-tag-typeahead-plugin';
 import { SlashCommandTypeaheadPlugin } from './wysiwyg/plugins/slash-command-typeahead-plugin';
+import { DollarCommandTypeaheadPlugin } from './wysiwyg/plugins/dollar-command-typeahead-plugin';
 import { KeyboardCommandsPlugin } from './wysiwyg/plugins/keyboard-commands-plugin';
 import { ImageKeyboardPlugin } from './wysiwyg/plugins/image-keyboard-plugin';
 import { ReadOnlyLinkPlugin } from './wysiwyg/plugins/read-only-link-plugin';
@@ -91,9 +96,18 @@ import {
   FILE_REFERENCE_DRAG_MIME,
   parseFileReferencePayload,
 } from '@/utils/fileReferences';
+import {
+  clearCurrentDraggedFileReference,
+  getCurrentDraggedFileReference,
+} from '@/utils/fileReferenceDrag';
 import { Check, Clipboard, Pencil, Trash2 } from 'lucide-react';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
-import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
+import {
+  BaseCodingAgent,
+  type ExecutorProfileId,
+  type SendMessageShortcut,
+} from 'shared/types';
+import type { FileReferencePayload } from '@/utils/fileReferences';
 
 /** Markdown string representing the editor content */
 export type SerializedEditorState = string;
@@ -203,6 +217,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
   ) {
     // Ref to capture the Lexical editor instance for imperative methods
     const editorInstanceRef = useRef<LexicalEditor | null>(null);
+    const fileReferenceDropZoneRef = useRef<HTMLDivElement | null>(null);
 
     // Expose focus method via ref
     useImperativeHandle(ref, () => ({
@@ -311,6 +326,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           PrCommentNode,
           TagReferenceNode,
           SlashCommandNode,
+          DollarCommandNode,
           FileReferenceNode,
           ClickedElementNode,
           TableNode,
@@ -330,6 +346,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         PR_COMMENT_TRANSFORMER, // Import transformer for fenced code block
         TAG_REFERENCE_TRANSFORMER, // Export-only transformer for tag reference chips
         SLASH_COMMAND_TRANSFORMER, // Export-only transformer for slash command chips
+        DOLLAR_COMMAND_TRANSFORMER, // Export-only transformer for $ workflow command chips
         FILE_REFERENCE_TRANSFORMER, // Export-only transformer for dragged file reference chips
         CLICKED_ELEMENT_TRANSFORMER, // Export-only transformer for clicked element chips
         CODE,
@@ -362,12 +379,16 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
 
     const handleDragOver = useCallback(
       (event: React.DragEvent) => {
+        event.stopPropagation();
         if (disabled) {
           return;
         }
 
         if (
-          Array.from(event.dataTransfer.types).includes(FILE_REFERENCE_DRAG_MIME)
+          Array.from(event.dataTransfer.types).includes(
+            FILE_REFERENCE_DRAG_MIME
+          ) ||
+          getCurrentDraggedFileReference()
         ) {
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
@@ -378,22 +399,54 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
 
     const handleDrop = useCallback(
       (event: React.DragEvent) => {
+        event.stopPropagation();
         if (disabled) {
           return;
         }
 
-        const payload = parseFileReferencePayload(
-          event.dataTransfer.getData(FILE_REFERENCE_DRAG_MIME)
-        );
+        const payload =
+          parseFileReferencePayload(
+            event.dataTransfer.getData(FILE_REFERENCE_DRAG_MIME)
+          ) ?? getCurrentDraggedFileReference();
         if (!payload) {
           return;
         }
 
         event.preventDefault();
         insertFileReference(payload);
+        clearCurrentDraggedFileReference();
       },
       [disabled, insertFileReference]
     );
+
+    useEffect(() => {
+      const dropZone = fileReferenceDropZoneRef.current;
+      if (!dropZone) {
+        return;
+      }
+
+      const handleCustomDrop = (event: Event) => {
+        const customEvent = event as CustomEvent<FileReferencePayload>;
+        if (disabled) {
+          return;
+        }
+
+        insertFileReference(customEvent.detail);
+        clearCurrentDraggedFileReference();
+      };
+
+      dropZone.addEventListener(
+        'vibe-file-reference-drop',
+        handleCustomDrop as EventListener
+      );
+
+      return () => {
+        dropZone.removeEventListener(
+          'vibe-file-reference-drop',
+          handleCustomDrop as EventListener
+        );
+      };
+    }, [disabled, insertFileReference]);
 
     // Memoized placeholder element
     const placeholderElement = useMemo(
@@ -411,7 +464,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     );
 
     const editorContent = (
-      <div className="wysiwyg text-base">
+      <div
+        ref={fileReferenceDropZoneRef}
+        className="relative wysiwyg text-base"
+        data-file-reference-drop-zone
+      >
         <TaskAttemptContext.Provider value={taskAttemptId}>
           <TaskContext.Provider value={taskId}>
             <LocalImagesContext.Provider value={localImages ?? []}>
@@ -434,6 +491,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                           disabled ? 'Markdown content' : 'Markdown editor'
                         }
                         onPaste={handlePaste}
+                        onDragStartCapture={(event) => event.stopPropagation()}
+                        onDragEnterCapture={(event) => event.stopPropagation()}
+                        onDragOverCapture={(event) => event.stopPropagation()}
+                        onDragLeaveCapture={(event) => event.stopPropagation()}
+                        onDropCapture={(event) => event.stopPropagation()}
                         onDragOver={handleDragOver}
                         onDrop={handleDrop}
                       />
@@ -461,6 +523,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     <PasteMarkdownPlugin transformers={extendedTransformers} />
                     <TypeaheadOpenProvider>
                       <FileTagTypeaheadPlugin
+                        trigger="#"
+                        projectId={projectId}
+                      />
+                      <FileTagTypeaheadPlugin
+                        trigger="@"
                         repoIds={repoIds}
                         projectId={projectId}
                       />
@@ -469,6 +536,9 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                           executorProfile={executorProfile}
                           repoId={repoId}
                         />
+                      )}
+                      {executorProfile?.executor === BaseCodingAgent.CODEX && (
+                        <DollarCommandTypeaheadPlugin />
                       )}
                       <KeyboardCommandsPlugin
                         onCmdEnter={onCmdEnter}

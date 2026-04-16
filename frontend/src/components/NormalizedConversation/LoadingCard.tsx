@@ -2,11 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 
-/***********************
- * Phase 5: LoadingCard — shimmer + spinner + timer
- ***********************/
+interface LoadingCardProps {
+  label?: string;
+  shimmer?: boolean;
+}
 
-export const LoadingCard = () => {
+export const LoadingCard = ({
+  label = 'AI 正在思考...',
+  shimmer = true,
+}: LoadingCardProps) => {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(Date.now());
 
@@ -17,27 +21,25 @@ export const LoadingCard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const formatElapsed = (s: number) => {
-    if (s < 60) return `${s}s`;
-    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  const formatElapsed = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`;
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   };
 
   return (
     <div className="flex items-center gap-3 py-1">
       <div className="conv-spinner" />
-      <span className="conv-shimmer-text text-sm font-medium">
-        AI 正在思考...
+      <span
+        className={`text-sm font-medium ${shimmer ? 'conv-shimmer-text' : ''}`}
+      >
+        {label}
       </span>
-      <span className="text-xs text-muted-foreground ml-auto tabular-nums">
+      <span className="ml-auto tabular-nums text-xs text-muted-foreground">
         {formatElapsed(elapsed)}
       </span>
     </div>
   );
 };
-
-/*****************************
- * Phase 2: CopyButton for assistant messages
- *****************************/
 
 export const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const [copied, triggerCopied] = useTemporaryFlag(2000);
@@ -47,14 +49,14 @@ export const CopyButton: React.FC<{ text: string }> = ({ text }) => {
       await navigator.clipboard.writeText(text);
       triggerCopied();
     } catch {
-      // Clipboard API may fail in some contexts
+      // Clipboard API may fail in some contexts.
     }
   }, [text, triggerCopied]);
 
   return (
     <button
       onClick={handleCopy}
-      className="conv-copy-btn p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+      className="conv-copy-btn rounded p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
       title="复制"
     >
       {copied ? (

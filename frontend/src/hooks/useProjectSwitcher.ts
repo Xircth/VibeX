@@ -15,7 +15,11 @@ export function useProjectSwitcher() {
   return useCallback(
     (projectId: string, fallbackRoute?: string) => {
       ensureProjectOpen(projectId);
-      navigate(lastRouteByProject[projectId] ?? fallbackRoute ?? paths.projectTasks(projectId));
+      navigate(
+        lastRouteByProject[projectId] ??
+          fallbackRoute ??
+          paths.projectTasks(projectId)
+      );
     },
     [ensureProjectOpen, lastRouteByProject, navigate]
   );

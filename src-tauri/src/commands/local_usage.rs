@@ -7,9 +7,14 @@ use std::{
 };
 
 use chrono::{DateTime, Local, TimeZone, Utc};
+use db::models::{project::Project, project_repo::ProjectRepo, workspace::Workspace};
+use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
+use uuid::Uuid;
+
+use crate::state::AppState;
 
 // ============= Type Definitions =============
 
@@ -131,6 +136,7 @@ pub struct ProjectUsageProviderStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ProjectUsageStatistics {
+    pub scope: String,
     pub project_id: String,
     pub project_name: String,
     pub total_sessions: i64,
@@ -161,6 +167,13 @@ struct CostRates {
     cache_read: f64,
 }
 
+fn model_matches(model: &str, candidates: &[&str]) -> bool {
+    let model_lower = model.to_lowercase();
+    candidates
+        .iter()
+        .any(|candidate| model_lower.contains(candidate))
+}
+
 // ============= Cost Calculation =============
 
 fn calculate_usage_cost(usage: &ProjectUsageUsageData, rates: CostRates) -> f64 {
@@ -171,7 +184,108 @@ fn calculate_usage_cost(usage: &ProjectUsageUsageData, rates: CostRates) -> f64 
     input_cost + output_cost + cache_write_cost + cache_read_cost
 }
 
-fn codex_cost_rates() -> CostRates {
+fn openai_cost_rates(model: &str) -> CostRates {
+    if model_matches(model, &["gpt-5.4-mini"]) {
+        return CostRates {
+            input: 0.75,
+            output: 4.50,
+            cache_write: 0.0,
+            cache_read: 0.075,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.4-nano"]) {
+        return CostRates {
+            input: 0.20,
+            output: 1.25,
+            cache_write: 0.0,
+            cache_read: 0.02,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.4", "gpt-5-4"]) {
+        return CostRates {
+            input: 2.5,
+            output: 15.0,
+            cache_write: 0.0,
+            cache_read: 0.25,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.2-pro"]) {
+        return CostRates {
+            input: 21.0,
+            output: 168.0,
+            cache_write: 0.0,
+            cache_read: 0.0,
+        };
+    }
+
+    if model_matches(model, &["gpt-5-pro"]) {
+        return CostRates {
+            input: 15.0,
+            output: 120.0,
+            cache_write: 0.0,
+            cache_read: 0.0,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.2", "gpt-5.2-chat", "gpt-5.2-codex"]) {
+        return CostRates {
+            input: 1.75,
+            output: 14.0,
+            cache_write: 0.0,
+            cache_read: 0.175,
+        };
+    }
+
+    if model_matches(model, &["gpt-5.1-codex-mini", "gpt-5-mini"]) {
+        return CostRates {
+            input: 0.25,
+            output: 2.0,
+            cache_write: 0.0,
+            cache_read: 0.025,
+        };
+    }
+
+    if model_matches(model, &["gpt-5-nano"]) {
+        return CostRates {
+            input: 0.05,
+            output: 0.40,
+            cache_write: 0.0,
+            cache_read: 0.005,
+        };
+    }
+
+    if model_matches(
+        model,
+        &[
+            "gpt-5.1",
+            "gpt-5.1-chat",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5-codex",
+            "gpt-5-chat",
+            "gpt-5",
+        ],
+    ) {
+        return CostRates {
+            input: 1.25,
+            output: 10.0,
+            cache_write: 0.0,
+            cache_read: 0.125,
+        };
+    }
+
+    if model_matches(model, &["codex-mini-latest"]) {
+        return CostRates {
+            input: 1.50,
+            output: 6.0,
+            cache_write: 0.0,
+            cache_read: 0.375,
+        };
+    }
+
     CostRates {
         input: 3.0,
         output: 15.0,
@@ -181,8 +295,27 @@ fn codex_cost_rates() -> CostRates {
 }
 
 fn claude_cost_rates(model: &str) -> CostRates {
-    let model_lower = model.to_lowercase();
-    if model_lower.contains("opus-4") || model_lower.contains("claude-opus-4") {
+    if model_matches(model, &["claude-opus-4-6", "claude-opus-4.6", "opus-4-6"]) {
+        return CostRates {
+            input: 5.0,
+            output: 25.0,
+            cache_write: 6.25,
+            cache_read: 0.50,
+        };
+    }
+
+    if model_matches(
+        model,
+        &[
+            "claude-opus-4-1",
+            "claude-opus-4.1",
+            "claude-opus-4",
+            "claude-opus-3",
+            "opus-4-1",
+            "opus-4",
+            "opus-3",
+        ],
+    ) {
         return CostRates {
             input: 15.0,
             output: 75.0,
@@ -190,14 +323,69 @@ fn claude_cost_rates(model: &str) -> CostRates {
             cache_read: 1.50,
         };
     }
-    if model_lower.contains("haiku-4") || model_lower.contains("claude-haiku-4") {
+
+    if model_matches(
+        model,
+        &[
+            "claude-sonnet-4-6",
+            "claude-sonnet-4.6",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4.5",
+            "claude-sonnet-4",
+            "claude-3-7-sonnet",
+            "claude-3-5-sonnet",
+            "sonnet-4-6",
+            "sonnet-4-5",
+            "sonnet-4",
+            "sonnet-3.7",
+            "sonnet-3-7",
+            "sonnet-3.5",
+            "sonnet-3-5",
+        ],
+    ) {
         return CostRates {
-            input: 0.8,
+            input: 3.0,
+            output: 15.0,
+            cache_write: 3.75,
+            cache_read: 0.30,
+        };
+    }
+
+    if model_matches(
+        model,
+        &[
+            "claude-haiku-4-5",
+            "claude-haiku-4.5",
+            "haiku-4-5",
+            "haiku-4.5",
+        ],
+    ) {
+        return CostRates {
+            input: 1.0,
+            output: 5.0,
+            cache_write: 1.25,
+            cache_read: 0.10,
+        };
+    }
+
+    if model_matches(model, &["claude-3-5-haiku", "haiku-3.5", "haiku-3-5"]) {
+        return CostRates {
+            input: 0.80,
             output: 4.0,
             cache_write: 1.0,
             cache_read: 0.08,
         };
     }
+
+    if model_matches(model, &["claude-3-haiku", "haiku-3"]) {
+        return CostRates {
+            input: 0.25,
+            output: 1.25,
+            cache_write: 0.30,
+            cache_read: 0.03,
+        };
+    }
+
     CostRates {
         input: 3.0,
         output: 15.0,
@@ -209,6 +397,7 @@ fn claude_cost_rates(model: &str) -> CostRates {
 // ============= Statistics Builder =============
 
 pub fn build_project_usage_statistics(
+    scope: String,
     project_id: String,
     project_name: String,
     sessions: Vec<ProjectUsageSessionSummary>,
@@ -284,6 +473,7 @@ pub fn build_project_usage_statistics(
     by_model.sort_by(|a, b| b.total_cost.total_cmp(&a.total_cost));
 
     ProjectUsageStatistics {
+        scope,
         project_id,
         project_name,
         total_sessions: sessions.len() as i64,
@@ -434,7 +624,8 @@ fn parse_claude_session(path: &Path) -> Result<Option<ProjectUsageSessionSummary
         }
 
         let entry_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if summary.is_none() && entry_type == "summary"
+        if summary.is_none()
+            && entry_type == "summary"
             && let Some(text) = value.get("summary").and_then(|v| v.as_str())
         {
             summary = truncate_summary(text);
@@ -449,7 +640,9 @@ fn parse_claude_session(path: &Path) -> Result<Option<ProjectUsageSessionSummary
         };
 
         let message_model = message.get("model").and_then(|v| v.as_str());
-        if model == "unknown" && let Some(message_model) = message_model {
+        if model == "unknown"
+            && let Some(message_model) = message_model
+        {
             model = message_model.to_string();
         }
 
@@ -640,7 +833,8 @@ fn parse_codex_session(
             continue;
         }
 
-        if summary.is_none() && entry_type == "event_msg"
+        if summary.is_none()
+            && entry_type == "event_msg"
             && let Some(payload) = value.get("payload").and_then(|payload| payload.as_object())
         {
             let payload_type = payload
@@ -765,7 +959,7 @@ fn parse_codex_session(
         .unwrap_or_default()
         .to_string();
     let model = model.unwrap_or_else(|| "gpt-5.1".to_string());
-    let cost = calculate_usage_cost(&usage, codex_cost_rates());
+    let cost = calculate_usage_cost(&usage, openai_cost_rates(&model));
     let timestamp = if first_timestamp > 0 {
         first_timestamp
     } else {
@@ -891,14 +1085,98 @@ fn extract_model_from_token_count(value: &Value) -> Option<String> {
     model.map(|value| value.to_string())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UsageScope {
+    Global,
+    Project,
+}
+
+struct UsageScopeContext {
+    scope: UsageScope,
+    project_id: String,
+    project_name: String,
+    workspace_paths: Vec<PathBuf>,
+}
+
+fn collect_project_scope_paths(repo_paths: &[PathBuf], workspaces: &[Workspace]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut seen = HashSet::new();
+
+    for path in repo_paths {
+        if !path.as_os_str().is_empty() && seen.insert(path.clone()) {
+            paths.push(path.clone());
+        }
+    }
+
+    for workspace in workspaces {
+        let Some(container_ref) = workspace.container_ref.as_deref() else {
+            continue;
+        };
+        let path = PathBuf::from(container_ref);
+        if !path.as_os_str().is_empty() && seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    }
+
+    paths
+}
+
+async fn resolve_usage_scope(
+    state: &tauri::State<'_, AppState>,
+    scope: Option<String>,
+    project_id: Option<String>,
+) -> Result<UsageScopeContext, String> {
+    let scope = match scope.as_deref() {
+        Some("project") => UsageScope::Project,
+        Some("global") | None => UsageScope::Global,
+        Some(other) => return Err(format!("Unsupported usage scope: {other}")),
+    };
+
+    if scope == UsageScope::Global {
+        return Ok(UsageScopeContext {
+            scope,
+            project_id: "global".to_string(),
+            project_name: "全局".to_string(),
+            workspace_paths: Vec::new(),
+        });
+    }
+
+    let raw_project_id =
+        project_id.ok_or_else(|| "Project scope requires projectId".to_string())?;
+    let project_uuid = Uuid::parse_str(&raw_project_id)
+        .map_err(|_| format!("Invalid project id: {raw_project_id}"))?;
+    let pool = &state.deployment.db().pool;
+    let project = Project::find_by_id(pool, project_uuid)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("Project {raw_project_id} not found"))?;
+    let repos = ProjectRepo::find_repos_for_project(pool, project_uuid)
+        .await
+        .map_err(|error| error.to_string())?;
+    let workspaces = Workspace::fetch_by_project_id(pool, project_uuid)
+        .await
+        .map_err(|error| error.to_string())?;
+    let repo_paths: Vec<PathBuf> = repos.iter().map(|repo| repo.path.clone()).collect();
+
+    Ok(UsageScopeContext {
+        scope,
+        project_id: raw_project_id,
+        project_name: project.name,
+        workspace_paths: collect_project_scope_paths(&repo_paths, &workspaces),
+    })
+}
+
 // ============= Tauri Command =============
 
 #[tauri::command]
 pub async fn get_project_usage_statistics(
-    project_id: String,
+    state: tauri::State<'_, AppState>,
+    scope: Option<String>,
+    project_id: Option<String>,
     date_range: Option<String>,
 ) -> Result<ProjectUsageStatistics, String> {
     let date_range = date_range.unwrap_or_else(|| "7d".to_string());
+    let scope_ctx = resolve_usage_scope(&state, scope, project_id).await?;
 
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -915,7 +1193,7 @@ pub async fn get_project_usage_statistics(
     let mut provider_status = Vec::new();
 
     // Scan Claude sessions
-    let claude_result = scan_claude_sessions(&[]);
+    let claude_result = scan_claude_sessions(&scope_ctx.workspace_paths);
     match claude_result {
         Ok(sessions) => {
             provider_status.push(ProjectUsageProviderStatus {
@@ -937,7 +1215,7 @@ pub async fn get_project_usage_statistics(
     }
 
     // Scan Codex sessions
-    let codex_result = scan_codex_sessions(&[]);
+    let codex_result = scan_codex_sessions(&scope_ctx.workspace_paths);
     match codex_result {
         Ok(sessions) => {
             provider_status.push(ProjectUsageProviderStatus {
@@ -966,8 +1244,12 @@ pub async fn get_project_usage_statistics(
     all_sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
     Ok(build_project_usage_statistics(
-        project_id,
-        "Project".to_string(),
+        match scope_ctx.scope {
+            UsageScope::Global => "global".to_string(),
+            UsageScope::Project => "project".to_string(),
+        },
+        scope_ctx.project_id,
+        scope_ctx.project_name,
         all_sessions,
         provider_status,
         now_ms,
@@ -1025,6 +1307,7 @@ mod tests {
     #[test]
     fn build_empty_project_usage_statistics_returns_zeroed_result() {
         let result = build_project_usage_statistics(
+            "project".to_string(),
             "project-1".to_string(),
             "Demo".to_string(),
             Vec::new(),
@@ -1051,6 +1334,7 @@ mod tests {
         ];
 
         let result = build_project_usage_statistics(
+            "global".to_string(),
             "project-1".to_string(),
             "Demo".to_string(),
             sessions,
@@ -1065,5 +1349,61 @@ mod tests {
         assert_eq!(result.total_sessions, 2);
         assert_eq!(result.provider_status.len(), 3);
         assert_eq!(result.by_model.len(), 2);
+    }
+
+    #[test]
+    fn gpt_5_4_uses_official_input_cached_output_rates() {
+        let usage = ProjectUsageUsageData {
+            input_tokens: 400_000,
+            output_tokens: 300_000,
+            cache_write_tokens: 100_000,
+            cache_read_tokens: 200_000,
+            total_tokens: 1_000_000,
+        };
+
+        let cost = calculate_usage_cost(&usage, openai_cost_rates("gpt-5.4"));
+
+        assert!((cost - 5.55).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn project_scope_paths_include_repos_and_workspaces_without_duplicates() {
+        let repo_root = PathBuf::from("C:/repo");
+        let workspace_root = PathBuf::from("C:/repo/.worktrees/feature-a");
+        let workspaces = vec![
+            Workspace {
+                id: Uuid::nil(),
+                task_id: Uuid::nil(),
+                container_ref: Some(repo_root.to_string_lossy().to_string()),
+                branch: "main".to_string(),
+                use_worktree: false,
+                agent_working_dir: None,
+                setup_completed_at: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                archived: false,
+                pinned: false,
+                name: None,
+            },
+            Workspace {
+                id: Uuid::nil(),
+                task_id: Uuid::nil(),
+                container_ref: Some(workspace_root.to_string_lossy().to_string()),
+                branch: "feature-a".to_string(),
+                use_worktree: true,
+                agent_working_dir: None,
+                setup_completed_at: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                archived: false,
+                pinned: false,
+                name: None,
+            },
+        ];
+
+        let paths =
+            collect_project_scope_paths(&[repo_root.clone(), repo_root.clone()], &workspaces);
+
+        assert_eq!(paths, vec![repo_root, workspace_root]);
     }
 }

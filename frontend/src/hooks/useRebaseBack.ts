@@ -16,29 +16,27 @@ export function useRebaseBack(
 ) {
   const queryClient = useQueryClient();
 
-  return useMutation<void, RebaseResult, { repoId: string }>(
-    {
-      mutationFn: async ({ repoId }) => {
-        if (!workspaceId) return;
-        const res = await attemptsApi.rebaseBack(workspaceId, repoId);
-        if (res.error) {
-          return Promise.reject(res);
-        }
-      },
-      onSuccess: () => {
-        // Refresh branch status immediately
-        queryClient.invalidateQueries({
-          queryKey: ['branchStatus', workspaceId],
-        });
-        onSuccess?.();
-      },
-      onError: (err: RebaseResult) => {
-        // Even on failure (likely conflicts), re-fetch branch status
-        queryClient.invalidateQueries({
-          queryKey: ['branchStatus', workspaceId],
-        });
-        onError?.(err);
-      },
-    }
-  );
+  return useMutation<void, RebaseResult, { repoId: string }>({
+    mutationFn: async ({ repoId }) => {
+      if (!workspaceId) return;
+      const res = await attemptsApi.rebaseBack(workspaceId, repoId);
+      if (res.error) {
+        return Promise.reject(res);
+      }
+    },
+    onSuccess: () => {
+      // Refresh branch status immediately
+      queryClient.invalidateQueries({
+        queryKey: ['branchStatus', workspaceId],
+      });
+      onSuccess?.();
+    },
+    onError: (err: RebaseResult) => {
+      // Even on failure (likely conflicts), re-fetch branch status
+      queryClient.invalidateQueries({
+        queryKey: ['branchStatus', workspaceId],
+      });
+      onError?.(err);
+    },
+  });
 }

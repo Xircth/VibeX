@@ -746,7 +746,8 @@ export function IDELayout({
 
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || effectiveWorkspaceId || effectiveActiveTab === 'workspace') return;
+    if (!api || effectiveWorkspaceId || effectiveActiveTab === 'workspace')
+      return;
 
     const bottomGroup = getBottomGroup(api);
     if (bottomGroup) {

@@ -586,3 +586,21 @@ pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
         variant: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executors::BaseCodingAgent;
+
+    #[test]
+    fn default_profiles_include_gpt_5_4_codex_variants() {
+        let defaults = ExecutorConfigs::from_defaults();
+        let codex = defaults
+            .executors
+            .get(&BaseCodingAgent::Codex)
+            .expect("codex defaults should exist");
+
+        assert!(codex.configurations.contains_key("GPT_5_4"));
+        assert!(codex.configurations.contains_key("GPT_5_4_APPROVALS"));
+    }
+}

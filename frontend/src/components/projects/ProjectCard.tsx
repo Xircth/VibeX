@@ -23,7 +23,8 @@ import { Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
-import { projectsApi } from '@/lib/api';type Props = {
+import { projectsApi } from '@/lib/api';
+type Props = {
   project: Project;
   isFocused: boolean;
   setError: (error: string) => void;
@@ -33,7 +34,8 @@ import { projectsApi } from '@/lib/api';type Props = {
 function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
   const navigate = useNavigateWithSearch();
   const ref = useRef<HTMLDivElement>(null);
-  const handleOpenInEditor = useOpenProjectInEditor(project);  const { data: repos } = useProjectRepos(project.id);
+  const handleOpenInEditor = useOpenProjectInEditor(project);
+  const { data: repos } = useProjectRepos(project.id);
   const isSingleRepoProject = repos?.length === 1;
 
   useEffect(() => {

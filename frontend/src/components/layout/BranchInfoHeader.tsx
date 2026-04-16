@@ -55,9 +55,7 @@ function getRebaseOldBaseBranch(
   currentTargetBranch: string,
   nextTargetBranch: string
 ) {
-  return currentTargetBranch !== nextTargetBranch
-    ? currentTargetBranch
-    : null;
+  return currentTargetBranch !== nextTargetBranch ? currentTargetBranch : null;
 }
 
 export function BranchInfoHeader() {
@@ -404,7 +402,11 @@ function RebaseBackButton({
       if (rebaseBackResult.error) {
         const err = rebaseBackResult.error;
         if (err.type === 'merge_conflicts') {
-          await showConflictResolutionDialog(worktreeId, repo, rebaseBackResult);
+          await showConflictResolutionDialog(
+            worktreeId,
+            repo,
+            rebaseBackResult
+          );
         } else if (err.type === 'rebase_in_progress') {
           setError('Rebase is already in progress.');
         } else {
@@ -415,7 +417,8 @@ function RebaseBackButton({
       queryClient.invalidateQueries({ queryKey: ['branchStatus'] });
     } catch (caughtError) {
       try {
-        const latestBranchStatus = await attemptsApi.getBranchStatus(worktreeId);
+        const latestBranchStatus =
+          await attemptsApi.getBranchStatus(worktreeId);
         const latestRepo = latestBranchStatus.find(
           (item) => item.repo_id === repo.repo_id
         );

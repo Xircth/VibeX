@@ -120,6 +120,7 @@ export function ActionBar({
           disabled={!isEditable}
           lockExecutor={true}
           iconOnly={true}
+          dropdownSide="top"
           className="flex flex-wrap gap-1 items-center"
         />
       ) : null}
@@ -308,7 +309,9 @@ export function ActionBar({
           <Button
             onClick={onSendFollowUp}
             disabled={
-              !canSendFollowUp || !isEditable || isAwaitingNewSessionConfirmation
+              !canSendFollowUp ||
+              !isEditable ||
+              isAwaitingNewSessionConfirmation
             }
             size="sm"
             className="h-7 px-2 text-xs rounded-lg"

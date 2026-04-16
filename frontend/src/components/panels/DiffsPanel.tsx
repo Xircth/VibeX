@@ -1,5 +1,6 @@
 import { useDiffStream } from '@/hooks/useDiffStream';
-import { useMemo, useCallback, useState, useEffect } from 'react';import { Loader } from '@/components/ui/loader';
+import { useMemo, useCallback, useState, useEffect } from 'react';
+import { Loader } from '@/components/ui/loader';
 import { Button } from '@/components/ui/button';
 import DiffViewSwitch from '@/components/DiffViewSwitch';
 import DiffCard from '@/components/DiffCard';
@@ -46,7 +47,8 @@ const exceedsMaxLineCount = (d: Diff, maxLines: number): boolean => {
 const getDiffId = ({ diff, index }: { diff: Diff; index: number }) =>
   `${diff.newPath || diff.oldPath || index}`;
 
-export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {  const [loadingState, setLoadingState] = useState<
+export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
+  const [loadingState, setLoadingState] = useState<
     'loading' | 'loaded' | 'timed-out'
   >('loading');
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -114,9 +116,7 @@ export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {  con
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4 m-4">
-        <div className="text-red-800 text-sm">
-          {`加载差异失败：${error}`}
-        </div>
+        <div className="text-red-800 text-sm">{`加载差异失败：${error}`}</div>
       </div>
     );
   }
@@ -182,9 +182,7 @@ function DiffsPanelContent({
                       onClick={handleCollapseAll}
                       aria-pressed={allCollapsed}
                       aria-label={
-                        allCollapsed
-                          ? '展开所有差异'
-                          : '折叠所有差异'
+                        allCollapsed ? '展开所有差异' : '折叠所有差异'
                       }
                     >
                       {allCollapsed ? (

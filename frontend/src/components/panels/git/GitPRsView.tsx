@@ -94,12 +94,18 @@ export const GitPRsView = memo(function GitPRsView({
                       <span className="text-[10px] text-muted-foreground">
                         #{String(pr.number)}
                       </span>
-                      <span className="text-[10px] text-muted-foreground/50">|</span>
+                      <span className="text-[10px] text-muted-foreground/50">
+                        |
+                      </span>
                       <div className="flex items-center gap-0.5 text-[10px] text-muted-foreground truncate">
                         <GitBranch className="h-2.5 w-2.5" />
-                        <span className="font-mono truncate">{pr.head_branch}</span>
+                        <span className="font-mono truncate">
+                          {pr.head_branch}
+                        </span>
                         <ArrowRight className="h-2 w-2 shrink-0" />
-                        <span className="font-mono truncate">{pr.base_branch}</span>
+                        <span className="font-mono truncate">
+                          {pr.base_branch}
+                        </span>
                       </div>
                     </div>
                   </div>

@@ -48,6 +48,30 @@ pub fn run() {
                 tracing::error!("Failed to start preview proxy: {}", error);
             }
 
+            if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(&app.handle())
+            {
+                tracing::warn!("Failed to initialize desktop toast window: {}", error);
+            }
+            if let Err(error) =
+                commands::project_rail_window::ensure_project_rail_window(&app.handle())
+            {
+                tracing::warn!("Failed to initialize project rail window: {}", error);
+            }
+
+            if let Some(main_window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                main_window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Moved(_)
+                    | tauri::WindowEvent::Resized(_)
+                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+                    | tauri::WindowEvent::Focused(true) => {
+                        let _ =
+                            commands::project_rail_window::sync_project_rail_window(&app_handle);
+                    }
+                    _ => {}
+                });
+            }
+
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
             events::start_event_forwarding(&app.handle().clone(), &state);
@@ -143,6 +167,7 @@ pub fn run() {
             commands::sessions::get_session,
             commands::sessions::create_session,
             commands::sessions::create_project_root_session,
+            commands::sessions::create_project_session,
             commands::sessions::rename_session,
             commands::sessions::update_session_status,
             commands::sessions::delete_session,
@@ -156,8 +181,9 @@ pub fn run() {
             commands::events::subscribe_conversation_stream,
             commands::events::subscribe_log_stream,
             commands::events::subscribe_execution_processes_stream,
-            commands::events::subscribe_tasks_stream,
+            commands::events::subscribe_project_workspaces_stream,
             commands::events::subscribe_projects_stream,
+            commands::events::subscribe_file_tree_stream,
             commands::events::subscribe_scratch_stream,
             commands::events::subscribe_slash_commands_stream,
             commands::scratch::create_scratch,
@@ -222,6 +248,10 @@ pub fn run() {
             commands::config::update_claude_settings,
             commands::config::read_agent_native_configs,
             commands::config::write_agent_native_config,
+            commands::desktop_toast::show_desktop_toast,
+            commands::desktop_toast::activate_desktop_toast,
+            commands::project_rail_window::set_project_rail_window_visible,
+            commands::project_rail_window::activate_project_rail_target,
             // Agent settings commands
             commands::agent_settings::list_agents,
             commands::agent_settings::update_agent_preferences,
@@ -253,13 +283,11 @@ pub fn run() {
             commands::file_tree::read_file_with_truncation,
             commands::file_tree::trash_item,
             commands::file_tree::copy_item,
+            commands::file_tree::move_item,
             commands::file_tree::create_directory,
             commands::file_tree::search_workspace_text,
             // Skills commands
-            commands::skills::get_popular_skills,
-            commands::skills::install_skill,
-            commands::skills::uninstall_skill,
-            commands::skills::ensure_aimax_installed,
+            commands::skills::list_local_agent_skills,
             // Local usage commands
             commands::local_usage::get_project_usage_statistics,
         ])

@@ -1,4 +1,5 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
@@ -11,12 +12,10 @@ import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
-import { useProject } from '@/contexts/ProjectContext';
 import {
   resolveActiveSession,
   useWorkspaceSessions,
 } from '@/hooks/useWorkspaceSessions';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { attemptsApi, sessionsApi } from '@/lib/api';
 
 type SessionRecord = Session & {
@@ -54,7 +53,9 @@ function createFallbackWorkspace(
 
   return {
     id: workspaceId,
+    project_id: '',
     task_id: '',
+    parent_workspace_id: null,
     container_ref: null,
     branch: '',
     use_worktree: true,
@@ -84,6 +85,7 @@ function createFallbackSession(
     workspace_id: workspaceId,
     task_id: null,
     name: null,
+    initial_prompt: null,
     status: 'todo',
     executor: null,
     created_at: now,
@@ -93,14 +95,14 @@ function createFallbackSession(
 
 function KanbanSessionConversationContent({
   attempt,
-  task,
+  taskId,
   interactive,
   showSessionSelector,
   onSessionCreated,
   onSessionSelected,
 }: {
   attempt: WorkspaceWithSession;
-  task: TaskWithAttemptStatus | null;
+  taskId: string | null;
   interactive: boolean;
   showSessionSelector: boolean;
   onSessionCreated?: (session: {
@@ -113,10 +115,21 @@ function KanbanSessionConversationContent({
   }) => void;
 }) {
   const logsRef = useRef<VirtualizedListRef | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const sessionState = useWorkspaceSessions(attempt.id, {
     initialSessionId: attempt.session?.id,
     enabled: interactive,
   });
+
+  useEffect(() => {
+    if (!interactive) return;
+    if (searchParams.get('newSession') !== '1') return;
+
+    sessionState.startNewSession();
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete('newSession');
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [interactive, searchParams, sessionState, setSearchParams]);
 
   const activeSession = interactive
     ? resolveActiveSession(attempt.session, sessionState)
@@ -138,16 +151,16 @@ function KanbanSessionConversationContent({
       >
         <RetryUiProvider attemptId={attempt.id}>
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">
               <VirtualizedList
                 ref={logsRef}
                 attempt={activeAttempt}
-                task={task}
+                task={null}
               />
             </div>
-            {interactive && task ? (
+            {interactive ? (
               <TaskFollowUpSection
-                task={task}
+                taskId={taskId}
                 session={activeSession}
                 workspaceId={attempt.id}
                 sessionState={sessionState}
@@ -178,19 +191,16 @@ export function KanbanSessionConversationView({
   initialTask,
   className,
 }: KanbanSessionConversationViewProps) {
-  const { projectId } = useProject();
-  const { tasksById } = useProjectTasks(projectId ?? '');
-  const { data: workspace, isLoading: isWorkspaceLoading } = useQuery<Workspace>(
-    {
+  const { data: workspace, isLoading: isWorkspaceLoading } =
+    useQuery<Workspace>({
       queryKey: ['taskAttempt', workspaceId],
       queryFn: () => attemptsApi.get(workspaceId),
       enabled: !!workspaceId,
       placeholderData: (previousData) =>
         previousData?.id === workspaceId
           ? previousData
-          : initialWorkspace ?? undefined,
-    }
-  );
+          : (initialWorkspace ?? undefined),
+    });
   const { data: session, isFetching: isSessionFetching } =
     useQuery<SessionRecord>({
       queryKey: ['session', sessionId],
@@ -199,15 +209,15 @@ export function KanbanSessionConversationView({
       placeholderData: (previousData) =>
         previousData?.id === sessionId
           ? previousData
-          : initialSession ?? undefined,
+          : (initialSession ?? undefined),
     });
 
   const resolvedWorkspace =
     workspace ?? createFallbackWorkspace(workspaceId, initialWorkspace);
   const resolvedSession =
     session ?? createFallbackSession(sessionId, workspaceId, initialSession);
-  const taskId = resolvedSession.task_id ?? resolvedWorkspace.task_id;
-  const task = (taskId ? tasksById[taskId] : null) ?? initialTask ?? null;
+  const taskId =
+    resolvedSession.task_id ?? initialTask?.id ?? resolvedWorkspace.task_id;
 
   const isBootstrapping =
     (!workspace && isWorkspaceLoading && !initialWorkspace) ||
@@ -223,12 +233,9 @@ export function KanbanSessionConversationView({
       ) : null}
       <KanbanSessionConversationContent
         key={`${resolvedWorkspace.id}:${resolvedSession.id}:${interactive ? 'interactive' : 'readonly'}`}
-        attempt={createWorkspaceWithSession(
-          resolvedWorkspace,
-          resolvedSession
-        )}
-        task={task}
-        interactive={interactive && !!task && !!session}
+        attempt={createWorkspaceWithSession(resolvedWorkspace, resolvedSession)}
+        taskId={taskId}
+        interactive={interactive && !!session}
         showSessionSelector={showSessionSelector}
         onSessionCreated={onSessionCreated}
         onSessionSelected={onSessionSelected}

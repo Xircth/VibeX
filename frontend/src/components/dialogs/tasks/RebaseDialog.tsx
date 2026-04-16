@@ -65,7 +65,10 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
     };
 
     return (
-      <Dialog open={modal.visible} onOpenChange={(open) => !open && handleCancel()}>
+      <Dialog
+        open={modal.visible}
+        onOpenChange={(open) => !open && handleCancel()}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
@@ -86,10 +89,17 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={handleCancel} disabled={isRebasing}>
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              disabled={isRebasing}
+            >
               取消
             </Button>
-            <Button onClick={handleConfirm} disabled={isRebasing || !selectedBranch}>
+            <Button
+              onClick={handleConfirm}
+              disabled={isRebasing || !selectedBranch}
+            >
               {isRebasing ? '处理中...' : confirmLabel}
             </Button>
           </DialogFooter>

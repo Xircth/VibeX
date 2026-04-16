@@ -4,6 +4,7 @@ use db::models::{
     coding_agent_turn::CodingAgentTurn,
     execution_process::{ExecutionProcess, ExecutionProcessRunReason},
     project_repo::ProjectRepo,
+    repo::{Repo, RepoError},
     scratch::{DraftFollowUpData, Scratch, ScratchType},
     session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskStatus},
@@ -38,13 +39,19 @@ fn queue_status_from_scratch(scratch: Scratch) -> Result<QueueStatus, AppError> 
     } = scratch;
 
     match payload {
-        db::models::scratch::ScratchPayload::DraftFollowUp(data) => Ok(QueueStatus::Queued {
-            message: services::services::queued_message::QueuedMessage {
-                session_id: id,
-                data,
-                queued_at: updated_at,
-            },
-        }),
+        db::models::scratch::ScratchPayload::DraftFollowUp(data) => {
+            if !data.queued {
+                return Ok(QueueStatus::Empty);
+            }
+
+            Ok(QueueStatus::Queued {
+                message: services::services::queued_message::QueuedMessage {
+                    session_id: id,
+                    data,
+                    queued_at: updated_at,
+                },
+            })
+        }
         other => Err(AppError::Internal(format!(
             "Invalid scratch payload for queued follow-up: {:?}",
             other.scratch_type()
@@ -117,6 +124,125 @@ fn to_task_status(status: SessionStatus) -> TaskStatus {
 }
 
 const PROJECT_ROOT_TASK_TITLE: &str = "Project Root Workspace";
+const NEW_SESSION_WORKSPACE_TITLE: &str = "New Session Workspace";
+
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct ProjectSessionRepoInput {
+    pub repo_id: Uuid,
+    pub target_branch: String,
+}
+
+fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>) -> String {
+    if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+
+    if let Some(prompt) = initial_prompt
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+    {
+        return prompt.chars().take(40).collect();
+    }
+
+    NEW_SESSION_WORKSPACE_TITLE.to_string()
+}
+
+async fn create_worktree_workspace_for_project_session(
+    state: &AppState,
+    project_id: Uuid,
+    name: Option<&str>,
+    initial_prompt: Option<&str>,
+    repos: &[ProjectSessionRepoInput],
+) -> Result<Workspace, AppError> {
+    if repos.is_empty() {
+        return Err(AppError::BadRequest(
+            "At least one repository is required".to_string(),
+        ));
+    }
+
+    let pool = &state.deployment.db().pool;
+    let workspace_title = derive_workspace_seed_title(name, initial_prompt);
+    let task = Task::create(
+        pool,
+        &CreateTask {
+            project_id,
+            title: workspace_title.clone(),
+            description: initial_prompt.map(ToOwned::to_owned),
+            status: Some(TaskStatus::Todo),
+            parent_workspace_id: None,
+            image_ids: None,
+        },
+        Uuid::new_v4(),
+    )
+    .await?;
+
+    let primary_repo = if repos.len() == 1 {
+        Some(
+            Repo::find_by_id(pool, repos[0].repo_id)
+                .await?
+                .ok_or(RepoError::NotFound)?,
+        )
+    } else {
+        None
+    };
+
+    let agent_working_dir = if repos.len() == 1 {
+        let repo = primary_repo.as_ref().ok_or(RepoError::NotFound)?;
+        match &repo.default_working_dir {
+            Some(subdir) => {
+                let path = PathBuf::from(&repo.name).join(subdir);
+                Some(path.to_string_lossy().to_string())
+            }
+            None => Some(repo.name.clone()),
+        }
+    } else {
+        None
+    };
+
+    let workspace_id = Uuid::new_v4();
+    let branch = state
+        .deployment
+        .container()
+        .git_branch_from_workspace(&workspace_id, &workspace_title)
+        .await;
+
+    let workspace = Workspace::create(
+        pool,
+        &CreateWorkspace {
+            project_id,
+            parent_workspace_id: None,
+            branch,
+            container_ref: None,
+            use_worktree: true,
+            agent_working_dir,
+        },
+        workspace_id,
+        task.id,
+    )
+    .await?;
+
+    Workspace::update(
+        pool,
+        workspace.id,
+        None,
+        None,
+        Some(workspace_title.as_str()),
+    )
+    .await?;
+
+    let workspace_repos: Vec<CreateWorkspaceRepo> = repos
+        .iter()
+        .map(|repo| CreateWorkspaceRepo {
+            repo_id: repo.repo_id,
+            target_branch: repo.target_branch.clone(),
+        })
+        .collect();
+    WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
+
+    Workspace::find_by_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))
+}
 
 async fn ensure_project_root_workspace(
     state: &AppState,
@@ -149,11 +275,12 @@ async fn ensure_project_root_workspace(
         return Ok(workspace);
     }
 
-    let owner_task = if let Some(task) = Task::find_by_project_id_with_attempt_status(pool, project_id)
-        .await?
-        .into_iter()
-        .map(|task| task.task)
-        .next()
+    let owner_task = if let Some(task) =
+        Task::find_by_project_id_with_attempt_status(pool, project_id)
+            .await?
+            .into_iter()
+            .map(|task| task.task)
+            .next()
     {
         task
     } else {
@@ -177,6 +304,8 @@ async fn ensure_project_root_workspace(
     let workspace = Workspace::create(
         pool,
         &CreateWorkspace {
+            project_id,
+            parent_workspace_id: None,
             branch: current_branch.clone(),
             container_ref: Some(primary_repo.path.to_string_lossy().to_string()),
             use_worktree: false,
@@ -195,7 +324,14 @@ async fn ensure_project_root_workspace(
         primary_repo.display_name.as_str()
     };
     let workspace_name = format!("{} · {}", workspace_display_name, current_branch);
-    Workspace::update(pool, workspace.id, Some(false), None, Some(workspace_name.as_str())).await?;
+    Workspace::update(
+        pool,
+        workspace.id,
+        Some(false),
+        None,
+        Some(workspace_name.as_str()),
+    )
+    .await?;
 
     Workspace::find_by_id(pool, workspace.id)
         .await?
@@ -231,12 +367,15 @@ pub async fn get_session_summaries(
     for session in sessions {
         let first_prompt =
             CodingAgentTurn::find_first_prompt_by_session_id(pool, session.id).await?;
-        let latest_resume_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
+        let latest_resume_info =
+            CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
         let is_running =
             ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
                 .await?;
-        let continuity_mode =
-            derive_session_continuity_mode(session.executor.as_deref(), latest_resume_info.is_some());
+        let continuity_mode = derive_session_continuity_mode(
+            session.executor.as_deref(),
+            latest_resume_info.is_some(),
+        );
 
         summaries.push(SessionSummary {
             id: session.id,
@@ -279,6 +418,7 @@ pub async fn create_session(
     workspace_id: Uuid,
     executor: Option<String>,
     name: Option<String>,
+    initial_prompt: Option<String>,
     task_id: Option<Uuid>,
 ) -> Result<Session, AppError> {
     let pool = &state.deployment.db().pool;
@@ -300,6 +440,7 @@ pub async fn create_session(
             executor,
             task_id,
             name,
+            initial_prompt,
             status: Some(SessionStatus::Todo),
         },
         Uuid::new_v4(),
@@ -328,6 +469,62 @@ pub async fn create_project_root_session(
             executor,
             task_id: Some(workspace.task_id),
             name,
+            initial_prompt: None,
+            status: Some(SessionStatus::Todo),
+        },
+        Uuid::new_v4(),
+        workspace.id,
+    )
+    .await?;
+
+    Ok(session)
+}
+
+/// Create a project-scoped session, optionally targeting an existing workspace.
+/// If no workspace is provided, reuse or create the project root workspace.
+#[tauri::command]
+pub async fn create_project_session(
+    state: tauri::State<'_, AppState>,
+    project_id: Uuid,
+    workspace_id: Option<Uuid>,
+    executor: Option<String>,
+    name: Option<String>,
+    initial_prompt: Option<String>,
+    create_workspace: Option<bool>,
+    repos: Option<Vec<ProjectSessionRepoInput>>,
+) -> Result<Session, AppError> {
+    let pool = &state.deployment.db().pool;
+    let workspace = if create_workspace.unwrap_or(false) {
+        create_worktree_workspace_for_project_session(
+            state.inner(),
+            project_id,
+            name.as_deref(),
+            initial_prompt.as_deref(),
+            repos.as_deref().unwrap_or(&[]),
+        )
+        .await?
+    } else if let Some(workspace_id) = workspace_id {
+        let workspace = Workspace::find_by_id(pool, workspace_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+        if workspace.project_id != project_id {
+            return Err(AppError::BadRequest(format!(
+                "Workspace {} does not belong to project {}",
+                workspace_id, project_id
+            )));
+        }
+        workspace
+    } else {
+        ensure_project_root_workspace(state.inner(), project_id).await?
+    };
+
+    let session = Session::create(
+        pool,
+        &CreateSession {
+            executor,
+            task_id: Some(workspace.task_id),
+            name,
+            initial_prompt,
             status: Some(SessionStatus::Todo),
         },
         Uuid::new_v4(),
@@ -695,6 +892,7 @@ pub async fn queue_message(
     let data = DraftFollowUpData {
         message,
         executor_config: ExecutorConfig::from(executor_profile_id),
+        queued: true,
     };
 
     let scratch = Scratch::update(
@@ -763,7 +961,8 @@ pub async fn get_queue_status(
         return Ok(in_memory_status);
     }
 
-    if let Some(scratch) = Scratch::find_by_id(pool, session_id, &ScratchType::DraftFollowUp).await?
+    if let Some(scratch) =
+        Scratch::find_by_id(pool, session_id, &ScratchType::DraftFollowUp).await?
     {
         let status = queue_status_from_scratch(scratch.clone())?;
         if let QueueStatus::Queued { message } = &status {

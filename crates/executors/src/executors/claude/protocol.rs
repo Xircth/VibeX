@@ -84,8 +84,15 @@ impl ProtocolPeer {
                                     request_id,
                                     request,
                                 }) => {
-                                    self.handle_control_request(&client, request_id, request)
-                                        .await;
+                                    // Approval / hook callbacks can take a while. Handle them
+                                    // off the read loop so stdout keeps draining and assistant
+                                    // deltas still reach the renderer in real time.
+                                    let peer = self.clone();
+                                    let client = client.clone();
+                                    tokio::spawn(async move {
+                                        peer.handle_control_request(&client, request_id, request)
+                                            .await;
+                                    });
                                 }
                                 Ok(CLIMessage::Result(_)) => {
                                     break;
@@ -219,5 +226,135 @@ impl ProtocolPeer {
             SDKControlRequestType::SetPermissionMode { mode },
         ))
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{process::Stdio, sync::Arc, time::Duration};
+
+    use async_trait::async_trait;
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
+        sync::Notify,
+    };
+    use tokio_util::sync::CancellationToken;
+    use workspace_utils::{approvals::ApprovalStatus, process::group_spawn_no_window};
+
+    use super::ProtocolPeer;
+    use crate::{
+        approvals::{ExecutorApprovalError, ExecutorApprovalService},
+        env::RepoContext,
+        executors::{claude::client::ClaudeAgentClient, codex::client::LogWriter},
+        stdout_dup::create_stdout_pipe_writer,
+    };
+
+    struct BlockingApprovalService {
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
+    #[async_trait]
+    impl ExecutorApprovalService for BlockingApprovalService {
+        async fn request_tool_approval(
+            &self,
+            _tool_name: &str,
+            _tool_input: serde_json::Value,
+            _tool_call_id: &str,
+            cancel: CancellationToken,
+        ) -> Result<ApprovalStatus, ExecutorApprovalError> {
+            self.started.notify_one();
+            tokio::select! {
+                _ = self.release.notified() => Ok(ApprovalStatus::Approved),
+                _ = cancel.cancelled() => Err(ExecutorApprovalError::Cancelled),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn control_requests_do_not_block_following_stdout_messages() {
+        #[cfg(unix)]
+        let mut cmd = {
+            let mut cmd = tokio::process::Command::new("/bin/sh");
+            cmd.args(["-c", "while :; do sleep 3600; done"]);
+            cmd
+        };
+
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut cmd = tokio::process::Command::new("powershell.exe");
+            cmd.args([
+                "-NoLogo",
+                "-NonInteractive",
+                "-Command",
+                "[System.Threading.Thread]::Sleep([int]::MaxValue)",
+            ]);
+            cmd
+        };
+
+        cmd.kill_on_drop(true)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+
+        let mut child = group_spawn_no_window(&mut cmd).expect("spawn test process");
+        let mut stdout_writer: Box<dyn AsyncWrite + Send + Unpin> =
+            Box::new(create_stdout_pipe_writer(&mut child).expect("create stdout pipe"));
+        let stdin = child.inner().stdin.take().expect("stdin");
+        let stdout = child.inner().stdout.take().expect("stdout");
+        let (log_reader, log_writer_stream) = tokio::io::duplex(4096);
+        let log_writer = LogWriter::new(log_writer_stream);
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let approvals = Arc::new(BlockingApprovalService {
+            started: started.clone(),
+            release: release.clone(),
+        });
+        let cancel = CancellationToken::new();
+        let client = ClaudeAgentClient::new(
+            log_writer,
+            Some(approvals),
+            RepoContext::default(),
+            String::new(),
+            cancel.clone(),
+        );
+
+        let _peer = ProtocolPeer::spawn(stdin, stdout, client, cancel.clone());
+        let mut reader = BufReader::new(log_reader).lines();
+
+        stdout_writer
+            .write_all(
+                br#"{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo hi"},"tool_use_id":"tool-1"}}"#,
+            )
+            .await
+            .expect("write control request");
+        stdout_writer.write_all(b"\n").await.expect("newline");
+
+        tokio::time::timeout(Duration::from_secs(1), started.notified())
+            .await
+            .expect("approval request should start");
+
+        stdout_writer
+            .write_all(br#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"streaming"}]}}"#)
+            .await
+            .expect("write assistant message");
+        stdout_writer.write_all(b"\n").await.expect("newline");
+
+        let first = tokio::time::timeout(Duration::from_secs(1), reader.next_line())
+            .await
+            .expect("first log line")
+            .expect("first line")
+            .expect("control request line");
+        let second = tokio::time::timeout(Duration::from_secs(1), reader.next_line())
+            .await
+            .expect("second log line")
+            .expect("second line")
+            .expect("assistant line");
+
+        assert!(first.contains(r#""type":"control_request""#));
+        assert!(second.contains(r#""type":"assistant""#));
+
+        release.notify_waiters();
+        cancel.cancel();
     }
 }

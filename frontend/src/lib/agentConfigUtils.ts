@@ -114,9 +114,7 @@ export function envMapToText(env: Record<string, string>): string {
 }
 
 /** Parse KEY=VALUE text lines into an env map. */
-export function parseEnvText(
-  envText: string
-): Record<string, string> {
+export function parseEnvText(envText: string): Record<string, string> {
   const map: Record<string, string> = {};
   for (const rawLine of envText.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -198,26 +196,19 @@ export function buildDraftFromProfile(
   // Extract env map from the config's cmd.env or top-level env
   const cmdObj = (profileConfig.cmd ?? {}) as Record<string, unknown>;
   const envMap =
-    ((cmdObj.env ?? profileConfig.env ?? {}) as Record<
-      string,
-      string
-    >) || {};
+    ((cmdObj.env ?? profileConfig.env ?? {}) as Record<string, string>) || {};
   draft.envText = envMapToText(envMap);
   draft.configText = JSON.stringify(profileConfig, null, 2);
 
   if (agentType === ('CLAUDE_CODE' as BaseCodingAgent)) {
     // Extract Claude Code specific fields from env
-    draft.claudeApiBaseUrl = findEnvValue(
-      envMap,
-      CLAUDE_ENV_KEYS.apiBaseUrl
-    );
+    draft.claudeApiBaseUrl = findEnvValue(envMap, CLAUDE_ENV_KEYS.apiBaseUrl);
     draft.claudeApiKey = findEnvValue(envMap, CLAUDE_ENV_KEYS.apiKey);
     draft.claudeMainModel =
       envMap[CLAUDE_ENV_KEYS.mainModel] ??
       (profileConfig.model as string) ??
       '';
-    draft.claudeReasoningModel =
-      envMap[CLAUDE_ENV_KEYS.reasoningModel] ?? '';
+    draft.claudeReasoningModel = envMap[CLAUDE_ENV_KEYS.reasoningModel] ?? '';
     draft.claudeDefaultHaikuModel =
       envMap[CLAUDE_ENV_KEYS.defaultHaikuModel] ?? '';
     draft.claudeDefaultSonnetModel =
@@ -227,16 +218,14 @@ export function buildDraftFromProfile(
   } else if (agentType === ('CODEX' as BaseCodingAgent)) {
     // Extract Codex struct fields
     draft.codexModel = (profileConfig.model as string) ?? '';
-    draft.codexModelProvider =
-      (profileConfig.model_provider as string) ?? '';
+    draft.codexModelProvider = (profileConfig.model_provider as string) ?? '';
     draft.codexReasoningEffort = normalizeReasoningEffort(
       profileConfig.model_reasoning_effort as string | undefined
     );
 
     // Native config files
     if (nativeConfigs) {
-      draft.codexConfigTomlText =
-        nativeConfigs.codex_config_toml ?? '';
+      draft.codexConfigTomlText = nativeConfigs.codex_config_toml ?? '';
       draft.codexAuthJsonText = nativeConfigs.codex_auth_json ?? '';
 
       // Extract API key from auth.json
@@ -265,19 +254,14 @@ export function buildDraftFromProfile(
 
     // Native config files
     if (nativeConfigs) {
-      draft.openCodeConfigText =
-        nativeConfigs.opencode_config_json ?? '';
-      draft.openCodeAuthJsonText =
-        nativeConfigs.opencode_auth_json ?? '';
+      draft.openCodeConfigText = nativeConfigs.opencode_config_json ?? '';
+      draft.openCodeAuthJsonText = nativeConfigs.opencode_auth_json ?? '';
 
       // Extract small_model from config
       try {
         if (nativeConfigs.opencode_config_json) {
-          const configObj = JSON.parse(
-            nativeConfigs.opencode_config_json
-          );
-          draft.openCodeSmallModel =
-            configObj.small_model ?? '';
+          const configObj = JSON.parse(nativeConfigs.opencode_config_json);
+          draft.openCodeSmallModel = configObj.small_model ?? '';
         }
       } catch {
         // Invalid JSON
@@ -312,8 +296,7 @@ export function buildProfileConfigFromDraft(
     const claudeEnv = { ...envFromText };
 
     if (draft.claudeApiBaseUrl) {
-      claudeEnv[CLAUDE_ENV_KEYS.apiBaseUrl[0]] =
-        draft.claudeApiBaseUrl;
+      claudeEnv[CLAUDE_ENV_KEYS.apiBaseUrl[0]] = draft.claudeApiBaseUrl;
     }
     if (draft.claudeApiKey) {
       claudeEnv[CLAUDE_ENV_KEYS.apiKey[0]] = draft.claudeApiKey;
@@ -322,8 +305,7 @@ export function buildProfileConfigFromDraft(
       claudeEnv[CLAUDE_ENV_KEYS.mainModel] = draft.claudeMainModel;
     }
     if (draft.claudeReasoningModel) {
-      claudeEnv[CLAUDE_ENV_KEYS.reasoningModel] =
-        draft.claudeReasoningModel;
+      claudeEnv[CLAUDE_ENV_KEYS.reasoningModel] = draft.claudeReasoningModel;
     }
     if (draft.claudeDefaultHaikuModel) {
       claudeEnv[CLAUDE_ENV_KEYS.defaultHaikuModel] =
@@ -340,8 +322,7 @@ export function buildProfileConfigFromDraft(
 
     // Update cmd.env
     const cmd = { ...((config.cmd ?? {}) as Record<string, unknown>) };
-    cmd.env =
-      Object.keys(claudeEnv).length > 0 ? claudeEnv : undefined;
+    cmd.env = Object.keys(claudeEnv).length > 0 ? claudeEnv : undefined;
     config.cmd = cmd;
 
     // Update model from main model field
@@ -356,14 +337,12 @@ export function buildProfileConfigFromDraft(
     if (draft.codexModelProvider) {
       config.model_provider = draft.codexModelProvider;
     }
-    config.model_reasoning_effort =
-      draft.codexReasoningEffort || undefined;
+    config.model_reasoning_effort = draft.codexReasoningEffort || undefined;
 
     // Update cmd.env
     const cmd = { ...((config.cmd ?? {}) as Record<string, unknown>) };
     const codexEnv = { ...envFromText };
-    cmd.env =
-      Object.keys(codexEnv).length > 0 ? codexEnv : undefined;
+    cmd.env = Object.keys(codexEnv).length > 0 ? codexEnv : undefined;
     config.cmd = cmd;
   } else if (agentType === ('OPENCODE' as BaseCodingAgent)) {
     // OpenCode struct fields
@@ -374,8 +353,7 @@ export function buildProfileConfigFromDraft(
     // Update cmd.env
     const cmd = { ...((config.cmd ?? {}) as Record<string, unknown>) };
     const opencodeEnv = { ...envFromText };
-    cmd.env =
-      Object.keys(opencodeEnv).length > 0 ? opencodeEnv : undefined;
+    cmd.env = Object.keys(opencodeEnv).length > 0 ? opencodeEnv : undefined;
     config.cmd = cmd;
   }
 
@@ -396,9 +374,7 @@ interface CodexTomlValues {
  * Extract important values from a Codex config.toml string.
  * Simple key=value parsing (not a full TOML parser).
  */
-export function extractCodexTomlValues(
-  tomlText: string
-): CodexTomlValues {
+export function extractCodexTomlValues(tomlText: string): CodexTomlValues {
   const result: CodexTomlValues = {
     modelProvider: '',
     baseUrl: '',
@@ -435,9 +411,7 @@ export function extractCodexTomlValues(
 /**
  * Extract provider names from Codex config.toml [model_providers.X] sections.
  */
-export function extractCodexProviderOptions(
-  tomlText: string
-): string[] {
+export function extractCodexProviderOptions(tomlText: string): string[] {
   const providers: string[] = [];
 
   if (!tomlText) return providers;
@@ -473,10 +447,7 @@ function normalizeReasoningEffort(
   value: string | undefined
 ): CodexReasoningEffort {
   if (!value) return 'high';
-  const normalized = value
-    .toLowerCase()
-    .replace(/-/g, '')
-    .trim();
+  const normalized = value.toLowerCase().replace(/-/g, '').trim();
   if (normalized === 'low') return 'low';
   if (normalized === 'medium') return 'medium';
   if (normalized === 'high') return 'high';

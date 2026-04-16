@@ -41,7 +41,7 @@ function renderColumn(
     | 'onViewTaskDetails'
     | 'selectedTaskId'
     | 'projectId'
-  >,
+  >
 ) {
   return (
     <KanbanBoard key={statusKey} id={statusKey}>

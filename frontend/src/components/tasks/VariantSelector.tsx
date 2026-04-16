@@ -74,7 +74,12 @@ const VariantSelectorInner = forwardRef<HTMLButtonElement, Props>(
             <ChevronDown className="h-3 w-3 ml-1 flex-shrink-0" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
+        <DropdownMenuContent
+          side="bottom"
+          align="start"
+          sideOffset={1}
+          avoidCollisions={false}
+        >
           {Object.keys(currentProfile).map((variantLabel) => (
             <DropdownMenuItem
               key={variantLabel}

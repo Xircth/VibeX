@@ -65,6 +65,7 @@ export interface ProjectUsageProviderStatus {
 }
 
 export interface ProjectUsageStatistics {
+  scope: 'global' | 'project';
   project_id: string;
   project_name: string;
   total_sessions: number;
@@ -76,10 +77,12 @@ export interface ProjectUsageStatistics {
   by_model: ProjectUsageModelUsage[];
   provider_status: ProjectUsageProviderStatus[];
   last_updated: number;
+  pricing_notice?: string | null;
 }
 
 export interface GetProjectUsageStatisticsParams {
-  projectId: string;
+  scope: 'global' | 'project';
+  projectId?: string;
   dateRange?: '7d' | '30d' | 'all';
 }
 
@@ -92,7 +95,8 @@ export const localUsageApi = {
     const result = await tauriInvoke<ProjectUsageStatistics>(
       'get_project_usage_statistics',
       {
-        projectId: params.projectId,
+        scope: params.scope,
+        projectId: params.projectId ?? null,
         dateRange: params.dateRange ?? '7d',
       }
     );

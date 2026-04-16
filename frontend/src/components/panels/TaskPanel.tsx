@@ -16,7 +16,8 @@ interface TaskPanelProps {
   task: TaskWithAttemptStatus | null;
 }
 
-const TaskPanel = ({ task }: TaskPanelProps) => {  const navigate = useNavigateWithSearch();
+const TaskPanel = ({ task }: TaskPanelProps) => {
+  const navigate = useNavigateWithSearch();
   const { projectId } = useProject();
 
   const {
@@ -63,11 +64,7 @@ const TaskPanel = ({ task }: TaskPanelProps) => {  const navigate = useNavigate
   );
 
   if (!task) {
-    return (
-      <div className="text-muted-foreground">
-        {'未选择任务'}
-      </div>
-    );
+    return <div className="text-muted-foreground">{'未选择任务'}</div>;
   }
 
   const titleContent = `# ${task.title || 'Task'}`;
@@ -124,13 +121,9 @@ const TaskPanel = ({ task }: TaskPanelProps) => {  const navigate = useNavigate
             )}
 
             {isAttemptsLoading ? (
-              <div className="text-muted-foreground">
-                {'加载尝试中...'}
-              </div>
+              <div className="text-muted-foreground">{'加载尝试中...'}</div>
             ) : isAttemptsError ? (
-              <div className="text-destructive">
-                {'加载尝试失败'}
-              </div>
+              <div className="text-destructive">{'加载尝试失败'}</div>
             ) : (
               <DataTable
                 data={displayedAttempts}

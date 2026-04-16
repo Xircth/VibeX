@@ -10,9 +10,7 @@ export const SUPPORTED_AGENTS: readonly BaseCodingAgent[] = [
 export type SupportedAgent = (typeof SUPPORTED_AGENTS)[number];
 
 /** Type guard to check if an agent string is one of the supported agents. */
-export function isSupportedAgent(
-  agent: string
-): agent is SupportedAgent {
+export function isSupportedAgent(agent: string): agent is SupportedAgent {
   return (SUPPORTED_AGENTS as readonly string[]).includes(agent);
 }
 

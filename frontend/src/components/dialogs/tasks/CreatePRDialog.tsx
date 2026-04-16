@@ -14,7 +14,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { attemptsApi } from '@/lib/api';import { TaskWithAttemptStatus, Workspace } from 'shared/types';
+import { attemptsApi } from '@/lib/api';
+import { TaskWithAttemptStatus, Workspace } from 'shared/types';
 import { Loader2 } from 'lucide-react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useRepoBranches } from '@/hooks';
@@ -46,7 +47,8 @@ export type CreatePRDialogResult = {
 
 const CreatePRDialogImpl = NiceModal.create<CreatePRDialogProps>(
   ({ attempt, task, repoId, targetBranch }) => {
-    const modal = useModal();    const isLoaded = true; // Login removed
+    const modal = useModal();
+    const isLoaded = true; // Login removed
     const { environment, config } = useUserSystem();
     const [prTitle, setPrTitle] = useState('');
     const [prBody, setPrBody] = useState('');
@@ -284,9 +286,7 @@ const CreatePRDialogImpl = NiceModal.create<CreatePRDialogProps>(
                   </Label>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pr-title">
-                    {'标题'}
-                  </Label>
+                  <Label htmlFor="pr-title">{'标题'}</Label>
                   <Input
                     id="pr-title"
                     value={prTitle}
@@ -301,9 +301,7 @@ const CreatePRDialogImpl = NiceModal.create<CreatePRDialogProps>(
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pr-body">
-                    {'描述（可选）'}
-                  </Label>
+                  <Label htmlFor="pr-body">{'描述（可选）'}</Label>
                   <Textarea
                     id="pr-body"
                     value={prBody}
@@ -319,17 +317,13 @@ const CreatePRDialogImpl = NiceModal.create<CreatePRDialogProps>(
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pr-base">
-                    {'基础分支'}
-                  </Label>
+                  <Label htmlFor="pr-base">{'基础分支'}</Label>
                   <BranchSelector
                     branches={branches}
                     selectedBranch={prBaseBranch}
                     onBranchSelect={setPrBaseBranch}
                     placeholder={
-                      branchesLoading
-                        ? '加载分支中...'
-                        : '选择基础分支'
+                      branchesLoading ? '加载分支中...' : '选择基础分支'
                     }
                     className={
                       branchesLoading ? 'opacity-50 cursor-not-allowed' : ''
@@ -354,9 +348,7 @@ const CreatePRDialogImpl = NiceModal.create<CreatePRDialogProps>(
                     </AlertTitle>
                     <AlertDescription className="space-y-3">
                       <p>{ghCliHelp.message}</p>
-                      <GhCliHelpInstructions
-                        variant={ghCliHelp.variant}
-                      />
+                      <GhCliHelpInstructions variant={ghCliHelp.variant} />
                     </AlertDescription>
                   </Alert>
                 )}

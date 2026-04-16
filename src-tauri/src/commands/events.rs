@@ -2,12 +2,18 @@ use db::models::scratch::ScratchType;
 use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
 use futures::StreamExt;
-use services::services::container::ContainerService;
+use serde::Serialize;
+use services::services::{container::ContainerService, filesystem_watcher};
 use tauri::{AppHandle, Emitter};
 use utils::log_msg::LogMsg;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FileTreeChangedPayload {
+    pub root_path: String,
+}
 
 /// Subscribe to diff stream for a workspace.
 /// Frontend listens to "diff-stream:{workspace_id}" event.
@@ -61,6 +67,16 @@ pub async fn subscribe_conversation_stream(
     let channel = format!("conversation-stream:{}", execution_process_id);
     let deployment = state.deployment.clone();
     let use_normalized = normalized.unwrap_or(true);
+    let stream_key = execution_process_id.to_string();
+
+    {
+        let mut streams = state.conversation_streams.lock().await;
+        if streams.contains(&stream_key) {
+            return Ok(());
+        }
+        streams.insert(stream_key.clone());
+    }
+    let stream_registry = state.conversation_streams.clone();
 
     tokio::spawn(async move {
         let stream_opt = if use_normalized {
@@ -86,6 +102,9 @@ pub async fn subscribe_conversation_stream(
         // Best-effort completion signal so frontend historic log loaders
         // don't wait forever when backend streams end without an explicit Finished.
         let _ = app.emit(&channel, &LogMsg::Finished);
+
+        let mut streams = stream_registry.lock().await;
+        streams.remove(&stream_key);
     });
 
     Ok(())
@@ -130,19 +149,23 @@ pub async fn subscribe_execution_processes_stream(
     Ok(())
 }
 
-/// Subscribe to tasks stream for a project.
-/// Frontend listens to "tasks-stream:{project_id}" event.
+/// Subscribe to project workspaces stream.
+/// Frontend listens to "project-workspaces-stream:{project_id}" event.
 #[tauri::command]
-pub async fn subscribe_tasks_stream(
+pub async fn subscribe_project_workspaces_stream(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     project_id: Uuid,
 ) -> Result<(), AppError> {
-    let channel = format!("tasks-stream:{}", project_id);
+    let channel = format!("project-workspaces-stream:{}", project_id);
     let deployment = state.deployment.clone();
 
     tokio::spawn(async move {
-        match deployment.events().stream_tasks_raw(project_id).await {
+        match deployment
+            .events()
+            .stream_project_workspaces_raw(project_id)
+            .await
+        {
             Ok(mut stream) => {
                 while let Some(Ok(msg)) = stream.next().await {
                     if app.emit(&channel, &msg).is_err() {
@@ -152,7 +175,7 @@ pub async fn subscribe_tasks_stream(
             }
             Err(e) => {
                 tracing::error!(
-                    "Failed to start tasks stream for project {}: {}",
+                    "Failed to start project workspaces stream for project {}: {}",
                     project_id,
                     e
                 );
@@ -186,6 +209,77 @@ pub async fn subscribe_projects_stream(
                 tracing::error!("Failed to start projects stream: {}", e);
             }
         }
+    });
+
+    Ok(())
+}
+
+/// Subscribe to file tree changes for a workspace root.
+/// Frontend listens to "file-tree-stream" event and filters by `root_path`.
+#[tauri::command]
+pub async fn subscribe_file_tree_stream(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    root_path: String,
+) -> Result<(), AppError> {
+    let canonical_root = std::fs::canonicalize(&root_path).map_err(|error| {
+        AppError::BadRequest(format!("Invalid file tree root '{}': {}", root_path, error))
+    })?;
+    let canonical_root_str = canonical_root.to_string_lossy().to_string();
+
+    {
+        let mut watchers = state.file_tree_watchers.lock().await;
+        if watchers.contains(&canonical_root_str) {
+            return Ok(());
+        }
+        watchers.insert(canonical_root_str.clone());
+    }
+
+    let watcher_registry = state.file_tree_watchers.clone();
+
+    tokio::spawn(async move {
+        match filesystem_watcher::async_watcher(canonical_root.clone()) {
+            Ok((watcher, mut receiver, normalized_root)) => {
+                let _watcher = watcher;
+                let normalized_root_str = normalized_root.to_string_lossy().to_string();
+
+                while let Some(result) = receiver.next().await {
+                    match result {
+                        Ok(events) if !events.is_empty() => {
+                            if app
+                                .emit(
+                                    "file-tree-stream",
+                                    &FileTreeChangedPayload {
+                                        root_path: normalized_root_str.clone(),
+                                    },
+                                )
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(errors) => {
+                            tracing::warn!(
+                                "File tree watcher error for {}: {:?}",
+                                normalized_root_str,
+                                errors
+                            );
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(
+                    "Failed to start file tree watcher for {}: {}",
+                    canonical_root_str,
+                    error
+                );
+            }
+        }
+
+        let mut watchers = watcher_registry.lock().await;
+        watchers.remove(&canonical_root_str);
     });
 
     Ok(())

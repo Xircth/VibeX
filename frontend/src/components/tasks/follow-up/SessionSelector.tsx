@@ -24,6 +24,7 @@ interface SessionSelectorProps {
   onSelectSession: (id: string) => void;
   onStartNewSession: () => void;
   onRenameSession: (id: string, name: string | null) => void | Promise<void>;
+  dropdownSide?: 'top' | 'bottom';
 }
 
 const NEW_SESSION_LABEL = '\u65B0\u5EFA\u4F1A\u8BDD';
@@ -36,7 +37,9 @@ export function SessionSelector({
   onSelectSession,
   onStartNewSession,
   onRenameSession,
+  dropdownSide = 'bottom',
 }: SessionSelectorProps) {
+  const [open, setOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
 
@@ -71,7 +74,7 @@ export function SessionSelector({
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
           className="flex items-center gap-1 hover:text-foreground transition-colors"
@@ -86,7 +89,13 @@ export function SessionSelector({
           <ChevronDown className="h-2.5 w-2.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1">
+      <DropdownMenuContent
+        side={dropdownSide}
+        align="end"
+        sideOffset={1}
+        avoidCollisions={false}
+        className="w-72 p-1"
+      >
         <div className="space-y-1">
           {sessions.map((session) => {
             const isEditing = editingSessionId === session.id;
@@ -103,6 +112,7 @@ export function SessionSelector({
                 )}
                 onClick={() => {
                   if (!isEditing) {
+                    setOpen(false);
                     onSelectSession(session.id);
                   }
                 }}
@@ -187,7 +197,10 @@ export function SessionSelector({
         </div>
         <button
           type="button"
-          onClick={onStartNewSession}
+          onClick={() => {
+            setOpen(false);
+            onStartNewSession();
+          }}
           className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           {`+ ${NEW_SESSION_LABEL}`}

@@ -18,6 +18,7 @@ interface ConfigSelectorProps {
   className?: string;
   showLabel?: boolean;
   iconOnly?: boolean;
+  dropdownSide?: 'top' | 'bottom';
 }
 
 export function ConfigSelector({
@@ -28,6 +29,7 @@ export function ConfigSelector({
   className = '',
   showLabel = false,
   iconOnly = false,
+  dropdownSide = 'bottom',
 }: ConfigSelectorProps) {
   const selectedAgent = selectedExecutorProfile?.executor;
   const configs = selectedAgent && profiles ? profiles[selectedAgent] : null;
@@ -50,7 +52,7 @@ export function ConfigSelector({
           配置
         </Label>
       ) : null}
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             variant={iconOnly ? 'ghost' : 'outline'}
@@ -69,11 +71,17 @@ export function ConfigSelector({
             {!iconOnly ? <ArrowDown className="h-3 w-3" /> : null}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-60">
+        <DropdownMenuContent
+          side={dropdownSide}
+          align="start"
+          sideOffset={1}
+          avoidCollisions={false}
+          className="w-60"
+        >
           {configOptions.map((variant) => (
             <DropdownMenuItem
               key={variant}
-              onClick={() => {
+              onSelect={() => {
                 onChange({
                   executor: selectedAgent,
                   variant: variant === 'DEFAULT' ? null : variant,

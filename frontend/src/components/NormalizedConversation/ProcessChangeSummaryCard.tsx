@@ -33,9 +33,7 @@ function estimateChangeStats(change: FileChange): {
       return parseDiffStats(change.unified_diff);
     case 'write': {
       const lineCount =
-        change.content.length === 0
-          ? 0
-          : change.content.split(/\r?\n/).length;
+        change.content.length === 0 ? 0 : change.content.split(/\r?\n/).length;
       return { additions: lineCount, deletions: 0 };
     }
     case 'delete':

@@ -5,7 +5,11 @@ import type { DiffListView } from '@/hooks/git/useGitPanelController';
 import { GitFileRow } from './GitFileRow';
 import { GitFileTree } from './GitFileTree';
 import { GitDiscardDialog } from './GitDiscardDialog';
-import { GitContextMenu, buildFileContextActions, type ContextMenuAction } from './GitContextMenu';
+import {
+  GitContextMenu,
+  buildFileContextActions,
+  type ContextMenuAction,
+} from './GitContextMenu';
 
 interface GitStagingAreaProps {
   stagedFiles: GitFileStatusEntry[];
@@ -28,7 +32,12 @@ interface SectionHeaderProps {
   actions: React.ReactNode;
 }
 
-const SectionHeader = memo(function SectionHeader({ label, count, icon, actions }: SectionHeaderProps) {
+const SectionHeader = memo(function SectionHeader({
+  label,
+  count,
+  icon,
+  actions,
+}: SectionHeaderProps) {
   return (
     <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
       <div className="flex items-center gap-1.5">
@@ -63,7 +72,9 @@ export const GitStagingArea = memo(function GitStagingArea({
   onStageAll,
   onRevertAll,
 }: GitStagingAreaProps) {
-  const [discardTarget, setDiscardTarget] = useState<DiscardTarget | null>(null);
+  const [discardTarget, setDiscardTarget] = useState<DiscardTarget | null>(
+    null
+  );
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [lastClickedPath, setLastClickedPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -92,7 +103,8 @@ export const GitStagingArea = memo(function GitStagingArea({
         const startIdx = paths.indexOf(lastClickedPath);
         const endIdx = paths.indexOf(path);
         if (startIdx !== -1 && endIdx !== -1) {
-          const [from, to] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+          const [from, to] =
+            startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
           const range = paths.slice(from, to + 1);
           setSelectedPaths(new Set(range));
         }
@@ -125,13 +137,15 @@ export const GitStagingArea = memo(function GitStagingArea({
   // Resolve context menu actions
   const contextMenuActions = useMemo((): ContextMenuAction[] => {
     if (!contextMenu) return [];
-    const activePaths = selectedPaths.size > 0 ? [...selectedPaths] : [contextMenu.path];
+    const activePaths =
+      selectedPaths.size > 0 ? [...selectedPaths] : [contextMenu.path];
     return buildFileContextActions({
       section: contextMenu.section,
       filePaths: activePaths,
       onStageFile,
       onUnstageFile,
-      onRevertFile: (path: string) => setDiscardTarget({ type: 'files', paths: [path] }),
+      onRevertFile: (path: string) =>
+        setDiscardTarget({ type: 'files', paths: [path] }),
       onCopyPath: (path: string) => navigator.clipboard.writeText(path),
     });
   }, [contextMenu, selectedPaths, onStageFile, onUnstageFile]);
@@ -159,11 +173,12 @@ export const GitStagingArea = memo(function GitStagingArea({
     setDiscardTarget(null);
   }, []);
 
-  const discardFiles = discardTarget?.type === 'all'
-    ? unstagedFiles.map((f) => f.path)
-    : discardTarget?.type === 'files'
-    ? discardTarget.paths
-    : [];
+  const discardFiles =
+    discardTarget?.type === 'all'
+      ? unstagedFiles.map((f) => f.path)
+      : discardTarget?.type === 'files'
+        ? discardTarget.paths
+        : [];
 
   // Batch actions for selected files
   const hasMultiSelection = selectedPaths.size > 1;
@@ -180,21 +195,26 @@ export const GitStagingArea = memo(function GitStagingArea({
             onClick={() => selectedPaths.forEach((p) => onStageFile(p))}
             title="Stage selected"
           >
-            <Plus className="h-3 w-3 inline mr-0.5" />Stage
+            <Plus className="h-3 w-3 inline mr-0.5" />
+            Stage
           </button>
           <button
             className="px-1.5 py-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
             onClick={() => selectedPaths.forEach((p) => onUnstageFile(p))}
             title="Unstage selected"
           >
-            <Minus className="h-3 w-3 inline mr-0.5" />Unstage
+            <Minus className="h-3 w-3 inline mr-0.5" />
+            Unstage
           </button>
           <button
             className="px-1.5 py-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-            onClick={() => setDiscardTarget({ type: 'files', paths: [...selectedPaths] })}
+            onClick={() =>
+              setDiscardTarget({ type: 'files', paths: [...selectedPaths] })
+            }
             title="Discard selected"
           >
-            <Undo2 className="h-3 w-3 inline mr-0.5" />Discard
+            <Undo2 className="h-3 w-3 inline mr-0.5" />
+            Discard
           </button>
           <button
             className="px-1.5 py-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
@@ -245,7 +265,9 @@ export const GitStagingArea = memo(function GitStagingArea({
                   isSelected={selectedPaths.has(file.path)}
                   onSelect={handleFileClick}
                   onDoubleClick={onDoubleClickFile}
-                  onContextMenu={(path, e) => handleContextMenu(path, 'staged', e)}
+                  onContextMenu={(path, e) =>
+                    handleContextMenu(path, 'staged', e)
+                  }
                   onUnstageFile={onUnstageFile}
                 />
               ))}
@@ -288,7 +310,9 @@ export const GitStagingArea = memo(function GitStagingArea({
               selectedPaths={selectedPaths}
               onSelectFile={handleFileClick}
               onDoubleClick={onDoubleClickFile}
-              onContextMenu={(path, e) => handleContextMenu(path, 'unstaged', e)}
+              onContextMenu={(path, e) =>
+                handleContextMenu(path, 'unstaged', e)
+              }
               onStageFile={onStageFile}
               onRevertFile={handleRevertFile}
             />
@@ -303,7 +327,9 @@ export const GitStagingArea = memo(function GitStagingArea({
                   isSelected={selectedPaths.has(file.path)}
                   onSelect={handleFileClick}
                   onDoubleClick={onDoubleClickFile}
-                  onContextMenu={(path, e) => handleContextMenu(path, 'unstaged', e)}
+                  onContextMenu={(path, e) =>
+                    handleContextMenu(path, 'unstaged', e)
+                  }
                   onStageFile={onStageFile}
                   onRevertFile={handleRevertFile}
                 />

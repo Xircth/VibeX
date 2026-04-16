@@ -11,6 +11,7 @@
  */
 
 const { spawn, spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 function runCommandSync(command, args, options = {}) {
@@ -32,6 +33,26 @@ function runCommand(command, args, options = {}) {
   }
 
   return spawn(command, args, options);
+}
+
+function createCargoLeanDevEnv() {
+  return {
+    ...process.env,
+    CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL || '0',
+  };
+}
+
+function clearIncrementalCacheIfDisabled(env) {
+  if (env.CARGO_INCREMENTAL !== '0') {
+    return;
+  }
+
+  const incrementalPath = path.join(process.cwd(), 'target', 'debug', 'incremental');
+  if (!fs.existsSync(incrementalPath)) {
+    return;
+  }
+
+  fs.rmSync(incrementalPath, { recursive: true, force: true });
 }
 
 function terminateStaleDesktopProcess() {
@@ -85,6 +106,7 @@ function runInitialFrontendBuild() {
 }
 
 function runTauriDesktopDev() {
+  const env = createCargoLeanDevEnv();
   const args = [
     'exec',
     'tauri',
@@ -95,7 +117,7 @@ function runTauriDesktopDev() {
   ];
 
   const child = runCommand('pnpm', args, {
-    env: process.env,
+    env,
     stdio: 'inherit',
   });
 
@@ -109,4 +131,5 @@ function runTauriDesktopDev() {
 
 runInitialFrontendBuild();
 terminateStaleDesktopProcess();
+clearIncrementalCacheIfDisabled(createCargoLeanDevEnv());
 runTauriDesktopDev();

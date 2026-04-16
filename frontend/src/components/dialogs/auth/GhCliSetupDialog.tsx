@@ -12,7 +12,8 @@ import { attemptsApi } from '@/lib/api';
 import type { GhCliSetupError } from 'shared/types';
 import { useRef, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2 } from 'lucide-react';interface GhCliSetupDialogProps {
+import { Loader2 } from 'lucide-react';
+interface GhCliSetupDialogProps {
   attemptId: string;
 }
 
@@ -73,7 +74,9 @@ export const GhCliHelpInstructions = ({
           >
             {'brew.sh'}
           </a>{' '}
-          {'安装 Homebrew，然后重新运行设置。或者，使用以下命令手动安装 GitHub CLI：'}
+          {
+            '安装 Homebrew，然后重新运行设置。或者，使用以下命令手动安装 GitHub CLI：'
+          }
         </p>
         <pre className="rounded bg-muted px-2 py-1 text-xs">
           brew install gh
@@ -112,7 +115,8 @@ export const GhCliHelpInstructions = ({
 
 const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
   ({ attemptId }) => {
-    const modal = useModal();    const [isRunning, setIsRunning] = useState(false);
+    const modal = useModal();
+    const [isRunning, setIsRunning] = useState(false);
     const [errorInfo, setErrorInfo] = useState<{
       error: GhCliSetupError;
       message: string;
@@ -132,9 +136,7 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
         modal.resolve(null);
         modal.hide();
       } catch (err: unknown) {
-        const rawMessage =
-          getErrorMessage(err) ||
-          '运行 GitHub CLI 设置失败。';
+        const rawMessage = getErrorMessage(err) || '运行 GitHub CLI 设置失败。';
 
         const maybeErrorData =
           typeof err === 'object' && err !== null && 'error_data' in err
@@ -180,27 +182,19 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {'GitHub CLI 设置'}
-            </DialogTitle>
+            <DialogTitle>{'GitHub CLI 设置'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p>{'需要 GitHub CLI 身份验证才能创建拉取请求并与 GitHub 仓库交互。'}</p>
+            <p>
+              {'需要 GitHub CLI 身份验证才能创建拉取请求并与 GitHub 仓库交互。'}
+            </p>
 
             <div className="space-y-2">
-              <p className="text-sm">
-                {'此设置将：'}
-              </p>
+              <p className="text-sm">{'此设置将：'}</p>
               <ol className="text-sm list-decimal list-inside space-y-1 ml-2">
-                <li>
-                  {'检查是否安装了 GitHub CLI (gh)'}
-                </li>
-                <li>
-                  {'如果需要，通过 Homebrew 安装它（macOS）'}
-                </li>
-                <li>
-                  {'使用 OAuth 进行 GitHub 身份验证'}
-                </li>
+                <li>{'检查是否安装了 GitHub CLI (gh)'}</li>
+                <li>{'如果需要，通过 Homebrew 安装它（macOS）'}</li>
+                <li>{'使用 OAuth 进行 GitHub 身份验证'}</li>
               </ol>
               <p className="text-sm text-muted-foreground mt-4">
                 {'设置将在聊天窗口中运行。您需要在浏览器中完成身份验证。'}

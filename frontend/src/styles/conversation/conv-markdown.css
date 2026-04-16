@@ -90,7 +90,9 @@
   color: var(--conv-text-secondary);
   background: transparent;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .conv-md-codeblock-copy:hover {
@@ -117,8 +119,10 @@
 }
 
 /* Prism token colors — Light mode (GitHub-inspired) */
-.conv-md-codeblock :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
-.conv-md-codeblock-single :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
+.conv-md-codeblock
+  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
+.conv-md-codeblock-single
+  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
   color: #6a737d;
 }
 
@@ -127,8 +131,22 @@
   color: #24292f;
 }
 
-.conv-md-codeblock :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted),
-.conv-md-codeblock-single :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted) {
+.conv-md-codeblock
+  :is(
+    .token.property,
+    .token.tag,
+    .token.constant,
+    .token.symbol,
+    .token.deleted
+  ),
+.conv-md-codeblock-single
+  :is(
+    .token.property,
+    .token.tag,
+    .token.constant,
+    .token.symbol,
+    .token.deleted
+  ) {
   color: #cf222e;
 }
 
@@ -137,18 +155,37 @@
   color: #0550ae;
 }
 
-.conv-md-codeblock :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted),
-.conv-md-codeblock-single :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted) {
+.conv-md-codeblock
+  :is(
+    .token.selector,
+    .token.attr-name,
+    .token.string,
+    .token.char,
+    .token.builtin,
+    .token.inserted
+  ),
+.conv-md-codeblock-single
+  :is(
+    .token.selector,
+    .token.attr-name,
+    .token.string,
+    .token.char,
+    .token.builtin,
+    .token.inserted
+  ) {
   color: #116329;
 }
 
-.conv-md-codeblock :is(.token.operator, .token.entity, .token.url, .token.variable),
-.conv-md-codeblock-single :is(.token.operator, .token.entity, .token.url, .token.variable) {
+.conv-md-codeblock
+  :is(.token.operator, .token.entity, .token.url, .token.variable),
+.conv-md-codeblock-single
+  :is(.token.operator, .token.entity, .token.url, .token.variable) {
   color: #24292f;
 }
 
 .conv-md-codeblock :is(.token.atrule, .token.attr-value, .token.keyword),
-.conv-md-codeblock-single :is(.token.atrule, .token.attr-value, .token.keyword) {
+.conv-md-codeblock-single
+  :is(.token.atrule, .token.attr-value, .token.keyword) {
   color: #cf222e;
 }
 
@@ -158,8 +195,12 @@
 }
 
 /* Prism token colors — Dark mode */
-.dark .conv-md-codeblock :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
-.dark .conv-md-codeblock-single :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
+.dark
+  .conv-md-codeblock
+  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
+.dark
+  .conv-md-codeblock-single
+  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
   color: #8b949e;
 }
 
@@ -168,8 +209,24 @@
   color: #c9d1d9;
 }
 
-.dark .conv-md-codeblock :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted),
-.dark .conv-md-codeblock-single :is(.token.property, .token.tag, .token.constant, .token.symbol, .token.deleted) {
+.dark
+  .conv-md-codeblock
+  :is(
+    .token.property,
+    .token.tag,
+    .token.constant,
+    .token.symbol,
+    .token.deleted
+  ),
+.dark
+  .conv-md-codeblock-single
+  :is(
+    .token.property,
+    .token.tag,
+    .token.constant,
+    .token.symbol,
+    .token.deleted
+  ) {
   color: #ff7b72;
 }
 
@@ -178,18 +235,42 @@
   color: #f2cc60;
 }
 
-.dark .conv-md-codeblock :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted),
-.dark .conv-md-codeblock-single :is(.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted) {
+.dark
+  .conv-md-codeblock
+  :is(
+    .token.selector,
+    .token.attr-name,
+    .token.string,
+    .token.char,
+    .token.builtin,
+    .token.inserted
+  ),
+.dark
+  .conv-md-codeblock-single
+  :is(
+    .token.selector,
+    .token.attr-name,
+    .token.string,
+    .token.char,
+    .token.builtin,
+    .token.inserted
+  ) {
   color: #7ee787;
 }
 
-.dark .conv-md-codeblock :is(.token.operator, .token.entity, .token.url, .token.variable),
-.dark .conv-md-codeblock-single :is(.token.operator, .token.entity, .token.url, .token.variable) {
+.dark
+  .conv-md-codeblock
+  :is(.token.operator, .token.entity, .token.url, .token.variable),
+.dark
+  .conv-md-codeblock-single
+  :is(.token.operator, .token.entity, .token.url, .token.variable) {
   color: #c9d1d9;
 }
 
 .dark .conv-md-codeblock :is(.token.atrule, .token.attr-value, .token.keyword),
-.dark .conv-md-codeblock-single :is(.token.atrule, .token.attr-value, .token.keyword) {
+.dark
+  .conv-md-codeblock-single
+  :is(.token.atrule, .token.attr-value, .token.keyword) {
   color: #8bd5ff;
 }
 

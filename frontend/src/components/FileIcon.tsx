@@ -19,7 +19,11 @@ function getFileName(filePath: string): string {
 /**
  * Get file icon SVG from file path
  */
-function getFileIconSvg(filePath: string, isFolder?: boolean, isOpen?: boolean): string {
+function getFileIconSvg(
+  filePath: string,
+  isFolder?: boolean,
+  isOpen?: boolean
+): string {
   const name = getFileName(filePath);
 
   if (isFolder) {
@@ -28,7 +32,8 @@ function getFileIconSvg(filePath: string, isFolder?: boolean, isOpen?: boolean):
 
   // Remove line number suffix if present (e.g., "file.ts:10-20")
   const cleanName = name.replace(/:\d+(-\d+)?$/, '');
-  const extension = cleanName.indexOf('.') !== -1 ? cleanName.split('.').pop() : '';
+  const extension =
+    cleanName.indexOf('.') !== -1 ? cleanName.split('.').pop() : '';
   return getFileIcon(extension, cleanName);
 }
 
@@ -38,21 +43,29 @@ function getFileIconSvg(filePath: string, isFolder?: boolean, isOpen?: boolean):
  * Security note: The SVG content comes from internal trusted source (getFileIconSvg)
  * which maps file extensions to pre-defined SVG strings. No user input is rendered.
  */
-const FileIcon = memo(({ filePath, isFolder, isOpen, className = 'file-icon' }: FileIconProps) => {
-  const svgContent = useMemo(
-    () => getFileIconSvg(filePath, isFolder, isOpen),
-    [filePath, isFolder, isOpen]
-  );
+const FileIcon = memo(
+  ({ filePath, isFolder, isOpen, className = 'file-icon' }: FileIconProps) => {
+    const svgContent = useMemo(
+      () => getFileIconSvg(filePath, isFolder, isOpen),
+      [filePath, isFolder, isOpen]
+    );
 
-  return (
-    <span
-      className={className}
-      style={{ display: 'inline-flex', width: 16, height: 16, flexShrink: 0, overflow: 'hidden' }}
-      dangerouslySetInnerHTML={{ __html: svgContent }}
-      aria-hidden="true"
-    />
-  );
-});
+    return (
+      <span
+        className={className}
+        style={{
+          display: 'inline-flex',
+          width: 16,
+          height: 16,
+          flexShrink: 0,
+          overflow: 'hidden',
+        }}
+        dangerouslySetInnerHTML={{ __html: svgContent }}
+        aria-hidden="true"
+      />
+    );
+  }
+);
 
 FileIcon.displayName = 'FileIcon';
 

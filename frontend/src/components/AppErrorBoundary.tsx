@@ -34,7 +34,9 @@ export class AppErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex flex-col items-center justify-center h-screen p-8 bg-background text-foreground">
           <div className="max-w-lg w-full space-y-4">
-            <h1 className="text-xl font-semibold text-destructive">页面发生错误</h1>
+            <h1 className="text-xl font-semibold text-destructive">
+              页面发生错误
+            </h1>
             <p className="text-sm text-muted-foreground">
               应用遇到了未预期的错误。请刷新页面或点击下方按钮重试。
             </p>

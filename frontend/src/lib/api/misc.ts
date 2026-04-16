@@ -106,7 +106,10 @@ export interface TextSearchOptions {
 }
 
 export const fileTreeApi = {
-  getTree: async (rootPath: string, depth?: number): Promise<FileTreeEntry[]> => {
+  getTree: async (
+    rootPath: string,
+    depth?: number
+  ): Promise<FileTreeEntry[]> => {
     return tauriInvoke<FileTreeEntry[]>('get_file_tree', {
       rootPath,
       depth: depth ?? null,
@@ -135,7 +138,7 @@ export const fileTreeApi = {
 
   listDirectoryChildren: async (
     rootPath: string,
-    relativePath: string,
+    relativePath: string
   ): Promise<DirectoryChildrenResponse> => {
     return tauriInvoke<DirectoryChildrenResponse>('list_directory_children', {
       rootPath,
@@ -145,7 +148,7 @@ export const fileTreeApi = {
 
   readFileWithTruncation: async (
     path: string,
-    maxBytes?: number,
+    maxBytes?: number
   ): Promise<ReadFileResponse> => {
     return tauriInvoke<ReadFileResponse>('read_file_with_truncation', {
       path,
@@ -161,13 +164,17 @@ export const fileTreeApi = {
     return tauriInvoke<string>('copy_item', { path });
   },
 
+  moveItem: async (path: string, newPath: string): Promise<string> => {
+    return tauriInvoke<string>('move_item', { path, newPath });
+  },
+
   createDirectory: async (path: string): Promise<void> => {
     return tauriInvoke<void>('create_directory', { path });
   },
 
   searchText: async (
     rootPath: string,
-    options: TextSearchOptions,
+    options: TextSearchOptions
   ): Promise<TextSearchResponse> => {
     return tauriInvoke<TextSearchResponse>('search_workspace_text', {
       rootPath,
@@ -185,6 +192,21 @@ export const desktopApi = {
   },
   revealInFileManager: async (path: string): Promise<void> => {
     return tauriInvoke<void>('reveal_in_file_manager', { path });
+  },
+  setProjectRailWindowVisible: async (
+    visible: boolean,
+    itemCount?: number
+  ): Promise<void> => {
+    return tauriInvoke<void>('set_project_rail_window_visible', {
+      visible,
+      itemCount: itemCount ?? null,
+    });
+  },
+  activateProjectRailTarget: async (payload: {
+    projectId: string;
+    route: string;
+  }): Promise<void> => {
+    return tauriInvoke<void>('activate_project_rail_target', { payload });
   },
 };
 
@@ -235,10 +257,7 @@ export const imagesApi = {
     });
   },
 
-  uploadForTask: async (
-    taskId: string,
-    file: File
-  ): Promise<ImageResponse> => {
+  uploadForTask: async (taskId: string, file: File): Promise<ImageResponse> => {
     return tauriInvoke<ImageResponse>('upload_image_for_task', {
       taskId,
       payload: {
@@ -356,25 +375,16 @@ export const searchApi = {
   },
 };
 
-// --- Popular Skills ---
+// --- Skills ---
 
-export interface PopularSkill {
-  key: string;
+export interface AgentLocalSkill {
   name: string;
-  description: string;
-  category: string;
-  icon: string;
-  tags: string[];
-  installed: boolean;
+  description: string | null;
+  path: string;
+  invocation: string;
 }
 
 export const skillsApi = {
-  getPopular: (): Promise<PopularSkill[]> =>
-    tauriInvoke<PopularSkill[]>('get_popular_skills'),
-  install: (key: string): Promise<void> =>
-    tauriInvoke<void>('install_skill', { key }),
-  uninstall: (key: string): Promise<void> =>
-    tauriInvoke<void>('uninstall_skill', { key }),
-  ensureAimaxInstalled: (): Promise<boolean> =>
-    tauriInvoke<boolean>('ensure_aimax_installed'),
+  listLocal: (agentType: string): Promise<AgentLocalSkill[]> =>
+    tauriInvoke<AgentLocalSkill[]>('list_local_agent_skills', { agentType }),
 };

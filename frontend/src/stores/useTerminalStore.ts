@@ -123,12 +123,16 @@ export const useTerminalStore = create<TerminalState>()(
       removeSession: (workspaceId, tabId) => {
         const state = get();
         const sessions = state.sessionsByWorkspace[workspaceId] || [];
-        const newSessions = sessions.filter((session) => session.tabId !== tabId);
+        const newSessions = sessions.filter(
+          (session) => session.tabId !== tabId
+        );
         const wasActive = state.activeTabByWorkspace[workspaceId] === tabId;
 
         let newActive = state.activeTabByWorkspace[workspaceId];
         if (wasActive && newSessions.length > 0) {
-          const closedIdx = sessions.findIndex((session) => session.tabId === tabId);
+          const closedIdx = sessions.findIndex(
+            (session) => session.tabId === tabId
+          );
           const nextIdx = Math.min(closedIdx, newSessions.length - 1);
           newActive = newSessions[nextIdx]?.tabId ?? null;
         } else if (newSessions.length === 0) {

@@ -103,6 +103,14 @@ function getNextEditorGroupId(dockviewApi: DockviewApi): string {
   return `${EDITOR_GROUP_PREFIX}${index}`;
 }
 
+function buildSplitPanelId(panelId: string, targetGroupId: string): string {
+  return `${panelId}::split::${targetGroupId}`;
+}
+
+function isDiffPreviewPanelId(panelId: string): boolean {
+  return panelId.startsWith(DIFF_PREVIEW_PANEL_ID_PREFIX);
+}
+
 export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
   openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
@@ -404,6 +412,19 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [syncDiffPreviewPanelQueue]
   );
 
+  const replaceDiffPreviewPanelQueueId = useCallback(
+    (fromPanelId: string, toPanelId: string) => {
+      if (!isDiffPreviewPanelId(fromPanelId)) {
+        return;
+      }
+
+      diffPreviewPanelQueueRef.current = diffPreviewPanelQueueRef.current.map(
+        (panelId) => (panelId === fromPanelId ? toPanelId : panelId)
+      );
+    },
+    []
+  );
+
   const openNewTerminal = useCallback(() => {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
@@ -523,6 +544,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
+      const state = panel.toJSON();
+      if (!state.contentComponent) {
+        return false;
+      }
+
       return getEditorGroups(dockviewApi).length < MAX_EDITOR_GROUPS;
     },
     [getEditorGroups]
@@ -540,6 +566,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
+      const panelState = panel.toJSON();
+      if (!panelState.contentComponent) {
+        return false;
+      }
+
       const newGroup = dockviewApi.addGroup({
         id: getNextEditorGroupId(dockviewApi),
         referencePanel: panel,
@@ -547,8 +578,25 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         skipSetActive: true,
       });
 
+      const splitPanelId = buildSplitPanelId(panelId, newGroup.id);
+
       try {
-        panel.api.moveTo({ group: newGroup });
+        dockviewApi.addPanel({
+          id: splitPanelId,
+          component: panelState.contentComponent,
+          tabComponent: panelState.tabComponent,
+          title: panel.title,
+          params: panel.params,
+          renderer: panelState.renderer,
+          minimumWidth: panel.minimumWidth,
+          minimumHeight: panel.minimumHeight,
+          maximumWidth: panel.maximumWidth,
+          maximumHeight: panel.maximumHeight,
+          position: {
+            referenceGroup: newGroup,
+            direction: 'within',
+          },
+        });
       } catch {
         try {
           dockviewApi.removeGroup(newGroup);
@@ -558,8 +606,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      const movedPanel = dockviewApi.getPanel(panelId);
-      if (!movedPanel || movedPanel.group !== newGroup) {
+      const duplicatedPanel = dockviewApi.getPanel(splitPanelId);
+      if (!duplicatedPanel || duplicatedPanel.group !== newGroup) {
         try {
           dockviewApi.removeGroup(newGroup);
         } catch {
@@ -570,10 +618,32 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       newGroup.api.setVisible(true);
       normalizeEditorGroupIds(dockviewApi);
-      movedPanel.api.setActive();
+      duplicatedPanel.api.setActive();
+
+      try {
+        dockviewApi.removePanel(panel);
+      } catch {
+        try {
+          dockviewApi.removePanel(duplicatedPanel);
+        } catch {
+          // Ignore cleanup failures.
+        }
+        try {
+          dockviewApi.removeGroup(newGroup);
+        } catch {
+          // Ignore cleanup failures.
+        }
+        return false;
+      }
+
+      replaceDiffPreviewPanelQueueId(panelId, splitPanelId);
       return true;
     },
-    [canOpenPanelInNewEditorGroup, normalizeEditorGroupIds]
+    [
+      canOpenPanelInNewEditorGroup,
+      normalizeEditorGroupIds,
+      replaceDiffPreviewPanelQueueId,
+    ]
   );
 
   const splitActiveEditor = useCallback(() => {

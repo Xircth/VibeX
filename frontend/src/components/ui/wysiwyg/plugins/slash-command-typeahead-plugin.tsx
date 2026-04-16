@@ -45,8 +45,7 @@ function filterSlashCommands(
   );
   const includes = all.filter(
     (command) =>
-      !startsWith.includes(command) &&
-      command.name.toLowerCase().includes(q)
+      !startsWith.includes(command) && command.name.toLowerCase().includes(q)
   );
   return [...startsWith, ...includes];
 }
@@ -137,8 +136,15 @@ export function SlashCommandTypeaheadPlugin({
       }}
       options={menuOptions}
       onQueryChange={updateOptions}
-      onOpen={() => setIsOpen(true)}
-      onClose={() => setIsOpen(false)}
+      onOpen={() => {
+        setIsOpen(true);
+        updateOptions('');
+      }}
+      onClose={() => {
+        setIsOpen(false);
+        setActiveQuery(null);
+        setOptions([]);
+      }}
       onSelectOption={(option, nodeToReplace, closeMenu) => {
         const selectedCommand = option.command;
         if (!selectedCommand) {
@@ -172,7 +178,8 @@ export function SlashCommandTypeaheadPlugin({
         const commandOptions = menuOptions.flatMap((option) =>
           option.command ? [{ option, command: option.command }] : []
         );
-        const metaState = menuOptions.find((option) => option.meta)?.meta ?? null;
+        const metaState =
+          menuOptions.find((option) => option.meta)?.meta ?? null;
         const isEmpty =
           metaState === 'empty' ||
           (!isLoading && !isDiscovering && allCommands.length === 0);

@@ -48,13 +48,21 @@ function IssueRow({ issue }: { issue: GitHubIssueInfo }) {
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <span className="text-xs text-foreground font-medium truncate">{issue.title}</span>
+            <span className="text-xs text-foreground font-medium truncate">
+              {issue.title}
+            </span>
             <ExternalLink className="h-2.5 w-2.5 text-muted-foreground opacity-0 group-hover:opacity-100 shrink-0" />
           </div>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[10px] text-muted-foreground">#{String(issue.number)}</span>
-            <span className="text-[10px] text-muted-foreground">{issue.author.login}</span>
-            <span className="text-[10px] text-muted-foreground">{formatTimeAgo(issue.created_at)}</span>
+            <span className="text-[10px] text-muted-foreground">
+              #{String(issue.number)}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {issue.author.login}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {formatTimeAgo(issue.created_at)}
+            </span>
             {Number(issue.comments_count) > 0 && (
               <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                 <MessageSquare className="h-2.5 w-2.5" />

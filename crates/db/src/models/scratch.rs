@@ -23,6 +23,8 @@ pub struct DraftFollowUpData {
     pub message: String,
     #[serde(alias = "executor_profile_id", alias = "config")]
     pub executor_config: ExecutorConfig,
+    #[serde(default)]
+    pub queued: bool,
 }
 
 /// Data for preview settings scratch (URL override and screen size)

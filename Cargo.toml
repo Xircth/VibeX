@@ -45,6 +45,15 @@ debug = 1
 split-debuginfo = "packed"
 strip = true
 
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = 0
+
+[profile.dev.build-override]
+debug = 0
+
 # Patches for codex-core's forked tokio-tungstenite with proxy support
 # For reference: https://github.com/openai/codex/blob/5c0fd62ff10bd6abff9ff41884b303c0290d7fa4/codex-rs/Cargo.toml#L325
 [patch.crates-io]

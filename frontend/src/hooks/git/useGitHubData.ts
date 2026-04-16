@@ -30,7 +30,9 @@ export function useGitHubData({
   const [prsLoading, setPrsLoading] = useState(false);
   const [issuesError, setIssuesError] = useState<string | null>(null);
   const [prsError, setPrsError] = useState<string | null>(null);
-  const [issueFilter, setIssueFilter] = useState<'open' | 'closed' | 'all'>('open');
+  const [issueFilter, setIssueFilter] = useState<'open' | 'closed' | 'all'>(
+    'open'
+  );
 
   const refreshIssues = useCallback(async () => {
     if (!repoId) return;
@@ -41,7 +43,9 @@ export function useGitHubData({
       if (result.success) {
         setIssues(result.data);
       } else {
-        setIssuesError(result.error ?? result.message ?? 'Failed to load issues');
+        setIssuesError(
+          result.error ?? result.message ?? 'Failed to load issues'
+        );
       }
     } catch (e) {
       setIssuesError(e instanceof Error ? e.message : 'Failed to load issues');

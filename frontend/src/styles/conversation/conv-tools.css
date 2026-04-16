@@ -12,7 +12,9 @@
   border: 1px solid var(--conv-border-subtle) !important;
   border-radius: 10px !important;
   background: var(--conv-surface-control) !important;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
   font-size: 13px;
 }
 
@@ -72,7 +74,8 @@
 }
 
 @keyframes conv-breathing {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.45;
     transform: scale(0.85);
   }
@@ -131,10 +134,11 @@
  * ========================================= */
 
 .conv-thinking {
-  border-left: 2px solid var(--conv-thinking-border);
-  background: var(--conv-thinking-bg);
-  border-radius: 0 8px 8px 0;
-  padding: 8px 12px;
+  border: 1px dashed var(--conv-border-subtle);
+  background: var(--conv-surface-control);
+  border-radius: 8px;
+  padding: 6px 10px;
+  opacity: 0.9;
 }
 
 .conv-thinking-header {
@@ -142,15 +146,19 @@
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--conv-text-secondary);
+  color: var(--conv-text-tertiary);
   user-select: none;
   transition: opacity 0.2s;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
 }
 
 .conv-thinking-header:hover {
-  opacity: 0.75;
+  opacity: 1;
 }
 
 .conv-thinking-chevron {
@@ -161,19 +169,40 @@
   transform: rotate(90deg);
 }
 
+.conv-thinking-icon {
+  color: var(--conv-text-tertiary);
+  opacity: 0.55;
+}
+
 .conv-thinking-content {
-  margin-top: 8px;
-  font-style: italic;
-  opacity: 0.7;
-  font-size: 13px;
+  margin-top: 6px;
+  opacity: 0.55;
+  font-size: 12px;
   line-height: 1.5;
+  padding-left: 15px;
 }
 
-@keyframes conv-thinking-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+.conv-thinking-group {
+  opacity: 0.82;
 }
 
-.conv-thinking-live .conv-thinking-header {
-  animation: conv-thinking-pulse 2s ease-in-out infinite;
+.conv-thinking-group-content {
+  border-top: 1px dashed var(--conv-border-subtle);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.conv-thinking-count {
+  margin-left: auto;
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--conv-text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
 }

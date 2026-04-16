@@ -41,7 +41,10 @@ function buildTree(files: DiffFile[]): TreeNode {
 
 function countFiles(node: TreeNode): number {
   if (node.file) return 1;
-  return Object.values(node.children).reduce((sum, child) => sum + countFiles(child), 0);
+  return Object.values(node.children).reduce(
+    (sum, child) => sum + countFiles(child),
+    0
+  );
 }
 
 interface TreeNodeViewProps {
@@ -51,7 +54,12 @@ interface TreeNodeViewProps {
   activeFileId?: string | null;
 }
 
-function TreeNodeView({ node, depth, onFileClick, activeFileId }: TreeNodeViewProps) {
+function TreeNodeView({
+  node,
+  depth,
+  onFileClick,
+  activeFileId,
+}: TreeNodeViewProps) {
   const [collapsed, setCollapsed] = useState(false);
   const children = Object.values(node.children);
   const isDir = !node.file && children.length > 0;
@@ -70,18 +78,24 @@ function TreeNodeView({ node, depth, onFileClick, activeFileId }: TreeNodeViewPr
         }`}
         style={{ paddingLeft: `${10 + indent}px` }}
       >
-        <span className={`text-[10px] font-semibold w-4 text-center leading-none shrink-0 rounded-sm ${node.file.badge.color}`}>
+        <span
+          className={`text-[10px] font-semibold w-4 text-center leading-none shrink-0 rounded-sm ${node.file.badge.color}`}
+        >
           {node.file.badge.label}
         </span>
         <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <span className="text-xs truncate text-foreground/90 flex-1 font-mono">{node.name}</span>
+        <span className="text-xs truncate text-foreground/90 flex-1 font-mono">
+          {node.name}
+        </span>
         {hasStats && (
           <span className="text-[10px] shrink-0 font-mono opacity-70 group-hover:opacity-100">
             {(node.file.additions ?? 0) > 0 && (
               <span className="text-green-600">+{node.file.additions}</span>
             )}
             {(node.file.deletions ?? 0) > 0 && (
-              <span className="text-red-600 ml-0.5">-{node.file.deletions}</span>
+              <span className="text-red-600 ml-0.5">
+                -{node.file.deletions}
+              </span>
             )}
           </span>
         )}
@@ -98,23 +112,29 @@ function TreeNodeView({ node, depth, onFileClick, activeFileId }: TreeNodeViewPr
           className="flex w-full items-center gap-1 rounded-md px-2 py-[3px] text-left transition-colors hover:bg-accent/30"
           style={{ paddingLeft: `${10 + indent}px` }}
         >
-          {collapsed
-            ? <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-            : <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-          }
+          {collapsed ? (
+            <ChevronRight className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+          ) : (
+            <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+          )}
           <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-          <span className="text-xs text-muted-foreground flex-1 truncate">{node.name}</span>
-          <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">{fileCount}</span>
+          <span className="text-xs text-muted-foreground flex-1 truncate">
+            {node.name}
+          </span>
+          <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">
+            {fileCount}
+          </span>
         </button>
-        {!collapsed && children.map((child) => (
-          <TreeNodeView
-            key={child.name}
-            node={child}
-            depth={depth + 1}
-            onFileClick={onFileClick}
-            activeFileId={activeFileId}
-          />
-        ))}
+        {!collapsed &&
+          children.map((child) => (
+            <TreeNodeView
+              key={child.name}
+              node={child}
+              depth={depth + 1}
+              onFileClick={onFileClick}
+              activeFileId={activeFileId}
+            />
+          ))}
       </div>
     );
   }
@@ -128,7 +148,11 @@ interface DiffFileTreeProps {
   activeFileId?: string | null;
 }
 
-export function DiffFileTree({ files, onFileClick, activeFileId }: DiffFileTreeProps) {
+export function DiffFileTree({
+  files,
+  onFileClick,
+  activeFileId,
+}: DiffFileTreeProps) {
   const root = buildTree(files);
   const children = Object.values(root.children);
 

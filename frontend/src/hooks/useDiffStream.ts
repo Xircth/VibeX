@@ -32,9 +32,7 @@ export const useDiffStream = (
       attemptId
         ? {
             workspaceId: attemptId,
-            ...(typeof statsOnly === 'boolean'
-              ? { statsOnly }
-              : {}),
+            ...(typeof statsOnly === 'boolean' ? { statsOnly } : {}),
           }
         : undefined,
     [attemptId, statsOnly]

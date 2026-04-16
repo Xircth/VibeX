@@ -9,6 +9,7 @@ export function createSessionSnapshot(
     workspace_id: session.workspace.id,
     task_id: session.taskId,
     name: session.name,
+    initial_prompt: session.firstPrompt,
     status: session.status,
     executor: session.executor,
     created_at: session.createdAt,

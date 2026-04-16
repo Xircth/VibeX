@@ -70,6 +70,7 @@ export function useFollowUpSend({
           workspace_id: workspaceId,
           executor: executorProfileId.executor,
           name: newSessionName?.trim() ? newSessionName.trim() : null,
+          initial_prompt: prompt,
         });
 
         targetSessionId = session.id;
@@ -101,9 +102,7 @@ export function useFollowUpSend({
       await onAfterSendCleanup();
     } catch (error: unknown) {
       const err = error as { message?: string };
-      setFollowUpError(
-        `Failed to start follow-up execution: ${err.message ?? 'Unknown error'}`
-      );
+      setFollowUpError(`启动后续执行失败：${err.message ?? '未知错误'}`);
     } finally {
       setIsSendingFollowUp(false);
     }

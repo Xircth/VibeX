@@ -1,5 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, Monitor, Tablet, Smartphone, Copy, ExternalLink, Pause, Loader2, ArrowLeft, ArrowRight, Crosshair, Bug } from 'lucide-react';
+import {
+  RefreshCw,
+  Monitor,
+  Tablet,
+  Smartphone,
+  Copy,
+  ExternalLink,
+  Pause,
+  Loader2,
+  ArrowLeft,
+  ArrowRight,
+  Crosshair,
+  Bug,
+} from 'lucide-react';
 
 type ViewMode = 'desktop' | 'tablet' | 'mobile';
 

@@ -58,6 +58,8 @@ describe('deriveWorkspaceRootPath', () => {
         },
         [{ name: 'contract-review' }]
       )
-    ).toEqual(['C:\\Users\\Administrator\\Documents\\Project\\worktrees\\task-1']);
+    ).toEqual([
+      'C:\\Users\\Administrator\\Documents\\Project\\worktrees\\task-1',
+    ]);
   });
 });

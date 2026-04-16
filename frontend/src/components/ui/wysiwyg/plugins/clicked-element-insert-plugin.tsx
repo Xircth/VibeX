@@ -14,9 +14,7 @@ import {
 } from '../nodes/clicked-element-node';
 
 interface ClickedElementInsertPluginProps {
-  onRegisterInsert: (
-    insertFn: (data: ClickedElementData) => void
-  ) => void;
+  onRegisterInsert: (insertFn: (data: ClickedElementData) => void) => void;
 }
 
 export function ClickedElementInsertPlugin({

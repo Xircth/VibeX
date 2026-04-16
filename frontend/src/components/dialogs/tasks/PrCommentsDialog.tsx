@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { useState, useEffect } from 'react';
+import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import {
   Dialog,
@@ -31,7 +32,8 @@ function getCommentId(comment: UnifiedPrComment): string {
 }
 
 const PrCommentsDialogImpl = NiceModal.create<PrCommentsDialogProps>(
-  ({ attemptId, repoId }) => {    const modal = useModal();
+  ({ attemptId, repoId }) => {
+    const modal = useModal();
     const { data, isLoading, isError, error } = usePrComments(
       attemptId,
       repoId
@@ -135,9 +137,7 @@ const PrCommentsDialogImpl = NiceModal.create<PrCommentsDialogProps>(
                       size="sm"
                       onClick={isAllSelected ? deselectAll : selectAll}
                     >
-                      {isAllSelected
-                        ? '取消全选'
-                        : '全选'}
+                      {isAllSelected ? '取消全选' : '全选'}
                     </Button>
                   </div>
                   <div className="space-y-3">

@@ -215,9 +215,7 @@ const CreateAttemptDialogImpl = NiceModal.create<CreateAttemptDialogProps>(
               {'取消'}
             </Button>
             <Button onClick={handleCreate} disabled={!canCreate}>
-              {isCreating
-                ? '创建中...'
-                : '开始'}
+              {isCreating ? '创建中...' : '开始'}
             </Button>
           </DialogFooter>
         </DialogContent>

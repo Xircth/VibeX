@@ -150,7 +150,9 @@ export const useLayoutStore = create<LayoutState>()(
             ...state.projectLayouts,
             [state.currentProjectKey]: currentSnapshot,
           };
-          const nextSnapshot = buildProjectLayoutState(projectLayouts[projectKey]);
+          const nextSnapshot = buildProjectLayoutState(
+            projectLayouts[projectKey]
+          );
 
           return {
             currentProjectKey: projectKey,
@@ -315,12 +317,15 @@ export const useLayoutStore = create<LayoutState>()(
         });
         const currentProjectKey =
           state.currentProjectKey ?? GLOBAL_PROJECT_SCOPE;
-        const projectLayouts = Object.entries(state.projectLayouts ?? {}).reduce<
-          Record<string, LayoutSnapshot>
-        >((accumulator, [projectKey, projectState]) => {
-          accumulator[projectKey] = buildProjectLayoutState(projectState);
-          return accumulator;
-        }, {});
+        const projectLayouts = Object.entries(
+          state.projectLayouts ?? {}
+        ).reduce<Record<string, LayoutSnapshot>>(
+          (accumulator, [projectKey, projectState]) => {
+            accumulator[projectKey] = buildProjectLayoutState(projectState);
+            return accumulator;
+          },
+          {}
+        );
 
         if (!projectLayouts[currentProjectKey]) {
           projectLayouts[currentProjectKey] = legacySnapshot;

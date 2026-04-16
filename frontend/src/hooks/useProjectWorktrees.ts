@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
-import type { Workspace, TaskWithAttemptStatus } from 'shared/types';
-import { useProjectTasks } from './useProjectTasks';
+import type { Workspace } from 'shared/types';
 
 export const projectWorktreeKeys = {
   byProject: (projectId: string | undefined) =>
@@ -10,16 +9,12 @@ export const projectWorktreeKeys = {
 
 export interface WorktreeInfo {
   workspace: Workspace;
-  task: TaskWithAttemptStatus | null;
 }
 
 /**
- * Returns all active (non-archived) workspaces for the current project,
- * enriched with their parent task info.
+ * Returns all active (non-archived) workspaces for the current project.
  */
 export function useProjectWorktrees(projectId: string | undefined) {
-  const { tasksById } = useProjectTasks(projectId ?? '');
-
   const { data: projectWorkspaces, isLoading } = useQuery({
     queryKey: projectWorktreeKeys.byProject(projectId),
     queryFn: async () => {
@@ -29,7 +24,8 @@ export function useProjectWorktrees(projectId: string | undefined) {
         .filter((workspace) => !workspace.archived)
         .filter(
           (workspace, index, all) =>
-            all.findIndex((candidate) => candidate.id === workspace.id) === index
+            all.findIndex((candidate) => candidate.id === workspace.id) ===
+            index
         )
         .sort(
           (left, right) =>
@@ -40,10 +36,11 @@ export function useProjectWorktrees(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  const enriched: WorktreeInfo[] = (projectWorkspaces ?? []).map((ws) => ({
-    workspace: ws,
-    task: tasksById[ws.task_id] ?? null,
-  }));
+  const enriched: WorktreeInfo[] = (projectWorkspaces ?? []).map(
+    (workspace) => ({
+      workspace,
+    })
+  );
 
   return { worktrees: enriched, isLoading };
 }

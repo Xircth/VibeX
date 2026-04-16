@@ -24,10 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import type {
-  AgentSettingInfo,
-  PreflightCheck,
-} from '@/lib/api';
+import type { AgentSettingInfo, PreflightCheck } from '@/lib/api';
 import { agentSettingsApi, claudeSettingsApi } from '@/lib/api';
 import type { BaseCodingAgent } from 'shared/types';
 
@@ -133,7 +130,9 @@ function parseEnvJson(envJson: string | null): Record<string, string> {
   }
 }
 
-function parseConfigJson(configJson: string | null): Record<string, string | boolean> {
+function parseConfigJson(
+  configJson: string | null
+): Record<string, string | boolean> {
   if (!configJson) return {};
   try {
     return JSON.parse(configJson);
@@ -293,9 +292,9 @@ export function AgentCard({
   const [isChecking, setIsChecking] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [expandedChecks, setExpandedChecks] = useState<
-    Record<string, boolean>
-  >({});
+  const [expandedChecks, setExpandedChecks] = useState<Record<string, boolean>>(
+    {}
+  );
   const [runningFixActions, setRunningFixActions] = useState<
     Record<string, boolean>
   >({});
@@ -309,18 +308,13 @@ export function AgentCard({
   const [codexAuthJsonText, setCodexAuthJsonText] = useState('');
   const [opencodeConfigJsonText, setOpencodeConfigJsonText] = useState('');
   const [opencodeAuthJsonText, setOpencodeAuthJsonText] = useState('');
-  const [nativeConfigPath, setNativeConfigPath] = useState<string | null>(
-    null
-  );
+  const [nativeConfigPath, setNativeConfigPath] = useState<string | null>(null);
 
   const summary = summarizeChecks(checks);
 
-  const updateDraft = useCallback(
-    (patch: Partial<AgentDraft>) => {
-      setDraft((prev) => ({ ...prev, ...patch }));
-    },
-    []
-  );
+  const updateDraft = useCallback((patch: Partial<AgentDraft>) => {
+    setDraft((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   const handlePreflight = useCallback(async () => {
     setIsChecking(true);
@@ -365,13 +359,16 @@ export function AgentCard({
         const baseAgent = toBaseCodingAgent(agent.agent_type);
         if (!baseAgent) return;
 
-        const nativeConfig = await agentSettingsApi.readNativeConfigs(baseAgent);
+        const nativeConfig =
+          await agentSettingsApi.readNativeConfigs(baseAgent);
         setCodexConfigTomlText(nativeConfig.codex_config_toml ?? '');
         setCodexAuthJsonText(nativeConfig.codex_auth_json ?? '');
         setOpencodeConfigJsonText(nativeConfig.opencode_config_json ?? '');
         setOpencodeAuthJsonText(nativeConfig.opencode_auth_json ?? '');
         setNativeConfigPath(
-          nativeConfig.codex_home_path ?? nativeConfig.opencode_config_path ?? null
+          nativeConfig.codex_home_path ??
+            nativeConfig.opencode_config_path ??
+            null
         );
       } catch (error) {
         setNativeConfigError(
@@ -615,7 +612,8 @@ export function AgentCard({
                         <div className="flex flex-wrap gap-2">
                           {check.fixes.map((fix) => {
                             const fixKey = `${agent.agent_type}:${fix.action}`;
-                            const isRunning = runningFixActions[fixKey] === true;
+                            const isRunning =
+                              runningFixActions[fixKey] === true;
                             return (
                               <Button
                                 key={fixKey}
@@ -702,9 +700,7 @@ export function AgentCard({
 
             {nativeConfigPath && (
               <div className="text-[11px] text-muted-foreground">
-                路径：
-                {' '}
-                <code className="font-mono">{nativeConfigPath}</code>
+                路径： <code className="font-mono">{nativeConfigPath}</code>
               </div>
             )}
 
@@ -740,7 +736,9 @@ export function AgentCard({
                   <div className="grid gap-3">
                     <Textarea
                       value={opencodeConfigJsonText}
-                      onChange={(e) => setOpencodeConfigJsonText(e.target.value)}
+                      onChange={(e) =>
+                        setOpencodeConfigJsonText(e.target.value)
+                      }
                       className="min-h-56 font-mono text-xs"
                     />
                     <Textarea
@@ -847,9 +845,7 @@ function ClaudeCodeFields({
           </Label>
           <Input
             value={draft.claudeReasoningModel}
-            onChange={(e) =>
-              onChange({ claudeReasoningModel: e.target.value })
-            }
+            onChange={(e) => onChange({ claudeReasoningModel: e.target.value })}
             placeholder="claude-opus-4-6"
             className="h-8 text-xs"
           />
@@ -894,9 +890,7 @@ function ClaudeCodeFields({
           />
         </div>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        留空使用默认模型
-      </p>
+      <p className="text-[11px] text-muted-foreground">留空使用默认模型</p>
     </div>
   );
 }
@@ -923,9 +917,7 @@ function CodexFields({
           </Label>
           <Input
             value={draft.codexModelProvider}
-            onChange={(e) =>
-              onChange({ codexModelProvider: e.target.value })
-            }
+            onChange={(e) => onChange({ codexModelProvider: e.target.value })}
             placeholder="openai"
             className="h-8 text-xs"
           />
@@ -1032,9 +1024,7 @@ function CodexFields({
         </Label>
         <Textarea
           value={draft.codexConfigTomlText}
-          onChange={(e) =>
-            onChange({ codexConfigTomlText: e.target.value })
-          }
+          onChange={(e) => onChange({ codexConfigTomlText: e.target.value })}
           className="min-h-28 font-mono text-xs"
           placeholder="[model_providers.openai]"
         />
@@ -1070,9 +1060,7 @@ function OpenCodeFields({
           </Label>
           <Input
             value={draft.openCodeSmallModel}
-            onChange={(e) =>
-              onChange({ openCodeSmallModel: e.target.value })
-            }
+            onChange={(e) => onChange({ openCodeSmallModel: e.target.value })}
             placeholder="google/gemini-3-flash"
             className="h-8 text-xs"
           />
@@ -1097,9 +1085,7 @@ function OpenCodeFields({
         </Label>
         <Textarea
           value={draft.openCodeAuthJsonText}
-          onChange={(e) =>
-            onChange({ openCodeAuthJsonText: e.target.value })
-          }
+          onChange={(e) => onChange({ openCodeAuthJsonText: e.target.value })}
           className="min-h-20 font-mono text-xs"
           placeholder='{"access_token": "..."}'
         />

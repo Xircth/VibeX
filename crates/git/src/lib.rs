@@ -1721,8 +1721,8 @@ impl GitService {
                 // Prefer state-based conflict detection so locale/CLI formatting differences
                 // do not hide merge conflicts from the caller.
                 let conflicted_files = git.get_conflicted_files(worktree_path).unwrap_or_default();
-                let has_conflict_state =
-                    !conflicted_files.is_empty() || git.is_rebase_in_progress(worktree_path).unwrap_or(false);
+                let has_conflict_state = !conflicted_files.is_empty()
+                    || git.is_rebase_in_progress(worktree_path).unwrap_or(false);
                 let looks_like_conflict =
                     has_conflict_state || Self::looks_like_conflict_text(&stderr);
                 if looks_like_conflict {

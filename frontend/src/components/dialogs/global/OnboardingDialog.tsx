@@ -69,7 +69,9 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
           key={i}
           className={cn(
             'h-1.5 rounded-full transition-all',
-            i + 1 === current ? 'w-4 bg-foreground' : 'w-1.5 bg-muted-foreground/30'
+            i + 1 === current
+              ? 'w-4 bg-foreground'
+              : 'w-1.5 bg-muted-foreground/30'
           )}
         />
       ))}
@@ -188,7 +190,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                             : 'border-border hover:bg-muted/50'
                         )}
                       >
-                        <span className="text-sm font-medium">{model.label}</span>
+                        <span className="text-sm font-medium">
+                          {model.label}
+                        </span>
                         {modelId && (
                           <span className="text-[10px] text-muted-foreground truncate w-full">
                             {modelId}
@@ -216,7 +220,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                       <span className="text-sm truncate">
                         {codexModelOptions.find(
                           (option) => option.value === codexVariantConfig?.model
-                        )?.label ?? codexModelOptions[0]?.label ?? 'Default'}
+                        )?.label ??
+                          codexModelOptions[0]?.label ??
+                          'Default'}
                       </span>
                       <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
                     </Button>
@@ -236,7 +242,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                           })
                         }
                         className={
-                          codexVariantConfig?.model === option.value ? 'bg-muted' : ''
+                          codexVariantConfig?.model === option.value
+                            ? 'bg-muted'
+                            : ''
                         }
                       >
                         {option.label}
@@ -248,48 +256,53 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
             )}
 
             {/* Non-Claude agents: show profile variants */}
-            {!isClaudeCode && !isCodex && (() => {
-              const variantOptions = getVariantOptions(profile.executor, profiles);
-              if (variantOptions.length === 0) return null;
-              const selectedVariant = profile.variant ?? 'DEFAULT';
+            {!isClaudeCode &&
+              !isCodex &&
+              (() => {
+                const variantOptions = getVariantOptions(
+                  profile.executor,
+                  profiles
+                );
+                if (variantOptions.length === 0) return null;
+                const selectedVariant = profile.variant ?? 'DEFAULT';
 
-              return (
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">变体</Label>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full px-3 flex items-center justify-between"
-                      >
-                        <span className="text-sm truncate">
-                          {selectedVariant}
-                        </span>
-                        <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                      {variantOptions.map((variant) => (
-                        <DropdownMenuItem
-                          key={variant}
-                          onClick={() =>
-                            setProfile({
-                              ...profile,
-                              variant: variant === 'DEFAULT' ? null : variant,
-                            })
-                          }
-                          className={
-                            selectedVariant === variant ? 'bg-muted' : ''
-                          }
+                return (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">变体</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full px-3 flex items-center justify-between"
                         >
-                          {variant}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              );
-            })()}
+                          <span className="text-sm truncate">
+                            {selectedVariant}
+                          </span>
+                          <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                        {variantOptions.map((variant) => (
+                          <DropdownMenuItem
+                            key={variant}
+                            onClick={() =>
+                              setProfile({
+                                ...profile,
+                                variant: variant === 'DEFAULT' ? null : variant,
+                              })
+                            }
+                            className={
+                              selectedVariant === variant ? 'bg-muted' : ''
+                            }
+                          >
+                            {variant}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                );
+              })()}
           </div>
         )}
 
@@ -317,7 +330,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               </Select>
 
               {editorType !== EditorType.CUSTOM && (
-                <EditorAvailabilityIndicator availability={editorAvailability} />
+                <EditorAvailabilityIndicator
+                  availability={editorAvailability}
+                />
               )}
 
               <p className="text-xs text-muted-foreground">
@@ -326,7 +341,10 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
 
               {editorType === EditorType.CUSTOM && (
                 <div className="space-y-2">
-                  <Label htmlFor="custom-command" className="text-sm font-medium">
+                  <Label
+                    htmlFor="custom-command"
+                    className="text-sm font-medium"
+                  >
                     自定义命令
                   </Label>
                   <Input

@@ -105,7 +105,7 @@ export function SessionHubListItem({
       )}
     >
       <div
-      className={cn(
+        className={cn(
           'absolute inset-y-2 left-0 w-1 rounded-r-full',
           marker?.bar ?? 'bg-muted-foreground/35'
         )}
@@ -120,9 +120,7 @@ export function SessionHubListItem({
         </div>
       ) : null}
 
-      <div
-        className={cn('min-w-0 w-0 flex-1 overflow-hidden', !isDeleteMode && 'pl-2')}
-      >
+      <div className={cn('min-w-0 w-0 flex-1 overflow-hidden', !isDeleteMode && 'pl-2')}>
         <div className="flex w-full min-w-0 items-start gap-2">
           <div className="min-w-0 w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-center gap-2">

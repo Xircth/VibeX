@@ -329,9 +329,7 @@ function formatClickedMarkdown(
     `From preview click:`,
     `- DOM: ${dom}`,
     `- Selected start: ${first.name} (${loc ? `\`${loc}\`` : 'no source'})`,
-    htmlPreview
-      ? `- Element source:\n\`\`\`html\n${htmlPreview}\n\`\`\``
-      : '',
+    htmlPreview ? `- Element source:\n\`\`\`html\n${htmlPreview}\n\`\`\`` : '',
     effectiveChain.length > 1
       ? ['- Component hierarchy:', ...items].join('\n')
       : '',
@@ -359,12 +357,13 @@ export function buildClickedElementData(
   const chain = buildChainInnerToOuter(payload, workspaceRoot);
 
   // Component name: innermost component
-  const componentName =
-    chain[0]?.name ?? payload.selected?.name ?? 'Unknown';
+  const componentName = chain[0]?.name ?? payload.selected?.name ?? 'Unknown';
 
   // File path: first component with a path
   const first = chain[0];
-  const parsed = first ? parsePathWithLineCol(first.pathToSource) : { path: '' };
+  const parsed = first
+    ? parsePathWithLineCol(first.pathToSource)
+    : { path: '' };
   const rel = relativizePath(parsed.path, workspaceRoot);
   const filePath = formatLoc(
     rel,
@@ -399,7 +398,9 @@ export function ClickedElementsProvider({
 
   // Track attempt info from either prop or syncAttempt calls
   const [syncedAttemptId, setSyncedAttemptId] = useState<string | undefined>();
-  const [syncedContainerRef, setSyncedContainerRef] = useState<string | undefined>();
+  const [syncedContainerRef, setSyncedContainerRef] = useState<
+    string | undefined
+  >();
   const prevAttemptIdRef = useRef<string | undefined>();
 
   // Effective values: prop takes precedence over synced state
@@ -414,9 +415,9 @@ export function ClickedElementsProvider({
   }, [effectiveAttemptId]);
 
   // Callback registry for element-added notifications
-  const onElementAddedCallbacksRef = useRef<
-    Set<(entry: ClickedEntry) => void>
-  >(new Set());
+  const onElementAddedCallbacksRef = useRef<Set<(entry: ClickedEntry) => void>>(
+    new Set()
+  );
 
   const addElement = useCallback(
     (payload: OpenInEditorPayload) => {
@@ -463,10 +464,7 @@ export function ClickedElementsProvider({
   }, []);
 
   const syncAttempt = useCallback(
-    (
-      attemptId: string | undefined,
-      containerRef: string | undefined
-    ) => {
+    (attemptId: string | undefined, containerRef: string | undefined) => {
       setSyncedAttemptId(attemptId);
       setSyncedContainerRef(containerRef);
     },

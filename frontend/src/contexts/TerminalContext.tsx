@@ -251,7 +251,10 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       try {
         await tauriInvoke('close_terminal', { sessionId: conn.sessionId });
       } catch (err) {
-        console.error(`Failed to close terminal session ${conn.sessionId}:`, err);
+        console.error(
+          `Failed to close terminal session ${conn.sessionId}:`,
+          err
+        );
       }
       terminalConnectionsRef.current.delete(tabId);
     }
@@ -332,7 +335,9 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       if (existing) {
         existing.unlisten();
         try {
-          await tauriInvoke('close_terminal', { sessionId: existing.sessionId });
+          await tauriInvoke('close_terminal', {
+            sessionId: existing.sessionId,
+          });
         } catch {
           // Ignore errors closing old session
         }

@@ -2,7 +2,8 @@ import { Circle, Check, CircleDot, ChevronUp } from 'lucide-react';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useTodos } from '@/hooks/useTodos';
 import { Card } from '../ui/card';
-import { useState, useEffect } from 'react';const TODO_PANEL_OPEN_KEY = 'todo-panel-open';
+import { useState, useEffect } from 'react';
+const TODO_PANEL_OPEN_KEY = 'todo-panel-open';
 
 function getStatusIcon(status?: string) {
   const s = (status || '').toLowerCase();
@@ -15,7 +16,8 @@ function getStatusIcon(status?: string) {
   return <Circle aria-hidden className="h-4 w-4 text-muted-foreground" />;
 }
 
-function TodoPanel() {  const { entries } = useEntries();
+function TodoPanel() {
+  const { entries } = useEntries();
   const { todos } = useTodos(entries);
   const [isOpen, setIsOpen] = useState(() => {
     const stored = localStorage.getItem(TODO_PANEL_OPEN_KEY);

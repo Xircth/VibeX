@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import {
@@ -42,7 +43,8 @@ type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
 const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
   ({ scriptType, repos, workspaceId, sessionId, initialRepoId }) => {
-    const modal = useModal();    const queryClient = useQueryClient();
+    const modal = useModal();
+    const queryClient = useQueryClient();
 
     // State
     const [selectedRepoId, setSelectedRepoId] = useState<string>(
@@ -135,9 +137,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
           setOriginalScript(scriptContent);
         } catch (err) {
           if (cancelled) return;
-          setError(
-            err instanceof Error ? err.message : '发生错误'
-          );
+          setError(err instanceof Error ? err.message : '发生错误');
         } finally {
           if (!cancelled) setIsLoadingRepo(false);
         }
@@ -188,9 +188,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
         modal.resolve({ action: 'saved' } as ScriptFixerDialogResult);
         modal.hide();
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : '发生错误'
-        );
+        setError(err instanceof Error ? err.message : '发生错误');
       } finally {
         setIsSaving(false);
       }
@@ -248,9 +246,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
         // Keep dialog open so user can see the new execution logs
         // The logs will update automatically via useLogStream/useExecutionProcesses
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : '发生错误'
-        );
+        setError(err instanceof Error ? err.message : '发生错误');
       } finally {
         setIsTesting(false);
       }
@@ -347,9 +343,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                     ) : isProcessSuccessful ? (
                       <>
                         <span className="size-2 rounded-full bg-success" />
-                        <span className="text-success">
-                          {'成功完成'}
-                        </span>
+                        <span className="text-success">{'成功完成'}</span>
                       </>
                     ) : hasProcessError ? (
                       <>
@@ -373,7 +367,9 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                 {latestProcess ? (
                   <div className="h-full overflow-auto px-3 py-2 font-mono text-xs">
                     {logsError ? (
-                      <div className="text-destructive">{String(logsError)}</div>
+                      <div className="text-destructive">
+                        {String(logsError)}
+                      </div>
                     ) : logs.length === 0 ? (
                       <div className="text-muted-foreground">
                         {'没有可用的执行日志'}

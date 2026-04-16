@@ -11,6 +11,7 @@ import { useAttempt } from '@/hooks/useAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
+import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
 import {
   deriveWorkspaceRootPath,
@@ -54,6 +55,12 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     Set<string>
   >(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const refreshTimerRef = useRef<number | null>(null);
+
+  const normalizeWatchedPath = useCallback((path: string) => {
+    return path.replaceAll('\\', '/').replace(/\/+$/, '');
+  }, []);
 
   const workspaceRootCandidates = useMemo(
     () =>
@@ -166,6 +173,79 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     void loadRootChildren();
   }, [loadRootChildren]);
 
+  useEffect(() => {
+    if (!rootPath) {
+      return;
+    }
+
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    const normalizedRootPath = normalizeWatchedPath(rootPath);
+
+    const scheduleRefresh = () => {
+      if (refreshTimerRef.current !== null) {
+        return;
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null;
+        void loadRootChildren();
+        setRefreshToken((value) => value + 1);
+      }, 120);
+    };
+
+    const handleWindowFocus = () => {
+      scheduleRefresh();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleRefresh();
+      }
+    };
+
+    void tauriInvoke('subscribe_file_tree_stream', { rootPath }).catch(
+      (error) => {
+        console.error('Failed to subscribe file tree stream:', error);
+      }
+    );
+
+    void tauriListen<{ root_path: string }>('file-tree-stream', (payload) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (normalizeWatchedPath(payload.root_path) !== normalizedRootPath) {
+        return;
+      }
+
+      scheduleRefresh();
+    })
+      .then((dispose) => {
+        if (cancelled) {
+          dispose();
+          return;
+        }
+        unlisten = dispose;
+      })
+      .catch((error) => {
+        console.error('Failed to listen for file tree updates:', error);
+      });
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, [loadRootChildren, normalizeWatchedPath, rootPath]);
+
   const handleOpenFile = useCallback(
     (relativePath: string) => {
       if (!rootPath) return;
@@ -237,6 +317,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         gitignoredFiles={gitignoredFiles}
         gitignoredDirectories={gitignoredDirectories}
         onRefreshFiles={loadRootChildren}
+        refreshToken={refreshToken}
       />
     </div>
   );

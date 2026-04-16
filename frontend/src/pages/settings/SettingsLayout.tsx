@@ -55,7 +55,9 @@ export function SettingsLayout() {
   const handleDragStart = useCallback((event: React.MouseEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    getCurrentWindow().startDragging().catch(() => {});
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {});
   }, []);
 
   return (

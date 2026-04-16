@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch } from '@/hooks';
 import { paths } from '@/lib/paths';
 import { attemptsApi } from '@/lib/api';
-import { TaskCardHeader } from './TaskCardHeader';type Task = TaskWithAttemptStatus;
+import { TaskCardHeader } from './TaskCardHeader';
+type Task = TaskWithAttemptStatus;
 
 interface TaskCardProps {
   task: Task;
@@ -25,7 +26,8 @@ export function TaskCard({
   onViewDetails,
   isOpen,
   projectId,
-}: TaskCardProps) {  const navigate = useNavigateWithSearch();
+}: TaskCardProps) {
+  const navigate = useNavigateWithSearch();
   const [isNavigatingToParent, setIsNavigatingToParent] = useState(false);
 
   const handleClick = useCallback(() => {

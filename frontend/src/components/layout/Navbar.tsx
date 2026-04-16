@@ -22,7 +22,7 @@ import {
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { useSearch } from '@/contexts/SearchContext';
-import { openTaskForm } from '@/lib/openTaskForm';
+import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
@@ -82,9 +82,9 @@ export function Navbar() {
     [registerInputRef]
   );
 
-  const handleCreateTask = () => {
+  const handleCreateSession = () => {
     if (projectId) {
-      openTaskForm({ mode: 'create', projectId });
+      navigate(`${paths.projectTasks(projectId)}?createSession=1`);
     }
   };
 
@@ -177,8 +177,8 @@ export function Navbar() {
                     variant="ghost"
                     size="icon"
                     className="h-9 w-9"
-                    onClick={handleCreateTask}
-                    aria-label="Create new task"
+                    onClick={handleCreateSession}
+                    aria-label="Create new session"
                   >
                     <Plus className="h-4 w-4" />
                   </Button>

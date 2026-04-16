@@ -68,6 +68,9 @@ impl QueuedMessageService {
             let ScratchPayload::DraftFollowUp(data) = &scratch.payload else {
                 continue;
             };
+            if !data.queued {
+                continue;
+            }
 
             self.insert_restored(QueuedMessage {
                 session_id: scratch.id,
@@ -115,8 +118,9 @@ impl Default for QueuedMessageService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use db::models::scratch::{DraftWorkspaceData, ScratchPayload};
+
+    use super::*;
 
     #[test]
     fn restore_from_scratches_only_loads_followups() {
@@ -135,6 +139,7 @@ mod tests {
                             executors::executors::BaseCodingAgent::Codex,
                         ),
                     ),
+                    queued: true,
                 }),
                 created_at: queued_at,
                 updated_at: queued_at,
@@ -155,7 +160,9 @@ mod tests {
 
         service.restore_from_scratches(&scratches);
 
-        let restored = service.get_queued(followup_session).expect("follow-up restored");
+        let restored = service
+            .get_queued(followup_session)
+            .expect("follow-up restored");
         assert_eq!(restored.data.message, "resume me");
         assert_eq!(restored.queued_at, queued_at);
         assert!(service.get_queued(other_session).is_none());

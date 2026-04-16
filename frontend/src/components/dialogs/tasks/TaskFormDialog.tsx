@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useMemo } from 'react';
+﻿import { useEffect, useCallback, useState, useMemo } from 'react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { useDropzone } from 'react-dropzone';
@@ -22,8 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
-import type { LocalImageMetadata } from '@/components/ui/wysiwyg/context/task-attempt-context';
+import { TaskDescriptionEditor } from './TaskDescriptionEditor';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
@@ -35,11 +34,7 @@ import {
   useProjectRepos,
   useRepoBranchSelection,
 } from '@/hooks';
-import {
-  useKeySubmitTask,
-  useKeyExit,
-  Scope,
-} from '@/keyboard';
+import { useKeySubmitTask, useKeyExit, Scope } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { cn } from '@/lib/utils';
 import { getFirstAvailableProfile } from '@/utils/executor';
@@ -94,7 +89,13 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   // Local UI state
   const [images, setImages] = useState<ImageResponse[]>([]);
   const [localImagePreviews, setLocalImagePreviews] = useState<
-    LocalImageMetadata[]
+    {
+      path: string;
+      proxy_url: string;
+      file_name: string;
+      size_bytes: number;
+      format: string;
+    }[]
   >([]);
   const [newlyUploadedImageIds, setNewlyUploadedImageIds] = useState<string[]>(
     []
@@ -124,7 +125,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
   // Get default form values based on mode
   const defaultValues = useMemo((): TaskFormValues => {
-    const baseProfile = system.config?.executor_profile ?? getFirstAvailableProfile(profiles);
+    const baseProfile =
+      system.config?.executor_profile ?? getFirstAvailableProfile(profiles);
 
     switch (mode) {
       case 'edit': {
@@ -160,7 +162,13 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           useWorktree: true,
         };
     }
-  }, [mode, props, system.config?.executor_profile, profiles, defaultRepoBranches]);
+  }, [
+    mode,
+    props,
+    system.config?.executor_profile,
+    profiles,
+    defaultRepoBranches,
+  ]);
 
   // Form submission handler
   const handleSubmit = async ({ value }: { value: TaskFormValues }) => {
@@ -242,6 +250,10 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     form.store,
     (state) => state.values.executorProfileId
   );
+  const descriptionValue = useStore(
+    form.store,
+    (state) => state.values.description
+  );
   const selectedRepoId = useStore(
     form.store,
     (state) => state.values.repoBranches[0]?.repoId
@@ -252,14 +264,8 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
 
     const currentValues = form.store.state.values;
 
-    if (
-      !currentValues.executorProfileId &&
-      defaultValues.executorProfileId
-    ) {
-      form.setFieldValue(
-        'executorProfileId',
-        defaultValues.executorProfileId
-      );
+    if (!currentValues.executorProfileId && defaultValues.executorProfileId) {
+      form.setFieldValue('executorProfileId', defaultValues.executorProfileId);
     }
 
     if (
@@ -312,7 +318,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
   );
 
   const {
-    getRootProps,
     getInputProps,
     isDragActive,
     open: dropzoneOpen,
@@ -323,12 +328,6 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
     noClick: true,
     noKeyboard: true,
   });
-
-  // Compute localImages for WYSIWYG rendering of uploaded images
-  const localImages: LocalImageMetadata[] = useMemo(
-    () => localImagePreviews,
-    [localImagePreviews]
-  );
 
   // Unsaved changes detection
   const hasUnsavedChanges = useCallback(() => {
@@ -460,10 +459,7 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
         uncloseable={showDiscardWarning}
         className="max-w-[700px] my-auto"
       >
-        <div
-          {...getRootProps()}
-          className="h-full flex flex-col gap-4 p-4 relative min-h-0"
-        >
+        <div className="h-full flex flex-col gap-4 p-4 relative min-h-0">
           <input {...getInputProps()} />
           {/* Drag overlay */}
           {isDragActive && (
@@ -498,27 +494,23 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
           </form.Field>
 
           {/* Description */}
-          <form.Field name="description">
-            {(field) => (
-              <div className="border p-3">
-                <WYSIWYGEditor
-                  placeholder={'\u5728\u6b64\u586b\u5199\u4f60\u7684\u4efb\u52a1\u5185\u5bb9'}
-                  className="w-full min-h-[360px] max-h-[500px] overflow-auto"
-                  value={field.state.value}
-                  onChange={(desc) => field.handleChange(desc)}
-                  disabled={isSubmitting}
-                  repoIds={projectRepos.map((r) => r.id)}
-                  projectId={projectId}
-                  executorProfile={selectedExecutorProfile}
-                  repoId={selectedRepoId}
-                  onPasteFiles={onDrop}
-                  onCmdEnter={primaryAction}
-                  taskId={editMode ? props.task.id : undefined}
-                  localImages={localImages}
-                />
-              </div>
-            )}
-          </form.Field>
+          <div className="max-h-[500px] overflow-auto border p-3">
+            <TaskDescriptionEditor
+              placeholder={
+                '\u5728\u6b64\u586b\u5199\u4f60\u7684\u4efb\u52a1\u5185\u5bb9'
+              }
+              className="min-h-[360px] w-full resize-none bg-transparent outline-none"
+              value={descriptionValue}
+              onChange={(desc) => form.setFieldValue('description', desc)}
+              disabled={isSubmitting}
+              repoIds={projectRepos.map((r) => r.id)}
+              projectId={projectId}
+              executorProfile={selectedExecutorProfile}
+              repoId={selectedRepoId}
+              onPasteFiles={onDrop}
+              onCmdEnter={primaryAction}
+            />
+          </div>
 
           {/* Edit mode status */}
           {editMode && (
@@ -540,10 +532,18 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todo">{'\u5f85\u529e'}</SelectItem>
-                      <SelectItem value="inprogress">{'\u8fdb\u884c\u4e2d'}</SelectItem>
-                      <SelectItem value="inreview">{'\u5ba1\u67e5\u4e2d'}</SelectItem>
-                      <SelectItem value="done">{'\u5df2\u5b8c\u6210'}</SelectItem>
-                      <SelectItem value="cancelled">{'\u5df2\u53d6\u6d88'}</SelectItem>
+                      <SelectItem value="inprogress">
+                        {'\u8fdb\u884c\u4e2d'}
+                      </SelectItem>
+                      <SelectItem value="inreview">
+                        {'\u5ba1\u67e5\u4e2d'}
+                      </SelectItem>
+                      <SelectItem value="done">
+                        {'\u5df2\u5b8c\u6210'}
+                      </SelectItem>
+                      <SelectItem value="cancelled">
+                        {'\u5df2\u53d6\u6d88'}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -571,8 +571,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     {(field) => {
                       const config = repoBranchConfigs[0];
                       const selectedBranch =
-                        field.state.value.find((v) => v.repoId === config.repoId)
-                          ?.branch ?? config.targetBranch;
+                        field.state.value.find(
+                          (v) => v.repoId === config.repoId
+                        )?.branch ?? config.targetBranch;
                       return (
                         <div
                           className={cn(
@@ -637,8 +638,9 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
                     const configs = repoBranchConfigs.map((config) => ({
                       ...config,
                       targetBranch:
-                        field.state.value.find((v) => v.repoId === config.repoId)
-                          ?.branch ?? config.targetBranch,
+                        field.state.value.find(
+                          (v) => v.repoId === config.repoId
+                        )?.branch ?? config.targetBranch,
                     }));
                     return (
                       <RepoBranchSelector
@@ -742,10 +744,14 @@ const TaskFormDialogImpl = NiceModal.create<TaskFormDialogProps>((props) => {
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
                 <div className="flex items-center gap-3">
-                  <DialogTitle>{'\u653e\u5f03\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff1f'}</DialogTitle>
+                  <DialogTitle>
+                    {'\u653e\u5f03\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff1f'}
+                  </DialogTitle>
                 </div>
                 <DialogDescription className="text-left pt-2">
-                  {'\u60a8\u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff0c\u786e\u5b9a\u8981\u653e\u5f03\u5417\uff1f'}
+                  {
+                    '\u60a8\u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff0c\u786e\u5b9a\u8981\u653e\u5f03\u5417\uff1f'
+                  }
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="gap-2">

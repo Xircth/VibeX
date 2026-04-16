@@ -1,21 +1,31 @@
-import { Outlet, useParams } from 'react-router-dom';
+import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useProject } from '@/contexts/ProjectContext';
-import { openTaskForm } from '@/lib/openTaskForm';
+import { paths } from '@/lib/paths';
 import { Loader2, Plus } from 'lucide-react';
 
 export function RightPanelContent() {
-  const { projectId: routeProjectId, taskId, attemptId } = useParams<{
+  const navigate = useNavigate();
+  const {
+    projectId: routeProjectId,
+    taskId,
+    attemptId,
+    workspaceId,
+    sessionId,
+  } = useParams<{
     projectId?: string;
     taskId?: string;
     attemptId?: string;
+    workspaceId?: string;
+    sessionId?: string;
   }>();
   const activeTab = useLayoutStore((state) => state.activeTab);
-  const routeTab = taskId && attemptId ? 'workspace' : null;
+  const routeTab =
+    (taskId && attemptId) || workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const { visibleRightSession, replaceRightSession, isRightSessionPending } =
     useKanbanSessionContext();
@@ -23,9 +33,9 @@ export function RightPanelContent() {
   const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
 
-  const handleCreateTask = () => {
+  const handleCreateSession = () => {
     if (effectiveProjectId) {
-      openTaskForm({ mode: 'create', projectId: effectiveProjectId });
+      navigate(`${paths.projectTasks(effectiveProjectId)}?createSession=1`);
     }
   };
 
@@ -45,7 +55,7 @@ export function RightPanelContent() {
               className="h-full"
             />
           </div>
-        ) : effectiveActiveTab === 'workspace' && taskId ? (
+        ) : effectiveActiveTab === 'workspace' && (taskId || workspaceId) ? (
           <div className="flex-1 min-h-0 overflow-hidden">
             <Outlet />
           </div>
@@ -56,13 +66,13 @@ export function RightPanelContent() {
           </div>
         ) : (
           <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3">
-            <p className="text-sm text-muted-foreground">创建新任务开始工作</p>
+            <p className="text-sm text-muted-foreground">创建新会话开始工作</p>
             <button
-              onClick={handleCreateTask}
+              onClick={handleCreateSession}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90 transition-opacity"
             >
               <Plus className="h-3.5 w-3.5" />
-              新建任务
+              新建会话
             </button>
           </div>
         )}

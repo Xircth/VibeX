@@ -26,3 +26,5 @@ export type { RepoBranchConfig } from './useRepoBranchSelection';
 export { useTaskAttempts } from './useTaskAttempts';
 export { useVariant } from './useVariant';
 export { useRetryProcess } from './useRetryProcess';
+export { useProjectWorkspacesStream } from './useProjectWorkspacesStream';
+export { useProjectWorktrees } from './useProjectWorktrees';

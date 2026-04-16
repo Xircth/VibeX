@@ -20,7 +20,10 @@ import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { getFirstAvailableProfile, getLatestProfileFromProcesses } from '@/utils/executor';
+import {
+  getFirstAvailableProfile,
+  getLatestProfileFromProcesses,
+} from '@/utils/executor';
 import { sessionsApi } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -51,7 +54,9 @@ const GitConflictResolutionDialogImpl =
       const queryClient = useQueryClient();
       const { config, profiles } = useUserSystem();
       const { data: attempt } = useTaskAttemptWithSession(workspaceId);
-      const { executionProcesses } = useExecutionProcesses(attempt?.session?.id);
+      const { executionProcesses } = useExecutionProcesses(
+        attempt?.session?.id
+      );
       const [isSending, setIsSending] = useState(false);
       const [isCopying, setIsCopying] = useState(false);
       const [error, setError] = useState<string | null>(null);
@@ -87,7 +92,9 @@ const GitConflictResolutionDialogImpl =
       ]);
 
       const handleClose = () => {
-        modal.resolve({ action: 'canceled' } as GitConflictResolutionDialogResult);
+        modal.resolve({
+          action: 'canceled',
+        } as GitConflictResolutionDialogResult);
         modal.hide();
       };
 
@@ -140,19 +147,26 @@ const GitConflictResolutionDialogImpl =
             }),
           ]);
 
-          modal.resolve({ action: 'sent' } as GitConflictResolutionDialogResult);
+          modal.resolve({
+            action: 'sent',
+          } as GitConflictResolutionDialogResult);
           modal.hide();
         } catch (sendError) {
           const sendMessage =
             sendError instanceof Error ? sendError.message : 'Unknown error';
-          setError(`Failed to send conflict instructions to AI: ${sendMessage}`);
+          setError(
+            `Failed to send conflict instructions to AI: ${sendMessage}`
+          );
         } finally {
           setIsSending(false);
         }
       };
 
       return (
-        <Dialog open={modal.visible} onOpenChange={(open) => !open && handleClose()}>
+        <Dialog
+          open={modal.visible}
+          onOpenChange={(open) => !open && handleClose()}
+        >
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -160,16 +174,17 @@ const GitConflictResolutionDialogImpl =
                 Resolve rebase conflicts with AI
               </DialogTitle>
               <DialogDescription>
-                A Git operation hit conflicts. Review the generated template below,
-                then send it to AI so it can resolve the conflicted files and continue
-                the rebase onto the target branch.
+                A Git operation hit conflicts. Review the generated template
+                below, then send it to AI so it can resolve the conflicted files
+                and continue the rebase onto the target branch.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
                 <div className="font-medium">
-                  Target branch: <span className="font-mono">{targetBranch}</span>
+                  Target branch:{' '}
+                  <span className="font-mono">{targetBranch}</span>
                 </div>
                 {repoName && (
                   <div className="mt-1 text-muted-foreground">

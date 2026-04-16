@@ -10,8 +10,12 @@
  * ========================================= */
 
 @keyframes conv-shimmer {
-  0% { background-position: -200% 50%; }
-  100% { background-position: 200% 50%; }
+  0% {
+    background-position: -200% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
 }
 
 .conv-shimmer-text {
@@ -29,7 +33,9 @@
 }
 
 @keyframes conv-spinner {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .conv-spinner {
@@ -48,7 +54,9 @@
 .conv-copy-btn {
   opacity: 0;
   transform: translateY(4px);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 .group:hover .conv-copy-btn,
@@ -148,7 +156,7 @@
  * Code Blocks in Conversation
  * ========================================= */
 
-.conv-assistant-msg .ProseMirror code:not([class*="code-highlight"]) {
+.conv-assistant-msg .ProseMirror code:not([class*='code-highlight']) {
   background: var(--conv-surface-control) !important;
   color: var(--conv-text-primary) !important;
   border: 1px solid var(--conv-border-subtle);
@@ -235,6 +243,18 @@
 .conv-error-card .conv-error-text {
   color: var(--conv-text-primary);
   font-size: 13px;
+}
+.conv-compact-notice {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--conv-text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.conv-compact-notice-error {
+  color: var(--conv-text-primary);
 }
 
 /* =========================================

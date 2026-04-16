@@ -26,11 +26,20 @@ export const useCommitDiffStore = create<CommitDiffState>((set) => ({
   isLoading: false,
 
   setCommitDiff: (sha, info, diffs) =>
-    set({ commitSha: sha, commitInfo: info, commitDiffs: diffs, isLoading: false }),
+    set({
+      commitSha: sha,
+      commitInfo: info,
+      commitDiffs: diffs,
+      isLoading: false,
+    }),
 
   clearCommitDiff: () =>
-    set({ commitSha: null, commitInfo: null, commitDiffs: [], isLoading: false }),
+    set({
+      commitSha: null,
+      commitInfo: null,
+      commitDiffs: [],
+      isLoading: false,
+    }),
 
-  setLoading: (loading) =>
-    set({ isLoading: loading }),
+  setLoading: (loading) => set({ isLoading: loading }),
 }));

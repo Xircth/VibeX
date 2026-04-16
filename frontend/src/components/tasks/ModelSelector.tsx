@@ -39,7 +39,7 @@ function ModelSelectorInner({
     MODEL_CHOICES.find((model) => model.key === value)?.label ?? '默认';
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="secondary"
@@ -51,13 +51,18 @@ function ModelSelectorInner({
           <ChevronDown className="h-2.5 w-2.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top">
+      <DropdownMenuContent
+        side="bottom"
+        align="start"
+        sideOffset={1}
+        avoidCollisions={false}
+      >
         {MODEL_CHOICES.map((model) => {
           const modelId = env[model.envKey];
           return (
             <DropdownMenuItem
               key={model.key}
-              onClick={() => onChange(model.key)}
+              onSelect={() => onChange(model.key)}
               className={value === model.key ? 'bg-accent' : ''}
             >
               <span>{model.label}</span>

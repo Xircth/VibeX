@@ -17,6 +17,7 @@ interface AgentSelectorProps {
   disabled?: boolean;
   className?: string;
   iconOnly?: boolean;
+  dropdownSide?: 'top' | 'bottom';
 }
 
 export function AgentSelector({
@@ -26,6 +27,7 @@ export function AgentSelector({
   disabled,
   className = '',
   iconOnly = false,
+  dropdownSide = 'bottom',
 }: AgentSelectorProps) {
   const agents = profiles
     ? (Object.keys(profiles)
@@ -34,15 +36,15 @@ export function AgentSelector({
     : [];
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedAgentLabel = selectedAgent
-    ? (AGENT_DISPLAY_NAMES as Record<string, string>)[selectedAgent] ??
-      selectedAgent
+    ? ((AGENT_DISPLAY_NAMES as Record<string, string>)[selectedAgent] ??
+      selectedAgent)
     : 'Agent';
 
   if (!profiles) return null;
 
   return (
     <div className={iconOnly ? 'shrink-0' : 'flex-1'}>
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
             variant={iconOnly ? 'ghost' : 'outline'}
@@ -71,7 +73,13 @@ export function AgentSelector({
             {!iconOnly ? <ArrowDown className="h-3 w-3" /> : null}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-60">
+        <DropdownMenuContent
+          side={dropdownSide}
+          align="start"
+          sideOffset={1}
+          avoidCollisions={false}
+          className="w-60"
+        >
           {agents.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground text-center">
               暂无可用代理
@@ -80,7 +88,7 @@ export function AgentSelector({
             agents.map((agent) => (
               <DropdownMenuItem
                 key={agent}
-                onClick={() => {
+                onSelect={() => {
                   onChange({
                     executor: agent,
                     variant: null,

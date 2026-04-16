@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { forwardRef, type ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import { KanbanSessionConversationView } from './KanbanSessionConversationView';
@@ -12,16 +13,6 @@ const { attemptsGetMock, sessionsGetByIdMock } = vi.hoisted(() => ({
 
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({ projectId: 'project-1' }),
-}));
-
-vi.mock('@/hooks/useProjectTasks', () => ({
-  useProjectTasks: () => ({
-    tasksById: {},
-    tasks: [],
-    isLoading: false,
-    isConnected: true,
-    error: null,
-  }),
 }));
 
 vi.mock('@/hooks/useWorkspaceSessions', () => ({
@@ -68,11 +59,8 @@ vi.mock('@/contexts/EntriesContext', () => ({
 }));
 
 vi.mock('@/contexts/ExecutionProcessesContext', () => ({
-  ExecutionProcessesProvider: ({
+  ExecutionProcessesProvider: ({ children }: { children: ReactNode }) =>
     children,
-  }: {
-    children: ReactNode;
-  }) => children,
 }));
 
 vi.mock('@/contexts/RetryUiContext', () => ({
@@ -100,7 +88,9 @@ describe('KanbanSessionConversationView', () => {
 
     const workspace: Workspace = {
       id: 'workspace-1',
+      project_id: 'project-1',
       task_id: 'task-1',
+      parent_workspace_id: null,
       container_ref: null,
       branch: 'feature/test',
       use_worktree: true,
@@ -118,6 +108,7 @@ describe('KanbanSessionConversationView', () => {
       workspace_id: 'workspace-1',
       task_id: 'task-1',
       name: 'Session One',
+      initial_prompt: null,
       status: 'todo',
       executor: null,
       created_at: '2026-03-24T00:00:00.000Z',
@@ -139,15 +130,17 @@ describe('KanbanSessionConversationView', () => {
     };
 
     render(
-      <QueryClientProvider client={queryClient}>
-        <KanbanSessionConversationView
-          workspaceId={workspace.id}
-          sessionId={session.id}
-          initialWorkspace={workspace}
-          initialSession={session}
-          initialTask={task}
-        />
-      </QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            sessionId={session.id}
+            initialWorkspace={workspace}
+            initialSession={session}
+            initialTask={task}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
     );
 
     expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
@@ -166,12 +159,14 @@ describe('KanbanSessionConversationView', () => {
     });
 
     render(
-      <QueryClientProvider client={queryClient}>
-        <KanbanSessionConversationView
-          workspaceId="workspace-2"
-          sessionId="session-2"
-        />
-      </QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId="workspace-2"
+            sessionId="session-2"
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
     );
 
     expect(screen.getByTestId('virtualized-list')).toHaveTextContent(

@@ -129,13 +129,21 @@ impl JsonRpcPeer {
                                             .await;
                                     }
                                     Ok(JSONRPCMessage::Request(request)) => {
-                                        if callbacks
-                                            .on_request(&reader_peer, line, request)
-                                            .await
-                                            .is_err()
-                                        {
-                                            break;
-                                        }
+                                        // Server requests may wait on approvals. Handle them in
+                                        // the background so the reader keeps draining stdout and
+                                        // streaming notifications are not held behind approvals.
+                                        let callbacks = callbacks.clone();
+                                        let reader_peer = reader_peer.clone();
+                                        let raw = line.to_string();
+                                        tokio::spawn(async move {
+                                            if let Err(err) =
+                                                callbacks.on_request(&reader_peer, &raw, request).await
+                                            {
+                                                tracing::error!(
+                                                    "Codex request handler failed while reader kept draining: {err}"
+                                                );
+                                            }
+                                        });
                                     }
                                     Ok(JSONRPCMessage::Notification(notification)) => {
                                         match callbacks
@@ -303,4 +311,177 @@ pub trait JsonRpcCallbacks: Send + Sync {
     ) -> Result<bool, ExecutorError>;
 
     async fn on_non_json(&self, _raw: &str) -> Result<(), ExecutorError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        process::Stdio,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
+
+    use async_trait::async_trait;
+    use codex_app_server_protocol::{
+        JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse,
+    };
+    use tokio::{
+        io::{AsyncWrite, AsyncWriteExt},
+        sync::{Notify, mpsc, oneshot},
+    };
+    use tokio_util::sync::CancellationToken;
+    use workspace_utils::process::group_spawn_no_window;
+
+    use super::{ExitSignalSender, JsonRpcCallbacks, JsonRpcPeer};
+    use crate::{
+        executors::{ExecutorError, ExecutorExitResult},
+        stdout_dup::create_stdout_pipe_writer,
+    };
+
+    struct BlockingCallbacks {
+        request_started: Arc<AtomicBool>,
+        release_request: Arc<Notify>,
+        notification_tx: mpsc::UnboundedSender<String>,
+    }
+
+    #[async_trait]
+    impl JsonRpcCallbacks for BlockingCallbacks {
+        async fn on_request(
+            &self,
+            _peer: &JsonRpcPeer,
+            _raw: &str,
+            _request: JSONRPCRequest,
+        ) -> Result<(), ExecutorError> {
+            self.request_started.store(true, Ordering::SeqCst);
+            self.release_request.notified().await;
+            Ok(())
+        }
+
+        async fn on_response(
+            &self,
+            _peer: &JsonRpcPeer,
+            _raw: &str,
+            _response: &JSONRPCResponse,
+        ) -> Result<(), ExecutorError> {
+            Ok(())
+        }
+
+        async fn on_error(
+            &self,
+            _peer: &JsonRpcPeer,
+            _raw: &str,
+            _error: &JSONRPCError,
+        ) -> Result<(), ExecutorError> {
+            Ok(())
+        }
+
+        async fn on_notification(
+            &self,
+            _peer: &JsonRpcPeer,
+            raw: &str,
+            _notification: JSONRPCNotification,
+        ) -> Result<bool, ExecutorError> {
+            let _ = self.notification_tx.send(raw.to_string());
+            Ok(false)
+        }
+
+        async fn on_non_json(&self, _raw: &str) -> Result<(), ExecutorError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn requests_are_handled_without_blocking_notifications() {
+        #[cfg(unix)]
+        let mut cmd = {
+            let mut cmd = tokio::process::Command::new("/bin/sh");
+            cmd.args(["-c", "while :; do sleep 3600; done"]);
+            cmd
+        };
+
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut cmd = tokio::process::Command::new("powershell.exe");
+            cmd.args([
+                "-NoLogo",
+                "-NonInteractive",
+                "-Command",
+                "[System.Threading.Thread]::Sleep([int]::MaxValue)",
+            ]);
+            cmd
+        };
+
+        cmd.kill_on_drop(true)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+
+        let mut child = group_spawn_no_window(&mut cmd).expect("spawn test process");
+        let mut stdout_writer: Box<dyn AsyncWrite + Send + Unpin> =
+            Box::new(create_stdout_pipe_writer(&mut child).expect("create stdout pipe"));
+        let stdin = child.inner().stdin.take().expect("stdin");
+        let stdout = child.inner().stdout.take().expect("stdout");
+        let request_started = Arc::new(AtomicBool::new(false));
+        let release_request = Arc::new(Notify::new());
+        let (notification_tx, mut notification_rx) = mpsc::unbounded_channel();
+        let callbacks = Arc::new(BlockingCallbacks {
+            request_started: request_started.clone(),
+            release_request: release_request.clone(),
+            notification_tx,
+        });
+        let cancel = CancellationToken::new();
+        let (exit_tx, _exit_rx) = oneshot::channel::<ExecutorExitResult>();
+
+        let _peer = JsonRpcPeer::spawn(
+            stdin,
+            stdout,
+            callbacks,
+            ExitSignalSender::new(exit_tx),
+            cancel.clone(),
+        );
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/request",
+            "params": {}
+        });
+        let notification = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "codex/event/agent_message_delta",
+            "params": { "delta": "streaming" }
+        });
+
+        stdout_writer
+            .write_all(request.to_string().as_bytes())
+            .await
+            .expect("write request");
+        stdout_writer.write_all(b"\n").await.expect("newline");
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !request_started.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("request should start");
+
+        stdout_writer
+            .write_all(notification.to_string().as_bytes())
+            .await
+            .expect("write notification");
+        stdout_writer.write_all(b"\n").await.expect("newline");
+
+        let observed = tokio::time::timeout(Duration::from_secs(1), notification_rx.recv())
+            .await
+            .expect("notification should not be blocked")
+            .expect("notification payload");
+        assert!(observed.contains("codex/event/agent_message_delta"));
+
+        release_request.notify_waiters();
+        cancel.cancel();
+    }
 }

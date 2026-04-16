@@ -7,8 +7,12 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { ScratchType, type ExecutorProfileId, type Workspace } from 'shared/types';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  ScratchType,
+  type ExecutorProfileId,
+  type Workspace,
+} from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -20,7 +24,7 @@ import {
   useTaskAttempt,
   useTaskAttemptWithSession,
 } from '@/hooks/useTaskAttempt';
-import { useProjectRepos } from '@/hooks';
+import { useProjectRepos, useRepoBranchSelection } from '@/hooks';
 import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -28,6 +32,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
 import { getFirstAvailableProfile } from '@/utils/executor';
+import { type SessionCreationMode } from '@/components/sessions/SessionCreationForm';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
 import {
@@ -67,11 +72,14 @@ function matchesBranch(branch: string, expectedBranch: string) {
 export function KanbanSessionHub() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projectId } = useProject();
   const { data: repos } = useProjectRepos(projectId);
+  const projectRepos = repos ?? [];
   const { activeWorktreeId } = useWorktree();
   const { profiles, config } = useUserSystem();
   const {
+    goToSessionHub,
     rightSession,
     monitorSessions,
     lastActiveWorkspaceId,
@@ -87,8 +95,7 @@ export function KanbanSessionHub() {
   const { data: lastActiveWorkspace } = useTaskAttempt(
     lastActiveWorkspaceId ?? undefined
   );
-  const { sessions, sessionsById, workspaces, isLoading } =
-    useKanbanProjectSessions(projectId);
+  const { sessions, workspaces, isLoading } = useKanbanProjectSessions(projectId);
   const primaryRepo = repos?.[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -114,7 +121,9 @@ export function KanbanSessionHub() {
   );
 
   const projectRootBranch = useMemo(() => {
-    const currentBranch = primaryRepoBranches.find((branch) => branch.is_current);
+    const currentBranch = primaryRepoBranches.find(
+      (branch) => branch.is_current
+    );
     if (currentBranch?.name?.trim()) {
       return currentBranch.name.trim();
     }
@@ -128,7 +137,11 @@ export function KanbanSessionHub() {
     }
 
     return null;
-  }, [preferredMainBranch, primaryRepo?.default_target_branch, primaryRepoBranches]);
+  }, [
+    preferredMainBranch,
+    primaryRepo?.default_target_branch,
+    primaryRepoBranches,
+  ]);
 
   const projectRootWorkspaceOption = useMemo<Workspace | null>(() => {
     if (createWorkspaceOptions.length > 0 || !projectRootBranch) {
@@ -138,7 +151,9 @@ export function KanbanSessionHub() {
     const now = new Date().toISOString();
     return {
       id: PROJECT_ROOT_WORKSPACE_ID,
+      project_id: projectId ?? '',
       task_id: '',
+      parent_workspace_id: null,
       container_ref: primaryRepo?.path ?? null,
       branch: projectRootBranch,
       use_worktree: false,
@@ -152,6 +167,7 @@ export function KanbanSessionHub() {
     };
   }, [
     createWorkspaceOptions.length,
+    projectId,
     primaryRepo?.display_name,
     primaryRepo?.name,
     primaryRepo?.path,
@@ -204,6 +220,8 @@ export function KanbanSessionHub() {
 
   const [createWorkspaceId, setCreateWorkspaceId] =
     useState(defaultWorkspaceId);
+  const [createMode, setCreateMode] =
+    useState<SessionCreationMode>('existing_workspace');
   const [createSessionName, setCreateSessionName] = useState('');
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
@@ -228,6 +246,8 @@ export function KanbanSessionHub() {
   const [pendingCreatedSessionIds, setPendingCreatedSessionIds] = useState<
     string[]
   >([]);
+  const [optimisticStatusBySessionId, setOptimisticStatusBySessionId] =
+    useState<Record<string, SessionStatusKey>>({});
   const [expandedSections, setExpandedSections] = useState<
     Record<SessionStatusKey, boolean>
   >({
@@ -259,6 +279,16 @@ export function KanbanSessionHub() {
     x: number;
     width: number;
   } | null>(null);
+  const {
+    configs: repoBranchConfigs,
+    isLoading: isLoadingRepoBranches,
+    setRepoBranch,
+    getWorkspaceRepoInputs,
+    reset: resetRepoBranchSelection,
+  } = useRepoBranchSelection({
+    repos: projectRepos,
+    enabled: isCreatePopoverOpen,
+  });
 
   const updateCreateWorkspaceId = useCallback((value: string) => {
     createWorkspaceIdRef.current = value;
@@ -301,6 +331,45 @@ export function KanbanSessionHub() {
   }, [defaultExecutorProfile, updateSelectedExecutorProfile]);
 
   useEffect(() => {
+    if (createWorkspaceOptions.length === 0) {
+      setCreateMode('new_workspace');
+    }
+  }, [createWorkspaceOptions.length]);
+
+  useEffect(() => {
+    if (searchParams.get('createSession') !== '1') {
+      return;
+    }
+
+    goToSessionHub();
+    updateCreateWorkspaceId(defaultWorkspaceId);
+    updateSelectedExecutorProfile(defaultExecutorProfile);
+    updateCreateSessionName('');
+    setCreateMode(
+      createWorkspaceOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
+    );
+    resetRepoBranchSelection();
+    setDeleteErrorMessage(null);
+    setDeleteSuccessMessage(null);
+    setIsCreatePopoverOpen(true);
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete('createSession');
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [
+    defaultExecutorProfile,
+    defaultWorkspaceId,
+    createWorkspaceOptions.length,
+    goToSessionHub,
+    resetRepoBranchSelection,
+    searchParams,
+    setSearchParams,
+    updateCreateSessionName,
+    updateCreateWorkspaceId,
+    updateSelectedExecutorProfile,
+  ]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -330,10 +399,29 @@ export function KanbanSessionHub() {
 
     const availableSessionIds = new Set(sessions.map((session) => session.id));
     setPendingCreatedSessionIds((current) => {
-      const next = current.filter((sessionId) => !availableSessionIds.has(sessionId));
+      const next = current.filter(
+        (sessionId) => !availableSessionIds.has(sessionId)
+      );
       return next.length === current.length ? current : next;
     });
   }, [isLoading, pendingCreatedSessionIds.length, sessions]);
+
+  useEffect(() => {
+    setOptimisticStatusBySessionId((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      Object.entries(current).forEach(([sessionId, optimisticStatus]) => {
+        const latestSession = sessions.find((session) => session.id === sessionId);
+        if (!latestSession || latestSession.status === optimisticStatus) {
+          delete next[sessionId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [sessions]);
 
   useEffect(() => {
     const availableSessionIds = new Set(sessions.map((session) => session.id));
@@ -350,33 +438,34 @@ export function KanbanSessionHub() {
       workspaceId,
       sessionName,
       executorProfile,
+      mode,
     }: {
       workspaceId: string;
       sessionName: string;
       executorProfile: ExecutorProfileId | null;
+      mode: SessionCreationMode;
     }) => {
-      if (!workspaceId) {
+      if (mode === 'existing_workspace' && !workspaceId) {
         throw new Error('Workspace is required');
       }
 
-      const session =
-        workspaceId === PROJECT_ROOT_WORKSPACE_ID
-          ? await (() => {
-              if (!projectId) {
-                throw new Error('Project is required');
-              }
+      if (!projectId) {
+        throw new Error('Project is required');
+      }
 
-              return sessionsApi.createProjectRoot({
-                project_id: projectId,
-                executor: executorProfile?.executor ?? undefined,
-                name: sessionName.trim() || null,
-              });
-            })()
-          : await sessionsApi.create({
-              workspace_id: workspaceId,
-              executor: executorProfile?.executor ?? undefined,
-              name: sessionName.trim() || null,
-            });
+      const session = await sessionsApi.createProject({
+        project_id: projectId,
+        workspace_id:
+          mode === 'existing_workspace'
+            ? workspaceId === PROJECT_ROOT_WORKSPACE_ID
+              ? null
+              : workspaceId
+            : null,
+        executor: executorProfile?.executor ?? undefined,
+        name: sessionName.trim() || null,
+        create_workspace: mode === 'new_workspace',
+        repos: mode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
+      });
 
       if (executorProfile?.executor) {
         await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, session.id, {
@@ -437,10 +526,40 @@ export function KanbanSessionHub() {
     },
   });
 
+  const sessionsWithOptimisticStatus = useMemo(
+    () =>
+      sessions.map((session) => {
+        const optimisticStatus = optimisticStatusBySessionId[session.id];
+        if (!optimisticStatus || optimisticStatus === session.status) {
+          return session;
+        }
+
+        return {
+          ...session,
+          status: optimisticStatus,
+          isCompleted: optimisticStatus === 'done',
+        };
+      }),
+    [optimisticStatusBySessionId, sessions]
+  );
+
+  const sessionsById = useMemo(
+    () =>
+      sessionsWithOptimisticStatus.reduce<
+        Record<string, KanbanProjectSessionRecord>
+      >((accumulator, session) => {
+        accumulator[session.id] = session;
+        return accumulator;
+      }, {}),
+    [sessionsWithOptimisticStatus]
+  );
+
   const executorFilterOptions = useMemo(() => {
     const values = Array.from(
       new Set(
-        sessions.map((session) => getExecutorFilterValue(session.executor))
+        sessionsWithOptimisticStatus.map((session) =>
+          getExecutorFilterValue(session.executor)
+        )
       )
     );
 
@@ -452,11 +571,11 @@ export function KanbanSessionHub() {
         ),
       }))
       .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
-  }, [sessions]);
+  }, [sessionsWithOptimisticStatus]);
 
   const filteredSessions = useMemo(
     () =>
-      sessions.filter((session) => {
+      sessionsWithOptimisticStatus.filter((session) => {
         if (
           workspaceFilterIds.length > 0 &&
           !workspaceFilterIds.includes(session.workspace.id)
@@ -475,7 +594,7 @@ export function KanbanSessionHub() {
 
         return true;
       }),
-    [executorFilterValues, sessions, workspaceFilterIds]
+    [executorFilterValues, sessionsWithOptimisticStatus, workspaceFilterIds]
   );
 
   const flatSessions = useMemo(
@@ -491,12 +610,12 @@ export function KanbanSessionHub() {
       done: [],
     };
 
-    sessions.forEach((session) => {
+    sessionsWithOptimisticStatus.forEach((session) => {
       groups[session.status as SessionStatusKey].push(session);
     });
 
     return groups;
-  }, [sessions]);
+  }, [sessionsWithOptimisticStatus]);
 
   const monitorRecords = useMemo(
     () =>
@@ -533,9 +652,13 @@ export function KanbanSessionHub() {
   );
 
   const canCreateSession =
-    !!createWorkspaceId &&
     !!selectedExecutorProfile?.executor &&
-    !createSessionMutation.isPending;
+    !createSessionMutation.isPending &&
+    (createMode === 'existing_workspace'
+      ? !!createWorkspaceId
+      : projectRepos.length > 0 &&
+        repoBranchConfigs.length > 0 &&
+        repoBranchConfigs.every((config) => !!config.targetBranch));
 
   const displayedCount =
     workspaceFilterIds.length > 0 ||
@@ -551,6 +674,12 @@ export function KanbanSessionHub() {
       updateCreateWorkspaceId(defaultWorkspaceId);
       updateSelectedExecutorProfile(defaultExecutorProfile);
       updateCreateSessionName('');
+      setCreateMode(
+        createWorkspaceOptions.length > 0
+          ? 'existing_workspace'
+          : 'new_workspace'
+      );
+      resetRepoBranchSelection();
       setDeleteErrorMessage(null);
     } else {
       createSessionMutation.reset();
@@ -609,11 +738,21 @@ export function KanbanSessionHub() {
     setDeleteSuccessMessage(null);
 
     try {
+      setOptimisticStatusBySessionId((current) => ({
+        ...current,
+        [session.id]: nextStatus as SessionStatusKey,
+      }));
+
       await sessionsApi.updateStatus(session.id, nextStatus);
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', session.workspace.id],
       });
     } catch (error) {
+      setOptimisticStatusBySessionId((current) => {
+        const next = { ...current };
+        delete next[session.id];
+        return next;
+      });
       setDeleteErrorMessage(
         mapSessionErrorMessage(error, '更新会话状态失败，请稍后重试。')
       );
@@ -723,11 +862,11 @@ export function KanbanSessionHub() {
       return;
     }
 
-    if (!projectId || !session.taskId) {
+    if (!projectId) {
       return;
     }
 
-    navigate(paths.attempt(projectId, session.taskId, session.workspace.id));
+    navigate(paths.projectSession(projectId, session.workspace.id, session.id));
   };
 
   const handleSessionListResizeMouseDown = (
@@ -777,9 +916,12 @@ export function KanbanSessionHub() {
           workspaces={workspaces}
           createWorkspaceOptions={createWorkspaceSelectionOptions}
           profiles={profiles}
+          createMode={createMode}
           createWorkspaceId={createWorkspaceId}
           createSessionName={createSessionName}
           selectedExecutorProfile={selectedExecutorProfile}
+          repoBranchConfigs={repoBranchConfigs}
+          isLoadingRepoBranches={isLoadingRepoBranches}
           isCreatePopoverOpen={isCreatePopoverOpen}
           sortField={sortField}
           workspaceFilterIds={workspaceFilterIds}
@@ -804,11 +946,14 @@ export function KanbanSessionHub() {
               workspaceId: createWorkspaceIdRef.current,
               sessionName: createSessionNameRef.current,
               executorProfile: selectedExecutorProfileRef.current,
+              mode: createMode,
             })
           }
+          onCreateModeChange={setCreateMode}
           onCreateWorkspaceIdChange={updateCreateWorkspaceId}
           onCreateSessionNameChange={updateCreateSessionName}
           onSelectedExecutorProfileChange={updateSelectedExecutorProfile}
+          onRepoBranchChange={setRepoBranch}
           onSortFieldChange={setSortField}
           onWorkspaceFilterIdsChange={setWorkspaceFilterIds}
           onExecutorFilterValuesChange={setExecutorFilterValues}

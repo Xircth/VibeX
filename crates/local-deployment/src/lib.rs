@@ -4,8 +4,8 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use anyhow::anyhow;
+use async_trait::async_trait;
 use db::{DBService, models::scratch::Scratch};
 use deployment::{Deployment, DeploymentError};
 use executors::profile::ExecutorConfigs;

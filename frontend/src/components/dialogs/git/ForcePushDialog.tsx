@@ -12,7 +12,8 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import { defineModal } from '@/lib/modals';
 import { usePush } from '@/hooks/usePush';
 import { useState } from 'react';
-import { Alert, AlertDescription } from '@/components/ui/alert';export interface ForcePushDialogProps {
+import { Alert, AlertDescription } from '@/components/ui/alert';
+export interface ForcePushDialogProps {
   attemptId: string;
   repoId: string;
   branchName?: string;
@@ -21,7 +22,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';export interfac
 const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
   const modal = useModal();
   const { attemptId, repoId, branchName } = props;
-  const [error, setError] = useState<string | null>(null);  const branchLabel = branchName ? ` "${branchName}"` : '';
+  const [error, setError] = useState<string | null>(null);
+  const branchLabel = branchName ? ` "${branchName}"` : '';
 
   const forcePush = usePush(
     attemptId,
@@ -94,9 +96,7 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
             disabled={isProcessing}
           >
             {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isProcessing
-              ? '强制推送中...'
-              : '强制推送'}
+            {isProcessing ? '强制推送中...' : '强制推送'}
           </Button>
         </DialogFooter>
       </DialogContent>

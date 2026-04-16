@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';import {
+import { useEffect, useMemo, useState } from 'react';
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -51,7 +52,8 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
     mode = 'retry',
     continuityMode = 'resume_in_place',
   }) => {
-    const modal = useModal();    const [isLoading, setIsLoading] = useState(true);
+    const modal = useModal();
+    const [isLoading, setIsLoading] = useState(true);
     const [worktreeResetOn, setWorktreeResetOn] = useState(
       initialWorktreeResetOn
     );
@@ -192,9 +194,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 mb-3 md:mb-4">
               <AlertTriangle className="h-4 w-4 text-destructive" />{' '}
-              {mode === 'reset'
-                ? '确认重置'
-                : '确认重试'}
+              {mode === 'reset' ? '确认重置' : '确认重试'}
             </DialogTitle>
             <div className="mt-6 break-words text-sm text-muted-foreground">
               {isLoading ? (
@@ -223,10 +223,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                               <>
                                 {'将删除此进程'}
                                 {deletedCount > 0 && (
-                                  <>
-                                    {' '}
-                                    {`及后续 ${deletedCount} 个进程`}
-                                  </>
+                                  <> {`及后续 ${deletedCount} 个进程`}</>
                                 )}
                               </>
                             )}{' '}
@@ -234,9 +231,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           </p>
                           <ul className="mt-1 text-xs text-muted-foreground list-disc pl-5">
                             {deletedCoding > 0 && (
-                              <li>
-                                {`${deletedCoding} 个编程代理运行`}
-                              </li>
+                              <li>{`${deletedCoding} 个编程代理运行`}</li>
                             )}
                             {deletedSetup + deletedCleanup > 0 && (
                               <li>
@@ -334,9 +329,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           onClick={() => setWorktreeResetOn((v) => !v)}
                         >
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
-                            {worktreeResetOn
-                              ? '已启用'
-                              : '已禁用'}
+                            {worktreeResetOn ? '已启用' : '已禁用'}
                           </div>
                           <div className="ml-auto relative inline-flex h-5 w-9 items-center rounded-full">
                             <span
@@ -532,9 +525,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
               disabled={isConfirmDisabled}
               onClick={handleConfirm}
             >
-              {mode === 'reset'
-                ? '重置'
-                : '重试'}
+              {mode === 'reset' ? '重置' : '重试'}
             </Button>
           </DialogFooter>
         </DialogContent>

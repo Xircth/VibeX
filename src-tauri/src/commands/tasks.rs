@@ -424,6 +424,8 @@ pub async fn create_task_and_start(
         let workspace = Workspace::create(
             pool,
             &CreateWorkspace {
+                project_id: task.project_id,
+                parent_workspace_id: task.parent_workspace_id,
                 branch: git_branch_name,
                 container_ref,
                 use_worktree: payload.use_worktree,
@@ -449,6 +451,7 @@ pub async fn create_task_and_start(
             executor: Some(payload.executor_profile_id.executor.to_string()),
             task_id: Some(task.id),
             name: Some(task.title.clone()),
+            initial_prompt: task.description.clone(),
             status: Some(task_status_to_session_status(&task.status)),
         },
         Uuid::new_v4(),

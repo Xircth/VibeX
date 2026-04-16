@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Slot } from '@radix-ui/react-slot';
-import { MoreHorizontal } from 'lucide-react';import { cn } from '@/lib/utils';
+import { MoreHorizontal } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,
@@ -89,7 +90,8 @@ BreadcrumbSeparator.displayName = 'BreadcrumbSeparator';
 const BreadcrumbEllipsis = ({
   className,
   ...props
-}: React.ComponentProps<'span'>) => {  return (
+}: React.ComponentProps<'span'>) => {
+  return (
     <span
       role="presentation"
       aria-hidden="true"

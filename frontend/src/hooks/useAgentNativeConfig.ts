@@ -51,8 +51,7 @@ export function useAgentNativeConfig(
       const result = await readAgentNativeConfigs(agentType);
       setData(result);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
       setError(message);
       setData(null);
     } finally {

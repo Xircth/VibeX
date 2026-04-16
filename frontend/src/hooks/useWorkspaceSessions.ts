@@ -1,7 +1,10 @@
 ﻿import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { queueApi, sessionsApi } from '@/lib/api';
-import type { SessionStatus, SessionSummary as SessionSummaryRecord } from '@/lib/api';
+import type {
+  SessionStatus,
+  SessionSummary as SessionSummaryRecord,
+} from '@/lib/api';
 import type { QueueStatus, Session, SessionContinuityMode } from 'shared/types';
 import { getContinuityActionCopy } from '@/utils/sessionContinuity';
 

@@ -177,7 +177,10 @@ export const repoApi = {
     return tauriInvoke<GitLogStatus>('get_repo_git_log', { repoId });
   },
 
-  getCommitDetail: async (repoId: string, sha: string): Promise<CommitDetail> => {
+  getCommitDetail: async (
+    repoId: string,
+    sha: string
+  ): Promise<CommitDetail> => {
     return tauriInvoke<CommitDetail>('get_repo_commit_detail', { repoId, sha });
   },
 
@@ -189,8 +192,16 @@ export const repoApi = {
     return tauriInvoke<void>('checkout_repo_branch', { repoId, branchName });
   },
 
-  createBranch: async (repoId: string, branchName: string, fromRef?: string): Promise<void> => {
-    return tauriInvoke<void>('create_repo_branch', { repoId, branchName, fromRef: fromRef ?? null });
+  createBranch: async (
+    repoId: string,
+    branchName: string,
+    fromRef?: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('create_repo_branch', {
+      repoId,
+      branchName,
+      fromRef: fromRef ?? null,
+    });
   },
 
   deleteBranch: async (repoId: string, branchName: string): Promise<void> => {

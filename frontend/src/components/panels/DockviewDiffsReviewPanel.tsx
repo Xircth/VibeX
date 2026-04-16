@@ -44,12 +44,27 @@ const getDiffId = (diff: Diff, index: number) =>
   diff.newPath || diff.oldPath || String(index);
 
 const changeBadge: Record<DiffChangeKind, { label: string; color: string }> = {
-  added: { label: 'A', color: 'text-green-600 bg-green-100 dark:bg-green-900/40' },
+  added: {
+    label: 'A',
+    color: 'text-green-600 bg-green-100 dark:bg-green-900/40',
+  },
   deleted: { label: 'D', color: 'text-red-600 bg-red-100 dark:bg-red-900/40' },
-  modified: { label: 'M', color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/40' },
-  renamed: { label: 'R', color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/40' },
-  copied: { label: 'C', color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/40' },
-  permissionChange: { label: 'P', color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/40' },
+  modified: {
+    label: 'M',
+    color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/40',
+  },
+  renamed: {
+    label: 'R',
+    color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/40',
+  },
+  copied: {
+    label: 'C',
+    color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/40',
+  },
+  permissionChange: {
+    label: 'P',
+    color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/40',
+  },
 };
 
 function formatTimestamp(timestamp: number): string {
@@ -70,16 +85,31 @@ function DockviewDiffsReviewPanel() {
   const attemptId = workspace?.id ?? effectiveAttemptId ?? null;
 
   // Commit diff mode from store
-  const { commitSha, commitInfo, commitDiffs, isLoading: commitLoading, clearCommitDiff } =
-    useCommitDiffStore();
+  const {
+    commitSha,
+    commitInfo,
+    commitDiffs,
+    isLoading: commitLoading,
+    clearCommitDiff,
+  } = useCommitDiffStore();
   const isCommitMode = !!commitSha;
   const targetPath = useGitDiffNavigationStore((state) => state.targetPath);
   const targetToken = useGitDiffNavigationStore((state) => state.requestToken);
-  const clearTargetPath = useGitDiffNavigationStore((state) => state.clearTargetPath);
+  const clearTargetPath = useGitDiffNavigationStore(
+    (state) => state.clearTargetPath
+  );
 
   // Worktree diff mode (existing functionality)
-  const { diffs: worktreeDiffs, error, isInitialized } = useDiffStream(attemptId, true);
-  const { fileCount: wtFileCount, added: wtAdded, deleted: wtDeleted } = useDiffSummary(attemptId);
+  const {
+    diffs: worktreeDiffs,
+    error,
+    isInitialized,
+  } = useDiffStream(attemptId, true);
+  const {
+    fileCount: wtFileCount,
+    added: wtAdded,
+    deleted: wtDeleted,
+  } = useDiffSummary(attemptId);
 
   // Select data source based on mode
   const diffs = isCommitMode ? commitDiffs : worktreeDiffs;
@@ -138,8 +168,7 @@ function DockviewDiffsReviewPanel() {
     const toCollapse = newDiffs
       .filter(
         ({ diff }) =>
-          DEFAULT_COLLAPSE[diff.change] ||
-          exceedsMax(diff, COLLAPSE_MAX_LINES)
+          DEFAULT_COLLAPSE[diff.change] || exceedsMax(diff, COLLAPSE_MAX_LINES)
       )
       .map(({ id }) => id);
 
@@ -149,10 +178,7 @@ function DockviewDiffsReviewPanel() {
     }
   }, [diffs, processedIds]);
 
-  const ids = useMemo(
-    () => diffs.map((d, i) => getDiffId(d, i)),
-    [diffs]
-  );
+  const ids = useMemo(() => diffs.map((d, i) => getDiffId(d, i)), [diffs]);
 
   const toggle = useCallback((id: string) => {
     setCollapsedIds((prev) => {
@@ -162,35 +188,40 @@ function DockviewDiffsReviewPanel() {
     });
   }, []);
 
-  const allCollapsed =
-    collapsedIds.size === diffs.length && diffs.length > 0;
+  const allCollapsed = collapsedIds.size === diffs.length && diffs.length > 0;
 
   const handleCollapseAll = useCallback(() => {
     setCollapsedIds(allCollapsed ? new Set() : new Set(ids));
   }, [allCollapsed, ids]);
 
-  const scrollToFile = useCallback((id: string, behavior: ScrollBehavior = 'smooth') => {
-    const el = diffRefs.current.get(id);
-    if (el) {
-      el.scrollIntoView({ behavior, block: 'start' });
-      setSelectedFileId(id);
-      setCollapsedIds((prev) => {
-        if (prev.has(id)) {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        }
-        return prev;
-      });
-    }
-  }, []);
+  const scrollToFile = useCallback(
+    (id: string, behavior: ScrollBehavior = 'smooth') => {
+      const el = diffRefs.current.get(id);
+      if (el) {
+        el.scrollIntoView({ behavior, block: 'start' });
+        setSelectedFileId(id);
+        setCollapsedIds((prev) => {
+          if (prev.has(id)) {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          }
+          return prev;
+        });
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!targetPath || diffs.length === 0) return;
 
     const normalizedTargetPath = targetPath.replace(/\\/g, '/');
     const targetEntryIndex = diffs.findIndex((diff) => {
-      const candidate = (diff.newPath || diff.oldPath || '').replace(/\\/g, '/');
+      const candidate = (diff.newPath || diff.oldPath || '').replace(
+        /\\/g,
+        '/'
+      );
       return candidate === normalizedTargetPath;
     });
 
@@ -202,7 +233,14 @@ function DockviewDiffsReviewPanel() {
     }
     scrollToFile(targetId, 'auto');
     clearTargetPath();
-  }, [clearTargetPath, diffs, scrollToFile, sidebarCollapsed, targetPath, targetToken]);
+  }, [
+    clearTargetPath,
+    diffs,
+    scrollToFile,
+    sidebarCollapsed,
+    targetPath,
+    targetToken,
+  ]);
 
   // Sticky file header tracking via IntersectionObserver
   // Tracks the last diff element that scrolled past the top of the viewport
@@ -330,13 +368,17 @@ function DockviewDiffsReviewPanel() {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <User className="h-3 w-3" />
-                  <span className="text-foreground/80">{commitInfo.author}</span>
+                  <span className="text-foreground/80">
+                    {commitInfo.author}
+                  </span>
                 </span>
                 <span className="flex items-center gap-1">
                   <Hash className="h-3 w-3" />
                   <button
                     className="font-mono text-foreground/80 hover:text-foreground transition-colors"
-                    onClick={() => navigator.clipboard.writeText(commitInfo.sha)}
+                    onClick={() =>
+                      navigator.clipboard.writeText(commitInfo.sha)
+                    }
                     title="Copy full SHA"
                   >
                     {commitInfo.sha.slice(0, 12)}
@@ -383,32 +425,45 @@ function DockviewDiffsReviewPanel() {
         {/* Sticky file header */}
         {stickyDiff && diffs.length > 1 && (
           <div className="shrink-0 flex items-center gap-1.5 px-3 py-1 bg-accent/30 border-b border-border/30 text-xs">
-            <span className={`font-bold text-[10px] ${(changeBadge[stickyDiff.change] || changeBadge.modified).color} px-1 rounded`}>
+            <span
+              className={`font-bold text-[10px] ${(changeBadge[stickyDiff.change] || changeBadge.modified).color} px-1 rounded`}
+            >
               {(changeBadge[stickyDiff.change] || changeBadge.modified).label}
             </span>
             <span className="font-mono text-foreground truncate">
               {stickyDiff.newPath || stickyDiff.oldPath}
             </span>
             {stickyDiff.additions != null && stickyDiff.additions > 0 && (
-              <span className="text-green-600 text-[10px] font-mono">+{stickyDiff.additions}</span>
+              <span className="text-green-600 text-[10px] font-mono">
+                +{stickyDiff.additions}
+              </span>
             )}
             {stickyDiff.deletions != null && stickyDiff.deletions > 0 && (
-              <span className="text-red-600 text-[10px] font-mono">-{stickyDiff.deletions}</span>
+              <span className="text-red-600 text-[10px] font-mono">
+                -{stickyDiff.deletions}
+              </span>
             )}
           </div>
         )}
 
         {/* Diff cards */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-3 pb-3">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto px-3 pb-3"
+        >
           {diffs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
               {showLoading ? (
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{isCommitMode ? '加载提交差异中…' : '加载变更中…'}</span>
+                  <span>
+                    {isCommitMode ? '加载提交差异中…' : '加载变更中…'}
+                  </span>
                 </div>
+              ) : isCommitMode ? (
+                '该提交无文件变更'
               ) : (
-                isCommitMode ? '该提交无文件变更' : '尚未进行任何更改'
+                '尚未进行任何更改'
               )}
             </div>
           ) : (
@@ -470,7 +525,8 @@ function DockviewDiffsReviewPanel() {
                   key={`diff-tree-${targetToken}`}
                   files={diffs.map((diff, idx) => {
                     const id = getDiffId(diff, idx);
-                    const badge = changeBadge[diff.change] || changeBadge.modified;
+                    const badge =
+                      changeBadge[diff.change] || changeBadge.modified;
                     return {
                       id,
                       path: diff.newPath || diff.oldPath || id,

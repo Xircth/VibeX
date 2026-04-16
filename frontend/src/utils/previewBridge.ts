@@ -200,4 +200,3 @@ export class ClickToComponentListener {
     return false;
   }
 }
-

@@ -1,4 +1,5 @@
-import { useState } from 'react';import { Button } from '@/components/ui/button';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch } from '@/hooks';
 import { settingsWindowApi } from '@/lib/api';
 import {
@@ -28,7 +29,8 @@ interface ProjectDetailProps {
   onBack: () => void;
 }
 
-export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {  const navigate = useNavigateWithSearch();
+export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
+  const navigate = useNavigateWithSearch();
   const { projectsById, isLoading, error: projectsError } = useProjects();
   const [deleteError, setDeleteError] = useState('');
 
@@ -111,7 +113,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {  con
           </div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => navigate(`/local-projects/${projectId}/tasks`)}>
+          <Button
+            onClick={() => navigate(`/local-projects/${projectId}/tasks`)}
+          >
             <CheckSquare className="mr-2 h-4 w-4" />
             View Tasks
           </Button>

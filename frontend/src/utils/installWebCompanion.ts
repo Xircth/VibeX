@@ -1,4 +1,8 @@
-import type { ExecutionProcess, RepoWithTargetBranch, Workspace } from 'shared/types';
+import type {
+  ExecutionProcess,
+  RepoWithTargetBranch,
+  Workspace,
+} from 'shared/types';
 import { attemptsApi, fileTreeApi } from '@/lib/api';
 import { getDevServerWorkingDir } from '@/lib/devServerUtils';
 
@@ -90,7 +94,9 @@ function chooseTargetRepo(
   return repos.find((repo) => repo.dev_server_script?.trim()) ?? repos[0];
 }
 
-async function findEntryFile(repoRoot: string): Promise<{ path: string; content: string }> {
+async function findEntryFile(
+  repoRoot: string
+): Promise<{ path: string; content: string }> {
   for (const relativePath of ENTRY_CANDIDATES) {
     const absolutePath = joinPath(repoRoot, relativePath);
     try {
@@ -105,7 +111,7 @@ async function findEntryFile(repoRoot: string): Promise<{ path: string; content:
 }
 
 function ensureCompanionImport(source: string): string {
-  if (source.includes("vibe-ultra-web-companion")) {
+  if (source.includes('vibe-ultra-web-companion')) {
     return source;
   }
 

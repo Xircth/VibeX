@@ -18,7 +18,8 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { type ReactNode, type Ref, type KeyboardEvent } from 'react';import { Plus, Trash2 } from 'lucide-react';
+import { type ReactNode, type Ref, type KeyboardEvent } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
 import type { ClientRect } from '@dnd-kit/core';
 import type { Transform } from '@dnd-kit/utilities';
 import { Button } from '../../button';
@@ -155,13 +156,12 @@ export type KanbanHeaderProps =
       clearLabel?: string;
     };
 
-export const KanbanHeader = (props: KanbanHeaderProps) => {  if ('children' in props) {
+export const KanbanHeader = (props: KanbanHeaderProps) => {
+  if ('children' in props) {
     return props.children;
   }
 
-  const clearLabel =
-    props.clearLabel ??
-    '清除已完成的任务';
+  const clearLabel = props.clearLabel ?? '清除已完成的任务';
 
   return (
     <Card

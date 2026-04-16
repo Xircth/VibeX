@@ -14,6 +14,8 @@ export interface SearchResultItem {
 export interface SearchOptions {
   repoIds?: string[];
   projectId?: string;
+  includeTags?: boolean;
+  includeFiles?: boolean;
 }
 
 const TAG_CACHE_TTL_MS = 30_000;
@@ -51,17 +53,21 @@ export async function searchTagsAndFiles(
   options?: SearchOptions
 ): Promise<SearchResultItem[]> {
   const results: SearchResultItem[] = [];
+  const includeTags = options?.includeTags ?? true;
+  const includeFiles = options?.includeFiles ?? true;
 
   // Tags are global and rarely change. Cache them to avoid hammering the
   // SQLite pool on every keystroke in the typeahead menu.
-  const tags = await loadCachedTags();
-  const filteredTags = tags.filter((tag) =>
-    tag.tag_name.toLowerCase().includes(query.toLowerCase())
-  );
-  results.push(...filteredTags.map((tag) => ({ type: 'tag' as const, tag })));
+  if (includeTags) {
+    const tags = await loadCachedTags();
+    const filteredTags = tags.filter((tag) =>
+      tag.tag_name.toLowerCase().includes(query.toLowerCase())
+    );
+    results.push(...filteredTags.map((tag) => ({ type: 'tag' as const, tag })));
+  }
 
   // Fetch files - prefer repo-scoped if available
-  if (query.length > 0) {
+  if (includeFiles && query.length > 0) {
     let fileResults: SearchResult[] = [];
     if (options?.repoIds && options.repoIds.length > 0) {
       fileResults = await searchApi.searchFiles(options.repoIds, query);

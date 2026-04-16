@@ -34,7 +34,11 @@ export function useGitLog({
     [workspaceId, repoId]
   );
 
-  const { data: logStatus, isLoading, error: queryError } = useQuery<GitLogStatus>({
+  const {
+    data: logStatus,
+    isLoading,
+    error: queryError,
+  } = useQuery<GitLogStatus>({
     queryKey,
     queryFn: async () => {
       return workspaceId
@@ -56,7 +60,11 @@ export function useGitLog({
     upstream: logStatus?.upstream ?? null,
     branchName: logStatus?.branch_name ?? '',
     isLoading,
-    error: queryError ? (queryError instanceof Error ? queryError.message : String(queryError)) : null,
+    error: queryError
+      ? queryError instanceof Error
+        ? queryError.message
+        : String(queryError)
+      : null,
     refresh,
   };
 }

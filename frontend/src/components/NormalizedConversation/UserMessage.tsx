@@ -18,6 +18,7 @@ import {
 } from '@/utils/sessionContinuity';
 
 const COLLAPSED_MAX_HEIGHT = 120;
+const EXPANDED_BOTTOM_SAFE_SPACE = 28;
 
 const UserMessage = ({
   content,
@@ -50,7 +51,7 @@ const UserMessage = ({
     if (!element) return;
 
     const check = () => {
-      setNeedsCollapse(element.scrollHeight > COLLAPSED_MAX_HEIGHT + 20);
+      setNeedsCollapse(element.scrollHeight > COLLAPSED_MAX_HEIGHT);
       setIsCollapseMeasured(true);
     };
 
@@ -166,7 +167,14 @@ const UserMessage = ({
             ref={contentRef}
             className="conv-user-collapsible"
             style={{
-              maxHeight: isCollapsed ? `${COLLAPSED_MAX_HEIGHT}px` : undefined,
+              maxHeight:
+                isCollapsed && needsCollapse
+                  ? `${COLLAPSED_MAX_HEIGHT}px`
+                  : undefined,
+              paddingBottom:
+                !isCollapsed && needsCollapse
+                  ? `${EXPANDED_BOTTOM_SAFE_SPACE}px`
+                  : undefined,
             }}
           >
             <WYSIWYGEditor
@@ -184,12 +192,13 @@ const UserMessage = ({
           {isCollapseMeasured && needsCollapse && (
             <button
               className="conv-user-toggle"
+              title={isCollapsed ? '查看完整消息' : '收起消息'}
+              aria-label={isCollapsed ? '查看完整消息' : '收起消息'}
               onClick={() => setIsCollapsed((value) => !value)}
             >
               <ChevronDown
                 className={`h-3 w-3 conv-user-toggle-icon ${!isCollapsed ? 'is-expanded' : ''}`}
               />
-              <span>{isCollapsed ? '\u5c55\u5f00' : '\u6536\u8d77'}</span>
             </button>
           )}
 

@@ -18,7 +18,6 @@ import {
   useKanbanProjectSessions,
   type KanbanProjectSessionRecord,
 } from '@/hooks/useKanbanProjectSessions';
-import { openTaskForm } from '@/lib/openTaskForm';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
@@ -276,10 +275,12 @@ function SessionKanbanBoard() {
     [queryClient]
   );
 
-  const handleCreateTask = useCallback(
-    (status?: SessionStatus) => {
+  const handleCreateSession = useCallback(
+    (_status?: SessionStatus) => {
       if (!projectId) return;
-      openTaskForm({ mode: 'create', projectId, initialStatus: status });
+      window.location.assign(
+        `/local-projects/${projectId}/tasks?createSession=1`
+      );
     },
     [projectId]
   );
@@ -316,7 +317,7 @@ function SessionKanbanBoard() {
               dotColor={column.dotColor}
               sessions={sessionsByStatus[column.key]}
               onSessionClick={handleSessionClick}
-              onCreateTask={() => handleCreateTask(column.key)}
+              onCreateTask={() => handleCreateSession(column.key)}
             />
           ))}
         </div>
@@ -379,7 +380,7 @@ function SessionKanbanColumn({
           type="button"
           onClick={onCreateTask}
           className="text-muted-foreground transition-colors hover:text-foreground"
-          title="新建任务"
+          title="新建会话"
         >
           <span className="text-sm leading-none">+</span>
         </button>
@@ -421,7 +422,10 @@ function DraggableSessionCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={cn('min-w-0 cursor-grab', isDragging && 'cursor-grabbing opacity-0')}
+      className={cn(
+        'min-w-0 cursor-grab',
+        isDragging && 'cursor-grabbing opacity-0'
+      )}
       style={{
         transform:
           transform && !isDragging

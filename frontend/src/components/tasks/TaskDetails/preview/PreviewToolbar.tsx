@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { ExternalLink, RefreshCw, Copy, Loader2, Pause, X } from 'lucide-react';import { Button } from '@/components/ui/button';
+import { ExternalLink, RefreshCw, Copy, Loader2, Pause, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipContent,
@@ -31,7 +32,8 @@ export function PreviewToolbar({
   customUrl,
   detectedUrl,
   onUrlChange,
-}: PreviewToolbarProps) {  const [isEditing, setIsEditing] = useState(false);
+}: PreviewToolbarProps) {
+  const [isEditing, setIsEditing] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -84,9 +86,7 @@ export function PreviewToolbar({
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'刷新预览'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'刷新预览'}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -102,9 +102,7 @@ export function PreviewToolbar({
                 <Copy className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'复制 URL'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'复制 URL'}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -127,9 +125,7 @@ export function PreviewToolbar({
                 </a>
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'在新标签页中打开'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'在新标签页中打开'}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -151,9 +147,7 @@ export function PreviewToolbar({
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'停止开发服务器'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'停止开发服务器'}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </>

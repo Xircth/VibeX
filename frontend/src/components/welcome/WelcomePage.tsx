@@ -133,13 +133,23 @@ export function WelcomePage() {
         </div>
 
         <WelcomeSection title="开始">
-          <WelcomeAction icon={Plus} label="创建新项目" onClick={handleCreateProject} />
-          <WelcomeAction icon={FolderOpen} label="选择文件夹" onClick={handleOpenFolder} />
+          <WelcomeAction
+            icon={Plus}
+            label="创建新项目"
+            onClick={handleCreateProject}
+          />
+          <WelcomeAction
+            icon={FolderOpen}
+            label="选择文件夹"
+            onClick={handleOpenFolder}
+          />
         </WelcomeSection>
 
         <WelcomeSection title="最近项目">
           {isLoading ? (
-            <div className="px-2 py-4 text-xs text-muted-foreground">加载项目中...</div>
+            <div className="px-2 py-4 text-xs text-muted-foreground">
+              加载项目中...
+            </div>
           ) : projects.length === 0 ? (
             <div className="px-2 py-4 text-xs text-muted-foreground">
               暂无项目，创建一个开始使用吧。

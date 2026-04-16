@@ -33,7 +33,8 @@ interface GitActionsDialogContentProps {
 function GitActionsDialogContent({
   attempt,
   task,
-}: GitActionsDialogContentProps) {  const { data: branchStatus, error: branchStatusError } = useBranchStatus(
+}: GitActionsDialogContentProps) {
+  const { data: branchStatus, error: branchStatusError } = useBranchStatus(
     attempt.id
   );
   const { isAttemptRunning } = useAttemptExecution(attempt.id);
@@ -53,9 +54,7 @@ function GitActionsDialogContent({
     <div className="space-y-4">
       {mergedPR && mergedPR.type === 'pr' && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>
-            {`PR #${mergedPR.pr_info.number || ''} 已合并`}
-          </span>
+          <span>{`PR #${mergedPR.pr_info.number || ''} 已合并`}</span>
           {mergedPR.pr_info.url && (
             <a
               href={mergedPR.pr_info.url}
@@ -90,7 +89,8 @@ function GitActionsDialogContent({
 
 const GitActionsDialogImpl = NiceModal.create<GitActionsDialogProps>(
   ({ attemptId, task }) => {
-    const modal = useModal();    const { data: attempt } = useTaskAttemptWithSession(attemptId);
+    const modal = useModal();
+    const { data: attempt } = useTaskAttemptWithSession(attemptId);
 
     const handleOpenChange = (open: boolean) => {
       if (!open) {

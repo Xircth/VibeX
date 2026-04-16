@@ -73,13 +73,11 @@ export const GitContextMenu = memo(function GitContextMenu({
     >
       {groupedActions.map((group, gi) => (
         <div key={gi}>
-          {gi > 0 && (
-            <div className="mx-2 my-1 border-t border-border/40" />
-          )}
+          {gi > 0 && <div className="mx-2 my-1 border-t border-border/40" />}
           {group.map((action, ai) => {
-            const globalIdx = groupedActions
-              .slice(0, gi)
-              .reduce((s, g) => s + g.length, 0) + ai;
+            const globalIdx =
+              groupedActions.slice(0, gi).reduce((s, g) => s + g.length, 0) +
+              ai;
 
             if (action.submenu && action.submenu.length > 0) {
               return (
@@ -150,7 +148,9 @@ const SubmenuItem = memo(function SubmenuItem({
       >
         {action.icon}
         <span className="flex-1 text-left">{action.label}</span>
-        <ChevronRight className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+        <ChevronRight
+          className={`h-3 w-3 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+        />
       </button>
       {isOpen && action.submenu && (
         <div className="ml-2 border-l border-border/30 pl-1">
@@ -180,7 +180,9 @@ const SubmenuItem = memo(function SubmenuItem({
   );
 });
 
-function groupActionsByField(actions: ContextMenuAction[]): ContextMenuAction[][] {
+function groupActionsByField(
+  actions: ContextMenuAction[]
+): ContextMenuAction[][] {
   const groups: ContextMenuAction[][] = [];
   let currentGroup: ContextMenuAction[] = [];
   let currentGroupName: string | undefined;

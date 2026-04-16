@@ -105,8 +105,7 @@ export const LookupToolCallCard: React.FC<{
     actionType?.action === 'web_fetch' &&
     /^https?:\/\//i.test(normalizedDetail);
   const canOpenPreview =
-    actionType?.action === 'file_read' &&
-    normalizedDetail.length > 0;
+    actionType?.action === 'file_read' && normalizedDetail.length > 0;
   const [copied, triggerCopied] = useTemporaryFlag(1500);
   const { openFilePreview } = usePanelActionsContext();
   const [expanded, toggle] = useExpandable(
@@ -230,7 +229,9 @@ export const LookupToolCallCard: React.FC<{
 
       {effectiveExpanded && (
         <div className="conv-tool-details text-xs font-mono">
-          <div className="conv-tool-details-content">{detail || entry.content}</div>
+          <div className="conv-tool-details-content">
+            {detail || entry.content}
+          </div>
           {toolEntry.tool_name &&
             toolEntry.tool_name !== label &&
             toolEntry.tool_name !== 'web_search' && (

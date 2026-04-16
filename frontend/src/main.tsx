@@ -33,9 +33,7 @@ export const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <React.Suspense
-        fallback={<p>错误</p>}
-      >
+      <React.Suspense fallback={<p>错误</p>}>
         <App />
         {/*<TanStackDevtools plugins={[FormDevtoolsPlugin()]} />*/}
         {/* <ReactQueryDevtools initialIsOpen={false} /> */}

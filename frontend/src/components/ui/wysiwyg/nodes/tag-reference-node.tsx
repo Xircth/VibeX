@@ -49,12 +49,7 @@ export class TagReferenceNode extends DecoratorNode<JSX.Element> {
     );
   }
 
-  constructor(
-    tagId: string,
-    tagName: string,
-    content: string,
-    key?: NodeKey
-  ) {
+  constructor(tagId: string, tagName: string, content: string, key?: NodeKey) {
     super(key);
     this.__tagId = tagId;
     this.__tagName = tagName;

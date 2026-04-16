@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';import { Button } from '@/components/ui/button';
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,7 +24,8 @@ export interface TagEditDialogProps {
 export type TagEditResult = 'saved' | 'canceled';
 
 const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
-  const modal = useModal();  const [formData, setFormData] = useState({
+  const modal = useModal();
+  const [formData, setFormData] = useState({
     tag_name: '',
     content: '',
   });
@@ -76,10 +78,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
       modal.resolve('saved' as TagEditResult);
       modal.hide();
     } catch (err: unknown) {
-      setError(
-        getErrorMessage(err) ||
-          '保存标签失败'
-      );
+      setError(getErrorMessage(err) || '保存标签失败');
     } finally {
       setSaving(false);
     }
@@ -106,19 +105,12 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
     <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>
-            {isEditMode
-              ? '编辑标签'
-              : '创建标签'}
-          </DialogTitle>
+          <DialogTitle>{isEditMode ? '编辑标签' : '创建标签'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
             <Label htmlFor="tag-name">
-              {'标签名称'}{' '}
-              <span className="text-destructive">
-                {'*'}
-              </span>
+              {'标签名称'} <span className="text-destructive">{'*'}</span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
               {`在任务描述中使用 # 加此名称：#${formData.tag_name || 'tag_name'}`}
@@ -151,10 +143,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
           </div>
           <div>
             <Label htmlFor="tag-content">
-              {'内容'}{' '}
-              <span className="text-destructive">
-                {'*'}
-              </span>
+              {'内容'} <span className="text-destructive">{'*'}</span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
               {`当您在任务描述中使用 #${formData.tag_name || 'tag_name'} 时将插入的文本`}
@@ -182,9 +171,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
             disabled={saving || !!tagNameError || !formData.content.trim()}
           >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isEditMode
-              ? '更新'
-              : '创建'}
+            {isEditMode ? '更新' : '创建'}
           </Button>
         </DialogFooter>
       </DialogContent>

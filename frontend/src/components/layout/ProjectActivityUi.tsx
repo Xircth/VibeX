@@ -96,9 +96,7 @@ export function ProjectRecentSessionsPopover({
     <div
       className={cn(
         'z-50 min-w-72 rounded-lg border border-border bg-popover p-2 shadow-xl pointer-events-none',
-        align === 'right'
-          ? 'fixed'
-          : 'absolute bottom-7 left-0'
+        align === 'right' ? 'fixed' : 'absolute bottom-7 left-0'
       )}
       style={style}
     >

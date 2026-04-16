@@ -68,13 +68,7 @@ export function WorktreeSelector() {
       if (worktreeInfo.workspace.id === effectiveWorktreeId) return;
 
       setActiveTab('workspace');
-      navigate(
-        paths.attempt(
-          projectId,
-          worktreeInfo.workspace.task_id,
-          worktreeInfo.workspace.id
-        )
-      );
+      navigate(paths.projectWorkspace(projectId, worktreeInfo.workspace.id));
     },
     [effectiveWorktreeId, navigate, projectId, setActiveTab]
   );
@@ -125,9 +119,7 @@ export function WorktreeSelector() {
   );
 
   const displayLabel = activeWorktree
-    ? activeWorktree.workspace.branch ||
-      activeWorktree.task?.title ||
-      'Workspace'
+    ? activeWorktree.workspace.branch || 'Workspace'
     : effectiveWorktreeId
       ? (routeWorkspace?.branch ?? 'Workspace')
       : (projectRootBranchLabel ?? project?.name ?? 'Select workspace');
@@ -176,11 +168,6 @@ export function WorktreeSelector() {
                 <span className="block truncate text-xs font-mono">
                   {worktree.workspace.branch}
                 </span>
-                {worktree.task && (
-                  <span className="block truncate text-[10px] text-muted-foreground">
-                    {worktree.task.title}
-                  </span>
-                )}
               </div>
               <button
                 type="button"
@@ -194,7 +181,9 @@ export function WorktreeSelector() {
                 }
                 disabled={!worktree.workspace.container_ref}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={(event) => void handleCopyWorkspacePath(event, worktree)}
+                onClick={(event) =>
+                  void handleCopyWorkspacePath(event, worktree)
+                }
               >
                 {copiedWorktreeId === worktree.workspace.id ? (
                   <Check className="h-3.5 w-3.5 text-green-600" />

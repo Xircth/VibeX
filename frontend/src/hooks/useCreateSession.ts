@@ -29,6 +29,7 @@ export function useCreateSession() {
     }: CreateSessionParams): Promise<Session> => {
       const session = await sessionsApi.create({
         workspace_id: workspaceId,
+        initial_prompt: prompt,
       });
 
       const body: CreateFollowUpAttempt = {

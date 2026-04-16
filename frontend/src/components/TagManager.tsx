@@ -78,11 +78,8 @@ export function TagManager() {
 
       {tags.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
-          还没有固定提示词。为常见任务描述创建可重用的文本片段，在任何任务中使用
-          {' '}
-          #tag_name
-          {' '}
-          插入。
+          还没有固定提示词。为常见任务描述创建可重用的文本片段，在任何任务中使用{' '}
+          #tag_name 插入。
         </div>
       ) : (
         <div className="border rounded-lg overflow-hidden">
@@ -103,7 +100,10 @@ export function TagManager() {
                   >
                     <td className="p-2 text-sm font-medium">#{tag.tag_name}</td>
                     <td className="p-2 text-sm">
-                      <div className="max-w-[400px] truncate" title={tag.content || ''}>
+                      <div
+                        className="max-w-[400px] truncate"
+                        title={tag.content || ''}
+                      >
                         {tag.content || (
                           <span className="text-muted-foreground">-</span>
                         )}

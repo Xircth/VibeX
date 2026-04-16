@@ -130,12 +130,17 @@ export function PreviewPanel() {
   const [showLogs, setShowLogs] = useState(false);
   const [isSelectModeEnabled, setIsSelectModeEnabled] = useState(false);
   const [isToolbarBridgeReady, setIsToolbarBridgeReady] = useState(false);
-  const [proxiedPreviewUrl, setProxiedPreviewUrl] = useState<string | null>(null);
+  const [proxiedPreviewUrl, setProxiedPreviewUrl] = useState<string | null>(
+    null
+  );
   const [isDevToolsOpen, setIsDevToolsOpen] = useState(false);
-  const [isCompanionHelpDismissed, setIsCompanionHelpDismissed] = useState(false);
+  const [isCompanionHelpDismissed, setIsCompanionHelpDismissed] =
+    useState(false);
   const [companionInstallFeedback, setCompanionInstallFeedback] =
     useState<CompanionInstallFeedback | null>(null);
-  const [devServerStartError, setDevServerStartError] = useState<string | null>(null);
+  const [devServerStartError, setDevServerStartError] = useState<string | null>(
+    null
+  );
   const listenerRef = useRef<ClickToComponentListener | null>(null);
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeBootstrapTimerRef = useRef<number | null>(null);
@@ -149,7 +154,8 @@ export function PreviewPanel() {
     rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
   const { overrideUrl: customUrl } = usePreviewSettings(attemptId);
-  const { data: projectHasDevScript = false } = useHasDevServerScript(projectId);
+  const { data: projectHasDevScript = false } =
+    useHasDevServerScript(projectId);
   const { repos } = useAttemptRepo(attemptId);
 
   const {
@@ -590,11 +596,17 @@ export function PreviewPanel() {
       <div className="flex-1 flex flex-col min-h-0">
         {companionInstallFeedback && (
           <Alert
-            variant={companionInstallFeedback.type === 'error' ? 'destructive' : 'default'}
+            variant={
+              companionInstallFeedback.type === 'error'
+                ? 'destructive'
+                : 'default'
+            }
             className="space-y-2"
           >
             <div className="flex items-start justify-between gap-2">
-              <p className="flex-1 text-sm">{companionInstallFeedback.message}</p>
+              <p className="flex-1 text-sm">
+                {companionInstallFeedback.message}
+              </p>
               <Button
                 variant="ghost"
                 size="sm"
@@ -644,7 +656,9 @@ export function PreviewPanel() {
               <div className="space-y-1 text-sm">
                 <p className="font-medium">{'预览已正常打开'}</p>
                 <p className="text-muted-foreground">
-                  {'若需点击页面元素回到编辑器，请安装并接入 Web Companion。安装完成后会自动重启开发服务器。'}
+                  {
+                    '若需点击页面元素回到编辑器，请安装并接入 Web Companion。安装完成后会自动重启开发服务器。'
+                  }
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -675,10 +689,14 @@ export function PreviewPanel() {
           <Alert variant="destructive" className="space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 space-y-2">
-                <p className="font-bold">{'我们在预览您的应用程序时遇到问题：'}</p>
+                <p className="font-bold">
+                  {'我们在预览您的应用程序时遇到问题：'}
+                </p>
                 <ol className="list-decimal list-inside space-y-2">
                   <li>
-                    {'开发服务器是否成功启动？可能有一个您需要解决的错误，或者可能需要安装依赖项。'}
+                    {
+                      '开发服务器是否成功启动？可能有一个您需要解决的错误，或者可能需要安装依赖项。'
+                    }
                   </li>
                   <li>
                     {'您的开发服务器是否以格式打印 URL 和端口到终端 '}

@@ -185,13 +185,8 @@ export const useTauriPatchStream = <T extends object>(
         }
       } catch (err) {
         if (!cancelled) {
-          console.error(
-            `Failed to subscribe to ${subscribeCommand}:`,
-            err
-          );
-          setError(
-            err instanceof Error ? err.message : 'Failed to connect'
-          );
+          console.error(`Failed to subscribe to ${subscribeCommand}:`, err);
+          setError(err instanceof Error ? err.message : 'Failed to connect');
         }
       }
     };

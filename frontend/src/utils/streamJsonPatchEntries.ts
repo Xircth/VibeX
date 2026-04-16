@@ -117,8 +117,7 @@ export function streamJsonPatchEntries<E = unknown>(
       // 2. Trigger Rust backend to start pushing events
       return tauriInvoke('subscribe_conversation_stream', {
         executionProcessId: params.executionProcessId,
-        normalized:
-          params.normalized !== undefined ? params.normalized : true,
+        normalized: params.normalized !== undefined ? params.normalized : true,
       });
     })
     .catch((err) => {

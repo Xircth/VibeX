@@ -53,7 +53,11 @@
   flex-direction: column;
   gap: 8px;
   padding-bottom: 8px;
-  background: color-mix(in srgb, var(--surface-right-panel, transparent) 84%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--surface-right-panel, transparent) 84%,
+    transparent
+  );
   backdrop-filter: blur(6px);
 }
 
@@ -101,15 +105,6 @@
   width: 24px;
   height: 24px;
   padding: 0;
-}
-
-.file-tree-root-action-danger {
-  color: var(--text-danger, #f87171);
-}
-
-.file-tree-root-action-danger:hover:not(:disabled),
-.file-tree-root-action-danger:focus-visible {
-  color: var(--text-danger-hover, #ef4444);
 }
 
 .app.reduced-transparency .file-tree-panel {
@@ -225,9 +220,14 @@
   margin-left: auto;
   padding: 4px;
   border-radius: 8px;
-  border-color: color-mix(in srgb, var(--accent-500) 70%, var(--border-subtle) 30%);
+  border-color: color-mix(
+    in srgb,
+    var(--accent-500) 70%,
+    var(--border-subtle) 30%
+  );
   color: var(--text-faint);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-500) 28%, transparent 72%);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--accent-500) 28%, transparent 72%);
 }
 
 .file-tree-search-run:hover:not(:disabled),
@@ -266,11 +266,6 @@
   padding-right: 2px;
   padding-top: 2px;
   min-height: 0;
-}
-
-.file-tree-empty {
-  font-size: 12px;
-  color: var(--text-faint);
 }
 
 .file-tree-search-summary,
@@ -378,7 +373,11 @@
   top: 0;
   z-index: 8;
   padding-bottom: 8px;
-  background: color-mix(in srgb, var(--surface-right-panel, transparent) 84%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--surface-right-panel, transparent) 84%,
+    transparent
+  );
   backdrop-filter: blur(6px);
 }
 
@@ -572,7 +571,7 @@
   background: linear-gradient(
     110deg,
     rgba(0, 0, 0, 0.04) 8%,
-    rgba(0, 0, 0, 0.10) 18%,
+    rgba(0, 0, 0, 0.1) 18%,
     rgba(0, 0, 0, 0.04) 33%
   );
   background-size: 200% 100%;
@@ -622,6 +621,21 @@
 
 .file-tree-row.is-selected {
   background: var(--surface-hover);
+}
+
+.file-tree-row.is-drop-target {
+  background: color-mix(
+    in srgb,
+    var(--surface-hover) 82%,
+    var(--accent-500) 18%
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--accent-500) 65%,
+    var(--border-subtle) 35%
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--accent-500) 35%, transparent 65%);
 }
 
 .file-tree-row.is-folder {
@@ -753,7 +767,7 @@
 }
 
 .file-preview-popover::after {
-  content: "";
+  content: '';
   position: absolute;
   right: -8px;
   top: var(--file-preview-arrow-top, 40px);

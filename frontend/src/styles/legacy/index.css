@@ -284,12 +284,11 @@
 /* ANSI color classes for fancy-ansi */
 @layer components {
   .project-rail-shell {
-    background:
-      linear-gradient(
-        180deg,
-        hsl(var(--background) / 0.42),
-        hsl(var(--secondary) / 0.3)
-      );
+    background: linear-gradient(
+      180deg,
+      hsl(var(--background) / 0.42),
+      hsl(var(--secondary) / 0.3)
+    );
     backdrop-filter: blur(28px) saturate(160%);
     -webkit-backdrop-filter: blur(28px) saturate(160%);
     box-shadow:
@@ -314,12 +313,11 @@
 
   .project-rail-action-button {
     border: 1.5px solid hsl(var(--border) / 0.95);
-    background:
-      linear-gradient(
-        180deg,
-        hsl(var(--secondary) / 0.92),
-        hsl(var(--background) / 0.82)
-      );
+    background: linear-gradient(
+      180deg,
+      hsl(var(--secondary) / 0.92),
+      hsl(var(--background) / 0.82)
+    );
     box-shadow:
       0 8px 18px hsl(220 40% 2% / 0.16),
       inset 0 1px 0 hsl(0 0% 100% / 0.08);

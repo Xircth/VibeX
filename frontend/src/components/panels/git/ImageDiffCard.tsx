@@ -33,9 +33,17 @@ function toDataUri(data: string, path: string): string {
   return `data:${mime};base64,${data}`;
 }
 
-function ImageLabel({ label, className }: { label: string; className: string }) {
+function ImageLabel({
+  label,
+  className,
+}: {
+  label: string;
+  className: string;
+}) {
   return (
-    <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${className}`}>
+    <span
+      className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${className}`}
+    >
       {label}
     </span>
   );
@@ -63,10 +71,24 @@ export const ImageDiffCard = memo(function ImageDiffCard({
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-1.5 bg-accent/30 text-xs">
-        <span className="font-mono text-muted-foreground truncate">{fileName}</span>
-        {isAdded && <ImageLabel label="Added" className="bg-green-500/20 text-green-400" />}
-        {isDeleted && <ImageLabel label="Deleted" className="bg-red-500/20 text-red-400" />}
-        {isModified && <ImageLabel label="Modified" className="bg-yellow-500/20 text-yellow-400" />}
+        <span className="font-mono text-muted-foreground truncate">
+          {fileName}
+        </span>
+        {isAdded && (
+          <ImageLabel
+            label="Added"
+            className="bg-green-500/20 text-green-400"
+          />
+        )}
+        {isDeleted && (
+          <ImageLabel label="Deleted" className="bg-red-500/20 text-red-400" />
+        )}
+        {isModified && (
+          <ImageLabel
+            label="Modified"
+            className="bg-yellow-500/20 text-yellow-400"
+          />
+        )}
       </div>
 
       {/* Image content */}
@@ -95,7 +117,9 @@ export const ImageDiffCard = memo(function ImageDiffCard({
           <div className="flex items-start gap-4 justify-center">
             {oldImageData && (
               <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] text-red-400 font-medium">Before</span>
+                <span className="text-[10px] text-red-400 font-medium">
+                  Before
+                </span>
                 <img
                   src={toDataUri(oldImageData, path)}
                   alt={`Before: ${fileName}`}
@@ -105,7 +129,9 @@ export const ImageDiffCard = memo(function ImageDiffCard({
             )}
             {newImageData && (
               <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] text-green-400 font-medium">After</span>
+                <span className="text-[10px] text-green-400 font-medium">
+                  After
+                </span>
                 <img
                   src={toDataUri(newImageData, path)}
                   alt={`After: ${fileName}`}

@@ -4,20 +4,14 @@ import { Loader2, ScrollText } from 'lucide-react';
 import VirtualizedList from '@/components/logs/VirtualizedList';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
-import { useProject } from '@/contexts/ProjectContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
 
 function DockviewLogsPanel(_props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
-  const { projectId } = useProject();
   const { data: attempt, isLoading: isLoadingAttempt } =
     useTaskAttemptWithSession(activeWorktreeId ?? undefined);
-  const taskId = attempt?.task_id;
-  const { tasksById } = useProjectTasks(projectId ?? '');
-  const task = taskId ? tasksById[taskId] ?? null : null;
 
   if (!activeWorktreeId) {
     return (
@@ -41,7 +35,7 @@ function DockviewLogsPanel(_props: IDockviewPanelProps) {
     );
   }
 
-  if (!attempt || !task) {
+  if (!attempt) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-background text-muted-foreground text-sm">
         <div className="text-center space-y-2">
@@ -63,7 +57,7 @@ function DockviewLogsPanel(_props: IDockviewPanelProps) {
       >
         <RetryUiProvider attemptId={attempt.id}>
           <div className="h-full w-full bg-background" data-panel="logs">
-            <VirtualizedList attempt={attempt} task={task} />
+            <VirtualizedList attempt={attempt} task={null} />
           </div>
         </RetryUiProvider>
       </ExecutionProcessesProvider>

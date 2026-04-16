@@ -1,7 +1,7 @@
 export type FileTreeNode = {
   name: string;
   path: string;
-  type: "file" | "folder";
+  type: 'file' | 'folder';
   children: FileTreeNode[];
   isLazyLoadable?: boolean;
 };
@@ -14,7 +14,7 @@ export type FileOpenLocation = {
 export type FileTreeBuildNode = {
   name: string;
   path: string;
-  type: "file" | "folder";
+  type: 'file' | 'folder';
   children: Map<string, FileTreeBuildNode>;
   isLazyLoadable: boolean;
 };

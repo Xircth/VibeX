@@ -10,6 +10,7 @@ import {
 } from 'react';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
 import { TokenUsageInfo } from 'shared/types';
+import { useSessionConversationStore } from '@/stores/useSessionConversationStore';
 
 interface EntriesContextType {
   entries: PatchTypeWithKey[];
@@ -26,8 +27,6 @@ type EntriesCacheValue = {
   tokenUsageInfo: TokenUsageInfo | null;
 };
 
-const entriesCache = new Map<string, EntriesCacheValue>();
-
 function getCachedEntriesValue(cacheKey?: string): EntriesCacheValue {
   if (!cacheKey) {
     return {
@@ -36,12 +35,16 @@ function getCachedEntriesValue(cacheKey?: string): EntriesCacheValue {
     };
   }
 
-  return (
-    entriesCache.get(cacheKey) ?? {
-      entries: [],
-      tokenUsageInfo: null,
-    }
-  );
+  const snapshot = useSessionConversationStore.getState().getSnapshot(cacheKey);
+  return snapshot
+    ? {
+        entries: snapshot.entries,
+        tokenUsageInfo: snapshot.tokenUsageInfo,
+      }
+    : {
+        entries: [],
+        tokenUsageInfo: null,
+      };
 }
 
 interface EntriesProviderProps {
@@ -86,7 +89,7 @@ export const EntriesProvider = ({
     ) => {
       if (!cacheKey) return;
 
-      entriesCache.set(cacheKey, {
+      useSessionConversationStore.getState().saveSnapshot(cacheKey, {
         entries: nextEntries,
         tokenUsageInfo: nextTokenUsageInfo,
       });
@@ -94,11 +97,27 @@ export const EntriesProvider = ({
     [cacheKey]
   );
 
-  const setEntries = useCallback((newEntries: PatchTypeWithKey[]) => {
-    entriesRef.current = newEntries;
-    setEntriesState(newEntries);
-    updateCache(newEntries, tokenUsageInfoRef.current);
-  }, [updateCache]);
+  const setEntries = useCallback(
+    (newEntries: PatchTypeWithKey[]) => {
+      const cachedValue = cacheKey
+        ? useSessionConversationStore.getState().getSnapshot(cacheKey)
+        : undefined;
+      const hasPersistedEntries = (cachedValue?.entries.length ?? 0) > 0;
+      const shouldIgnoreEmptyReplacement =
+        newEntries.length === 0 &&
+        hasPersistedEntries &&
+        entriesRef.current.length > 0;
+
+      if (shouldIgnoreEmptyReplacement) {
+        return;
+      }
+
+      entriesRef.current = newEntries;
+      setEntriesState(newEntries);
+      updateCache(newEntries, tokenUsageInfoRef.current);
+    },
+    [cacheKey, updateCache]
+  );
 
   const setTokenUsageInfoCallback = useCallback(
     (info: TokenUsageInfo | null) => {
@@ -114,8 +133,11 @@ export const EntriesProvider = ({
     tokenUsageInfoRef.current = null;
     setEntriesState([]);
     setTokenUsageInfo(null);
+    if (cacheKey) {
+      useSessionConversationStore.getState().clearSnapshot(cacheKey);
+    }
     updateCache([], null);
-  }, [updateCache]);
+  }, [cacheKey, updateCache]);
 
   const value = useMemo(
     () => ({

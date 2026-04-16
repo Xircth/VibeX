@@ -42,7 +42,11 @@ export function useGitStatus({
     [workspaceId, repoId]
   );
 
-  const { data: status, isLoading, error: queryError } = useQuery<DetailedGitStatus>({
+  const {
+    data: status,
+    isLoading,
+    error: queryError,
+  } = useQuery<DetailedGitStatus>({
     queryKey,
     queryFn: async () => {
       return workspaceId
@@ -52,7 +56,8 @@ export function useGitStatus({
     enabled: !!repoId,
     refetchInterval: (query) => {
       const data = query.state.data;
-      const fileCount = (data?.staged_files.length ?? 0) + (data?.unstaged_files.length ?? 0);
+      const fileCount =
+        (data?.staged_files.length ?? 0) + (data?.unstaged_files.length ?? 0);
       return getPollInterval(pollMode, fileCount);
     },
   });
@@ -68,7 +73,11 @@ export function useGitStatus({
     totalAdditions: status?.total_additions ?? 0,
     totalDeletions: status?.total_deletions ?? 0,
     isLoading,
-    error: queryError ? (queryError instanceof Error ? queryError.message : String(queryError)) : null,
+    error: queryError
+      ? queryError instanceof Error
+        ? queryError.message
+        : String(queryError)
+      : null,
     refresh,
   };
 }

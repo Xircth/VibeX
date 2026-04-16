@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, ChevronLeft } from 'lucide-react';import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { ChevronRight, ChevronLeft } from 'lucide-react';
+import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ShowcaseStageMedia } from '@/components/showcase/ShowcaseStageMedia';
@@ -10,28 +11,11 @@ interface FeatureShowcaseDialogProps {
   config: ShowcaseConfig;
 }
 
-/**
- * FeatureShowcaseDialog - Generic multi-stage modal for showcasing features with media
- *
- * Displays a modal with stages containing videos or images, title, description,
- * and navigation controls. ESC key is disabled; only Next/Finish buttons dismiss.
- *
- * Features:
- * - Multi-stage or single-stage support (hides navigation if 1 stage)
- * - Video support with loading states and progress bars
- * - Image support with loading skeleton
- * - Responsive design (full-width on mobile, 2/3 width on desktop)
- * - Smooth transitions between stages
- *
- * Usage:
- * ```ts
- * FeatureShowcaseDialog.show({ config: showcases.taskPanel });
- * ```
- */
 const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
   ({ config }: FeatureShowcaseDialogProps) => {
     const modal = useModal();
-    const [currentStage, setCurrentStage] = useState(0);    const stage = config.stages[currentStage];
+    const [currentStage, setCurrentStage] = useState(0);
+    const stage = config.stages[currentStage];
     const totalStages = config.stages.length;
 
     const handleNext = () => {
@@ -63,9 +47,9 @@ const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
           }
         }}
         uncloseable
-        className="max-w-none xl:max-w-[min(66.66vw,calc((100svh-20rem)*1.6))] p-0 overflow-hidden"
+        className="max-w-none xl:max-w-[min(66.66vw,calc((100svh-20rem)*1.6))] overflow-hidden p-0"
       >
-        <DialogContent className="p-0 gap-0">
+        <DialogContent className="gap-0 p-0">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentStage}
@@ -76,7 +60,7 @@ const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
             >
               <ShowcaseStageMedia media={stage.media} />
 
-              <div className="p-6 space-y-4">
+              <div className="space-y-4 p-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-foreground">
@@ -88,7 +72,7 @@ const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
                   </div>
                 </div>
 
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   {stage.description}
                 </p>
 
@@ -108,19 +92,17 @@ const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
                     {currentStage > 0 && (
                       <button
                         onClick={handlePrevious}
-                        className="h-10 px-4 py-2 inline-flex items-center justify-center gap-2 text-sm font-medium border border-input hover:bg-accent hover:text-accent-foreground transition-colors"
+                        className="inline-flex h-10 items-center justify-center gap-2 border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
                       >
                         <ChevronLeft className="h-4 w-4" />
-                        {'上一个'}
+                        上一步
                       </button>
                     )}
                     <button
                       onClick={handleNext}
-                      className="h-10 px-4 py-2 inline-flex items-center justify-center gap-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                      className="inline-flex h-10 items-center justify-center gap-2 bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                     >
-                      {currentStage === totalStages - 1
-                        ? '完成'
-                        : '下一个'}
+                      {currentStage === totalStages - 1 ? '完成' : '下一步'}
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   </div>

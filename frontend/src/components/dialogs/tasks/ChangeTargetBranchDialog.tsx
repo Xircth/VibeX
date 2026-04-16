@@ -1,4 +1,5 @@
-import { useState } from 'react';import {
+import { useState } from 'react';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -25,7 +26,8 @@ export type ChangeTargetBranchDialogResult = {
 const ChangeTargetBranchDialogImpl =
   NiceModal.create<ChangeTargetBranchDialogProps>(
     ({ branches, isChangingTargetBranch: isChangingTargetBranch = false }) => {
-      const modal = useModal();      const [selectedBranch, setSelectedBranch] = useState<string>('');
+      const modal = useModal();
+      const [selectedBranch, setSelectedBranch] = useState<string>('');
 
       const handleConfirm = () => {
         if (selectedBranch) {
@@ -52,9 +54,7 @@ const ChangeTargetBranchDialogImpl =
         <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>
-                {'更改目标分支'}
-              </DialogTitle>
+              <DialogTitle>{'更改目标分支'}</DialogTitle>
               <DialogDescription>
                 {'为任务尝试选择新的目标分支。'}
               </DialogDescription>
@@ -87,9 +87,7 @@ const ChangeTargetBranchDialogImpl =
                 onClick={handleConfirm}
                 disabled={isChangingTargetBranch || !selectedBranch}
               >
-                {isChangingTargetBranch
-                  ? '更改中...'
-                  : '更改分支'}
+                {isChangingTargetBranch ? '更改中...' : '更改分支'}
               </Button>
             </DialogFooter>
           </DialogContent>

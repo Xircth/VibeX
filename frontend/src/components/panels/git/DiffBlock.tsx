@@ -42,19 +42,39 @@ function parseDiff(raw: string): ParsedLine[] {
       if (match) {
         oldLine = parseInt(match[1], 10);
         newLine = parseInt(match[2], 10);
-        result.push({ type: 'hunk', content: line, oldLine: null, newLine: null });
+        result.push({
+          type: 'hunk',
+          content: line,
+          oldLine: null,
+          newLine: null,
+        });
       }
       continue;
     }
 
     if (line.startsWith('+')) {
-      result.push({ type: 'add', content: line.slice(1), oldLine: null, newLine });
+      result.push({
+        type: 'add',
+        content: line.slice(1),
+        oldLine: null,
+        newLine,
+      });
       newLine++;
     } else if (line.startsWith('-')) {
-      result.push({ type: 'del', content: line.slice(1), oldLine, newLine: null });
+      result.push({
+        type: 'del',
+        content: line.slice(1),
+        oldLine,
+        newLine: null,
+      });
       oldLine++;
     } else if (line.startsWith(' ') || line === '') {
-      result.push({ type: 'ctx', content: line.startsWith(' ') ? line.slice(1) : line, oldLine, newLine });
+      result.push({
+        type: 'ctx',
+        content: line.startsWith(' ') ? line.slice(1) : line,
+        oldLine,
+        newLine,
+      });
       oldLine++;
       newLine++;
     }
@@ -84,22 +104,34 @@ const GUTTER_COLORS: Record<string, string> = {
   hunk: '',
 };
 
-function UnifiedView({ lines, showLineNumbers }: { lines: ParsedLine[]; showLineNumbers: boolean }) {
+function UnifiedView({
+  lines,
+  showLineNumbers,
+}: {
+  lines: ParsedLine[];
+  showLineNumbers: boolean;
+}) {
   return (
     <div className="font-mono text-xs leading-[1.6]">
       {lines.map((line, i) => (
         <div key={i} className={`flex ${LINE_COLORS[line.type]}`}>
           {showLineNumbers && (
-            <span className={`shrink-0 w-8 text-right pr-1 select-none ${GUTTER_COLORS[line.type]}`}>
+            <span
+              className={`shrink-0 w-8 text-right pr-1 select-none ${GUTTER_COLORS[line.type]}`}
+            >
               {line.oldLine ?? ''}
             </span>
           )}
           {showLineNumbers && (
-            <span className={`shrink-0 w-8 text-right pr-2 select-none ${GUTTER_COLORS[line.type]}`}>
+            <span
+              className={`shrink-0 w-8 text-right pr-2 select-none ${GUTTER_COLORS[line.type]}`}
+            >
               {line.newLine ?? ''}
             </span>
           )}
-          <span className={`flex-1 min-w-0 whitespace-pre-wrap break-all px-1 ${LINE_TEXT_COLORS[line.type]}`}>
+          <span
+            className={`flex-1 min-w-0 whitespace-pre-wrap break-all px-1 ${LINE_TEXT_COLORS[line.type]}`}
+          >
             {line.type === 'hunk' ? line.content : line.content || '\u00A0'}
           </span>
         </div>
@@ -108,7 +140,13 @@ function UnifiedView({ lines, showLineNumbers }: { lines: ParsedLine[]; showLine
   );
 }
 
-function SplitView({ lines, showLineNumbers }: { lines: ParsedLine[]; showLineNumbers: boolean }) {
+function SplitView({
+  lines,
+  showLineNumbers,
+}: {
+  lines: ParsedLine[];
+  showLineNumbers: boolean;
+}) {
   // Build paired rows for split view
   const pairs = useMemo(() => {
     const result: { left: ParsedLine | null; right: ParsedLine | null }[] = [];
@@ -151,7 +189,9 @@ function SplitView({ lines, showLineNumbers }: { lines: ParsedLine[]; showLineNu
     if (!line) {
       return (
         <div className="flex flex-1 min-w-0 bg-muted/20">
-          {showLineNumbers && <span className="shrink-0 w-8 text-right pr-2 select-none" />}
+          {showLineNumbers && (
+            <span className="shrink-0 w-8 text-right pr-2 select-none" />
+          )}
           <span className="flex-1 px-1">&nbsp;</span>
         </div>
       );
@@ -160,12 +200,16 @@ function SplitView({ lines, showLineNumbers }: { lines: ParsedLine[]; showLineNu
     return (
       <div className={`flex flex-1 min-w-0 ${LINE_COLORS[type]}`}>
         {showLineNumbers && (
-          <span className={`shrink-0 w-8 text-right pr-2 select-none ${GUTTER_COLORS[type]}`}>
+          <span
+            className={`shrink-0 w-8 text-right pr-2 select-none ${GUTTER_COLORS[type]}`}
+          >
             {side === 'left' ? (line.oldLine ?? '') : (line.newLine ?? '')}
           </span>
         )}
-        <span className={`flex-1 min-w-0 whitespace-pre-wrap break-all px-1 ${LINE_TEXT_COLORS[type]}`}>
-          {line.type === 'hunk' ? line.content : (line.content || '\u00A0')}
+        <span
+          className={`flex-1 min-w-0 whitespace-pre-wrap break-all px-1 ${LINE_TEXT_COLORS[type]}`}
+        >
+          {line.type === 'hunk' ? line.content : line.content || '\u00A0'}
         </span>
       </div>
     );

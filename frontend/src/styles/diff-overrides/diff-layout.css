@@ -16,7 +16,6 @@
   --line-number-color: var(--primary-foreground);
 }
 
-
 .diff-tailwindcss-wrapper .container {
   width: 100%;
 }

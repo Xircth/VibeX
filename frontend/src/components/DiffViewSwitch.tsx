@@ -1,4 +1,5 @@
-import { Columns, FileText, Pilcrow, WrapText } from 'lucide-react';import { cn } from '@/lib/utils';
+import { Columns, FileText, Pilcrow, WrapText } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   useDiffViewMode,
   useDiffViewStore,
@@ -17,7 +18,8 @@ type Props = {
   className?: string;
 };
 
-export default function DiffViewSwitch({ className }: Props) {  const mode = useDiffViewMode();
+export default function DiffViewSwitch({ className }: Props) {
+  const mode = useDiffViewMode();
   const setMode = useDiffViewStore((s) => s.setMode);
   const ignoreWhitespace = useIgnoreWhitespaceDiff();
   const setIgnoreWhitespace = useDiffViewStore((s) => s.setIgnoreWhitespace);
@@ -47,9 +49,7 @@ export default function DiffViewSwitch({ className }: Props) {  const mode = us
                 <FileText className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'内联视图'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'内联视图'}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -62,9 +62,7 @@ export default function DiffViewSwitch({ className }: Props) {  const mode = us
                 <Columns className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'分割视图'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'分割视图'}</TooltipContent>
           </Tooltip>
         </ToggleGroup>
 
@@ -87,9 +85,7 @@ export default function DiffViewSwitch({ className }: Props) {  const mode = us
                 <Pilcrow className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'忽略空格更改'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'忽略空格更改'}</TooltipContent>
           </Tooltip>
         </ToggleGroup>
 
@@ -110,9 +106,7 @@ export default function DiffViewSwitch({ className }: Props) {  const mode = us
                 <WrapText className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'自动换行'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'自动换行'}</TooltipContent>
           </Tooltip>
         </ToggleGroup>
       </div>

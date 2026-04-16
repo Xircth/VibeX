@@ -22,7 +22,10 @@ import {
   User,
 } from 'lucide-react';
 import { createElement } from 'react';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
+import type {
+  DisplayEntry,
+  PatchTypeWithKey,
+} from '@/hooks/useConversationHistory/types';
 import type { ScriptType } from '@/components/dialogs/scripts/ScriptFixerDialog';
 
 /***********************
@@ -44,6 +47,9 @@ export type AggregationType =
   | 'command_run';
 
 export type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
+export type BuildDisplayEntriesOptions = {
+  aggregateThinking?: boolean;
+};
 
 /***********************
  * Constants            *
@@ -214,6 +220,132 @@ export const shouldRenderMarkdown = (entryType: NormalizedEntryType) =>
   entryType.type === 'thinking' ||
   entryType.type === 'tool_use';
 
+const HIDDEN_INIT_NOTICE_KEYS = new Set([
+  'agent',
+  'approval',
+  'approval policy',
+  'executor',
+  'mode',
+  'model',
+  'permission mode',
+  'permissions',
+  'profile',
+  'reasoning',
+  'reasoning effort',
+  'sandbox',
+]);
+
+const COMPACT_NOTICE_PATTERNS = [
+  /\bthis session was recorded with\b/i,
+  /\bis resuming with\b/i,
+  /\bconsider switching back\b/i,
+  /\bresume(?:d|ing)?\b/i,
+  /\bcontinu(?:e|ing) with\b/i,
+  /\bmodel mismatch\b/i,
+  /\breasoning effort\b/i,
+];
+
+function getColonSeparatedNoticeLines(content: string) {
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^([a-z][a-z0-9 _/-]*):\s+(.+)$/i);
+      if (!match) {
+        return null;
+      }
+
+      return {
+        key: match[1].trim().toLowerCase(),
+        value: match[2].trim(),
+      };
+    });
+}
+
+export function normalizeMetaNoticeText(content: string) {
+  return content
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function shouldHideInitializationNotice(
+  entryType: NormalizedEntryType,
+  content: string
+) {
+  if (
+    entryType.type === 'user_message' ||
+    entryType.type === 'user_feedback' ||
+    entryType.type === 'tool_use' ||
+    entryType.type === 'thinking' ||
+    entryType.type === 'loading' ||
+    entryType.type === 'token_usage_info' ||
+    entryType.type === 'next_action'
+  ) {
+    return false;
+  }
+
+  const parsedLines = getColonSeparatedNoticeLines(content);
+  if (parsedLines.length === 0 || parsedLines.some((line) => !line)) {
+    return false;
+  }
+
+  const lines = parsedLines.filter(
+    (line): line is NonNullable<(typeof parsedLines)[number]> => Boolean(line)
+  );
+
+  return (
+    lines.length <= 4 &&
+    lines.every((line) => HIDDEN_INIT_NOTICE_KEYS.has(line.key)) &&
+    lines.some((line) => line.key === 'model')
+  );
+}
+
+export function getCompactMetaNoticeText(
+  entryType: NormalizedEntryType,
+  content: string
+) {
+  const normalized = normalizeMetaNoticeText(content);
+  if (!normalized) {
+    return null;
+  }
+
+  const lineCount = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean).length;
+  const hasStructuredFormatting =
+    /```/.test(content) ||
+    /^\s*[-*#]/m.test(content) ||
+    /^\s*\d+[.)]\s/m.test(content);
+
+  if (hasStructuredFormatting) {
+    return null;
+  }
+
+  if (
+    (entryType.type === 'system_message' ||
+      entryType.type === 'error_message') &&
+    lineCount <= 2 &&
+    normalized.length <= 240
+  ) {
+    return normalized;
+  }
+
+  if (
+    entryType.type === 'assistant_message' &&
+    lineCount <= 3 &&
+    normalized.length <= 280 &&
+    COMPACT_NOTICE_PATTERNS.some((pattern) => pattern.test(normalized))
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
 export const getContentClassName = (entryType: NormalizedEntryType) => {
   const base = ' whitespace-pre-wrap break-words';
   if (
@@ -346,9 +478,215 @@ export function getAggregatableAction(
   if (data.type !== 'NORMALIZED_ENTRY') return null;
   const entry = data.content;
   if (entry.entry_type.type !== 'tool_use') return null;
+  if (SCRIPT_TOOL_NAMES.includes(entry.entry_type.tool_name)) return null;
+  if (isPendingApprovalStatus(entry.entry_type.status)) return null;
   const action = entry.entry_type.action_type.action;
   if (AGGREGATABLE_ACTIONS.has(action)) return action as AggregationType;
   return null;
+}
+
+function getAggregationKey(data: PatchTypeWithKey): string | null {
+  const aggregationType = getAggregatableAction(data);
+  if (!aggregationType || data.type !== 'NORMALIZED_ENTRY') {
+    return null;
+  }
+
+  const entry = data.content;
+  if (entry.entry_type.type !== 'tool_use') {
+    return null;
+  }
+
+  return [
+    data.executionProcessId,
+    aggregationType,
+    entry.entry_type.tool_name.trim().toLowerCase(),
+  ].join(':');
+}
+
+function isProcessChangeEntry(data: PatchTypeWithKey): boolean {
+  if (data.type !== 'NORMALIZED_ENTRY') {
+    return false;
+  }
+
+  const entryType = data.content.entry_type;
+  return (
+    entryType.type === 'tool_use' &&
+    entryType.action_type.action === 'file_edit' &&
+    !isPendingApprovalStatus(entryType.status)
+  );
+}
+
+function isThinkingEntry(data: PatchTypeWithKey): boolean {
+  return (
+    data.type === 'NORMALIZED_ENTRY' &&
+    data.content.entry_type.type === 'thinking'
+  );
+}
+
+export function buildDisplayEntries(
+  entries: PatchTypeWithKey[],
+  options: BuildDisplayEntriesOptions = {}
+): DisplayEntry[] {
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const { aggregateThinking = false } = options;
+  const displayEntries: DisplayEntry[] = [];
+  let currentGroup: PatchTypeWithKey[] = [];
+  let currentAggregationType: AggregationType | null = null;
+  let currentAggregationKey: string | null = null;
+  let currentDiffGroup: PatchTypeWithKey[] = [];
+  let currentDiffProcessId: string | null = null;
+  let currentThinkingGroup: PatchTypeWithKey[] = [];
+  let currentThinkingProcessId: string | null = null;
+
+  const flushCurrentGroup = () => {
+    if (currentGroup.length === 0 || !currentAggregationType) {
+      currentGroup = [];
+      currentAggregationType = null;
+      currentAggregationKey = null;
+      return;
+    }
+
+    if (currentGroup.length === 1) {
+      displayEntries.push(currentGroup[0]!);
+    } else {
+      const firstEntry = currentGroup[0]!;
+      const lastEntry = currentGroup[currentGroup.length - 1]!;
+      displayEntries.push({
+        type: 'AGGREGATED_GROUP',
+        aggregationType: currentAggregationType,
+        entries: [...currentGroup],
+        patchKey: `aggregated:${currentAggregationType}:${firstEntry.patchKey}:${lastEntry.patchKey}`,
+        executionProcessId: firstEntry.executionProcessId,
+      });
+    }
+
+    currentGroup = [];
+    currentAggregationType = null;
+    currentAggregationKey = null;
+  };
+
+  const flushCurrentDiffGroup = () => {
+    if (currentDiffGroup.length === 0) {
+      currentDiffProcessId = null;
+      return;
+    }
+
+    const firstEntry = currentDiffGroup[0]!;
+    const lastEntry = currentDiffGroup[currentDiffGroup.length - 1]!;
+    const firstPath =
+      firstEntry.type === 'NORMALIZED_ENTRY' &&
+      firstEntry.content.entry_type.type === 'tool_use' &&
+      firstEntry.content.entry_type.action_type.action === 'file_edit'
+        ? firstEntry.content.entry_type.action_type.path
+        : '';
+
+    displayEntries.push({
+      type: 'AGGREGATED_DIFF_GROUP',
+      filePath: firstPath,
+      entries: [...currentDiffGroup],
+      patchKey: `aggregated-diff:${firstEntry.executionProcessId}:${firstEntry.patchKey}:${lastEntry.patchKey}`,
+      executionProcessId: firstEntry.executionProcessId,
+    });
+
+    currentDiffGroup = [];
+    currentDiffProcessId = null;
+  };
+
+  const flushCurrentThinkingGroup = () => {
+    if (currentThinkingGroup.length === 0) {
+      currentThinkingProcessId = null;
+      return;
+    }
+
+    if (currentThinkingGroup.length === 1) {
+      displayEntries.push(currentThinkingGroup[0]!);
+    } else {
+      const firstEntry = currentThinkingGroup[0]!;
+      const lastEntry = currentThinkingGroup[currentThinkingGroup.length - 1]!;
+      displayEntries.push({
+        type: 'AGGREGATED_THINKING_GROUP',
+        entries: [...currentThinkingGroup],
+        patchKey: `aggregated-thinking:${firstEntry.executionProcessId}:${firstEntry.patchKey}:${lastEntry.patchKey}`,
+        executionProcessId: firstEntry.executionProcessId,
+      });
+    }
+
+    currentThinkingGroup = [];
+    currentThinkingProcessId = null;
+  };
+
+  for (const entry of entries) {
+    if (isProcessChangeEntry(entry)) {
+      flushCurrentGroup();
+      flushCurrentThinkingGroup();
+
+      if (
+        currentDiffGroup.length > 0 &&
+        currentDiffProcessId === entry.executionProcessId
+      ) {
+        currentDiffGroup.push(entry);
+        continue;
+      }
+
+      flushCurrentDiffGroup();
+      currentDiffGroup = [entry];
+      currentDiffProcessId = entry.executionProcessId;
+      continue;
+    }
+
+    flushCurrentDiffGroup();
+
+    if (aggregateThinking && isThinkingEntry(entry)) {
+      flushCurrentGroup();
+
+      if (
+        currentThinkingGroup.length > 0 &&
+        currentThinkingProcessId === entry.executionProcessId
+      ) {
+        currentThinkingGroup.push(entry);
+        continue;
+      }
+
+      flushCurrentThinkingGroup();
+      currentThinkingGroup = [entry];
+      currentThinkingProcessId = entry.executionProcessId;
+      continue;
+    }
+
+    flushCurrentThinkingGroup();
+
+    const aggregationType = getAggregatableAction(entry);
+    const aggregationKey = getAggregationKey(entry);
+
+    if (!aggregationType || !aggregationKey) {
+      flushCurrentGroup();
+      displayEntries.push(entry);
+      continue;
+    }
+
+    if (
+      currentGroup.length > 0 &&
+      aggregationKey === currentAggregationKey &&
+      aggregationType === currentAggregationType
+    ) {
+      currentGroup.push(entry);
+      continue;
+    }
+
+    flushCurrentGroup();
+    currentGroup = [entry];
+    currentAggregationType = aggregationType;
+    currentAggregationKey = aggregationKey;
+  }
+
+  flushCurrentGroup();
+  flushCurrentDiffGroup();
+  flushCurrentThinkingGroup();
+
+  return displayEntries;
 }
 
 export function getAggregatedEntryDetail(data: PatchTypeWithKey): string {
@@ -359,5 +697,9 @@ export function getAggregatedEntryDetail(data: PatchTypeWithKey): string {
   if (at.action === 'file_read') return at.path;
   if (at.action === 'search') return at.query;
   if (at.action === 'web_fetch') return at.url;
+  if (at.action === 'command_run') {
+    const firstLine = at.command.split(/\r?\n/)[0]?.trim() ?? '';
+    return firstLine;
+  }
   return '';
 }

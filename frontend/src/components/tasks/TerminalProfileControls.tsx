@@ -1,4 +1,4 @@
-import { Brain, KeyRound, Shield, Workflow } from 'lucide-react';
+import { Brain, Shield, Workflow } from 'lucide-react';
 import type {
   BaseCodingAgent,
   ExecutorConfigs,
@@ -14,7 +14,6 @@ import {
   type ClaudePermissionMode,
   type CodexReasoningEffort,
   type OpenCodePermissionMode,
-  formatApprovalPolicyLabel,
   formatClaudePermissionLabel,
   formatOpenCodeModeLabel,
   formatOpenCodePermissionLabel,
@@ -23,9 +22,7 @@ import {
   getClaudePermissionOptions,
   getClaudeVariantConfig,
   getClaudeVariantFromSelection,
-  getCodexApprovalOptions,
   getCodexModelOptions,
-  getCodexReasoningOptions,
   getCodexSandboxOptions,
   getCodexVariantConfig,
   getCodexVariantFromConfigSelection,
@@ -47,6 +44,7 @@ interface TerminalProfileControlsProps {
   lockExecutor?: boolean;
   showLabel?: boolean;
   iconOnly?: boolean;
+  dropdownSide?: 'top' | 'bottom';
 }
 
 const OPEN_CODE_DEFAULT_MODE = '__DEFAULT__';
@@ -60,6 +58,7 @@ export function TerminalProfileControls({
   lockExecutor = false,
   showLabel = false,
   iconOnly = false,
+  dropdownSide = 'bottom',
 }: TerminalProfileControlsProps) {
   const executor = selectedProfile?.executor ?? null;
   const isClaude = isClaudeCodeExecutor(executor);
@@ -73,7 +72,10 @@ export function TerminalProfileControls({
   }
 
   const handleExecutorChange = (nextExecutor: BaseCodingAgent) => {
-    const nextProfile = getDefaultProfileForExecutor(nextExecutor, profiles) ?? {
+    const nextProfile = getDefaultProfileForExecutor(
+      nextExecutor,
+      profiles
+    ) ?? {
       executor: nextExecutor,
       variant: null,
     };
@@ -89,6 +91,7 @@ export function TerminalProfileControls({
       disabled={disabled}
       showLabel={showLabel && lockExecutor}
       iconOnly={iconOnly}
+      dropdownSide={dropdownSide}
     />
   );
 
@@ -129,6 +132,7 @@ export function TerminalProfileControls({
             disabled={disabled}
             menuLabel="Permissions"
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
 
@@ -148,6 +152,7 @@ export function TerminalProfileControls({
             }
             disabled={disabled}
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
       </div>
@@ -160,15 +165,11 @@ export function TerminalProfileControls({
       selectedProfile.variant ?? null
     );
     const sandboxOptions = getCodexSandboxOptions(profiles);
-    const approvalOptions = getCodexApprovalOptions(profiles);
     const modelOptions = getCodexModelOptions(profiles);
-    const reasoningOptions = CODEX_REASONING_EFFORT_OPTIONS.filter((option) =>
-      getCodexReasoningOptions(profiles).includes(option.value)
-    );
+    const reasoningOptions = CODEX_REASONING_EFFORT_OPTIONS;
 
     const hasRichControls =
       sandboxOptions.length > 1 ||
-      approvalOptions.length > 1 ||
       modelOptions.length > 1 ||
       reasoningOptions.length > 1;
 
@@ -187,9 +188,7 @@ export function TerminalProfileControls({
         variant: getCodexVariantFromConfigSelection(profiles, {
           model: next.model === undefined ? currentConfig.model : next.model,
           sandbox:
-            next.sandbox === undefined
-              ? currentConfig.sandbox
-              : next.sandbox,
+            next.sandbox === undefined ? currentConfig.sandbox : next.sandbox,
           approvalPolicy:
             next.approvalPolicy === undefined
               ? currentConfig.approvalPolicy
@@ -214,21 +213,7 @@ export function TerminalProfileControls({
             disabled={disabled}
             menuLabel="Sandbox"
             iconOnly={iconOnly}
-          />
-        ) : null}
-
-        {approvalOptions.length > 1 ? (
-          <OptionSelector
-            value={currentConfig.approvalPolicy}
-            options={approvalOptions.map((approvalPolicy) => ({
-              value: approvalPolicy,
-              label: formatApprovalPolicyLabel(approvalPolicy),
-              icon: KeyRound,
-            }))}
-            onChange={(approvalPolicy) => updateVariant({ approvalPolicy })}
-            disabled={disabled}
-            menuLabel="Approvals"
-            iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
 
@@ -239,6 +224,7 @@ export function TerminalProfileControls({
             onChange={(model) => updateVariant({ model })}
             disabled={disabled}
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
 
@@ -255,6 +241,7 @@ export function TerminalProfileControls({
             disabled={disabled}
             menuLabel="Reasoning"
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
       </div>
@@ -269,8 +256,7 @@ export function TerminalProfileControls({
     const modelOptions = getOpenCodeModelOptions(profiles);
     const permissionOptions = getOpenCodePermissionOptions(profiles);
     const modeOptions = getOpenCodeModeOptions(profiles);
-    const encodedModeValue =
-      currentConfig.agentMode ?? OPEN_CODE_DEFAULT_MODE;
+    const encodedModeValue = currentConfig.agentMode ?? OPEN_CODE_DEFAULT_MODE;
 
     const hasRichControls =
       modelOptions.length > 1 ||
@@ -289,10 +275,8 @@ export function TerminalProfileControls({
       onChange({
         executor,
         variant: getOpenCodeVariantFromSelection(profiles, {
-          model:
-            next.model === undefined ? currentConfig.model : next.model,
-          permissionMode:
-            next.permissionMode ?? currentConfig.permissionMode,
+          model: next.model === undefined ? currentConfig.model : next.model,
+          permissionMode: next.permissionMode ?? currentConfig.permissionMode,
           agentMode:
             next.agentMode === undefined
               ? currentConfig.agentMode
@@ -313,13 +297,13 @@ export function TerminalProfileControls({
             }))}
             onChange={(value) =>
               updateVariant({
-                agentMode:
-                  value === OPEN_CODE_DEFAULT_MODE ? null : value,
+                agentMode: value === OPEN_CODE_DEFAULT_MODE ? null : value,
               })
             }
             disabled={disabled}
             menuLabel="Mode"
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
 
@@ -335,6 +319,7 @@ export function TerminalProfileControls({
             disabled={disabled}
             menuLabel="Permissions"
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
 
@@ -345,6 +330,7 @@ export function TerminalProfileControls({
             onChange={(model) => updateVariant({ model })}
             disabled={disabled}
             iconOnly={iconOnly}
+            dropdownSide={dropdownSide}
           />
         ) : null}
       </div>
@@ -360,6 +346,7 @@ export function TerminalProfileControls({
           onChange={(profile) => handleExecutorChange(profile.executor)}
           disabled={disabled}
           iconOnly={iconOnly}
+          dropdownSide={dropdownSide}
         />
       ) : null}
 

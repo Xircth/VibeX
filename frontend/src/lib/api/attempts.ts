@@ -34,7 +34,12 @@ import type {
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
 import { tauriInvoke, invokeAsResult } from './base';
-import type { Result, RebaseResult, PullResult, CommitGraphResult } from './base';
+import type {
+  Result,
+  RebaseResult,
+  PullResult,
+  CommitGraphResult,
+} from './base';
 import { sessionsApi } from './sessions';
 
 // Task Attempts / Workspaces APIs
@@ -327,11 +332,21 @@ export const attemptsApi = {
     });
   },
 
-  getCommitHistory: async (workspaceId: string, repoId: string): Promise<{ message: string }[]> => {
-    return tauriInvoke<{ message: string }[]>('get_workspace_commit_history', { workspaceId, repoId });
+  getCommitHistory: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<{ message: string }[]> => {
+    return tauriInvoke<{ message: string }[]>('get_workspace_commit_history', {
+      workspaceId,
+      repoId,
+    });
   },
 
-  getCommitGraph: async (workspaceId: string, repoId: string, maxCommits?: number): Promise<CommitGraphResult> => {
+  getCommitGraph: async (
+    workspaceId: string,
+    repoId: string,
+    maxCommits?: number
+  ): Promise<CommitGraphResult> => {
     return tauriInvoke<CommitGraphResult>('get_workspace_commit_graph', {
       workspaceId,
       repoId,
@@ -341,84 +356,210 @@ export const attemptsApi = {
 
   // ── Git Panel operations ──────────────────────────────────────────
 
-  getGitStatus: async (workspaceId: string, repoId: string): Promise<DetailedGitStatus> => {
-    return tauriInvoke<DetailedGitStatus>('get_workspace_git_status', { workspaceId, repoId });
+  getGitStatus: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<DetailedGitStatus> => {
+    return tauriInvoke<DetailedGitStatus>('get_workspace_git_status', {
+      workspaceId,
+      repoId,
+    });
   },
 
-  stageFile: async (workspaceId: string, repoId: string, filePath: string): Promise<void> => {
-    return tauriInvoke<void>('stage_workspace_file', { workspaceId, repoId, filePath });
+  stageFile: async (
+    workspaceId: string,
+    repoId: string,
+    filePath: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('stage_workspace_file', {
+      workspaceId,
+      repoId,
+      filePath,
+    });
   },
 
   stageAll: async (workspaceId: string, repoId: string): Promise<void> => {
     return tauriInvoke<void>('stage_workspace_all', { workspaceId, repoId });
   },
 
-  unstageFile: async (workspaceId: string, repoId: string, filePath: string): Promise<void> => {
-    return tauriInvoke<void>('unstage_workspace_file', { workspaceId, repoId, filePath });
+  unstageFile: async (
+    workspaceId: string,
+    repoId: string,
+    filePath: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('unstage_workspace_file', {
+      workspaceId,
+      repoId,
+      filePath,
+    });
   },
 
-  revertFile: async (workspaceId: string, repoId: string, filePath: string): Promise<void> => {
-    return tauriInvoke<void>('revert_workspace_file', { workspaceId, repoId, filePath });
+  revertFile: async (
+    workspaceId: string,
+    repoId: string,
+    filePath: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('revert_workspace_file', {
+      workspaceId,
+      repoId,
+      filePath,
+    });
   },
 
   revertAll: async (workspaceId: string, repoId: string): Promise<void> => {
     return tauriInvoke<void>('revert_workspace_all', { workspaceId, repoId });
   },
 
-  getFileDiffs: async (workspaceId: string, repoId: string): Promise<GitFileDiffEntry[]> => {
-    return tauriInvoke<GitFileDiffEntry[]>('get_workspace_file_diffs', { workspaceId, repoId });
+  getFileDiffs: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<GitFileDiffEntry[]> => {
+    return tauriInvoke<GitFileDiffEntry[]>('get_workspace_file_diffs', {
+      workspaceId,
+      repoId,
+    });
   },
 
-  commitChanges: async (workspaceId: string, repoId: string, message: string): Promise<void> => {
-    return tauriInvoke<void>('commit_workspace_changes', { workspaceId, repoId, message });
+  commitChanges: async (
+    workspaceId: string,
+    repoId: string,
+    message: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('commit_workspace_changes', {
+      workspaceId,
+      repoId,
+      message,
+    });
   },
 
-  getGitLog: async (workspaceId: string, repoId: string): Promise<GitLogStatus> => {
-    return tauriInvoke<GitLogStatus>('get_workspace_git_log', { workspaceId, repoId });
+  getGitLog: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<GitLogStatus> => {
+    return tauriInvoke<GitLogStatus>('get_workspace_git_log', {
+      workspaceId,
+      repoId,
+    });
   },
 
-  getCommitDetail: async (workspaceId: string, repoId: string, sha: string): Promise<CommitDetail> => {
-    return tauriInvoke<CommitDetail>('get_workspace_commit_detail', { workspaceId, repoId, sha });
+  getCommitDetail: async (
+    workspaceId: string,
+    repoId: string,
+    sha: string
+  ): Promise<CommitDetail> => {
+    return tauriInvoke<CommitDetail>('get_workspace_commit_detail', {
+      workspaceId,
+      repoId,
+      sha,
+    });
   },
 
-  getCommitDiffs: async (workspaceId: string, repoId: string, sha: string): Promise<Diff[]> => {
-    return tauriInvoke<Diff[]>('get_workspace_commit_diffs', { workspaceId, repoId, sha });
+  getCommitDiffs: async (
+    workspaceId: string,
+    repoId: string,
+    sha: string
+  ): Promise<Diff[]> => {
+    return tauriInvoke<Diff[]>('get_workspace_commit_diffs', {
+      workspaceId,
+      repoId,
+      sha,
+    });
   },
 
-  cherryPick: async (workspaceId: string, repoId: string, sha: string): Promise<void> => {
+  cherryPick: async (
+    workspaceId: string,
+    repoId: string,
+    sha: string
+  ): Promise<void> => {
     return tauriInvoke<void>('git_cherry_pick', { workspaceId, repoId, sha });
   },
 
-  revertCommit: async (workspaceId: string, repoId: string, sha: string): Promise<void> => {
+  revertCommit: async (
+    workspaceId: string,
+    repoId: string,
+    sha: string
+  ): Promise<void> => {
     return tauriInvoke<void>('git_revert_commit', { workspaceId, repoId, sha });
   },
 
-  resetToCommit: async (workspaceId: string, repoId: string, sha: string, mode: ResetMode): Promise<void> => {
-    return tauriInvoke<void>('git_reset_to_commit', { workspaceId, repoId, sha, mode });
+  resetToCommit: async (
+    workspaceId: string,
+    repoId: string,
+    sha: string,
+    mode: ResetMode
+  ): Promise<void> => {
+    return tauriInvoke<void>('git_reset_to_commit', {
+      workspaceId,
+      repoId,
+      sha,
+      mode,
+    });
   },
 
-  createBranchAtCommit: async (workspaceId: string, repoId: string, branchName: string, sha: string): Promise<void> => {
-    return tauriInvoke<void>('git_create_branch_at_commit', { workspaceId, repoId, branchName, sha });
+  createBranchAtCommit: async (
+    workspaceId: string,
+    repoId: string,
+    branchName: string,
+    sha: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('git_create_branch_at_commit', {
+      workspaceId,
+      repoId,
+      branchName,
+      sha,
+    });
   },
 
-  pullBranch: async (workspaceId: string, repoId: string): Promise<PullResult> => {
-    return tauriInvoke<PullResult>('pull_workspace_branch', { workspaceId, repoId });
+  pullBranch: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<PullResult> => {
+    return tauriInvoke<PullResult>('pull_workspace_branch', {
+      workspaceId,
+      repoId,
+    });
   },
 
   fetchRemote: async (workspaceId: string, repoId: string): Promise<void> => {
     return tauriInvoke<void>('fetch_workspace', { workspaceId, repoId });
   },
 
-  checkoutBranch: async (workspaceId: string, repoId: string, branchName: string): Promise<void> => {
-    return tauriInvoke<void>('checkout_workspace_branch', { workspaceId, repoId, branchName });
+  checkoutBranch: async (
+    workspaceId: string,
+    repoId: string,
+    branchName: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('checkout_workspace_branch', {
+      workspaceId,
+      repoId,
+      branchName,
+    });
   },
 
-  createBranch: async (workspaceId: string, repoId: string, branchName: string, fromRef?: string): Promise<void> => {
-    return tauriInvoke<void>('create_workspace_branch', { workspaceId, repoId, branchName, fromRef: fromRef ?? null });
+  createBranch: async (
+    workspaceId: string,
+    repoId: string,
+    branchName: string,
+    fromRef?: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('create_workspace_branch', {
+      workspaceId,
+      repoId,
+      branchName,
+      fromRef: fromRef ?? null,
+    });
   },
 
-  deleteBranch: async (workspaceId: string, repoId: string, branchName: string): Promise<void> => {
-    return tauriInvoke<void>('delete_workspace_branch', { workspaceId, repoId, branchName });
+  deleteBranch: async (
+    workspaceId: string,
+    repoId: string,
+    branchName: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('delete_workspace_branch', {
+      workspaceId,
+      repoId,
+      branchName,
+    });
   },
 
   // ─────────────────────────────────────────────────────────────────

@@ -53,7 +53,12 @@ export function PermissionSelector({
           <ChevronDown className="h-2.5 w-2.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top">
+      <DropdownMenuContent
+        side="bottom"
+        align="start"
+        sideOffset={1}
+        avoidCollisions={false}
+      >
         {availableModes.map((mode) => {
           const ModeIcon = mode.icon;
           return (

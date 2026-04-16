@@ -31,7 +31,15 @@ export { attemptsApi } from './attempts';
 export { repoApi } from './repos';
 
 // Config, Settings, MCP, Profiles, Agent Settings, Queue, Settings Window
-export { configApi, claudeSettingsApi, mcpServersApi, profilesApi, agentSettingsApi, settingsWindowApi, queueApi } from './config';
+export {
+  configApi,
+  claudeSettingsApi,
+  mcpServersApi,
+  profilesApi,
+  agentSettingsApi,
+  settingsWindowApi,
+  queueApi,
+} from './config';
 export type {
   ClaudeSettings,
   AgentSettingInfo,
@@ -66,7 +74,7 @@ export type {
   TextSearchFileResult,
   TextSearchResponse,
   TextSearchOptions,
-  PopularSkill,
+  AgentLocalSkill,
 } from './misc';
 
 // Local Usage Statistics

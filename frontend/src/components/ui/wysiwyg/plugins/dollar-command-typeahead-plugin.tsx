@@ -1,0 +1,169 @@
+import { useCallback, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import {
+  LexicalTypeaheadMenuPlugin,
+  MenuOption,
+} from '@lexical/react/LexicalTypeaheadMenuPlugin';
+import { $createTextNode } from 'lexical';
+import { Command as CommandIcon } from 'lucide-react';
+
+import { usePortalContainer } from '@/contexts/PortalContainerContext';
+import { useTypeaheadOpen } from '@/components/ui/wysiwyg/context/typeahead-open-context';
+
+import { $createDollarCommandNode } from '../nodes/dollar-command-node';
+import { TypeaheadMenu } from './typeahead-menu-components';
+
+export type DollarCommandDescription = {
+  name: string;
+  description?: string;
+};
+
+export const DOLLAR_COMMANDS: DollarCommandDescription[] = [
+  { name: 'plan', description: 'Start the planning workflow' },
+  {
+    name: 'deep-interview',
+    description: 'Run the requirements interview workflow',
+  },
+  { name: 'ralplan', description: 'Run consensus planning' },
+  { name: 'ralph', description: 'Run the completion loop workflow' },
+  { name: 'cancel', description: 'Cancel an active workflow mode' },
+  { name: 'trace', description: 'Show orchestration trace state' },
+  { name: 'help', description: 'Show oh-my-codex help' },
+  { name: 'code-review', description: 'Request a code review workflow' },
+  {
+    name: 'security-review',
+    description: 'Request a security review workflow',
+  },
+  { name: 'web-clone', description: 'Start the web clone workflow' },
+];
+
+class DollarCommandOption extends MenuOption {
+  command: DollarCommandDescription;
+
+  constructor(command: DollarCommandDescription) {
+    super(`dollar-command-${command.name}`);
+    this.command = command;
+  }
+}
+
+function filterDollarCommands(
+  all: DollarCommandDescription[],
+  query: string
+): DollarCommandDescription[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return all;
+
+  const startsWith = all.filter((command) =>
+    command.name.toLowerCase().startsWith(q)
+  );
+  const includes = all.filter(
+    (command) =>
+      !startsWith.includes(command) && command.name.toLowerCase().includes(q)
+  );
+  return [...startsWith, ...includes];
+}
+
+export function DollarCommandTypeaheadPlugin() {
+  const [editor] = useLexicalComposerContext();
+  const portalContainer = usePortalContainer();
+  const { setIsOpen } = useTypeaheadOpen();
+  const [options, setOptions] = useState<DollarCommandOption[]>(
+    DOLLAR_COMMANDS.map((command) => new DollarCommandOption(command))
+  );
+
+  const updateOptions = useCallback((query: string | null) => {
+    if (query === null) {
+      setOptions([]);
+      return;
+    }
+
+    const filtered = filterDollarCommands(DOLLAR_COMMANDS, query).slice(0, 20);
+    setOptions(filtered.map((command) => new DollarCommandOption(command)));
+  }, []);
+
+  const hasVisibleResults = useMemo(() => options.length > 0, [options.length]);
+
+  return (
+    <LexicalTypeaheadMenuPlugin<DollarCommandOption>
+      triggerFn={(text) => {
+        const match = /(?:^|\s)\$([^\s$]*)$/.exec(text);
+        if (!match) return null;
+
+        const fullMatch = match[0];
+        const dollarOffset =
+          text.length - fullMatch.length + fullMatch.indexOf('$');
+        return {
+          leadOffset: dollarOffset,
+          matchingString: match[1],
+          replaceableString: fullMatch.slice(fullMatch.indexOf('$')),
+        };
+      }}
+      options={options}
+      onQueryChange={updateOptions}
+      onOpen={() => {
+        setIsOpen(true);
+        updateOptions('');
+      }}
+      onClose={() => {
+        setIsOpen(false);
+        setOptions(
+          DOLLAR_COMMANDS.map((command) => new DollarCommandOption(command))
+        );
+      }}
+      onSelectOption={(option, nodeToReplace, closeMenu) => {
+        editor.update(() => {
+          if (!nodeToReplace) return;
+
+          const commandNode = $createDollarCommandNode({
+            commandName: option.command.name,
+            description: option.command.description,
+          });
+          nodeToReplace.replace(commandNode);
+
+          const spaceNode = $createTextNode(' ');
+          commandNode.insertAfter(spaceNode);
+          spaceNode.select(1, 1);
+        });
+
+        closeMenu();
+      }}
+      menuRenderFn={(
+        anchorRef,
+        { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }
+      ) => {
+        if (!anchorRef.current || !hasVisibleResults) return null;
+
+        return createPortal(
+          <TypeaheadMenu anchorEl={anchorRef.current}>
+            <TypeaheadMenu.Header>
+              <CommandIcon className="h-3.5 w-3.5" />
+              {'Workflow Commands'}
+            </TypeaheadMenu.Header>
+            <TypeaheadMenu.ScrollArea>
+              {options.map((option, index) => (
+                <TypeaheadMenu.Item
+                  key={option.key}
+                  isSelected={index === selectedIndex}
+                  index={index}
+                  setHighlightedIndex={setHighlightedIndex}
+                  onClick={() => selectOptionAndCleanUp(option)}
+                >
+                  <div className="flex items-center gap-2 font-medium">
+                    <span className="font-mono">${option.command.name}</span>
+                  </div>
+                  {option.command.description && (
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {option.command.description}
+                    </div>
+                  )}
+                </TypeaheadMenu.Item>
+              ))}
+            </TypeaheadMenu.ScrollArea>
+          </TypeaheadMenu>,
+          portalContainer ?? document.body
+        );
+      }}
+    />
+  );
+}

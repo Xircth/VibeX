@@ -22,9 +22,7 @@ import {
  * Terminal panel.
  */
 export function TerminalHeaderActions(props: IDockviewHeaderActionsProps) {
-  const isTerminalGroup = props.panels.some(
-    (p) => p.id === PANEL_IDS.TERMINAL
-  );
+  const isTerminalGroup = props.panels.some((p) => p.id === PANEL_IDS.TERMINAL);
 
   if (!isTerminalGroup) return null;
 
@@ -59,9 +57,7 @@ function TerminalHeaderActionsInner() {
     <div className="flex items-center gap-0.5 h-full px-1">
       <select
         value={selectedShell}
-        onChange={(e) =>
-          setSelectedShell(e.target.value as TerminalShellValue)
-        }
+        onChange={(e) => setSelectedShell(e.target.value as TerminalShellValue)}
         onMouseDown={stopPropagation}
         onPointerDown={stopPropagation}
         onClick={stopPropagation}

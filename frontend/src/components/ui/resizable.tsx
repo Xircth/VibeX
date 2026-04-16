@@ -1,12 +1,18 @@
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import type { GroupProps, PanelProps, SeparatorProps } from 'react-resizable-panels';
+import type {
+  GroupProps,
+  PanelProps,
+  SeparatorProps,
+} from 'react-resizable-panels';
 import { cn } from '@/lib/utils';
 
 function ResizablePanelGroup({
   className,
   direction,
   ...props
-}: Omit<GroupProps, 'orientation'> & { direction?: 'horizontal' | 'vertical' }) {
+}: Omit<GroupProps, 'orientation'> & {
+  direction?: 'horizontal' | 'vertical';
+}) {
   return (
     <Group
       orientation={direction ?? 'horizontal'}

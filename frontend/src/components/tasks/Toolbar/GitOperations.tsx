@@ -54,7 +54,8 @@ function GitOperations({
   isAttemptRunning,
   selectedBranch,
   layout = 'horizontal',
-}: GitOperationsProps) {  const { repos, selectedRepoId, setSelectedRepoId } = useAttemptRepo(
+}: GitOperationsProps) {
+  const { repos, selectedRepoId, setSelectedRepoId } = useAttemptRepo(
     selectedAttempt.id
   );
   const git = useGitOperations(selectedAttempt.id, selectedRepoId ?? undefined);
@@ -122,7 +123,9 @@ function GitOperations({
         workspaceId: selectedAttempt.id,
         sourceBranch: selectedAttempt.branch,
         targetBranch:
-          error.target_branch ?? selectedRepoStatus?.target_branch_name ?? 'target branch',
+          error.target_branch ??
+          selectedRepoStatus?.target_branch_name ??
+          'target branch',
         conflictedFiles: [...error.conflicted_files],
         op: error.op ?? null,
         repoName: selectedRepoStatus?.repo_name,
@@ -198,11 +201,7 @@ function GitOperations({
 
   const prButtonLabel = useMemo(() => {
     if (mergeInfo.hasOpenPR) {
-      return pushSuccess
-        ? '已推送！'
-        : pushing
-          ? '推送中...'
-          : '推送';
+      return pushSuccess ? '已推送！' : pushing ? '推送中...' : '推送';
     }
     return '创建 PR';
   }, [mergeInfo.hasOpenPR, pushSuccess, pushing]);
@@ -274,7 +273,8 @@ function GitOperations({
         isRebasing: rebasing,
         initialTargetBranch: defaultTargetBranch,
         title: '变基当前 Worktree',
-        description: '选择一个目标分支，将该分支的最新更改变基到当前 Worktree。',
+        description:
+          '选择一个目标分支，将该分支的最新更改变基到当前 Worktree。',
         confirmLabel: '变基',
       });
       if (result.action === 'confirmed' && result.branchName) {
@@ -413,8 +413,7 @@ function GitOperations({
               key="ahead"
               className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100/70 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
             >
-              +{commitsAhead} {'提交'}{' '}
-              {'领先'}
+              +{commitsAhead} {'提交'} {'领先'}
             </span>
           );
         }
@@ -424,9 +423,7 @@ function GitOperations({
               key="behind"
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
             >
-              {commitsBehind}{' '}
-              {'提交'}{' '}
-              {'落后'}
+              {commitsBehind} {'提交'} {'落后'}
             </span>
           );
         }
@@ -453,9 +450,7 @@ function GitOperations({
               <span className="truncate">{selectedAttempt.branch}</span>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {'任务分支'}
-          </TooltipContent>
+          <TooltipContent side="bottom">{'任务分支'}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -475,9 +470,7 @@ function GitOperations({
                 </span>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'目标分支'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'目标分支'}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -495,9 +488,7 @@ function GitOperations({
                 <Settings className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {'更改目标分支'}
-            </TooltipContent>
+            <TooltipContent side="bottom">{'更改目标分支'}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
@@ -628,7 +619,9 @@ function GitOperations({
                   className={`h-3.5 w-3.5 ${rebasingBack ? 'animate-spin' : ''}`}
                 />
               )}
-              <span className="truncate max-w-[10ch]">{rebaseBackButtonLabel}</span>
+              <span className="truncate max-w-[10ch]">
+                {rebaseBackButtonLabel}
+              </span>
             </Button>
           </div>
         ) : null}

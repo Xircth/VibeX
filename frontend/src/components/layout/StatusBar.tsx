@@ -12,11 +12,7 @@ const CORE_AGENTS = [
   BaseCodingAgent.OPENCODE,
 ] as const;
 
-function AgentStatusLight({
-  agent,
-}: {
-  agent: BaseCodingAgent;
-}) {
+function AgentStatusLight({ agent }: { agent: BaseCodingAgent }) {
   const availability = useAgentAvailability(agent);
   const isOnline =
     availability?.status === 'login_detected' ||

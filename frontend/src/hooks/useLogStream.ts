@@ -90,7 +90,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
                 return;
               }
 
-              // Handle Finished â€?no further events expected
+              // Handle Finished ï¿½?no further events expected
               if (msg === 'Finished') {
                 return;
               }
@@ -114,9 +114,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       } catch (err) {
         if (!cancelled) {
           console.error('Failed to subscribe to log stream:', err);
-          setError(
-            err instanceof Error ? err.message : 'Failed to connect'
-          );
+          setError(err instanceof Error ? err.message : 'Failed to connect');
         }
       }
     };

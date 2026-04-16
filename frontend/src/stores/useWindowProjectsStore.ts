@@ -174,7 +174,10 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
           const nextOpenProjectIds = state.openProjectIds.includes(projectId)
             ? state.openProjectIds
             : [projectId, ...state.openProjectIds].slice(0, 8);
-          const sameOrder = arraysEqual(state.openProjectIds, nextOpenProjectIds);
+          const sameOrder = arraysEqual(
+            state.openProjectIds,
+            nextOpenProjectIds
+          );
           const sameSnapshot = isSameSnapshot(
             state.projectSnapshots[projectId],
             snapshot
@@ -196,10 +199,15 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         }),
       setProjectAlert: (alert) =>
         set((state) => {
-          const nextOpenProjectIds = state.openProjectIds.includes(alert.projectId)
+          const nextOpenProjectIds = state.openProjectIds.includes(
+            alert.projectId
+          )
             ? state.openProjectIds
             : [alert.projectId, ...state.openProjectIds].slice(0, 8);
-          const sameOrder = arraysEqual(state.openProjectIds, nextOpenProjectIds);
+          const sameOrder = arraysEqual(
+            state.openProjectIds,
+            nextOpenProjectIds
+          );
           const sameAlert = isSameAlert(
             state.projectAlerts[alert.projectId],
             alert

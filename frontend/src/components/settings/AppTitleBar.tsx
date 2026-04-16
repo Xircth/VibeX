@@ -1,13 +1,13 @@
-import type { ReactNode } from 'react'
-import { cn } from '@/lib/utils'
-import { WindowControls } from './WindowControls'
+import type { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
+import { WindowControls } from './WindowControls';
 
 interface AppTitleBarProps {
-  left?: ReactNode
-  center?: ReactNode
-  right?: ReactNode
-  className?: string
-  showWindowControls?: boolean
+  left?: ReactNode;
+  center?: ReactNode;
+  right?: ReactNode;
+  className?: string;
+  showWindowControls?: boolean;
 }
 
 export function AppTitleBar({
@@ -18,7 +18,7 @@ export function AppTitleBar({
   showWindowControls = true,
 }: AppTitleBarProps) {
   // On Windows, always show window controls since we use decorations: false
-  const isWindows = navigator.platform.toLowerCase().includes('win')
+  const isWindows = navigator.platform.toLowerCase().includes('win');
 
   return (
     <div
@@ -65,5 +65,5 @@ export function AppTitleBar({
         </div>
       ) : null}
     </div>
-  )
+  );
 }

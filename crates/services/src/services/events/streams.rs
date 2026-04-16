@@ -2,8 +2,7 @@ use db::models::{
     execution_process::ExecutionProcess,
     project::Project,
     scratch::Scratch,
-    task::{Task, TaskWithAttemptStatus},
-    workspace::Workspace,
+    workspace::{Workspace, WorkspaceWithStatus},
 };
 use futures::StreamExt;
 use serde_json::json;
@@ -18,115 +17,70 @@ use super::{
 };
 
 impl EventService {
-    /// Stream raw task messages for a specific project with initial snapshot
-    pub async fn stream_tasks_raw(
+    /// Stream raw workspace-with-status messages for a specific project with initial snapshot
+    pub async fn stream_project_workspaces_raw(
         &self,
         project_id: Uuid,
     ) -> Result<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>, EventError>
     {
-        // Get initial snapshot of tasks
-        let tasks = Task::find_by_project_id_with_attempt_status(&self.db.pool, project_id).await?;
+        fn build_snapshot(workspaces: Vec<WorkspaceWithStatus>) -> LogMsg {
+            let workspaces_map: serde_json::Map<String, serde_json::Value> = workspaces
+                .into_iter()
+                .map(|workspace| {
+                    (
+                        workspace.id.to_string(),
+                        serde_json::to_value(workspace).unwrap(),
+                    )
+                })
+                .collect();
 
-        // Convert task array to object keyed by task ID
-        let tasks_map: serde_json::Map<String, serde_json::Value> = tasks
-            .into_iter()
-            .map(|task| (task.id.to_string(), serde_json::to_value(task).unwrap()))
-            .collect();
+            let patch = json!([
+                {
+                    "op": "replace",
+                    "path": "/workspaces",
+                    "value": workspaces_map
+                }
+            ]);
 
-        let initial_patch = json!([
-            {
-                "op": "replace",
-                "path": "/tasks",
-                "value": tasks_map
-            }
-        ]);
-        let initial_msg = LogMsg::JsonPatch(serde_json::from_value(initial_patch).unwrap());
+            LogMsg::JsonPatch(serde_json::from_value(patch).unwrap())
+        }
 
-        // Clone necessary data for the async filter
+        let initial_workspaces =
+            Workspace::find_by_project_id_with_status(&self.db.pool, project_id).await?;
+        let initial_msg = build_snapshot(initial_workspaces);
         let db_pool = self.db.pool.clone();
 
-        // Get filtered event stream
         let filtered_stream =
             BroadcastStream::new(self.msg_store.get_receiver()).filter_map(move |msg_result| {
                 let db_pool = db_pool.clone();
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {
-                            // Filter events based on project_id
                             if let Some(patch_op) = patch.0.first() {
-                                // Check if this is a direct task patch (new format)
-                                if patch_op.path().starts_with("/tasks/") {
+                                if patch_op.path().starts_with("/workspaces/") {
                                     match patch_op {
                                         json_patch::PatchOperation::Add(op) => {
-                                            // Parse task data directly from value
-                                            if let Ok(task) =
-                                                serde_json::from_value::<TaskWithAttemptStatus>(
+                                            if let Ok(workspace) =
+                                                serde_json::from_value::<WorkspaceWithStatus>(
                                                     op.value.clone(),
                                                 )
-                                                && task.project_id == project_id
+                                                && workspace.project_id == project_id
                                             {
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
                                         }
                                         json_patch::PatchOperation::Replace(op) => {
-                                            // Parse task data directly from value
-                                            if let Ok(task) =
-                                                serde_json::from_value::<TaskWithAttemptStatus>(
+                                            if let Ok(workspace) =
+                                                serde_json::from_value::<WorkspaceWithStatus>(
                                                     op.value.clone(),
                                                 )
-                                                && task.project_id == project_id
+                                                && workspace.project_id == project_id
                                             {
                                                 return Some(Ok(LogMsg::JsonPatch(patch)));
                                             }
                                         }
                                         json_patch::PatchOperation::Remove(_) => {
-                                            // For remove operations, we need to check project membership differently
-                                            // We could cache this information or let it pass through for now
-                                            // Since we don't have the task data, we'll allow all removals
-                                            // and let the client handle filtering
                                             return Some(Ok(LogMsg::JsonPatch(patch)));
-                                        }
-                                        _ => {}
-                                    }
-                                } else if let Ok(event_patch_value) = serde_json::to_value(patch_op)
-                                    && let Ok(event_patch) =
-                                        serde_json::from_value::<EventPatch>(event_patch_value)
-                                {
-                                    // Handle old EventPatch format for non-task records
-                                    match &event_patch.value.record {
-                                        RecordTypes::Task(task) => {
-                                            if task.project_id == project_id {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
-                                            }
-                                        }
-                                        RecordTypes::DeletedTask {
-                                            project_id: Some(deleted_project_id),
-                                            ..
-                                        } => {
-                                            if *deleted_project_id == project_id {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
-                                            }
-                                        }
-                                        RecordTypes::Workspace(workspace) => {
-                                            // Check if this workspace belongs to a task in our project
-                                            if let Ok(Some(task)) =
-                                                Task::find_by_id(&db_pool, workspace.task_id).await
-                                                && task.project_id == project_id
-                                            {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
-                                            }
-                                        }
-                                        RecordTypes::DeletedWorkspace {
-                                            task_id: Some(deleted_task_id),
-                                            ..
-                                        } => {
-                                            // Check if deleted workspace belonged to a task in our project
-                                            if let Ok(Some(task)) =
-                                                Task::find_by_id(&db_pool, *deleted_task_id).await
-                                                && task.project_id == project_id
-                                            {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
-                                            }
                                         }
                                         _ => {}
                                     }
@@ -134,17 +88,23 @@ impl EventService {
                             }
                             None
                         }
-                        Ok(other) => Some(Ok(other)), // Pass through non-patch messages
-                        Err(_) => None,               // Filter out broadcast errors
+                        Ok(other) => Some(Ok(other)),
+                        Err(BroadcastStreamRecvError::Lagged(_)) => {
+                            match Workspace::find_by_project_id_with_status(&db_pool, project_id)
+                                .await
+                            {
+                                Ok(workspaces) => Some(Ok(build_snapshot(workspaces))),
+                                Err(err) => Some(Err(std::io::Error::other(format!(
+                                    "failed to resync project workspaces after lag: {err}"
+                                )))),
+                            }
+                        }
                     }
                 }
             });
 
-        // Start with initial snapshot, Ready signal, then live updates
         let initial_stream = futures::stream::iter(vec![Ok(initial_msg), Ok(LogMsg::Ready)]);
-        let combined_stream = initial_stream.chain(filtered_stream).boxed();
-
-        Ok(combined_stream)
+        Ok(initial_stream.chain(filtered_stream).boxed())
     }
 
     /// Stream raw project messages with initial snapshot

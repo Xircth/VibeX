@@ -75,7 +75,11 @@ export function useGitDiffs({
     [workspaceId, repoId]
   );
 
-  const { data: diffs, isLoading, error: queryError } = useQuery<GitFileDiffEntry[]>({
+  const {
+    data: diffs,
+    isLoading,
+    error: queryError,
+  } = useQuery<GitFileDiffEntry[]>({
     queryKey,
     queryFn: async () => {
       return workspaceId
@@ -92,7 +96,11 @@ export function useGitDiffs({
   return {
     diffs: diffs ?? [],
     isLoading,
-    error: queryError ? (queryError instanceof Error ? queryError.message : String(queryError)) : null,
+    error: queryError
+      ? queryError instanceof Error
+        ? queryError.message
+        : String(queryError)
+      : null,
     refresh,
   };
 }

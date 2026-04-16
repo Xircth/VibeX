@@ -153,7 +153,9 @@ const LogEntry = memo(function LogEntry({
             <Copy className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
           </button>
           <span className="truncate text-[#3B82F6]">{entry.author}</span>
-          <span className="shrink-0 text-muted-foreground">{formatRelativeTime(entry.timestamp)}</span>
+          <span className="shrink-0 text-muted-foreground">
+            {formatRelativeTime(entry.timestamp)}
+          </span>
         </div>
       </div>
     </div>
@@ -162,7 +164,14 @@ const LogEntry = memo(function LogEntry({
 
 /** Discriminated union for flat virtual list items */
 type VirtualListItem =
-  | { type: 'section-header'; title: string; icon: 'upload' | 'download' | 'commit'; count: number; accentColor: string; extra?: string }
+  | {
+      type: 'section-header';
+      title: string;
+      icon: 'upload' | 'download' | 'commit';
+      count: number;
+      accentColor: string;
+      extra?: string;
+    }
   | { type: 'entry'; entry: GitLogEntry; isPushable: boolean };
 
 export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
@@ -180,7 +189,10 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [createBranchInput, setCreateBranchInput] = useState<{ sha: string; show: boolean }>({
+  const [createBranchInput, setCreateBranchInput] = useState<{
+    sha: string;
+    show: boolean;
+  }>({
     sha: '',
     show: false,
   });
@@ -189,7 +201,8 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   const [showSearch, setShowSearch] = useState(false);
 
   const panelActions = useOptionalPanelActionsContext();
-  const { setCommitDiff, setLoading: setCommitDiffLoading } = useCommitDiffStore();
+  const { setCommitDiff, setLoading: setCommitDiffLoading } =
+    useCommitDiffStore();
 
   const sortedEntries = useMemo(
     () => [...entries].sort((a, b) => b.timestamp - a.timestamp),
@@ -259,7 +272,14 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         setCommitDiffLoading(false);
       }
     },
-    [selectedSha, workspaceId, repoId, setCommitDiff, setCommitDiffLoading, panelActions]
+    [
+      selectedSha,
+      workspaceId,
+      repoId,
+      setCommitDiff,
+      setCommitDiffLoading,
+      panelActions,
+    ]
   );
 
   const handleContextMenu = useCallback(
@@ -330,7 +350,12 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             icon: <RotateCcw className="h-3 w-3" />,
             onClick: () =>
               executeAction(() =>
-                attemptsApi.resetToCommit(workspaceId!, repoId!, entry.sha, 'soft')
+                attemptsApi.resetToCommit(
+                  workspaceId!,
+                  repoId!,
+                  entry.sha,
+                  'soft'
+                )
               ),
           },
           {
@@ -338,7 +363,12 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             icon: <RotateCcw className="h-3 w-3" />,
             onClick: () =>
               executeAction(() =>
-                attemptsApi.resetToCommit(workspaceId!, repoId!, entry.sha, 'mixed')
+                attemptsApi.resetToCommit(
+                  workspaceId!,
+                  repoId!,
+                  entry.sha,
+                  'mixed'
+                )
               ),
           },
           {
@@ -346,9 +376,18 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             icon: <RotateCcw className="h-3 w-3" />,
             danger: true,
             onClick: () => {
-              if (window.confirm('This will discard all uncommitted changes. Continue?')) {
+              if (
+                window.confirm(
+                  'This will discard all uncommitted changes. Continue?'
+                )
+              ) {
                 executeAction(() =>
-                  attemptsApi.resetToCommit(workspaceId!, repoId!, entry.sha, 'hard')
+                  attemptsApi.resetToCommit(
+                    workspaceId!,
+                    repoId!,
+                    entry.sha,
+                    'hard'
+                  )
                 );
               }
             },
@@ -363,7 +402,9 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         group: 'write',
         disabled: !canOperate,
         onClick: () =>
-          executeAction(() => attemptsApi.cherryPick(workspaceId!, repoId!, entry.sha)),
+          executeAction(() =>
+            attemptsApi.cherryPick(workspaceId!, repoId!, entry.sha)
+          ),
       });
       actions.push({
         label: 'Revert',
@@ -371,7 +412,9 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         group: 'write',
         disabled: !canOperate,
         onClick: () =>
-          executeAction(() => attemptsApi.revertCommit(workspaceId!, repoId!, entry.sha)),
+          executeAction(() =>
+            attemptsApi.revertCommit(workspaceId!, repoId!, entry.sha)
+          ),
       });
 
       return actions;
@@ -383,11 +426,22 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
     const name = newBranchName.trim();
     if (!name || !workspaceId || !repoId) return;
     await executeAction(() =>
-      attemptsApi.createBranchAtCommit(workspaceId, repoId, name, createBranchInput.sha)
+      attemptsApi.createBranchAtCommit(
+        workspaceId,
+        repoId,
+        name,
+        createBranchInput.sha
+      )
     );
     setCreateBranchInput({ sha: '', show: false });
     setNewBranchName('');
-  }, [newBranchName, workspaceId, repoId, createBranchInput.sha, executeAction]);
+  }, [
+    newBranchName,
+    workspaceId,
+    repoId,
+    createBranchInput.sha,
+    executeAction,
+  ]);
 
   // Build flat virtual list items from sections
   const virtualItems = useMemo<VirtualListItem[]>(() => {
@@ -438,11 +492,14 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
     return items;
   }, [ahead, behind, filteredAhead, filteredRecent]);
 
-  const sectionIcons = useMemo(() => ({
-    upload: <Upload className="h-3 w-3" />,
-    download: <Download className="h-3 w-3" />,
-    commit: <GitCommit className="h-3 w-3" />,
-  }), []);
+  const sectionIcons = useMemo(
+    () => ({
+      upload: <Upload className="h-3 w-3" />,
+      download: <Download className="h-3 w-3" />,
+      commit: <GitCommit className="h-3 w-3" />,
+    }),
+    []
+  );
 
   const renderVirtualItem = useCallback(
     (_index: number, item: VirtualListItem) => {
@@ -486,7 +543,9 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
       {/* Branch status header */}
       <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/30 text-xs">
         <GitBranch className="h-3.5 w-3.5 text-green-400 shrink-0" />
-        <span className="font-mono text-foreground font-medium truncate">{branchName}</span>
+        <span className="font-mono text-foreground font-medium truncate">
+          {branchName}
+        </span>
         {upstream && (
           <span className="text-muted-foreground text-[10px] truncate">
             &#8594; {upstream}
@@ -557,7 +616,11 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             disabled={!newBranchName.trim() || actionLoading}
             onClick={handleCreateBranch}
           >
-            {actionLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Create'}
+            {actionLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              'Create'
+            )}
           </button>
         </div>
       )}

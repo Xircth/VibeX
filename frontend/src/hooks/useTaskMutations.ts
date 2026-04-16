@@ -52,7 +52,8 @@ export function useTaskMutations(projectId?: string) {
   });
 
   const createAndStart = useMutation({
-    mutationFn: (data: CreateAndStartTaskPayload) => tasksApi.createAndStart(data),
+    mutationFn: (data: CreateAndStartTaskPayload) =>
+      tasksApi.createAndStart(data),
     onSuccess: (createdTask: TaskWithAttemptStatus) => {
       invalidateQueries();
       // Invalidate parent's relationships cache if this is a subtask

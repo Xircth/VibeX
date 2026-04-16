@@ -15,7 +15,10 @@ const useExpandableStore = create<State>((set) => ({
     set((s) =>
       s.expanded[key] === value
         ? s
-        : { expanded: { ...s.expanded, [key]: value }, revision: s.revision + 1 }
+        : {
+            expanded: { ...s.expanded, [key]: value },
+            revision: s.revision + 1,
+          }
     ),
   toggleKey: (key, fallback = false) =>
     set((s) => {

@@ -115,12 +115,7 @@ export function AcpTerminalBridge() {
       pendingSessions.clear();
       unlisten?.();
     };
-  }, [
-    addSession,
-    setSessionId,
-    removeSession,
-    openOrFocusPanel,
-  ]);
+  }, [addSession, setSessionId, removeSession, openOrFocusPanel]);
 
   return null;
 }

@@ -109,7 +109,11 @@ function CodeBlock({ className, value }: CodeBlockProps) {
           title={copied ? '已复制' : '复制'}
           aria-label={copied ? '已复制' : '复制'}
         >
-          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+          {copied ? (
+            <Check className="h-3 w-3" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
         </button>
       </div>
       <pre>
@@ -141,7 +145,10 @@ function PreBlock({ node, children }: PreProps) {
     const html = highlightLine(value, languageTag);
     return (
       <pre className="conv-md-codeblock-single">
-        <code className={className} dangerouslySetInnerHTML={{ __html: html }} />
+        <code
+          className={className}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       </pre>
     );
   }
@@ -190,7 +197,8 @@ export const Markdown = memo(function Markdown({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (throttleTimerRef.current) window.clearTimeout(throttleTimerRef.current);
+      if (throttleTimerRef.current)
+        window.clearTimeout(throttleTimerRef.current);
     };
   }, []);
 

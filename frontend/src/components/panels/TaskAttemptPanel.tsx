@@ -65,7 +65,7 @@ const TaskAttemptPanel = ({
             ),
             followUp: (
               <TaskFollowUpSection
-                task={task}
+                taskId={task.id}
                 session={activeSession}
                 workspaceId={attempt.id}
                 sessionState={sessionState}

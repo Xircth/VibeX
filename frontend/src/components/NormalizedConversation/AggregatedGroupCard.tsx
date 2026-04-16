@@ -32,9 +32,7 @@ export const AggregatedGroupCard: React.FC<{
       >
         <span className="shrink-0 conv-tool-icon">{icon}</span>
         <span className="conv-tool-label shrink-0">{label}</span>
-        <span className="conv-count-badge">
-          {entries.length}
-        </span>
+        <span className="conv-count-badge">{entries.length}</span>
         <ChevronRight
           className={cn(
             'h-3.5 w-3.5 shrink-0 ml-auto text-muted-foreground transition-transform',

@@ -1003,6 +1003,62 @@ pub async fn copy_item(path: String) -> Result<String, AppError> {
     Ok(dest.to_string_lossy().to_string())
 }
 
+/// Move a file or directory to a new absolute path.
+#[tauri::command]
+pub async fn move_item(path: String, new_path: String) -> Result<String, AppError> {
+    let source = sanitize_file_path(&path)?;
+    if !source.exists() {
+        return Err(AppError::NotFound(format!("Item not found: {}", path)));
+    }
+
+    let destination = sanitize_file_path(&new_path)?;
+    if source == destination {
+        return Ok(destination.to_string_lossy().to_string());
+    }
+
+    if destination.exists() {
+        return Err(AppError::Conflict(format!(
+            "Destination already exists: {}",
+            destination.display()
+        )));
+    }
+
+    let destination_parent = destination.parent().ok_or_else(|| {
+        AppError::BadRequest("Destination must include a parent directory".to_string())
+    })?;
+
+    if !destination_parent.exists() {
+        return Err(AppError::NotFound(format!(
+            "Destination parent does not exist: {}",
+            destination_parent.display()
+        )));
+    }
+
+    if !destination_parent.is_dir() {
+        return Err(AppError::BadRequest(format!(
+            "Destination parent is not a directory: {}",
+            destination_parent.display()
+        )));
+    }
+
+    if source.is_dir() && destination.starts_with(&source) {
+        return Err(AppError::BadRequest(
+            "Cannot move a directory into itself".to_string(),
+        ));
+    }
+
+    std::fs::rename(&source, &destination).map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to move {} to {}: {}",
+            source.display(),
+            destination.display(),
+            e
+        ))
+    })?;
+
+    Ok(destination.to_string_lossy().to_string())
+}
+
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
     std::fs::create_dir_all(dst).map_err(|e| {
         AppError::Internal(format!(

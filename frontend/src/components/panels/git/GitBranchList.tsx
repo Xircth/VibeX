@@ -104,7 +104,12 @@ const BranchRow = memo(function BranchRow({
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (branch.is_current) return;
-      if (!window.confirm(`Delete branch "${branch.name}"? This cannot be undone.`)) return;
+      if (
+        !window.confirm(
+          `Delete branch "${branch.name}"? This cannot be undone.`
+        )
+      )
+        return;
       setActionLoading(true);
       try {
         await onDelete(branch.name);
@@ -115,7 +120,9 @@ const BranchRow = memo(function BranchRow({
     [branch.name, branch.is_current, onDelete]
   );
 
-  const displayName = showLeafName ? getBranchLeafName(branch.name) : branch.name;
+  const displayName = showLeafName
+    ? getBranchLeafName(branch.name)
+    : branch.name;
 
   return (
     <div
@@ -145,7 +152,9 @@ const BranchRow = memo(function BranchRow({
         <GitBranchIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       )}
 
-      <span className={`flex-1 truncate font-mono text-[11px] ${branch.is_current ? 'font-semibold' : ''}`}>
+      <span
+        className={`flex-1 truncate font-mono text-[11px] ${branch.is_current ? 'font-semibold' : ''}`}
+      >
         {displayName}
       </span>
 
@@ -223,8 +232,14 @@ export const GitBranchList = memo(function GitBranchList({
   const [newBranchName, setNewBranchName] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
 
-  const localBranches = useMemo(() => branches.filter((b) => !b.is_remote), [branches]);
-  const remoteBranches = useMemo(() => branches.filter((b) => b.is_remote), [branches]);
+  const localBranches = useMemo(
+    () => branches.filter((b) => !b.is_remote),
+    [branches]
+  );
+  const remoteBranches = useMemo(
+    () => branches.filter((b) => b.is_remote),
+    [branches]
+  );
 
   // Group local branches by scope (prefix before first /)
   const groupedLocalBranches = useMemo<BranchGroup[]>(() => {
@@ -261,7 +276,8 @@ export const GitBranchList = memo(function GitBranchList({
 
     for (const branch of remoteBranches) {
       const slashIdx = branch.name.indexOf('/');
-      const remoteName = slashIdx > 0 ? branch.name.slice(0, slashIdx) : 'unknown';
+      const remoteName =
+        slashIdx > 0 ? branch.name.slice(0, slashIdx) : 'unknown';
       const items = groups.get(remoteName) ?? [];
       items.push(branch);
       groups.set(remoteName, items);
@@ -344,7 +360,11 @@ export const GitBranchList = memo(function GitBranchList({
             disabled={!newBranchName.trim() || createLoading}
             onClick={handleCreate}
           >
-            {createLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Create'}
+            {createLoading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              'Create'
+            )}
           </button>
         </div>
       )}
@@ -372,28 +392,27 @@ export const GitBranchList = memo(function GitBranchList({
               <GitBranchIcon className="h-3 w-3" />
               <span>Local</span>
             </div>
-            {groupedLocalBranches.length === 1 && groupedLocalBranches[0].key === '__root__' ? (
-              // Only root group - render flat (no sub-grouping needed)
-              groupedLocalBranches[0].items.map((branch) => (
-                <BranchRow
-                  key={branch.name}
-                  branch={branch}
-                  onCheckout={onCheckout}
-                  onDelete={onDelete}
-                />
-              ))
-            ) : (
-              // Multiple groups - render with grouping
-              groupedLocalBranches.map((group) => (
-                <BranchGroupSection
-                  key={group.key}
-                  group={group}
-                  defaultOpen={group.key === '__root__'}
-                  onCheckout={onCheckout}
-                  onDelete={onDelete}
-                />
-              ))
-            )}
+            {groupedLocalBranches.length === 1 &&
+            groupedLocalBranches[0].key === '__root__'
+              ? // Only root group - render flat (no sub-grouping needed)
+                groupedLocalBranches[0].items.map((branch) => (
+                  <BranchRow
+                    key={branch.name}
+                    branch={branch}
+                    onCheckout={onCheckout}
+                    onDelete={onDelete}
+                  />
+                ))
+              : // Multiple groups - render with grouping
+                groupedLocalBranches.map((group) => (
+                  <BranchGroupSection
+                    key={group.key}
+                    group={group}
+                    defaultOpen={group.key === '__root__'}
+                    onCheckout={onCheckout}
+                    onDelete={onDelete}
+                  />
+                ))}
           </div>
         )}
 
@@ -404,29 +423,27 @@ export const GitBranchList = memo(function GitBranchList({
               <Globe className="h-3 w-3 text-purple-400/60" />
               <span>Remote</span>
             </div>
-            {groupedRemoteBranches.length === 1 ? (
-              // Single remote - render flat
-              groupedRemoteBranches[0].items.map((branch) => (
-                <BranchRow
-                  key={branch.name}
-                  branch={branch}
-                  showLeafName
-                  onCheckout={onCheckout}
-                  onDelete={onDelete}
-                />
-              ))
-            ) : (
-              // Multiple remotes - render with grouping
-              groupedRemoteBranches.map((group) => (
-                <BranchGroupSection
-                  key={group.key}
-                  group={group}
-                  defaultOpen={false}
-                  onCheckout={onCheckout}
-                  onDelete={onDelete}
-                />
-              ))
-            )}
+            {groupedRemoteBranches.length === 1
+              ? // Single remote - render flat
+                groupedRemoteBranches[0].items.map((branch) => (
+                  <BranchRow
+                    key={branch.name}
+                    branch={branch}
+                    showLeafName
+                    onCheckout={onCheckout}
+                    onDelete={onDelete}
+                  />
+                ))
+              : // Multiple remotes - render with grouping
+                groupedRemoteBranches.map((group) => (
+                  <BranchGroupSection
+                    key={group.key}
+                    group={group}
+                    defaultOpen={false}
+                    onCheckout={onCheckout}
+                    onDelete={onDelete}
+                  />
+                ))}
           </div>
         )}
 

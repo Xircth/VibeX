@@ -51,7 +51,8 @@ export function useAttemptRepo(
     }
 
     const hasSelectedRepo =
-      selectedRepoId !== null && repos.some((repo) => repo.id === selectedRepoId);
+      selectedRepoId !== null &&
+      repos.some((repo) => repo.id === selectedRepoId);
 
     if (!hasSelectedRepo) {
       setSelectedRepoId(repos[0].id);

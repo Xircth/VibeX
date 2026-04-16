@@ -29,6 +29,8 @@ const CODEX_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CODEX;
 const OPENCODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.OPENCODE;
 
 const CODEX_MODEL_LABELS: Record<string, string> = {
+  'gpt-5.4': 'GPT-5.4',
+  'gpt-5.4-mini': 'GPT-5.4 Mini',
   'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
   'gpt-5.2': 'GPT-5.2',
   'gpt-5.2-codex': 'GPT-5.2 Codex',
@@ -148,9 +150,7 @@ function getExecutorVariantRecords<T extends Record<string, unknown>>(
 
       return { variant, record };
     })
-    .filter(
-      (entry): entry is ExecutorVariantRecord<T> => entry !== null
-    );
+    .filter((entry): entry is ExecutorVariantRecord<T> => entry !== null);
 }
 
 function findBestMatchingVariant<T extends { variant: string | null }>(
@@ -275,11 +275,7 @@ export function getClaudeVariantConfig(
 
   return {
     model: typeof record?.model === 'string' ? record.model : null,
-    permissionMode: record?.plan
-      ? 'plan'
-      : record?.approvals
-        ? 'ask'
-        : 'auto',
+    permissionMode: record?.plan ? 'plan' : record?.approvals ? 'ask' : 'auto',
     variant,
   };
 }
@@ -342,8 +338,7 @@ export function getClaudeVariantFromSelection(
 
   const exactMatch = variants.find(
     (config) =>
-      config.permissionMode === permissionMode &&
-      config.model === selectedModel
+      config.permissionMode === permissionMode && config.model === selectedModel
   );
   if (exactMatch) return exactMatch.variant;
 
@@ -415,20 +410,31 @@ export function getCodexModelOptions(
 
   const sortPriority = (value: string | null): number => {
     switch (value) {
-      case 'gpt-5.1-codex-max':
+      case 'gpt-5.4':
         return 0;
-      case 'gpt-5.2':
+      case 'gpt-5.4-mini':
         return 1;
-      case 'gpt-5.2-codex':
+      case 'gpt-5.1-codex-max':
         return 2;
-      case 'gpt-5.3-codex':
+      case 'gpt-5.2':
         return 3;
+      case 'gpt-5.2-codex':
+        return 4;
+      case 'gpt-5.3-codex':
+        return 5;
       case null:
         return 99;
       default:
         return 50;
     }
   };
+
+  if (!seen.has('gpt-5.4')) {
+    options.push({
+      value: 'gpt-5.4',
+      label: formatCodexModelLabel('gpt-5.4'),
+    });
+  }
 
   return (
     options.length > 0 ? options : [{ value: null, label: 'Default' }]
@@ -568,12 +574,9 @@ export function getOpenCodeVariantConfig(
 
   return {
     model: typeof record?.model === 'string' ? record.model : null,
-    agentMode:
-      typeof record?.agent === 'string'
-        ? record.agent
-        : null,
+    agentMode: typeof record?.agent === 'string' ? record.agent : null,
     autoApprove: record?.auto_approve ?? true,
-    permissionMode: record?.auto_approve ?? true ? 'auto' : 'ask',
+    permissionMode: (record?.auto_approve ?? true) ? 'auto' : 'ask',
     variant,
   };
 }
@@ -754,14 +757,18 @@ export function extractProfileFromAction(
       case 'CodingAgentFollowUpRequest':
       case 'ReviewRequest':
         return toProfileId(
-          (typ as {
-            executor_profile_id?: ExecutorProfileId;
-            executor_config?: RuntimeExecutorConfigLike;
-          }).executor_profile_id ??
-            (typ as {
+          (
+            typ as {
               executor_profile_id?: ExecutorProfileId;
               executor_config?: RuntimeExecutorConfigLike;
-            }).executor_config
+            }
+          ).executor_profile_id ??
+            (
+              typ as {
+                executor_profile_id?: ExecutorProfileId;
+                executor_config?: RuntimeExecutorConfigLike;
+              }
+            ).executor_config
         );
       case 'ScriptRequest':
       default:

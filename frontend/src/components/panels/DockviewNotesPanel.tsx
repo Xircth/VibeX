@@ -12,7 +12,10 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
 
   if (!activeWorktreeId) {
     return (
-      <div className="h-full w-full overflow-auto bg-background p-3" data-panel="notes">
+      <div
+        className="h-full w-full overflow-auto bg-background p-3"
+        data-panel="notes"
+      >
         <div className="mb-3 flex items-center gap-2">
           <StickyNote className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Notes</span>
@@ -25,14 +28,19 @@ function DockviewNotesPanel(_props: IDockviewPanelProps) {
   }
 
   return (
-    <div className="relative h-full w-full overflow-auto bg-background p-3" data-panel="notes">
+    <div
+      className="relative h-full w-full overflow-auto bg-background p-3"
+      data-panel="notes"
+    >
       <div className="mb-3 flex items-center gap-2">
         <StickyNote className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">Notes</span>
       </div>
       <textarea
         className="h-[calc(100%-2rem)] w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-        placeholder={isLoading ? 'Loading notes...' : 'Write workspace notes here...'}
+        placeholder={
+          isLoading ? 'Loading notes...' : 'Write workspace notes here...'
+        }
         value={isLoading ? '' : content}
         onChange={(event) => setContent(event.target.value)}
         disabled={isLoading}

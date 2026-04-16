@@ -57,23 +57,28 @@ pub async fn reveal_in_file_manager(path: String) -> Result<(), AppError> {
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer")
-            .arg(format!("/select,{}", sanitized_path.display()))
-            .spawn()
-            .map_err(|error| {
-                AppError::Internal(format!("Failed to reveal path in File Explorer: {}", error))
-            })?;
+        let mut command = Command::new("explorer");
+        if sanitized_path.is_dir() {
+            command.arg(&sanitized_path);
+        } else {
+            command.arg(format!("/select,{}", sanitized_path.display()));
+        }
+        command.spawn().map_err(|error| {
+            AppError::Internal(format!("Failed to reveal path in File Explorer: {}", error))
+        })?;
     }
 
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
-            .arg("-R")
-            .arg(&sanitized_path)
-            .spawn()
-            .map_err(|error| {
-                AppError::Internal(format!("Failed to reveal path in Finder: {}", error))
-            })?;
+        let mut command = Command::new("open");
+        if sanitized_path.is_dir() {
+            command.arg(&sanitized_path);
+        } else {
+            command.arg("-R").arg(&sanitized_path);
+        }
+        command.spawn().map_err(|error| {
+            AppError::Internal(format!("Failed to reveal path in Finder: {}", error))
+        })?;
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

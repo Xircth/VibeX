@@ -305,7 +305,10 @@ function ProcessChangeFileRenderer({
           className="min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:text-primary hover:underline"
           onClick={(event) => {
             event.stopPropagation();
-            const resolvedTargetPath = resolveFilePath(targetPath, containerRef);
+            const resolvedTargetPath = resolveFilePath(
+              targetPath,
+              containerRef
+            );
             const displayPath = targetPath;
             if (isWrite(change)) {
               openFilePreview(resolvedTargetPath, {

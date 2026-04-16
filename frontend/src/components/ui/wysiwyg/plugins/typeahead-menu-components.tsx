@@ -78,8 +78,11 @@ function getCursorRect(anchorEl: HTMLElement): DOMRect {
   try {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
+      const range = sel.getRangeAt(0).cloneRange();
+      range.collapse(false);
+      const rect =
+        range.getClientRects().item(range.getClientRects().length - 1) ??
+        range.getBoundingClientRect();
       // A valid rect has non-zero dimensions or position
       if (rect.width > 0 || rect.height > 0 || rect.top > 0 || rect.left > 0) {
         return rect;
@@ -126,7 +129,9 @@ function TypeaheadMenuRoot({ anchorEl, children }: TypeaheadMenuProps) {
       const next = getPlacement(anchorEl, previous.side);
       if (
         next.side === previous.side &&
-        next.maxHeight === previous.maxHeight
+        next.maxHeight === previous.maxHeight &&
+        next.left === previous.left &&
+        next.top === previous.top
       ) {
         return previous;
       }
@@ -168,7 +173,7 @@ function TypeaheadMenuRoot({ anchorEl, children }: TypeaheadMenuProps) {
           placement.side === 'bottom'
             ? `${placement.top}px`
             : `calc(${placement.top}px - var(--typeahead-menu-max-height))`,
-        zIndex: 10001,
+        zIndex: 20000,
       }) as CSSProperties,
     [placement.left, placement.maxHeight, placement.side, placement.top]
   );

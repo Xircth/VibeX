@@ -10,12 +10,18 @@
 
 export type KanbanPanelView = 'board' | 'sessionHub' | 'usageDashboard';
 
-const PANEL_VIEWS: KanbanPanelView[] = ['board', 'sessionHub', 'usageDashboard'];
+const PANEL_VIEWS: KanbanPanelView[] = [
+  'board',
+  'sessionHub',
+  'usageDashboard',
+];
 
 /** Default view is sessionHub (middle panel) */
 export const DEFAULT_KANBAN_VIEW: KanbanPanelView = 'sessionHub';
 
-export function getNextKanbanPanelView(current: KanbanPanelView): KanbanPanelView {
+export function getNextKanbanPanelView(
+  current: KanbanPanelView
+): KanbanPanelView {
   const index = PANEL_VIEWS.indexOf(current);
   if (index < 0 || index >= PANEL_VIEWS.length - 1) {
     return current;
@@ -23,7 +29,9 @@ export function getNextKanbanPanelView(current: KanbanPanelView): KanbanPanelVie
   return PANEL_VIEWS[index + 1];
 }
 
-export function getPreviousKanbanPanelView(current: KanbanPanelView): KanbanPanelView {
+export function getPreviousKanbanPanelView(
+  current: KanbanPanelView
+): KanbanPanelView {
   const index = PANEL_VIEWS.indexOf(current);
   if (index <= 0) {
     return current;

@@ -27,7 +27,8 @@ interface ActionsDropdownProps {
   attempt?: WorkspaceWithSession | null;
 }
 
-export function ActionsDropdown({ task, attempt }: ActionsDropdownProps) {  const { projectId } = useProject();
+export function ActionsDropdown({ task, attempt }: ActionsDropdownProps) {
+  const { projectId } = useProject();
   const openInEditor = useOpenInEditor(attempt?.id);
   const navigate = useNavigate();
 
@@ -80,7 +81,9 @@ export function ActionsDropdown({ task, attempt }: ActionsDropdownProps) {  con
       attempt,
       onNavigateToTask: (taskId: string) => {
         if (projectId) {
-          navigate(`/local-projects/${projectId}/tasks/${taskId}/attempts/latest`);
+          navigate(
+            `/local-projects/${projectId}/tasks/${taskId}/attempts/latest`
+          );
         }
       },
     });

@@ -24,7 +24,7 @@ function makeGitAction<Args extends unknown[]>(
   setError: (v: string | null) => void,
   onSuccess: (() => void) | undefined,
   workspaceCall: (wid: string, rid: string, ...args: Args) => Promise<unknown>,
-  repoCall: (rid: string, ...args: Args) => Promise<unknown>,
+  repoCall: (rid: string, ...args: Args) => Promise<unknown>
 ): (...args: Args) => Promise<void> {
   return async (...args: Args) => {
     if (!repoId) return;

@@ -1,16 +1,13 @@
 import {
   useMemo,
-  useState,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { createPortal } from 'react-dom';
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
   DndContext,
-  DragOverlay,
   PointerSensor,
   closestCenter,
+  type DragEndEvent,
   useDraggable,
   useDroppable,
   useSensor,
@@ -31,8 +28,8 @@ import type {
   ExecutorConfigs,
   ExecutorProfileId,
 } from 'shared/types';
+import type { RepoBranchConfig } from '@/hooks';
 import type { SessionStatus } from '@/lib/api';
-import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -42,8 +39,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Popover,
   PopoverContent,
@@ -51,19 +46,16 @@ import {
 } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { cn } from '@/lib/utils';
+import {
+  SessionCreationForm,
+  type SessionCreationMode,
+} from '@/components/sessions/SessionCreationForm';
 import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
@@ -92,9 +84,12 @@ interface SessionHubSidebarProps {
   workspaces: Workspace[];
   createWorkspaceOptions: Workspace[];
   profiles: ExecutorConfigs['executors'] | null;
+  createMode: SessionCreationMode;
   createWorkspaceId: string;
   createSessionName: string;
   selectedExecutorProfile: ExecutorProfileId | null;
+  repoBranchConfigs: RepoBranchConfig[];
+  isLoadingRepoBranches: boolean;
   isCreatePopoverOpen: boolean;
   sortField: SortField | null;
   workspaceFilterIds: string[];
@@ -115,9 +110,11 @@ interface SessionHubSidebarProps {
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onCreatePopoverOpenChange: (open: boolean) => void;
   onCreateSession: () => void;
+  onCreateModeChange: (value: SessionCreationMode) => void;
   onCreateWorkspaceIdChange: (value: string) => void;
   onCreateSessionNameChange: (value: string) => void;
   onSelectedExecutorProfileChange: (value: ExecutorProfileId) => void;
+  onRepoBranchChange: (repoId: string, branch: string) => void;
   onSortFieldChange: (value: SortField | null) => void;
   onWorkspaceFilterIdsChange: (value: string[]) => void;
   onExecutorFilterValuesChange: (value: string[]) => void;
@@ -155,6 +152,26 @@ function parseStatusDropId(id: unknown): SessionStatus | null {
   }
 
   return value;
+}
+
+function isNestedOverlayTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest(
+      [
+        '[role="combobox"]',
+        '[role="menu"]',
+        '[role="menuitem"]',
+        '[role="menuitemradio"]',
+        '[role="listbox"]',
+        '[role="option"]',
+        '[aria-haspopup="listbox"]',
+      ].join(', ')
+    )
+  );
 }
 
 function SectionLabel({
@@ -314,7 +331,7 @@ function renderSessionList(
 ) {
   return (
     <div className="w-full max-w-full min-w-0 space-y-1.5">
-      {sessions.map((session) => (
+      {sessions.map((session) =>
         enableDrag && status ? (
           <DraggableSessionCard
             key={session.id}
@@ -344,7 +361,7 @@ function renderSessionList(
             onRenameSession={(name) => onRenameSession(session, name)}
           />
         )
-      ))}
+      )}
     </div>
   );
 }
@@ -358,9 +375,12 @@ export function SessionHubSidebar({
   workspaces,
   createWorkspaceOptions,
   profiles,
+  createMode,
   createWorkspaceId,
   createSessionName,
   selectedExecutorProfile,
+  repoBranchConfigs,
+  isLoadingRepoBranches,
   isCreatePopoverOpen,
   sortField,
   workspaceFilterIds,
@@ -381,9 +401,11 @@ export function SessionHubSidebar({
   onResizeMouseDown,
   onCreatePopoverOpenChange,
   onCreateSession,
+  onCreateModeChange,
   onCreateWorkspaceIdChange,
   onCreateSessionNameChange,
   onSelectedExecutorProfileChange,
+  onRepoBranchChange,
   onSortFieldChange,
   onWorkspaceFilterIdsChange,
   onExecutorFilterValuesChange,
@@ -401,8 +423,6 @@ export function SessionHubSidebar({
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
   const isFlatListMode = hasActiveFilters || sortField !== null;
   const canDragAcrossSections = !isFlatListMode && !isDeleteMode;
-  const [activeDragSession, setActiveDragSession] =
-    useState<KanbanProjectSessionRecord | null>(null);
   const sessionsById = useMemo(
     () =>
       sessions.reduce<Record<string, KanbanProjectSessionRecord>>(
@@ -419,20 +439,8 @@ export function SessionHubSidebar({
       activationConstraint: { distance: 8 },
     })
   );
-  const overlayContainer =
-    typeof document !== 'undefined' ? document.body : null;
-
-  const handleDragStart = (event: DragStartEvent) => {
-    if (!canDragAcrossSections) {
-      return;
-    }
-    const sessionId = String(event.active.id);
-    setActiveDragSession(sessionsById[sessionId] ?? null);
-  };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveDragSession(null);
-
     if (!canDragAcrossSections || !event.over) {
       return;
     }
@@ -492,6 +500,11 @@ export function SessionHubSidebar({
                   side="bottom"
                   sideOffset={8}
                   className="w-[340px] space-y-4 p-4 relative"
+                  onInteractOutside={(event) => {
+                    if (isNestedOverlayTarget(event.target)) {
+                      event.preventDefault();
+                    }
+                  }}
                 >
                   <button
                     className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -504,90 +517,37 @@ export function SessionHubSidebar({
                     <div className="text-sm font-semibold text-foreground">
                       新建会话
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      选择工作区和代理后创建空白会话。不填写名称时，会在首条消息后自动命名。
-                    </p>
                   </div>
 
-                  <form
-                    className="space-y-4"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      onCreateSession();
-                    }}
-                  >
-                    <div className="space-y-2">
-                      <Label htmlFor="kanban-session-workspace">工作区</Label>
-                      <Select
-                        value={createWorkspaceId || undefined}
-                        onValueChange={onCreateWorkspaceIdChange}
-                      >
-                        <SelectTrigger
-                          id="kanban-session-workspace"
-                          className="h-9 text-sm"
-                        >
-                          <SelectValue placeholder="请选择工作区" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {createWorkspaceOptions.map((workspace) => (
-                            <SelectItem key={workspace.id} value={workspace.id}>
-                              {workspace.name?.trim()
-                                ? `${workspace.name} · ${workspace.branch}`
-                                : workspace.branch}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="kanban-session-name">
-                        会话名称（可选）
-                      </Label>
-                      <Input
-                        id="kanban-session-name"
-                        value={createSessionName}
-                        onChange={(event) =>
-                          onCreateSessionNameChange(event.target.value)
-                        }
-                        placeholder="不填则使用首条消息自动命名"
-                        className="h-9 text-sm"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>编程代理</Label>
-                      <TerminalProfileControls
-                        profiles={profiles}
-                        selectedProfile={selectedExecutorProfile}
-                        onChange={onSelectedExecutorProfileChange}
-                        disabled={isCreatePending}
-                        className="flex flex-wrap items-center gap-2"
-                      />
-                    </div>
-
-                    {createError ? (
-                      <p className="text-sm text-destructive">
-                        {mapSessionErrorMessage(
-                          createError,
-                          '创建会话失败，请稍后重试。'
-                        )}
-                      </p>
-                    ) : null}
-
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => onCreatePopoverOpenChange(false)}
-                      >
-                        取消
-                      </Button>
-                      <Button type="submit" disabled={!canCreateSession}>
-                        {isCreatePending ? '创建中...' : '创建会话'}
-                      </Button>
-                    </div>
-                  </form>
+                  <SessionCreationForm
+                    mode={createMode}
+                    onModeChange={onCreateModeChange}
+                    createWorkspaceOptions={createWorkspaceOptions}
+                    selectedWorkspaceId={createWorkspaceId}
+                    onSelectedWorkspaceIdChange={onCreateWorkspaceIdChange}
+                    sessionName={createSessionName}
+                    onSessionNameChange={onCreateSessionNameChange}
+                    profiles={profiles}
+                    selectedExecutorProfile={selectedExecutorProfile}
+                    onSelectedExecutorProfileChange={
+                      onSelectedExecutorProfileChange
+                    }
+                    repoBranchConfigs={repoBranchConfigs}
+                    onRepoBranchChange={onRepoBranchChange}
+                    isLoadingBranches={isLoadingRepoBranches}
+                    canSubmit={canCreateSession}
+                    isSubmitting={isCreatePending}
+                    errorMessage={
+                      createError
+                        ? mapSessionErrorMessage(
+                            createError,
+                            '创建会话失败，请稍后重试。'
+                          )
+                        : null
+                    }
+                    onSubmit={onCreateSession}
+                    onCancel={() => onCreatePopoverOpenChange(false)}
+                  />
                 </PopoverContent>
               </Popover>
 
@@ -861,7 +821,6 @@ export function SessionHubSidebar({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
             <div className="space-y-3 px-3 py-3 pr-4">
@@ -931,30 +890,6 @@ export function SessionHubSidebar({
                 })
               )}
             </div>
-            {overlayContainer
-              ? createPortal(
-                  <DragOverlay dropAnimation={null}>
-                    {activeDragSession ? (
-                      <div className="w-[320px] max-w-[calc(100vw-32px)]">
-                        <SessionHubListItem
-                          session={activeDragSession}
-                          marker={getSessionMarker(
-                            activeDragSession.id,
-                            monitorPlacements,
-                            currentExecutionPlacement
-                          )}
-                          isDeleteMode={false}
-                          isSelected={false}
-                          onClick={() => undefined}
-                          onToggleSelect={() => undefined}
-                          dragging
-                        />
-                      </div>
-                    ) : null}
-                  </DragOverlay>,
-                  overlayContainer
-                )
-              : null}
           </DndContext>
         </ScrollArea>
       </aside>

@@ -125,7 +125,11 @@ function detectScope(files: GitFileStatusEntry[]): string {
       return secondDir;
     }
 
-    if (topDir === 'frontend' || topDir === 'src-tauri' || topDir === 'crates') {
+    if (
+      topDir === 'frontend' ||
+      topDir === 'src-tauri' ||
+      topDir === 'crates'
+    ) {
       return topDir;
     }
   }
@@ -188,7 +192,7 @@ function generateDescription(
   // Group by extension to find the dominant file type
   const extGroups = new Map<string, number>();
   for (const name of fileNames) {
-    const ext = name.includes('.') ? name.split('.').pop() ?? '' : '';
+    const ext = name.includes('.') ? (name.split('.').pop() ?? '') : '';
     extGroups.set(ext, (extGroups.get(ext) ?? 0) + 1);
   }
 
@@ -204,7 +208,9 @@ function generateDescription(
 
   // Find common component names
   const componentNames = fileNames
-    .filter((n) => /^[A-Z]/.test(n) && (n.endsWith('.tsx') || n.endsWith('.jsx')))
+    .filter(
+      (n) => /^[A-Z]/.test(n) && (n.endsWith('.tsx') || n.endsWith('.jsx'))
+    )
     .map((n) => n.replace(/\.[^.]+$/, ''));
 
   if (componentNames.length > 0 && componentNames.length <= 3) {

@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Keyboard,
-  Code2,
-  Type,
-  Save,
-  Undo2,
-  Loader2,
-  Eye,
-} from 'lucide-react';
+import { Keyboard, Code2, Type, Save, Undo2, Loader2, Eye } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -76,9 +68,7 @@ function SettingsSection({
         <h2 className="text-sm font-semibold">{title}</h2>
       </div>
       {description && (
-        <p className="text-xs text-muted-foreground leading-5">
-          {description}
-        </p>
+        <p className="text-xs text-muted-foreground leading-5">{description}</p>
       )}
       {children}
     </section>
@@ -219,11 +209,13 @@ export function EditorSettings() {
                 <SelectItem value={SYSTEM_TERMINAL_SETTING_VALUE}>
                   系统默认
                 </SelectItem>
-                {TERMINAL_SHELL_OPTIONS.filter((opt) => opt.value).map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
+                {TERMINAL_SHELL_OPTIONS.filter((opt) => opt.value).map(
+                  (opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -297,7 +289,9 @@ export function EditorSettings() {
                 max={24}
                 value={previewFontSize}
                 onChange={(event) =>
-                  setPreviewFontSize(Number(event.target.value || previewFontSize))
+                  setPreviewFontSize(
+                    Number(event.target.value || previewFontSize)
+                  )
                 }
                 className="h-8 w-28 text-xs"
               />
@@ -333,7 +327,9 @@ export function EditorSettings() {
       {dirty && (
         <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
-            <span className="text-xs text-muted-foreground">有未保存的更改</span>
+            <span className="text-xs text-muted-foreground">
+              有未保存的更改
+            </span>
             <div className="flex gap-2">
               <Button
                 variant="outline"

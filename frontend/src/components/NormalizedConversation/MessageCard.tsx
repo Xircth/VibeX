@@ -2,7 +2,10 @@ import React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { Markdown } from './Markdown';
-import type { CardVariant, CollapsibleVariant } from './conversation-entry-utils';
+import type {
+  CardVariant,
+  CollapsibleVariant,
+} from './conversation-entry-utils';
 
 /*********************
  * Unified card      *
@@ -14,14 +17,13 @@ export const MessageCard: React.FC<{
   expanded?: boolean;
   onToggle?: () => void;
 }> = ({ children, variant, expanded, onToggle }) => {
-  const cardClass = variant === 'system' ? 'conv-system-card' : 'conv-error-card';
-  const textClass = variant === 'system' ? 'conv-system-text' : 'conv-error-text';
+  const cardClass =
+    variant === 'system' ? 'conv-system-card' : 'conv-error-card';
+  const textClass =
+    variant === 'system' ? 'conv-system-text' : 'conv-error-text';
 
   return (
-    <div
-      className={`w-full ${cardClass}`}
-      onClick={onToggle}
-    >
+    <div className={`w-full ${cardClass}`} onClick={onToggle}>
       <div className="flex items-center gap-1.5">
         <div className={`min-w-0 flex-1 ${textClass}`}>{children}</div>
         {onToggle && (
@@ -71,34 +73,20 @@ export const CollapsibleEntry: React.FC<{
   variant: CollapsibleVariant;
   contentClassName: string;
   taskAttemptId?: string;
-}> = ({
-  content,
-  markdown,
-  expansionKey,
-  variant,
-  contentClassName,
-}) => {
+}> = ({ content, markdown, expansionKey, variant, contentClassName }) => {
   const multiline = content.includes('\n');
   const [expanded, toggle] = useExpandable(`entry:${expansionKey}`, false);
 
   const Inner = (
     <div className={contentClassName}>
-      {markdown ? (
-        <Markdown value={content} />
-      ) : (
-        content
-      )}
+      {markdown ? <Markdown value={content} /> : content}
     </div>
   );
 
   const firstLine = content.split('\n')[0];
   const PreviewInner = (
     <div className={contentClassName}>
-      {markdown ? (
-        <Markdown value={firstLine} />
-      ) : (
-        firstLine
-      )}
+      {markdown ? <Markdown value={firstLine} /> : firstLine}
     </div>
   );
 
@@ -114,5 +102,21 @@ export const CollapsibleEntry: React.FC<{
     <MessageCard variant={variant} expanded={expanded} onToggle={toggle}>
       {PreviewInner}
     </MessageCard>
+  );
+};
+
+export const CompactNoticeEntry: React.FC<{
+  content: string;
+  variant: CollapsibleVariant;
+}> = ({ content, variant }) => {
+  const className =
+    variant === 'error'
+      ? 'conv-compact-notice conv-compact-notice-error'
+      : 'conv-compact-notice';
+
+  return (
+    <div className={className} title={content}>
+      {content}
+    </div>
   );
 };

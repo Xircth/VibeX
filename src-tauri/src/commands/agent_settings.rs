@@ -1,10 +1,11 @@
+use std::path::PathBuf;
+
 use api_types::{
     AgentSettingInfo, PreflightCheck, PreflightFix, PreflightResult, PreflightStatus,
     ReorderAgentsRequest, UpdateAgentPreferences,
 };
 use db::models::agent_setting::AgentSetting;
 use deployment::Deployment;
-use std::path::PathBuf;
 use tokio::fs;
 
 use crate::{error::AppError, state::AppState};
@@ -194,7 +195,8 @@ pub async fn agent_preflight(
             path
         }
         None => {
-            let install_hint = install_source_label(&agent_type).unwrap_or("See agent documentation");
+            let install_hint =
+                install_source_label(&agent_type).unwrap_or("See agent documentation");
             let install_action = match agent_type.as_str() {
                 "claude_code" | "codex" => "install_npm",
                 "open_code" => "install_go",
@@ -424,9 +426,8 @@ pub async fn run_agent_fix(
             }
         }
         "uninstall_binary" => {
-            let cli_cmd = cli_command_for_agent(&agent_type).ok_or_else(|| {
-                AppError::Internal(format!("Unknown agent type: {}", agent_type))
-            })?;
+            let cli_cmd = cli_command_for_agent(&agent_type)
+                .ok_or_else(|| AppError::Internal(format!("Unknown agent type: {}", agent_type)))?;
             let executable = resolve_program_on_path(cli_cmd).await?;
             fs::remove_file(&executable).await.map_err(|e| {
                 AppError::Internal(format!(

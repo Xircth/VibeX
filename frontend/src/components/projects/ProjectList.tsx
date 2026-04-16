@@ -12,7 +12,8 @@ import { useKeyCreate, Scope } from '@/keyboard';
 import { useProjects } from '@/hooks/useProjects';
 
 export function ProjectList() {
-  const navigate = useNavigate();  const { projects, isLoading, error: projectsError } = useProjects();
+  const navigate = useNavigate();
+  const { projects, isLoading, error: projectsError } = useProjects();
   const [error, setError] = useState('');
   const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
 

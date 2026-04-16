@@ -26,9 +26,11 @@ import {
   getToolStatusAppearance,
   isPendingApprovalStatus,
   SCRIPT_TOOL_NAMES,
+  getCompactMetaNoticeText,
+  shouldHideInitializationNotice,
   type FileEditAction,
 } from './conversation-entry-utils';
-import { CollapsibleEntry } from './MessageCard';
+import { CollapsibleEntry, CompactNoticeEntry } from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
 import {
   ToolCallCard,
@@ -94,6 +96,7 @@ function DisplayConversationEntry({
 
   // Handle NormalizedEntry
   const entryType = entry.entry_type;
+  const contentText = isNormalizedEntry(entry) ? entry.content : '';
   const isSystem = entryType.type === 'system_message';
   const isError = entryType.type === 'error_message';
   const isToolUse = entryType.type === 'tool_use';
@@ -105,6 +108,10 @@ function DisplayConversationEntry({
     a.action === 'file_edit';
 
   if (isTokenUsage) {
+    return null;
+  }
+
+  if (shouldHideInitializationNotice(entryType, contentText)) {
     return null;
   }
 
@@ -278,6 +285,24 @@ function DisplayConversationEntry({
   }
 
   if (isSystem || isError) {
+    const compactNoticeText = getCompactMetaNoticeText(entryType, contentText);
+
+    if (compactNoticeText) {
+      return (
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={compactNoticeText}
+            variant={isSystem ? 'system' : 'error'}
+          />
+        </div>
+      );
+    }
+
     return (
       <div
         className={cn(
@@ -298,17 +323,12 @@ function DisplayConversationEntry({
   }
 
   if (isLoading) {
-    if (isStopping) {
-      return (
-        <div
-          className="conv-entry-item h-px overflow-hidden opacity-0 pointer-events-none"
-          aria-hidden="true"
-        />
-      );
-    }
     return (
       <div className="conv-entry-item px-4 py-2 text-sm">
-        <LoadingCard />
+        <LoadingCard
+          label={isStopping ? '正在停止Hook...' : undefined}
+          shimmer={!isStopping}
+        />
       </div>
     );
   }
@@ -318,7 +338,21 @@ function DisplayConversationEntry({
   }
 
   // Phase 2: Assistant message with hover copy button
-  const contentText = isNormalizedEntry(entry) ? entry.content : '';
+  const compactNoticeText = getCompactMetaNoticeText(entryType, contentText);
+
+  if (compactNoticeText) {
+    return (
+      <div
+        className={cn(
+          'conv-entry-item px-4 py-1',
+          greyed && 'opacity-50 pointer-events-none'
+        )}
+      >
+        <CompactNoticeEntry content={compactNoticeText} variant="system" />
+      </div>
+    );
+  }
+
   return (
     <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
       <div className="relative">

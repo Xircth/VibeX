@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { attemptsApi, settingsWindowApi } from '@/lib/api';
+import { settingsWindowApi } from '@/lib/api';
 import { useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,7 +18,6 @@ import {
   RotateCcw,
   FolderTree,
   GitBranch,
-  Columns2,
   ArrowDown,
   ArrowUp,
   AlertTriangle,
@@ -32,7 +31,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Logo } from '@/components/Logo';
-import { openTaskForm } from '@/lib/openTaskForm';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -42,7 +40,6 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
-import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import { usePanelActions } from '@/hooks/usePanelActions';
@@ -162,9 +159,6 @@ function WorkspaceTabSwitcher() {
   }>();
   const { data: repos } = useProjectRepos(projectId);
   const { worktrees } = useProjectWorktrees(projectId);
-  const { data: rightSessionWorkspace } = useTaskAttempt(
-    rightSession?.workspaceId
-  );
   const { activeTab, setActiveTab } = useLayoutStore();
   const routeTab = taskId && attemptId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
@@ -184,8 +178,9 @@ function WorkspaceTabSwitcher() {
 
   const resolveFallbackWorktree = useCallback(() => {
     const currentWorktree =
-      worktrees.find((worktree) => worktree.workspace.id === activeWorktreeId) ??
-      null;
+      worktrees.find(
+        (worktree) => worktree.workspace.id === activeWorktreeId
+      ) ?? null;
     if (currentWorktree) {
       return currentWorktree;
     }
@@ -228,14 +223,15 @@ function WorkspaceTabSwitcher() {
         const fallbackWorktree = resolveFallbackWorktree();
         const targetAttemptId =
           activeWorktreeId ?? fallbackWorktree?.workspace.id ?? null;
-        const targetTaskId = activeTaskId ?? fallbackWorktree?.workspace.task_id ?? null;
+        const targetTaskId =
+          activeTaskId ?? fallbackWorktree?.workspace.task_id ?? null;
 
         if (targetAttemptId) {
           setActiveWorktree(targetAttemptId, targetTaskId);
         }
 
-        if (targetTaskId && targetAttemptId) {
-          navigate(paths.attempt(projectId, targetTaskId, targetAttemptId));
+        if (targetAttemptId) {
+          navigate(paths.projectWorkspace(projectId, targetAttemptId));
           return;
         }
 
@@ -246,28 +242,13 @@ function WorkspaceTabSwitcher() {
       };
 
       if (effectiveActiveTab === 'kanban' && rightSession) {
-        const targetTaskId = rightSessionWorkspace?.task_id;
-        if (targetTaskId) {
-          navigate(
-            paths.attempt(projectId, targetTaskId, rightSession.workspaceId)
-          );
-          return;
-        }
-
-        void attemptsApi
-          .get(rightSession.workspaceId)
-          .then((workspace) => {
-            navigate(
-              paths.attempt(
-                projectId,
-                workspace.task_id,
-                rightSession.workspaceId
-              )
-            );
-          })
-          .catch(() => {
-            navigateToFallbackWorkspace();
-          });
+        navigate(
+          paths.projectSession(
+            projectId,
+            rightSession.workspaceId,
+            rightSession.sessionId
+          )
+        );
         return;
       }
 
@@ -280,7 +261,6 @@ function WorkspaceTabSwitcher() {
       navigate,
       projectId,
       rightSession,
-      rightSessionWorkspace?.task_id,
       resolveFallbackWorktree,
       setActiveTab,
       setActiveWorktree,
@@ -312,38 +292,64 @@ function WorkspaceTabSwitcher() {
 }
 
 export function Toolbar() {
-  const { taskId, attemptId } = useParams<{
+  const { taskId, attemptId, workspaceId, sessionId } = useParams<{
     taskId?: string;
     attemptId?: string;
+    workspaceId?: string;
+    sessionId?: string;
   }>();
   const navigate = useNavigate();
-  const workspaceId =
+  const legacyWorkspaceId =
     attemptId && attemptId !== 'latest' ? attemptId : undefined;
   const { projectId, project } = useProject();
+  const { activeWorktreeId } = useWorktree();
+  const { rightSession } = useKanbanSessionContext();
   const { projects } = useProjects();
   const handleOpenInEditor = useOpenProjectInEditor(project || null);
   const { data: repos } = useProjectRepos(projectId);
   const isSingleRepoProject = repos?.length === 1;
   const switchProject = useProjectSwitcher();
   const activeTab = useLayoutStore((state) => state.activeTab);
-  const routeTab = taskId && attemptId ? 'workspace' : null;
+  const routeTab =
+    (taskId && attemptId) || workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
 
   const { toggleRightPanel, isRightPanelVisible, resetLayout } =
     useLayoutStore();
 
-  const { toggleFileTree, openNewTerminal, toggleEditorArea } =
-    usePanelActions();
+  const { toggleFileTree, openNewTerminal } = usePanelActions();
   const recentProjects = useMemo(
     () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
     [projects]
   );
 
-  const handleCreateTask = () => {
-    if (projectId) {
-      openTaskForm({ mode: 'create', projectId });
+  const handleCreateSession = () => {
+    if (!projectId) return;
+
+    if (isWorkspaceTab) {
+      if (rightSession) {
+        navigate(
+          `${paths.projectSession(
+            projectId,
+            rightSession.workspaceId,
+            rightSession.sessionId
+          )}?newSession=1`
+        );
+        return;
+      }
+
+      const targetWorkspaceId =
+        workspaceId ?? legacyWorkspaceId ?? activeWorktreeId;
+      if (targetWorkspaceId) {
+        navigate(
+          `${paths.projectWorkspace(projectId, targetWorkspaceId)}?newSession=1`
+        );
+        return;
+      }
     }
+
+    navigate(`${paths.projectTasks(projectId)}?createSession=1`);
   };
 
   const handleOpenInIDE = () => {
@@ -374,7 +380,9 @@ export function Toolbar() {
             {isWorkspaceTab ? <WorktreeSelector /> : null}
           </div>
 
-          {workspaceId && <BranchStatusBadge workspaceId={workspaceId} />}
+          {legacyWorkspaceId && (
+            <BranchStatusBadge workspaceId={legacyWorkspaceId} />
+          )}
 
           <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
             <div className="pointer-events-auto">
@@ -428,24 +436,6 @@ export function Toolbar() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={toggleEditorArea}
-                    aria-label="Toggle editor area"
-                    tabIndex={isWorkspaceTab ? 0 : -1}
-                  >
-                    <Columns2 className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  Toggle Editor Area
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
                     onClick={toggleRightPanel}
                     aria-label="Toggle AI panel"
                     tabIndex={isWorkspaceTab ? 0 : -1}
@@ -487,13 +477,13 @@ export function Toolbar() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
-                      onClick={handleCreateTask}
-                      aria-label="Create new task"
+                      onClick={handleCreateSession}
+                      aria-label="Create new session"
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">New Task</TooltipContent>
+                  <TooltipContent side="bottom">New Session</TooltipContent>
                 </Tooltip>
                 {isSingleRepoProject && (
                   <OpenInIdeButton

@@ -1,5 +1,11 @@
 import { memo, useCallback, useRef, useState } from 'react';
-import { Upload, Loader2, ChevronsUpDown, ChevronsDownUp, Sparkles } from 'lucide-react';
+import {
+  Upload,
+  Loader2,
+  ChevronsUpDown,
+  ChevronsDownUp,
+  Sparkles,
+} from 'lucide-react';
 import type { GitFileStatusEntry, GitFileDiffEntry } from 'shared/types';
 import { generateCommitMessage } from './generateCommitMessage';
 
@@ -74,10 +80,10 @@ export const GitCommitBox = memo(function GitCommitBox({
   const commitTitle = !hasMessage
     ? 'Enter a commit message'
     : !hasChanges
-    ? 'No changes to commit'
-    : commitLoading
-    ? 'Committing...'
-    : 'Commit (Ctrl+Enter)';
+      ? 'No changes to commit'
+      : commitLoading
+        ? 'Committing...'
+        : 'Commit (Ctrl+Enter)';
 
   return (
     <div className="flex flex-col border-b border-border/50">
@@ -87,7 +93,9 @@ export const GitCommitBox = memo(function GitCommitBox({
         onClick={toggleCollapsed}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleCollapsed(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') toggleCollapsed();
+        }}
       >
         {collapsed ? (
           <ChevronsUpDown className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -99,7 +107,8 @@ export const GitCommitBox = memo(function GitCommitBox({
         </span>
         {collapsed && commitsAhead > 0 && (
           <span className="text-[10px] text-muted-foreground">
-            <Upload className="h-3 w-3 inline mr-0.5" />{commitsAhead}
+            <Upload className="h-3 w-3 inline mr-0.5" />
+            {commitsAhead}
           </span>
         )}
       </div>
@@ -173,7 +182,9 @@ export const GitCommitBox = memo(function GitCommitBox({
               title={`Push ${commitsAhead} commit${commitsAhead > 1 ? 's' : ''}`}
             >
               <Upload className="h-3 w-3" />
-              <span>Push {commitsAhead} commit{commitsAhead > 1 ? 's' : ''}</span>
+              <span>
+                Push {commitsAhead} commit{commitsAhead > 1 ? 's' : ''}
+              </span>
             </button>
           )}
         </div>

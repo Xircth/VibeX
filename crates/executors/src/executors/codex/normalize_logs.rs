@@ -11,14 +11,16 @@ use codex_protocol::{
     openai_models::ReasoningEffort,
     plan_tool::{StepStatus, UpdatePlanArgs},
     protocol::{
-        AgentMessageDeltaEvent, AgentMessageEvent, AgentReasoningDeltaEvent, AgentReasoningEvent,
-        AgentReasoningRawContentDeltaEvent, AgentReasoningRawContentEvent,
-        AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent, BackgroundEventEvent,
-        ErrorEvent, EventMsg, ExecApprovalRequestEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
+        AgentMessageContentDeltaEvent, AgentMessageDeltaEvent, AgentMessageEvent,
+        AgentReasoningDeltaEvent, AgentReasoningEvent, AgentReasoningRawContentDeltaEvent,
+        AgentReasoningRawContentEvent, AgentReasoningSectionBreakEvent,
+        ApplyPatchApprovalRequestEvent, BackgroundEventEvent, ErrorEvent, EventMsg,
+        ExecApprovalRequestEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
         ExecCommandOutputDeltaEvent, ExecOutputStream, FileChange as CodexProtoFileChange,
         McpInvocation, McpToolCallBeginEvent, McpToolCallEndEvent, PatchApplyBeginEvent,
-        PatchApplyEndEvent, ReasoningRawContentDeltaEvent, StreamErrorEvent,
-        ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent, WebSearchEndEvent,
+        PatchApplyEndEvent, ReasoningContentDeltaEvent, ReasoningRawContentDeltaEvent,
+        StreamErrorEvent, ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent,
+        WebSearchEndEvent,
     },
 };
 use futures::StreamExt;
@@ -552,12 +554,16 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         &entry_index,
                     );
                 }
-                EventMsg::AgentMessageDelta(AgentMessageDeltaEvent { delta }) => {
+                EventMsg::AgentMessageDelta(AgentMessageDeltaEvent { delta })
+                | EventMsg::AgentMessageContentDelta(AgentMessageContentDeltaEvent {
+                    delta, ..
+                }) => {
                     state.thinking = None;
                     let (entry, index, is_new) = state.assistant_message_append(delta);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
                 }
                 EventMsg::AgentReasoningDelta(AgentReasoningDeltaEvent { delta })
+                | EventMsg::ReasoningContentDelta(ReasoningContentDeltaEvent { delta, .. })
                 | EventMsg::AgentReasoningRawContentDelta(AgentReasoningRawContentDeltaEvent {
                     delta,
                 })
@@ -1179,8 +1185,6 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 | EventMsg::RawResponseItem(..)
                 | EventMsg::ItemStarted(..)
                 | EventMsg::ItemCompleted(..)
-                | EventMsg::AgentMessageContentDelta(..)
-                | EventMsg::ReasoningContentDelta(..)
                 | EventMsg::ListCustomPromptsResponse(..)
                 | EventMsg::ListSkillsResponse(..)
                 | EventMsg::SkillsUpdateAvailable
@@ -1400,11 +1404,18 @@ impl ToNormalizedEntryOpt for Approval {
 
 #[cfg(test)]
 mod tests {
+    use std::{path::Path, sync::Arc, time::Duration};
+
+    use codex_app_server_protocol::JSONRPCNotification;
     use serde_json::json;
+    use tokio::time::timeout;
+    use workspace_utils::msg_store::MsgStore;
 
     use super::{
         extract_argument_string, is_fetch_like_tool, is_search_like_tool, is_task_like_tool,
+        normalize_logs,
     };
+    use crate::logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch};
 
     #[test]
     fn classifies_search_like_mcp_tools() {
@@ -1440,5 +1451,93 @@ mod tests {
             extract_argument_string(Some(&direct), &["query"]).as_deref(),
             Some("grep TODO")
         );
+    }
+
+    #[tokio::test]
+    async fn streams_agent_message_content_delta_into_assistant_entries() {
+        let store = Arc::new(MsgStore::new());
+        normalize_logs(store.clone(), Path::new("."));
+
+        let notification = JSONRPCNotification {
+            method: "codex/event/agent_message_content_delta".to_string(),
+            params: Some(json!({
+                "msg": {
+                    "type": "agent_message_content_delta",
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-1",
+                    "item_id": "item-1",
+                    "delta": "hello from delta"
+                }
+            })),
+        };
+
+        store.push_stdout(serde_json::to_string(&notification).unwrap());
+        store.push_finished();
+
+        let patch = timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(patch) = store.get_history().into_iter().find_map(|msg| match msg {
+                    workspace_utils::log_msg::LogMsg::JsonPatch(patch) => Some(patch),
+                    _ => None,
+                }) {
+                    break patch;
+                }
+
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("assistant delta should produce a normalized patch");
+
+        let (_, entry) =
+            extract_normalized_entry_from_patch(&patch).expect("normalized assistant entry");
+        assert!(matches!(
+            entry.entry_type,
+            NormalizedEntryType::AssistantMessage
+        ));
+        assert_eq!(entry.content, "hello from delta");
+    }
+
+    #[tokio::test]
+    async fn streams_reasoning_content_delta_into_thinking_entries() {
+        let store = Arc::new(MsgStore::new());
+        normalize_logs(store.clone(), Path::new("."));
+
+        let notification = JSONRPCNotification {
+            method: "codex/event/reasoning_content_delta".to_string(),
+            params: Some(json!({
+                "msg": {
+                    "type": "reasoning_content_delta",
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-1",
+                    "item_id": "item-1",
+                    "summary_index": 0,
+                    "delta": "thinking delta"
+                }
+            })),
+        };
+
+        store.push_stdout(serde_json::to_string(&notification).unwrap());
+        store.push_finished();
+
+        let patch = timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(patch) = store.get_history().into_iter().find_map(|msg| match msg {
+                    workspace_utils::log_msg::LogMsg::JsonPatch(patch) => Some(patch),
+                    _ => None,
+                }) {
+                    break patch;
+                }
+
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("reasoning delta should produce a normalized patch");
+
+        let (_, entry) =
+            extract_normalized_entry_from_patch(&patch).expect("normalized thinking entry");
+        assert!(matches!(entry.entry_type, NormalizedEntryType::Thinking));
+        assert_eq!(entry.content, "thinking delta");
     }
 }

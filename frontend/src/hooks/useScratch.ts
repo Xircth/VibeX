@@ -34,10 +34,7 @@ export const useScratch = (
   const enabled = (options?.enabled ?? true) && id.length > 0;
 
   const subscribeArgs = useMemo(
-    () =>
-      enabled
-        ? { scratchId: id, scratchType }
-        : undefined,
+    () => (enabled ? { scratchId: id, scratchType } : undefined),
     [enabled, id, scratchType]
   );
 

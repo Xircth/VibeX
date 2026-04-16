@@ -40,8 +40,7 @@ export const useSearchStore = create<SearchState>()((set) => ({
   setPaletteQuery: (query) =>
     set({ paletteQuery: query, paletteSelectedIndex: 0 }),
 
-  setPaletteSelectedIndex: (index) =>
-    set({ paletteSelectedIndex: index }),
+  setPaletteSelectedIndex: (index) => set({ paletteSelectedIndex: index }),
 
   movePaletteSelection: (direction, maxIndex) =>
     set((state) => {
@@ -49,8 +48,12 @@ export const useSearchStore = create<SearchState>()((set) => ({
       const current = state.paletteSelectedIndex;
       const next =
         direction === 'down'
-          ? current >= maxIndex ? 0 : current + 1
-          : current <= 0 ? maxIndex : current - 1;
+          ? current >= maxIndex
+            ? 0
+            : current + 1
+          : current <= 0
+            ? maxIndex
+            : current - 1;
       return { paletteSelectedIndex: next };
     }),
 }));

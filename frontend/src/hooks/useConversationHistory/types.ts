@@ -12,8 +12,8 @@ export type PatchTypeWithKey = PatchType & {
  */
 export type AggregatedPatchGroup = {
   type: 'AGGREGATED_GROUP';
-  /** The aggregation category (e.g., 'file_read', 'search', 'web_fetch') */
-  aggregationType: 'file_read' | 'search' | 'web_fetch';
+  /** The aggregation category (e.g., 'file_read', 'search', 'web_fetch', 'command_run') */
+  aggregationType: 'file_read' | 'search' | 'web_fetch' | 'command_run';
   /** The individual entries in this group */
   entries: PatchTypeWithKey[];
   /** Unique key for the group */

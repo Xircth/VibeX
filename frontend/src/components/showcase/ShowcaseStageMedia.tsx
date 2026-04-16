@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';import { Loader } from '@/components/ui/loader';
+import { useRef, useState } from 'react';
+import { Loader } from '@/components/ui/loader';
 import { useVideoProgress } from '@/hooks/useVideoProgress';
 import type { ShowcaseMedia } from '@/types/showcase';
 import { RefreshCw } from 'lucide-react';
@@ -19,7 +20,8 @@ interface ShowcaseStageMediaProps {
  *
  * @param media - ShowcaseMedia object with type ('image' or 'video') and src URL
  */
-export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {  const videoRef = useRef<HTMLVideoElement>(null);
+export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
   const { isLoading, playedPercent, bufferedPercent } =
     useVideoProgress(videoRef);
   const [imageLoaded, setImageLoaded] = useState(false);

@@ -264,10 +264,9 @@ export default function DiffCard({
 
   // Treat both omitted and missing-payload content as omitted until we force-load it.
   const isEffectivelyOmitted =
-    shouldLoadContent &&
-    forcedOldContent === null &&
-    forcedNewContent === null;
-  const isContentEqual = !isEffectivelyOmitted && oldContentSafe === newContentSafe;
+    shouldLoadContent && forcedOldContent === null && forcedNewContent === null;
+  const isContentEqual =
+    !isEffectivelyOmitted && oldContentSafe === newContentSafe;
 
   const diffFile = useMemo(() => {
     if (isEffectivelyOmitted) return null;
@@ -380,12 +379,21 @@ export default function DiffCard({
   // Title row
   const title = (
     <div className="flex items-center gap-2 flex-1 min-w-0 text-sm font-mono">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
-      {label && <span className="text-muted-foreground/60 text-xs shrink-0">{label}</span>}
+      <Icon
+        className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+        aria-hidden
+      />
+      {label && (
+        <span className="text-muted-foreground/60 text-xs shrink-0">
+          {label}
+        </span>
+      )}
       {diff.change === 'renamed' && oldName ? (
         <span className="flex items-center gap-1.5 truncate text-foreground/80">
           <span className="truncate">{oldName}</span>
-          <span className="text-muted-foreground/50 shrink-0" aria-hidden>→</span>
+          <span className="text-muted-foreground/50 shrink-0" aria-hidden>
+            →
+          </span>
           <span className="truncate">{newName}</span>
         </span>
       ) : (
@@ -406,16 +414,15 @@ export default function DiffCard({
 
   const handleOpenDiffInTab = async () => {
     const openPath =
-      diff.change === 'deleted'
-        ? (oldName ?? newName)
-        : (newName ?? oldName);
+      diff.change === 'deleted' ? (oldName ?? newName) : (newName ?? oldName);
 
     if (!openPath) return;
 
     const diffViewMode = globalMode === 'unified' ? 'inline' : 'split';
 
     if (panelActions?.openDiffPreviewAtPath) {
-      const fileName = (newName || oldName || openPath).split(/[/\\]/).pop() || openPath;
+      const fileName =
+        (newName || oldName || openPath).split(/[/\\]/).pop() || openPath;
       panelActions.openDiffPreviewAtPath(openPath, {
         title: `◐ ${fileName}`,
         diffViewMode,
@@ -501,46 +508,50 @@ export default function DiffCard({
           className="px-4 pb-4 pt-2 text-xs font-mono"
           style={{ color: 'hsl(var(--muted-foreground) / 0.9)' }}
         >
-          {isEffectivelyOmitted
-            ? (
-              <div className="flex items-center justify-center gap-2 py-6">
-                {isLoadingContent ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">加载文件内容中…</span>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <p className="text-sm text-muted-foreground">内容加载失败</p>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleLoadContent}
-                        className="h-7 text-xs"
-                      >
-                        重新加载
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleOpenDiffInTab}
-                        className="h-7 text-xs"
-                      >
-                        在标签页中打开
-                      </Button>
-                    </div>
+          {isEffectivelyOmitted ? (
+            <div className="flex items-center justify-center gap-2 py-6">
+              {isLoadingContent ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    加载文件内容中…
+                  </span>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <p className="text-sm text-muted-foreground">内容加载失败</p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLoadContent}
+                      className="h-7 text-xs"
+                    >
+                      重新加载
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleOpenDiffInTab}
+                      className="h-7 text-xs"
+                    >
+                      在标签页中打开
+                    </Button>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+            </div>
+          ) : isContentEqual ? (
+            diff.change === 'renamed' ? (
+              'File renamed with no content changes.'
+            ) : diff.change === 'permissionChange' ? (
+              'File permission changed.'
+            ) : (
+              'No content changes to display.'
             )
-            : isContentEqual
-              ? diff.change === 'renamed'
-                ? 'File renamed with no content changes.'
-                : diff.change === 'permissionChange'
-                  ? 'File permission changed.'
-                  : 'No content changes to display.'
-              : 'Failed to render diff for this file.'}
+          ) : (
+            'Failed to render diff for this file.'
+          )}
         </div>
       )}
     </div>

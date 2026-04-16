@@ -21,11 +21,12 @@ export interface WorktreeState {
 const WorktreeContext = createContext<WorktreeState | null>(null);
 
 function getRouteWorktreeState(
+  workspaceId?: string,
   attemptId?: string,
   taskId?: string
 ): Pick<WorktreeState, 'activeWorktreeId' | 'activeTaskId'> | null {
   const activeWorktreeId =
-    attemptId && attemptId !== 'latest' ? attemptId : null;
+    workspaceId ?? (attemptId && attemptId !== 'latest' ? attemptId : null);
 
   if (!activeWorktreeId) {
     return null;
@@ -38,15 +39,16 @@ function getRouteWorktreeState(
 }
 
 export function WorktreeProvider({ children }: { children: ReactNode }) {
-  const { attemptId, taskId } = useParams<{
+  const { workspaceId, attemptId, taskId } = useParams<{
+    workspaceId?: string;
     attemptId?: string;
     taskId?: string;
   }>();
   const { projectId } = useProject();
   const projectKey = getProjectScopeKey(projectId);
   const routeWorktreeState = useMemo(
-    () => getRouteWorktreeState(attemptId, taskId),
-    [attemptId, taskId]
+    () => getRouteWorktreeState(workspaceId, attemptId, taskId),
+    [attemptId, taskId, workspaceId]
   );
   const [activeWorktreeId, setWorktreeId] = useState<string | null>(() => {
     const stored = useProjectViewStateStore

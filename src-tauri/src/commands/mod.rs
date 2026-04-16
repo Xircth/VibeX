@@ -1,11 +1,13 @@
 pub mod agent_settings;
 pub mod approvals;
 pub mod config;
+pub mod desktop_toast;
 pub mod events;
 pub mod execution_processes;
 pub mod file_tree;
 pub mod filesystem;
 pub mod local_usage;
+pub mod project_rail_window;
 pub mod projects;
 pub mod repos;
 pub mod scratch;

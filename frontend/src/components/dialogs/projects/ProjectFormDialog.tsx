@@ -119,7 +119,11 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
     }, []);
 
     useEffect(() => {
-      if (!modal.visible || !autoOpenFolderPicker || hasAutoOpenedFolderRef.current) {
+      if (
+        !modal.visible ||
+        !autoOpenFolderPicker ||
+        hasAutoOpenedFolderRef.current
+      ) {
         return;
       }
 
@@ -145,7 +149,8 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         ? selectedFolderPath
         : selectedRepoPath || selectedFolderPath;
       const normalizedName =
-        projectName.trim() || getPathName(selectedFolderPath || selectedRepoPath);
+        projectName.trim() ||
+        getPathName(selectedFolderPath || selectedRepoPath);
       const finalProjectName = normalizedName || 'New Project';
 
       if (!selectedPath) {
@@ -181,7 +186,10 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         const createData: CreateProject = {
           name: finalProjectName,
           repositories: [
-            { display_name: finalProjectName, git_repo_path: repoPathForProject },
+            {
+              display_name: finalProjectName,
+              git_repo_path: repoPathForProject,
+            },
           ],
         };
 
@@ -211,7 +219,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[640px]">
           <DialogHeader>
-            <DialogTitle>{isFolderEntryMode ? '选择项目文件夹' : '创建新项目'}</DialogTitle>
+            <DialogTitle>
+              {isFolderEntryMode ? '选择项目文件夹' : '创建新项目'}
+            </DialogTitle>
             <DialogDescription>
               {isFolderEntryMode
                 ? '选择文件夹后自动检测 Git；未初始化时默认初始化。'
@@ -248,7 +258,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                           <div className="flex items-start gap-2">
                             <FolderGit className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
                             <div className="min-w-0 flex-1">
-                              <div className="text-sm font-medium">{repo.name}</div>
+                              <div className="text-sm font-medium">
+                                {repo.name}
+                              </div>
                               <div className="text-xs text-muted-foreground truncate mt-1">
                                 {repo.path}
                               </div>
@@ -299,7 +311,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
               {selectedFolderPath && selectedFolderIsGitRepo !== null && (
                 <div
                   className={`text-sm ${
-                    selectedFolderIsGitRepo ? 'text-emerald-600' : 'text-amber-600'
+                    selectedFolderIsGitRepo
+                      ? 'text-emerald-600'
+                      : 'text-amber-600'
                   }`}
                 >
                   {selectedFolderIsGitRepo
@@ -331,7 +345,12 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleCancel} disabled={isBusy}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCancel}
+              disabled={isBusy}
+            >
               取消
             </Button>
             <Button
@@ -341,7 +360,8 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                 isBusy ||
                 (isFolderEntryMode
                   ? !selectedFolderPath
-                  : !projectName.trim() || (!selectedRepoPath && !selectedFolderPath))
+                  : !projectName.trim() ||
+                    (!selectedRepoPath && !selectedFolderPath))
               }
             >
               {isBusy ? (

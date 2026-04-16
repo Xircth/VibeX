@@ -43,19 +43,25 @@ export function useImageMetadata(
     queryKey: ['imageMetadata', taskAttemptId, taskId, src],
     queryFn: async (): Promise<ImageMetadata | null> => {
       if (taskAttemptId) {
-        const data = await tauriInvoke<ImageMetadata>('get_workspace_image_metadata', {
-          workspaceId: taskAttemptId,
-          path: src,
-        });
+        const data = await tauriInvoke<ImageMetadata>(
+          'get_workspace_image_metadata',
+          {
+            workspaceId: taskAttemptId,
+            path: src,
+          }
+        );
         return data.proxy_url
           ? { ...data, proxy_url: convertFileSrc(data.proxy_url) }
           : data;
       }
       if (taskId) {
-        const data = await tauriInvoke<ImageMetadata>('get_task_image_metadata', {
-          taskId,
-          path: src,
-        });
+        const data = await tauriInvoke<ImageMetadata>(
+          'get_task_image_metadata',
+          {
+            taskId,
+            path: src,
+          }
+        );
         return data.proxy_url
           ? { ...data, proxy_url: convertFileSrc(data.proxy_url) }
           : data;

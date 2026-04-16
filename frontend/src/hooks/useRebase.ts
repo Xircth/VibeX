@@ -17,56 +17,54 @@ export function useRebase(
     oldBaseBranch?: string;
   };
 
-  return useMutation<void, RebaseResult, RebaseMutationArgs>(
-    {
-      mutationFn: (args) => {
-        if (!attemptId) return Promise.resolve();
-        const { repoId, newBaseBranch, oldBaseBranch } = args ?? {};
+  return useMutation<void, RebaseResult, RebaseMutationArgs>({
+    mutationFn: (args) => {
+      if (!attemptId) return Promise.resolve();
+      const { repoId, newBaseBranch, oldBaseBranch } = args ?? {};
 
-        const data: RebaseTaskAttemptRequest = {
-          repo_id: repoId,
-          old_base_branch: oldBaseBranch ?? null,
-          new_base_branch: newBaseBranch ?? null,
-        };
+      const data: RebaseTaskAttemptRequest = {
+        repo_id: repoId,
+        old_base_branch: oldBaseBranch ?? null,
+        new_base_branch: newBaseBranch ?? null,
+      };
 
-        return attemptsApi.rebase(attemptId, data).then((res) => {
-          if (res.error) {
-            return Promise.reject(res);
-          }
-        });
-      },
-      onSuccess: () => {
-        // Refresh branch status immediately
-        queryClient.invalidateQueries({
-          queryKey: ['branchStatus', attemptId],
-        });
-
-        // Invalidate taskAttempt query to refresh attempt.target_branch
-        queryClient.invalidateQueries({
-          queryKey: ['taskAttempt', attemptId],
-        });
-
-        // Refresh repos to update target_branch in RepoCard
-        queryClient.invalidateQueries({
-          queryKey: ['attemptRepo', attemptId],
-        });
-
-        // Refresh branch list
-        if (repoId) {
-          queryClient.invalidateQueries({
-            queryKey: repoBranchKeys.byRepo(repoId),
-          });
+      return attemptsApi.rebase(attemptId, data).then((res) => {
+        if (res.error) {
+          return Promise.reject(res);
         }
+      });
+    },
+    onSuccess: () => {
+      // Refresh branch status immediately
+      queryClient.invalidateQueries({
+        queryKey: ['branchStatus', attemptId],
+      });
 
-        onSuccess?.();
-      },
-      onError: (err: RebaseResult) => {
-        // Even on failure (likely conflicts), re-fetch branch status immediately to show rebase-in-progress
+      // Invalidate taskAttempt query to refresh attempt.target_branch
+      queryClient.invalidateQueries({
+        queryKey: ['taskAttempt', attemptId],
+      });
+
+      // Refresh repos to update target_branch in RepoCard
+      queryClient.invalidateQueries({
+        queryKey: ['attemptRepo', attemptId],
+      });
+
+      // Refresh branch list
+      if (repoId) {
         queryClient.invalidateQueries({
-          queryKey: ['branchStatus', attemptId],
+          queryKey: repoBranchKeys.byRepo(repoId),
         });
-        onError?.(err);
-      },
-    }
-  );
+      }
+
+      onSuccess?.();
+    },
+    onError: (err: RebaseResult) => {
+      // Even on failure (likely conflicts), re-fetch branch status immediately to show rebase-in-progress
+      queryClient.invalidateQueries({
+        queryKey: ['branchStatus', attemptId],
+      });
+      onError?.(err);
+    },
+  });
 }

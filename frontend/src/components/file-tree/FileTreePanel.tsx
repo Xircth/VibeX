@@ -1,37 +1,32 @@
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
+import { FilePlus, FolderPlus, Plus, SquareMinus } from 'lucide-react';
+import FileIcon from '../FileIcon';
+import { desktopApi, fileTreeApi } from '../../lib/api';
+import type { DirectoryChildrenResponse } from '../../lib/api';
+import { languageFromPath } from '../../utils/syntax';
+import { type FileReferencePayload } from '../../utils/fileReferences';
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { MouseEvent } from "react";
-import { createPortal } from "react-dom";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { confirm } from "@tauri-apps/plugin-dialog";
-import { toast } from "sonner";
+  clearCurrentDraggedFileReference,
+  getFileReferenceDragState,
+  setCurrentDraggedFileReference,
+  subscribeFileReferenceDrag,
+  updateFileReferenceDragPointer,
+} from '../../utils/fileReferenceDrag';
+import { FilePreviewPopover } from './FilePreviewPopover';
+import type { FileTreeNode, FileOpenLocation } from './file-tree-types';
+import { EMPTY_DIRECTORIES, EMPTY_SET } from './file-tree-constants';
 import {
-  Copy,
-  FilePlus,
-  FolderOpen,
-  FolderPlus,
-  Plus,
-  SquareMinus,
-  Trash2,
-} from "lucide-react";
-import FileIcon from "../FileIcon";
-import { desktopApi, fileTreeApi } from "../../lib/api";
-import type { DirectoryChildrenResponse } from "../../lib/api";
-import { languageFromPath } from "../../utils/syntax";
-import {
-  FILE_REFERENCE_DRAG_MIME,
-  serializeFileReferencePayload,
-} from "../../utils/fileReferences";
-import { FilePreviewPopover } from "./FilePreviewPopover";
-import type { FileTreeNode, FileOpenLocation } from "./file-tree-types";
-import { EMPTY_DIRECTORIES, EMPTY_SET } from "./file-tree-constants";
-import { isSpecialDirectoryPath, buildTree, isImagePath, resolveWorkspaceRootLabel } from "./file-tree-utils";
-import "@/styles/file-tree.css";
+  isSpecialDirectoryPath,
+  buildTree,
+  isImagePath,
+  resolveWorkspaceRootLabel,
+} from './file-tree-utils';
+import { ConfirmDialog } from '@/components/dialogs';
+import '@/styles/file-tree.css';
 
 export type FileTreePanelProps = {
   workspacePath: string;
@@ -45,16 +40,18 @@ export type FileTreePanelProps = {
   gitignoredFiles?: Set<string>;
   gitignoredDirectories?: Set<string>;
   onRefreshFiles?: () => void;
+  refreshToken?: number;
 };
 
 const FILE_TREE_LABELS = {
-  newFile: "\u65b0\u5efa\u6587\u4ef6",
-  newFolder: "\u65b0\u5efa\u6587\u4ef6\u5939",
-  duplicate: "\u590d\u5236",
-  copyRelativePath: "\u590d\u5236\u76f8\u5bf9\u8def\u5f84",
-  copyAbsolutePath: "\u590d\u5236\u7edd\u5bf9\u8def\u5f84",
-  openInFileManager: "\u5728\u6587\u4ef6\u7ba1\u7406\u5668\u4e2d\u6253\u5f00",
-  delete: "\u5220\u9664",
+  newFile: '\u65b0\u5efa\u6587\u4ef6',
+  newFolder: '\u65b0\u5efa\u6587\u4ef6\u5939',
+  copy: '\u590d\u5236',
+  duplicate: '\u521b\u5efa\u526f\u672c',
+  copyRelativePath: '\u590d\u5236\u76f8\u5bf9\u8def\u5f84',
+  copyAbsolutePath: '\u590d\u5236\u7edd\u5bf9\u8def\u5f84',
+  openInFileManager: '\u5728\u6587\u4ef6\u7ba1\u7406\u5668\u4e2d\u6253\u5f00',
+  delete: '\u5220\u9664',
 } as const;
 
 export function FileTreePanel({
@@ -69,11 +66,14 @@ export function FileTreePanel({
   gitignoredFiles,
   gitignoredDirectories,
   onRefreshFiles,
+  refreshToken = 0,
 }: FileTreePanelProps) {
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
   const ignoredDirectoryEntries = gitignoredDirectories ?? EMPTY_SET;
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    new Set()
+  );
   const [rootExpanded, setRootExpanded] = useState(true);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<{
@@ -82,7 +82,7 @@ export function FileTreePanel({
     arrowTop: number;
     height: number;
   } | null>(null);
-  const [previewContent, setPreviewContent] = useState<string>("");
+  const [previewContent, setPreviewContent] = useState<string>('');
   const [previewTruncated, setPreviewTruncated] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -94,41 +94,69 @@ export function FileTreePanel({
   const dragAnchorLineRef = useRef<number | null>(null);
   const dragMovedRef = useRef(false);
   const [selectedNodePath, setSelectedNodePath] = useState<string | null>(null);
-  const [selectedNodeType, setSelectedNodeType] = useState<"file" | "folder" | null>(null);
+  const [selectedNodeType, setSelectedNodeType] = useState<
+    'file' | 'folder' | null
+  >(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     relativePath: string;
     isFolder: boolean;
   } | null>(null);
+  const [copySubmenuOpen, setCopySubmenuOpen] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const dragCandidateRef = useRef<{
+    payload: FileReferencePayload;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const suppressClickPathRef = useRef<string | null>(null);
   const [newFileParent, setNewFileParent] = useState<string | null>(null);
-  const [newFileName, setNewFileName] = useState("");
+  const [newFileName, setNewFileName] = useState('');
   const newFileInputRef = useRef<HTMLInputElement | null>(null);
   const [newFolderParent, setNewFolderParent] = useState<string | null>(null);
-  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderName, setNewFolderName] = useState('');
   const newFolderInputRef = useRef<HTMLInputElement | null>(null);
   const [lazyFiles, setLazyFiles] = useState<Set<string>>(new Set());
-  const [lazyDirectories, setLazyDirectories] = useState<Set<string>>(new Set());
-  const [lazyGitignoredFiles, setLazyGitignoredFiles] = useState<Set<string>>(new Set());
-  const [lazyGitignoredDirectories, setLazyGitignoredDirectories] = useState<Set<string>>(new Set());
-  const [lazyLoadableDirectories, setLazyLoadableDirectories] = useState<Set<string>>(new Set());
-  const [loadedLazyDirectories, setLoadedLazyDirectories] = useState<Set<string>>(new Set());
-  const [loadingLazyDirectories, setLoadingLazyDirectories] = useState<Set<string>>(new Set());
-  const [lazyDirectoryLoadErrors, setLazyDirectoryLoadErrors] = useState<Map<string, string>>(
-    new Map(),
+  const [lazyDirectories, setLazyDirectories] = useState<Set<string>>(
+    new Set()
   );
+  const [lazyGitignoredFiles, setLazyGitignoredFiles] = useState<Set<string>>(
+    new Set()
+  );
+  const [lazyGitignoredDirectories, setLazyGitignoredDirectories] = useState<
+    Set<string>
+  >(new Set());
+  const [lazyLoadableDirectories, setLazyLoadableDirectories] = useState<
+    Set<string>
+  >(new Set());
+  const [loadedLazyDirectories, setLoadedLazyDirectories] = useState<
+    Set<string>
+  >(new Set());
+  const [loadingLazyDirectories, setLoadingLazyDirectories] = useState<
+    Set<string>
+  >(new Set());
+  const [lazyDirectoryLoadErrors, setLazyDirectoryLoadErrors] = useState<
+    Map<string, string>
+  >(new Map());
+  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const [dragOverlay, setDragOverlay] = useState<{
+    payload: FileReferencePayload;
+    x: number;
+    y: number;
+  } | null>(null);
   const loadedLazyDirectoriesRef = useRef<Set<string>>(new Set());
   const loadingLazyDirectoriesRef = useRef<Set<string>>(new Set());
+  const previousRefreshTokenRef = useRef(refreshToken);
 
   const workspaceRootLabel = useMemo(
     () => resolveWorkspaceRootLabel(workspacePath, workspaceName),
-    [workspaceName, workspacePath],
+    [workspaceName, workspacePath]
   );
   const previewKind = useMemo(
-    () => (previewPath && isImagePath(previewPath) ? "image" : "text"),
-    [previewPath],
+    () => (previewPath && isImagePath(previewPath) ? 'image' : 'text'),
+    [previewPath]
   );
   const mergedFiles = useMemo(() => {
     const next = new Set<string>(files);
@@ -177,16 +205,13 @@ export function FileTreePanel({
   }, [gitStatusFiles]);
 
   const { nodes, folderPaths } = useMemo(
-    () => buildTree(
-      mergedFiles,
-      mergedDirectories,
-      effectiveLazyLoadableDirectories,
-    ),
-    [
-      effectiveLazyLoadableDirectories,
-      mergedDirectories,
-      mergedFiles,
-    ],
+    () =>
+      buildTree(
+        mergedFiles,
+        mergedDirectories,
+        effectiveLazyLoadableDirectories
+      ),
+    [effectiveLazyLoadableDirectories, mergedDirectories, mergedFiles]
   );
 
   const folderGitStatusMap = useMemo(() => {
@@ -196,7 +221,7 @@ export function FileTreePanel({
     const priority: Record<string, number> = { D: 4, A: 3, M: 2, R: 1, T: 0 };
     const map = new Map<string, string>();
     const computeForNode = (node: FileTreeNode): string | null => {
-      if (node.type === "file") {
+      if (node.type === 'file') {
         return gitStatusMap.get(node.path) ?? null;
       }
       let highest: string | null = null;
@@ -222,7 +247,8 @@ export function FileTreePanel({
   const visibleFolderPaths = folderPaths;
   const hasFolders = visibleFolderPaths.size > 0;
   const allVisibleExpanded =
-    hasFolders && Array.from(visibleFolderPaths).every((path) => expandedFolders.has(path));
+    hasFolders &&
+    Array.from(visibleFolderPaths).every((path) => expandedFolders.has(path));
   const isRootVisibleExpanded = rootExpanded;
 
   useEffect(() => {
@@ -250,7 +276,7 @@ export function FileTreePanel({
     setPreviewPath(null);
     setPreviewAnchor(null);
     setPreviewSelection(null);
-    setPreviewContent("");
+    setPreviewContent('');
     setPreviewTruncated(false);
     setPreviewError(null);
     setPreviewLoading(false);
@@ -258,6 +284,7 @@ export function FileTreePanel({
     dragAnchorLineRef.current = null;
     dragMovedRef.current = false;
     setContextMenu(null);
+    setCopySubmenuOpen(false);
     setLazyFiles(new Set());
     setLazyDirectories(new Set());
     setLazyGitignoredFiles(new Set());
@@ -267,10 +294,14 @@ export function FileTreePanel({
     setLoadingLazyDirectories(new Set());
     setLazyDirectoryLoadErrors(new Map());
     setNewFileParent(null);
-    setNewFileName("");
+    setNewFileName('');
     setNewFolderParent(null);
-    setNewFolderName("");
+    setNewFolderName('');
     setRootExpanded(true);
+    setDropTargetPath(null);
+    setDragOverlay(null);
+    dragCandidateRef.current = null;
+    suppressClickPathRef.current = null;
     loadedLazyDirectoriesRef.current = new Set();
     loadingLazyDirectoriesRef.current = new Set();
   }, [workspacePath]);
@@ -279,7 +310,7 @@ export function FileTreePanel({
     setPreviewPath(null);
     setPreviewAnchor(null);
     setPreviewSelection(null);
-    setPreviewContent("");
+    setPreviewContent('');
     setPreviewTruncated(false);
     setPreviewError(null);
     setPreviewLoading(false);
@@ -307,16 +338,18 @@ export function FileTreePanel({
         return next;
       });
       try {
-        const response: DirectoryChildrenResponse = await fileTreeApi.listDirectoryChildren(
-          workspacePath,
-          path,
-        );
+        const response: DirectoryChildrenResponse =
+          await fileTreeApi.listDirectoryChildren(workspacePath, path);
         const nextFiles = Array.isArray(response.files) ? response.files : [];
-        const nextDirectories = Array.isArray(response.directories) ? response.directories : [];
+        const nextDirectories = Array.isArray(response.directories)
+          ? response.directories
+          : [];
         const nextGitignoredFiles = Array.isArray(response.gitignored_files)
           ? response.gitignored_files
           : [];
-        const nextGitignoredDirectories = Array.isArray(response.gitignored_directories)
+        const nextGitignoredDirectories = Array.isArray(
+          response.gitignored_directories
+        )
           ? response.gitignored_directories
           : [];
 
@@ -365,22 +398,62 @@ export function FileTreePanel({
         });
       }
     },
-    [workspacePath],
+    [workspacePath]
   );
+
+  useEffect(() => {
+    if (previousRefreshTokenRef.current === refreshToken) {
+      return;
+    }
+    previousRefreshTokenRef.current = refreshToken;
+
+    const expandedLazyDirectories = Array.from(
+      loadedLazyDirectoriesRef.current
+    ).filter((path) => expandedFolders.has(path));
+
+    setLazyFiles(new Set());
+    setLazyDirectories(new Set());
+    setLazyGitignoredFiles(new Set());
+    setLazyGitignoredDirectories(new Set());
+    setLazyLoadableDirectories(new Set());
+    setLoadedLazyDirectories(new Set());
+    setLoadingLazyDirectories(new Set());
+    setLazyDirectoryLoadErrors(new Map());
+    loadedLazyDirectoriesRef.current = new Set();
+    loadingLazyDirectoriesRef.current = new Set();
+
+    expandedLazyDirectories.forEach((path) => {
+      void loadLazyDirectoryChildren(path);
+    });
+  }, [expandedFolders, loadLazyDirectoryChildren, refreshToken]);
 
   useEffect(() => {
     if (!previewPath) {
       return;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === 'Escape') {
         event.preventDefault();
         closePreview();
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [previewPath, closePreview]);
+
+  useEffect(() => {
+    return subscribeFileReferenceDrag((state) => {
+      if (!state.isDragging || !state.payload || !state.pointer) {
+        setDragOverlay(null);
+        return;
+      }
+      setDragOverlay({
+        payload: state.payload,
+        x: state.pointer.x,
+        y: state.pointer.y,
+      });
+    });
+  }, []);
 
   const toggleAllFolders = () => {
     if (!hasFolders) {
@@ -411,19 +484,19 @@ export function FileTreePanel({
 
   const resolvePath = useCallback(
     (relativePath: string) => {
-      const usesWindowsSeparator = workspacePath.includes("\\");
-      const separator = usesWindowsSeparator ? "\\" : "/";
-      const base = workspacePath.replace(/[\\/]+$/, "");
+      const usesWindowsSeparator = workspacePath.includes('\\');
+      const separator = usesWindowsSeparator ? '\\' : '/';
+      const base = workspacePath.replace(/[\\/]+$/, '');
       const normalizedRelative = usesWindowsSeparator
-        ? relativePath.replaceAll("/", "\\")
+        ? relativePath.replaceAll('/', '\\')
         : relativePath;
       return `${base}${separator}${normalizedRelative}`;
     },
-    [workspacePath],
+    [workspacePath]
   );
 
   const previewImageSrc = useMemo(() => {
-    if (!previewPath || previewKind !== "image") {
+    if (!previewPath || previewKind !== 'image') {
       return null;
     }
     try {
@@ -438,18 +511,21 @@ export function FileTreePanel({
     const estimatedWidth = 640;
     const estimatedHeight = 520;
     const padding = 16;
-    const maxHeight = Math.min(estimatedHeight, window.innerHeight - padding * 2);
+    const maxHeight = Math.min(
+      estimatedHeight,
+      window.innerHeight - padding * 2
+    );
     const left = Math.min(
       Math.max(padding, rect.left - estimatedWidth - padding),
-      Math.max(padding, window.innerWidth - estimatedWidth - padding),
+      Math.max(padding, window.innerWidth - estimatedWidth - padding)
     );
     const top = Math.min(
       Math.max(padding, rect.top - maxHeight * 0.35),
-      Math.max(padding, window.innerHeight - maxHeight - padding),
+      Math.max(padding, window.innerHeight - maxHeight - padding)
     );
     const arrowTop = Math.min(
       Math.max(16, rect.top + rect.height / 2 - top),
-      Math.max(16, maxHeight - 16),
+      Math.max(16, maxHeight - 16)
     );
     setPreviewPath(path);
     setPreviewAnchor({ top, left, arrowTop, height: maxHeight });
@@ -465,8 +541,8 @@ export function FileTreePanel({
       return;
     }
     let cancelled = false;
-    if (previewKind === "image") {
-      setPreviewContent("");
+    if (previewKind === 'image') {
+      setPreviewContent('');
       setPreviewTruncated(false);
       setPreviewError(null);
       setPreviewLoading(false);
@@ -477,12 +553,13 @@ export function FileTreePanel({
     setPreviewLoading(true);
     setPreviewError(null);
     const absolutePath = resolvePath(previewPath);
-    fileTreeApi.readFileWithTruncation(absolutePath)
+    fileTreeApi
+      .readFileWithTruncation(absolutePath)
       .then((response) => {
         if (cancelled) {
           return;
         }
-        setPreviewContent(response.content ?? "");
+        setPreviewContent(response.content ?? '');
         setPreviewTruncated(Boolean(response.truncated));
       })
       .catch((error) => {
@@ -509,8 +586,8 @@ export function FileTreePanel({
       setIsDragSelecting(false);
       dragAnchorLineRef.current = null;
     };
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => window.removeEventListener("mouseup", handleMouseUp);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => window.removeEventListener('mouseup', handleMouseUp);
   }, [isDragSelecting]);
 
   const selectRangeFromAnchor = useCallback((anchor: number, index: number) => {
@@ -532,12 +609,12 @@ export function FileTreePanel({
       }
       setPreviewSelection({ start: index, end: index });
     },
-    [previewSelection, selectRangeFromAnchor],
+    [previewSelection, selectRangeFromAnchor]
   );
 
   const handleLineMouseDown = useCallback(
     (index: number, event: MouseEvent<HTMLButtonElement>) => {
-      if (previewKind !== "text" || event.button !== 0) {
+      if (previewKind !== 'text' || event.button !== 0) {
         return;
       }
       event.preventDefault();
@@ -548,7 +625,7 @@ export function FileTreePanel({
       dragMovedRef.current = false;
       selectRangeFromAnchor(anchor, index);
     },
-    [previewKind, previewSelection, selectRangeFromAnchor],
+    [previewKind, previewSelection, selectRangeFromAnchor]
   );
 
   const handleLineMouseEnter = useCallback(
@@ -565,7 +642,7 @@ export function FileTreePanel({
       }
       selectRangeFromAnchor(anchor, index);
     },
-    [isDragSelecting, selectRangeFromAnchor],
+    [isDragSelecting, selectRangeFromAnchor]
   );
 
   const handleLineMouseUp = useCallback(() => {
@@ -578,24 +655,32 @@ export function FileTreePanel({
 
   const selectionHints = useMemo(
     () =>
-      previewKind === "text"
-        ? ["Shift+点击选择范围", "拖拽选择多行"]
+      previewKind === 'text'
+        ? ['Shift+鐐瑰嚮閫夋嫨鑼冨洿', '鎷栨嫿閫夋嫨澶氳']
         : [],
-    [previewKind],
+    [previewKind]
   );
 
   const handleAddSelection = useCallback(() => {
-    if (previewKind !== "text" || !previewPath || !previewSelection || !onInsertText) {
+    if (
+      previewKind !== 'text' ||
+      !previewPath ||
+      !previewSelection ||
+      !onInsertText
+    ) {
       return;
     }
-    const lines = previewContent.split("\n");
-    const selected = lines.slice(previewSelection.start, previewSelection.end + 1);
+    const lines = previewContent.split('\n');
+    const selected = lines.slice(
+      previewSelection.start,
+      previewSelection.end + 1
+    );
     const language = languageFromPath(previewPath);
-    const fence = language ? `\`\`\`${language}` : "```";
+    const fence = language ? `\`\`\`${language}` : '```';
     const start = previewSelection.start + 1;
     const end = previewSelection.end + 1;
     const rangeLabel = start === end ? `L${start}` : `L${start}-L${end}`;
-    const snippet = `${previewPath}:${rangeLabel}\n${fence}\n${selected.join("\n")}\n\`\`\``;
+    const snippet = `${previewPath}:${rangeLabel}\n${fence}\n${selected.join('\n')}\n\`\`\``;
     onInsertText(snippet);
     closePreview();
   }, [
@@ -609,6 +694,7 @@ export function FileTreePanel({
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
+    setCopySubmenuOpen(false);
   }, []);
 
   const copyAbsolutePath = useCallback(
@@ -621,44 +707,47 @@ export function FileTreePanel({
         // clipboard write is not critical
       }
     },
-    [resolvePath, workspacePath],
+    [resolvePath, workspacePath]
   );
 
   const copyRelativePath = useCallback(async (relativePath: string) => {
     try {
-      await navigator.clipboard.writeText(relativePath || ".");
+      await navigator.clipboard.writeText(relativePath || '.');
     } catch {
       // clipboard write is not critical
     }
   }, []);
 
   const openInFileManager = useCallback(
-    async (relativePath: string) => {
+    async (relativePath: string, _isFolder: boolean) => {
       try {
-        const absolutePath = relativePath ? resolvePath(relativePath) : workspacePath;
+        const absolutePath = relativePath
+          ? resolvePath(relativePath)
+          : workspacePath;
         await desktopApi.revealInFileManager(absolutePath);
       } catch (error) {
-        console.error("Failed to reveal path in file manager:", error);
+        console.error('Failed to reveal path in file manager:', error);
       }
     },
-    [resolvePath, workspacePath],
+    [resolvePath, workspacePath]
   );
 
   const trashItem = useCallback(
     async (relativePath: string, isFolder: boolean) => {
-      const name = relativePath.split("/").pop() ?? relativePath;
+      const name = relativePath.split('/').pop() ?? relativePath;
       const confirmMessage = isFolder
-        ? `确定要删除文件夹 "${name}" 吗？`
-        : `确定要删除文件 "${name}" 吗？`;
+        ? `确定要删除文件夹“${name}”吗？`
+        : `确定要删除文件“${name}”吗？`;
 
-      const confirmed = await confirm(confirmMessage, {
-        title: "删除",
-        kind: "warning",
-        okLabel: "删除",
-        cancelLabel: "取消",
+      const confirmed = await ConfirmDialog.show({
+        title: '删除',
+        message: confirmMessage,
+        confirmText: '删除',
+        cancelText: '取消',
+        variant: 'destructive',
       });
 
-      if (!confirmed) {
+      if (confirmed !== 'confirmed') {
         return;
       }
 
@@ -675,7 +764,7 @@ export function FileTreePanel({
         toast.error('Failed to delete item');
       }
     },
-    [resolvePath, onRefreshFiles, selectedNodePath],
+    [resolvePath, onRefreshFiles, selectedNodePath]
   );
 
   const duplicateItem = useCallback(
@@ -686,78 +775,72 @@ export function FileTreePanel({
         onRefreshFiles?.();
       } catch (e) {
         console.error('Failed to duplicate item:', e);
-        toast.error('Failed to duplicate item');
+        toast.error('鍒涘缓鍓湰澶辫触');
       }
     },
-    [resolvePath, onRefreshFiles],
+    [resolvePath, onRefreshFiles]
   );
 
-  const openNewFilePrompt = useCallback(
-    (parentFolder: string) => {
-      setNewFolderParent(null);
-      setNewFolderName("");
-      setNewFileParent(parentFolder);
-      setNewFileName("");
-      if (parentFolder) {
-        setExpandedFolders((prev) => {
-          if (prev.has(parentFolder)) return prev;
-          const next = new Set(prev);
-          next.add(parentFolder);
-          return next;
-        });
-      }
-      requestAnimationFrame(() => {
-        newFileInputRef.current?.focus();
+  const openNewFilePrompt = useCallback((parentFolder: string) => {
+    setNewFolderParent(null);
+    setNewFolderName('');
+    setNewFileParent(parentFolder);
+    setNewFileName('');
+    if (parentFolder) {
+      setExpandedFolders((prev) => {
+        if (prev.has(parentFolder)) return prev;
+        const next = new Set(prev);
+        next.add(parentFolder);
+        return next;
       });
-    },
-    [],
-  );
+    }
+    requestAnimationFrame(() => {
+      newFileInputRef.current?.focus();
+    });
+  }, []);
 
   const confirmNewFile = useCallback(async () => {
     if (newFileParent === null) return;
-    const name = newFileName.trim() || "untitled";
+    const name = newFileName.trim() || 'untitled';
     const relativePath = newFileParent ? `${newFileParent}/${name}` : name;
     try {
       const absolutePath = resolvePath(relativePath);
-      await fileTreeApi.saveFile(absolutePath, "");
+      await fileTreeApi.saveFile(absolutePath, '');
       onRefreshFiles?.();
     } catch (e) {
       console.error('Failed to create file:', e);
       toast.error('Failed to create file');
     }
     setNewFileParent(null);
-    setNewFileName("");
+    setNewFileName('');
   }, [newFileName, newFileParent, resolvePath, onRefreshFiles]);
 
   const cancelNewFile = useCallback(() => {
     setNewFileParent(null);
-    setNewFileName("");
+    setNewFileName('');
   }, []);
 
-  const openNewFolderPrompt = useCallback(
-    (parentFolder: string) => {
-      setNewFileParent(null);
-      setNewFileName("");
-      setNewFolderParent(parentFolder);
-      setNewFolderName("");
-      if (parentFolder) {
-        setExpandedFolders((prev) => {
-          if (prev.has(parentFolder)) return prev;
-          const next = new Set(prev);
-          next.add(parentFolder);
-          return next;
-        });
-      }
-      requestAnimationFrame(() => {
-        newFolderInputRef.current?.focus();
+  const openNewFolderPrompt = useCallback((parentFolder: string) => {
+    setNewFileParent(null);
+    setNewFileName('');
+    setNewFolderParent(parentFolder);
+    setNewFolderName('');
+    if (parentFolder) {
+      setExpandedFolders((prev) => {
+        if (prev.has(parentFolder)) return prev;
+        const next = new Set(prev);
+        next.add(parentFolder);
+        return next;
       });
-    },
-    [],
-  );
+    }
+    requestAnimationFrame(() => {
+      newFolderInputRef.current?.focus();
+    });
+  }, []);
 
   const confirmNewFolder = useCallback(async () => {
     if (newFolderParent === null) return;
-    const name = newFolderName.trim() || "新建文件夹";
+    const name = newFolderName.trim() || '新建文件夹';
     const relativePath = newFolderParent ? `${newFolderParent}/${name}` : name;
     try {
       const absolutePath = resolvePath(relativePath);
@@ -765,44 +848,277 @@ export function FileTreePanel({
       onRefreshFiles?.();
     } catch (e) {
       console.error('Failed to create folder:', e);
-      toast.error('Failed to create folder');
+      toast.error('创建文件夹失败');
     }
     setNewFolderParent(null);
-    setNewFolderName("");
+    setNewFolderName('');
   }, [newFolderName, newFolderParent, resolvePath, onRefreshFiles]);
 
   const cancelNewFolder = useCallback(() => {
     setNewFolderParent(null);
-    setNewFolderName("");
+    setNewFolderName('');
   }, []);
 
   const resolveParentFolderForNode = useCallback(
-    (relativePath: string | null, nodeType: "file" | "folder" | null) => {
+    (relativePath: string | null, nodeType: 'file' | 'folder' | null) => {
       if (!relativePath) {
-        return "";
+        return '';
       }
-      if (nodeType === "folder") {
+      if (nodeType === 'folder') {
         return relativePath;
       }
-      const separatorIndex = relativePath.lastIndexOf("/");
-      return separatorIndex >= 0 ? relativePath.slice(0, separatorIndex) : "";
+      const separatorIndex = relativePath.lastIndexOf('/');
+      return separatorIndex >= 0 ? relativePath.slice(0, separatorIndex) : '';
     },
-    [],
+    []
+  );
+
+  const buildMoveDestinationRelativePath = useCallback(
+    (sourceRelativePath: string, targetDirectoryPath: string) => {
+      const segments = sourceRelativePath.split('/').filter(Boolean);
+      const leafName = segments.at(-1) ?? sourceRelativePath;
+      return targetDirectoryPath
+        ? `${targetDirectoryPath}/${leafName}`
+        : leafName;
+    },
+    []
+  );
+
+  const canDropIntoDirectory = useCallback(
+    (dragged: FileReferencePayload | null, targetDirectoryPath: string) => {
+      if (!dragged) {
+        return false;
+      }
+
+      const sourcePath = dragged.relativePath;
+      if (!sourcePath) {
+        return false;
+      }
+
+      if (sourcePath === targetDirectoryPath) {
+        return false;
+      }
+
+      const sourceType = dragged.kind === 'directory' ? 'folder' : 'file';
+      const sourceParent = resolveParentFolderForNode(sourcePath, sourceType);
+      if (sourceParent === targetDirectoryPath) {
+        return false;
+      }
+
+      return !(
+        dragged.kind === 'directory' &&
+        targetDirectoryPath.startsWith(`${sourcePath}/`)
+      );
+    },
+    [resolveParentFolderForNode]
+  );
+
+  const moveDraggedNode = useCallback(
+    async (dragged: FileReferencePayload, targetDirectoryPath: string) => {
+      if (!canDropIntoDirectory(dragged, targetDirectoryPath)) {
+        return;
+      }
+
+      const nextRelativePath = buildMoveDestinationRelativePath(
+        dragged.relativePath,
+        targetDirectoryPath
+      );
+
+      try {
+        await fileTreeApi.moveItem(
+          resolvePath(dragged.relativePath),
+          resolvePath(nextRelativePath)
+        );
+        if (targetDirectoryPath) {
+          setExpandedFolders((prev) => {
+            if (prev.has(targetDirectoryPath)) {
+              return prev;
+            }
+            const next = new Set(prev);
+            next.add(targetDirectoryPath);
+            return next;
+          });
+        }
+        setSelectedNodePath(nextRelativePath);
+        setSelectedNodeType(dragged.kind === 'directory' ? 'folder' : 'file');
+        onRefreshFiles?.();
+      } catch (error) {
+        console.error('Failed to move item:', error);
+        toast.error('Failed to move item');
+      } finally {
+        clearCurrentDraggedFileReference();
+        setDropTargetPath(null);
+      }
+    },
+    [
+      buildMoveDestinationRelativePath,
+      canDropIntoDirectory,
+      onRefreshFiles,
+      resolvePath,
+    ]
+  );
+
+  const resolveDropTargetPathFromPoint = useCallback((x: number, y: number) => {
+    if (typeof document === 'undefined') {
+      return null;
+    }
+    const element = document.elementFromPoint(x, y);
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+    const dropTarget = element.closest('[data-file-tree-drop-path]');
+    if (!(dropTarget instanceof HTMLElement)) {
+      return null;
+    }
+    return dropTarget.getAttribute('data-file-tree-drop-path');
+  }, []);
+
+  const dispatchDropToExternalZone = useCallback((x: number, y: number) => {
+    if (typeof document === 'undefined') {
+      return false;
+    }
+    const state = getFileReferenceDragState();
+    if (!state.payload) {
+      return false;
+    }
+    const element = document.elementFromPoint(x, y);
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+    const dropZone = element.closest('[data-file-reference-drop-zone]');
+    if (!(dropZone instanceof HTMLElement)) {
+      return false;
+    }
+    dropZone.dispatchEvent(
+      new CustomEvent('vibe-file-reference-drop', {
+        detail: state.payload,
+        bubbles: false,
+      })
+    );
+    return true;
+  }, []);
+
+  const endCustomDrag = useCallback(
+    (clientX: number, clientY: number) => {
+      const dragState = getFileReferenceDragState();
+      const payload = dragState.payload;
+      if (!payload) {
+        clearCurrentDraggedFileReference();
+        setDropTargetPath(null);
+        return;
+      }
+
+      const targetPath = resolveDropTargetPathFromPoint(clientX, clientY);
+      if (targetPath !== null && canDropIntoDirectory(payload, targetPath)) {
+        void moveDraggedNode(payload, targetPath);
+        return;
+      }
+
+      if (dispatchDropToExternalZone(clientX, clientY)) {
+        clearCurrentDraggedFileReference();
+        setDropTargetPath(null);
+        return;
+      }
+
+      clearCurrentDraggedFileReference();
+      setDropTargetPath(null);
+    },
+    [
+      canDropIntoDirectory,
+      dispatchDropToExternalZone,
+      moveDraggedNode,
+      resolveDropTargetPathFromPoint,
+    ]
+  );
+
+  const beginPointerDrag = useCallback(
+    (payload: FileReferencePayload, event: React.PointerEvent) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      dragCandidateRef.current = {
+        payload,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const candidate = dragCandidateRef.current;
+        if (!candidate) {
+          return;
+        }
+
+        const dragState = getFileReferenceDragState();
+        const deltaX = moveEvent.clientX - candidate.startX;
+        const deltaY = moveEvent.clientY - candidate.startY;
+        const distance = Math.hypot(deltaX, deltaY);
+
+        if (!dragState.isDragging && distance < 6) {
+          return;
+        }
+
+        if (!dragState.isDragging) {
+          setCurrentDraggedFileReference(candidate.payload);
+          suppressClickPathRef.current = candidate.payload.relativePath;
+        }
+
+        updateFileReferenceDragPointer({
+          x: moveEvent.clientX,
+          y: moveEvent.clientY,
+        });
+
+        const hoveredPath = resolveDropTargetPathFromPoint(
+          moveEvent.clientX,
+          moveEvent.clientY
+        );
+        if (
+          hoveredPath !== null &&
+          canDropIntoDirectory(candidate.payload, hoveredPath)
+        ) {
+          setDropTargetPath(hoveredPath);
+        } else {
+          setDropTargetPath(null);
+        }
+      };
+
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+        window.removeEventListener('pointercancel', handlePointerUp);
+
+        const wasDragging = getFileReferenceDragState().isDragging;
+        dragCandidateRef.current = null;
+
+        if (!wasDragging) {
+          return;
+        }
+
+        endCustomDrag(upEvent.clientX, upEvent.clientY);
+      };
+
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+      window.addEventListener('pointercancel', handlePointerUp);
+    },
+    [canDropIntoDirectory, endCustomDrag, resolveDropTargetPathFromPoint]
   );
 
   const selectedParentFolder = useMemo(
     () => resolveParentFolderForNode(selectedNodePath, selectedNodeType),
-    [resolveParentFolderForNode, selectedNodePath, selectedNodeType],
+    [resolveParentFolderForNode, selectedNodePath, selectedNodeType]
   );
-  const canTrashSelectedNode =
-    selectedNodeType !== null && selectedNodePath !== null && selectedNodePath.length > 0;
   const contextMenuParentFolder = useMemo(
     () =>
       resolveParentFolderForNode(
-        contextMenu?.relativePath ?? "",
-        contextMenu?.isFolder ? "folder" : "file",
+        contextMenu?.relativePath ?? '',
+        contextMenu?.isFolder ? 'folder' : 'file'
       ),
-    [contextMenu?.isFolder, contextMenu?.relativePath, resolveParentFolderForNode],
+    [
+      contextMenu?.isFolder,
+      contextMenu?.relativePath,
+      resolveParentFolderForNode,
+    ]
   );
 
   /*
@@ -815,31 +1131,31 @@ export function FileTreePanel({
 
       const menuItems = [
         await MenuItem.new({
-          text: "新建文件",
+          text: "鏂板缓鏂囦欢",
           action: () => {
             openNewFilePrompt(parentFolder);
           },
         }),
         await MenuItem.new({
-          text: "新建文件夹",
+          text: "鏂板缓鏂囦欢澶?,
           action: () => {
             openNewFolderPrompt(parentFolder);
           },
         }),
         await MenuItem.new({
-          text: "复制",
+          text: "澶嶅埗",
           action: async () => {
             await duplicateItem(relativePath);
           },
         }),
         await MenuItem.new({
-          text: "复制路径",
+          text: "澶嶅埗璺緞",
           action: async () => {
             await copyPath(relativePath);
           },
         }),
         await MenuItem.new({
-          text: "在文件管理器中打开",
+          text: "鍦ㄦ枃浠剁鐞嗗櫒涓墦寮€",
           action: async () => {
             const absolutePath = resolvePath(relativePath);
             try {
@@ -858,7 +1174,7 @@ export function FileTreePanel({
           },
         }),
         await MenuItem.new({
-          text: "删除",
+          text: "鍒犻櫎",
           action: async () => {
             await trashItem(relativePath, isFolder);
           },
@@ -882,9 +1198,14 @@ export function FileTreePanel({
   );
   */
   const showContextMenu = useCallback(
-    (event: MouseEvent<HTMLButtonElement>, relativePath: string, isFolder: boolean) => {
+    (
+      event: MouseEvent<HTMLButtonElement>,
+      relativePath: string,
+      isFolder: boolean
+    ) => {
       event.preventDefault();
       event.stopPropagation();
+      setCopySubmenuOpen(false);
       setContextMenu({
         x: event.clientX,
         y: event.clientY,
@@ -892,7 +1213,7 @@ export function FileTreePanel({
         isFolder,
       });
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -913,7 +1234,7 @@ export function FileTreePanel({
     };
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === 'Escape') {
         closeContextMenu();
       }
     };
@@ -922,16 +1243,16 @@ export function FileTreePanel({
       closeContextMenu();
     };
 
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleEscape);
-    window.addEventListener("resize", handleWindowChange);
-    window.addEventListener("scroll", handleWindowChange, true);
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    window.addEventListener('resize', handleWindowChange);
+    window.addEventListener('scroll', handleWindowChange, true);
 
     return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("resize", handleWindowChange);
-      window.removeEventListener("scroll", handleWindowChange, true);
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('resize', handleWindowChange);
+      window.removeEventListener('scroll', handleWindowChange, true);
     };
   }, [closeContextMenu, contextMenu]);
 
@@ -941,38 +1262,45 @@ export function FileTreePanel({
         return;
       }
       const target = event.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
         return;
       }
       if (panelRef.current && !panelRef.current.contains(target)) {
         return;
       }
 
-      const isMac = navigator.platform.includes("Mac");
+      const isMac = navigator.platform.includes('Mac');
       const primaryModifier = isMac ? event.metaKey : event.ctrlKey;
 
-      if (primaryModifier && (event.key === "Delete" || event.key === "Backspace")) {
+      if (
+        primaryModifier &&
+        (event.key === 'Delete' || event.key === 'Backspace')
+      ) {
         event.preventDefault();
-        void trashItem(selectedNodePath, selectedNodeType === "folder");
+        void trashItem(selectedNodePath, selectedNodeType === 'folder');
         return;
       }
 
-      if (primaryModifier && !event.shiftKey && event.key.toLowerCase() === "c") {
+      if (
+        primaryModifier &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'c'
+      ) {
         event.preventDefault();
         void copyAbsolutePath(selectedNodePath);
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNodePath, selectedNodeType, trashItem, copyAbsolutePath]);
 
-  const renderInlineNewInput = (type: "file" | "folder", depth: number) => {
-    const isFile = type === "file";
+  const renderInlineNewInput = (type: 'file' | 'folder', depth: number) => {
+    const isFile = type === 'file';
     const inputRef = isFile ? newFileInputRef : newFolderInputRef;
     const name = isFile ? newFileName : newFolderName;
     const setName = isFile ? setNewFileName : setNewFolderName;
-    const defaultName = isFile ? "untitled" : "新建文件夹";
+    const defaultName = isFile ? 'untitled' : '新建文件夹';
     const doConfirm = isFile ? confirmNewFile : confirmNewFolder;
     const doCancel = isFile ? cancelNewFile : cancelNewFolder;
 
@@ -985,7 +1313,7 @@ export function FileTreePanel({
           <span className="file-tree-spacer" aria-hidden />
           <span className="file-tree-icon" aria-hidden>
             <FileIcon
-              filePath={isFile ? "untitled" : "folder"}
+              filePath={isFile ? 'untitled' : 'folder'}
               isFolder={!isFile}
               isOpen={false}
             />
@@ -997,11 +1325,11 @@ export function FileTreePanel({
             placeholder={defaultName}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") {
+              if (e.key === 'Escape') {
                 e.preventDefault();
                 doCancel();
               }
-              if (e.key === "Enter") {
+              if (e.key === 'Enter') {
                 e.preventDefault();
                 void doConfirm();
               }
@@ -1016,31 +1344,38 @@ export function FileTreePanel({
   };
 
   const renderNode = (node: FileTreeNode, depth: number) => {
-    const isFolder = node.type === "folder";
+    const isFolder = node.type === 'folder';
     const isLazyFolder = isFolder && (node.isLazyLoadable ?? false);
     const hasChildren = isFolder && node.children.length > 0;
     const canExpand = isFolder && (hasChildren || isLazyFolder);
     const isExpanded = canExpand && expandedFolders.has(node.path);
     const isLazyLoading = isLazyFolder && loadingLazyDirectories.has(node.path);
-    const lazyLoadError = isLazyFolder ? lazyDirectoryLoadErrors.get(node.path) ?? null : null;
+    const lazyLoadError = isLazyFolder
+      ? (lazyDirectoryLoadErrors.get(node.path) ?? null)
+      : null;
     const fileGitStatus = isFolder
-      ? folderGitStatusMap.get(node.path) ?? null
-      : gitStatusMap.get(node.path) ?? null;
+      ? (folderGitStatusMap.get(node.path) ?? null)
+      : (gitStatusMap.get(node.path) ?? null);
     const gitStatusClass = fileGitStatus
       ? ` git-${fileGitStatus.toLowerCase()}`
-      : "";
+      : '';
     const isGitignored = isFolder
       ? mergedGitignoredDirectories.has(node.path)
       : mergedGitignoredFiles.has(node.path);
+    const isDropTarget = isFolder && dropTargetPath === node.path;
     return (
       <div key={node.path}>
         <div className="file-tree-row-wrap">
           <button
             type="button"
-            draggable
-            className={`file-tree-row${isFolder ? " is-folder" : " is-file"}${isGitignored ? " is-gitignored" : ""}${selectedNodePath === node.path ? " is-selected" : ""}`}
+            className={`file-tree-row${isFolder ? ' is-folder' : ' is-file'}${isGitignored ? ' is-gitignored' : ''}${selectedNodePath === node.path ? ' is-selected' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
             style={{ paddingLeft: `${depth * 10}px` }}
             onClick={(event) => {
+              if (suppressClickPathRef.current === node.path) {
+                suppressClickPathRef.current = null;
+                event.preventDefault();
+                return;
+              }
               setSelectedNodePath(node.path);
               setSelectedNodeType(node.type);
               if (isFolder) {
@@ -1064,41 +1399,48 @@ export function FileTreePanel({
               setSelectedNodeType(node.type);
               void showContextMenu(event, node.path, isFolder);
             }}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "copy";
-              event.dataTransfer.setData(
-                FILE_REFERENCE_DRAG_MIME,
-                serializeFileReferencePayload({
+            onPointerDown={(event) =>
+              beginPointerDrag(
+                {
                   fileName: node.name,
                   relativePath: node.path,
-                  kind: isFolder ? "directory" : "file",
-                }),
-              );
-              event.dataTransfer.setData("text/plain", node.path);
-            }}
+                  kind: isFolder ? 'directory' : 'file',
+                },
+                event
+              )
+            }
+            data-file-tree-drop-path={isFolder ? node.path : undefined}
           >
             {isFolder && canExpand ? (
-              <span className={`file-tree-chevron${isExpanded ? " is-open" : ""}`}>
-                ›
+              <span
+                className={`file-tree-chevron${isExpanded ? ' is-open' : ''}`}
+              >
+                {'>'}
               </span>
             ) : (
               <span className="file-tree-spacer" aria-hidden />
             )}
             <span className="file-tree-icon" aria-hidden>
-              <FileIcon filePath={node.name} isFolder={isFolder} isOpen={isExpanded} />
+              <FileIcon
+                filePath={node.name}
+                isFolder={isFolder}
+                isOpen={isExpanded}
+              />
             </span>
-            <span className={`file-tree-name${gitStatusClass}`}>{node.name}</span>
+            <span className={`file-tree-name${gitStatusClass}`}>
+              {node.name}
+            </span>
           </button>
           {onInsertText && (
             <button
               type="button"
-              className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? " is-visible" : ""}`}
+              className={`ghost icon-button file-tree-action${selectedNodePath === node.path ? ' is-visible' : ''}`}
               onMouseDown={(event) => {
                 event.stopPropagation();
               }}
               onClick={(event) => {
                 event.stopPropagation();
-                const mentionText = `${node.path}${node.type === "file" ? " " : ""}`;
+                const mentionText = `${node.path}${node.type === 'file' ? ' ' : ''}`;
                 onInsertText(mentionText);
               }}
               aria-label={`引用 ${node.name}`}
@@ -1108,13 +1450,19 @@ export function FileTreePanel({
             </button>
           )}
         </div>
-        {isFolder && isExpanded && (hasChildren || newFolderParent === node.path || newFileParent === node.path) && (
-          <div className="file-tree-children">
-            {newFolderParent === node.path && renderInlineNewInput("folder", depth + 1)}
-            {newFileParent === node.path && renderInlineNewInput("file", depth + 1)}
-            {node.children.map((child) => renderNode(child, depth + 1))}
-          </div>
-        )}
+        {isFolder &&
+          isExpanded &&
+          (hasChildren ||
+            newFolderParent === node.path ||
+            newFileParent === node.path) && (
+            <div className="file-tree-children">
+              {newFolderParent === node.path &&
+                renderInlineNewInput('folder', depth + 1)}
+              {newFileParent === node.path &&
+                renderInlineNewInput('file', depth + 1)}
+              {node.children.map((child) => renderNode(child, depth + 1))}
+            </div>
+          )}
         {isLazyFolder && isExpanded && node.children.length === 0 && (
           <div className="file-tree-children">
             {isLazyLoading ? (
@@ -1128,9 +1476,7 @@ export function FileTreePanel({
               >
                 加载失败，点击重试
               </button>
-            ) : (
-              <div className="file-tree-lazy-state">无文件</div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
@@ -1144,20 +1490,37 @@ export function FileTreePanel({
           <div className="file-tree-root-wrap">
             <button
               type="button"
-              className={`file-tree-row is-folder is-root${selectedNodePath === "" ? " is-selected" : ""}`}
+              className={`file-tree-row is-folder is-root${selectedNodePath === '' ? ' is-selected' : ''}${dropTargetPath === '' ? ' is-drop-target' : ''}`}
+              data-file-tree-drop-path=""
               onClick={() => {
-                setSelectedNodePath("");
-                setSelectedNodeType("folder");
+                if (suppressClickPathRef.current === '') {
+                  suppressClickPathRef.current = null;
+                  return;
+                }
+                setSelectedNodePath('');
+                setSelectedNodeType('folder');
                 setRootExpanded((prev) => !prev);
               }}
               onContextMenu={(event) => {
-                setSelectedNodePath("");
-                setSelectedNodeType("folder");
-                void showContextMenu(event, "", true);
+                setSelectedNodePath('');
+                setSelectedNodeType('folder');
+                void showContextMenu(event, '', true);
               }}
+              onPointerDown={(event) =>
+                beginPointerDrag(
+                  {
+                    fileName: workspaceRootLabel,
+                    relativePath: '',
+                    kind: 'directory',
+                  },
+                  event
+                )
+              }
             >
-              <span className={`file-tree-chevron${isRootVisibleExpanded ? " is-open" : ""}`}>
-                ›
+              <span
+                className={`file-tree-chevron${isRootVisibleExpanded ? ' is-open' : ''}`}
+              >
+                {'>'}
               </span>
               <span className="file-tree-name">{workspaceRootLabel}</span>
             </button>
@@ -1186,30 +1549,26 @@ export function FileTreePanel({
               className="ghost icon-button file-tree-root-action"
               onClick={toggleAllFolders}
               disabled={!hasFolders}
-              aria-label={allVisibleExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
-              title={allVisibleExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
+              aria-label={
+                allVisibleExpanded ? '折叠所有文件夹' : '展开所有文件夹'
+              }
+              title={allVisibleExpanded ? '折叠所有文件夹' : '展开所有文件夹'}
             >
               <SquareMinus size={14} aria-hidden />
-            </button>
-            <button
-              type="button"
-              className="ghost icon-button file-tree-root-action file-tree-root-action-danger"
-              onClick={() => {
-                if (!canTrashSelectedNode || !selectedNodePath || !selectedNodeType) {
-                  return;
-                }
-                void trashItem(selectedNodePath, selectedNodeType === "folder");
-              }}
-              disabled={!canTrashSelectedNode}
-              aria-label="删除"
-              title="删除"
-            >
-              <Trash2 size={14} aria-hidden />
             </button>
           </div>
         </div>
       </div>
-      <div className="file-tree-list">
+      <div
+        className="file-tree-list"
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) {
+            return;
+          }
+          setSelectedNodePath('');
+          setSelectedNodeType('folder');
+        }}
+      >
         {showLoading ? (
           <div className="file-tree-skeleton">
             {Array.from({ length: 8 }).map((_, index) => (
@@ -1222,13 +1581,8 @@ export function FileTreePanel({
           </div>
         ) : !isRootVisibleExpanded ? null : (
           <>
-            {newFolderParent === "" && renderInlineNewInput("folder", 1)}
-            {newFileParent === "" && renderInlineNewInput("file", 1)}
-            {nodes.length === 0 && newFileParent !== "" && newFolderParent !== "" && (
-              <div className="file-tree-empty">
-                无文件
-              </div>
-            )}
+            {newFolderParent === '' && renderInlineNewInput('folder', 1)}
+            {newFileParent === '' && renderInlineNewInput('file', 1)}
             {nodes.map((node) => renderNode(node, 1))}
           </>
         )}
@@ -1237,106 +1591,132 @@ export function FileTreePanel({
         ? createPortal(
             <div
               ref={contextMenuRef}
-              className="fixed z-[10050] min-w-[220px] overflow-hidden rounded-xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-md"
+              className="fixed z-[10050] min-w-[220px] overflow-visible rounded-xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-md"
               style={{
-                top: Math.max(12, Math.min(contextMenu.y, window.innerHeight - 260)),
-                left: Math.max(12, Math.min(contextMenu.x, window.innerWidth - 240)),
+                top: Math.max(
+                  12,
+                  Math.min(contextMenu.y, window.innerHeight - 260)
+                ),
+                left: Math.max(
+                  12,
+                  Math.min(contextMenu.x, window.innerWidth - 240)
+                ),
               }}
             >
               <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">
                 <div className="truncate font-medium text-foreground">
-                  {contextMenu.relativePath || workspaceRootLabel}
+                  {contextMenu.relativePath
+                    ? (contextMenu.relativePath
+                        .split('/')
+                        .filter(Boolean)
+                        .pop() ?? contextMenu.relativePath)
+                    : workspaceRootLabel}
                 </div>
-                <div className="truncate">
-                  {contextMenu.relativePath ? contextMenu.relativePath : "."}
-                </div>
+                {contextMenu.relativePath ? (
+                  <div className="truncate">{contextMenu.relativePath}</div>
+                ) : null}
               </div>
 
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
                 onClick={() => {
                   closeContextMenu();
                   openNewFilePrompt(contextMenuParentFolder);
                 }}
               >
-                <FilePlus className="h-4 w-4" />
                 <span>{FILE_TREE_LABELS.newFile}</span>
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
                 onClick={() => {
                   closeContextMenu();
                   openNewFolderPrompt(contextMenuParentFolder);
                 }}
               >
-                <FolderPlus className="h-4 w-4" />
                 <span>{FILE_TREE_LABELS.newFolder}</span>
               </button>
-              {contextMenu.relativePath ? (
-                <>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                    onClick={() => {
-                      closeContextMenu();
-                      void duplicateItem(contextMenu.relativePath);
-                    }}
-                  >
-                    <Copy className="h-4 w-4" />
-                    <span>{FILE_TREE_LABELS.duplicate}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                    onClick={() => {
-                      closeContextMenu();
-                      void copyRelativePath(contextMenu.relativePath);
-                    }}
-                  >
-                    <Copy className="h-4 w-4" />
-                    <span>{FILE_TREE_LABELS.copyRelativePath}</span>
-                  </button>
-                </>
-              ) : null}
+              <div className="relative">
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                  onMouseEnter={() => setCopySubmenuOpen(true)}
+                  onFocus={() => setCopySubmenuOpen(true)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setCopySubmenuOpen((prev) => !prev);
+                  }}
+                >
+                  <span>{FILE_TREE_LABELS.copy}</span>
+                </button>
+                {copySubmenuOpen ? (
+                  <div className="absolute left-full top-0 z-10 ml-1 min-w-[220px] overflow-visible rounded-xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-md">
+                    {contextMenu.relativePath && !contextMenu.isFolder ? (
+                      <button
+                        type="button"
+                        className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                        onClick={() => {
+                          closeContextMenu();
+                          void duplicateItem(contextMenu.relativePath);
+                        }}
+                      >
+                        <span>{FILE_TREE_LABELS.duplicate}</span>
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                      onClick={() => {
+                        closeContextMenu();
+                        void copyRelativePath(contextMenu.relativePath);
+                      }}
+                    >
+                      <span>{FILE_TREE_LABELS.copyRelativePath}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                      onClick={() => {
+                        closeContextMenu();
+                        void copyAbsolutePath(contextMenu.relativePath);
+                      }}
+                    >
+                      <span>{FILE_TREE_LABELS.copyAbsolutePath}</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
+                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
                 onClick={() => {
                   closeContextMenu();
-                  void copyAbsolutePath(contextMenu.relativePath);
+                  void openInFileManager(
+                    contextMenu.relativePath,
+                    contextMenu.isFolder
+                  );
                 }}
               >
-                <Copy className="h-4 w-4" />
-                <span>{FILE_TREE_LABELS.copyAbsolutePath}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/70"
-                onClick={() => {
-                  closeContextMenu();
-                  void openInFileManager(contextMenu.relativePath);
-                }}
-              >
-                <FolderOpen className="h-4 w-4" />
                 <span>{FILE_TREE_LABELS.openInFileManager}</span>
               </button>
               {contextMenu.relativePath ? (
                 <button
                   type="button"
-                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                  className="mt-1 flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
                   onClick={() => {
                     closeContextMenu();
-                    void trashItem(contextMenu.relativePath, contextMenu.isFolder);
+                    void trashItem(
+                      contextMenu.relativePath,
+                      contextMenu.isFolder
+                    );
                   }}
                 >
-                  <Trash2 className="h-4 w-4" />
                   <span>{FILE_TREE_LABELS.delete}</span>
                 </button>
               ) : null}
             </div>,
-            document.body,
+            document.body
           )
         : null}
       {previewPath && previewAnchor
@@ -1358,17 +1738,32 @@ export function FileTreePanel({
               onClose={closePreview}
               selectionHints={selectionHints}
               style={{
-                position: "fixed",
+                position: 'fixed',
                 top: previewAnchor.top,
                 left: previewAnchor.left,
                 width: 640,
                 maxHeight: previewAnchor.height,
-                ["--file-preview-arrow-top" as string]: `${previewAnchor.arrowTop}px`,
+                ['--file-preview-arrow-top' as string]: `${previewAnchor.arrowTop}px`,
               }}
               isLoading={previewLoading}
               error={previewError}
             />,
-            document.body,
+            document.body
+          )
+        : null}
+      {dragOverlay
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed z-[10060] rounded-md border border-border/80 bg-popover/95 px-2 py-1 text-xs text-popover-foreground shadow-xl backdrop-blur-sm"
+              style={{
+                left: dragOverlay.x + 12,
+                top: dragOverlay.y + 12,
+              }}
+            >
+              {dragOverlay.payload.kind === 'directory' ? 'Folder: ' : 'File: '}
+              {dragOverlay.payload.fileName}
+            </div>,
+            document.body
           )
         : null}
     </aside>

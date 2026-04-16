@@ -21,8 +21,7 @@ export function useGitOperations(
     (err: RebaseResult) => {
       const data = err?.error;
       const isConflict =
-        data?.type === 'merge_conflicts' ||
-        data?.type === 'rebase_in_progress';
+        data?.type === 'merge_conflicts' || data?.type === 'rebase_in_progress';
       if (!isConflict) {
         setError('Failed to rebase');
       }
@@ -81,8 +80,7 @@ export function useGitOperations(
     (err: RebaseResult) => {
       const data = err?.error;
       const isConflict =
-        data?.type === 'merge_conflicts' ||
-        data?.type === 'rebase_in_progress';
+        data?.type === 'merge_conflicts' || data?.type === 'rebase_in_progress';
       if (!isConflict) {
         setError('Failed to rebase back');
       }

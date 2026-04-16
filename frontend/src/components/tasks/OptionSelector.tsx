@@ -26,6 +26,7 @@ interface OptionSelectorProps<T extends string> {
   menuLabel?: string;
   placeholder?: string;
   iconOnly?: boolean;
+  dropdownSide?: 'top' | 'bottom';
 }
 
 export function OptionSelector<T extends string>({
@@ -37,13 +38,14 @@ export function OptionSelector<T extends string>({
   menuLabel,
   placeholder = 'Select',
   iconOnly = false,
+  dropdownSide = 'bottom',
 }: OptionSelectorProps<T>) {
   const current =
     options.find((option) => option.value === value) ?? options[0] ?? null;
   const CurrentIcon = current?.icon;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant={iconOnly ? 'ghost' : 'secondary'}
@@ -66,7 +68,13 @@ export function OptionSelector<T extends string>({
           {!iconOnly ? <ChevronDown className="h-2.5 w-2.5" /> : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="min-w-[220px]">
+      <DropdownMenuContent
+        side={dropdownSide}
+        align="start"
+        sideOffset={1}
+        avoidCollisions={false}
+        className="min-w-[220px]"
+      >
         {menuLabel ? <DropdownMenuLabel>{menuLabel}</DropdownMenuLabel> : null}
         {options.map((option) => {
           const Icon = option.icon;
@@ -74,7 +82,7 @@ export function OptionSelector<T extends string>({
           return (
             <DropdownMenuItem
               key={option.value}
-              onClick={() => onChange(option.value)}
+              onSelect={() => onChange(option.value)}
               className={value === option.value ? 'bg-accent' : ''}
             >
               <div className="flex items-start gap-2">

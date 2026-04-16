@@ -42,7 +42,10 @@ export const GitDiffModal = memo(function GitDiffModal({
 
   if (!entry) return null;
 
-  const st = STATUS_LABELS[entry.status] ?? { label: entry.status, color: 'text-muted-foreground' };
+  const st = STATUS_LABELS[entry.status] ?? {
+    label: entry.status,
+    color: 'text-muted-foreground',
+  };
 
   return createPortal(
     <div
@@ -53,12 +56,18 @@ export const GitDiffModal = memo(function GitDiffModal({
       {/* Title bar */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 shrink-0">
         <span className={`font-bold text-xs ${st.color}`}>{st.label}</span>
-        <span className="font-mono text-sm text-foreground truncate flex-1">{entry.path}</span>
+        <span className="font-mono text-sm text-foreground truncate flex-1">
+          {entry.path}
+        </span>
 
         <button
           className="flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
           onClick={onToggleDiffStyle}
-          title={diffStyle === 'unified' ? 'Switch to split view' : 'Switch to unified view'}
+          title={
+            diffStyle === 'unified'
+              ? 'Switch to split view'
+              : 'Switch to unified view'
+          }
         >
           {diffStyle === 'unified' ? (
             <>

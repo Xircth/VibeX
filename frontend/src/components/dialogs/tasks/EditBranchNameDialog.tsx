@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';import {
+import { useEffect, useState } from 'react';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,7 +25,8 @@ export type EditBranchNameDialogResult = {
 
 const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
   ({ attemptId, currentBranchName }) => {
-    const modal = useModal();    const [branchName, setBranchName] = useState<string>(currentBranchName);
+    const modal = useModal();
+    const [branchName, setBranchName] = useState<string>(currentBranchName);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -128,9 +130,7 @@ const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
               onClick={handleConfirm}
               disabled={renameMutation.isPending || !branchName.trim()}
             >
-              {renameMutation.isPending
-                ? '重命名中...'
-                : '重命名分支'}
+              {renameMutation.isPending ? '重命名中...' : '重命名分支'}
             </Button>
           </DialogFooter>
         </DialogContent>

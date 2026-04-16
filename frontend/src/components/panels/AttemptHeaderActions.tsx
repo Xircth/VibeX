@@ -26,7 +26,8 @@ export const AttemptHeaderActions = ({
   onModeChange,
   task,
   attempt,
-}: AttemptHeaderActionsProps) => {  return (
+}: AttemptHeaderActionsProps) => {
+  return (
     <>
       {typeof mode !== 'undefined' && onModeChange && (
         <TooltipProvider>
@@ -50,9 +51,7 @@ export const AttemptHeaderActions = ({
                   <Eye className="h-4 w-4" />
                 </ToggleGroupItem>
               </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {'预览'}
-              </TooltipContent>
+              <TooltipContent side="bottom">{'预览'}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -65,9 +64,7 @@ export const AttemptHeaderActions = ({
                   <FileDiff className="h-4 w-4" />
                 </ToggleGroupItem>
               </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {'差异'}
-              </TooltipContent>
+              <TooltipContent side="bottom">{'差异'}</TooltipContent>
             </Tooltip>
             {/* {attempt?.id && (
               <>

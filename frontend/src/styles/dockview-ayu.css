@@ -242,7 +242,10 @@
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
-.dark [class*='dockview-theme-ayu'] .dv-tabs-container.dv-horizontal > .dv-tab:hover {
+.dark
+  [class*='dockview-theme-ayu']
+  .dv-tabs-container.dv-horizontal
+  > .dv-tab:hover {
   color: #edf2f7 !important;
   background-color: #2d3441 !important;
 }

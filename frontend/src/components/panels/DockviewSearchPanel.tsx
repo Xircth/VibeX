@@ -1,4 +1,10 @@
-import { useDeferredValue, useEffect, useMemo, useState, useCallback } from 'react';
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { Search, ChevronRight } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
@@ -20,7 +26,9 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [includePattern, setIncludePattern] = useState('');
   const [excludePattern, setExcludePattern] = useState('');
-  const [searchResults, setSearchResults] = useState<TextSearchResponse | null>(null);
+  const [searchResults, setSearchResults] = useState<TextSearchResponse | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
@@ -84,7 +92,16 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [normalizedQuery, caseSensitive, wholeWord, isRegex, includePattern, excludePattern, rootPath, isSearchMode]);
+  }, [
+    normalizedQuery,
+    caseSensitive,
+    wholeWord,
+    isRegex,
+    includePattern,
+    excludePattern,
+    rootPath,
+    isSearchMode,
+  ]);
 
   const summaryText = useMemo(() => {
     if (!rootPath) return '请先选择工作区';
@@ -121,14 +138,17 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
         location: location ?? null,
       });
     },
-    [rootPath, openFilePreview],
+    [rootPath, openFilePreview]
   );
 
   const renderFileResult = useCallback(
     (result: TextSearchFileResult) => {
       const isExpanded = expandedFiles.has(result.path);
       return (
-        <div key={result.path} className="border-b border-border/50 last:border-b-0">
+        <div
+          key={result.path}
+          className="border-b border-border/50 last:border-b-0"
+        >
           <button
             type="button"
             className="w-full flex items-center gap-1 px-2 py-1 text-left text-xs hover:bg-accent/50 transition-colors"
@@ -137,7 +157,9 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
             <ChevronRight
               className={`h-3 w-3 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
             />
-            <span className="truncate text-foreground font-medium">{result.path}</span>
+            <span className="truncate text-foreground font-medium">
+              {result.path}
+            </span>
             <span className="ml-auto shrink-0 text-muted-foreground text-[10px] bg-muted px-1 rounded">
               {result.match_count}
             </span>
@@ -159,7 +181,9 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                   <span className="shrink-0 text-muted-foreground w-12 text-right tabular-nums">
                     {match.line}:{match.column}
                   </span>
-                  <span className="truncate text-foreground/80">{match.preview}</span>
+                  <span className="truncate text-foreground/80">
+                    {match.preview}
+                  </span>
                 </button>
               ))}
             </div>
@@ -167,11 +191,14 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
         </div>
       );
     },
-    [expandedFiles, toggleExpanded, handleOpenFile],
+    [expandedFiles, toggleExpanded, handleOpenFile]
   );
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden bg-background" data-panel="search">
+    <div
+      className="h-full w-full flex flex-col overflow-hidden bg-background"
+      data-panel="search"
+    >
       {/* Search input bar */}
       <div className="shrink-0 px-2 pt-2 pb-1 border-b border-border">
         <div className="flex min-w-0 items-center gap-1 overflow-hidden bg-input rounded px-2 py-1">
@@ -186,55 +213,55 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
             autoFocus
           />
           <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
-              caseSensitive
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-            }`}
-            onClick={() => setCaseSensitive((prev) => !prev)}
-            title="区分大小写"
-          >
-            Aa
-          </button>
-          <button
-            type="button"
-            className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
-              wholeWord
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-            }`}
-            onClick={() => setWholeWord((prev) => !prev)}
-            title="全词匹配"
-          >
-            ab
-          </button>
-          <button
-            type="button"
-            className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
-              isRegex
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-            }`}
-            onClick={() => setIsRegex((prev) => !prev)}
-            title="正则表达式"
-          >
-            .*
-          </button>
-          <button
-            type="button"
-            className={`px-1 py-0.5 text-[10px] rounded transition-colors ${
-              showDetails
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-            }`}
-            onClick={() => setShowDetails((prev) => !prev)}
-            title="更多选项"
-          >
-            ...
-          </button>
-        </div>
+            <button
+              type="button"
+              className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
+                caseSensitive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              onClick={() => setCaseSensitive((prev) => !prev)}
+              title="区分大小写"
+            >
+              Aa
+            </button>
+            <button
+              type="button"
+              className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
+                wholeWord
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              onClick={() => setWholeWord((prev) => !prev)}
+              title="全词匹配"
+            >
+              ab
+            </button>
+            <button
+              type="button"
+              className={`px-1 py-0.5 text-[10px] font-mono rounded transition-colors ${
+                isRegex
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              onClick={() => setIsRegex((prev) => !prev)}
+              title="正则表达式"
+            >
+              .*
+            </button>
+            <button
+              type="button"
+              className={`px-1 py-0.5 text-[10px] rounded transition-colors ${
+                showDetails
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              onClick={() => setShowDetails((prev) => !prev)}
+              title="更多选项"
+            >
+              ...
+            </button>
+          </div>
         </div>
 
         {/* Include/Exclude patterns */}
@@ -258,9 +285,13 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
         )}
 
         {/* Summary */}
-        <div className="text-[10px] text-muted-foreground mt-1 px-0.5">{summaryText}</div>
+        <div className="text-[10px] text-muted-foreground mt-1 px-0.5">
+          {summaryText}
+        </div>
         {searchResults?.truncated && (
-          <div className="text-[10px] text-yellow-500 px-0.5">结果过多，仅显示部分匹配</div>
+          <div className="text-[10px] text-yellow-500 px-0.5">
+            结果过多，仅显示部分匹配
+          </div>
         )}
       </div>
 

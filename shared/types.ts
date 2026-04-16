@@ -132,11 +132,11 @@ export type Image = { id: string, file_path: string, original_name: string, mime
 
 export type CreateImage = { file_path: string, original_name: string, mime_type: string | null, size_bytes: bigint, hash: string, };
 
-export type Workspace = { id: string, task_id: string, container_ref: string | null, branch: string, use_worktree: boolean, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, };
+export type Workspace = { id: string, project_id: string, task_id: string, parent_workspace_id: string | null, container_ref: string | null, branch: string, use_worktree: boolean, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, };
 
-export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string, container_ref: string | null, branch: string, use_worktree: boolean, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, };
+export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, project_id: string, task_id: string, parent_workspace_id: string | null, container_ref: string | null, branch: string, use_worktree: boolean, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, };
 
-export type Session = { id: string, workspace_id: string, task_id: string | null, name: string | null, status: SessionStatus, executor: string | null, created_at: string, updated_at: string, };
+export type Session = { id: string, workspace_id: string, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus, executor: string | null, created_at: string, updated_at: string, };
 
 export type ExecutionProcess = { id: string, session_id: string, run_reason: ExecutionProcessRunReason, executor_action: ExecutorAction, status: ExecutionProcessStatus, exit_code: bigint | null, 
 /**
@@ -665,7 +665,7 @@ export const DEFAULT_COMMIT_REMINDER_PROMPT = "There are uncommitted changes. Pl
 
 export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE = "{title} (Vibe Ultra {id})\n\n{description}";
 
-export type CreateSession = { executor: string | null, task_id: string | null, name: string | null, status: SessionStatus | null, };
+export type CreateSession = { executor: string | null, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus | null, };
 
 export type SessionStatus = "todo" | "inprogress" | "inreview" | "done";
 

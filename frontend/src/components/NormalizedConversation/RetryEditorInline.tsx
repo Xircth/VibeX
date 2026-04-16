@@ -189,8 +189,7 @@ export function RetryEditorInline({
             <Paperclip className="h-3 w-3" />
           </Button>
           <Button variant="outline" onClick={onCancel} disabled={isSending}>
-            <X className="h-3 w-3 mr-1" />{' '}
-            {'取消'}
+            <X className="h-3 w-3 mr-1" /> {'取消'}
           </Button>
           <Button
             onClick={onSend}
@@ -198,8 +197,7 @@ export function RetryEditorInline({
             title={continuityCopy.retryLabel}
             aria-label={continuityCopy.retryLabel}
           >
-            <Send className="h-3 w-3 mr-1" />{' '}
-            {'发送'}
+            <Send className="h-3 w-3 mr-1" /> {'发送'}
           </Button>
         </div>
       </div>

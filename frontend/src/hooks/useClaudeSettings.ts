@@ -24,7 +24,10 @@ async function fetchClaudeSettings(): Promise<ClaudeSettings> {
     const raw = await fileTreeApi.readFile(settingsPath);
     const json = JSON.parse(raw) as Record<string, unknown>;
     const env = (json['env'] ?? {}) as Record<string, string>;
-    const enabledPlugins = (json['enabledPlugins'] ?? {}) as Record<string, boolean>;
+    const enabledPlugins = (json['enabledPlugins'] ?? {}) as Record<
+      string,
+      boolean
+    >;
     return { env, enabled_plugins: enabledPlugins };
   } catch {
     return { env: {}, enabled_plugins: {} };

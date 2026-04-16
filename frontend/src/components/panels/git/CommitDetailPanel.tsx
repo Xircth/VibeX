@@ -34,7 +34,9 @@ const FileRow = memo(function FileRow({ file }: { file: CommitFileEntry }) {
       >
         {file.status.charAt(0).toUpperCase()}
       </span>
-      <span className="flex-1 truncate font-mono text-foreground/80">{file.path}</span>
+      <span className="flex-1 truncate font-mono text-foreground/80">
+        {file.path}
+      </span>
       <span className="flex items-center gap-1 shrink-0 text-[10px]">
         {file.additions > 0 && (
           <span className="text-green-400 flex items-center gap-0.5">
@@ -97,7 +99,9 @@ export const CommitDetailPanel = memo(function CommitDetailPanel({
           </span>
           <span>
             <span className="text-foreground/60">Email</span>{' '}
-            <span className="font-mono text-foreground/80">{detail.author_email}</span>
+            <span className="font-mono text-foreground/80">
+              {detail.author_email}
+            </span>
           </span>
           <span>
             <span className="text-foreground/60">Date</span>{' '}
@@ -121,7 +125,9 @@ export const CommitDetailPanel = memo(function CommitDetailPanel({
         <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-b border-border/20 bg-background/50">
           <FileText className="h-3 w-3" />
           <span>Changed Files</span>
-          <span className="text-muted-foreground/60">({detail.files.length})</span>
+          <span className="text-muted-foreground/60">
+            ({detail.files.length})
+          </span>
           <div className="flex-1" />
           <span className="flex items-center gap-1 font-mono font-normal normal-case">
             <span className="text-green-400">+{totalAdditions}</span>

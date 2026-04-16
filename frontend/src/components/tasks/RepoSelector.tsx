@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';import { Button } from '@/components/ui/button.tsx';
+import { useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button.tsx';
 import { ChevronsUpDown, FolderGit } from 'lucide-react';
 import {
   DropdownMenu,
@@ -24,10 +25,10 @@ function RepoSelector({
   placeholder,
   className = '',
   disabled = false,
-}: Props) {  const [open, setOpen] = useState(false);
+}: Props) {
+  const [open, setOpen] = useState(false);
 
-  const effectivePlaceholder =
-    placeholder ?? '选择仓库';
+  const effectivePlaceholder = placeholder ?? '选择仓库';
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId);
 
@@ -60,7 +61,13 @@ function RepoSelector({
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent className="w-64">
+      <DropdownMenuContent
+        side="bottom"
+        align="start"
+        sideOffset={1}
+        avoidCollisions={false}
+        className="w-64"
+      >
         {repos.length === 0 ? (
           <div className="p-2 text-sm text-muted-foreground text-center">
             {'没有可用的仓库'}

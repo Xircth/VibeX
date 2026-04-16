@@ -29,12 +29,13 @@ const DisclaimerDialogImpl = NiceModal.create<NoProps>(() => {
           </div>
           <DialogDescription className="text-left space-y-4 pt-4">
             <p>
-              {APP_NAME} 默认以{' '}
-              <code>--dangerously-skip-permissions</code> / <code>--yolo</code>{' '}
-              模式运行 AI 编程 Agent，赋予其在你系统上执行代码和运行命令的完全访问权限。
+              {APP_NAME} 默认以 <code>--dangerously-skip-permissions</code> /{' '}
+              <code>--yolo</code> 模式运行 AI 编程
+              Agent，赋予其在你系统上执行代码和运行命令的完全访问权限。
             </p>
             <p>
-              <strong>重要：</strong>请始终关注 Agent 的操作行为，并确保重要工作已备份。本软件仍处于实验阶段，请谨慎使用。
+              <strong>重要：</strong>请始终关注 Agent
+              的操作行为，并确保重要工作已备份。本软件仍处于实验阶段，请谨慎使用。
             </p>
           </DialogDescription>
         </DialogHeader>

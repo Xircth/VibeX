@@ -529,6 +529,7 @@ pub trait ContainerService {
                         executor: None,
                         task_id: None,
                         name: None,
+                        initial_prompt: None,
                         status: Some(SessionStatus::Todo),
                     },
                     Uuid::new_v4(),
@@ -881,10 +882,7 @@ pub trait ContainerService {
                 store
                     .history_plus_stream() // BoxStream<Result<LogMsg, io::Error>>
                     .filter(|msg| {
-                        future::ready(matches!(
-                            msg,
-                            Ok(LogMsg::JsonPatch(..) | LogMsg::Finished)
-                        ))
+                        future::ready(matches!(msg, Ok(LogMsg::JsonPatch(..) | LogMsg::Finished)))
                     })
                     .chain(futures::stream::once(async {
                         Ok::<_, std::io::Error>(LogMsg::Finished)
@@ -1159,6 +1157,7 @@ pub trait ContainerService {
                 executor: Some(executor_config.executor.to_string()),
                 task_id: Some(task.id),
                 name: Some(task.title.clone()),
+                initial_prompt: task.description.clone(),
                 status: Some(SessionStatus::Todo),
             },
             Uuid::new_v4(),
@@ -1193,7 +1192,12 @@ pub trait ContainerService {
                 .ok_or(SqlxError::RowNotFound)?
         };
 
-        let prompt = task.to_prompt();
+        let prompt = session
+            .initial_prompt
+            .as_ref()
+            .filter(|prompt| !prompt.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| task.to_prompt());
 
         let repos_with_setup: Vec<_> = repos.iter().filter(|r| r.setup_script.is_some()).collect();
 

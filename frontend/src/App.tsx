@@ -4,6 +4,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
   useNavigate,
 } from 'react-router-dom';
 import { Projects } from '@/pages/Projects';
@@ -13,7 +14,6 @@ import { NormalLayout } from '@/components/layout/NormalLayout';
 import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
-import { skillsApi } from '@/lib/api';
 
 import {
   AgentSettings,
@@ -29,6 +29,8 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster } from '@/components/ui/sonner';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
+import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
+import { ProjectRail } from '@/components/layout/ProjectRail';
 
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
@@ -43,7 +45,7 @@ import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 // Design scope components
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 
-function AppContent() {
+function MainAppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
 
@@ -58,13 +60,6 @@ function AppContent() {
     return () => {
       document.body.classList.remove('legacy-design');
     };
-  }, []);
-
-  // Silently install ai-max commands on first launch
-  useEffect(() => {
-    skillsApi.ensureAimaxInstalled().catch(() => {
-      // Non-critical, ignore errors
-    });
   }, []);
 
   useEffect(() => {
@@ -150,6 +145,14 @@ function AppContent() {
               path="/local-projects/:projectId/tasks/:taskId/attempts/:attemptId"
               element={<ProjectTasks />}
             />
+            <Route
+              path="/local-projects/:projectId/workspaces/:workspaceId"
+              element={<ProjectTasks />}
+            />
+            <Route
+              path="/local-projects/:projectId/workspaces/:workspaceId/sessions/:sessionId"
+              element={<ProjectTasks />}
+            />
           </Route>
 
           {/* ========== SETTINGS ROUTES (standalone layout, no Navbar) ========== */}
@@ -200,6 +203,45 @@ function AppContent() {
       </SearchProvider>
     </ThemeProvider>
   );
+}
+
+function DesktopToastAppContent() {
+  const { config } = useUserSystem();
+
+  return (
+    <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
+      <DesktopToastWindow />
+    </ThemeProvider>
+  );
+}
+
+function ProjectRailAppContent() {
+  const { config } = useUserSystem();
+
+  return (
+    <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
+      <SearchProvider>
+        <ProjectWindowManager />
+        <LegacyDesignScope className="h-screen !min-h-0 overflow-hidden !bg-transparent">
+          <ProjectRail standalone />
+        </LegacyDesignScope>
+      </SearchProvider>
+    </ThemeProvider>
+  );
+}
+
+function AppContent() {
+  const location = useLocation();
+
+  if (location.pathname === '/desktop-toast') {
+    return <DesktopToastAppContent />;
+  }
+
+  if (location.pathname === '/project-rail') {
+    return <ProjectRailAppContent />;
+  }
+
+  return <MainAppContent />;
 }
 
 function App() {

@@ -31,12 +31,14 @@ export const sessionsApi = {
     workspace_id: string;
     executor?: string;
     name?: string | null;
+    initial_prompt?: string | null;
     task_id?: string | null;
   }): Promise<Session> => {
     return tauriInvoke<Session>('create_session', {
       workspaceId: data.workspace_id,
       executor: data.executor ?? null,
       name: data.name ?? null,
+      initialPrompt: data.initial_prompt ?? null,
       taskId: data.task_id ?? null,
     });
   },
@@ -53,10 +55,27 @@ export const sessionsApi = {
     });
   },
 
-  rename: async (
-    sessionId: string,
-    name: string | null
-  ): Promise<Session> => {
+  createProject: async (data: {
+    project_id: string;
+    workspace_id?: string | null;
+    executor?: string;
+    name?: string | null;
+    initial_prompt?: string | null;
+    create_workspace?: boolean;
+    repos?: Array<{ repo_id: string; target_branch: string }>;
+  }): Promise<Session> => {
+    return tauriInvoke<Session>('create_project_session', {
+      projectId: data.project_id,
+      workspaceId: data.workspace_id ?? null,
+      executor: data.executor ?? null,
+      name: data.name ?? null,
+      initialPrompt: data.initial_prompt ?? null,
+      createWorkspace: data.create_workspace ?? null,
+      repos: data.repos ?? null,
+    });
+  },
+
+  rename: async (sessionId: string, name: string | null): Promise<Session> => {
     return tauriInvoke<Session>('rename_session', {
       sessionId,
       name,

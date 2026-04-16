@@ -38,6 +38,7 @@ pub struct Session {
     pub workspace_id: Uuid,
     pub task_id: Option<Uuid>,
     pub name: Option<String>,
+    pub initial_prompt: Option<String>,
     pub status: SessionStatus,
     pub executor: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -49,6 +50,7 @@ pub struct CreateSession {
     pub executor: Option<String>,
     pub task_id: Option<Uuid>,
     pub name: Option<String>,
+    pub initial_prompt: Option<String>,
     pub status: Option<SessionStatus>,
 }
 
@@ -59,6 +61,7 @@ impl Session {
                       workspace_id,
                       task_id,
                       name,
+                      initial_prompt,
                       status,
                       executor,
                       created_at,
@@ -80,6 +83,7 @@ impl Session {
                       workspace_id,
                       task_id,
                       name,
+                      initial_prompt,
                       status,
                       executor,
                       created_at,
@@ -103,6 +107,7 @@ impl Session {
                       s.workspace_id,
                       s.task_id,
                       s.name,
+                      s.initial_prompt,
                       s.status,
                       s.executor,
                       s.created_at,
@@ -133,6 +138,7 @@ impl Session {
                       s.workspace_id,
                       s.task_id,
                       s.name,
+                      s.initial_prompt,
                       s.status,
                       s.executor,
                       s.created_at,
@@ -162,12 +168,13 @@ impl Session {
         workspace_id: Uuid,
     ) -> Result<Self, SessionError> {
         sqlx::query_as::<_, Session>(
-            r#"INSERT INTO sessions (id, workspace_id, task_id, name, status, executor)
-               VALUES (?, ?, ?, ?, ?, ?)
+            r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
                RETURNING id,
                          workspace_id,
                          task_id,
                          name,
+                         initial_prompt,
                          status,
                          executor,
                          created_at,
@@ -177,6 +184,11 @@ impl Session {
         .bind(workspace_id)
         .bind(data.task_id)
         .bind(data.name.as_deref().filter(|name| !name.trim().is_empty()))
+        .bind(
+            data.initial_prompt
+                .as_deref()
+                .filter(|prompt| !prompt.trim().is_empty()),
+        )
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
         .fetch_one(pool)

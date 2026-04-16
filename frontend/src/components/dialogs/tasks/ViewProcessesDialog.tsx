@@ -1,5 +1,6 @@
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
-import { defineModal } from '@/lib/modals';import {
+import { defineModal } from '@/lib/modals';
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -14,7 +15,8 @@ export interface ViewProcessesDialogProps {
 }
 
 const ViewProcessesDialogImpl = NiceModal.create<ViewProcessesDialogProps>(
-  ({ sessionId, initialProcessId }) => {    const modal = useModal();
+  ({ sessionId, initialProcessId }) => {
+    const modal = useModal();
 
     const handleOpenChange = (open: boolean) => {
       if (!open) {

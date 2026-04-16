@@ -37,11 +37,18 @@ const DiffCard = memo(function DiffCard({
       data-diff-path={entry.path}
     >
       {/* File header */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-xs" data-diff-header>
-        <span className={`font-bold text-[10px] ${statusColor}`}>{entry.status}</span>
+      <div
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-xs"
+        data-diff-header
+      >
+        <span className={`font-bold text-[10px] ${statusColor}`}>
+          {entry.status}
+        </span>
         <span className="font-mono text-foreground truncate">{entry.path}</span>
         {entry.is_binary && (
-          <span className="text-muted-foreground text-[10px] ml-auto">Binary file</span>
+          <span className="text-muted-foreground text-[10px] ml-auto">
+            Binary file
+          </span>
         )}
       </div>
 
@@ -55,7 +62,9 @@ const DiffCard = memo(function DiffCard({
       ) : entry.diff ? (
         <DiffBlock diff={entry.diff} diffStyle={diffStyle} />
       ) : (
-        <div className="px-3 py-2 text-xs text-muted-foreground italic">Empty diff</div>
+        <div className="px-3 py-2 text-xs text-muted-foreground italic">
+          Empty diff
+        </div>
       )}
     </div>
   );
@@ -68,7 +77,10 @@ export const GitDiffViewer = memo(function GitDiffViewer({
   onToggleDiffStyle,
 }: GitDiffViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [stickyFile, setStickyFile] = useState<{ path: string; status: string } | null>(null);
+  const [stickyFile, setStickyFile] = useState<{
+    path: string;
+    status: string;
+  } | null>(null);
 
   const effectiveDiffs = useMemo(() => {
     if (!selectedPath) return diffs;
@@ -132,42 +144,45 @@ export const GitDiffViewer = memo(function GitDiffViewer({
   }, [effectiveDiffs]);
 
   // Navigate to next/prev file
-  const navigateChange = useCallback(
-    (direction: 'prev' | 'next') => {
-      const container = containerRef.current;
-      if (!container) return;
+  const navigateChange = useCallback((direction: 'prev' | 'next') => {
+    const container = containerRef.current;
+    if (!container) return;
 
-      const headers = container.querySelectorAll('[data-diff-header]');
-      if (headers.length === 0) return;
+    const headers = container.querySelectorAll('[data-diff-header]');
+    if (headers.length === 0) return;
 
-      const containerRect = container.getBoundingClientRect();
-      let targetIdx = direction === 'next' ? 0 : headers.length - 1;
+    const containerRect = container.getBoundingClientRect();
+    let targetIdx = direction === 'next' ? 0 : headers.length - 1;
 
-      if (direction === 'next') {
-        for (let i = 0; i < headers.length; i++) {
-          const rect = headers[i].getBoundingClientRect();
-          if (rect.top > containerRect.top + 50) {
-            targetIdx = i;
-            break;
-          }
-        }
-      } else {
-        for (let i = headers.length - 1; i >= 0; i--) {
-          const rect = headers[i].getBoundingClientRect();
-          if (rect.top < containerRect.top - 10) {
-            targetIdx = i;
-            break;
-          }
+    if (direction === 'next') {
+      for (let i = 0; i < headers.length; i++) {
+        const rect = headers[i].getBoundingClientRect();
+        if (rect.top > containerRect.top + 50) {
+          targetIdx = i;
+          break;
         }
       }
+    } else {
+      for (let i = headers.length - 1; i >= 0; i--) {
+        const rect = headers[i].getBoundingClientRect();
+        if (rect.top < containerRect.top - 10) {
+          targetIdx = i;
+          break;
+        }
+      }
+    }
 
-      headers[targetIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
-    },
-    []
+    headers[targetIdx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const handlePrevChange = useCallback(
+    () => navigateChange('prev'),
+    [navigateChange]
   );
-
-  const handlePrevChange = useCallback(() => navigateChange('prev'), [navigateChange]);
-  const handleNextChange = useCallback(() => navigateChange('next'), [navigateChange]);
+  const handleNextChange = useCallback(
+    () => navigateChange('next'),
+    [navigateChange]
+  );
 
   if (diffs.length === 0) {
     return (
@@ -177,7 +192,9 @@ export const GitDiffViewer = memo(function GitDiffViewer({
     );
   }
 
-  const stickyStatusColor = stickyFile ? (STATUS_COLORS[stickyFile.status] ?? 'text-muted-foreground') : '';
+  const stickyStatusColor = stickyFile
+    ? (STATUS_COLORS[stickyFile.status] ?? 'text-muted-foreground')
+    : '';
 
   return (
     <div className="flex flex-col h-full">
@@ -211,7 +228,11 @@ export const GitDiffViewer = memo(function GitDiffViewer({
           <button
             className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             onClick={onToggleDiffStyle}
-            title={diffStyle === 'unified' ? 'Switch to split view' : 'Switch to unified view'}
+            title={
+              diffStyle === 'unified'
+                ? 'Switch to split view'
+                : 'Switch to unified view'
+            }
           >
             {diffStyle === 'unified' ? (
               <>
@@ -231,8 +252,12 @@ export const GitDiffViewer = memo(function GitDiffViewer({
       {/* Sticky file header */}
       {stickyFile && effectiveDiffs.length > 1 && (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-accent/30 border-b border-border/30 text-xs shrink-0">
-          <span className={`font-bold text-[10px] ${stickyStatusColor}`}>{stickyFile.status}</span>
-          <span className="font-mono text-foreground truncate">{stickyFile.path}</span>
+          <span className={`font-bold text-[10px] ${stickyStatusColor}`}>
+            {stickyFile.status}
+          </span>
+          <span className="font-mono text-foreground truncate">
+            {stickyFile.path}
+          </span>
         </div>
       )}
 

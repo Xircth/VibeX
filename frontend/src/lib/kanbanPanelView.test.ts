@@ -42,11 +42,15 @@ describe('kanbanPanelView', () => {
     });
 
     it('returns -33.333% for sessionHub', () => {
-      expect(getKanbanPanelTranslateX('sessionHub')).toBe('translateX(-33.333%)');
+      expect(getKanbanPanelTranslateX('sessionHub')).toBe(
+        'translateX(-33.333%)'
+      );
     });
 
     it('returns -66.666% for usageDashboard', () => {
-      expect(getKanbanPanelTranslateX('usageDashboard')).toBe('translateX(-66.666%)');
+      expect(getKanbanPanelTranslateX('usageDashboard')).toBe(
+        'translateX(-66.666%)'
+      );
     });
   });
 

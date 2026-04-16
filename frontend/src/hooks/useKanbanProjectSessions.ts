@@ -1,10 +1,10 @@
-﻿import { useEffect, useMemo } from 'react';
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { SessionStatus, SessionSummary } from '@/lib/api';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
-import { attemptsApi, sessionsApi } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
+import { sessionsApi } from '@/lib/api';
+import { useProjectWorkspacesStream } from './useProjectWorkspacesStream';
 
 export interface KanbanProjectSessionRecord {
   id: string;
@@ -26,6 +26,7 @@ export interface KanbanProjectSessionRecord {
   taskTitle: string | null;
   isCompleted: boolean;
   isRunning: boolean;
+  isErrored: boolean;
 }
 
 function truncateSessionName(name: string, length = 7) {
@@ -34,10 +35,7 @@ function truncateSessionName(name: string, length = 7) {
   return chars.slice(0, length).join('');
 }
 
-function buildDefaultSessionName(
-  summary: SessionSummary,
-  task: TaskWithAttemptStatus | null
-) {
+function buildDefaultSessionName(summary: SessionSummary) {
   const manualName = summary.name?.trim();
   if (manualName) {
     return {
@@ -56,15 +54,6 @@ function buildDefaultSessionName(
     };
   }
 
-  const taskTitle = task?.title?.trim();
-  if (taskTitle) {
-    return {
-      name: taskTitle,
-      source: 'task' as const,
-      prompt: null,
-    };
-  }
-
   return {
     name: summary.display_name?.trim() || '会话',
     source: 'display' as const,
@@ -72,48 +61,17 @@ function buildDefaultSessionName(
   };
 }
 
-function getWorkspaceName(
-  workspace: Workspace,
-  summary: SessionSummary,
-  task: TaskWithAttemptStatus | null
-) {
-  return workspace.name ?? summary.workspace_name ?? task?.title ?? workspace.branch;
+function getWorkspaceName(workspace: Workspace, summary: SessionSummary) {
+  return workspace.name ?? summary.workspace_name ?? workspace.branch;
 }
 
 export function useKanbanProjectSessions(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const {
-    tasks,
-    tasksById,
-    isLoading: isTasksLoading,
-  } = useProjectTasks(projectId ?? '');
-
-  const taskIds = useMemo(() => tasks.map((task) => task.id).sort(), [tasks]);
-
-  const { data: workspaces = [], isLoading: isWorkspacesLoading } = useQuery<
-    Workspace[]
-  >({
-    queryKey: ['kanbanProjectWorkspaces', projectId, taskIds],
-    queryFn: async () => {
-      if (!taskIds.length) return [];
-      const results = await Promise.all(
-        taskIds.map((taskId) => attemptsApi.getAll(taskId))
-      );
-      return results
-        .flat()
-        .filter((workspace) => !workspace.archived)
-        .filter(
-          (workspace, index, all) =>
-            all.findIndex((candidate) => candidate.id === workspace.id) === index
-        )
-        .sort(
-          (left, right) =>
-            new Date(right.updated_at).getTime() -
-            new Date(left.updated_at).getTime()
-        );
-    },
-    enabled: !!projectId,
-  });
+    workspaces,
+    workspacesWithStatus,
+    isLoading: isWorkspacesLoading,
+  } = useProjectWorkspacesStream(projectId ?? '');
 
   const sessionSummaryQueries = useQueries({
     queries: workspaces.map((workspace) => ({
@@ -142,6 +100,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         workspace_id: summary.workspace_id,
         task_id: summary.task_id,
         name: summary.name,
+        initial_prompt: summary.first_prompt,
         status: summary.status,
         executor: summary.executor,
         created_at: summary.created_at,
@@ -163,18 +122,23 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
   const sessions = useMemo<KanbanProjectSessionRecord[]>(() => {
     const nameMetaById = new Map<
       string,
-      { source: 'manual' | 'prompt' | 'task' | 'display'; prompt: string | null }
+      { source: 'manual' | 'prompt' | 'display'; prompt: string | null }
     >();
+    const workspaceStatusById = new Map(
+      workspacesWithStatus.map((workspace) => [
+        workspace.id,
+        workspace.is_errored,
+      ])
+    );
 
     const baseSessions = workspaces
       .flatMap((workspace, index) => {
         const summaries = sessionSummaryQueries[index]?.data ?? [];
 
         return summaries.map((summary) => {
-          const taskId = summary.task_id ?? workspace.task_id;
-          const task = taskId ? tasksById[taskId] ?? null : null;
-          const derivedName = buildDefaultSessionName(summary, task);
-          const workspaceName = getWorkspaceName(workspace, summary, task);
+          const derivedName = buildDefaultSessionName(summary);
+          const workspaceName = getWorkspaceName(workspace, summary);
+          const isErrored = workspaceStatusById.get(workspace.id) ?? false;
           nameMetaById.set(summary.id, {
             source: derivedName.source,
             prompt: derivedName.prompt,
@@ -187,8 +151,8 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
               workspaceId: workspace.id,
             },
             workspace,
-            task,
-            taskId,
+            task: null,
+            taskId: summary.task_id ?? workspace.task_id ?? null,
             name: summary.name,
             status: summary.status,
             branch: summary.workspace_branch,
@@ -200,9 +164,10 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             firstPrompt: summary.first_prompt,
             fullName: derivedName.name,
             shortName: truncateSessionName(derivedName.name),
-            taskTitle: task?.title ?? null,
+            taskTitle: null,
             isCompleted: summary.status === 'done',
             isRunning: summary.is_running,
+            isErrored,
           };
         });
       })
@@ -262,7 +227,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         shortName: truncateSessionName(resolvedName),
       };
     });
-  }, [sessionSummaryQueries, tasksById, workspaces]);
+  }, [sessionSummaryQueries, workspaces, workspacesWithStatus]);
 
   const sessionsById = useMemo(
     () =>
@@ -276,15 +241,13 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
     [sessions]
   );
 
-  const isLoading =
-    isTasksLoading ||
-    isWorkspacesLoading ||
-    sessionSummaryQueries.some((query) => query.isLoading);
-
   return {
     sessions,
     sessionsById,
     workspaces,
-    isLoading,
+    workspacesWithStatus,
+    isLoading:
+      isWorkspacesLoading ||
+      sessionSummaryQueries.some((query) => query.isLoading),
   };
 }

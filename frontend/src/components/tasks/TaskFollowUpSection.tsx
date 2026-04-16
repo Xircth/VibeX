@@ -1,4 +1,4 @@
-import { Loader2, AlertCircle, ArrowUp, Check, X } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowUp, X } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Tooltip,
@@ -7,8 +7,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ScratchType, type TaskWithAttemptStatus } from 'shared/types';
-import { useBranchStatus } from '@/hooks';
+import { ScratchType } from 'shared/types';
+import {
+  useBranchStatus,
+  useProjectRepos,
+  useProjectWorktrees,
+  useRepoBranchSelection,
+} from '@/hooks';
+import type { WorktreeInfo } from '@/hooks/useProjectWorktrees';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { cn } from '@/lib/utils';
@@ -20,7 +26,6 @@ import { useKeySubmitFollowUp, Scope } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Input } from '@/components/ui/input';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
 import { buildClickedElementData } from '@/contexts/ClickedElementsProvider';
@@ -58,10 +63,13 @@ import { SessionSelector } from './follow-up/SessionSelector';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
-import { TerminalProfileControls } from './TerminalProfileControls';
+import {
+  SessionCreationForm,
+  type SessionCreationMode,
+} from '@/components/sessions/SessionCreationForm';
 
 interface TaskFollowUpSectionProps {
-  task: TaskWithAttemptStatus;
+  taskId?: string | null;
   session?: Session;
   workspaceId?: string;
   onJumpToPreviousUserMessage?: () => void;
@@ -79,10 +87,8 @@ interface TaskFollowUpSectionProps {
     | 'sessions'
     | 'selectedSessionId'
     | 'selectSession'
-    | 'requestNewSession'
-    | 'confirmNewSession'
-    | 'cancelNewSession'
-    | 'isPendingNewSessionMode'
+    | 'selectLatestSession'
+    | 'startNewSession'
     | 'isNewSessionMode'
   >;
 }
@@ -133,7 +139,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function TaskFollowUpSection({
-  task,
+  taskId,
   session,
   workspaceId: workspaceIdProp,
   onJumpToPreviousUserMessage,
@@ -148,19 +154,17 @@ export function TaskFollowUpSection({
     sessions,
     selectedSessionId,
     selectSession,
-    requestNewSession,
-    confirmNewSession,
-    cancelNewSession,
-    isPendingNewSessionMode,
+    selectLatestSession,
+    startNewSession,
     isNewSessionMode,
   } = sessionState;
-  const isNewSessionConfigVisible =
-    isNewSessionMode || isPendingNewSessionMode;
-  const isAwaitingNewSessionConfirmation =
-    isPendingNewSessionMode && !isNewSessionMode;
+  const isNewSessionConfigVisible = isNewSessionMode;
+  const isAwaitingNewSessionConfirmation = false;
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
-  const selectedSessionSummary = sessions.find((s) => s.id === selectedSessionId);
+  const selectedSessionSummary = sessions.find(
+    (s) => s.id === selectedSessionId
+  );
   const selectedSessionLabel = isNewSessionMode
     ? `\u4f1a\u8bdd${sessions.length + 1}`
     : selectedSessionSummary
@@ -173,7 +177,7 @@ export function TaskFollowUpSection({
   );
 
   const { isAttemptRunning, stopExecution, isStopping, processes } =
-    useAttemptExecution(workspaceId, task.id);
+    useAttemptExecution(workspaceId, taskId ?? undefined);
 
   const { data: branchStatus, refetch: refetchBranchStatus } =
     useBranchStatus(workspaceId);
@@ -267,7 +271,28 @@ export function TaskFollowUpSection({
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [localMessage, setLocalMessage] = useState('');
   const [newSessionName, setNewSessionName] = useState('');
+  const [newSessionMode, setNewSessionMode] =
+    useState<SessionCreationMode>('existing_workspace');
+  const [newSessionWorkspaceId, setNewSessionWorkspaceId] = useState(
+    workspaceId ?? ''
+  );
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
+  const { data: projectRepos = [] } = useProjectRepos(projectId);
+  const { worktrees } = useProjectWorktrees(projectId);
+  const createWorkspaceOptions = useMemo(
+    () => worktrees.map((item: WorktreeInfo) => item.workspace),
+    [worktrees]
+  );
+  const {
+    configs: newSessionRepoBranchConfigs,
+    isLoading: isLoadingNewSessionBranches,
+    setRepoBranch: setNewSessionRepoBranch,
+    getWorkspaceRepoInputs: getNewSessionRepoInputs,
+    reset: resetNewSessionRepoSelection,
+  } = useRepoBranchSelection({
+    repos: projectRepos,
+    enabled: isNewSessionMode,
+  });
 
   const latestProfileId = useMemo(
     () => getLatestProfileFromProcesses(processes),
@@ -326,7 +351,11 @@ export function TaskFollowUpSection({
         await updateScratch({
           payload: {
             type: 'DRAFT_FOLLOW_UP',
-            data: { message, executor_profile_id: executorProfileId },
+            data: {
+              message,
+              executor_profile_id: executorProfileId,
+              queued: false,
+            } as DraftFollowUpData,
           },
         });
       } catch (e) {
@@ -390,7 +419,9 @@ export function TaskFollowUpSection({
   } = useQuery<QueueStatus>({
     queryKey: [QUEUE_STATUS_KEY, sessionId],
     queryFn: () =>
-      sessionId ? queueApi.getStatus(sessionId) : Promise.resolve(EMPTY_QUEUE_STATUS),
+      sessionId
+        ? queueApi.getStatus(sessionId)
+        : Promise.resolve(EMPTY_QUEUE_STATUS),
     enabled: !!sessionId,
   });
 
@@ -398,6 +429,7 @@ export function TaskFollowUpSection({
   const queuedMessage = isQueued
     ? (queueStatus as Extract<QueueStatus, { status: 'queued' }>).message
     : null;
+  const hasVisibleQueuedMessage = isAttemptRunning && !!queuedMessage;
 
   const queueMutation = useMutation({
     mutationFn: ({
@@ -448,18 +480,13 @@ export function TaskFollowUpSection({
     }
     if (processes.length > prevCount) {
       refreshQueueStatus();
-      setLocalMessage(scratchData?.message ?? '');
     }
-  }, [
-    isAttemptRunning,
-    workspaceId,
-    processes.length,
-    refreshQueueStatus,
-    scratchData?.message,
-  ]);
+  }, [isAttemptRunning, workspaceId, processes.length, refreshQueueStatus]);
 
-  const displayMessage =
-    isQueued && queuedMessage ? queuedMessage.data.message : localMessage;
+  useEffect(() => {
+    if (!sessionId) return;
+    void refreshQueueStatus();
+  }, [refreshQueueStatus, sessionId]);
 
   const handleSelectSession = useCallback(
     (nextSessionId: string) => {
@@ -525,24 +552,21 @@ export function TaskFollowUpSection({
 
   const canSendFollowUp = useMemo(() => {
     if (!canTypeFollowUp || !effectiveExecutorProfile?.executor) return false;
-    if (isAwaitingNewSessionConfirmation) return false;
+    if (isAwaitingNewSessionConfirmation || isNewSessionMode) return false;
     return Boolean(
       conflictResolutionInstructions || reviewMarkdown || localMessage.trim()
     );
   }, [
     canTypeFollowUp,
     isAwaitingNewSessionConfirmation,
+    isNewSessionMode,
     effectiveExecutorProfile?.executor,
     conflictResolutionInstructions,
     reviewMarkdown,
     localMessage,
   ]);
   const canEnhancePrompt = useMemo(
-    () =>
-      Boolean(
-        canTypeFollowUp &&
-          localMessage.trim()
-      ),
+    () => Boolean(canTypeFollowUp && localMessage.trim()),
     [canTypeFollowUp, localMessage]
   );
   const isEditable = !isRetryActive && !hasPendingApproval;
@@ -756,15 +780,65 @@ export function TaskFollowUpSection({
     }
   }, [isNewSessionConfigVisible, workspaceId]);
 
-  const handleConfirmNewSession = useCallback(() => {
-    confirmNewSession();
-  }, [confirmNewSession]);
-
   const handleCancelNewSession = useCallback(() => {
-    cancelNewSession();
+    selectLatestSession();
     setNewSessionName('');
+    setNewSessionWorkspaceId(workspaceId ?? '');
+    setNewSessionMode(
+      createWorkspaceOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
+    );
+    resetNewSessionRepoSelection();
     setSelectedExecutorProfile(defaultExecutorProfile);
-  }, [cancelNewSession, defaultExecutorProfile]);
+  }, [
+    createWorkspaceOptions.length,
+    defaultExecutorProfile,
+    resetNewSessionRepoSelection,
+    selectLatestSession,
+    workspaceId,
+  ]);
+
+  const canCreateSessionDirectly =
+    !!effectiveExecutorProfile?.executor &&
+    (newSessionMode === 'existing_workspace'
+      ? !!newSessionWorkspaceId
+      : projectRepos.length > 0 &&
+        newSessionRepoBranchConfigs.length > 0 &&
+        newSessionRepoBranchConfigs.every((config) => !!config.targetBranch));
+
+  const createSessionMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) {
+        throw new Error('Project is required');
+      }
+
+      return sessionsApi.createProject({
+        project_id: projectId,
+        workspace_id:
+          newSessionMode === 'existing_workspace'
+            ? newSessionWorkspaceId
+            : null,
+        executor: effectiveExecutorProfile?.executor ?? undefined,
+        name: newSessionName.trim() || null,
+        create_workspace: newSessionMode === 'new_workspace',
+        repos:
+          newSessionMode === 'new_workspace'
+            ? getNewSessionRepoInputs()
+            : undefined,
+      });
+    },
+    onSuccess: async (newSession) => {
+      await queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', newSession.workspace_id],
+      });
+      onSessionCreated?.({
+        sessionId: newSession.id,
+        workspaceId: newSession.workspace_id,
+      });
+      handleSelectSession(newSession.id);
+      setNewSessionName('');
+      setNewSessionWorkspaceId(newSession.workspace_id);
+    },
+  });
 
   if (!workspaceId) return null;
 
@@ -813,7 +887,14 @@ export function TaskFollowUpSection({
                 />
               )}
 
-              <MessageQueueIndicator isQueued={isQueued && !!queuedMessage} />
+              <MessageQueueIndicator
+                isQueued={hasVisibleQueuedMessage}
+                messagePreview={
+                  hasVisibleQueuedMessage
+                    ? (queuedMessage?.data.message ?? null)
+                    : null
+                }
+              />
             </div>
           </div>
         </div>
@@ -844,7 +925,16 @@ export function TaskFollowUpSection({
                       {`${fileCount} 个文件更改`}
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent>{`+${added} -${deleted}`}</TooltipContent>
+                  <TooltipContent>
+                    <div className="flex items-center gap-2 font-mono">
+                      <span className="text-green-600 dark:text-green-400">
+                        +{added}
+                      </span>
+                      <span className="text-red-600 dark:text-red-400">
+                        -{deleted}
+                      </span>
+                    </div>
+                  </TooltipContent>
                 </Tooltip>
               ) : null}
 
@@ -858,13 +948,17 @@ export function TaskFollowUpSection({
                     type="button"
                     onClick={onJumpToPreviousUserMessage}
                     className="flex items-center justify-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label={'\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'}
+                    aria-label={
+                      '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'
+                    }
                     disabled={!onJumpToPreviousUserMessage}
                   >
                     <ArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{'\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'}</TooltipContent>
+                <TooltipContent>
+                  {'\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'}
+                </TooltipContent>
               </Tooltip>
 
               {showSessionSelector ? (
@@ -874,8 +968,9 @@ export function TaskFollowUpSection({
                   compactSessionLabel={compactSessionLabel}
                   selectedSessionLabel={selectedSessionLabel}
                   onSelectSession={handleSelectSession}
-                  onStartNewSession={requestNewSession}
+                  onStartNewSession={startNewSession}
                   onRenameSession={handleRenameSession}
+                  dropdownSide="top"
                 />
               ) : null}
             </div>
@@ -887,57 +982,48 @@ export function TaskFollowUpSection({
                 <div className="text-xs font-medium text-foreground">
                   {'\u65b0\u5efa\u4f1a\u8bdd\u914d\u7f6e'}
                 </div>
-                {isAwaitingNewSessionConfirmation ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={handleCancelNewSession}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
-                      aria-label="取消新建会话"
-                      title="取消新建会话"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmNewSession}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
-                      aria-label="确认新建会话"
-                      title="确认新建会话"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={handleCancelNewSession}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label="取消新建会话"
+                  title="取消新建会话"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <div className="mb-2 space-y-1">
-                <div className="text-[11px] text-muted-foreground">
-                  {'\u4f1a\u8bdd\u540d\u79f0\uff08\u53ef\u9009\uff09'}
-                </div>
-                <Input
-                  value={newSessionName}
-                  onChange={(event) => setNewSessionName(event.target.value)}
-                  placeholder={'\u4e0d\u586b\u5219\u4f7f\u7528\u9996\u6761\u6d88\u606f\u81ea\u52a8\u547d\u540d'}
-                  className="h-8 rounded-md border-border/60 bg-background text-sm"
-                  autoFocus
-                />
-              </div>
-              <TerminalProfileControls
+              <SessionCreationForm
+                mode={newSessionMode}
+                onModeChange={setNewSessionMode}
+                createWorkspaceOptions={createWorkspaceOptions}
+                selectedWorkspaceId={newSessionWorkspaceId}
+                onSelectedWorkspaceIdChange={setNewSessionWorkspaceId}
+                sessionName={newSessionName}
+                onSessionNameChange={setNewSessionName}
                 profiles={profiles}
-                selectedProfile={effectiveExecutorProfile}
-                onChange={(profile) => setSelectedExecutorProfile(profile)}
-                disabled={!isEditable}
-                showLabel={true}
-                iconOnly={false}
-                className="grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]"
+                selectedExecutorProfile={effectiveExecutorProfile}
+                onSelectedExecutorProfileChange={setSelectedExecutorProfile}
+                repoBranchConfigs={newSessionRepoBranchConfigs}
+                onRepoBranchChange={setNewSessionRepoBranch}
+                isLoadingBranches={isLoadingNewSessionBranches}
+                canSubmit={canCreateSessionDirectly}
+                isSubmitting={createSessionMutation.isPending}
+                errorMessage={
+                  createSessionMutation.error
+                    ? getErrorMessage(createSessionMutation.error)
+                    : null
+                }
+                onSubmit={() => createSessionMutation.mutate()}
+                onCancel={handleCancelNewSession}
+                compact
+                dropdownSide="top"
               />
             </div>
           ) : null}
 
-
           <WYSIWYGEditor
             placeholder=""
-            value={displayMessage}
+            value={localMessage}
             onChange={handleEditorChange}
             disabled={!isEditable}
             onPasteFiles={handlePasteFiles}
@@ -959,7 +1045,7 @@ export function TaskFollowUpSection({
             showProfileControls={!isNewSessionConfigVisible}
             isEditable={isEditable}
             isAttemptRunning={isAttemptRunning}
-            isQueued={isQueued}
+            isQueued={hasVisibleQueuedMessage}
             isQueueLoading={isQueueLoading}
             isStopping={isStopping}
             isSendingFollowUp={isSendingFollowUp}

@@ -4,26 +4,19 @@ import '@/vscode/bridge';
 import { useParams } from 'react-router-dom';
 import { AppWithStyleOverride } from '@/utils/StyleOverride';
 import { WebviewContextMenu } from '@/vscode/ContextMenu';
-import TaskAttemptPanel from '@/components/panels/TaskAttemptPanel';
+import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
-import { useProjectTasks } from '@/hooks/useProjectTasks';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
+import { Loader } from '@/components/ui/loader';
 
 export function FullAttemptLogsPage() {
-  const {
-    projectId = '',
-    taskId = '',
-    attemptId = '',
-  } = useParams<{
+  const { attemptId = '' } = useParams<{
     projectId: string;
-    taskId: string;
     attemptId: string;
   }>();
 
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
-  const { tasksById } = useProjectTasks(projectId);
-  const task = taskId ? (tasksById[taskId] ?? null) : null;
 
   return (
     <AppWithStyleOverride>
@@ -34,35 +27,19 @@ export function FullAttemptLogsPage() {
           {attempt ? (
             <ClickedElementsProvider attempt={attempt}>
               <ReviewProvider key={attempt.id}>
-                <TaskAttemptPanel attempt={attempt} task={task}>
-                  {({ logs, followUp }) => (
-                    <div className="h-full min-h-0 flex flex-col">
-                      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                        {logs}
-                      </div>
-                      <div className="min-h-0 max-h-[50%] border-t overflow-hidden">
-                        <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">
-                          {followUp}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </TaskAttemptPanel>
+                <KanbanSessionConversationView
+                  workspaceId={attempt.id}
+                  sessionId={attempt.session?.id ?? ''}
+                  initialWorkspace={attempt}
+                  initialSession={attempt.session}
+                  interactive={true}
+                  showSessionSelector={true}
+                  className="h-full"
+                />
               </ReviewProvider>
             </ClickedElementsProvider>
           ) : (
-            <TaskAttemptPanel attempt={attempt} task={task}>
-              {({ logs, followUp }) => (
-                <div className="h-full min-h-0 flex flex-col">
-                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{logs}</div>
-                  <div className="min-h-0 max-h-[50%] border-t overflow-hidden">
-                    <div className="mx-auto w-full max-w-[50rem] h-full min-h-0">
-                      {followUp}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </TaskAttemptPanel>
+            <Loader message={'加载会话中...'} size={32} className="py-8" />
           )}
         </main>
       </div>

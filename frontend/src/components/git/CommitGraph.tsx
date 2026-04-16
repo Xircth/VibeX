@@ -59,10 +59,7 @@ export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
 
   const { openOrFocusPanel } = usePanelActionsContext();
 
-  const laneNodes = useMemo(
-    () => (graph ? assignLanes(graph) : []),
-    [graph]
-  );
+  const laneNodes = useMemo(() => (graph ? assignLanes(graph) : []), [graph]);
 
   const nodeMap = useMemo(() => {
     const map = new Map<string, LaneNode>();
@@ -175,9 +172,7 @@ export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
                 : node.is_current_branch
                   ? COLORS.currentBranch
                   : COLORS.targetBranch;
-              const radius = node.isMergeBase
-                ? MERGE_BASE_RADIUS
-                : NODE_RADIUS;
+              const radius = node.isMergeBase ? MERGE_BASE_RADIUS : NODE_RADIUS;
 
               return (
                 <g key={node.full_hash}>

@@ -1,19 +1,25 @@
-import { useMemo } from "react";
-import type { CSSProperties, MouseEvent } from "react";
-import { X } from "lucide-react";
-import { highlightLine, languageFromPath } from "../../utils/syntax";
+import { useMemo } from 'react';
+import type { CSSProperties, MouseEvent } from 'react';
+import { X } from 'lucide-react';
+import { highlightLine, languageFromPath } from '../../utils/syntax';
 
 type FilePreviewPopoverProps = {
   path: string;
   absolutePath: string;
   content: string;
   truncated: boolean;
-  previewKind?: "text" | "image";
+  previewKind?: 'text' | 'image';
   imageSrc?: string | null;
   selection: { start: number; end: number } | null;
   onSelectLine: (index: number, event: MouseEvent<HTMLButtonElement>) => void;
-  onLineMouseDown?: (index: number, event: MouseEvent<HTMLButtonElement>) => void;
-  onLineMouseEnter?: (index: number, event: MouseEvent<HTMLButtonElement>) => void;
+  onLineMouseDown?: (
+    index: number,
+    event: MouseEvent<HTMLButtonElement>
+  ) => void;
+  onLineMouseEnter?: (
+    index: number,
+    event: MouseEvent<HTMLButtonElement>
+  ) => void;
   onLineMouseUp?: (index: number, event: MouseEvent<HTMLButtonElement>) => void;
   onClearSelection: () => void;
   onAddSelection: () => void;
@@ -29,7 +35,7 @@ export function FilePreviewPopover({
   absolutePath: _absolutePath,
   content,
   truncated,
-  previewKind = "text",
+  previewKind = 'text',
   imageSrc = null,
   selection,
   onSelectLine,
@@ -44,26 +50,26 @@ export function FilePreviewPopover({
   isLoading = false,
   error = null,
 }: FilePreviewPopoverProps) {
-  const isImagePreview = previewKind === "image";
+  const isImagePreview = previewKind === 'image';
   const lines = useMemo(
-    () => (isImagePreview ? [] : content.split("\n")),
-    [content, isImagePreview],
+    () => (isImagePreview ? [] : content.split('\n')),
+    [content, isImagePreview]
   );
   const language = useMemo(() => languageFromPath(path), [path]);
   const selectionLabel = selection
     ? `Lines ${selection.start + 1}-${selection.end + 1}`
     : isImagePreview
-      ? "图片预览"
-      : "未选择行";
+      ? '图片预览'
+      : '未选择行';
   const highlightedLines = useMemo(
     () =>
       isImagePreview
         ? []
         : lines.map((line) => {
             const html = highlightLine(line, language);
-            return html || "&nbsp;";
+            return html || '&nbsp;';
           }),
-    [lines, language, isImagePreview],
+    [lines, language, isImagePreview]
   );
 
   return (
@@ -71,9 +77,7 @@ export function FilePreviewPopover({
       <div className="file-preview-header">
         <div className="file-preview-title">
           <span className="file-preview-path">{path}</span>
-          {truncated && (
-            <span className="file-preview-warning">Truncated</span>
-          )}
+          {truncated && <span className="file-preview-warning">Truncated</span>}
         </div>
         <button
           type="button"
@@ -140,11 +144,9 @@ export function FilePreviewPopover({
           </div>
           <div className="file-preview-lines" role="list">
             {lines.map((_, index) => {
-              const html = highlightedLines[index] ?? "&nbsp;";
+              const html = highlightedLines[index] ?? '&nbsp;';
               const isSelected =
-                selection &&
-                index >= selection.start &&
-                index <= selection.end;
+                selection && index >= selection.start && index <= selection.end;
               const isStart = isSelected && selection?.start === index;
               const isEnd = isSelected && selection?.end === index;
               return (
@@ -152,8 +154,8 @@ export function FilePreviewPopover({
                   key={`line-${index}`}
                   type="button"
                   className={`file-preview-line${
-                    isSelected ? " is-selected" : ""
-                  }${isStart ? " is-start" : ""}${isEnd ? " is-end" : ""}`}
+                    isSelected ? ' is-selected' : ''
+                  }${isStart ? ' is-start' : ''}${isEnd ? ' is-end' : ''}`}
                   onClick={(event) => onSelectLine(index, event)}
                   onMouseDown={(event) => onLineMouseDown?.(index, event)}
                   onMouseEnter={(event) => onLineMouseEnter?.(index, event)}
@@ -162,7 +164,7 @@ export function FilePreviewPopover({
                   <span className="file-preview-line-number">{index + 1}</span>
                   <span
                     className="file-preview-line-text"
-                    dangerouslySetInnerHTML={{ __html: html || "&nbsp;" }}
+                    dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }}
                   />
                 </button>
               );

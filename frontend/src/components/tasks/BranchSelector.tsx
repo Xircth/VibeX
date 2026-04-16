@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';import { Button } from '@/components/ui/button.tsx';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
+import { Button } from '@/components/ui/button.tsx';
 import { ArrowDown, GitBranch as GitBranchIcon, Search } from 'lucide-react';
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ type Props = {
   className?: string;
   excludeCurrentBranch?: boolean;
   disabledTooltip?: string;
+  dropdownSide?: 'top' | 'bottom';
 };
 
 type RowProps = {
@@ -45,7 +47,8 @@ const BranchRow = memo(function BranchRow({
   onHover,
   onSelect,
   disabledTooltip,
-}: RowProps) {  const classes =
+}: RowProps) {
+  const classes =
     (isSelected ? 'bg-accent text-accent-foreground ' : '') +
     (isDisabled ? 'opacity-50 cursor-not-allowed ' : '') +
     (!isSelected && isHighlighted ? 'bg-accent/70 ring-2 ring-accent ' : '') +
@@ -66,14 +69,10 @@ const BranchRow = memo(function BranchRow({
         </span>
         <div className="flex gap-1 flex-shrink-0">
           {branch.is_current && (
-            <span className="text-xs bg-background px-1 rounded">
-              {'当前'}
-            </span>
+            <span className="text-xs bg-background px-1 rounded">{'当前'}</span>
           )}
           {branch.is_remote && (
-            <span className="text-xs bg-background px-1 rounded">
-              {'远程'}
-            </span>
+            <span className="text-xs bg-background px-1 rounded">{'远程'}</span>
           )}
         </div>
       </div>
@@ -104,7 +103,9 @@ function BranchSelector({
   className = '',
   excludeCurrentBranch = false,
   disabledTooltip,
-}: Props) {  const [branchSearchTerm, setBranchSearchTerm] = useState('');
+  dropdownSide = 'bottom',
+}: Props) {
+  const [branchSearchTerm, setBranchSearchTerm] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -217,7 +218,13 @@ function BranchSelector({
       </DropdownMenuTrigger>
 
       <TooltipProvider>
-        <DropdownMenuContent className="w-80">
+        <DropdownMenuContent
+          side={dropdownSide}
+          align="start"
+          sideOffset={1}
+          avoidCollisions={false}
+          className="w-80"
+        >
           <div className="p-2">
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />

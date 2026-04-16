@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';import { Button } from '@/components/ui/button';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -35,7 +36,8 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
     title = 'Select Folder',
     description = 'Choose a folder for your project',
   }) => {
-    const modal = useModal();    const [currentPath, setCurrentPath] = useState<string>('');
+    const modal = useModal();
+    const [currentPath, setCurrentPath] = useState<string>('');
     const [entries, setEntries] = useState<DirectoryEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -154,9 +156,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
 
               {/* Manual path input */}
               <div className="space-y-2">
-                <div className="text-sm font-medium">
-                  {'手动输入路径:'}
-                </div>
+                <div className="text-sm font-medium">{'手动输入路径:'}</div>
                 <div className="flex space-x-2 min-w-0">
                   <Input
                     value={manualPath}
@@ -177,9 +177,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
 
               {/* Search input */}
               <div className="space-y-2">
-                <div className="text-sm font-medium">
-                  {'搜索当前目录:'}
-                </div>
+                <div className="text-sm font-medium">{'搜索当前目录:'}</div>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input

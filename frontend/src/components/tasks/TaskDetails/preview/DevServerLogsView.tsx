@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';import { Terminal, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Terminal, ChevronDown } from 'lucide-react';
 import ProcessLogsViewer from '../ProcessLogsViewer';
 import { getDevServerWorkingDir } from '@/lib/devServerUtils';
 import { cn } from '@/lib/utils';
@@ -18,7 +19,8 @@ export function DevServerLogsView({
   onToggle,
   height = 'h-60',
   showToggleText = true,
-}: DevServerLogsViewProps) {  const [activeProcessId, setActiveProcessId] = useState<string | null>(null);
+}: DevServerLogsViewProps) {
+  const [activeProcessId, setActiveProcessId] = useState<string | null>(null);
 
   useEffect(() => {
     if (devServerProcesses.length > 0 && !activeProcessId) {
@@ -56,11 +58,7 @@ export function DevServerLogsView({
             <ChevronDown
               className={`h-4 w-4 mr-1 ${showToggleText ? 'transition-transform' : ''} ${showLogs ? '' : 'rotate-180'}`}
             />
-            {showToggleText
-              ? showLogs
-                ? '隐藏'
-                : '显示'
-              : '隐藏'}
+            {showToggleText ? (showLogs ? '隐藏' : '显示') : '隐藏'}
           </div>
         </div>
       </summary>

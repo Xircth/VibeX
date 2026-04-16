@@ -1,4 +1,4 @@
-import { Brain, ChevronDown } from 'lucide-react';
+import { ChevronDown, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -21,6 +21,7 @@ interface CodexModelSelectorProps {
   disabled?: boolean;
   className?: string;
   iconOnly?: boolean;
+  dropdownSide?: 'top' | 'bottom';
 }
 
 export function CodexModelSelector({
@@ -30,14 +31,16 @@ export function CodexModelSelector({
   disabled,
   className,
   iconOnly = false,
+  dropdownSide = 'bottom',
 }: CodexModelSelectorProps) {
-  const current = options.find((option) => option.value === value) ?? options[0] ?? {
-    value: null,
-    label: '默认',
-  };
+  const current = options.find((option) => option.value === value) ??
+    options[0] ?? {
+      value: null,
+      label: '默认',
+    };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           variant={iconOnly ? 'ghost' : 'secondary'}
@@ -51,23 +54,31 @@ export function CodexModelSelector({
           disabled={disabled}
           title={current.label}
         >
-          <Brain className="h-3 w-3" />
+          <Cpu className="h-3 w-3" />
           {!iconOnly ? (
-            <span className="text-xs truncate max-w-[140px]">{current.label}</span>
+            <span className="text-xs truncate max-w-[140px]">
+              {current.label}
+            </span>
           ) : null}
           {!iconOnly ? <ChevronDown className="h-2.5 w-2.5" /> : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="min-w-[220px]">
+      <DropdownMenuContent
+        side={dropdownSide}
+        align="start"
+        sideOffset={1}
+        avoidCollisions={false}
+        className="min-w-[220px]"
+      >
         <DropdownMenuLabel>模型</DropdownMenuLabel>
         {options.map((option) => (
           <DropdownMenuItem
             key={option.value ?? 'DEFAULT'}
-            onClick={() => onChange(option.value)}
+            onSelect={() => onChange(option.value)}
             className={value === option.value ? 'bg-accent' : ''}
           >
             <span className="flex items-center gap-2">
-              <Brain className="h-3.5 w-3.5" />
+              <Cpu className="h-3.5 w-3.5" />
               {option.label}
             </span>
           </DropdownMenuItem>

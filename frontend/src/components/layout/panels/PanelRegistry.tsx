@@ -108,7 +108,11 @@ export const PANEL_META: PanelMeta[] = [
   { id: PANEL_IDS.FILE_TREE, title: '文件管理器', defaultPosition: 'left' },
   { id: PANEL_IDS.KANBAN, title: 'Kanban', defaultPosition: 'center' },
   { id: PANEL_IDS.PREVIEW, title: 'Preview', defaultPosition: 'center' },
-  { id: PANEL_IDS.DEV_PREVIEW, title: 'Dev Preview', defaultPosition: 'center' },
+  {
+    id: PANEL_IDS.DEV_PREVIEW,
+    title: 'Dev Preview',
+    defaultPosition: 'center',
+  },
   { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },
   { id: PANEL_IDS.TERMINAL, title: 'Terminal', defaultPosition: 'bottom' },
   { id: PANEL_IDS.GIT, title: 'Git 管理器', defaultPosition: 'left' },

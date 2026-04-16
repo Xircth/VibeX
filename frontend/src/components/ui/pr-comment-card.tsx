@@ -1,4 +1,5 @@
-import { MessageSquare, Code, ExternalLink } from 'lucide-react';import { cn } from '@/lib/utils';
+import { MessageSquare, Code, ExternalLink } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface PrCommentCardProps {
   author: string;
@@ -69,7 +70,8 @@ function CompactCard({
   onClick,
   onDoubleClick,
   className,
-}: PrCommentCardProps) {  const isReview = commentType === 'review';
+}: PrCommentCardProps) {
+  const isReview = commentType === 'review';
   const Icon = isReview ? Code : MessageSquare;
   const displayText = isReview && path ? `${path}: ${body}` : body;
 
@@ -109,7 +111,8 @@ function FullCard({
   onClick,
   variant,
   className,
-}: PrCommentCardProps) {  const isReview = commentType === 'review';
+}: PrCommentCardProps) {
+  const isReview = commentType === 'review';
   const Icon = isReview ? Code : MessageSquare;
 
   return (

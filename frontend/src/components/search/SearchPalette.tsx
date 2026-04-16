@@ -73,7 +73,7 @@ export function SearchPalette() {
   const results: PaletteResult[] = useMemo(() => {
     return fileResults.map((r) => ({
       id: r.path,
-      kind: r.is_file ? 'file' as const : 'directory' as const,
+      kind: r.is_file ? ('file' as const) : ('directory' as const),
       title: r.path.split(/[/\\]/).pop() || r.path,
       subtitle: r.path,
       filePath: r.path,
@@ -87,7 +87,7 @@ export function SearchPalette() {
       }
       closeSearchPalette();
     },
-    [openFilePreview, closeSearchPalette],
+    [openFilePreview, closeSearchPalette]
   );
 
   // Keyboard navigation
@@ -111,7 +111,11 @@ export function SearchPalette() {
         return;
       }
       if (e.key === 'Enter') {
-        if (results.length > 0 && paletteSelectedIndex >= 0 && paletteSelectedIndex < results.length) {
+        if (
+          results.length > 0 &&
+          paletteSelectedIndex >= 0 &&
+          paletteSelectedIndex < results.length
+        ) {
           e.preventDefault();
           handleSelect(results[paletteSelectedIndex]);
         }
@@ -120,7 +124,14 @@ export function SearchPalette() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchPaletteOpen, closeSearchPalette, movePaletteSelection, handleSelect, results, paletteSelectedIndex]);
+  }, [
+    isSearchPaletteOpen,
+    closeSearchPalette,
+    movePaletteSelection,
+    handleSelect,
+    results,
+    paletteSelectedIndex,
+  ]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -200,13 +211,18 @@ export function SearchPalette() {
         {/* Footer */}
         <div className="flex items-center gap-4 px-3 py-1.5 border-t border-border text-[10px] text-muted-foreground">
           <span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">↑↓</kbd> 导航
+            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">↑↓</kbd>{' '}
+            导航
           </span>
           <span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> 打开
+            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">
+              Enter
+            </kbd>{' '}
+            打开
           </span>
           <span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> 关闭
+            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd>{' '}
+            关闭
           </span>
         </div>
       </div>

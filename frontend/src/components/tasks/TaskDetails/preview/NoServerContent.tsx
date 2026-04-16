@@ -75,7 +75,8 @@ export function NoServerContent({
     },
   });
 
-  const effectiveStartError = startError ?? aiHostedDevStart.state?.error ?? null;
+  const effectiveStartError =
+    startError ?? aiHostedDevStart.state?.error ?? null;
   const resultPath = aiHostedDevStart.state?.resultPath ?? null;
 
   const handleSaveAndStart = () => {
@@ -199,7 +200,8 @@ export function NoServerContent({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                AI 会分析当前项目、补齐依赖与环境，并在成功后直接回复可访问地址或构建产物路径。
+                AI
+                会分析当前项目、补齐依赖与环境，并在成功后直接回复可访问地址或构建产物路径。
               </p>
             </div>
           )}
@@ -277,7 +279,8 @@ export function NoServerContent({
 
           <div className="space-y-4 border-t border-border pt-6">
             <p className="text-sm text-muted-foreground">
-              如果你希望在预览页中点击页面元素后回到编辑器，请先为当前前端项目安装 Web Companion。
+              如果你希望在预览页中点击页面元素后回到编辑器，请先为当前前端项目安装
+              Web Companion。
             </p>
             <div className="space-y-2">
               <Button
@@ -287,7 +290,9 @@ export function NoServerContent({
                 className="gap-1"
                 variant="outline"
               >
-                {isInstallingCompanion ? '正在安装 Companion…' : '自动安装 Companion'}
+                {isInstallingCompanion
+                  ? '正在安装 Companion…'
+                  : '自动安装 Companion'}
               </Button>
               <div>
                 <a

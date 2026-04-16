@@ -13,6 +13,7 @@ import { queueApi } from '@/lib/api';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useSessionConversationStore } from '@/stores/useSessionConversationStore';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
 import type {
   AddEntryType,
@@ -68,6 +69,19 @@ export const useConversationHistory = ({
     new Map()
   );
   const prevConversationKeyRef = useRef<string | null>(null);
+  const saveRenderedConversationCache = useCallback(
+    (
+      key: string,
+      entries: PatchTypeWithKey[],
+      tokenUsageInfo: TokenUsageInfo | null
+    ) => {
+      useSessionConversationStore.getState().saveSnapshot(key, {
+        entries,
+        tokenUsageInfo,
+      });
+    },
+    []
+  );
   const saveConversationCache = useCallback((key: string | null) => {
     if (!key) return;
 
@@ -90,7 +104,9 @@ export const useConversationHistory = ({
   const { data: queueStatus } = useQuery({
     queryKey: ['queue-status', sessionId],
     queryFn: () =>
-      sessionId ? queueApi.getStatus(sessionId) : Promise.resolve(EMPTY_QUEUE_STATUS),
+      sessionId
+        ? queueApi.getStatus(sessionId)
+        : Promise.resolve(EMPTY_QUEUE_STATUS),
     enabled: !!sessionId,
   });
 
@@ -131,7 +147,6 @@ export const useConversationHistory = ({
       executionProcess.executor_action.typ.type !== 'ScriptRequest';
     const HISTORIC_STREAM_IDLE_TIMEOUT_MS = 800;
     const HISTORIC_STREAM_MAX_WAIT_MS = 15000;
-    const HISTORIC_STREAM_FIRST_EVENT_TIMEOUT_MS = 3000;
 
     return new Promise<PatchType[]>((resolve) => {
       let settled = false;
@@ -139,8 +154,6 @@ export const useConversationHistory = ({
       let controller: { close: () => void } | null = null;
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
       let maxTimer: ReturnType<typeof setTimeout> | null = null;
-      let firstEventTimer: ReturnType<typeof setTimeout> | null = null;
-      let hasSeenFirstPayload = false;
 
       const clearTimers = () => {
         if (idleTimer) {
@@ -150,10 +163,6 @@ export const useConversationHistory = ({
         if (maxTimer) {
           clearTimeout(maxTimer);
           maxTimer = null;
-        }
-        if (firstEventTimer) {
-          clearTimeout(firstEventTimer);
-          firstEventTimer = null;
         }
       };
 
@@ -180,12 +189,6 @@ export const useConversationHistory = ({
         settle(latestEntries);
       }, HISTORIC_STREAM_MAX_WAIT_MS);
 
-      firstEventTimer = setTimeout(() => {
-        if (!hasSeenFirstPayload) {
-          settle(latestEntries);
-        }
-      }, HISTORIC_STREAM_FIRST_EVENT_TIMEOUT_MS);
-
       controller = streamJsonPatchEntries<PatchType>(
         {
           executionProcessId: executionProcess.id,
@@ -193,12 +196,10 @@ export const useConversationHistory = ({
         },
         {
           onEntries: (entries) => {
-            hasSeenFirstPayload = true;
             latestEntries = entries;
             scheduleIdleTimeout();
           },
           onFinished: (allEntries) => {
-            hasSeenFirstPayload = true;
             latestEntries = allEntries;
             settle(allEntries);
           },
@@ -457,7 +458,10 @@ export const useConversationHistory = ({
         );
       }
 
-      if (queueStatus?.status === 'queued' && queueStatus.message.data.message) {
+      if (
+        queueStatus?.status === 'queued' &&
+        queueStatus.message.data.message
+      ) {
         const queuedEntry: NormalizedEntry = {
           entry_type: {
             type: 'user_message',
@@ -488,7 +492,9 @@ export const useConversationHistory = ({
       const entries = flattenEntriesForEmit(executionProcessState);
       const orderedProcesses = Object.values(executionProcessState).sort(
         (a, b) =>
-          new Date(a.executionProcess.created_at as unknown as string).getTime() -
+          new Date(
+            a.executionProcess.created_at as unknown as string
+          ).getTime() -
           new Date(b.executionProcess.created_at as unknown as string).getTime()
       );
       let latestTokenUsageInfo: TokenUsageInfo | null = null;
@@ -499,7 +505,11 @@ export const useConversationHistory = ({
         processIndex--
       ) {
         const process = orderedProcesses[processIndex];
-        for (let entryIndex = process.entries.length - 1; entryIndex >= 0; entryIndex--) {
+        for (
+          let entryIndex = process.entries.length - 1;
+          entryIndex >= 0;
+          entryIndex--
+        ) {
           const entry = process.entries[entryIndex];
           if (
             entry.type === 'NORMALIZED_ENTRY' &&
@@ -512,6 +522,11 @@ export const useConversationHistory = ({
       }
 
       setTokenUsageInfo(latestTokenUsageInfo);
+      saveRenderedConversationCache(
+        conversationKey,
+        entries,
+        latestTokenUsageInfo
+      );
       let modifiedAddEntryType = addEntryType;
 
       // Modify so that if add entry type is 'running' and last entry is a plan, emit special plan type
@@ -528,7 +543,12 @@ export const useConversationHistory = ({
 
       onEntriesUpdatedRef.current?.(entries, modifiedAddEntryType, loading);
     },
-    [flattenEntriesForEmit, setTokenUsageInfo]
+    [
+      conversationKey,
+      flattenEntriesForEmit,
+      saveRenderedConversationCache,
+      setTokenUsageInfo,
+    ]
   );
 
   // This emits its own events as they are streamed via Tauri Events
@@ -536,6 +556,8 @@ export const useConversationHistory = ({
     (executionProcess: ExecutionProcess): Promise<void> => {
       const normalized =
         executionProcess.executor_action.typ.type !== 'ScriptRequest';
+      const EMPTY_RUNNING_STREAM_RETRY_MS = 250;
+      const MAX_EMPTY_RUNNING_STREAM_RETRIES = 6;
 
       return new Promise((resolve, reject) => {
         activeStreamControllersRef.current.get(executionProcess.id)?.close();
@@ -543,55 +565,104 @@ export const useConversationHistory = ({
 
         let controller: { close: () => void } | null = null;
         let closed = false;
+        let retryTimer: ReturnType<typeof setTimeout> | null = null;
+        let emptyStreamRetryCount = 0;
         const closeController = () => {
           if (closed) return;
           closed = true;
+          if (retryTimer) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+          }
           activeStreamControllersRef.current.delete(executionProcess.id);
           controller?.close();
         };
+        const startStream = () => {
+          if (closed) return;
 
-        controller = streamJsonPatchEntries<PatchType>(
-          {
-            executionProcessId: executionProcess.id,
-            normalized,
-          },
-          {
-            onEntries(entries) {
-              const patchesWithKey = entries.map((entry, index) =>
-                patchWithKey(entry, executionProcess.id, index)
-              );
-              mergeIntoDisplayed((state) => {
-                state[executionProcess.id] = {
-                  executionProcess,
-                  entries: patchesWithKey,
-                };
-              });
-              emitEntries(
-                displayedExecutionProcesses.current,
-                'running',
-                false
-              );
+          let receivedEntries = false;
+          controller = streamJsonPatchEntries<PatchType>(
+            {
+              executionProcessId: executionProcess.id,
+              normalized,
             },
-            onFinished: () => {
-              emitEntries(
-                displayedExecutionProcesses.current,
-                'running',
-                false
-              );
-              closeController();
-              resolve();
-            },
-            onError: (err) => {
-              console.warn(
-                `Error streaming entries for execution process ${executionProcess.id}`,
-                err
-              );
-              closeController();
-              reject(err);
-            },
-          }
-        );
-        activeStreamControllersRef.current.set(executionProcess.id, controller);
+            {
+              onEntries(entries) {
+                receivedEntries = true;
+                const patchesWithKey = entries.map((entry, index) =>
+                  patchWithKey(entry, executionProcess.id, index)
+                );
+                mergeIntoDisplayed((state) => {
+                  state[executionProcess.id] = {
+                    executionProcess,
+                    entries: patchesWithKey,
+                  };
+                });
+                emitEntries(
+                  displayedExecutionProcesses.current,
+                  'running',
+                  false
+                );
+              },
+              onFinished: () => {
+                const liveProcessStatus = getLiveExecutionProcess(
+                  executionProcess.id
+                )?.status;
+                if (
+                  !receivedEntries &&
+                  liveProcessStatus === ExecutionProcessStatus.running &&
+                  emptyStreamRetryCount < MAX_EMPTY_RUNNING_STREAM_RETRIES
+                ) {
+                  emptyStreamRetryCount += 1;
+                  controller?.close();
+                  retryTimer = setTimeout(() => {
+                    retryTimer = null;
+                    startStream();
+                  }, EMPTY_RUNNING_STREAM_RETRY_MS);
+                  return;
+                }
+
+                emitEntries(
+                  displayedExecutionProcesses.current,
+                  'running',
+                  false
+                );
+                closeController();
+                resolve();
+              },
+              onError: (err) => {
+                const liveProcessStatus = getLiveExecutionProcess(
+                  executionProcess.id
+                )?.status;
+                if (
+                  !receivedEntries &&
+                  liveProcessStatus === ExecutionProcessStatus.running &&
+                  emptyStreamRetryCount < MAX_EMPTY_RUNNING_STREAM_RETRIES
+                ) {
+                  emptyStreamRetryCount += 1;
+                  controller?.close();
+                  retryTimer = setTimeout(() => {
+                    retryTimer = null;
+                    startStream();
+                  }, EMPTY_RUNNING_STREAM_RETRY_MS);
+                  return;
+                }
+
+                console.warn(
+                  `Error streaming entries for execution process ${executionProcess.id}`,
+                  err
+                );
+                closeController();
+                reject(err);
+              },
+            }
+          );
+          activeStreamControllersRef.current.set(executionProcess.id, {
+            close: closeController,
+          });
+        };
+
+        startStream();
       });
     },
     [emitEntries]
@@ -641,9 +712,9 @@ export const useConversationHistory = ({
           };
         });
 
-        const totalEntries = Object.values(localDisplayedExecutionProcesses)
-          .flatMap((processState) => processState.entries)
-          .length;
+        const totalEntries = Object.values(
+          localDisplayedExecutionProcesses
+        ).flatMap((processState) => processState.entries).length;
         if (totalEntries > MIN_INITIAL_ENTRIES) {
           break;
         }
@@ -695,9 +766,9 @@ export const useConversationHistory = ({
         });
       });
 
-      const totalEntries = Object.values(displayedExecutionProcesses.current)
-        .flatMap((processState) => processState.entries)
-        .length;
+      const totalEntries = Object.values(
+        displayedExecutionProcesses.current
+      ).flatMap((processState) => processState.entries).length;
 
       return totalEntries > batchSize || chunkEntries.length > 0;
     },
@@ -746,7 +817,19 @@ export const useConversationHistory = ({
       if (executionProcessesRaw.length === 0) {
         loadedInitialEntries.current = true;
         loadedProcessIdsKeyRef.current = idListKey;
-        emitEntries(displayedExecutionProcesses.current, 'initial', false);
+        const cachedRendered = useSessionConversationStore
+          .getState()
+          .getSnapshot(conversationKey);
+        if (cachedRendered?.entries.length) {
+          setTokenUsageInfo(cachedRendered.tokenUsageInfo);
+          onEntriesUpdatedRef.current?.(
+            cachedRendered.entries,
+            'initial',
+            false
+          );
+        } else {
+          emitEntries(displayedExecutionProcesses.current, 'initial', false);
+        }
         return;
       }
 
@@ -775,12 +858,14 @@ export const useConversationHistory = ({
     };
   }, [
     attempt.id,
+    conversationKey,
     idListKey,
     executionProcessesRaw.length,
     executionProcessesLoading,
     loadInitialEntries,
     loadRemainingEntriesInBatches,
     emitEntries,
+    setTokenUsageInfo,
   ]); // include idListKey so new processes trigger reload
 
   useEffect(() => {
@@ -903,7 +988,9 @@ export const useConversationHistory = ({
       displayedExecutionProcesses.current = structuredClone(
         cachedConversation.displayedExecutionProcesses
       );
-      previousStatusMapRef.current = new Map(cachedConversation.previousStatusMap);
+      previousStatusMapRef.current = new Map(
+        cachedConversation.previousStatusMap
+      );
       // Always refresh from latest process list after switching conversations.
       loadedInitialEntries.current = false;
       loadedProcessIdsKeyRef.current = null;
@@ -925,6 +1012,14 @@ export const useConversationHistory = ({
     loadedInitialEntries.current = false;
     loadedProcessIdsKeyRef.current = null;
     previousStatusMapRef.current.clear();
+    const cachedRendered = useSessionConversationStore
+      .getState()
+      .getSnapshot(conversationKey);
+    if (cachedRendered?.entries.length) {
+      setTokenUsageInfo(cachedRendered.tokenUsageInfo);
+      onEntriesUpdatedRef.current?.(cachedRendered.entries, 'initial', false);
+      return;
+    }
     const hasNoHistory =
       !executionProcessesLoading && executionProcessesRaw.length === 0;
     emitEntries(displayedExecutionProcesses.current, 'initial', !hasNoHistory);
@@ -936,6 +1031,7 @@ export const useConversationHistory = ({
     executionProcessesRaw.length,
     closeAllRunningStreams,
     saveConversationCache,
+    setTokenUsageInfo,
   ]);
 
   useEffect(() => {

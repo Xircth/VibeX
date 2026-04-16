@@ -13,22 +13,22 @@ export function getFileIcon(extension?: string, fileName?: string): string {
   if (fileName) {
     const name = fileName.toLowerCase();
     const nameMap: Record<string, string> = {
-      'gradlew': icons.icon_gradle,
+      gradlew: icons.icon_gradle,
       'gradlew.bat': icons.icon_gradle,
       'build.gradle': icons.icon_gradle,
       'build.gradle.kts': icons.icon_gradle,
       'pom.xml': icons.icon_maven,
-      'license': icons.icon_certificate,
+      license: icons.icon_certificate,
       'license.txt': icons.icon_certificate,
       'license.md': icons.icon_certificate,
-      'licence': icons.icon_certificate,
+      licence: icons.icon_certificate,
       'licence.txt': icons.icon_certificate,
       'licence.md': icons.icon_certificate,
-      'dockerfile': icons.icon_docker,
+      dockerfile: icons.icon_docker,
       'docker-compose.yml': icons.icon_docker,
       'docker-compose.yaml': icons.icon_docker,
-      'makefile': icons.icon_makefile,
-      'jenkinsfile': icons.icon_jenkins,
+      makefile: icons.icon_makefile,
+      jenkinsfile: icons.icon_jenkins,
       '.gitignore': icons.icon_git,
       '.gitkeep': icons.icon_git,
       '.gitattributes': icons.icon_git,
@@ -75,15 +75,15 @@ export function getFileIcon(extension?: string, fileName?: string): string {
       'jest.config.json': icons.icon_jest,
       'readme.md': icons.icon_readme,
       'readme.txt': icons.icon_readme,
-      'readme': icons.icon_readme,
+      readme: icons.icon_readme,
       'changelog.md': icons.icon_readme,
-      'changelog': icons.icon_readme,
-      'gemfile': icons.icon_ruby,
+      changelog: icons.icon_readme,
+      gemfile: icons.icon_ruby,
       'gemfile.lock': icons.icon_ruby,
-      'rakefile': icons.icon_ruby,
-      'procfile': icons.icon_settings,
+      rakefile: icons.icon_ruby,
+      procfile: icons.icon_settings,
       'requirements.txt': icons.icon_python,
-      'pipfile': icons.icon_python,
+      pipfile: icons.icon_python,
       'pipfile.lock': icons.icon_python,
       'setup.py': icons.icon_python,
       'pyproject.toml': icons.icon_python,
@@ -98,15 +98,23 @@ export function getFileIcon(extension?: string, fileName?: string): string {
       'composer.lock': icons.icon_php,
       'mix.exs': icons.icon_elixir,
       'mix.lock': icons.icon_elixir,
-      'cname': icons.icon_http,
+      cname: icons.icon_http,
     };
     if (nameMap[name]) {
       return nameMap[name];
     }
 
     // 检查测试文件
-    if (name.endsWith('.test.ts') || name.endsWith('.test.tsx') || name.endsWith('.test.js') || name.endsWith('.test.jsx') ||
-        name.endsWith('.spec.ts') || name.endsWith('.spec.tsx') || name.endsWith('.spec.js') || name.endsWith('.spec.jsx')) {
+    if (
+      name.endsWith('.test.ts') ||
+      name.endsWith('.test.tsx') ||
+      name.endsWith('.test.js') ||
+      name.endsWith('.test.jsx') ||
+      name.endsWith('.spec.ts') ||
+      name.endsWith('.spec.tsx') ||
+      name.endsWith('.spec.js') ||
+      name.endsWith('.spec.jsx')
+    ) {
       return icons.icon_test_ts;
     }
   }
@@ -422,7 +430,10 @@ export function getFileIcon(extension?: string, fileName?: string): string {
 /**
  * 根据文件夹名称获取图标 SVG
  */
-export function getFolderIcon(folderName: string, isOpen: boolean = false): string {
+export function getFolderIcon(
+  folderName: string,
+  isOpen: boolean = false
+): string {
   const name = folderName.toLowerCase();
 
   // 特殊文件夹映射

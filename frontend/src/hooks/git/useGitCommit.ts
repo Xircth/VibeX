@@ -43,7 +43,11 @@ export function useGitCommit({
     setCommitError(null);
     try {
       if (workspaceId) {
-        await attemptsApi.commitChanges(workspaceId, repoId, commitMessage.trim());
+        await attemptsApi.commitChanges(
+          workspaceId,
+          repoId,
+          commitMessage.trim()
+        );
       } else {
         await repoApi.commitChanges(repoId, commitMessage.trim());
       }
@@ -64,7 +68,11 @@ export function useGitCommit({
     setOperationError(null);
     try {
       if (workspaceId) {
-        await attemptsApi.commitChanges(workspaceId, repoId, commitMessage.trim());
+        await attemptsApi.commitChanges(
+          workspaceId,
+          repoId,
+          commitMessage.trim()
+        );
       } else {
         await repoApi.commitChanges(repoId, commitMessage.trim());
       }
@@ -74,9 +82,13 @@ export function useGitCommit({
       // Push after commit
       setPushLoading(true);
       if (workspaceId) {
-        const pushResult = await attemptsApi.push(workspaceId, { repo_id: repoId });
+        const pushResult = await attemptsApi.push(workspaceId, {
+          repo_id: repoId,
+        });
         if (!pushResult.success) {
-          setOperationError(`Push failed: ${pushResult.error?.type ?? 'unknown'}`);
+          setOperationError(
+            `Push failed: ${pushResult.error?.type ?? 'unknown'}`
+          );
         }
       } else {
         await repoApi.push(repoId);
@@ -95,9 +107,13 @@ export function useGitCommit({
     setOperationError(null);
     try {
       if (workspaceId) {
-        const pushResult = await attemptsApi.push(workspaceId, { repo_id: repoId });
+        const pushResult = await attemptsApi.push(workspaceId, {
+          repo_id: repoId,
+        });
         if (!pushResult.success) {
-          setOperationError(`Push failed: ${pushResult.error?.type ?? 'unknown'}`);
+          setOperationError(
+            `Push failed: ${pushResult.error?.type ?? 'unknown'}`
+          );
         }
       } else {
         await repoApi.push(repoId);

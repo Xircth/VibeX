@@ -22,6 +22,7 @@ use services::services::config::{
     editor::{EditorConfig, EditorType},
     save_config_to_file,
 };
+use tauri::Emitter;
 use tokio::{
     fs,
     io::{AsyncBufReadExt, BufReader},
@@ -168,10 +169,12 @@ pub async fn get_user_system_info(
 
 #[tauri::command]
 pub async fn update_config(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     new_config: Config,
 ) -> Result<Config, AppError> {
     let config_path = utils::assets::config_path();
+    let previous_theme = state.deployment.config().read().await.theme.clone();
 
     // Validate git branch prefix
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
@@ -186,6 +189,14 @@ pub async fn update_config(
     let mut config = state.deployment.config().write().await;
     *config = new_config.clone();
     drop(config);
+
+    if std::mem::discriminant(&previous_theme) != std::mem::discriminant(&new_config.theme) {
+        app.emit(
+            "theme-changed",
+            json!({ "theme": new_config.theme.clone() }),
+        )
+        .map_err(|e| AppError::Internal(format!("Failed to emit theme change: {}", e)))?;
+    }
 
     Ok(new_config)
 }

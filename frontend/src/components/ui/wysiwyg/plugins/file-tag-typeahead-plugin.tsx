@@ -149,9 +149,15 @@ export function FileTagTypeaheadPlugin({
     isFileTrigger && effectiveRepoIds && effectiveRepoIds.length > 0
       ? effectiveRepoIds[0]
       : null;
-  const { data: initialRepo } = useQuery({
+  const { data: initialRepo } = useQuery<Repo | null>({
     queryKey: ['file-typeahead-repo', initialRepoId],
-    queryFn: () => repoApi.getById(initialRepoId!),
+    queryFn: async () => {
+      if (!initialRepoId) {
+        return null;
+      }
+
+      return (await repoApi.getById(initialRepoId)) ?? null;
+    },
     enabled: !!initialRepoId,
   });
   const { data: initialRootEntries, isLoading: isInitialRootEntriesLoading } =

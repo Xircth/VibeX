@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl};
+use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl, window::Color};
 
 const DESKTOP_TOAST_WINDOW_LABEL: &str = "desktop-toast";
 const DESKTOP_TOAST_EVENT: &str = "desktop-toast";
@@ -20,12 +20,32 @@ pub struct DesktopToastPayload {
     pub duration_ms: Option<u64>,
 }
 
+#[tauri::command]
+pub async fn desktop_toast_window_ready(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Vec<DesktopToastPayload>, String> {
+    let mut runtime = state.desktop_toast_state.lock().await;
+    runtime.ready = true;
+    Ok(std::mem::take(&mut runtime.pending))
+}
+
+fn configure_desktop_toast_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window
+        .set_background_color(Some(Color(0, 0, 0, 0)))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_shadow(false)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(DESKTOP_TOAST_WINDOW_LABEL) {
+        configure_desktop_toast_window(&window)?;
         return Ok(window);
     }
 
-    tauri::WebviewWindowBuilder::new(
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         DESKTOP_TOAST_WINDOW_LABEL,
         WebviewUrl::App("/desktop-toast".into()),
@@ -37,11 +57,15 @@ pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::Webv
     .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
+    .background_color(Color(0, 0, 0, 0))
     .shadow(false)
     .focused(false)
     .visible(false)
     .build()
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+
+    configure_desktop_toast_window(&window)?;
+    Ok(window)
 }
 
 fn position_desktop_toast_window(
@@ -74,14 +98,21 @@ fn position_desktop_toast_window(
 #[tauri::command]
 pub async fn show_desktop_toast(
     app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
     payload: DesktopToastPayload,
 ) -> Result<(), String> {
     let window = ensure_desktop_toast_window(&app)?;
     position_desktop_toast_window(&app, &window)?;
     window.show().map_err(|error| error.to_string())?;
-    window
-        .emit(DESKTOP_TOAST_EVENT, payload)
-        .map_err(|error| error.to_string())?;
+
+    let mut runtime = state.desktop_toast_state.lock().await;
+    if runtime.ready {
+        window
+            .emit(DESKTOP_TOAST_EVENT, payload)
+            .map_err(|error| error.to_string())?;
+    } else {
+        runtime.pending.push(payload);
+    }
     Ok(())
 }
 

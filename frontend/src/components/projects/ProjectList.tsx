@@ -21,7 +21,7 @@ export function ProjectList() {
     try {
       const result = await ProjectFormDialog.show({});
       if (result.status === 'saved' && result.project) {
-        navigate(`/local-projects/${result.project.id}/tasks`);
+        navigate(`/local-projects/${result.project.id}/sessions`);
       }
     } catch {
       // User cancelled - do nothing

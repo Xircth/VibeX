@@ -4,10 +4,13 @@ use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 use deployment::Deployment;
 use executors::executors::{acp::acp_terminal_registry, codex::codex_terminal_registry};
+use services::services::container::ContainerService;
 use tauri::Emitter;
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_default_open_path,
+};
 
 fn spawn_terminal_output_bridge(
     app: tauri::AppHandle,
@@ -48,10 +51,11 @@ pub async fn create_terminal(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
 
-    // Get working directory from container_ref
-    let container_ref = workspace
-        .container_ref
-        .ok_or_else(|| AppError::BadRequest("Workspace has no workspace directory".to_string()))?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
 
     let base_dir = PathBuf::from(&container_ref);
     if !base_dir.exists() {
@@ -60,28 +64,24 @@ pub async fn create_terminal(
         ));
     }
 
-    // Determine actual working dir: if only one repo, enter repo subdirectory
-    let mut working_dir = base_dir.clone();
-    match WorkspaceRepo::find_repos_for_workspace(pool, workspace_id).await {
-        Ok(repos) if repos.len() == 1 => {
-            let repo_dir = if workspace.use_worktree {
-                base_dir.join(&repos[0].name)
+    let working_dir = match WorkspaceRepo::find_repos_for_workspace(pool, workspace_id).await {
+        Ok(repos) => {
+            let candidate = resolve_workspace_default_open_path(&workspace, &container_ref, &repos);
+            if candidate.exists() {
+                candidate
             } else {
                 base_dir.clone()
-            };
-            if repo_dir.exists() {
-                working_dir = repo_dir;
             }
         }
-        Ok(_) => {}
         Err(e) => {
             tracing::warn!(
                 "Failed to resolve repos for workspace {}: {}",
                 workspace_id,
                 e
             );
+            base_dir.clone()
         }
-    }
+    };
 
     // Create PTY session
     let (session_id, output_rx) = state

@@ -69,6 +69,7 @@ export {
 export type {
   FileTreeEntry,
   DirectoryChildrenResponse,
+  DocumentPreviewResponse,
   ReadFileResponse,
   TextSearchMatch,
   TextSearchFileResult,

@@ -102,27 +102,35 @@ function Harness() {
           name: 'Main',
         },
       ]}
-      createWorkspaceOptions={[
+      workspaceBranchOptions={[
         {
-          id: 'workspace-1',
-          project_id: 'project-1',
-          task_id: 'task-1',
-          parent_workspace_id: null,
-          container_ref: null,
+          value: 'workspace:workspace-1',
           branch: 'main',
-          use_worktree: true,
-          agent_working_dir: null,
-          setup_completed_at: null,
-          created_at: '2026-04-15T00:00:00.000Z',
-          updated_at: '2026-04-15T00:00:00.000Z',
-          archived: false,
-          pinned: false,
-          name: 'Main',
+          workspace: {
+            id: 'workspace-1',
+            project_id: 'project-1',
+            task_id: 'task-1',
+            parent_workspace_id: null,
+            container_ref: null,
+            branch: 'main',
+            use_worktree: true,
+            agent_working_dir: null,
+            setup_completed_at: null,
+            created_at: '2026-04-15T00:00:00.000Z',
+            updated_at: '2026-04-15T00:00:00.000Z',
+            archived: false,
+            pinned: false,
+            name: 'Main',
+          },
+          existingWorkspaceId: 'workspace-1',
+          directWorkspaceId: 'workspace-1',
+          useWorktree: true,
+          isCurrentProjectBranch: true,
         },
       ]}
       profiles={null}
       createMode="existing_workspace"
-      createWorkspaceId="workspace-1"
+      createWorkspaceValue="workspace:workspace-1"
       createSessionName=""
       selectedExecutorProfile={null}
       repoBranchConfigs={[]}
@@ -148,7 +156,7 @@ function Harness() {
       onCreatePopoverOpenChange={setIsCreatePopoverOpen}
       onCreateSession={vi.fn()}
       onCreateModeChange={vi.fn()}
-      onCreateWorkspaceIdChange={vi.fn()}
+      onCreateWorkspaceValueChange={vi.fn()}
       onCreateSessionNameChange={vi.fn()}
       onSelectedExecutorProfileChange={vi.fn()}
       onRepoBranchChange={vi.fn()}

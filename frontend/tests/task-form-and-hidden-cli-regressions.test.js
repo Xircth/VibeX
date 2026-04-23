@@ -17,41 +17,33 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('new task form copy is Chinese and auto-start controls can wrap', () => {
-  const taskForm = readFrontendFile(
-    'src/components/dialogs/tasks/TaskFormDialog.tsx'
+test('session creation form copy stays Chinese and keeps branch warning wiring', () => {
+  const sessionCreationForm = readFrontendFile(
+    'src/components/sessions/SessionCreationForm.tsx'
   );
   const terminalProfileControls = readFrontendFile(
     'src/components/tasks/TerminalProfileControls.tsx'
-  );
-  const permissionSelector = readFrontendFile(
-    'src/components/tasks/PermissionSelector.tsx'
   );
   const agentSelector = readFrontendFile(
     'src/components/tasks/AgentSelector.tsx'
   );
 
-  assert.match(taskForm, /任务标题/);
-  assert.match(taskForm, /如有需要可补充更多细节/);
-  assert.match(taskForm, /加载分支中\.\.\./);
-  assert.match(taskForm, /创建 Worktree/);
-  assert.match(taskForm, /自动启动/);
-  assert.match(
-    taskForm,
-    /className="w-full flex min-w-0 flex-wrap items-center gap-2"/
-  );
-  assert.match(
-    terminalProfileControls,
-    /flex flex-wrap items-center gap-2 flex-1 min-w-0/
-  );
-  assert.match(permissionSelector, /自动/);
-  assert.match(permissionSelector, /询问/);
-  assert.match(agentSelector, /编程代理/);
-  assert.doesNotMatch(taskForm, /Drop images here|Task Title|Enter task title/);
-  assert.doesNotMatch(taskForm, /Auto Start|Update Task|Discard unsaved changes/);
+  assert.match(sessionCreationForm, /创建方式/);
+  assert.match(sessionCreationForm, /现有工作区/);
+  assert.match(sessionCreationForm, /新工作区/);
+  assert.match(sessionCreationForm, /工作区分支/);
+  assert.match(sessionCreationForm, /会话名称（可选）/);
+  assert.match(sessionCreationForm, /不填则使用首条消息自动命名/);
+  assert.match(sessionCreationForm, /getWorkspaceBranchWarning/);
+  assert.match(sessionCreationForm, /getWorkspaceBranchCheckoutHint/);
+  assert.match(sessionCreationForm, /创建会话/);
+  assert.match(sessionCreationForm, /'flex flex-wrap items-center gap-2'/);
+  assert.match(terminalProfileControls, /flex flex-wrap items-center gap-2/);
+  assert.match(agentSelector, /aria-label="选择代理"/);
+  assert.doesNotMatch(sessionCreationForm, /Task Title|Auto Start|Update Task/);
 });
 
-test('tab context menu uses Chinese label and splits with the panel object', () => {
+test('tab context menu uses the current Chinese label and keeps the panel split wiring', () => {
   const layout = readFrontendFile('src/components/layout/IDELayout.tsx');
   const panelActions = readFrontendFile('src/contexts/PanelActionsContext.tsx');
 
@@ -67,7 +59,9 @@ test('windows hidden cli helper wraps batch-based agent commands', () => {
   const slashCommands = readRepoFile(
     'crates/executors/src/executors/claude/slash_commands.rs'
   );
-  const agentSettings = readRepoFile('src-tauri/src/commands/agent_settings.rs');
+  const agentSettings = readRepoFile(
+    'src-tauri/src/commands/agent_settings.rs'
+  );
   const workspaces = readRepoFile('src-tauri/src/commands/workspaces.rs');
 
   assert.match(processUtils, /new_hidden_tokio_command/);

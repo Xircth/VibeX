@@ -23,6 +23,7 @@ const DEFAULT_DURATION_MS = 15_000;
 
 export function DesktopToastWindow() {
   const [toasts, setToasts] = useState<DesktopToastItem[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
   const timersRef = useRef(new Map<string, number>());
 
   const removeToast = useCallback((toastId: string) => {
@@ -53,23 +54,58 @@ export function DesktopToastWindow() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     const timers = timersRef.current;
 
-    tauriListen<DesktopToastPayload>('desktop-toast', (payload) => {
-      const toastId = `${payload.sessionId}-${Date.now()}`;
+    const pushToast = (toast: DesktopToastPayload) => {
+      const toastId = `${toast.sessionId}-${Date.now()}-${Math.random()}`;
       setToasts((previous) => [
         ...previous,
         {
-          ...payload,
+          ...toast,
           id: toastId,
         },
       ]);
-      scheduleRemoval(toastId, payload.durationMs);
-    }).then((dispose) => {
-      unlisten = dispose;
-    });
+      scheduleRemoval(toastId, toast.durationMs);
+    };
+
+    (async () => {
+      try {
+        unlisten = await tauriListen<DesktopToastPayload>(
+          'desktop-toast',
+          (payload) => {
+            if (cancelled) {
+              return;
+            }
+            pushToast(payload);
+          }
+        );
+
+        if (cancelled) {
+          unlisten?.();
+          return;
+        }
+
+        const pendingToasts = await tauriInvoke<DesktopToastPayload[]>(
+          'desktop_toast_window_ready'
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        pendingToasts.forEach(pushToast);
+      } catch {
+        // Best-effort window hydration only.
+      } finally {
+        if (!cancelled) {
+          setIsHydrated(true);
+        }
+      }
+    })();
 
     return () => {
+      cancelled = true;
       unlisten?.();
       timers.forEach((timer) => window.clearTimeout(timer));
       timers.clear();
@@ -88,7 +124,7 @@ export function DesktopToastWindow() {
   }, []);
 
   useEffect(() => {
-    if (toasts.length > 0) {
+    if (!isHydrated || toasts.length > 0) {
       return;
     }
 
@@ -97,7 +133,7 @@ export function DesktopToastWindow() {
     }, 150);
 
     return () => window.clearTimeout(timeout);
-  }, [closeWindow, toasts.length]);
+  }, [closeWindow, isHydrated, toasts.length]);
 
   const handleActivate = useCallback(
     async (toast: DesktopToastItem) => {

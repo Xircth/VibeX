@@ -38,6 +38,7 @@ import {
 } from '@/stores/useDiffViewStore';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { getFilePreviewKind } from '@/utils/filePreviewKind';
 
 type Props = {
   diff: Diff;
@@ -129,6 +130,9 @@ export default function DiffCard({
     getHighLightLanguageFromPath(oldName || newName || '') || 'plaintext';
   const newLang =
     getHighLightLanguageFromPath(newName || oldName || '') || 'plaintext';
+  const filePath = newName || oldName || 'unknown';
+  const previewKind = getFilePreviewKind(filePath);
+  const canForceLoadTextContent = previewKind === 'text';
   const { label, Icon } = labelAndIcon(diff);
   const isOmitted = !!diff.contentOmitted;
   const requiresOldContent = diff.change !== 'added';
@@ -146,6 +150,8 @@ export default function DiffCard({
     diff.change !== 'deleted';
   const shouldLoadContent =
     isOmitted || isMissingRequiredContent || isLikelyMissingPayloadContent;
+  const shouldForceLoadTextContent =
+    shouldLoadContent && canForceLoadTextContent;
 
   // State for force-loading omitted content
   const [forcedOldContent, setForcedOldContent] = useState<string | null>(null);
@@ -153,6 +159,10 @@ export default function DiffCard({
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   const handleLoadContent = useCallback(async () => {
+    if (!canForceLoadTextContent) {
+      return;
+    }
+
     setIsLoadingContent(true);
     try {
       const basePaths: string[] = [];
@@ -224,13 +234,13 @@ export default function DiffCard({
     } finally {
       setIsLoadingContent(false);
     }
-  }, [diff, selectedAttempt]);
+  }, [canForceLoadTextContent, diff, selectedAttempt]);
 
   // Auto-load content when omitted or missing in stream payload and card is expanded
   useEffect(() => {
     if (
       expanded &&
-      shouldLoadContent &&
+      shouldForceLoadTextContent &&
       forcedOldContent === null &&
       forcedNewContent === null &&
       !isLoadingContent
@@ -243,17 +253,17 @@ export default function DiffCard({
     forcedOldContent,
     handleLoadContent,
     isLoadingContent,
-    shouldLoadContent,
+    shouldForceLoadTextContent,
   ]);
 
   // Build a diff from raw contents so the viewer can expand beyond hunks.
   // If content was force-loaded, use that instead of stream payload content.
   const oldContentSafe =
-    shouldLoadContent && forcedOldContent !== null
+    shouldForceLoadTextContent && forcedOldContent !== null
       ? forcedOldContent
       : (diff.oldContent ?? '');
   const newContentSafe =
-    shouldLoadContent && forcedNewContent !== null
+    shouldForceLoadTextContent && forcedNewContent !== null
       ? forcedNewContent
       : (diff.newContent ?? '');
 
@@ -263,8 +273,11 @@ export default function DiffCard({
   );
 
   // Treat both omitted and missing-payload content as omitted until we force-load it.
-  const isEffectivelyOmitted =
-    shouldLoadContent && forcedOldContent === null && forcedNewContent === null;
+  const isEffectivelyOmitted = !canForceLoadTextContent
+    ? shouldLoadContent
+    : shouldForceLoadTextContent &&
+      forcedOldContent === null &&
+      forcedNewContent === null;
   const isContentEqual =
     !isEffectivelyOmitted && oldContentSafe === newContentSafe;
 
@@ -309,7 +322,6 @@ export default function DiffCard({
     : (diffFile?.deletionLength ?? 0);
 
   // Review functionality
-  const filePath = newName || oldName || 'unknown';
   const commentsForFile = useMemo(
     () => comments.filter((c) => c.filePath === filePath),
     [comments, filePath]
@@ -509,38 +521,50 @@ export default function DiffCard({
           style={{ color: 'hsl(var(--muted-foreground) / 0.9)' }}
         >
           {isEffectivelyOmitted ? (
-            <div className="flex items-center justify-center gap-2 py-6">
-              {isLoadingContent ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    加载文件内容中…
-                  </span>
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <p className="text-sm text-muted-foreground">内容加载失败</p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleLoadContent}
-                      className="h-7 text-xs"
-                    >
-                      重新加载
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleOpenDiffInTab}
-                      className="h-7 text-xs"
-                    >
-                      在标签页中打开
-                    </Button>
+            canForceLoadTextContent ? (
+              <div className="flex items-center justify-center gap-2 py-6">
+                {isLoadingContent ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      加载文件内容中…
+                    </span>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      内容加载失败
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLoadContent}
+                        className="h-7 text-xs"
+                      >
+                        重新加载
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleOpenDiffInTab}
+                        className="h-7 text-xs"
+                      >
+                        在标签页中打开
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            ) : previewKind === 'image' ? (
+              'Image diff content is not rendered in this card.'
+            ) : previewKind === 'pdf' ? (
+              'PDF diff content is not rendered in this card.'
+            ) : previewKind === 'document' ? (
+              'Word document diff content is not rendered in this card.'
+            ) : (
+              'Binary diff content is not rendered in this card.'
+            )
           ) : isContentEqual ? (
             diff.change === 'renamed' ? (
               'File renamed with no content changes.'

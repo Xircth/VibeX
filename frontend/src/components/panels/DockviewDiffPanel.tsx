@@ -1,6 +1,6 @@
 import { DiffEditor, type BeforeMount } from '@monaco-editor/react';
 import { useCallback } from 'react';
-import { GitCompare } from 'lucide-react';
+import { FileWarning, GitCompare, Image as ImageIcon } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { useFileContent, useFileAtHead } from '@/hooks/useFileContent';
 import { useTheme } from '@/components/ThemeProvider';
@@ -9,6 +9,10 @@ import {
   MONACO_THEME_AYU_DARK,
   MONACO_THEME_AYU_LIGHT,
 } from '@/utils/monacoThemes';
+import {
+  getFilePreviewKind,
+  isBinaryContentError,
+} from '@/utils/filePreviewKind';
 
 /**
  * Map file extension to Monaco language identifier.
@@ -55,13 +59,18 @@ function getLanguageFromPath(filePath: string): string {
 function DockviewDiffPanel() {
   const { diffFilePath } = useFileTreeStore();
   const { resolvedTheme } = useTheme();
-  const { data: currentContent, isLoading: isLoadingCurrent } =
-    useFileContent(diffFilePath);
+  const previewKind = getFilePreviewKind(diffFilePath);
+  const shouldFetchTextDiff = previewKind === 'text';
+  const {
+    data: currentContent,
+    isLoading: isLoadingCurrent,
+    error: currentContentError,
+  } = useFileContent(shouldFetchTextDiff ? diffFilePath : null);
   const {
     data: headContent,
     isLoading: isLoadingHead,
     error: headError,
-  } = useFileAtHead(diffFilePath);
+  } = useFileAtHead(shouldFetchTextDiff ? diffFilePath : null);
 
   const handleDiffBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
@@ -86,6 +95,10 @@ function DockviewDiffPanel() {
 
   const fileName = diffFilePath.split(/[/\\]/).pop() || diffFilePath;
   const language = getLanguageFromPath(diffFilePath);
+  const effectivePreviewKind =
+    previewKind === 'text' && isBinaryContentError(currentContentError)
+      ? 'binary'
+      : previewKind;
   const isLoading = isLoadingCurrent || isLoadingHead;
 
   // HEAD content: fallback to empty string if file is new (not in HEAD)
@@ -107,7 +120,55 @@ function DockviewDiffPanel() {
 
       {/* Diff Editor */}
       <div className="flex-1 min-h-0">
-        {isLoading ? (
+        {effectivePreviewKind === 'binary' ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+            <FileWarning className="h-10 w-10 opacity-50" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Binary diff is not supported
+              </p>
+              <p className="text-xs">
+                This file cannot be rendered as UTF-8 text in the diff panel.
+              </p>
+            </div>
+          </div>
+        ) : effectivePreviewKind === 'image' ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+            <ImageIcon className="h-10 w-10 opacity-50" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Image diff is not supported here
+              </p>
+              <p className="text-xs">
+                Open this asset in a dedicated image diff flow instead.
+              </p>
+            </div>
+          </div>
+        ) : effectivePreviewKind === 'pdf' ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+            <FileWarning className="h-10 w-10 opacity-50" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                PDF diff is not supported here
+              </p>
+              <p className="text-xs">
+                Open this asset in read-only preview mode instead.
+              </p>
+            </div>
+          </div>
+        ) : effectivePreviewKind === 'document' ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+            <FileWarning className="h-10 w-10 opacity-50" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Word document diff is not supported here
+              </p>
+              <p className="text-xs">
+                Open this document in read-only preview mode instead.
+              </p>
+            </div>
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
             Loading diff...
           </div>

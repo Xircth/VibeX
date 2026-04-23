@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { paths } from '@/lib/paths';
+import { normalizeProjectRoute, paths } from '@/lib/paths';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 export function useProjectSwitcher() {
@@ -16,9 +16,11 @@ export function useProjectSwitcher() {
     (projectId: string, fallbackRoute?: string) => {
       ensureProjectOpen(projectId);
       navigate(
-        lastRouteByProject[projectId] ??
-          fallbackRoute ??
-          paths.projectTasks(projectId)
+        normalizeProjectRoute(
+          lastRouteByProject[projectId] ??
+            fallbackRoute ??
+            paths.projectSessions(projectId)
+        )
       );
     },
     [ensureProjectOpen, lastRouteByProject, navigate]

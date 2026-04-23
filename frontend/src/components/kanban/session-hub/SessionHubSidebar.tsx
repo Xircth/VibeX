@@ -56,6 +56,7 @@ import {
   SessionCreationForm,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
+import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
@@ -82,10 +83,10 @@ interface SessionHubSidebarProps {
   groupedSessions: Record<string, KanbanProjectSessionRecord[]>;
   flatSessions: KanbanProjectSessionRecord[];
   workspaces: Workspace[];
-  createWorkspaceOptions: Workspace[];
+  workspaceBranchOptions: WorkspaceBranchOption[];
   profiles: ExecutorConfigs['executors'] | null;
   createMode: SessionCreationMode;
-  createWorkspaceId: string;
+  createWorkspaceValue: string;
   createSessionName: string;
   selectedExecutorProfile: ExecutorProfileId | null;
   repoBranchConfigs: RepoBranchConfig[];
@@ -111,7 +112,7 @@ interface SessionHubSidebarProps {
   onCreatePopoverOpenChange: (open: boolean) => void;
   onCreateSession: () => void;
   onCreateModeChange: (value: SessionCreationMode) => void;
-  onCreateWorkspaceIdChange: (value: string) => void;
+  onCreateWorkspaceValueChange: (value: string) => void;
   onCreateSessionNameChange: (value: string) => void;
   onSelectedExecutorProfileChange: (value: ExecutorProfileId) => void;
   onRepoBranchChange: (repoId: string, branch: string) => void;
@@ -373,10 +374,10 @@ export function SessionHubSidebar({
   groupedSessions,
   flatSessions,
   workspaces,
-  createWorkspaceOptions,
+  workspaceBranchOptions,
   profiles,
   createMode,
-  createWorkspaceId,
+  createWorkspaceValue,
   createSessionName,
   selectedExecutorProfile,
   repoBranchConfigs,
@@ -402,7 +403,7 @@ export function SessionHubSidebar({
   onCreatePopoverOpenChange,
   onCreateSession,
   onCreateModeChange,
-  onCreateWorkspaceIdChange,
+  onCreateWorkspaceValueChange,
   onCreateSessionNameChange,
   onSelectedExecutorProfileChange,
   onRepoBranchChange,
@@ -522,9 +523,11 @@ export function SessionHubSidebar({
                   <SessionCreationForm
                     mode={createMode}
                     onModeChange={onCreateModeChange}
-                    createWorkspaceOptions={createWorkspaceOptions}
-                    selectedWorkspaceId={createWorkspaceId}
-                    onSelectedWorkspaceIdChange={onCreateWorkspaceIdChange}
+                    workspaceBranchOptions={workspaceBranchOptions}
+                    selectedWorkspaceValue={createWorkspaceValue}
+                    onSelectedWorkspaceValueChange={
+                      onCreateWorkspaceValueChange
+                    }
                     sessionName={createSessionName}
                     onSessionNameChange={onCreateSessionNameChange}
                     profiles={profiles}

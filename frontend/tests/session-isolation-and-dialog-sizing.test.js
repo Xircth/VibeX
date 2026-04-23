@@ -17,18 +17,20 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('新建会话模式下 TaskAttemptPanel 不回退到旧会话', () => {
-  const source = readFrontendFile('src/components/panels/TaskAttemptPanel.tsx');
+test('项目会话页不再保留旧 task/attempt 路由分支', () => {
+  const source = readFrontendFile('src/pages/ProjectTasks.tsx');
 
-  assert.match(source, /sessionState\.isNewSessionMode/);
-  assert.doesNotMatch(source, /selectedSession \?\? attempt\.session/);
-  assert.match(source, /activeSession\?\.id \?\? 'new'/);
+  assert.match(source, /workspaceId\?: string/);
+  assert.match(source, /sessionId\?: string/);
+  assert.doesNotMatch(source, /taskId\?: string/);
+  assert.doesNotMatch(source, /attemptId\?: string/);
+  assert.doesNotMatch(source, /useTaskAttempts/);
 });
 
 test('workspace sessions 使用 session summaries 并展示标题与状态', () => {
   const hookSource = readFrontendFile('src/hooks/useWorkspaceSessions.ts');
   const uiSource = readFrontendFile('src/components/tasks/TaskFollowUpSection.tsx');
-  const apiSource = readFrontendFile('src/lib/api.ts');
+  const apiSource = readFrontendFile('src/lib/api/sessions.ts');
 
   assert.match(hookSource, /getSummariesByWorkspace/);
   assert.match(hookSource, /displayName|title|firstPrompt/);

@@ -39,13 +39,13 @@ pub async fn list_git_repos(
         state
             .deployment
             .filesystem()
-            .list_git_repos(Some(p.clone()), 800, 1200, Some(3))
+            .list_git_repos(Some(p.clone()), 2000, 5000, Some(6))
             .await
     } else {
         state
             .deployment
             .filesystem()
-            .list_common_git_repos(800, 1200, Some(4))
+            .list_common_git_repos(2500, 6000, Some(6))
             .await
     };
     res.map_err(|e| AppError::Internal(e.to_string()))

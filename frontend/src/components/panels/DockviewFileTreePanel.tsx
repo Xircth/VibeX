@@ -29,7 +29,8 @@ function isAbsolutePath(path: string): boolean {
  * rich file icons, git status, and file preview.
  */
 function DockviewFileTreePanel(_props: IDockviewPanelProps) {
-  const { rootPath, setRootPath, setSelectedFilePath } = useFileTreeStore();
+  const { rootPath, setRootPath, setSelectedFilePath, setDiffFilePath } =
+    useFileTreeStore();
   const { openFilePreview } = usePanelActions();
   const { projectId } = useProject();
   const { data: repos } = useProjectRepos(projectId);
@@ -44,6 +45,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   // Track previous workspace ID to detect workspace switches
   const prevWorktreeIdRef = useRef<string | null>(null);
   const prevProjectIdRef = useRef<string | undefined>(projectId);
+  const pendingProjectRootSyncRef = useRef<string | undefined>(projectId);
 
   // Directory listing state
   const [files, setFiles] = useState<string[]>([]);
@@ -69,16 +71,32 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         : [],
     [activeWorktreeId, workspace, workspaceRepos]
   );
+  const resolvedWorkspaceRootPath = useMemo(
+    () =>
+      activeWorktreeId
+        ? deriveWorkspaceRootPath(workspace, workspaceRepos)
+        : null,
+    [activeWorktreeId, workspace, workspaceRepos]
+  );
 
   // Switch rootPath to workspace worktree path when workspace changes
   useEffect(() => {
-    if (activeWorktreeId && activeWorktreeId !== prevWorktreeIdRef.current) {
-      const workspaceRootPath = deriveWorkspaceRootPath(
-        workspace,
-        workspaceRepos
-      );
-      if (workspaceRootPath) {
-        setRootPath(workspaceRootPath);
+    const workspaceBelongsToCurrentProject =
+      !projectId || workspace?.project_id === projectId;
+
+    if (activeWorktreeId) {
+      if (!workspaceBelongsToCurrentProject) {
+        return;
+      }
+
+      if (
+        resolvedWorkspaceRootPath &&
+        (activeWorktreeId !== prevWorktreeIdRef.current ||
+          resolvedWorkspaceRootPath !== rootPath)
+      ) {
+        setRootPath(resolvedWorkspaceRootPath);
+        setSelectedFilePath(null);
+        setDiffFilePath(null);
         prevWorktreeIdRef.current = activeWorktreeId;
       }
     } else if (!activeWorktreeId && prevWorktreeIdRef.current !== null) {
@@ -87,18 +105,59 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         setRootPath(repos[0].path);
       }
     }
-  }, [activeWorktreeId, workspace, workspaceRepos, repos, setRootPath]);
+  }, [
+    activeWorktreeId,
+    projectId,
+    resolvedWorkspaceRootPath,
+    repos,
+    rootPath,
+    setDiffFilePath,
+    setRootPath,
+    setSelectedFilePath,
+    workspace?.project_id,
+  ]);
 
   useEffect(() => {
     const projectChanged = prevProjectIdRef.current !== projectId;
-    prevProjectIdRef.current = projectId;
-
-    if (!projectChanged || activeWorktreeId || !repos || repos.length === 0) {
+    if (!projectChanged) {
       return;
     }
 
-    setRootPath(repos[0].path);
-  }, [activeWorktreeId, projectId, repos, setRootPath]);
+    prevProjectIdRef.current = projectId;
+    pendingProjectRootSyncRef.current = projectId;
+    prevWorktreeIdRef.current = null;
+
+    setRootPath(null);
+    setSelectedFilePath(null);
+    setDiffFilePath(null);
+    setFiles([]);
+    setDirectories([]);
+    setGitignoredFiles(new Set());
+    setGitignoredDirectories(new Set());
+  }, [projectId, setDiffFilePath, setRootPath, setSelectedFilePath]);
+
+  useEffect(() => {
+    if (activeWorktreeId || !projectId || !repos || repos.length === 0) {
+      return;
+    }
+
+    if (pendingProjectRootSyncRef.current !== projectId) {
+      return;
+    }
+
+    const nextRootPath = repos[0].path;
+    setRootPath(nextRootPath);
+    setSelectedFilePath(null);
+    setDiffFilePath(null);
+    pendingProjectRootSyncRef.current = undefined;
+  }, [
+    activeWorktreeId,
+    projectId,
+    repos,
+    setDiffFilePath,
+    setRootPath,
+    setSelectedFilePath,
+  ]);
 
   // Auto-set rootPath from project repos when no workspace is active and no rootPath set
   useEffect(() => {

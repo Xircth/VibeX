@@ -52,6 +52,40 @@ impl FilesystemService {
     }
 
     #[cfg(not(feature = "qa-mode"))]
+    fn push_unique_directory(
+        paths: &mut Vec<PathBuf>,
+        seen: &mut HashSet<PathBuf>,
+        path: Option<PathBuf>,
+    ) {
+        let Some(path) = path else {
+            return;
+        };
+
+        let normalized = utils::path::normalize_macos_private_alias(&path);
+        let canonical = normalized.canonicalize().unwrap_or(normalized);
+
+        if canonical.exists() && canonical.is_dir() && seen.insert(canonical.clone()) {
+            paths.push(canonical);
+        }
+    }
+
+    #[cfg(not(feature = "qa-mode"))]
+    fn push_named_child_directories(
+        paths: &mut Vec<PathBuf>,
+        seen: &mut HashSet<PathBuf>,
+        parent: Option<PathBuf>,
+        child_names: &[&str],
+    ) {
+        let Some(parent) = parent else {
+            return;
+        };
+
+        for child_name in child_names {
+            Self::push_unique_directory(paths, seen, Some(parent.join(child_name)));
+        }
+    }
+
+    #[cfg(not(feature = "qa-mode"))]
     fn get_directories_to_skip() -> HashSet<String> {
         let mut skip_dirs = HashSet::from(
             [
@@ -182,45 +216,60 @@ impl FilesystemService {
 
         #[cfg(not(feature = "qa-mode"))]
         {
-            let search_strings = ["repos", "dev", "work", "code", "projects"];
             let home_dir = Self::get_home_directory();
-            let mut paths: Vec<PathBuf> = search_strings
-                .iter()
-                .map(|s| home_dir.join(s))
-                .filter(|p| p.exists() && p.is_dir())
-                .collect();
-            paths.insert(0, home_dir);
-            if let Some(cwd) = std::env::current_dir().ok()
-                && cwd.exists()
-                && cwd.is_dir()
-            {
-                paths.insert(0, cwd);
+            let search_strings = ["repos", "dev", "work", "code", "projects", "source"];
+            let current_dir = std::env::current_dir().ok();
+            let document_dir = dirs::document_dir();
+            let desktop_dir = dirs::desktop_dir();
+            let download_dir = dirs::download_dir();
+            let mut paths = Vec::new();
+            let mut seen = HashSet::new();
+
+            for base_dir in [
+                current_dir.clone(),
+                document_dir.clone(),
+                desktop_dir.clone(),
+                download_dir.clone(),
+                Some(home_dir.clone()),
+            ] {
+                Self::push_named_child_directories(
+                    &mut paths,
+                    &mut seen,
+                    base_dir,
+                    &search_strings,
+                );
             }
+
+            Self::push_unique_directory(&mut paths, &mut seen, current_dir);
+            Self::push_unique_directory(&mut paths, &mut seen, document_dir);
+            Self::push_unique_directory(&mut paths, &mut seen, desktop_dir);
+            Self::push_unique_directory(&mut paths, &mut seen, download_dir);
+            Self::push_unique_directory(&mut paths, &mut seen, Some(home_dir));
+
             self.list_git_repos_with_timeout(paths, timeout_ms, hard_timeout_ms, max_depth)
                 .await
         }
     }
 
     #[cfg(not(feature = "qa-mode"))]
-    async fn list_git_repos_inner(
-        &self,
-        path: Vec<PathBuf>,
+    fn scan_git_repos_under_root(
+        root: &Path,
         max_depth: Option<usize>,
         cancel: Option<&CancellationToken>,
-    ) -> Result<Vec<DirectoryEntry>, FilesystemError> {
-        let base_dir = match path.first() {
-            Some(dir) => dir,
-            None => return Ok(vec![]),
-        };
-        let skip_dirs = Self::get_directories_to_skip();
-        let vibe_ultra_temp_dir = utils::path::get_vibe_ultra_temp_dir();
-        let mut walker_builder = WalkBuilder::new(base_dir);
+        skip_dirs: &HashSet<String>,
+        vibe_ultra_temp_dir: &Path,
+        seen_repo_paths: &mut HashSet<PathBuf>,
+    ) -> Vec<DirectoryEntry> {
+        let mut walker_builder = WalkBuilder::new(root);
         walker_builder
             .follow_links(false)
-            .hidden(true) // true to skip hidden files
+            .hidden(true)
             .git_ignore(true)
+            .git_exclude(true)
             .filter_entry({
                 let cancel = cancel.cloned();
+                let vibe_ultra_temp_dir = vibe_ultra_temp_dir.to_path_buf();
+                let skip_dirs = skip_dirs.clone();
                 move |entry| {
                     if let Some(token) = cancel.as_ref()
                         && token.is_cancelled()
@@ -234,15 +283,12 @@ impl FilesystemService {
                         return false;
                     }
 
-                    // Skip Vibe Ultra temp directory and all subdirectories
-                    // Normalize to handle macOS /private/var vs /var aliasing
                     if utils::path::normalize_macos_private_alias(path)
                         .starts_with(&vibe_ultra_temp_dir)
                     {
                         return false;
                     }
 
-                    // Skip common non-git folders
                     if let Some(name) = path.file_name().and_then(|n| n.to_str())
                         && skip_dirs.contains(name)
                     {
@@ -252,38 +298,78 @@ impl FilesystemService {
                     true
                 }
             })
-            .max_depth(max_depth)
-            .git_exclude(true);
-        for p in path.iter().skip(1) {
-            walker_builder.add(p);
-        }
-        let mut seen_dirs = HashSet::new();
-        let mut git_repos: Vec<DirectoryEntry> = walker_builder
+            .max_depth(max_depth);
+
+        walker_builder
             .build()
             .filter_map(|entry| {
                 let entry = entry.ok()?;
-                if seen_dirs.contains(entry.path()) {
+                if cancel.is_some_and(|token| token.is_cancelled()) {
                     return None;
                 }
-                seen_dirs.insert(entry.path().to_owned());
+
+                let path = entry.path();
                 let name = entry.file_name().to_str()?;
-                if !entry.path().join(".git").exists() {
+                if !path.join(".git").exists() {
                     return None;
                 }
+
+                let normalized_path = utils::path::normalize_macos_private_alias(path);
+                let canonical_path = normalized_path
+                    .canonicalize()
+                    .unwrap_or(normalized_path.clone());
+                if !seen_repo_paths.insert(canonical_path.clone()) {
+                    return None;
+                }
+
                 let last_modified = entry
                     .metadata()
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .map(|t| t.elapsed().unwrap_or_default().as_secs());
+
                 Some(DirectoryEntry {
                     name: name.to_string(),
-                    path: entry.into_path(),
+                    path: canonical_path,
                     is_directory: true,
                     is_git_repo: true,
                     last_modified,
                 })
             })
-            .collect();
+            .collect()
+    }
+
+    #[cfg(not(feature = "qa-mode"))]
+    async fn list_git_repos_inner(
+        &self,
+        paths: Vec<PathBuf>,
+        max_depth: Option<usize>,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<Vec<DirectoryEntry>, FilesystemError> {
+        let skip_dirs = Self::get_directories_to_skip();
+        let vibe_ultra_temp_dir = utils::path::get_vibe_ultra_temp_dir();
+        let mut seen_repo_paths = HashSet::new();
+        let mut git_repos = Vec::new();
+
+        for root in paths {
+            if cancel.is_some_and(|token| token.is_cancelled()) {
+                break;
+            }
+
+            if !root.exists() || !root.is_dir() {
+                continue;
+            }
+
+            git_repos.extend(Self::scan_git_repos_under_root(
+                &root,
+                max_depth,
+                cancel,
+                &skip_dirs,
+                &vibe_ultra_temp_dir,
+                &mut seen_repo_paths,
+            ));
+        }
+
         git_repos.sort_by_key(|entry| entry.last_modified.unwrap_or(0));
         Ok(git_repos)
     }

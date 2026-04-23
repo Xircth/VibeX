@@ -25,7 +25,7 @@ import {
   SettingsLayout,
 } from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
-import { ThemeProvider } from '@/components/ThemeProvider';
+import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster } from '@/components/ui/sonner';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
@@ -44,6 +44,12 @@ import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 
 // Design scope components
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
+
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme();
+
+  return <Toaster theme={resolvedTheme} />;
+}
 
 function MainAppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
@@ -113,11 +119,11 @@ function MainAppContent() {
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
         <ProjectWindowManager />
-        <Toaster />
+        <ThemedToaster />
         <Routes>
           {/* ========== FULL-PAGE ROUTES (outside layout) ========== */}
           <Route
-            path="/local-projects/:projectId/tasks/:taskId/attempts/:attemptId/full"
+            path="/local-projects/:projectId/workspaces/:workspaceId/full"
             element={
               <LegacyDesignScope>
                 <FullAttemptLogsPage />
@@ -134,15 +140,7 @@ function MainAppContent() {
             }
           >
             <Route
-              path="/local-projects/:projectId/tasks"
-              element={<ProjectTasks />}
-            />
-            <Route
-              path="/local-projects/:projectId/tasks/:taskId"
-              element={<ProjectTasks />}
-            />
-            <Route
-              path="/local-projects/:projectId/tasks/:taskId/attempts/:attemptId"
+              path="/local-projects/:projectId/sessions"
               element={<ProjectTasks />}
             />
             <Route

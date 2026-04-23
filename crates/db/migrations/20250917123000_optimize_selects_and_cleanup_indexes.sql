@@ -18,4 +18,3 @@ DROP INDEX IF EXISTS idx_execution_processes_task_attempt_id;
 -- 3) tasks: list by project ordered by created_at DESC
 CREATE INDEX IF NOT EXISTS idx_tasks_project_created_at
 ON tasks (project_id, created_at DESC);
-

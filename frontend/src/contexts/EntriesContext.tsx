@@ -82,21 +82,6 @@ export const EntriesProvider = ({
     setTokenUsageInfo(nextValue.tokenUsageInfo);
   }, [cacheKey]);
 
-  const updateCache = useCallback(
-    (
-      nextEntries: PatchTypeWithKey[] = entriesRef.current,
-      nextTokenUsageInfo: TokenUsageInfo | null = tokenUsageInfoRef.current
-    ) => {
-      if (!cacheKey) return;
-
-      useSessionConversationStore.getState().saveSnapshot(cacheKey, {
-        entries: nextEntries,
-        tokenUsageInfo: nextTokenUsageInfo,
-      });
-    },
-    [cacheKey]
-  );
-
   const setEntries = useCallback(
     (newEntries: PatchTypeWithKey[]) => {
       const cachedValue = cacheKey
@@ -114,18 +99,16 @@ export const EntriesProvider = ({
 
       entriesRef.current = newEntries;
       setEntriesState(newEntries);
-      updateCache(newEntries, tokenUsageInfoRef.current);
     },
-    [cacheKey, updateCache]
+    [cacheKey]
   );
 
   const setTokenUsageInfoCallback = useCallback(
     (info: TokenUsageInfo | null) => {
       tokenUsageInfoRef.current = info;
       setTokenUsageInfo(info);
-      updateCache(entriesRef.current, info);
     },
-    [updateCache]
+    []
   );
 
   const reset = useCallback(() => {
@@ -136,8 +119,7 @@ export const EntriesProvider = ({
     if (cacheKey) {
       useSessionConversationStore.getState().clearSnapshot(cacheKey);
     }
-    updateCache([], null);
-  }, [cacheKey, updateCache]);
+  }, [cacheKey]);
 
   const value = useMemo(
     () => ({

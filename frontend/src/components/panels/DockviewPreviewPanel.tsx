@@ -3,15 +3,25 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
-  useMemo,
+  type ComponentType,
 } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
-import { Eye, Code2, GitCompare } from 'lucide-react';
 import {
+  Code2,
+  Eye,
+  FileText,
+  FileWarning,
+  GitCompare,
+  Image as ImageIcon,
+} from 'lucide-react';
+import {
+  useDocumentPreview,
   useFileAtHead,
   useFileContent,
   useSaveFile,
@@ -28,6 +38,10 @@ import {
   MONACO_THEME_AYU_DARK,
   MONACO_THEME_AYU_LIGHT,
 } from '@/utils/monacoThemes';
+import {
+  getFilePreviewKind,
+  isBinaryContentError,
+} from '@/utils/filePreviewKind';
 
 const LazyMarkdown = lazy(
   () => import('@/components/NormalizedConversation/Markdown')
@@ -36,9 +50,6 @@ const LazyFileContentView = lazy(
   () => import('@/components/NormalizedConversation/FileContentView')
 );
 
-/**
- * Map file extension to Monaco language identifier.
- */
 function getLanguageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   const langMap: Record<string, string> = {
@@ -82,9 +93,6 @@ function getLanguageFromPath(filePath: string): string {
   return langMap[ext] || 'plaintext';
 }
 
-/**
- * Check if a file path points to a Markdown file.
- */
 function isMarkdownFile(filePath: string): boolean {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   return ext === 'md' || ext === 'mdx' || ext === 'markdown';
@@ -99,18 +107,66 @@ function getPathSegments(filePath: string): string[] {
 
 function ContentLoadingFallback({ label }: { label: string }) {
   return (
-    <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
       {label}
     </div>
   );
 }
 
-/** Persist markdown render state across tab switches (keyed by filePath). */
+function PreviewPlaceholder({
+  icon,
+  title,
+  description,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+}) {
+  const Icon = icon;
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+      <Icon className="h-10 w-10 opacity-50" />
+      <div className="space-y-1">
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        <p className="text-xs">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function ReadonlyDocumentPreview({
+  content,
+  extractor,
+}: {
+  content: string;
+  extractor: string;
+}) {
+  return (
+    <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
+      <div className="mx-auto flex max-w-4xl flex-col gap-4">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground shadow-sm">
+          <span>Read-only document preview</span>
+          <span>{extractor}</span>
+        </div>
+        <div className="rounded-xl border border-border bg-background p-6 shadow-sm">
+          {content.trim().length > 0 ? (
+            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-foreground">
+              {content}
+            </pre>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This document does not contain previewable text content.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const markdownRenderStateMap = new Map<string, boolean>();
 
-/**
- * DockviewPreviewPanel - file preview/editor panel with optional inline diff mode.
- */
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const params = (props.params ?? {}) as Partial<PreviewPanelParams>;
   const filePath = params.filePath ?? null;
@@ -125,16 +181,21 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     () => (filePath ? resolveFilePathFromRoot(filePath, rootPath) : null),
     [filePath, rootPath]
   );
-  const shouldFetchFileContent = !(
-    mode === 'diff' && modifiedContentOverride !== null
-  );
-  const shouldFetchHeadContent = !(
-    mode === 'diff' && originalContentOverride !== null
-  );
+  const previewKind = useMemo(() => getFilePreviewKind(filePath), [filePath]);
+  const shouldFetchFileContent =
+    previewKind === 'text' &&
+    !(mode === 'diff' && modifiedContentOverride !== null);
+  const shouldFetchHeadContent =
+    previewKind === 'text' &&
+    !(mode === 'diff' && originalContentOverride !== null);
+  const shouldFetchDocumentPreview =
+    previewKind === 'document' && mode !== 'diff';
 
-  const { data: content, isLoading } = useFileContent(
-    shouldFetchFileContent ? resolvedFilePath : null
-  );
+  const {
+    data: content,
+    isLoading,
+    error: contentError,
+  } = useFileContent(shouldFetchFileContent ? resolvedFilePath : null);
   const {
     data: headContent,
     isLoading: isLoadingHead,
@@ -142,6 +203,11 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   } = useFileAtHead(
     mode === 'diff' && shouldFetchHeadContent ? resolvedFilePath : null
   );
+  const {
+    data: documentPreview,
+    isLoading: isLoadingDocumentPreview,
+    error: documentPreviewError,
+  } = useDocumentPreview(shouldFetchDocumentPreview ? resolvedFilePath : null);
   const saveFile = useSaveFile();
   const { resolvedTheme } = useTheme();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
@@ -161,9 +227,42 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
   const isMd = filePath ? isMarkdownFile(filePath) : false;
   const isDiffMode = mode === 'diff';
+  const contentErrorMessage = useMemo(() => {
+    if (!contentError) {
+      return null;
+    }
+    return contentError instanceof Error
+      ? contentError.message
+      : String(contentError);
+  }, [contentError]);
+  const documentPreviewErrorMessage = useMemo(() => {
+    if (!documentPreviewError) {
+      return null;
+    }
+    return documentPreviewError instanceof Error
+      ? documentPreviewError.message
+      : String(documentPreviewError);
+  }, [documentPreviewError]);
+  const hasBinaryReadError = isBinaryContentError(contentError);
+  const effectivePreviewKind =
+    previewKind === 'text' && hasBinaryReadError ? 'binary' : previewKind;
   const modifiedContent = modifiedContentOverride ?? content ?? '';
   const originalContent =
     originalContentOverride ?? (headError ? '' : (headContent ?? ''));
+  const fileAssetSrc = useMemo(() => {
+    if (
+      (effectivePreviewKind !== 'image' && effectivePreviewKind !== 'pdf') ||
+      !resolvedFilePath
+    ) {
+      return null;
+    }
+
+    try {
+      return convertFileSrc(resolvedFilePath);
+    } catch {
+      return null;
+    }
+  }, [effectivePreviewKind, resolvedFilePath]);
 
   const [isRendered, setIsRendered] = useState(() =>
     filePath ? (markdownRenderStateMap.get(filePath) ?? false) : false
@@ -250,9 +349,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
         className="h-full w-full overflow-auto bg-background"
         data-panel="preview"
       >
-        <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm gap-3">
+        <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
           <Eye className="h-8 w-8 opacity-40" />
-          <div className="text-center space-y-1">
+          <div className="space-y-1 text-center">
             <p className="font-medium">Preview</p>
             <p className="text-xs">
               Select a file from the file tree to preview
@@ -279,13 +378,13 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
   return (
     <div
-      className="h-full w-full flex flex-col bg-background"
+      className="flex h-full w-full flex-col bg-background"
       data-panel="preview"
       onMouseDown={handleMouseDown}
     >
-      <div className="flex items-center gap-2 px-2 py-1 border-b border-border text-xs shrink-0 bg-background">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background px-2 py-1 text-xs">
         <div
-          className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap text-muted-foreground scrollbar-thin"
+          className="scrollbar-thin flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap text-muted-foreground"
           title={resolvedDisplayPath ?? filePath}
         >
           {pathSegments.map((segment, index) => (
@@ -309,43 +408,63 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
 
         {isDiffMode ? (
           <>
-            <span className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground bg-muted rounded select-none">
-              <GitCompare className="w-3 h-3" />
+            <span className="flex select-none items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <GitCompare className="h-3 w-3" />
               {diffBadge}
             </span>
-            <span className="hidden md:inline text-[10px] text-muted-foreground">
+            <span className="hidden text-[10px] text-muted-foreground md:inline">
               {diffSummary}
             </span>
           </>
-        ) : (
-          <>
-            {isMd && (
-              <button
-                className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground bg-muted rounded select-none hover:bg-accent hover:text-foreground transition-colors"
-                title="Click to toggle preview"
-                onClick={() => setIsRendered((prev) => !prev)}
-              >
-                {isRendered ? (
-                  <>
-                    <Eye className="w-3 h-3" />
-                    Preview
-                  </>
-                ) : (
-                  <>
-                    <Code2 className="w-3 h-3" />
-                    Source
-                  </>
-                )}
-              </button>
+        ) : isMd && effectivePreviewKind === 'text' ? (
+          <button
+            className="flex select-none items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="Click to toggle preview"
+            onClick={() => setIsRendered((prev) => !prev)}
+          >
+            {isRendered ? (
+              <>
+                <Eye className="h-3 w-3" />
+                Preview
+              </>
+            ) : (
+              <>
+                <Code2 className="h-3 w-3" />
+                Source
+              </>
             )}
-          </>
-        )}
+          </button>
+        ) : null}
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="min-h-0 flex-1">
         {isDiffMode ? (
-          isDiffLoading ? (
-            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+          effectivePreviewKind === 'binary' ? (
+            <PreviewPlaceholder
+              icon={FileWarning}
+              title="Binary diff is not supported here"
+              description="This file cannot be rendered as a text diff in the preview panel."
+            />
+          ) : effectivePreviewKind === 'image' ? (
+            <PreviewPlaceholder
+              icon={ImageIcon}
+              title="Image diff is not supported here"
+              description="Open this asset in a dedicated image diff flow instead of the text preview panel."
+            />
+          ) : effectivePreviewKind === 'pdf' ? (
+            <PreviewPlaceholder
+              icon={FileText}
+              title="PDF diff is not supported here"
+              description="Open the PDF in read-only preview mode instead of the text diff panel."
+            />
+          ) : effectivePreviewKind === 'document' ? (
+            <PreviewPlaceholder
+              icon={FileText}
+              title="Word document diff is not supported here"
+              description="Open this document in read-only preview mode instead of the text diff panel."
+            />
+          ) : isDiffLoading ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               Loading diff...
             </div>
           ) : (
@@ -365,10 +484,80 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               </Suspense>
             </div>
           )
+        ) : effectivePreviewKind === 'binary' ? (
+          <PreviewPlaceholder
+            icon={FileWarning}
+            title="Binary file preview is not supported"
+            description={
+              contentErrorMessage ??
+              'This asset cannot be opened as UTF-8 text in the editor preview.'
+            }
+          />
+        ) : effectivePreviewKind === 'image' ? (
+          <div className="flex h-full items-center justify-center overflow-auto bg-muted/10 p-4">
+            {fileAssetSrc ? (
+              <img
+                src={fileAssetSrc}
+                alt={resolvedDisplayPath ?? filePath}
+                className="max-h-full max-w-full rounded-lg border border-border bg-background object-contain shadow-sm"
+              />
+            ) : (
+              <PreviewPlaceholder
+                icon={ImageIcon}
+                title="Image preview is unavailable"
+                description="The image source could not be resolved for this file."
+              />
+            )}
+          </div>
+        ) : effectivePreviewKind === 'pdf' ? (
+          <div className="h-full bg-muted/10 p-3">
+            {fileAssetSrc ? (
+              <object
+                data={fileAssetSrc}
+                type="application/pdf"
+                className="h-full w-full rounded-lg border border-border bg-background shadow-sm"
+              >
+                <iframe
+                  src={fileAssetSrc}
+                  title={resolvedDisplayPath ?? filePath}
+                  className="h-full w-full rounded-lg border border-border bg-background"
+                />
+              </object>
+            ) : (
+              <PreviewPlaceholder
+                icon={FileText}
+                title="PDF preview is unavailable"
+                description="The PDF source could not be resolved for this file."
+              />
+            )}
+          </div>
+        ) : effectivePreviewKind === 'document' ? (
+          isLoadingDocumentPreview ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              Loading document preview...
+            </div>
+          ) : documentPreviewErrorMessage ? (
+            <PreviewPlaceholder
+              icon={FileText}
+              title="Document preview failed"
+              description={documentPreviewErrorMessage}
+            />
+          ) : (
+            <ReadonlyDocumentPreview
+              content={documentPreview?.content ?? ''}
+              extractor={documentPreview?.extractor ?? 'word-preview'}
+            />
+          )
         ) : isLoading ? (
-          <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             Loading file...
           </div>
+        ) : contentErrorMessage ? (
+          <PreviewPlaceholder
+            icon={FileWarning}
+            title="File preview failed"
+            description={contentErrorMessage}
+          />
         ) : isMd && isRendered ? (
           <Suspense
             fallback={<ContentLoadingFallback label="Loading preview..." />}

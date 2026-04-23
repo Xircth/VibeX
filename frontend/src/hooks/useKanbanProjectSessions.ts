@@ -55,8 +55,8 @@ function buildDefaultSessionName(summary: SessionSummary) {
   }
 
   return {
-    name: summary.display_name?.trim() || '会话',
-    source: 'display' as const,
+    name: '会话',
+    source: 'fallback' as const,
     prompt: null,
   };
 }
@@ -122,7 +122,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
   const sessions = useMemo<KanbanProjectSessionRecord[]>(() => {
     const nameMetaById = new Map<
       string,
-      { source: 'manual' | 'prompt' | 'display'; prompt: string | null }
+      { source: 'manual' | 'prompt' | 'fallback'; prompt: string | null }
     >();
     const workspaceStatusById = new Map(
       workspacesWithStatus.map((workspace) => [

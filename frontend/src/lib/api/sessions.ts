@@ -4,6 +4,7 @@ import type {
   ExecutionProcess,
   Session,
   StartReviewRequest,
+  Workspace,
 } from 'shared/types';
 
 import { tauriInvoke } from './base';
@@ -58,6 +59,7 @@ export const sessionsApi = {
   createProject: async (data: {
     project_id: string;
     workspace_id?: string | null;
+    branch?: string | null;
     executor?: string;
     name?: string | null;
     initial_prompt?: string | null;
@@ -65,13 +67,26 @@ export const sessionsApi = {
     repos?: Array<{ repo_id: string; target_branch: string }>;
   }): Promise<Session> => {
     return tauriInvoke<Session>('create_project_session', {
+      payload: {
+        project_id: data.project_id,
+        workspace_id: data.workspace_id ?? null,
+        branch: data.branch ?? null,
+        executor: data.executor ?? null,
+        name: data.name ?? null,
+        initial_prompt: data.initial_prompt ?? null,
+        create_workspace: data.create_workspace ?? null,
+        repos: data.repos ?? null,
+      },
+    });
+  },
+
+  ensureProjectWorkspace: async (data: {
+    project_id: string;
+    branch?: string | null;
+  }): Promise<Workspace> => {
+    return tauriInvoke<Workspace>('ensure_project_workspace', {
       projectId: data.project_id,
-      workspaceId: data.workspace_id ?? null,
-      executor: data.executor ?? null,
-      name: data.name ?? null,
-      initialPrompt: data.initial_prompt ?? null,
-      createWorkspace: data.create_workspace ?? null,
-      repos: data.repos ?? null,
+      branch: data.branch ?? null,
     });
   },
 

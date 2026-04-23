@@ -26,7 +26,7 @@ export const useKeyExit = createSemanticHook(Action.EXIT);
  *
  * @example
  * // Create new task
- * useKeyCreate(() => openTaskForm(), { scope: Scope.KANBAN });
+ * useKeyCreate(() => handleCreateSession(), { scope: Scope.KANBAN });
  *
  * @example
  * // Create new project

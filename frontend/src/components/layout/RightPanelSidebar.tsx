@@ -139,7 +139,7 @@ export function RightPanelSidebar() {
   return (
     <>
       <TooltipProvider delayDuration={200}>
-        <div className="relative shrink-0 w-9 border-l border-border bg-secondary/30 flex flex-col items-center pt-2 gap-0.5">
+        <div className="workspace-divider-left relative flex w-9 shrink-0 flex-col items-center gap-0.5 bg-secondary/30 pt-2">
           {buttons.map((button) => {
             const Icon = button.icon;
             return (

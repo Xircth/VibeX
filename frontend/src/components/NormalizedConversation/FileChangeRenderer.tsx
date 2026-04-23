@@ -17,6 +17,7 @@ import '@/styles/diff-style-overrides.css';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { getFilePreviewKind } from '@/utils/filePreviewKind';
 
 type Props = {
   path: string;
@@ -82,11 +83,14 @@ const FileChangeRenderer = ({
 
   const theme = getActualTheme(config?.theme);
   const resolvedPath = resolveFilePath(path, containerRef);
+  const previewKind = getFilePreviewKind(path);
+  const shouldRenderInlineTextDiff =
+    isWrite(change) && effectiveExpanded && previewKind === 'text';
   const {
     data: headContent,
     isLoading: isLoadingHead,
     error: headError,
-  } = useFileAtHead(isWrite(change) && effectiveExpanded ? resolvedPath : null);
+  } = useFileAtHead(shouldRenderInlineTextDiff ? resolvedPath : null);
 
   const statusIcon =
     statusAppearance === 'denied' ? (
@@ -160,6 +164,15 @@ const FileChangeRenderer = ({
 
   if (!titleText) return null;
 
+  const inlinePreviewMessage =
+    previewKind === 'image'
+      ? 'Image changes are not rendered inline. Open the preview panel to inspect this asset.'
+      : previewKind === 'pdf'
+        ? 'PDF changes are not rendered inline. Open the preview panel to inspect this asset.'
+        : previewKind === 'document'
+          ? 'Document changes are not rendered inline. Open the preview panel to inspect this asset.'
+          : 'Binary changes are not rendered inline. Open the preview panel to inspect this asset.';
+
   return (
     <div>
       <div
@@ -184,7 +197,7 @@ const FileChangeRenderer = ({
               containerRef
             );
             const displayPath = targetPath;
-            if (isWrite(change)) {
+            if (isWrite(change) && previewKind === 'text') {
               openFilePreview(resolvedTargetPath, {
                 mode: 'diff',
                 diffViewMode: 'inline',
@@ -207,7 +220,11 @@ const FileChangeRenderer = ({
       {/* Body */}
       {isWrite(change) && effectiveExpanded && (
         <div className="mt-1 overflow-hidden rounded-b-lg border border-t-0 border-[var(--conv-border-subtle)] bg-[var(--conv-surface-card)]">
-          {isLoadingHead ? (
+          {previewKind !== 'text' ? (
+            <div className="px-4 py-3 text-xs text-muted-foreground">
+              {inlinePreviewMessage}
+            </div>
+          ) : isLoadingHead ? (
             <div className="px-4 py-3 text-xs text-muted-foreground">
               Loading diff...
             </div>

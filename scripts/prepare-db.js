@@ -16,12 +16,27 @@ process.chdir(backendDir);
 const dbFile = path.join(backendDir, 'prepare_db.sqlite');
 fs.writeFileSync(dbFile, '');
 
+function ensureCargoSqlxInstalled() {
+  try {
+    execSync('cargo sqlx --version', {
+      stdio: 'ignore',
+      env: process.env
+    });
+  } catch {
+    throw new Error(
+      'Missing required Cargo subcommand `cargo sqlx`. Install it with `cargo install sqlx-cli --no-default-features --features sqlite` and rerun prepare-db.'
+    );
+  }
+}
+
 try {
   // Get absolute path (cross-platform)
   const dbPath = path.resolve(dbFile);
   const databaseUrl = `sqlite:${dbPath}`;
 
   console.log(`Using database: ${databaseUrl}`);
+
+  ensureCargoSqlxInstalled();
 
   // Run migrations
   console.log('Running migrations...');

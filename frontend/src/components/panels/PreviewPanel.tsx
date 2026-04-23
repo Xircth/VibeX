@@ -148,10 +148,9 @@ export function PreviewPanel() {
   const companionReadyRef = useRef(false);
   const toolbarBridgeReadyRef = useRef(false);
   const { project, projectId } = useProject();
-  const { attemptId: rawAttemptId } = useParams<{ attemptId?: string }>();
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
 
-  const attemptId =
-    rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
+  const attemptId = workspaceId;
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
   const { overrideUrl: customUrl } = usePreviewSettings(attemptId);
   const { data: projectHasDevScript = false } =

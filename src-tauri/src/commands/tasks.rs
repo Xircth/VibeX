@@ -15,7 +15,9 @@ use git::GitService;
 use services::services::{container::ContainerService, workspace_manager::WorkspaceManager};
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+};
 
 // --- Query / Input types ---
 
@@ -198,13 +200,18 @@ pub async fn upload_image_for_workspace(
     if let Some(container_ref) = &workspace.container_ref {
         let workspace_path = PathBuf::from(container_ref);
         if workspace_path.exists() {
+            let repos =
+                WorkspaceRepo::find_repos_for_workspace(&state.deployment.db().pool, workspace.id)
+                    .await
+                    .unwrap_or_default();
             state
                 .deployment
                 .image()
                 .copy_images_by_task_to_worktree(
                     &workspace_path,
                     workspace.task_id,
-                    workspace.agent_working_dir.as_deref(),
+                    resolve_workspace_agent_working_dir(&workspace, container_ref, &repos)
+                        .as_deref(),
                 )
                 .await
                 .map_err(|e| AppError::Internal(e.to_string()))?;

@@ -4,9 +4,9 @@ import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDial
 import { Button } from '@/components/ui/button';
 import { useProjects } from '@/hooks/useProjects';
 import { useProject } from '@/contexts/ProjectContext';
+import { normalizeProjectRoute, paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import { desktopApi, projectsApi } from '@/lib/api';
-import { paths } from '@/lib/paths';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import {
@@ -49,6 +49,15 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fallbackProjects, setFallbackProjects] = useState<typeof projects>([]);
+  const [isResolvingStandaloneProjects, setIsResolvingStandaloneProjects] =
+    useState(false);
+  const hasStoredProjectSignals = useMemo(
+    () =>
+      openProjectIds.length > 0 ||
+      Object.keys(projectSnapshots).length > 0 ||
+      Object.keys(projectAlerts).length > 0,
+    [openProjectIds, projectAlerts, projectSnapshots]
+  );
 
   useEffect(() => {
     if (!standalone) {
@@ -90,36 +99,106 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const MAX_EMPTY_RETRIES = 3;
+    let emptyRetryCount = 0;
 
-    if (!standalone || projects.length > 0) {
+    if (!standalone) {
       setFallbackProjects([]);
+      setIsResolvingStandaloneProjects(false);
       return;
     }
 
-    void projectsApi
-      .getAll()
-      .then((data) => {
-        if (!cancelled) {
-          setFallbackProjects(data);
+    if (projects.length > 0) {
+      setFallbackProjects([]);
+      setIsResolvingStandaloneProjects(false);
+      return;
+    }
+
+    const loadProjects = async () => {
+      setIsResolvingStandaloneProjects(true);
+
+      try {
+        const data = await projectsApi.getAll();
+        if (cancelled) {
+          return;
         }
-      })
-      .catch((error) => {
+
+        if (data.length > 0 || !hasStoredProjectSignals) {
+          setFallbackProjects(data);
+          setIsResolvingStandaloneProjects(false);
+          return;
+        }
+
+        if (emptyRetryCount >= MAX_EMPTY_RETRIES) {
+          setFallbackProjects([]);
+          setIsResolvingStandaloneProjects(false);
+          return;
+        }
+
+        emptyRetryCount += 1;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          void loadProjects();
+        }, 600);
+      } catch (error) {
         console.error(
           'Failed to load projects for project rail window:',
           error
         );
-        if (!cancelled) {
-          setFallbackProjects([]);
+        if (cancelled) {
+          return;
         }
-      });
+
+        if (emptyRetryCount >= MAX_EMPTY_RETRIES) {
+          setFallbackProjects([]);
+          setIsResolvingStandaloneProjects(false);
+          return;
+        }
+
+        emptyRetryCount += 1;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          void loadProjects();
+        }, 600);
+      }
+    };
+
+    void loadProjects();
 
     return () => {
       cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
     };
-  }, [projects, standalone]);
+  }, [hasStoredProjectSignals, projects, standalone]);
 
   const effectiveProjects =
     standalone && projects.length === 0 ? fallbackProjects : projects;
+  const orderedProjectIds = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...openProjectIds,
+          ...(projectId ? [projectId] : []),
+          ...Object.keys(projectSnapshots),
+          ...effectiveProjects.map((project) => project.id),
+        ])
+      ),
+    [effectiveProjects, openProjectIds, projectId, projectSnapshots]
+  );
+  const shouldShowPlaceholderProjects =
+    standalone &&
+    effectiveProjects.length === 0 &&
+    isResolvingStandaloneProjects &&
+    hasStoredProjectSignals;
+  const projectRailItemCount =
+    effectiveProjects.length > 0
+      ? effectiveProjects.length
+      : shouldShowPlaceholderProjects
+        ? orderedProjectIds.length
+        : 0;
 
   useEffect(() => {
     if (!standalone) {
@@ -127,30 +206,40 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     }
 
     void desktopApi
-      .setProjectRailWindowVisible(true, effectiveProjects.length)
+      .syncProjectRailWindowBounds(projectRailItemCount)
       .catch((error) => {
         console.error('Failed to sync standalone project rail size:', error);
       });
-  }, [effectiveProjects.length, standalone]);
+  }, [projectRailItemCount, standalone]);
 
   const visibleProjects = useMemo(() => {
     const byId = new Map(
       effectiveProjects.map((project) => [project.id, project])
     );
-    const orderedIds = Array.from(
-      new Set([
-        ...openProjectIds,
-        ...(projectId ? [projectId] : []),
-        ...effectiveProjects.map((project) => project.id),
-      ])
-    );
 
-    return orderedIds
-      .map((id) => byId.get(id))
-      .filter((project): project is NonNullable<typeof project> =>
+    return orderedProjectIds
+      .map((id) => {
+        const project = byId.get(id);
+        if (project) {
+          return {
+            id: project.id,
+            name: project.name,
+          };
+        }
+
+        if (shouldShowPlaceholderProjects) {
+          return {
+            id,
+            name: '项目',
+          };
+        }
+
+        return null;
+      })
+      .filter((project): project is { id: string; name: string } =>
         Boolean(project)
       );
-  }, [effectiveProjects, openProjectIds, projectId]);
+  }, [effectiveProjects, orderedProjectIds, shouldShowPlaceholderProjects]);
 
   useEffect(() => {
     if (standalone) {
@@ -199,10 +288,13 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
       if (standalone) {
         await desktopApi.activateProjectRailTarget({
           projectId: result.project.id,
-          route: paths.projectTasks(result.project.id),
+          route: paths.projectSessions(result.project.id),
         });
       } else {
-        switchProject(result.project.id, paths.projectTasks(result.project.id));
+        switchProject(
+          result.project.id,
+          paths.projectSessions(result.project.id)
+        );
       }
     }
   };
@@ -214,10 +306,13 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
       if (standalone) {
         await desktopApi.activateProjectRailTarget({
           projectId: result.project.id,
-          route: paths.projectTasks(result.project.id),
+          route: paths.projectSessions(result.project.id),
         });
       } else {
-        switchProject(result.project.id, paths.projectTasks(result.project.id));
+        switchProject(
+          result.project.id,
+          paths.projectSessions(result.project.id)
+        );
       }
     }
   };
@@ -307,9 +402,10 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     }
 
     if (standalone) {
-      const route =
+      const route = normalizeProjectRoute(
         useWindowProjectsStore.getState().lastRouteByProject[nextProjectId] ??
-        paths.projectTasks(nextProjectId);
+          paths.projectSessions(nextProjectId)
+      );
       void desktopApi.activateProjectRailTarget({
         projectId: nextProjectId,
         route,
@@ -443,7 +539,9 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
             </div>
           );
         })}
-        {visibleProjects.length === 0 && !isProjectsLoading ? (
+        {visibleProjects.length === 0 &&
+        !isProjectsLoading &&
+        !isResolvingStandaloneProjects ? (
           <div className="px-2 py-6 text-center text-[11px] text-muted-foreground">
             暂无项目
           </div>

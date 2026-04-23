@@ -73,14 +73,10 @@ function formatTimestamp(timestamp: number): string {
 
 function DockviewDiffsReviewPanel() {
   const { activeWorktreeId } = useWorktree();
-  const { attemptId: routeAttemptIdParam } = useParams<{
-    attemptId?: string;
+  const { workspaceId: routeWorkspaceId } = useParams<{
+    workspaceId?: string;
   }>();
-  const routeAttemptId =
-    routeAttemptIdParam && routeAttemptIdParam !== 'latest'
-      ? routeAttemptIdParam
-      : undefined;
-  const effectiveAttemptId = activeWorktreeId ?? routeAttemptId ?? undefined;
+  const effectiveAttemptId = activeWorktreeId ?? routeWorkspaceId ?? undefined;
   const { data: workspace } = useAttempt(effectiveAttemptId);
   const attemptId = workspace?.id ?? effectiveAttemptId ?? null;
 

@@ -9,6 +9,16 @@ use utils::assets::asset_dir;
 
 pub mod models;
 
+fn auto_fix_migration_checksum_mismatch_enabled(
+    strict_override: Option<std::ffi::OsString>,
+) -> bool {
+    cfg!(windows) && strict_override.is_none()
+}
+
+fn should_auto_fix_migration_checksum_mismatch() -> bool {
+    auto_fix_migration_checksum_mismatch_enabled(std::env::var_os("VIBE_ULTRA_STRICT_MIGRATIONS"))
+}
+
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     use std::collections::HashSet;
 
@@ -19,15 +29,8 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
         match migrator.run(pool).await {
             Ok(()) => return Ok(()),
             Err(MigrateError::VersionMismatch(version)) => {
-                if cfg!(debug_assertions) {
-                    // return the error in debug mode to catch migration issues early
-                    return Err(sqlx::Error::Migrate(Box::new(
-                        MigrateError::VersionMismatch(version),
-                    )));
-                }
-
-                if !cfg!(windows) {
-                    // On non-Windows platforms, we do not attempt to auto-fix checksum mismatches
+                if !should_auto_fix_migration_checksum_mismatch() {
+                    // Keep strict checksum handling unless Windows local recovery is explicitly enabled.
                     return Err(sqlx::Error::Migrate(Box::new(
                         MigrateError::VersionMismatch(version),
                     )));
@@ -40,10 +43,11 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
                     )));
                 }
 
-                // On Windows, there can be checksum mismatches due to line ending differences
-                // or other platform-specific issues. Update the stored checksum and retry.
+                // On Windows dev machines, line ending drift or local recovery can leave an
+                // applied migration with a different checksum than the current file contents.
+                // Update the stored checksum and retry the migrator.
                 tracing::warn!(
-                    "Migration version {} has checksum mismatch, updating stored checksum (likely platform-specific difference)",
+                    "Migration version {} has checksum mismatch, updating stored checksum",
                     version
                 );
 
@@ -64,6 +68,18 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
             }
             Err(e) => return Err(e.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::auto_fix_migration_checksum_mismatch_enabled;
+
+    #[test]
+    fn strict_migrations_env_disables_auto_fix() {
+        assert!(!auto_fix_migration_checksum_mismatch_enabled(Some(
+            "1".into()
+        )));
     }
 }
 

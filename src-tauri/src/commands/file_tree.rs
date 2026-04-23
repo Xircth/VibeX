@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Component, Path, PathBuf},
+    process::Stdio,
     time::{Duration, Instant},
 };
 
@@ -144,6 +145,267 @@ fn sanitize_file_path(path: &str) -> Result<PathBuf, AppError> {
     }
 
     Ok(canonical)
+}
+
+fn read_utf8_text_file(path: &Path, display_path: &str) -> Result<String, AppError> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| AppError::Internal(format!("Failed to read file {}: {}", display_path, e)))?;
+
+    if bytes.contains(&0) {
+        return Err(AppError::BadRequest(format!(
+            "Binary file cannot be opened as text: {}",
+            display_path
+        )));
+    }
+
+    String::from_utf8(bytes).map_err(|_| {
+        AppError::BadRequest(format!(
+            "Binary file cannot be opened as text: {}",
+            display_path
+        ))
+    })
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DocumentPreviewResponse {
+    pub content: String,
+    pub format: String,
+    pub extractor: String,
+}
+
+fn decode_xml_entities(input: &str) -> String {
+    let numeric_entity_re =
+        Regex::new(r"&#(x?[0-9A-Fa-f]+);").expect("valid numeric xml entity regex");
+    let decoded = numeric_entity_re
+        .replace_all(input, |captures: &regex::Captures<'_>| {
+            let raw = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let parsed = if let Some(hex) = raw.strip_prefix('x').or_else(|| raw.strip_prefix('X'))
+            {
+                u32::from_str_radix(hex, 16).ok()
+            } else {
+                raw.parse::<u32>().ok()
+            };
+
+            parsed
+                .and_then(char::from_u32)
+                .map(|value| value.to_string())
+                .unwrap_or_default()
+        })
+        .into_owned();
+
+    decoded
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+}
+
+fn escape_powershell_single_quoted_string(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn normalize_document_preview_text(content: &str) -> String {
+    let repeated_spaces_re = Regex::new(r"[ \t]{2,}").expect("valid repeated spaces regex");
+    let repeated_newlines_re = Regex::new(r"\n{3,}").expect("valid repeated newlines regex");
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = repeated_spaces_re
+        .replace_all(&normalized, " ")
+        .into_owned();
+    let normalized = repeated_newlines_re
+        .replace_all(&normalized, "\n\n")
+        .into_owned();
+    normalized.trim().to_string()
+}
+
+fn extract_docx_text_from_xml(document_xml: &str) -> String {
+    let inter_tag_whitespace_re = Regex::new(r">\s+<").expect("valid inter-tag whitespace regex");
+    let paragraph_end_re = Regex::new(r"</w:p>").expect("valid docx paragraph regex");
+    let break_re = Regex::new(r"<w:(?:br|cr)\b[^>]*/>").expect("valid docx break regex");
+    let tab_re = Regex::new(r"<w:tab\b[^>]*/>").expect("valid docx tab regex");
+    let tag_re = Regex::new(r"<[^>]+>").expect("valid xml tag regex");
+
+    let compact_xml = inter_tag_whitespace_re.replace_all(document_xml, "><");
+    let with_paragraphs = paragraph_end_re.replace_all(&compact_xml, "\n\n");
+    let with_breaks = break_re.replace_all(&with_paragraphs, "\n");
+    let with_tabs = tab_re.replace_all(&with_breaks, "\t");
+    let without_tags = tag_re.replace_all(&with_tabs, "");
+
+    normalize_document_preview_text(&decode_xml_entities(&without_tags))
+}
+
+async fn run_hidden_utf8_command(
+    program: impl AsRef<Path>,
+    args: Vec<String>,
+    context: &str,
+) -> Result<String, AppError> {
+    let mut command = utils::process::new_hidden_tokio_command(program.as_ref(), &args);
+    command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let output = command.output().await.map_err(|error| {
+        AppError::Internal(format!(
+            "Failed to start {} preview extractor: {}",
+            context, error
+        ))
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(AppError::BadRequest(if stderr.is_empty() {
+            format!("{} preview extraction failed", context)
+        } else {
+            format!("{} preview extraction failed: {}", context, stderr)
+        }));
+    }
+
+    String::from_utf8(output.stdout)
+        .map(|stdout| stdout.trim().to_string())
+        .map_err(|_| {
+            AppError::Internal(format!(
+                "{} preview extractor returned invalid UTF-8",
+                context
+            ))
+        })
+}
+
+#[cfg(windows)]
+async fn extract_docx_xml_with_powershell(path: &Path) -> Result<String, AppError> {
+    let escaped_path = escape_powershell_single_quoted_string(&path.display().to_string());
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$targetPath = '__VIBE_ESCAPED_PATH__'
+$zip = [System.IO.Compression.ZipFile]::OpenRead($targetPath)
+try {
+  $entry = $zip.GetEntry('word/document.xml')
+  if ($null -eq $entry) {
+    $entry = $zip.GetEntry('word\document.xml')
+  }
+  if ($null -eq $entry) {
+    throw 'word/document.xml not found'
+  }
+
+  $stream = $entry.Open()
+  try {
+    $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8)
+    try {
+      [Console]::Write($reader.ReadToEnd())
+    } finally {
+      $reader.Dispose()
+    }
+  } finally {
+    $stream.Dispose()
+  }
+} finally {
+  $zip.Dispose()
+}
+"#
+    .replace("__VIBE_ESCAPED_PATH__", &escaped_path);
+
+    run_hidden_utf8_command(
+        "powershell.exe",
+        vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-Command".to_string(),
+            script,
+        ],
+        "DOCX",
+    )
+    .await
+}
+
+#[cfg(not(windows))]
+async fn extract_docx_xml_with_powershell(_path: &Path) -> Result<String, AppError> {
+    Err(AppError::BadRequest(
+        "DOCX preview is currently only available on Windows in the desktop app".to_string(),
+    ))
+}
+
+#[cfg(windows)]
+async fn extract_word_text_with_powershell(path: &Path) -> Result<String, AppError> {
+    let escaped_path = escape_powershell_single_quoted_string(&path.display().to_string());
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$targetPath = '__VIBE_ESCAPED_PATH__'
+$word = $null
+$document = $null
+try {
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $false
+  $document = $word.Documents.Open($targetPath, $false, $true)
+  [Console]::Write($document.Content.Text)
+} finally {
+  if ($null -ne $document) {
+    $document.Close()
+  }
+  if ($null -ne $word) {
+    $word.Quit()
+  }
+}
+"#
+    .replace("__VIBE_ESCAPED_PATH__", &escaped_path);
+
+    run_hidden_utf8_command(
+        "powershell.exe",
+        vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-Command".to_string(),
+            script,
+        ],
+        "Word",
+    )
+    .await
+}
+
+#[cfg(not(windows))]
+async fn extract_word_text_with_powershell(_path: &Path) -> Result<String, AppError> {
+    Err(AppError::BadRequest(
+        "Legacy Word preview is currently only available on Windows in the desktop app".to_string(),
+    ))
+}
+
+async fn read_document_preview_content(path: &Path) -> Result<DocumentPreviewResponse, AppError> {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    match extension.as_str() {
+        "docx" => {
+            let document_xml = extract_docx_xml_with_powershell(path).await?;
+            let content = extract_docx_text_from_xml(&document_xml);
+            Ok(DocumentPreviewResponse {
+                content,
+                format: "text".to_string(),
+                extractor: "docx-xml".to_string(),
+            })
+        }
+        "doc" => {
+            let content =
+                normalize_document_preview_text(&extract_word_text_with_powershell(path).await?);
+            Ok(DocumentPreviewResponse {
+                content,
+                format: "text".to_string(),
+                extractor: "word-com".to_string(),
+            })
+        }
+        other => Err(AppError::BadRequest(format!(
+            "Document preview is not supported for .{} files",
+            other
+        ))),
+    }
 }
 
 // ── Existing types ──
@@ -556,8 +818,17 @@ pub async fn read_file_content(path: String) -> Result<String, AppError> {
     if !file_path.is_file() {
         return Err(AppError::NotFound(format!("File not found: {}", path)));
     }
-    std::fs::read_to_string(&file_path)
-        .map_err(|e| AppError::Internal(format!("Failed to read file {}: {}", path, e)))
+    read_utf8_text_file(&file_path, &path)
+}
+
+#[tauri::command]
+pub async fn read_document_preview(path: String) -> Result<DocumentPreviewResponse, AppError> {
+    let file_path = sanitize_file_path(&path)?;
+    if !file_path.is_file() {
+        return Err(AppError::NotFound(format!("File not found: {}", path)));
+    }
+
+    read_document_preview_content(&file_path).await
 }
 
 #[tauri::command]
@@ -627,8 +898,21 @@ pub async fn get_file_at_head(file_path: String) -> Result<String, AppError> {
         .find_blob(tree_entry.id())
         .map_err(|e| AppError::Internal(format!("Failed to read blob: {}", e)))?;
 
-    let content = String::from_utf8_lossy(blob.content()).to_string();
-    Ok(content)
+    if blob.is_binary() {
+        return Err(AppError::BadRequest(format!(
+            "Binary file cannot be opened as text: {}",
+            git_path
+        )));
+    }
+
+    std::str::from_utf8(blob.content())
+        .map(|content| content.to_string())
+        .map_err(|_| {
+            AppError::BadRequest(format!(
+                "Binary file cannot be opened as text: {}",
+                git_path
+            ))
+        })
 }
 
 // ══════════════════════════════════════════════════════
@@ -1230,4 +1514,79 @@ pub async fn search_workspace_text(
         match_count: total_matches,
         limit_hit,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::Write,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{extract_docx_text_from_xml, read_utf8_text_file};
+    use crate::error::AppError;
+
+    fn temp_file_path(prefix: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("vibe-ultra-{prefix}-{unique}.tmp"))
+    }
+
+    #[test]
+    fn read_utf8_text_file_accepts_plain_utf8() {
+        let path = temp_file_path("utf8");
+        let mut file = std::fs::File::create(&path).unwrap();
+        writeln!(file, "hello world").unwrap();
+        drop(file);
+
+        let content = read_utf8_text_file(&path, &path.display().to_string()).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(content.contains("hello world"));
+    }
+
+    #[test]
+    fn read_utf8_text_file_rejects_binary_bytes() {
+        let path = temp_file_path("binary");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A])
+            .unwrap();
+        drop(file);
+
+        let error = read_utf8_text_file(&path, &path.display().to_string()).unwrap_err();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("Binary file cannot be opened as text")
+        );
+    }
+
+    #[test]
+    fn extract_docx_text_from_xml_preserves_paragraphs_and_entities() {
+        let xml = r#"
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:r><w:t>Hello &amp; goodbye</w:t></w:r>
+      <w:r><w:tab/></w:r>
+      <w:r><w:t>world</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:t>Line</w:t></w:r>
+      <w:r><w:br/></w:r>
+      <w:r><w:t>break</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>
+"#;
+
+        let text = extract_docx_text_from_xml(xml);
+
+        assert_eq!(text, "Hello & goodbye\tworld\n\nLine\nbreak");
+    }
 }

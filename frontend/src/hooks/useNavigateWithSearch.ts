@@ -18,13 +18,13 @@ import {
  * search parameters.
  *
  * @example
- * // Current URL: /tasks?view=preview
+ * // Current URL: /local-projects/123/sessions?view=preview
  *
  * const navigate = useNavigateWithSearch();
  *
  * // Preserves current search params when navigating to new path
- * navigate('/projects/123/tasks');
- * // Result: /projects/123/tasks?view=preview
+ * navigate('/local-projects/123/sessions');
+ * // Result: /local-projects/123/sessions?view=preview
  *
  * // Caller's search params take precedence
  * navigate('/projects/123?tab=settings');
@@ -38,9 +38,9 @@ import {
  * navigate('/projects/123?tab=settings#section');
  * // Result: /projects/123?tab=settings#section
  *
- * // Change search params without changing pathname (stays on /tasks)
+ * // Change search params without changing pathname
  * navigate({ search: '?view=diffs' });
- * // Result: /tasks?view=diffs
+ * // Result: /local-projects/123/sessions?view=diffs
  *
  * // Object-style navigation with pathname
  * navigate({ pathname: '/projects/123', search: '?tab=settings' });

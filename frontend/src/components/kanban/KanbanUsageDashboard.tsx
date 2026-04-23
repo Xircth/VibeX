@@ -1,4 +1,11 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw,
   CreditCard,
@@ -17,8 +24,8 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
 import {
   localUsageApi,
-  type ProjectUsageStatistics,
   type ProjectUsageDailyUsage,
+  type ProjectUsageStatistics,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +33,9 @@ type UsageTab = 'overview' | 'models' | 'sessions';
 type DateRange = '7d' | '30d' | 'all';
 
 const SESSIONS_PER_PAGE = 15;
+const DATE_RANGE_OPTIONS: DateRange[] = ['7d', '30d', 'all'];
+const USAGE_STATS_STALE_TIME_MS = 2 * 60_000;
+const USAGE_STATS_GC_TIME_MS = 10 * 60_000;
 
 function formatNumber(value: number): string {
   const safe = Number.isFinite(value) ? value : 0;
@@ -48,22 +58,43 @@ function formatShortDate(dateStr: string): string {
   ).padStart(2, '0')}`;
 }
 
+function getUsageTargetScope(target: string): 'global' | 'project' {
+  return target === 'global' ? 'global' : 'project';
+}
+
+function getUsageTargetProjectId(target: string): string | undefined {
+  return target === 'global' ? undefined : target.replace(/^project:/, '');
+}
+
+function getUsageStatisticsQueryOptions(target: string, dateRange: DateRange) {
+  return {
+    queryKey: ['kanbanUsageStatistics', target, dateRange],
+    queryFn: () =>
+      localUsageApi.getProjectStatistics({
+        scope: getUsageTargetScope(target),
+        projectId: getUsageTargetProjectId(target),
+        dateRange,
+      }),
+    placeholderData: (previousData: ProjectUsageStatistics | undefined) =>
+      previousData,
+    staleTime: USAGE_STATS_STALE_TIME_MS,
+    gcTime: USAGE_STATS_GC_TIME_MS,
+  };
+}
+
 export function KanbanUsageDashboard() {
+  const queryClient = useQueryClient();
   const { projectId } = useProject();
   const { projects } = useProjects();
+  const preferredProjectTarget = projectId ? `project:${projectId}` : 'global';
   const [selectedTarget, setSelectedTarget] = useState<string>(
-    projectId ? `project:${projectId}` : 'global'
+    preferredProjectTarget
   );
   const [activeTab, setActiveTab] = useState<UsageTab>('overview');
   const [dateRange, setDateRange] = useState<DateRange>('7d');
   const [sessionPage, setSessionPage] = useState(1);
   const [sessionSortBy, setSessionSortBy] = useState<'cost' | 'time'>('cost');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [noticeVisible, setNoticeVisible] = useState(true);
-  const [statistics, setStatistics] = useState<ProjectUsageStatistics | null>(
-    null
-  );
   const [tooltip, setTooltip] = useState<{
     visible: boolean;
     x: number;
@@ -75,30 +106,24 @@ export function KanbanUsageDashboard() {
     y: 0,
     content: { date: '', cost: 0, sessions: 0 },
   });
+  const availableTargets = useMemo(
+    () =>
+      projectId ? [preferredProjectTarget, 'global'] : ['global'],
+    [preferredProjectTarget, projectId]
+  );
 
-  const loadStatistics = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const isGlobal = selectedTarget === 'global';
-      const selectedProjectId = isGlobal
-        ? undefined
-        : selectedTarget.replace(/^project:/, '');
-      const next = await localUsageApi.getProjectStatistics({
-        scope: isGlobal ? 'global' : 'project',
-        projectId: selectedProjectId,
-        dateRange,
-      });
-      setStatistics(next);
-    } catch (loadError) {
-      setStatistics(null);
-      setError(
-        loadError instanceof Error ? loadError.message : String(loadError)
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [dateRange, selectedTarget]);
+  const statisticsQuery = useQuery(
+    getUsageStatisticsQueryOptions(selectedTarget, dateRange)
+  );
+
+  const statistics = statisticsQuery.data ?? null;
+  const loading = statisticsQuery.isLoading && !statistics;
+  const error =
+    statisticsQuery.error instanceof Error
+      ? statisticsQuery.error.message
+      : statisticsQuery.error
+        ? String(statisticsQuery.error)
+        : null;
 
   useEffect(() => {
     if (!projectId) {
@@ -107,19 +132,29 @@ export function KanbanUsageDashboard() {
     }
 
     setSelectedTarget((prev) =>
-      prev === 'global' || prev.startsWith('project:')
-        ? prev
-        : `project:${projectId}`
+      prev === 'global' ? prev : preferredProjectTarget
     );
-  }, [projectId]);
+  }, [preferredProjectTarget, projectId]);
 
   useEffect(() => {
-    void loadStatistics();
-  }, [loadStatistics]);
+    if (availableTargets.length === 0) {
+      return;
+    }
+
+    const prefetches = availableTargets.flatMap((target) =>
+      DATE_RANGE_OPTIONS.map((range) =>
+        queryClient.prefetchQuery(
+          getUsageStatisticsQueryOptions(target, range)
+        )
+      )
+    );
+
+    void Promise.allSettled(prefetches);
+  }, [availableTargets, queryClient]);
 
   useEffect(() => {
     setSessionPage(1);
-  }, [dateRange, sessionSortBy, selectedTarget]);
+  }, [dateRange, selectedTarget, sessionSortBy]);
 
   const formatDate = useCallback((timestamp: number): string => {
     const date = new Date(timestamp);
@@ -158,6 +193,7 @@ export function KanbanUsageDashboard() {
     if (value === 0) {
       return <span className="text-[10px] text-muted-foreground">持平 0%</span>;
     }
+
     const isUp = value > 0;
     return (
       <span
@@ -173,11 +209,11 @@ export function KanbanUsageDashboard() {
 
   const filteredSessions = useMemo(() => {
     const source = statistics?.sessions ?? [];
-    return source.slice().sort((a, b) => {
+    return source.slice().sort((left, right) => {
       if (sessionSortBy === 'cost') {
-        return b.cost - a.cost;
+        return right.cost - left.cost;
       }
-      return b.timestamp - a.timestamp;
+      return right.timestamp - left.timestamp;
     });
   }, [sessionSortBy, statistics?.sessions]);
 
@@ -207,11 +243,13 @@ export function KanbanUsageDashboard() {
 
   const chartPath = useMemo(() => {
     if (filteredDailyUsage.length < 2) return '';
+
     const points = filteredDailyUsage.map((day, index) => {
       const x = (index / (filteredDailyUsage.length - 1)) * 100;
       const y = 100 - (maxDailyCost > 0 ? (day.cost / maxDailyCost) * 100 : 0);
       return `${x},${y}`;
     });
+
     return `M ${points.join(' L ')}`;
   }, [filteredDailyUsage, maxDailyCost]);
 
@@ -285,7 +323,12 @@ export function KanbanUsageDashboard() {
         <div className="relative">
           <select
             value={selectedTarget}
-            onChange={(event) => setSelectedTarget(event.target.value)}
+            onChange={(event) => {
+              const nextTarget = event.target.value;
+              startTransition(() => {
+                setSelectedTarget(nextTarget);
+              });
+            }}
             className="h-7 appearance-none rounded-lg border border-border bg-background px-3 pr-7 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="global">全局</option>
@@ -299,7 +342,7 @@ export function KanbanUsageDashboard() {
         </div>
 
         <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
-          {(['7d', '30d', 'all'] as DateRange[]).map((range) => (
+          {DATE_RANGE_OPTIONS.map((range) => (
             <button
               key={range}
               type="button"
@@ -309,7 +352,11 @@ export function KanbanUsageDashboard() {
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               )}
-              onClick={() => setDateRange(range)}
+              onClick={() => {
+                startTransition(() => {
+                  setDateRange(range);
+                });
+              }}
             >
               {range === '7d' ? '7天' : range === '30d' ? '30天' : '全部'}
             </button>
@@ -318,12 +365,17 @@ export function KanbanUsageDashboard() {
 
         <button
           type="button"
-          onClick={() => void loadStatistics()}
-          disabled={loading}
+          onClick={() => void statisticsQuery.refetch()}
+          disabled={statisticsQuery.isFetching}
           className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
           title="刷新"
         >
-          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+          <RefreshCw
+            className={cn(
+              'h-4 w-4',
+              statisticsQuery.isFetching && 'animate-spin'
+            )}
+          />
         </button>
       </div>
 
@@ -361,6 +413,15 @@ export function KanbanUsageDashboard() {
                 </span>
               </>
             ) : null}
+            {statisticsQuery.isFetching && statistics ? (
+              <>
+                <span className="text-border">•</span>
+                <span className="flex items-center gap-1">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  更新中
+                </span>
+              </>
+            ) : null}
           </div>
 
           {failedProviders.length > 0 ? (
@@ -376,7 +437,7 @@ export function KanbanUsageDashboard() {
             </div>
           ) : null}
 
-          {loading && !statistics ? (
+          {loading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
               <span className="text-base">加载中...</span>
@@ -547,6 +608,7 @@ export function KanbanUsageDashboard() {
                               (maxDailyCost > 0
                                 ? (day.cost / maxDailyCost) * 100
                                 : 0);
+
                             return (
                               <circle
                                 key={day.date}

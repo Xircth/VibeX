@@ -11,12 +11,12 @@ import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
 import { Loader } from '@/components/ui/loader';
 
 export function FullAttemptLogsPage() {
-  const { attemptId = '' } = useParams<{
+  const { workspaceId = '' } = useParams<{
     projectId: string;
-    attemptId: string;
+    workspaceId: string;
   }>();
 
-  const { data: attempt } = useTaskAttemptWithSession(attemptId);
+  const { data: attempt } = useTaskAttemptWithSession(workspaceId);
 
   return (
     <AppWithStyleOverride>

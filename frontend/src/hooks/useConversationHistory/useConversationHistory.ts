@@ -59,7 +59,6 @@ export const useConversationHistory = ({
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
-  const loadedProcessIdsKeyRef = useRef<string | null>(null);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
   const activeStreamControllersRef = useRef<Map<string, { close: () => void }>>(
     new Map()
@@ -68,19 +67,54 @@ export const useConversationHistory = ({
   const previousStatusMapRef = useRef<Map<string, ExecutionProcessStatus>>(
     new Map()
   );
+  const loadingHistoricProcessIdsRef = useRef<Set<string>>(new Set());
   const prevConversationKeyRef = useRef<string | null>(null);
-  const saveRenderedConversationCache = useCallback(
+  const renderedSnapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const pendingRenderedSnapshotRef = useRef<{
+    key: string;
+    entries: PatchTypeWithKey[];
+    tokenUsageInfo: TokenUsageInfo | null;
+  } | null>(null);
+  const flushRenderedConversationCache = useCallback(() => {
+    if (renderedSnapshotTimerRef.current) {
+      clearTimeout(renderedSnapshotTimerRef.current);
+      renderedSnapshotTimerRef.current = null;
+    }
+
+    const pending = pendingRenderedSnapshotRef.current;
+    if (!pending) {
+      return;
+    }
+
+    pendingRenderedSnapshotRef.current = null;
+    useSessionConversationStore.getState().saveSnapshot(pending.key, {
+      entries: pending.entries,
+      tokenUsageInfo: pending.tokenUsageInfo,
+    });
+  }, []);
+  const scheduleRenderedConversationCacheSave = useCallback(
     (
       key: string,
       entries: PatchTypeWithKey[],
       tokenUsageInfo: TokenUsageInfo | null
     ) => {
-      useSessionConversationStore.getState().saveSnapshot(key, {
+      pendingRenderedSnapshotRef.current = {
+        key,
         entries,
         tokenUsageInfo,
-      });
+      };
+
+      if (renderedSnapshotTimerRef.current) {
+        return;
+      }
+
+      renderedSnapshotTimerRef.current = setTimeout(() => {
+        flushRenderedConversationCache();
+      }, 400);
     },
-    []
+    [flushRenderedConversationCache]
   );
   const saveConversationCache = useCallback((key: string | null) => {
     if (!key) return;
@@ -145,8 +179,8 @@ export const useConversationHistory = ({
   ) => {
     const normalized =
       executionProcess.executor_action.typ.type !== 'ScriptRequest';
-    const HISTORIC_STREAM_IDLE_TIMEOUT_MS = 800;
-    const HISTORIC_STREAM_MAX_WAIT_MS = 15000;
+    const HISTORIC_STREAM_IDLE_TIMEOUT_MS = 200;
+    const HISTORIC_STREAM_MAX_WAIT_MS = 8000;
 
     return new Promise<PatchType[]>((resolve) => {
       let settled = false;
@@ -522,7 +556,7 @@ export const useConversationHistory = ({
       }
 
       setTokenUsageInfo(latestTokenUsageInfo);
-      saveRenderedConversationCache(
+      scheduleRenderedConversationCacheSave(
         conversationKey,
         entries,
         latestTokenUsageInfo
@@ -546,7 +580,7 @@ export const useConversationHistory = ({
     [
       conversationKey,
       flattenEntriesForEmit,
-      saveRenderedConversationCache,
+      scheduleRenderedConversationCacheSave,
       setTokenUsageInfo,
     ]
   );
@@ -556,8 +590,8 @@ export const useConversationHistory = ({
     (executionProcess: ExecutionProcess): Promise<void> => {
       const normalized =
         executionProcess.executor_action.typ.type !== 'ScriptRequest';
-      const EMPTY_RUNNING_STREAM_RETRY_MS = 250;
-      const MAX_EMPTY_RUNNING_STREAM_RETRIES = 6;
+      const EMPTY_RUNNING_STREAM_RETRY_MS = 100;
+      const MAX_EMPTY_RUNNING_STREAM_RETRIES = 3;
 
       return new Promise((resolve, reject) => {
         activeStreamControllersRef.current.get(executionProcess.id)?.close();
@@ -806,9 +840,7 @@ export const useConversationHistory = ({
     let cancelled = false;
 
     (async () => {
-      const hasLoadedForCurrentProcessSet =
-        loadedInitialEntries.current &&
-        loadedProcessIdsKeyRef.current === idListKey;
+      const hasLoadedForCurrentProcessSet = loadedInitialEntries.current;
 
       if (executionProcessesLoading || hasLoadedForCurrentProcessSet) {
         return;
@@ -816,7 +848,6 @@ export const useConversationHistory = ({
 
       if (executionProcessesRaw.length === 0) {
         loadedInitialEntries.current = true;
-        loadedProcessIdsKeyRef.current = idListKey;
         const cachedRendered = useSessionConversationStore
           .getState()
           .getSnapshot(conversationKey);
@@ -841,7 +872,6 @@ export const useConversationHistory = ({
       });
       emitEntries(displayedExecutionProcesses.current, 'initial', false);
       loadedInitialEntries.current = true;
-      loadedProcessIdsKeyRef.current = idListKey;
 
       // Then load the remaining in batches
       while (
@@ -859,14 +889,13 @@ export const useConversationHistory = ({
   }, [
     attempt.id,
     conversationKey,
-    idListKey,
     executionProcessesRaw.length,
     executionProcessesLoading,
     loadInitialEntries,
     loadRemainingEntriesInBatches,
     emitEntries,
     setTokenUsageInfo,
-  ]); // include idListKey so new processes trigger reload
+  ]);
 
   useEffect(() => {
     const activeProcesses = getActiveAgentProcesses();
@@ -908,30 +937,53 @@ export const useConversationHistory = ({
     if (!executionProcessesRaw) return;
 
     const processesToReload: ExecutionProcess[] = [];
+    const lateHistoricProcesses: ExecutionProcess[] = [];
+    let shouldEmitStoppedState = false;
 
     for (const process of executionProcessesRaw) {
       const previousStatus = previousStatusMapRef.current.get(process.id);
       const currentStatus = process.status;
+      const isDisplayed = !!displayedExecutionProcesses.current[process.id];
+      const isRunning = currentStatus === ExecutionProcessStatus.running;
 
       if (
         previousStatus === ExecutionProcessStatus.running &&
         currentStatus !== ExecutionProcessStatus.running &&
-        displayedExecutionProcesses.current[process.id]
+        isDisplayed
       ) {
-        processesToReload.push(process);
+        shouldEmitStoppedState = true;
+
+        if (!activeStreamControllersRef.current.has(process.id)) {
+          processesToReload.push(process);
+        }
+      }
+
+      if (
+        loadedInitialEntries.current &&
+        !isRunning &&
+        !isDisplayed &&
+        !loadingHistoricProcessIdsRef.current.has(process.id)
+      ) {
+        loadingHistoricProcessIdsRef.current.add(process.id);
+        lateHistoricProcesses.push(process);
       }
 
       previousStatusMapRef.current.set(process.id, currentStatus);
     }
 
-    if (processesToReload.length === 0) return;
+    if (shouldEmitStoppedState) {
+      emitEntries(displayedExecutionProcesses.current, 'running', false);
+    }
+
+    const reloadTargets = [...processesToReload, ...lateHistoricProcesses];
+    if (reloadTargets.length === 0) return;
 
     (async () => {
       let anyUpdated = false;
 
-      for (const process of processesToReload) {
+      for (const process of reloadTargets) {
         const entries = await loadEntriesForHistoricExecutionProcess(process);
-        if (entries.length === 0) continue;
+        loadingHistoricProcessIdsRef.current.delete(process.id);
 
         const entriesWithKey = entries.map((entry, idx) =>
           patchWithKey(entry, process.id, idx)
@@ -993,7 +1045,6 @@ export const useConversationHistory = ({
       );
       // Always refresh from latest process list after switching conversations.
       loadedInitialEntries.current = false;
-      loadedProcessIdsKeyRef.current = null;
 
       const hasCachedEntries = Object.values(
         displayedExecutionProcesses.current
@@ -1010,7 +1061,7 @@ export const useConversationHistory = ({
 
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
-    loadedProcessIdsKeyRef.current = null;
+    loadingHistoricProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
     const cachedRendered = useSessionConversationStore
       .getState()
@@ -1052,10 +1103,17 @@ export const useConversationHistory = ({
 
   useEffect(
     () => () => {
+      flushRenderedConversationCache();
       saveConversationCache(prevConversationKeyRef.current ?? conversationKey);
+      loadingHistoricProcessIdsRef.current.clear();
       closeAllRunningStreams();
     },
-    [closeAllRunningStreams, conversationKey, saveConversationCache]
+    [
+      closeAllRunningStreams,
+      conversationKey,
+      flushRenderedConversationCache,
+      saveConversationCache,
+    ]
   );
 
   return {};

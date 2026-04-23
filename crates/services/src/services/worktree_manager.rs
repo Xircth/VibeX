@@ -1,13 +1,15 @@
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex, OnceLock},
+    sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
-static WORKSPACE_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+static WORKSPACE_DIR_OVERRIDE: LazyLock<RwLock<Option<PathBuf>>> =
+    LazyLock::new(|| RwLock::new(None));
 
-use git::{GitService, GitServiceError};
+use git::{GitCli, GitService, GitServiceError};
 use git2::{Error as GitError, Repository};
 use thiserror::Error;
 use tracing::{debug, info, trace};
@@ -58,8 +60,11 @@ pub enum WorktreeError {
 pub struct WorktreeManager;
 
 impl WorktreeManager {
-    pub fn set_workspace_dir_override(path: PathBuf) {
-        let _ = WORKSPACE_DIR_OVERRIDE.set(path);
+    pub fn set_workspace_dir_override(path: Option<PathBuf>) {
+        let mut override_path = WORKSPACE_DIR_OVERRIDE
+            .write()
+            .expect("workspace dir override lock poisoned");
+        *override_path = path;
     }
 
     /// Create a worktree with a new branch
@@ -125,6 +130,13 @@ impl WorktreeManager {
         Self::recreate_worktree_internal(repo_path, branch_name, worktree_path).await
     }
 
+    pub async fn is_worktree_available(
+        repo_path: &Path,
+        worktree_path: &Path,
+    ) -> Result<bool, WorktreeError> {
+        Self::is_worktree_properly_set_up(repo_path, worktree_path).await
+    }
+
     /// Internal worktree recreation function (always recreates)
     async fn recreate_worktree_internal(
         repo_path: &Path,
@@ -187,12 +199,57 @@ impl WorktreeManager {
 
             // Try to find the worktree - if it exists and is valid, we're good
             match repo.find_worktree(&worktree_name) {
-                Ok(_) => Ok(true),
+                Ok(_) => Self::has_materialized_checkout(&worktree_path),
                 Err(_) => Ok(false),
             }
         })
         .await
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
+    }
+
+    fn has_materialized_checkout(worktree_path: &Path) -> Result<bool, WorktreeError> {
+        let mut has_non_git_entry = false;
+        for entry in fs::read_dir(worktree_path)? {
+            let entry = entry?;
+            if entry.file_name() != OsStr::new(".git") {
+                has_non_git_entry = true;
+                break;
+            }
+        }
+
+        if has_non_git_entry {
+            return Ok(true);
+        }
+
+        let repo = Repository::open(worktree_path).map_err(WorktreeError::Git)?;
+        let head = match repo.head() {
+            Ok(head) => head,
+            Err(_) => return Ok(true),
+        };
+        let tree = match head.peel_to_tree() {
+            Ok(tree) => tree,
+            Err(_) => return Ok(true),
+        };
+
+        Ok(tree.iter().next().is_none())
+    }
+
+    fn repair_materialized_checkout(worktree_path: &Path) -> Result<bool, WorktreeError> {
+        if Self::has_materialized_checkout(worktree_path)? {
+            return Ok(true);
+        }
+
+        tracing::warn!(
+            "Worktree {} is missing materialized checkout contents; attempting repair",
+            worktree_path.display()
+        );
+
+        let git = GitCli::new();
+        git.git(worktree_path, ["reset", "--hard", "HEAD"])
+            .map_err(|error| WorktreeError::GitCli(error.to_string()))?;
+        let _ = git.git(worktree_path, ["sparse-checkout", "reapply"]);
+
+        Self::has_materialized_checkout(worktree_path)
     }
 
     fn find_worktree_git_internal_name(
@@ -340,6 +397,12 @@ impl WorktreeManager {
                             "Worktree creation reported success but path {path_str} does not exist"
                         )));
                     }
+                    if !Self::repair_materialized_checkout(&worktree_path)? {
+                        return Err(WorktreeError::Repository(format!(
+                            "Worktree creation reported success but {} only contains git metadata",
+                            path_str
+                        )));
+                    }
                     info!(
                         "Successfully created worktree {} at {} (git CLI)",
                         branch_name, path_str
@@ -369,6 +432,12 @@ impl WorktreeManager {
                     if !worktree_path.exists() {
                         return Err(WorktreeError::Repository(format!(
                             "Worktree creation reported success but path {path_str} does not exist"
+                        )));
+                    }
+                    if !Self::repair_materialized_checkout(&worktree_path)? {
+                        return Err(WorktreeError::Repository(format!(
+                            "Worktree creation reported success after retry but {} only contains git metadata",
+                            path_str
                         )));
                     }
                     info!(
@@ -541,7 +610,11 @@ impl WorktreeManager {
 
     /// Get the base directory for Vibe Ultra worktrees
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
-        if let Some(override_path) = WORKSPACE_DIR_OVERRIDE.get() {
+        if let Some(override_path) = WORKSPACE_DIR_OVERRIDE
+            .read()
+            .expect("workspace dir override lock poisoned")
+            .clone()
+        {
             // Always use app-owned subdirectory within custom path for safety.
             // This ensures orphan cleanup never touches user's existing folders.
             return override_path.join(".vibe-ultra-workspaces");
@@ -610,4 +683,45 @@ async fn create_worktree_when_repo_path_is_a_worktree() {
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn ensure_worktree_exists_recreates_git_only_worktree() {
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("repo");
+    let git_service = GitService::new();
+    git_service
+        .initialize_repo_with_main_branch(&repo_path)
+        .unwrap();
+    std::fs::write(repo_path.join("README.md"), "hello\n").unwrap();
+    git_service.commit(&repo_path, "seed").unwrap();
+
+    let worktree_path = td.path().join("wt-feature");
+    WorktreeManager::create_worktree(&repo_path, "wt-feature", &worktree_path, "main", true)
+        .await
+        .unwrap();
+    assert!(worktree_path.join("README.md").exists());
+
+    for entry in std::fs::read_dir(&worktree_path).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() != OsStr::new(".git") {
+            let path = entry.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(path).unwrap();
+            } else {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+
+    assert!(worktree_path.join(".git").is_file());
+    assert!(!worktree_path.join("README.md").exists());
+
+    WorktreeManager::ensure_worktree_exists(&repo_path, "wt-feature", &worktree_path)
+        .await
+        .unwrap();
+
+    assert!(worktree_path.join("README.md").exists());
 }

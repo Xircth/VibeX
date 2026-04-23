@@ -1,0 +1,16 @@
+Finish the session-first workspace migration and remove obsolete task flow
+
+The desktop app had drifted into a split state: the main UX was already session/workspace-first, but legacy task/attempt routes, dialogs, and task-only panels were still wired into navigation, persisted window routes, and parts of the workspace shell. In parallel, workspace binding and desktop side windows needed hardening so the new model behaved consistently across terminals, repo views, notifications, and project rail interactions.
+
+This commit removes the obsolete task-form/task-attempt frontend chain, migrates project entry points and persisted routes to session/workspace paths, updates workspace-aware panels to read the current workspace directly, and keeps the remaining shared components that are still used by the session flow. It also includes the backend and regression fixes needed to keep worktree creation, terminal attachment, desktop toast windows, and repository/workspace path binding aligned with the session-first model.
+
+Constraint: User-facing workspace/session behavior must prioritize the current model over backward-compatible task UI shims
+Constraint: Existing session features still reuse some task-named shared components, so cleanup had to remove only dead task-specific surfaces
+Rejected: Keep legacy /tasks route compatibility alongside new routes | preserves split state and stale entry points
+Rejected: Add redirect wrappers around old task dialogs and panels | masks the wrong model instead of deleting it
+Confidence: high
+Scope-risk: broad
+Reversibility: messy
+Directive: Do not reintroduce task/attempt UI surfaces unless the product model is restored end-to-end; keep navigation, persisted routes, and panel context session/workspace-first
+Tested: pnpm run check; pnpm run lint; cargo test --workspace; pnpm run generate-types:check; pnpm run prepare-db:check; cd frontend && pnpm run test; node --test frontend/tests/session-route-surface-regressions.test.js frontend/tests/task-form-and-hidden-cli-regressions.test.js frontend/tests/session-isolation-and-dialog-sizing.test.js
+Not-tested: Manual Tauri desktop interaction after the final route cleanup

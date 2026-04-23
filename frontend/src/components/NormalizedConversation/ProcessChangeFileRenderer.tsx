@@ -22,6 +22,7 @@ import { useFileAtHead } from '@/hooks/useFileContent';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { getFilePreviewKind } from '@/utils/filePreviewKind';
 import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import '@/styles/edit-diff-overrides.css';
@@ -132,12 +133,15 @@ function ProcessChangeFileRenderer({
 
   const theme = getActualTheme(config?.theme);
   const resolvedPath = resolveFilePath(path, containerRef);
+  const previewKind = getFilePreviewKind(path);
+  const shouldRenderInlineTextDiff =
+    isWrite(change) && effectiveExpanded && previewKind === 'text';
 
   const {
     data: headContent,
     isLoading: isLoadingHead,
     error: headError,
-  } = useFileAtHead(isWrite(change) && effectiveExpanded ? resolvedPath : null);
+  } = useFileAtHead(shouldRenderInlineTextDiff ? resolvedPath : null);
   const editDiffState = useMemo(() => {
     if (!isEdit(change)) {
       return {
@@ -286,6 +290,15 @@ function ProcessChangeFileRenderer({
 
   if (!titleText) return null;
 
+  const inlinePreviewMessage =
+    previewKind === 'image'
+      ? 'Image changes are not rendered inline. Open the preview panel to inspect this asset.'
+      : previewKind === 'pdf'
+        ? 'PDF changes are not rendered inline. Open the preview panel to inspect this asset.'
+        : previewKind === 'document'
+          ? 'Document changes are not rendered inline. Open the preview panel to inspect this asset.'
+          : 'Binary changes are not rendered inline. Open the preview panel to inspect this asset.';
+
   return (
     <div>
       <div
@@ -310,7 +323,7 @@ function ProcessChangeFileRenderer({
               containerRef
             );
             const displayPath = targetPath;
-            if (isWrite(change)) {
+            if (isWrite(change) && previewKind === 'text') {
               openFilePreview(resolvedTargetPath, {
                 mode: 'diff',
                 diffViewMode: 'inline',
@@ -335,7 +348,11 @@ function ProcessChangeFileRenderer({
           className="mt-1 overflow-hidden rounded-md"
           style={flatDiffSurfaceStyle}
         >
-          {isLoadingHead ? (
+          {previewKind !== 'text' ? (
+            <div className="px-2 py-2 text-xs text-muted-foreground">
+              {inlinePreviewMessage}
+            </div>
+          ) : isLoadingHead ? (
             <div className="px-2 py-2 text-xs text-muted-foreground">
               Loading diff...
             </div>

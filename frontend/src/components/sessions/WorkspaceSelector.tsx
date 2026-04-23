@@ -1,5 +1,4 @@
-import { FolderTree, ArrowDown } from 'lucide-react';
-import type { Workspace } from 'shared/types';
+import { ArrowDown, FolderTree } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -7,30 +6,41 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  findWorkspaceBranchOption,
+  type WorkspaceBranchOption,
+} from '@/lib/workspaceBranchOptions';
 
 interface WorkspaceSelectorProps {
-  workspaces: Workspace[];
+  options: WorkspaceBranchOption[];
   value: string;
-  onChange: (workspaceId: string) => void;
+  onChange: (value: string) => void;
   disabled?: boolean;
   className?: string;
   dropdownSide?: 'top' | 'bottom';
 }
 
-function getWorkspaceLabel(workspace: Workspace) {
-  return workspace.name?.trim() || workspace.branch;
+function getOptionDescription(option: WorkspaceBranchOption) {
+  if (option.useWorktree) {
+    return option.workspace?.name?.trim()
+      ? `${option.workspace.name} · Git Worktree`
+      : 'Git Worktree';
+  }
+
+  return option.isCurrentProjectBranch
+    ? '当前项目目录分支'
+    : '非 Worktree，选择后将先 checkout';
 }
 
 export function WorkspaceSelector({
-  workspaces,
+  options,
   value,
   onChange,
   disabled,
   className = '',
   dropdownSide = 'bottom',
 }: WorkspaceSelectorProps) {
-  const selectedWorkspace =
-    workspaces.find((workspace) => workspace.id === value) ?? null;
+  const selectedOption = findWorkspaceBranchOption(options, value);
 
   return (
     <DropdownMenu modal={false}>
@@ -39,21 +49,15 @@ export function WorkspaceSelector({
           id="session-create-workspace"
           variant="outline"
           size="sm"
-          className={`w-full justify-between text-xs h-9 ${className}`}
-          disabled={disabled || workspaces.length === 0}
-          aria-label="选择工作区"
-          title={
-            selectedWorkspace
-              ? getWorkspaceLabel(selectedWorkspace)
-              : '请选择工作区'
-          }
+          className={`h-9 w-full justify-between text-xs ${className}`}
+          disabled={disabled || options.length === 0}
+          aria-label="选择工作区分支"
+          title={selectedOption ? selectedOption.branch : '请选择工作区分支'}
         >
-          <div className="flex items-center gap-1.5 w-full min-w-0">
+          <div className="flex min-w-0 w-full items-center gap-1.5">
             <FolderTree className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
-              {selectedWorkspace
-                ? getWorkspaceLabel(selectedWorkspace)
-                : '请选择工作区'}
+              {selectedOption?.branch ?? '请选择工作区分支'}
             </span>
           </div>
           <ArrowDown className="h-3 w-3 shrink-0" />
@@ -64,29 +68,35 @@ export function WorkspaceSelector({
         align="start"
         sideOffset={1}
         avoidCollisions={false}
-        className="w-72"
+        className="w-80"
       >
-        {workspaces.map((workspace) => {
-          const workspaceLabel = getWorkspaceLabel(workspace);
-          return (
-            <DropdownMenuItem
-              key={workspace.id}
-              onSelect={() => onChange(workspace.id)}
-              className={workspace.id === value ? 'bg-accent' : ''}
-            >
-              <div className="min-w-0">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            onSelect={() => onChange(option.value)}
+            className={option.value === value ? 'bg-accent' : ''}
+          >
+            <div className="min-w-0 space-y-1">
+              <div className="flex items-center gap-2">
                 <div className="truncate text-xs font-medium">
-                  {workspaceLabel}
+                  {option.branch}
                 </div>
-                {workspace.name?.trim() ? (
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {workspace.branch}
-                  </div>
-                ) : null}
+                <span
+                  className={
+                    option.useWorktree
+                      ? 'rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary'
+                      : 'rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300'
+                  }
+                >
+                  {option.useWorktree ? 'Worktree' : 'Project'}
+                </span>
               </div>
-            </DropdownMenuItem>
-          );
-        })}
+              <div className="truncate text-[10px] text-muted-foreground">
+                {getOptionDescription(option)}
+              </div>
+            </div>
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

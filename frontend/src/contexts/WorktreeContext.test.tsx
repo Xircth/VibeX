@@ -42,7 +42,7 @@ function renderWorktreeRoute(initialEntry: string) {
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
-          path="/local-projects/:projectId/tasks"
+          path="/local-projects/:projectId/sessions"
           element={
             <ProjectProvider>
               <WorktreeProvider>
@@ -52,7 +52,7 @@ function renderWorktreeRoute(initialEntry: string) {
           }
         />
         <Route
-          path="/local-projects/:projectId/tasks/:taskId/attempts/:attemptId"
+          path="/local-projects/:projectId/workspaces/:workspaceId"
           element={
             <ProjectProvider>
               <WorktreeProvider>
@@ -82,15 +82,13 @@ describe('WorktreeProvider', () => {
       activeTaskId: 'stored-task',
     });
 
-    renderWorktreeRoute(
-      '/local-projects/project-1/tasks/route-task/attempts/route-worktree'
-    );
+    renderWorktreeRoute('/local-projects/project-1/workspaces/route-worktree');
 
     await waitFor(() => {
       expect(screen.getByTestId('active-worktree').textContent).toBe(
         'route-worktree'
       );
-      expect(screen.getByTestId('active-task').textContent).toBe('route-task');
+      expect(screen.getByTestId('active-task').textContent).toBe('none');
     });
   });
 
@@ -100,7 +98,7 @@ describe('WorktreeProvider', () => {
       activeTaskId: 'stored-task',
     });
 
-    renderWorktreeRoute('/local-projects/project-1/tasks');
+    renderWorktreeRoute('/local-projects/project-1/sessions');
 
     await waitFor(() => {
       expect(screen.getByTestId('active-worktree').textContent).toBe(

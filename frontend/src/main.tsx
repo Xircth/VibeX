@@ -8,12 +8,32 @@ import {
   QueryClientProvider,
   QueryCache,
 } from '@tanstack/react-query';
+import { isBinaryContentError } from '@/utils/filePreviewKind';
+import { isCanceledError } from '@/lib/tauriApi';
 // Import modal type definitions
 import './types/modals';
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
+      if (
+        (query.meta as { suppressGlobalError?: boolean } | undefined)
+          ?.suppressGlobalError
+      ) {
+        return;
+      }
+      const queryRoot =
+        Array.isArray(query.queryKey) && query.queryKey.length > 0
+          ? query.queryKey[0]
+          : null;
+      const isFileContentQuery =
+        queryRoot === 'fileContent' || queryRoot === 'fileContentHead';
+      if (isCanceledError(error)) {
+        return;
+      }
+      if (isFileContentQuery && isBinaryContentError(error)) {
+        return;
+      }
       console.error('[React Query Error]', {
         queryKey: query.queryKey,
         error: error,

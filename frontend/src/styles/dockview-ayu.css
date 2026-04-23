@@ -44,6 +44,60 @@
   --dv-separator-border: #e1e1e2;
 }
 
+.workspace-shell {
+  --workspace-divider-color: hsl(var(--border) / 0.88);
+  --workspace-divider-subtle: hsl(var(--border) / 0.74);
+  --workspace-divider-hover: hsl(var(--primary) / 0.52);
+}
+
+.workspace-divider-bottom {
+  border-bottom: 1px solid var(--workspace-divider-color);
+}
+
+.workspace-divider-top {
+  border-top: 1px solid var(--workspace-divider-color);
+}
+
+.workspace-divider-left {
+  border-left: 1px solid var(--workspace-divider-color);
+}
+
+.workspace-divider-right {
+  border-right: 1px solid var(--workspace-divider-color);
+}
+
+.workspace-resize-handle {
+  position: relative;
+  overflow: visible;
+  background-color: var(--workspace-divider-color);
+  transition: background-color 0.15s ease;
+}
+
+.workspace-resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 21px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background-color: var(--workspace-divider-subtle);
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
+  transition:
+    background-color 0.15s ease,
+    width 0.15s ease;
+}
+
+.workspace-resize-handle:hover {
+  background-color: var(--workspace-divider-hover);
+}
+
+.workspace-resize-handle:hover::before {
+  width: 6px;
+  background-color: var(--workspace-divider-hover);
+}
+
 /*
  * Hard override: force light backgrounds on ALL dockview structural elements.
  * The [class*="dockview-theme"] selector matches any element with a theme class,
@@ -111,6 +165,12 @@
   --dv-drag-over-border-color: #5b8cc7;
   --dv-sash-color: rgba(92, 103, 115, 0.45);
   --dv-active-sash-color: rgba(91, 140, 199, 0.65);
+}
+
+.dark .workspace-shell {
+  --workspace-divider-color: hsl(var(--border) / 0.9);
+  --workspace-divider-subtle: hsl(var(--border) / 0.76);
+  --workspace-divider-hover: hsl(var(--primary) / 0.62);
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container {
@@ -313,11 +373,37 @@
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
   > .dv-sash.dv-enabled {
+  position: relative;
+  overflow: visible;
   width: 1px;
   margin-left: 0;
+  background-color: var(--workspace-divider-color, var(--dv-sash-color));
   transition:
+    background-color 0.15s ease,
     width 0.15s ease,
     margin-left 0.15s ease;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-sash-container
+  > .dv-sash.dv-enabled::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 21px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background-color: var(
+    --workspace-divider-subtle,
+    var(--workspace-divider-color, var(--dv-sash-color))
+  );
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
+  transition:
+    background-color 0.15s ease,
+    width 0.15s ease;
 }
 
 [class*='dockview-theme-ayu']
@@ -326,12 +412,79 @@
   > .dv-sash.dv-enabled:hover {
   width: 3px;
   margin-left: -1px;
+  background-color: var(
+    --workspace-divider-hover,
+    var(--dv-active-sash-color)
+  );
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-sash-container
+  > .dv-sash.dv-enabled:hover::after {
+  width: 6px;
+  background-color: var(
+    --workspace-divider-hover,
+    var(--dv-active-sash-color)
+  );
 }
 
 [class*='dockview-theme-ayu']
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
   > .dv-sash.dv-enabled {
+  position: relative;
+  overflow: visible;
+  height: 1px;
+  margin-top: 0;
+  background-color: var(--workspace-divider-color, var(--dv-sash-color));
+  transition:
+    background-color 0.15s ease,
+    height 0.15s ease,
+    margin-top 0.15s ease;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-sash-container
+  > .dv-sash.dv-enabled::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 21px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background-color: var(
+    --workspace-divider-subtle,
+    var(--workspace-divider-color, var(--dv-sash-color))
+  );
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.88);
+  transition:
+    background-color 0.15s ease,
+    height 0.15s ease;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-sash-container
+  > .dv-sash.dv-enabled:hover {
   height: 3px;
   margin-top: -1px;
+  background-color: var(
+    --workspace-divider-hover,
+    var(--dv-active-sash-color)
+  );
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-sash-container
+  > .dv-sash.dv-enabled:hover::after {
+  height: 6px;
+  background-color: var(
+    --workspace-divider-hover,
+    var(--dv-active-sash-color)
+  );
 }

@@ -30,17 +30,15 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const { projectId } = useParams<{ projectId: string }>();
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Check if we're on a tasks route
-  const isTasksRoute = /^\/local-projects\/[^/]+\/tasks/.test(
+  const isProjectWorkspaceRoute = /^\/local-projects\/[^/]+\/(?:sessions|workspaces)/.test(
     location.pathname
   );
 
-  // Clear search when leaving tasks pages
   useEffect(() => {
-    if (!isTasksRoute && query !== '') {
+    if (!isProjectWorkspaceRoute && query !== '') {
       setQuery('');
     }
-  }, [isTasksRoute, query]);
+  }, [isProjectWorkspaceRoute, query]);
 
   // Clear search when project changes
   useEffect(() => {
@@ -50,7 +48,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const clear = () => setQuery('');
 
   const focusInput = () => {
-    if (inputRef.current && isTasksRoute) {
+    if (inputRef.current && isProjectWorkspaceRoute) {
       inputRef.current.focus();
     }
   };
@@ -62,7 +60,7 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const value: SearchState = {
     query,
     setQuery,
-    active: isTasksRoute,
+    active: isProjectWorkspaceRoute,
     clear,
     focusInput,
     registerInputRef,

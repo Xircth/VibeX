@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { normalizeProjectRoute } from '@/lib/paths';
 
 export type ProjectActivityVisualState =
   | 'idle'
@@ -70,6 +71,14 @@ interface WindowProjectsState {
   consumeProjectFocus: (projectId: string) => ProjectFocusRequest | undefined;
 }
 
+type PersistedWindowProjectsState = {
+  railVisible?: boolean;
+  openProjectIds?: string[];
+  lastRouteByProject?: Record<string, string>;
+  projectSnapshots?: Record<string, ProjectActivitySnapshot>;
+  projectAlerts?: Record<string, ProjectActivityAlert | undefined>;
+};
+
 function arraysEqual(left: string[], right: string[]) {
   if (left.length !== right.length) {
     return false;
@@ -135,7 +144,7 @@ function isSameAlert(
 export const useWindowProjectsStore = create<WindowProjectsState>()(
   persist(
     (set, get) => ({
-      railVisible: true,
+      railVisible: false,
       openProjectIds: [],
       lastRouteByProject: {},
       projectSnapshots: {},
@@ -160,12 +169,12 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
         }),
       rememberProjectRoute: (projectId, route) =>
         set((state) =>
-          state.lastRouteByProject[projectId] === route
+          state.lastRouteByProject[projectId] === normalizeProjectRoute(route)
             ? state
             : {
                 lastRouteByProject: {
                   ...state.lastRouteByProject,
-                  [projectId]: route,
+                  [projectId]: normalizeProjectRoute(route),
                 },
               }
         ),
@@ -270,9 +279,26 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
     }),
     {
       name: 'vibe-ultra-window-projects',
-      version: 2,
+      version: 4,
+      migrate: (persistedState: unknown) => {
+        const state = (persistedState ?? {}) as PersistedWindowProjectsState;
+        const normalizedLastRouteByProject = Object.fromEntries(
+          Object.entries(state.lastRouteByProject ?? {}).map(([projectId, route]) => [
+            projectId,
+            normalizeProjectRoute(route),
+          ])
+        );
+
+        return {
+          railVisible: false,
+          openProjectIds: state.openProjectIds ?? [],
+          lastRouteByProject: normalizedLastRouteByProject,
+          projectSnapshots: state.projectSnapshots ?? {},
+          projectAlerts: state.projectAlerts ?? {},
+          focusRequests: {},
+        };
+      },
       partialize: (state) => ({
-        railVisible: state.railVisible,
         openProjectIds: state.openProjectIds,
         lastRouteByProject: state.lastRouteByProject,
         projectSnapshots: state.projectSnapshots,

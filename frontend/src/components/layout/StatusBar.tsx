@@ -49,7 +49,7 @@ export function StatusBar() {
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
 
   return (
-    <div className="flex h-6 shrink-0 select-none items-center justify-between border-t border-border bg-secondary px-2 text-[11px] text-secondary-foreground">
+    <div className="workspace-divider-top flex h-6 shrink-0 select-none items-center justify-between bg-secondary px-2 text-[11px] text-secondary-foreground">
       <div className="min-w-0 pr-2">
         {railVisible ? (
           project && <span className="truncate opacity-90">{project.name}</span>

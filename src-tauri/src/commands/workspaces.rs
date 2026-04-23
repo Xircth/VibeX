@@ -37,7 +37,14 @@ use services::services::{
 use utils::shell::resolve_executable_path;
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{
+    error::AppError,
+    state::AppState,
+    workspace_paths::{
+        resolve_workspace_agent_working_dir, resolve_workspace_default_open_path,
+        resolve_workspace_repo_root,
+    },
+};
 
 fn detect_package_manager(repo_root: &Path) -> (&'static str, Vec<&'static str>) {
     if repo_root.join("pnpm-lock.yaml").exists() {
@@ -2398,30 +2405,11 @@ pub async fn open_workspace_in_editor(
 
     Workspace::touch(pool, workspace.id).await?;
 
-    let workspace_path = Path::new(&container_ref);
-
     let workspace_repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let workspace_path = if file_path.is_none() {
-        if let Some(agent_working_dir) = workspace
-            .agent_working_dir
-            .as_deref()
-            .filter(|dir| !dir.trim().is_empty())
-        {
-            workspace_path.join(agent_working_dir)
-        } else if workspace_repos.len() == 1 && workspace.use_worktree {
-            workspace_path.join(&workspace_repos[0].name)
-        } else {
-            workspace_path.to_path_buf()
-        }
-    } else {
-        workspace_path.to_path_buf()
-    };
-
-    // If a specific file path is provided, use it; otherwise use the base path
     let path = if let Some(ref fp) = file_path {
-        workspace_path.join(fp)
+        resolve_workspace_repo_root(&workspace, &container_ref, &workspace_repos).join(fp)
     } else {
-        workspace_path
+        resolve_workspace_default_open_path(&workspace, &container_ref, &workspace_repos)
     };
 
     let editor_config = {
@@ -2483,11 +2471,29 @@ pub async fn get_workspace_repos(
     workspace_id: Uuid,
 ) -> Result<Vec<RepoWithTargetBranch>, AppError> {
     let pool = &state.deployment.db().pool;
+    let mut workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    workspace.container_ref = Some(container_ref.clone());
+    let workspace_root = PathBuf::from(container_ref);
 
     let repos =
         WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace_id).await?;
 
-    Ok(repos)
+    Ok(repos
+        .into_iter()
+        .map(|mut repo| {
+            repo.repo.path = workspace
+                .repo_path(&repo.repo)
+                .unwrap_or_else(|| workspace_root.clone());
+            repo
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -3076,11 +3082,13 @@ async fn trigger_pr_description_follow_up(
 
     let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
-    let working_dir = workspace
-        .agent_working_dir
-        .as_ref()
-        .filter(|dir| !dir.is_empty())
-        .cloned();
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(workspace)
+        .await?;
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+    let working_dir = resolve_workspace_agent_working_dir(workspace, &container_ref, &repos);
 
     let action_type = if let Some(info) = latest_session_info {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {

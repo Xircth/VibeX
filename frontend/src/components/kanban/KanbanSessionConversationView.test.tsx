@@ -6,30 +6,32 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import { KanbanSessionConversationView } from './KanbanSessionConversationView';
 
-const { attemptsGetMock, sessionsGetByIdMock } = vi.hoisted(() => ({
-  attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
-  sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
-}));
+const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
+  vi.hoisted(() => ({
+    attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
+    sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
+    useWorkspaceSessionsMock: vi.fn(() => ({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    })),
+  }));
 
 vi.mock('@/contexts/ProjectContext', () => ({
   useProject: () => ({ projectId: 'project-1' }),
 }));
 
 vi.mock('@/hooks/useWorkspaceSessions', () => ({
-  useWorkspaceSessions: () => ({
-    sessions: [],
-    selectedSession: undefined,
-    selectedSessionId: undefined,
-    selectSession: vi.fn(),
-    selectLatestSession: vi.fn(),
-    isLoading: false,
-    isNewSessionMode: false,
-    isPendingNewSessionMode: false,
-    requestNewSession: vi.fn(),
-    confirmNewSession: vi.fn(),
-    cancelNewSession: vi.fn(),
-    startNewSession: vi.fn(),
-  }),
+  useWorkspaceSessions: useWorkspaceSessionsMock,
   resolveActiveSession: (session: Session | undefined) => session,
 }));
 
@@ -77,7 +79,64 @@ vi.mock('@/lib/api', () => ({
 }));
 
 describe('KanbanSessionConversationView', () => {
+  it('keeps the follow-up shell interactive when a workspace has no existing sessions', () => {
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: true,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId="workspace-empty"
+            interactive={true}
+            showSessionSelector={true}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
+      'workspace-empty:none'
+    );
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+  });
+
   it('renders immediately from initial Kanban session data', () => {
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -150,6 +209,21 @@ describe('KanbanSessionConversationView', () => {
   });
 
   it('renders conversation shell even before detail queries resolve', () => {
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {

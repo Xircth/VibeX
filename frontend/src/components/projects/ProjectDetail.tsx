@@ -114,10 +114,10 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         </div>
         <div className="flex gap-2">
           <Button
-            onClick={() => navigate(`/local-projects/${projectId}/tasks`)}
+            onClick={() => navigate(`/local-projects/${projectId}/sessions`)}
           >
             <CheckSquare className="mr-2 h-4 w-4" />
-            View Tasks
+            查看会话
           </Button>
           <Button variant="outline" onClick={handleEditClick}>
             <Edit className="mr-2 h-4 w-4" />

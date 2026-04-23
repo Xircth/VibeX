@@ -16,6 +16,8 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 
+const LOCAL_USAGE_SCAN_CACHE_TTL_MS: i64 = 2 * 60_000;
+
 // ============= Type Definitions =============
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
@@ -1098,6 +1100,114 @@ struct UsageScopeContext {
     workspace_paths: Vec<PathBuf>,
 }
 
+fn current_time_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+fn build_usage_cache_key(scope_ctx: &UsageScopeContext) -> String {
+    match scope_ctx.scope {
+        UsageScope::Global => "global".to_string(),
+        UsageScope::Project => format!("project:{}", scope_ctx.project_id),
+    }
+}
+
+fn filter_sessions_by_cutoff(
+    sessions: &[ProjectUsageSessionSummary],
+    cutoff_time: i64,
+) -> Vec<ProjectUsageSessionSummary> {
+    let mut filtered = if cutoff_time > 0 {
+        sessions
+            .iter()
+            .filter(|session| session.timestamp >= cutoff_time)
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        sessions.to_vec()
+    };
+
+    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    filtered
+}
+
+async fn scan_usage_sessions(
+    state: &tauri::State<'_, AppState>,
+    scope_ctx: &UsageScopeContext,
+    now_ms: i64,
+) -> (
+    Vec<ProjectUsageSessionSummary>,
+    Vec<ProjectUsageProviderStatus>,
+) {
+    let cache_key = build_usage_cache_key(scope_ctx);
+    {
+        let cache = state.local_usage_cache.lock().await;
+        if let Some(entry) = cache.get(&cache_key)
+            && now_ms - entry.scanned_at_ms <= LOCAL_USAGE_SCAN_CACHE_TTL_MS
+        {
+            return (entry.sessions.clone(), entry.provider_status.clone());
+        }
+    }
+
+    let mut all_sessions = Vec::new();
+    let mut provider_status = Vec::new();
+
+    let claude_result = scan_claude_sessions(&scope_ctx.workspace_paths);
+    match claude_result {
+        Ok(sessions) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "claude".to_string(),
+                success: true,
+                error: None,
+                sessions_scanned: sessions.len() as i64,
+            });
+            all_sessions.extend(sessions);
+        }
+        Err(e) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "claude".to_string(),
+                success: false,
+                error: Some(e),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
+    let codex_result = scan_codex_sessions(&scope_ctx.workspace_paths);
+    match codex_result {
+        Ok(sessions) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "codex".to_string(),
+                success: true,
+                error: None,
+                sessions_scanned: sessions.len() as i64,
+            });
+            all_sessions.extend(sessions);
+        }
+        Err(e) => {
+            provider_status.push(ProjectUsageProviderStatus {
+                provider: "codex".to_string(),
+                success: false,
+                error: Some(e),
+                sessions_scanned: 0,
+            });
+        }
+    }
+
+    let mut cache = state.local_usage_cache.lock().await;
+    cache.insert(
+        cache_key,
+        crate::state::LocalUsageCacheEntry {
+            sessions: all_sessions.clone(),
+            provider_status: provider_status.clone(),
+            scanned_at_ms: now_ms,
+        },
+    );
+
+    (all_sessions, provider_status)
+}
+
 fn collect_project_scope_paths(repo_paths: &[PathBuf], workspaces: &[Workspace]) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
@@ -1177,71 +1287,15 @@ pub async fn get_project_usage_statistics(
 ) -> Result<ProjectUsageStatistics, String> {
     let date_range = date_range.unwrap_or_else(|| "7d".to_string());
     let scope_ctx = resolve_usage_scope(&state, scope, project_id).await?;
-
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64;
+    let now_ms = current_time_ms();
 
     let cutoff_time = match date_range.as_str() {
         "7d" => now_ms - 7 * 24 * 60 * 60 * 1000,
         "30d" => now_ms - 30 * 24 * 60 * 60 * 1000,
         _ => 0,
     };
-
-    let mut all_sessions = Vec::new();
-    let mut provider_status = Vec::new();
-
-    // Scan Claude sessions
-    let claude_result = scan_claude_sessions(&scope_ctx.workspace_paths);
-    match claude_result {
-        Ok(sessions) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "claude".to_string(),
-                success: true,
-                error: None,
-                sessions_scanned: sessions.len() as i64,
-            });
-            all_sessions.extend(sessions);
-        }
-        Err(e) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "claude".to_string(),
-                success: false,
-                error: Some(e),
-                sessions_scanned: 0,
-            });
-        }
-    }
-
-    // Scan Codex sessions
-    let codex_result = scan_codex_sessions(&scope_ctx.workspace_paths);
-    match codex_result {
-        Ok(sessions) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "codex".to_string(),
-                success: true,
-                error: None,
-                sessions_scanned: sessions.len() as i64,
-            });
-            all_sessions.extend(sessions);
-        }
-        Err(e) => {
-            provider_status.push(ProjectUsageProviderStatus {
-                provider: "codex".to_string(),
-                success: false,
-                error: Some(e),
-                sessions_scanned: 0,
-            });
-        }
-    }
-
-    // Filter by date range
-    if cutoff_time > 0 {
-        all_sessions.retain(|session| session.timestamp >= cutoff_time);
-    }
-
-    all_sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    let (all_sessions, provider_status) = scan_usage_sessions(&state, &scope_ctx, now_ms).await;
+    let filtered_sessions = filter_sessions_by_cutoff(&all_sessions, cutoff_time);
 
     Ok(build_project_usage_statistics(
         match scope_ctx.scope {
@@ -1250,7 +1304,7 @@ pub async fn get_project_usage_statistics(
         },
         scope_ctx.project_id,
         scope_ctx.project_name,
-        all_sessions,
+        filtered_sessions,
         provider_status,
         now_ms,
     ))
@@ -1409,5 +1463,24 @@ mod tests {
             collect_project_scope_paths(&[repo_root.clone(), repo_root.clone()], &workspaces);
 
         assert_eq!(paths, vec![repo_root, workspace_root]);
+    }
+
+    #[test]
+    fn filter_sessions_by_cutoff_keeps_recent_entries_sorted_descending() {
+        let filtered = filter_sessions_by_cutoff(
+            &[
+                fake_session("old", "gpt-5.4", 100, 1.0, 100),
+                fake_session("newest", "gpt-5.4", 100, 1.0, 500),
+                fake_session("mid", "gpt-5.4", 100, 1.0, 300),
+            ],
+            250,
+        );
+
+        let ids = filtered
+            .iter()
+            .map(|session| session.session_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["newest", "mid"]);
     }
 }

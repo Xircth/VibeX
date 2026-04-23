@@ -76,6 +76,12 @@ export interface ReadFileResponse {
   truncated: boolean;
 }
 
+export interface DocumentPreviewResponse {
+  content: string;
+  format: 'text';
+  extractor: string;
+}
+
 export interface TextSearchMatch {
   line: number;
   column: number;
@@ -156,6 +162,14 @@ export const fileTreeApi = {
     });
   },
 
+  readDocumentPreview: async (
+    path: string
+  ): Promise<DocumentPreviewResponse> => {
+    return tauriInvoke<DocumentPreviewResponse>('read_document_preview', {
+      path,
+    });
+  },
+
   trashItem: async (path: string): Promise<void> => {
     return tauriInvoke<void>('trash_item', { path });
   },
@@ -199,6 +213,11 @@ export const desktopApi = {
   ): Promise<void> => {
     return tauriInvoke<void>('set_project_rail_window_visible', {
       visible,
+      itemCount: itemCount ?? null,
+    });
+  },
+  syncProjectRailWindowBounds: async (itemCount?: number): Promise<void> => {
+    return tauriInvoke<void>('sync_project_rail_window_bounds', {
       itemCount: itemCount ?? null,
     });
   },

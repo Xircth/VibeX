@@ -1,8 +1,4 @@
-import type {
-  ExecutorConfigs,
-  ExecutorProfileId,
-  Workspace,
-} from 'shared/types';
+import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,15 +7,21 @@ import { TerminalProfileControls } from '@/components/tasks/TerminalProfileContr
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { cn } from '@/lib/utils';
+import {
+  findWorkspaceBranchOption,
+  getWorkspaceBranchCheckoutHint,
+  getWorkspaceBranchWarning,
+  type WorkspaceBranchOption,
+} from '@/lib/workspaceBranchOptions';
 
 export type SessionCreationMode = 'existing_workspace' | 'new_workspace';
 
 interface SessionCreationFormProps {
   mode: SessionCreationMode;
   onModeChange: (mode: SessionCreationMode) => void;
-  createWorkspaceOptions: Workspace[];
-  selectedWorkspaceId: string;
-  onSelectedWorkspaceIdChange: (value: string) => void;
+  workspaceBranchOptions: WorkspaceBranchOption[];
+  selectedWorkspaceValue: string;
+  onSelectedWorkspaceValueChange: (value: string) => void;
   sessionName: string;
   onSessionNameChange: (value: string) => void;
   profiles: ExecutorConfigs['executors'] | null;
@@ -43,9 +45,9 @@ interface SessionCreationFormProps {
 export function SessionCreationForm({
   mode,
   onModeChange,
-  createWorkspaceOptions,
-  selectedWorkspaceId,
-  onSelectedWorkspaceIdChange,
+  workspaceBranchOptions,
+  selectedWorkspaceValue,
+  onSelectedWorkspaceValueChange,
   sessionName,
   onSessionNameChange,
   profiles,
@@ -65,7 +67,15 @@ export function SessionCreationForm({
   compact = false,
   dropdownSide = 'bottom',
 }: SessionCreationFormProps) {
-  const canUseExistingWorkspace = createWorkspaceOptions.length > 0;
+  const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
+  const selectedWorkspaceOption = findWorkspaceBranchOption(
+    workspaceBranchOptions,
+    selectedWorkspaceValue
+  );
+  const workspaceWarning = getWorkspaceBranchWarning(selectedWorkspaceOption);
+  const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
+    selectedWorkspaceOption
+  );
 
   return (
     <form
@@ -101,15 +111,25 @@ export function SessionCreationForm({
 
       {mode === 'existing_workspace' ? (
         <div className="space-y-2">
-          <Label htmlFor="session-create-workspace">工作区</Label>
+          <Label htmlFor="session-create-workspace">工作区分支</Label>
           <WorkspaceSelector
-            workspaces={createWorkspaceOptions}
-            value={selectedWorkspaceId}
-            onChange={onSelectedWorkspaceIdChange}
+            options={workspaceBranchOptions}
+            value={selectedWorkspaceValue}
+            onChange={onSelectedWorkspaceValueChange}
             disabled={isSubmitting || !canUseExistingWorkspace}
             className="text-sm"
             dropdownSide={dropdownSide}
           />
+          {workspaceWarning ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+              <p>{workspaceWarning}</p>
+              {workspaceCheckoutHint ? (
+                <p className="mt-1 text-amber-700/90 dark:text-amber-200/90">
+                  {workspaceCheckoutHint}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">

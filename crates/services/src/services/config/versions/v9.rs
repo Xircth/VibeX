@@ -10,7 +10,7 @@ pub use v8::{
 use crate::services::config::versions::v8;
 
 fn default_git_branch_prefix() -> String {
-    "vk".to_string()
+    "vu".to_string()
 }
 
 fn default_pr_auto_description_enabled() -> bool {

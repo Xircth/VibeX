@@ -8,11 +8,7 @@ import {
 } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  ScratchType,
-  type ExecutorProfileId,
-  type Workspace,
-} from 'shared/types';
+import { ScratchType, type ExecutorProfileId } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -31,6 +27,12 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import { paths } from '@/lib/paths';
+import {
+  buildWorkspaceBranchOptions,
+  findWorkspaceBranchOption,
+  findWorkspaceBranchOptionByWorkspaceId,
+  type WorkspaceBranchOption,
+} from '@/lib/workspaceBranchOptions';
 import { getFirstAvailableProfile } from '@/utils/executor';
 import { type SessionCreationMode } from '@/components/sessions/SessionCreationForm';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
@@ -51,7 +53,6 @@ import {
 
 type SessionStatusKey = 'todo' | 'inprogress' | 'inreview' | 'done';
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
-const PROJECT_ROOT_WORKSPACE_ID = '__project_root_workspace__';
 
 function isMainlineBranch(branch: string) {
   const normalized = branch.trim().toLowerCase();
@@ -95,7 +96,8 @@ export function KanbanSessionHub() {
   const { data: lastActiveWorkspace } = useTaskAttempt(
     lastActiveWorkspaceId ?? undefined
   );
-  const { sessions, workspaces, isLoading } = useKanbanProjectSessions(projectId);
+  const { sessions, workspaces, isLoading } =
+    useKanbanProjectSessions(projectId);
   const primaryRepo = repos?.[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -119,77 +121,22 @@ export function KanbanSessionHub() {
         .find((branch) => branch.length > 0) ?? null,
     [repos]
   );
-
-  const projectRootBranch = useMemo(() => {
-    const currentBranch = primaryRepoBranches.find(
-      (branch) => branch.is_current
-    );
-    if (currentBranch?.name?.trim()) {
-      return currentBranch.name.trim();
-    }
-
-    if (primaryRepo?.default_target_branch?.trim()) {
-      return primaryRepo.default_target_branch.trim();
-    }
-
-    if (preferredMainBranch?.trim()) {
-      return preferredMainBranch.trim();
-    }
-
-    return null;
-  }, [
-    preferredMainBranch,
-    primaryRepo?.default_target_branch,
-    primaryRepoBranches,
-  ]);
-
-  const projectRootWorkspaceOption = useMemo<Workspace | null>(() => {
-    if (createWorkspaceOptions.length > 0 || !projectRootBranch) {
-      return null;
-    }
-
-    const now = new Date().toISOString();
-    return {
-      id: PROJECT_ROOT_WORKSPACE_ID,
-      project_id: projectId ?? '',
-      task_id: '',
-      parent_workspace_id: null,
-      container_ref: primaryRepo?.path ?? null,
-      branch: projectRootBranch,
-      use_worktree: false,
-      agent_working_dir: null,
-      setup_completed_at: null,
-      created_at: now,
-      updated_at: now,
-      archived: false,
-      pinned: false,
-      name: primaryRepo?.display_name ?? primaryRepo?.name ?? 'Project Root',
-    };
-  }, [
-    createWorkspaceOptions.length,
-    projectId,
-    primaryRepo?.display_name,
-    primaryRepo?.name,
-    primaryRepo?.path,
-    projectRootBranch,
-  ]);
-
-  const createWorkspaceSelectionOptions = useMemo(
+  const workspaceBranchOptions = useMemo(
     () =>
-      projectRootWorkspaceOption
-        ? [projectRootWorkspaceOption, ...createWorkspaceOptions]
-        : createWorkspaceOptions,
-    [createWorkspaceOptions, projectRootWorkspaceOption]
+      buildWorkspaceBranchOptions({
+        workspaces: createWorkspaceOptions,
+        repoBranches: primaryRepoBranches,
+      }),
+    [createWorkspaceOptions, primaryRepoBranches]
   );
-
-  const mainlineWorkspaceId = useMemo(
+  const mainlineWorkspaceValue = useMemo(
     () =>
-      createWorkspaceSelectionOptions.find((workspace) =>
+      workspaceBranchOptions.find((option) =>
         preferredMainBranch
-          ? matchesBranch(workspace.branch, preferredMainBranch)
-          : isMainlineBranch(workspace.branch)
-      )?.id ?? null,
-    [createWorkspaceSelectionOptions, preferredMainBranch]
+          ? matchesBranch(option.branch, preferredMainBranch)
+          : isMainlineBranch(option.branch)
+      )?.value ?? null,
+    [preferredMainBranch, workspaceBranchOptions]
   );
 
   const defaultExecutorProfile = useMemo<ExecutorProfileId | null>(
@@ -197,35 +144,31 @@ export function KanbanSessionHub() {
     [config?.executor_profile, profiles]
   );
 
-  const defaultWorkspaceId = useMemo(() => {
-    if (
-      lastActiveWorkspaceId &&
-      createWorkspaceSelectionOptions.some(
-        (workspace) => workspace.id === lastActiveWorkspaceId
-      )
-    ) {
-      return lastActiveWorkspaceId;
+  const defaultWorkspaceValue = useMemo(() => {
+    const lastActiveOption = findWorkspaceBranchOptionByWorkspaceId(
+      workspaceBranchOptions,
+      lastActiveWorkspaceId
+    );
+    if (lastActiveOption) {
+      return lastActiveOption.value;
     }
 
-    if (mainlineWorkspaceId) {
-      return mainlineWorkspaceId;
+    if (mainlineWorkspaceValue) {
+      return mainlineWorkspaceValue;
     }
 
-    return createWorkspaceSelectionOptions[0]?.id ?? '';
-  }, [
-    createWorkspaceSelectionOptions,
-    lastActiveWorkspaceId,
-    mainlineWorkspaceId,
-  ]);
+    return workspaceBranchOptions[0]?.value ?? '';
+  }, [lastActiveWorkspaceId, mainlineWorkspaceValue, workspaceBranchOptions]);
 
-  const [createWorkspaceId, setCreateWorkspaceId] =
-    useState(defaultWorkspaceId);
+  const [createWorkspaceValue, setCreateWorkspaceValue] = useState(
+    defaultWorkspaceValue
+  );
   const [createMode, setCreateMode] =
     useState<SessionCreationMode>('existing_workspace');
   const [createSessionName, setCreateSessionName] = useState('');
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
-  const createWorkspaceIdRef = useRef(createWorkspaceId);
+  const createWorkspaceValueRef = useRef(createWorkspaceValue);
   const createSessionNameRef = useRef(createSessionName);
   const selectedExecutorProfileRef = useRef(selectedExecutorProfile);
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
@@ -290,9 +233,9 @@ export function KanbanSessionHub() {
     enabled: isCreatePopoverOpen,
   });
 
-  const updateCreateWorkspaceId = useCallback((value: string) => {
-    createWorkspaceIdRef.current = value;
-    setCreateWorkspaceId(value);
+  const updateCreateWorkspaceValue = useCallback((value: string) => {
+    createWorkspaceValueRef.current = value;
+    setCreateWorkspaceValue(value);
   }, []);
 
   const updateCreateSessionName = useCallback((value: string) => {
@@ -310,18 +253,18 @@ export function KanbanSessionHub() {
 
   useEffect(() => {
     if (
-      !createWorkspaceId ||
-      !createWorkspaceSelectionOptions.some(
-        (workspace) => workspace.id === createWorkspaceId
+      !createWorkspaceValue ||
+      !workspaceBranchOptions.some(
+        (option) => option.value === createWorkspaceValue
       )
     ) {
-      updateCreateWorkspaceId(defaultWorkspaceId);
+      updateCreateWorkspaceValue(defaultWorkspaceValue);
     }
   }, [
-    createWorkspaceId,
-    createWorkspaceSelectionOptions,
-    defaultWorkspaceId,
-    updateCreateWorkspaceId,
+    createWorkspaceValue,
+    defaultWorkspaceValue,
+    updateCreateWorkspaceValue,
+    workspaceBranchOptions,
   ]);
 
   useEffect(() => {
@@ -331,10 +274,10 @@ export function KanbanSessionHub() {
   }, [defaultExecutorProfile, updateSelectedExecutorProfile]);
 
   useEffect(() => {
-    if (createWorkspaceOptions.length === 0) {
+    if (workspaceBranchOptions.length === 0) {
       setCreateMode('new_workspace');
     }
-  }, [createWorkspaceOptions.length]);
+  }, [workspaceBranchOptions.length]);
 
   useEffect(() => {
     if (searchParams.get('createSession') !== '1') {
@@ -342,11 +285,11 @@ export function KanbanSessionHub() {
     }
 
     goToSessionHub();
-    updateCreateWorkspaceId(defaultWorkspaceId);
+    updateCreateWorkspaceValue(defaultWorkspaceValue);
     updateSelectedExecutorProfile(defaultExecutorProfile);
     updateCreateSessionName('');
     setCreateMode(
-      createWorkspaceOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
+      workspaceBranchOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
     );
     resetRepoBranchSelection();
     setDeleteErrorMessage(null);
@@ -358,14 +301,14 @@ export function KanbanSessionHub() {
     setSearchParams(nextSearchParams, { replace: true });
   }, [
     defaultExecutorProfile,
-    defaultWorkspaceId,
-    createWorkspaceOptions.length,
+    defaultWorkspaceValue,
+    workspaceBranchOptions.length,
     goToSessionHub,
     resetRepoBranchSelection,
     searchParams,
     setSearchParams,
     updateCreateSessionName,
-    updateCreateWorkspaceId,
+    updateCreateWorkspaceValue,
     updateSelectedExecutorProfile,
   ]);
 
@@ -412,7 +355,9 @@ export function KanbanSessionHub() {
       const next = { ...current };
 
       Object.entries(current).forEach(([sessionId, optimisticStatus]) => {
-        const latestSession = sessions.find((session) => session.id === sessionId);
+        const latestSession = sessions.find(
+          (session) => session.id === sessionId
+        );
         if (!latestSession || latestSession.status === optimisticStatus) {
           delete next[sessionId];
           changed = true;
@@ -435,17 +380,17 @@ export function KanbanSessionHub() {
 
   const createSessionMutation = useMutation({
     mutationFn: async ({
-      workspaceId,
+      workspaceValue,
       sessionName,
       executorProfile,
       mode,
     }: {
-      workspaceId: string;
+      workspaceValue: string;
       sessionName: string;
       executorProfile: ExecutorProfileId | null;
       mode: SessionCreationMode;
     }) => {
-      if (mode === 'existing_workspace' && !workspaceId) {
+      if (mode === 'existing_workspace' && !workspaceValue) {
         throw new Error('Workspace is required');
       }
 
@@ -453,13 +398,22 @@ export function KanbanSessionHub() {
         throw new Error('Project is required');
       }
 
+      const selectedWorkspaceOption =
+        mode === 'existing_workspace'
+          ? findWorkspaceBranchOption(workspaceBranchOptions, workspaceValue)
+          : null;
+
       const session = await sessionsApi.createProject({
         project_id: projectId,
         workspace_id:
           mode === 'existing_workspace'
-            ? workspaceId === PROJECT_ROOT_WORKSPACE_ID
-              ? null
-              : workspaceId
+            ? selectedWorkspaceOption?.useWorktree
+              ? selectedWorkspaceOption.existingWorkspaceId
+              : null
+            : null,
+        branch:
+          mode === 'existing_workspace' && !selectedWorkspaceOption?.useWorktree
+            ? (selectedWorkspaceOption?.branch ?? null)
             : null,
         executor: executorProfile?.executor ?? undefined,
         name: sessionName.trim() || null,
@@ -488,6 +442,11 @@ export function KanbanSessionHub() {
       queryClient.invalidateQueries({
         queryKey: ['projectWorktrees', projectId],
       });
+      if (primaryRepo?.id) {
+        queryClient.invalidateQueries({
+          queryKey: ['repoBranches', primaryRepo.id],
+        });
+      }
       queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', session.workspace_id],
       });
@@ -650,12 +609,17 @@ export function KanbanSessionHub() {
     () => new Set(selectedSessionIds),
     [selectedSessionIds]
   );
+  const selectedWorkspaceOption = useMemo<WorkspaceBranchOption | null>(
+    () =>
+      findWorkspaceBranchOption(workspaceBranchOptions, createWorkspaceValue),
+    [createWorkspaceValue, workspaceBranchOptions]
+  );
 
   const canCreateSession =
     !!selectedExecutorProfile?.executor &&
     !createSessionMutation.isPending &&
     (createMode === 'existing_workspace'
-      ? !!createWorkspaceId
+      ? !!selectedWorkspaceOption
       : projectRepos.length > 0 &&
         repoBranchConfigs.length > 0 &&
         repoBranchConfigs.every((config) => !!config.targetBranch));
@@ -671,11 +635,11 @@ export function KanbanSessionHub() {
     setIsCreatePopoverOpen(open);
 
     if (open) {
-      updateCreateWorkspaceId(defaultWorkspaceId);
+      updateCreateWorkspaceValue(defaultWorkspaceValue);
       updateSelectedExecutorProfile(defaultExecutorProfile);
       updateCreateSessionName('');
       setCreateMode(
-        createWorkspaceOptions.length > 0
+        workspaceBranchOptions.length > 0
           ? 'existing_workspace'
           : 'new_workspace'
       );
@@ -914,10 +878,10 @@ export function KanbanSessionHub() {
           groupedSessions={groupedSessions}
           flatSessions={flatSessions}
           workspaces={workspaces}
-          createWorkspaceOptions={createWorkspaceSelectionOptions}
+          workspaceBranchOptions={workspaceBranchOptions}
           profiles={profiles}
           createMode={createMode}
-          createWorkspaceId={createWorkspaceId}
+          createWorkspaceValue={createWorkspaceValue}
           createSessionName={createSessionName}
           selectedExecutorProfile={selectedExecutorProfile}
           repoBranchConfigs={repoBranchConfigs}
@@ -943,14 +907,14 @@ export function KanbanSessionHub() {
           onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
           onCreateSession={() =>
             createSessionMutation.mutate({
-              workspaceId: createWorkspaceIdRef.current,
+              workspaceValue: createWorkspaceValueRef.current,
               sessionName: createSessionNameRef.current,
               executorProfile: selectedExecutorProfileRef.current,
               mode: createMode,
             })
           }
           onCreateModeChange={setCreateMode}
-          onCreateWorkspaceIdChange={updateCreateWorkspaceId}
+          onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
           onCreateSessionNameChange={updateCreateSessionName}
           onSelectedExecutorProfileChange={updateSelectedExecutorProfile}
           onRepoBranchChange={setRepoBranch}

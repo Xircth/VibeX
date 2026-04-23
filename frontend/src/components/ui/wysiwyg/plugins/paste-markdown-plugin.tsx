@@ -15,6 +15,7 @@ import {
 
 type Props = {
   transformers: Transformer[];
+  allowRichHtmlPaste?: boolean;
 };
 
 /**
@@ -25,7 +26,10 @@ type Props = {
  * - CMD+V with plain text: Convert markdown to formatted nodes, insert at cursor
  * - CMD+SHIFT+V: Insert plain text as-is (raw paste)
  */
-export function PasteMarkdownPlugin({ transformers }: Props) {
+export function PasteMarkdownPlugin({
+  transformers,
+  allowRichHtmlPaste = true,
+}: Props) {
   const [editor] = useLexicalComposerContext();
   const shiftHeldRef = useRef(false);
 
@@ -55,8 +59,10 @@ export function PasteMarkdownPlugin({ transformers }: Props) {
         const clipboardData = event.clipboardData;
         if (!clipboardData) return false;
 
-        // If HTML exists, let default Lexical handling work
-        if (clipboardData.getData('text/html')) return false;
+        // Full editor mode keeps Lexical's rich HTML paste behavior.
+        if (allowRichHtmlPaste && clipboardData.getData('text/html')) {
+          return false;
+        }
 
         const plainText = clipboardData.getData('text/plain');
         if (!plainText) return false;
@@ -111,7 +117,7 @@ export function PasteMarkdownPlugin({ transformers }: Props) {
       rootElement.removeEventListener('keyup', handleKeyUp);
       unregisterPaste();
     };
-  }, [editor, transformers]);
+  }, [allowRichHtmlPaste, editor, transformers]);
 
   return null;
 }

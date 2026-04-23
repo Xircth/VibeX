@@ -153,14 +153,14 @@ function WorkspaceTabSwitcher() {
   const { projectId, project } = useProject();
   const { activeWorktreeId, activeTaskId, setActiveWorktree } = useWorktree();
   const { rightSession } = useKanbanSessionContext();
-  const { taskId, attemptId } = useParams<{
-    taskId?: string;
-    attemptId?: string;
+  const { workspaceId, sessionId } = useParams<{
+    workspaceId?: string;
+    sessionId?: string;
   }>();
   const { data: repos } = useProjectRepos(projectId);
   const { worktrees } = useProjectWorktrees(projectId);
   const { activeTab, setActiveTab } = useLayoutStore();
-  const routeTab = taskId && attemptId ? 'workspace' : null;
+  const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const preferredWorkspaceBranch = useMemo(() => {
     const repoBranch =
@@ -215,7 +215,7 @@ function WorkspaceTabSwitcher() {
       if (!projectId) return;
 
       if (tab === 'kanban') {
-        navigate(paths.projectTasks(projectId));
+        navigate(paths.projectSessions(projectId));
         return;
       }
 
@@ -238,7 +238,7 @@ function WorkspaceTabSwitcher() {
         // No workspace entity yet: keep workspace tab active and fall back to
         // project root directory context.
         setActiveWorktree(null, null);
-        navigate(paths.projectTasks(projectId));
+        navigate(paths.projectSessions(projectId));
       };
 
       if (effectiveActiveTab === 'kanban' && rightSession) {
@@ -292,15 +292,11 @@ function WorkspaceTabSwitcher() {
 }
 
 export function Toolbar() {
-  const { taskId, attemptId, workspaceId, sessionId } = useParams<{
-    taskId?: string;
-    attemptId?: string;
+  const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
   }>();
   const navigate = useNavigate();
-  const legacyWorkspaceId =
-    attemptId && attemptId !== 'latest' ? attemptId : undefined;
   const { projectId, project } = useProject();
   const { activeWorktreeId } = useWorktree();
   const { rightSession } = useKanbanSessionContext();
@@ -310,8 +306,7 @@ export function Toolbar() {
   const isSingleRepoProject = repos?.length === 1;
   const switchProject = useProjectSwitcher();
   const activeTab = useLayoutStore((state) => state.activeTab);
-  const routeTab =
-    (taskId && attemptId) || workspaceId || sessionId ? 'workspace' : null;
+  const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
 
@@ -340,7 +335,7 @@ export function Toolbar() {
       }
 
       const targetWorkspaceId =
-        workspaceId ?? legacyWorkspaceId ?? activeWorktreeId;
+        workspaceId ?? activeWorktreeId;
       if (targetWorkspaceId) {
         navigate(
           `${paths.projectWorkspace(projectId, targetWorkspaceId)}?newSession=1`
@@ -349,7 +344,7 @@ export function Toolbar() {
       }
     }
 
-    navigate(`${paths.projectTasks(projectId)}?createSession=1`);
+    navigate(`${paths.projectSessions(projectId)}?createSession=1`);
   };
 
   const handleOpenInIDE = () => {
@@ -366,7 +361,7 @@ export function Toolbar() {
 
   const handleSwitchProject = useCallback(
     (nextProjectId: string) => {
-      switchProject(nextProjectId, paths.projectTasks(nextProjectId));
+      switchProject(nextProjectId, paths.projectSessions(nextProjectId));
     },
     [switchProject]
   );
@@ -380,8 +375,8 @@ export function Toolbar() {
             {isWorkspaceTab ? <WorktreeSelector /> : null}
           </div>
 
-          {legacyWorkspaceId && (
-            <BranchStatusBadge workspaceId={legacyWorkspaceId} />
+          {workspaceId && (
+            <BranchStatusBadge workspaceId={workspaceId} />
           )}
 
           <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">

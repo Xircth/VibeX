@@ -59,22 +59,16 @@ export function SessionHubMonitor({
                   getMonitorItemClassName(monitorRecords.length, index)
                 )}
               >
-                <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="mb-1.5 flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div
-                      className="truncate text-sm font-semibold text-foreground"
-                      title={session.fullName}
-                    >
-                      {session.fullName}
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span
-                        className="truncate"
-                        title={session.workspaceDisplayLabel}
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <div
+                        className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground"
+                        title={session.fullName}
                       >
-                        {session.workspaceDisplayLabel}
-                      </span>
-                      <span className="shrink-0">
+                        {session.fullName}
+                      </div>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
                         {formatTimeAgo(session.updatedAt)}
                       </span>
                     </div>

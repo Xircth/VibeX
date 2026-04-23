@@ -358,14 +358,11 @@ function ProjectActivityTracker({
               description,
               kind,
               durationMs: 15000,
-            }).catch(() => {
-              showInlineToast({
-                kind,
-                title,
-                description,
-                workspaceId: workspace.id,
-                sessionId: latestSummary.id,
-              });
+            }).catch((error) => {
+              console.error(
+                'Failed to show detached desktop toast window for completed session:',
+                error
+              );
             });
             return;
           }
@@ -422,10 +419,13 @@ export function ProjectWindowManager() {
     (state) => state.openProjectIds
   );
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
+  const setRailVisible = useWindowProjectsStore((state) => state.setRailVisible);
   const isProjectRailWindow = location.pathname === '/project-rail';
+  const isSettingsWindowRoute = location.pathname.startsWith('/settings');
+  const shouldManageProjectWindows = !isSettingsWindowRoute;
 
   useEffect(() => {
-    if (!projectId) {
+    if (!shouldManageProjectWindows || !projectId) {
       return;
     }
 
@@ -441,10 +441,11 @@ export function ProjectWindowManager() {
     location.search,
     projectId,
     rememberProjectRoute,
+    shouldManageProjectWindows,
   ]);
 
   useEffect(() => {
-    if (isProjectRailWindow) {
+    if (!shouldManageProjectWindows || isProjectRailWindow) {
       return;
     }
 
@@ -453,17 +454,27 @@ export function ProjectWindowManager() {
       .catch((error) => {
         console.error('Failed to sync project rail window visibility:', error);
       });
-  }, [isProjectRailWindow, projects.length, railVisible]);
+  }, [
+    isProjectRailWindow,
+    projects.length,
+    railVisible,
+    shouldManageProjectWindows,
+  ]);
 
   const trackedProjectIds = useMemo(() => {
-    if (isProjectRailWindow) {
+    if (!shouldManageProjectWindows || isProjectRailWindow) {
       return [];
     }
 
     return Array.from(
       new Set([...(projectId ? [projectId] : []), ...openProjectIds])
     );
-  }, [isProjectRailWindow, openProjectIds, projectId]);
+  }, [
+    isProjectRailWindow,
+    openProjectIds,
+    projectId,
+    shouldManageProjectWindows,
+  ]);
 
   const effectiveTrackedProjectIds = useMemo(() => {
     if (isProjectRailWindow) {
@@ -472,6 +483,20 @@ export function ProjectWindowManager() {
 
     return trackedProjectIds;
   }, [isProjectRailWindow, projects, trackedProjectIds]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    tauriListen<boolean>('project-rail-visibility', (visible) => {
+      setRailVisible(visible);
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [setRailVisible]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

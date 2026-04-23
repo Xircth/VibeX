@@ -9,10 +9,13 @@ use executors::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use services::services::config::{
-    Config, SoundFile,
-    editor::{EditorConfig, EditorType},
-    save_config_to_file,
+use services::services::{
+    config::{
+        Config, SoundFile,
+        editor::{EditorConfig, EditorType},
+        save_config_to_file,
+    },
+    worktree_manager::WorktreeManager,
 };
 use tauri::Emitter;
 
@@ -124,6 +127,12 @@ pub async fn update_config(
     let mut config = state.deployment.config().write().await;
     *config = new_config.clone();
     drop(config);
+
+    let workspace_dir_override = new_config
+        .workspace_dir
+        .as_ref()
+        .map(|workspace_dir| utils::path::expand_tilde(workspace_dir));
+    WorktreeManager::set_workspace_dir_override(workspace_dir_override);
 
     if std::mem::discriminant(&previous_theme) != std::mem::discriminant(&new_config.theme) {
         app.emit(

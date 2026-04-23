@@ -279,7 +279,7 @@ function SessionKanbanBoard() {
     (_status?: SessionStatus) => {
       if (!projectId) return;
       window.location.assign(
-        `/local-projects/${projectId}/tasks?createSession=1`
+        `/local-projects/${projectId}/sessions?createSession=1`
       );
     },
     [projectId]

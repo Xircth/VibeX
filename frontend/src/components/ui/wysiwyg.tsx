@@ -18,6 +18,8 @@ import {
   TRANSFORMERS,
   CODE,
   HEADING,
+  ORDERED_LIST,
+  UNORDERED_LIST,
   type Transformer,
 } from '@lexical/markdown';
 import { ImageNode, IMAGE_TRANSFORMER } from './wysiwyg/nodes/image-node';
@@ -111,6 +113,7 @@ import type { FileReferencePayload } from '@/utils/fileReferences';
 
 /** Markdown string representing the editor content */
 export type SerializedEditorState = string;
+export type WysiwygMarkdownPreset = 'default' | 'session-input-minimal';
 
 type WysiwygProps = {
   placeholder?: string;
@@ -161,6 +164,8 @@ type WysiwygProps = {
   ) => void;
   /** Whether to enable the floating selection toolbar */
   enableFloatingToolbar?: boolean;
+  /** Local markdown/render preset for editable composer variants */
+  markdownPreset?: WysiwygMarkdownPreset;
 };
 
 /** Ref interface for WYSIWYGEditor, exposing imperative methods */
@@ -212,9 +217,13 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       saveStatus,
       onRegisterClickedElementInsert,
       enableFloatingToolbar = true,
+      markdownPreset = 'default',
     }: WysiwygProps,
     ref: React.ForwardedRef<WYSIWYGEditorRef>
   ) {
+    const isSessionInputMinimalPreset =
+      markdownPreset === 'session-input-minimal';
+
     // Ref to capture the Lexical editor instance for imperative methods
     const editorInstanceRef = useRef<LexicalEditor | null>(null);
     const fileReferenceDropZoneRef = useRef<HTMLDivElement | null>(null);
@@ -278,33 +287,57 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         namespace: 'md-wysiwyg',
         onError: console.error,
         theme: {
-          paragraph: 'mb-2 last:mb-0',
+          paragraph: isSessionInputMinimalPreset
+            ? 'mb-1.5 last:mb-0 text-[15px] font-normal leading-7 tracking-[0.01em] text-foreground'
+            : 'mb-2 last:mb-0',
           heading: {
-            h1: 'mt-4 mb-2 text-2xl font-semibold',
-            h2: 'mt-3 mb-2 text-xl font-semibold',
-            h3: 'mt-3 mb-2 text-lg font-semibold',
-            h4: 'mt-2 mb-1 text-base font-medium',
-            h5: 'mt-2 mb-1 text-sm font-medium',
-            h6: 'mt-2 mb-1 text-xs font-medium uppercase tracking-wide',
+            h1: isSessionInputMinimalPreset
+              ? 'mt-2 mb-1.5 text-[1.05rem] font-semibold leading-7 tracking-[0.01em] text-foreground'
+              : 'mt-4 mb-2 text-2xl font-semibold',
+            h2: isSessionInputMinimalPreset
+              ? 'mt-2 mb-1.5 text-[1rem] font-semibold leading-7 tracking-[0.01em] text-foreground'
+              : 'mt-3 mb-2 text-xl font-semibold',
+            h3: isSessionInputMinimalPreset
+              ? 'mt-2 mb-1 text-[0.95rem] font-semibold leading-7 tracking-[0.01em] text-foreground'
+              : 'mt-3 mb-2 text-lg font-semibold',
+            h4: isSessionInputMinimalPreset
+              ? 'mt-1.5 mb-1 text-sm font-semibold leading-6 tracking-[0.03em] text-muted-foreground uppercase'
+              : 'mt-2 mb-1 text-base font-medium',
+            h5: isSessionInputMinimalPreset
+              ? 'mt-1.5 mb-1 text-xs font-semibold leading-6 tracking-[0.05em] text-muted-foreground uppercase'
+              : 'mt-2 mb-1 text-sm font-medium',
+            h6: isSessionInputMinimalPreset
+              ? 'mt-1.5 mb-1 text-[11px] font-semibold leading-5 tracking-[0.08em] text-muted-foreground uppercase'
+              : 'mt-2 mb-1 text-xs font-medium uppercase tracking-wide',
           },
           quote:
             'my-3 border-l-4 border-primary-foreground pl-4 text-muted-foreground',
           list: {
-            ul: 'my-1 list-disc list-inside',
-            ol: 'my-1 list-decimal list-inside',
+            ul: isSessionInputMinimalPreset
+              ? 'my-1 list-disc pl-5 text-[15px] leading-7 tracking-[0.01em]'
+              : 'my-1 list-disc list-inside',
+            ol: isSessionInputMinimalPreset
+              ? 'my-1 list-decimal pl-5 text-[15px] leading-7 tracking-[0.01em]'
+              : 'my-1 list-decimal list-inside',
             listitem: '',
             nested: {
               // Hide the structural wrapper marker Lexical adds for nested items.
-              listitem: 'list-none pl-4',
+              listitem: isSessionInputMinimalPreset
+                ? 'list-none pl-3'
+                : 'list-none pl-4',
             },
           },
           link: 'text-blue-600 dark:text-blue-400 underline underline-offset-2 cursor-pointer hover:text-blue-800 dark:hover:text-blue-300',
           text: {
-            bold: 'font-semibold',
-            italic: 'italic',
-            underline: 'underline underline-offset-2',
-            strikethrough: 'line-through',
-            code: 'font-mono bg-muted bg-panel px-1 py-0.5 rounded',
+            bold: isSessionInputMinimalPreset ? '' : 'font-semibold',
+            italic: isSessionInputMinimalPreset ? '' : 'italic',
+            underline: isSessionInputMinimalPreset
+              ? ''
+              : 'underline underline-offset-2',
+            strikethrough: isSessionInputMinimalPreset ? '' : 'line-through',
+            code: isSessionInputMinimalPreset
+              ? ''
+              : 'font-mono bg-muted bg-panel px-1 py-0.5 rounded',
           },
           code: 'block font-mono bg-secondary rounded-md px-3 py-2 my-2 whitespace-pre overflow-x-auto',
           codeHighlight: CODE_HIGHLIGHT_CLASSES,
@@ -334,11 +367,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
           TableCellNode,
         ],
       }),
-      []
+      [isSessionInputMinimalPreset]
     );
 
     // Extended transformers with image, PR comment, and code block support (memoized to prevent unnecessary re-renders)
-    const extendedTransformers: Transformer[] = useMemo(
+    const fullTransformers: Transformer[] = useMemo(
       () => [
         TABLE_TRANSFORMER,
         IMAGE_TRANSFORMER,
@@ -355,11 +388,41 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       []
     );
 
-    // Transformers for MarkdownShortcutPlugin: excludes HEADING to prevent
-    // # being converted to a heading node, which conflicts with the # tag trigger
+    const sessionInputMinimalTransformers: Transformer[] = useMemo(
+      () => [
+        IMAGE_TRANSFORMER,
+        TAG_REFERENCE_TRANSFORMER,
+        SLASH_COMMAND_TRANSFORMER,
+        DOLLAR_COMMAND_TRANSFORMER,
+        FILE_REFERENCE_TRANSFORMER,
+        CLICKED_ELEMENT_TRANSFORMER,
+        HEADING,
+        UNORDERED_LIST,
+        ORDERED_LIST,
+      ],
+      []
+    );
+
+    const activeTransformers = useMemo(
+      () =>
+        isSessionInputMinimalPreset
+          ? sessionInputMinimalTransformers
+          : fullTransformers,
+      [
+        fullTransformers,
+        isSessionInputMinimalPreset,
+        sessionInputMinimalTransformers,
+      ]
+    );
+
+    // Default mode keeps # for tag references; the session-input minimal preset
+    // re-enables heading shortcuts because #<space> does not collide with #tag.
     const shortcutTransformers: Transformer[] = useMemo(
-      () => extendedTransformers.filter((t) => t !== HEADING),
-      [extendedTransformers]
+      () =>
+        isSessionInputMinimalPreset
+          ? activeTransformers
+          : activeTransformers.filter((t) => t !== HEADING),
+      [activeTransformers, isSessionInputMinimalPreset]
     );
 
     // Memoized handlers for ContentEditable to prevent re-renders
@@ -466,7 +529,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
     const editorContent = (
       <div
         ref={fileReferenceDropZoneRef}
-        className="relative wysiwyg text-base"
+        className={cn(
+          'relative wysiwyg text-base',
+          isSessionInputMinimalPreset &&
+            'text-[15px] leading-7 tracking-[0.01em] antialiased [text-rendering:optimizeLegibility]'
+        )}
         data-file-reference-drop-zone
       >
         <TaskAttemptContext.Provider value={taskAttemptId}>
@@ -479,7 +546,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   onChange={onChange}
                   onEditorStateChange={onEditorStateChange}
                   editable={!disabled}
-                  transformers={extendedTransformers}
+                  transformers={activeTransformers}
                 />
                 {!disabled && enableFloatingToolbar && <ToolbarPlugin />}
                 <div className="relative">
@@ -520,7 +587,10 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                     <MarkdownShortcutPlugin
                       transformers={shortcutTransformers}
                     />
-                    <PasteMarkdownPlugin transformers={extendedTransformers} />
+                    <PasteMarkdownPlugin
+                      transformers={activeTransformers}
+                      allowRichHtmlPaste={!isSessionInputMinimalPreset}
+                    />
                     <TypeaheadOpenProvider>
                       <FileTagTypeaheadPlugin
                         trigger="#"
@@ -544,12 +614,14 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                         onCmdEnter={onCmdEnter}
                         onShiftCmdEnter={onShiftCmdEnter}
                         onChange={onChange}
-                        transformers={extendedTransformers}
+                        transformers={activeTransformers}
                         sendShortcut={sendShortcut}
                       />
                     </TypeaheadOpenProvider>
                     <ImageKeyboardPlugin />
-                    <CodeBlockShortcutPlugin />
+                    {!isSessionInputMinimalPreset && (
+                      <CodeBlockShortcutPlugin />
+                    )}
                     {onRegisterClickedElementInsert && (
                       <ClickedElementInsertPlugin
                         onRegisterInsert={onRegisterClickedElementInsert}

@@ -315,6 +315,22 @@ pub fn sync_project_rail_window(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn sync_project_rail_window_bounds(
+    app: tauri::AppHandle,
+    item_count: Option<usize>,
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(PROJECT_RAIL_WINDOW_LABEL) else {
+        return Ok(());
+    };
+
+    if !window.is_visible().map_err(|error| error.to_string())? {
+        return Ok(());
+    }
+
+    position_project_rail_window(&app, &window, item_count.unwrap_or_default())
+}
+
+#[tauri::command]
 pub async fn set_project_rail_window_visible(
     app: tauri::AppHandle,
     visible: bool,

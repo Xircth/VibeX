@@ -381,7 +381,7 @@ export function SystemSettings() {
               分支前缀
             </Label>
             <Input
-              placeholder="vk"
+              placeholder="vu"
               value={draft.git_branch_prefix ?? ''}
               onChange={(event) => {
                 const value = event.target.value.trim();

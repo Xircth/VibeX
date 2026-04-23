@@ -82,13 +82,11 @@ function resolveGitFilePath(path: string, repoRootPath: string | null): string {
 export function GitPanel() {
   const { openDiffPreviewAtPath } = usePanelActions();
   const { activeWorktreeId } = useWorktree();
-  const { attemptId: rawAttemptId, projectId } = useParams<{
-    attemptId?: string;
+  const { workspaceId: routeWorkspaceId, projectId } = useParams<{
+    workspaceId?: string;
     projectId?: string;
   }>();
-  const routeAttemptId =
-    rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
-  const effectiveWorkspaceId = activeWorktreeId ?? routeAttemptId ?? null;
+  const effectiveWorkspaceId = activeWorktreeId ?? routeWorkspaceId ?? null;
   const { data: workspace } = useAttempt(effectiveWorkspaceId ?? undefined);
   const { repos: workspaceRepos, selectedRepoId } = useAttemptRepo(
     effectiveWorkspaceId ?? undefined

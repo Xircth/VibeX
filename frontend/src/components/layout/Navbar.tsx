@@ -84,7 +84,7 @@ export function Navbar() {
 
   const handleCreateSession = () => {
     if (projectId) {
-      navigate(`${paths.projectTasks(projectId)}?createSession=1`);
+      navigate(`${paths.projectSessions(projectId)}?createSession=1`);
     }
   };
 
@@ -103,8 +103,13 @@ export function Navbar() {
       );
       if (pathMatch) {
         const suffix = pathMatch[1] ?? '';
-        if (suffix.startsWith('/tasks')) {
-          navigate(`/local-projects/${nextProjectId}/tasks${location.search}`);
+        if (
+          suffix.startsWith('/sessions') ||
+          suffix.startsWith('/workspaces')
+        ) {
+          navigate(
+            `${paths.projectSessions(nextProjectId)}${location.search}`
+          );
           return;
         }
 

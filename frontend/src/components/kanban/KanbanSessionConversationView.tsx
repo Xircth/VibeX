@@ -24,7 +24,7 @@ type SessionRecord = Session & {
 
 interface KanbanSessionConversationViewProps {
   workspaceId: string;
-  sessionId: string;
+  sessionId?: string;
   interactive?: boolean;
   showSessionSelector?: boolean;
   onSessionCreated?: (session: {
@@ -204,7 +204,7 @@ export function KanbanSessionConversationView({
   const { data: session, isFetching: isSessionFetching } =
     useQuery<SessionRecord>({
       queryKey: ['session', sessionId],
-      queryFn: () => sessionsApi.getById(sessionId) as Promise<SessionRecord>,
+      queryFn: () => sessionsApi.getById(sessionId!) as Promise<SessionRecord>,
       enabled: !!sessionId,
       placeholderData: (previousData) =>
         previousData?.id === sessionId
@@ -215,13 +215,21 @@ export function KanbanSessionConversationView({
   const resolvedWorkspace =
     workspace ?? createFallbackWorkspace(workspaceId, initialWorkspace);
   const resolvedSession =
-    session ?? createFallbackSession(sessionId, workspaceId, initialSession);
+    session ??
+    initialSession ??
+    (sessionId
+      ? createFallbackSession(sessionId, workspaceId, initialSession)
+      : undefined);
   const taskId =
-    resolvedSession.task_id ?? initialTask?.id ?? resolvedWorkspace.task_id;
+    resolvedSession?.task_id ?? initialTask?.id ?? resolvedWorkspace.task_id;
+  const canInteractWithoutResolvedSession = interactive && !sessionId;
+  const shouldRenderInteractiveShell =
+    interactive &&
+    (canInteractWithoutResolvedSession || !!session || !!initialSession);
 
   const isBootstrapping =
     (!workspace && isWorkspaceLoading && !initialWorkspace) ||
-    (!session && isSessionFetching && !initialSession);
+    (!!sessionId && !session && isSessionFetching && !initialSession);
 
   return (
     <div className={`relative ${className ?? ''}`}>
@@ -232,10 +240,10 @@ export function KanbanSessionConversationView({
         </div>
       ) : null}
       <KanbanSessionConversationContent
-        key={`${resolvedWorkspace.id}:${resolvedSession.id}:${interactive ? 'interactive' : 'readonly'}`}
+        key={`${resolvedWorkspace.id}:${resolvedSession?.id ?? 'none'}:${interactive ? 'interactive' : 'readonly'}`}
         attempt={createWorkspaceWithSession(resolvedWorkspace, resolvedSession)}
         taskId={taskId}
-        interactive={interactive && !!session}
+        interactive={shouldRenderInteractiveShell}
         showSessionSelector={showSessionSelector}
         onSessionCreated={onSessionCreated}
         onSessionSelected={onSessionSelected}

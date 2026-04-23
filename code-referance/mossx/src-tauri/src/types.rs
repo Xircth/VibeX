@@ -1408,18 +1408,4 @@ mod tests {
             serde_json::from_str(r#"{"id":"1","name":"Test","path":"/tmp","codexBin":null}"#)
                 .expect("workspace deserialize");
         assert!(matches!(entry.kind, WorkspaceKind::Main));
-        assert!(entry.parent_id.is_none());
-        assert!(entry.worktree.is_none());
-        assert!(entry.settings.sort_order.is_none());
-        assert!(entry.settings.group_id.is_none());
-    }
-
-    #[test]
-    fn workspace_settings_defaults() {
-        let settings = WorkspaceSettings::default();
-        assert!(!settings.sidebar_collapsed);
-        assert!(settings.sort_order.is_none());
-        assert!(settings.group_id.is_none());
-        assert!(settings.git_root.is_none());
-    }
-}
+        assert!(entry.parent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     

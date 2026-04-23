@@ -20,62 +20,36 @@ export interface WorktreeState {
 
 const WorktreeContext = createContext<WorktreeState | null>(null);
 
-function getRouteWorktreeState(
-  workspaceId?: string,
-  attemptId?: string,
-  taskId?: string
-): Pick<WorktreeState, 'activeWorktreeId' | 'activeTaskId'> | null {
-  const activeWorktreeId =
-    workspaceId ?? (attemptId && attemptId !== 'latest' ? attemptId : null);
-
-  if (!activeWorktreeId) {
-    return null;
-  }
-
-  return {
-    activeWorktreeId,
-    activeTaskId: taskId ?? null,
-  };
-}
-
 export function WorktreeProvider({ children }: { children: ReactNode }) {
-  const { workspaceId, attemptId, taskId } = useParams<{
-    workspaceId?: string;
-    attemptId?: string;
-    taskId?: string;
-  }>();
+  const { workspaceId } = useParams<{ workspaceId?: string }>();
   const { projectId } = useProject();
   const projectKey = getProjectScopeKey(projectId);
-  const routeWorktreeState = useMemo(
-    () => getRouteWorktreeState(workspaceId, attemptId, taskId),
-    [attemptId, taskId, workspaceId]
-  );
+  const routeWorktreeId = useMemo(() => workspaceId ?? null, [workspaceId]);
   const [activeWorktreeId, setWorktreeId] = useState<string | null>(() => {
     const stored = useProjectViewStateStore
       .getState()
       .getWorktreeState(projectKey);
-    return routeWorktreeState?.activeWorktreeId ?? stored.activeWorktreeId;
+    return routeWorktreeId ?? stored.activeWorktreeId;
   });
   const [activeTaskId, setTaskId] = useState<string | null>(() => {
     const stored = useProjectViewStateStore
       .getState()
       .getWorktreeState(projectKey);
-    return routeWorktreeState?.activeTaskId ?? stored.activeTaskId;
+    return routeWorktreeId ? null : stored.activeTaskId;
   });
 
   useEffect(() => {
     const stored = useProjectViewStateStore
       .getState()
       .getWorktreeState(projectKey);
-    const nextWorktreeId =
-      routeWorktreeState?.activeWorktreeId ?? stored.activeWorktreeId;
-    const nextTaskId = routeWorktreeState?.activeTaskId ?? stored.activeTaskId;
+    const nextWorktreeId = routeWorktreeId ?? stored.activeWorktreeId;
+    const nextTaskId = routeWorktreeId ? null : stored.activeTaskId;
 
     setWorktreeId((current) =>
       current === nextWorktreeId ? current : nextWorktreeId
     );
     setTaskId((current) => (current === nextTaskId ? current : nextTaskId));
-  }, [projectKey, routeWorktreeState]);
+  }, [projectKey, routeWorktreeId]);
 
   useEffect(() => {
     useProjectViewStateStore.getState().setWorktreeState(projectKey, {

@@ -78,10 +78,11 @@ impl Deployment for LocalDeployment {
         // Always save config (may have been migrated or version updated)
         save_config_to_file(&raw_config, &config_path()).await?;
 
-        if let Some(workspace_dir) = &raw_config.workspace_dir {
-            let path = utils::path::expand_tilde(workspace_dir);
-            WorktreeManager::set_workspace_dir_override(path);
-        }
+        let workspace_dir_override = raw_config
+            .workspace_dir
+            .as_ref()
+            .map(|workspace_dir| utils::path::expand_tilde(workspace_dir));
+        WorktreeManager::set_workspace_dir_override(workspace_dir_override);
 
         let config = Arc::new(RwLock::new(raw_config));
         let user_id = generate_user_id();

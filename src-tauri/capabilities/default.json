@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/capabilities.json",
   "identifier": "default",
   "description": "Default capabilities for the main window",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "desktop-toast"],
   "permissions": [
     "core:default",
     "shell:allow-open",

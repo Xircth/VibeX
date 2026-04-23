@@ -5,6 +5,7 @@ mod error;
 mod events;
 mod preview_proxy;
 mod state;
+mod workspace_paths;
 use state::AppState;
 
 #[tauri::command]
@@ -44,16 +45,21 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let state = tauri::async_runtime::block_on(AppState::new())
+                .expect("Failed to initialize app state");
+            events::start_event_forwarding(&app.handle().clone(), &state);
+            events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
+            app.manage(state);
+
             if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
                 tracing::error!("Failed to start preview proxy: {}", error);
             }
 
-            if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(&app.handle())
-            {
+            if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
                 tracing::warn!("Failed to initialize desktop toast window: {}", error);
             }
             if let Err(error) =
-                commands::project_rail_window::ensure_project_rail_window(&app.handle())
+                commands::project_rail_window::ensure_project_rail_window(app.handle())
             {
                 tracing::warn!("Failed to initialize project rail window: {}", error);
             }
@@ -72,11 +78,6 @@ pub fn run() {
                 });
             }
 
-            let state = tauri::async_runtime::block_on(AppState::new())
-                .expect("Failed to initialize app state");
-            events::start_event_forwarding(&app.handle().clone(), &state);
-            events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
-            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -167,6 +168,7 @@ pub fn run() {
             commands::sessions::get_session,
             commands::sessions::create_session,
             commands::sessions::create_project_root_session,
+            commands::sessions::ensure_project_workspace,
             commands::sessions::create_project_session,
             commands::sessions::rename_session,
             commands::sessions::update_session_status,
@@ -250,7 +252,9 @@ pub fn run() {
             commands::config::write_agent_native_config,
             commands::desktop_toast::show_desktop_toast,
             commands::desktop_toast::activate_desktop_toast,
+            commands::desktop_toast::desktop_toast_window_ready,
             commands::project_rail_window::set_project_rail_window_visible,
+            commands::project_rail_window::sync_project_rail_window_bounds,
             commands::project_rail_window::activate_project_rail_target,
             // Agent settings commands
             commands::agent_settings::list_agents,
@@ -275,6 +279,7 @@ pub fn run() {
             // File tree commands
             commands::file_tree::get_file_tree,
             commands::file_tree::read_file_content,
+            commands::file_tree::read_document_preview,
             commands::file_tree::save_file_content,
             commands::file_tree::delete_file,
             commands::file_tree::get_file_at_head,

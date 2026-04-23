@@ -17,7 +17,7 @@ mod tests {
     #[test]
     fn test_valid_prefixes() {
         assert!(is_valid_branch_prefix(""));
-        assert!(is_valid_branch_prefix("vk"));
+        assert!(is_valid_branch_prefix("vu"));
         assert!(is_valid_branch_prefix("feature"));
         assert!(is_valid_branch_prefix("hotfix-123"));
         assert!(is_valid_branch_prefix("foo.bar"));

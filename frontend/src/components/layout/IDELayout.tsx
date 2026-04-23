@@ -300,12 +300,10 @@ export function IDELayout({
   rightPanelContent,
   toolbarContent,
 }: IDELayoutProps) {
-  const { taskId, attemptId } = useParams<{
-    taskId?: string;
-    attemptId?: string;
+  const { workspaceId, sessionId } = useParams<{
+    workspaceId?: string;
+    sessionId?: string;
   }>();
-  const routeWorkspaceId =
-    attemptId && attemptId !== 'latest' ? attemptId : null;
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const tabContextMenuRef = useRef<HTMLDivElement>(null);
@@ -319,8 +317,8 @@ export function IDELayout({
     setRightPanelWidth,
     activeTab,
   } = useLayoutStore();
-  const effectiveWorkspaceId = activeWorktreeId ?? routeWorkspaceId;
-  const routeTab = taskId && attemptId ? 'workspace' : null;
+  const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
+  const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
   const serializedLayoutRef = useRef(serializedLayout);
   const layoutChangeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -888,17 +886,17 @@ export function IDELayout({
   }, [openOrFocusPanel, toggleFileTree]);
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="workspace-shell flex h-full w-full flex-col">
       <SearchPalette />
       {toolbarContent && (
-        <div className="z-10 shrink-0 border-b bg-background">
+        <div className="workspace-divider-bottom z-10 shrink-0 bg-background">
           {toolbarContent}
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
         {effectiveActiveTab === 'workspace' ? (
-          <div className="flex w-10 shrink-0 flex-col items-center gap-0.5 border-r border-border bg-secondary pt-1">
+          <div className="workspace-divider-right flex w-10 shrink-0 flex-col items-center gap-0.5 bg-secondary pt-1">
             <button
               onClick={toggleFileTree}
               className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
@@ -991,7 +989,7 @@ export function IDELayout({
           <>
             <div
               ref={resizeHandleRef}
-              className="relative w-px shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-[''] z-20"
+              className="workspace-resize-handle relative z-20 w-px shrink-0 cursor-col-resize after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
               onMouseDown={handleResizeMouseDown}
             />
             <div

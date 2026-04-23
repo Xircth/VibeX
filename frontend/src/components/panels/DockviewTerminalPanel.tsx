@@ -25,13 +25,13 @@ import {
 
 function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
-  const { attemptId: rawAttemptId } = useParams<{ attemptId?: string }>();
-  const routeWorktreeId =
-    rawAttemptId && rawAttemptId !== 'latest' ? rawAttemptId : undefined;
+  const { workspaceId: routeWorkspaceId } = useParams<{
+    workspaceId?: string;
+  }>();
   const { config } = useUserSystem();
   const { openOrFocusPanel } = usePanelActionsContext();
   const workspaceId =
-    getTerminalWorkspaceKey(activeWorktreeId ?? routeWorktreeId ?? null) ||
+    getTerminalWorkspaceKey(activeWorktreeId ?? routeWorkspaceId ?? null) ||
     undefined;
   const defaultShell = getDefaultTerminalShell(config);
   const { setOverrideUrl } = usePreviewSettings(workspaceId);

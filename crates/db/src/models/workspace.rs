@@ -141,9 +141,18 @@ impl Workspace {
     pub fn repo_path(&self, repo: &Repo) -> Option<PathBuf> {
         self.container_path().map(|container_path| {
             if self.use_worktree {
-                container_path.join(&repo.name)
+                let points_at_repo_root = container_path
+                    .file_name()
+                    .and_then(|segment| segment.to_str())
+                    .is_some_and(|segment| segment == repo.name);
+
+                if points_at_repo_root {
+                    container_path
+                } else {
+                    container_path.join(&repo.name)
+                }
             } else {
-                container_path
+                repo.path.clone()
             }
         })
     }

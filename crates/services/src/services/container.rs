@@ -58,6 +58,89 @@ use crate::services::{
 };
 pub type ContainerRef = String;
 
+fn path_points_at_repo_root(path: &Path, repo: &Repo) -> bool {
+    path.file_name()
+        .and_then(|segment| segment.to_str())
+        .is_some_and(|segment| segment == repo.name)
+}
+
+fn workspace_base_dir(workspace: &Workspace, container_ref: &str, repos: &[Repo]) -> PathBuf {
+    let container_path = PathBuf::from(container_ref);
+    let [repo] = repos else {
+        return container_path;
+    };
+
+    if !workspace.use_worktree {
+        return repo.path.clone();
+    }
+
+    if path_points_at_repo_root(&container_path, repo) {
+        return container_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or(container_path);
+    }
+
+    container_path
+}
+
+fn normalized_workspace_agent_working_dir(
+    workspace: &Workspace,
+    container_ref: &str,
+    repos: &[Repo],
+) -> Option<String> {
+    let raw = workspace
+        .agent_working_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty())?;
+
+    let [repo] = repos else {
+        return Some(raw.to_string());
+    };
+
+    let base_is_repo_root =
+        !workspace.use_worktree || path_points_at_repo_root(Path::new(container_ref), repo);
+    let mut segments = raw
+        .split(['/', '\\'])
+        .filter(|segment| !segment.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    if base_is_repo_root
+        && segments
+            .first()
+            .is_some_and(|segment| segment == &repo.name)
+    {
+        segments.remove(0);
+        return if segments.is_empty() {
+            None
+        } else {
+            let mut path = PathBuf::new();
+            for segment in segments {
+                path.push(segment);
+            }
+            Some(path.to_string_lossy().to_string())
+        };
+    }
+
+    if workspace.use_worktree
+        && !base_is_repo_root
+        && !segments
+            .first()
+            .is_some_and(|segment| segment == &repo.name)
+    {
+        segments.insert(0, repo.name.clone());
+        let mut path = PathBuf::new();
+        for segment in segments {
+            path.push(segment);
+        }
+        return Some(path.to_string_lossy().to_string());
+    }
+
+    Some(raw.to_string())
+}
+
 #[derive(Debug, Error)]
 pub enum ContainerError {
     #[error(transparent)]
@@ -94,7 +177,7 @@ pub trait ContainerService {
 
     fn notification_service(&self) -> &NotificationService;
 
-    fn workspace_to_current_dir(&self, workspace: &Workspace) -> PathBuf;
+    fn workspace_to_current_dir(&self, workspace: &Workspace, repos: &[Repo]) -> PathBuf;
 
     async fn available_agent_slash_commands(
         &self,
@@ -116,10 +199,12 @@ pub trait ContainerService {
                 return Err(ContainerError::Other(anyhow!("Workspace path is empty")));
             }
 
-            let workspace_path = PathBuf::from(container_ref);
-            match workspace.agent_working_dir.as_deref() {
-                Some(dir) if !dir.is_empty() => Some(workspace_path.join(dir)),
-                _ => Some(workspace_path),
+            let repos =
+                WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
+            let workspace_path = workspace_base_dir(&workspace, container_ref, &repos);
+            match normalized_workspace_agent_working_dir(&workspace, container_ref, &repos) {
+                Some(dir) => Some(workspace_path.join(dir)),
+                None => Some(workspace_path),
             }
         } else if let Some(repo_id) = repo_id {
             Repo::find_by_id(&self.db().pool, repo_id)
@@ -963,7 +1048,10 @@ pub trait ContainerService {
                 );
             }
 
-            let current_dir = self.workspace_to_current_dir(&workspace);
+            let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id)
+                .await
+                .unwrap_or_default();
+            let current_dir = self.workspace_to_current_dir(&workspace, &repos);
 
             let executor_action = if let Ok(executor_action) = process.executor_action() {
                 executor_action
@@ -1205,11 +1293,12 @@ pub trait ContainerService {
 
         let cleanup_action = self.cleanup_actions_for_repos(&repos);
 
-        let working_dir = workspace
-            .agent_working_dir
-            .as_ref()
-            .filter(|dir| !dir.is_empty())
-            .cloned();
+        let container_ref = match runnable_workspace.container_ref.as_deref() {
+            Some(container_ref) if !container_ref.is_empty() => container_ref.to_string(),
+            _ => self.ensure_container_exists(&runnable_workspace).await?,
+        };
+        let working_dir =
+            normalized_workspace_agent_working_dir(&runnable_workspace, &container_ref, &repos);
 
         let coding_action = ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
@@ -1414,7 +1503,8 @@ pub trait ContainerService {
         }
 
         // Start processing normalised logs for executor requests and follow ups
-        let workspace_root = self.workspace_to_current_dir(workspace);
+        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
+        let workspace_root = self.workspace_to_current_dir(workspace, &repos);
         #[cfg_attr(feature = "qa-mode", allow(unused_variables))]
         if let Some(msg_store) = self.get_msg_store_by_id(&execution_process.id).await
             && let Some((executor_profile_id, working_dir)) = match executor_action.typ() {

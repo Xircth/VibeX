@@ -28,7 +28,9 @@ use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+};
 
 fn queue_status_from_scratch(scratch: Scratch) -> Result<QueueStatus, AppError> {
     let Scratch {
@@ -130,6 +132,18 @@ const NEW_SESSION_WORKSPACE_TITLE: &str = "New Session Workspace";
 pub struct ProjectSessionRepoInput {
     pub repo_id: Uuid,
     pub target_branch: String,
+}
+
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct CreateProjectSessionPayload {
+    pub project_id: Uuid,
+    pub workspace_id: Option<Uuid>,
+    pub branch: Option<String>,
+    pub executor: Option<String>,
+    pub name: Option<String>,
+    pub initial_prompt: Option<String>,
+    pub create_workspace: Option<bool>,
+    pub repos: Option<Vec<ProjectSessionRepoInput>>,
 }
 
 fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>) -> String {
@@ -247,6 +261,7 @@ async fn create_worktree_workspace_for_project_session(
 async fn ensure_project_root_workspace(
     state: &AppState,
     project_id: Uuid,
+    branch: Option<&str>,
 ) -> Result<Workspace, AppError> {
     let pool = &state.deployment.db().pool;
 
@@ -261,17 +276,51 @@ async fn ensure_project_root_workspace(
         .git()
         .get_current_branch(&primary_repo.path)
         .map_err(|e| AppError::Internal(format!("Failed to resolve current branch: {e}")))?;
+    let desired_branch = branch
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| current_branch.clone());
+
+    if desired_branch != current_branch {
+        state
+            .deployment
+            .git()
+            .checkout_branch(&primary_repo.path, &desired_branch)
+            .map_err(|e| {
+                AppError::Internal(format!(
+                    "Failed to checkout project root branch '{desired_branch}': {e}"
+                ))
+            })?;
+    }
 
     let workspace_repos = vec![CreateWorkspaceRepo {
         repo_id: primary_repo.id,
-        target_branch: current_branch.clone(),
+        target_branch: desired_branch.clone(),
     }];
 
     if let Some(workspace_id) =
         WorkspaceRepo::find_reusable_non_worktree_workspace_id(pool, project_id, &workspace_repos)
             .await?
-        && let Some(workspace) = Workspace::find_by_id(pool, workspace_id).await?
+        && let Some(mut workspace) = Workspace::find_by_id(pool, workspace_id).await?
     {
+        let expected_container_ref = primary_repo.path.to_string_lossy().to_string();
+        if workspace.container_ref.as_deref() != Some(expected_container_ref.as_str()) {
+            Workspace::update_container_ref(pool, workspace.id, &expected_container_ref).await?;
+            workspace.container_ref = Some(expected_container_ref);
+        }
+
+        if workspace.agent_working_dir != primary_repo.default_working_dir {
+            sqlx::query(
+                "UPDATE workspaces SET agent_working_dir = ?, updated_at = datetime('now', 'subsec') WHERE id = ?",
+            )
+            .bind(primary_repo.default_working_dir.as_deref())
+            .bind(workspace.id)
+            .execute(pool)
+            .await?;
+            workspace.agent_working_dir = primary_repo.default_working_dir.clone();
+        }
+
         return Ok(workspace);
     }
 
@@ -306,7 +355,7 @@ async fn ensure_project_root_workspace(
         &CreateWorkspace {
             project_id,
             parent_workspace_id: None,
-            branch: current_branch.clone(),
+            branch: desired_branch.clone(),
             container_ref: Some(primary_repo.path.to_string_lossy().to_string()),
             use_worktree: false,
             agent_working_dir: primary_repo.default_working_dir.clone(),
@@ -323,7 +372,7 @@ async fn ensure_project_root_workspace(
     } else {
         primary_repo.display_name.as_str()
     };
-    let workspace_name = format!("{} · {}", workspace_display_name, current_branch);
+    let workspace_name = format!("{} · {}", workspace_display_name, desired_branch);
     Workspace::update(
         pool,
         workspace.id,
@@ -461,7 +510,7 @@ pub async fn create_project_root_session(
     name: Option<String>,
 ) -> Result<Session, AppError> {
     let pool = &state.deployment.db().pool;
-    let workspace = ensure_project_root_workspace(state.inner(), project_id).await?;
+    let workspace = ensure_project_root_workspace(state.inner(), project_id, None).await?;
 
     let session = Session::create(
         pool,
@@ -480,51 +529,79 @@ pub async fn create_project_root_session(
     Ok(session)
 }
 
+#[tauri::command]
+pub async fn ensure_project_workspace(
+    state: tauri::State<'_, AppState>,
+    project_id: Uuid,
+    branch: Option<String>,
+) -> Result<Workspace, AppError> {
+    let workspace =
+        ensure_project_root_workspace(state.inner(), project_id, branch.as_deref()).await?;
+
+    state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+
+    Ok(workspace)
+}
+
 /// Create a project-scoped session, optionally targeting an existing workspace.
 /// If no workspace is provided, reuse or create the project root workspace.
 #[tauri::command]
 pub async fn create_project_session(
     state: tauri::State<'_, AppState>,
-    project_id: Uuid,
-    workspace_id: Option<Uuid>,
-    executor: Option<String>,
-    name: Option<String>,
-    initial_prompt: Option<String>,
-    create_workspace: Option<bool>,
-    repos: Option<Vec<ProjectSessionRepoInput>>,
+    payload: CreateProjectSessionPayload,
 ) -> Result<Session, AppError> {
     let pool = &state.deployment.db().pool;
-    let workspace = if create_workspace.unwrap_or(false) {
+    let workspace = if payload.create_workspace.unwrap_or(false) {
         create_worktree_workspace_for_project_session(
             state.inner(),
-            project_id,
-            name.as_deref(),
-            initial_prompt.as_deref(),
-            repos.as_deref().unwrap_or(&[]),
+            payload.project_id,
+            payload.name.as_deref(),
+            payload.initial_prompt.as_deref(),
+            payload.repos.as_deref().unwrap_or(&[]),
         )
         .await?
-    } else if let Some(workspace_id) = workspace_id {
+    } else if let Some(workspace_id) = payload.workspace_id {
         let workspace = Workspace::find_by_id(pool, workspace_id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
-        if workspace.project_id != project_id {
+        if workspace.project_id != payload.project_id {
             return Err(AppError::BadRequest(format!(
                 "Workspace {} does not belong to project {}",
-                workspace_id, project_id
+                workspace_id, payload.project_id
             )));
         }
-        workspace
+        if workspace.use_worktree {
+            workspace
+        } else {
+            ensure_project_root_workspace(
+                state.inner(),
+                payload.project_id,
+                Some(workspace.branch.as_str()),
+            )
+            .await?
+        }
     } else {
-        ensure_project_root_workspace(state.inner(), project_id).await?
+        ensure_project_root_workspace(state.inner(), payload.project_id, payload.branch.as_deref())
+            .await?
     };
+
+    state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
 
     let session = Session::create(
         pool,
         &CreateSession {
-            executor,
+            executor: payload.executor,
             task_id: Some(workspace.task_id),
-            name,
-            initial_prompt,
+            name: payload.name,
+            initial_prompt: payload.initial_prompt,
             status: Some(SessionStatus::Todo),
         },
         Uuid::new_v4(),
@@ -689,6 +766,12 @@ pub async fn follow_up(
     //   session_id is the rollback mechanism; reset_to_message_id is not used.
     let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+
     // Get repos for cleanup action
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let cleanup_action = state
@@ -696,12 +779,7 @@ pub async fn follow_up(
         .container()
         .cleanup_actions_for_repos(&repos);
 
-    // Compute working_dir
-    let working_dir = workspace
-        .agent_working_dir
-        .as_ref()
-        .filter(|dir| !dir.is_empty())
-        .cloned();
+    let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos);
 
     // Build action type (FollowUp vs Initial)
     let action_type = if let Some(info) = latest_session_info {
@@ -850,13 +928,15 @@ pub async fn start_review(
     let prompt = build_review_prompt(context.as_deref(), additional_prompt.as_deref());
 
     // Create action and start
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+
     let action = ExecutorAction::new(
         ExecutorActionType::ReviewRequest(ReviewAction {
             executor_config: ExecutorConfig::from(executor_profile_id.clone()),
             context,
             prompt,
             session_id: agent_session_id,
-            working_dir: workspace.agent_working_dir.clone(),
+            working_dir: resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos),
         }),
         None,
     );

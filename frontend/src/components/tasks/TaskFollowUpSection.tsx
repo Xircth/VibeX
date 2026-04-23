@@ -12,9 +12,9 @@ import {
   useBranchStatus,
   useProjectRepos,
   useProjectWorktrees,
+  useRepoBranches,
   useRepoBranchSelection,
 } from '@/hooks';
-import type { WorktreeInfo } from '@/hooks/useProjectWorktrees';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { cn } from '@/lib/utils';
@@ -33,7 +33,7 @@ import type { ClickedElementData } from '@/components/ui/wysiwyg/nodes/clicked-e
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
-import { useDiffSummary } from '@/hooks/useDiffSummary';
+import { useGitStatus } from '@/hooks/git';
 
 import type {
   BaseCodingAgent,
@@ -56,6 +56,8 @@ import { buildAgentPrompt } from '@/utils/promptMessage';
 import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
+import { useWorktree } from '@/contexts/WorktreeContext';
+import { useParams } from 'react-router-dom';
 
 import { DiffStatsBar } from './follow-up/DiffStatsBar';
 import { TokenUsageIndicator } from './follow-up/TokenUsageIndicator';
@@ -67,6 +69,12 @@ import {
   SessionCreationForm,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
+import {
+  buildWorkspaceBranchOptions,
+  findWorkspaceBranchOption,
+  findWorkspaceBranchOptionByWorkspaceId,
+  type WorkspaceBranchOption,
+} from '@/lib/workspaceBranchOptions';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -149,7 +157,15 @@ export function TaskFollowUpSection({
   sessionState,
 }: TaskFollowUpSectionProps) {
   const { projectId } = useProject();
-  const workspaceId = session?.workspace_id ?? workspaceIdProp;
+  const { activeWorktreeId } = useWorktree();
+  const { workspaceId: routeWorkspaceId } = useParams<{ workspaceId?: string }>();
+  const workspaceId =
+    activeWorktreeId ??
+    routeWorkspaceId ??
+    workspaceIdProp ??
+    session?.workspace_id ??
+    null;
+  const workspaceIdValue = workspaceId ?? undefined;
   const {
     sessions,
     selectedSessionId,
@@ -177,11 +193,11 @@ export function TaskFollowUpSection({
   );
 
   const { isAttemptRunning, stopExecution, isStopping, processes } =
-    useAttemptExecution(workspaceId, taskId ?? undefined);
+    useAttemptExecution(workspaceIdValue, taskId ?? undefined);
 
   const { data: branchStatus, refetch: refetchBranchStatus } =
-    useBranchStatus(workspaceId);
-  const { repos } = useAttemptRepo(workspaceId);
+    useBranchStatus(workspaceIdValue);
+  const { repos, selectedRepoId } = useAttemptRepo(workspaceIdValue);
 
   const repoWithConflicts = useMemo(
     () =>
@@ -191,7 +207,7 @@ export function TaskFollowUpSection({
     [branchStatus]
   );
   const { branch: attemptBranch, refetch: refetchAttemptBranch } =
-    useAttemptBranch(workspaceId);
+    useAttemptBranch(workspaceIdValue);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
   const { registerOnElementAdded, workspaceRoot } = useClickedElements();
 
@@ -218,7 +234,33 @@ export function TaskFollowUpSection({
   const { enableScope, disableScope } = useHotkeysContext();
 
   const tokenUsageInfo = useTokenUsage();
-  const { fileCount, added, deleted } = useDiffSummary(workspaceId ?? null);
+  const summaryRepoId = useMemo(() => {
+    if (selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)) {
+      return selectedRepoId;
+    }
+
+    return repos[0]?.id ?? null;
+  }, [repos, selectedRepoId]);
+  const {
+    stagedFiles: summaryStagedFiles,
+    unstagedFiles: summaryUnstagedFiles,
+    totalAdditions: added,
+    totalDeletions: deleted,
+  } = useGitStatus({
+    workspaceId: workspaceId ?? null,
+    repoId: summaryRepoId,
+    pollMode: 'background',
+  });
+  const fileCount = useMemo(() => {
+    const changedPaths = new Set<string>();
+    for (const file of summaryStagedFiles) {
+      changedPaths.add(file.path);
+    }
+    for (const file of summaryUnstagedFiles) {
+      changedPaths.add(file.path);
+    }
+    return changedPaths.size;
+  }, [summaryStagedFiles, summaryUnstagedFiles]);
 
   const reviewMarkdown = useMemo(
     () => generateReviewMarkdown(),
@@ -237,13 +279,14 @@ export function TaskFollowUpSection({
   }, [attemptBranch, repoWithConflicts]);
 
   const scratchId = isNewSessionMode ? workspaceId : sessionId;
+  const scratchIdValue = scratchId ?? undefined;
 
   const {
     scratch,
     updateScratch,
     deleteScratch,
     isLoading: isScratchLoading,
-  } = useScratch(ScratchType.DRAFT_FOLLOW_UP, scratchId ?? '');
+  } = useScratch(ScratchType.DRAFT_FOLLOW_UP, scratchIdValue ?? '');
 
   const scratchData: DraftFollowUpData | undefined =
     scratch?.payload?.type === 'DRAFT_FOLLOW_UP'
@@ -273,15 +316,38 @@ export function TaskFollowUpSection({
   const [newSessionName, setNewSessionName] = useState('');
   const [newSessionMode, setNewSessionMode] =
     useState<SessionCreationMode>('existing_workspace');
-  const [newSessionWorkspaceId, setNewSessionWorkspaceId] = useState(
-    workspaceId ?? ''
-  );
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
   const { data: projectRepos = [] } = useProjectRepos(projectId);
+  const primaryRepo = projectRepos[0];
+  const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
+    enabled: Boolean(primaryRepo?.id),
+  });
   const { worktrees } = useProjectWorktrees(projectId);
   const createWorkspaceOptions = useMemo(
-    () => worktrees.map((item: WorktreeInfo) => item.workspace),
+    () => worktrees.map((item) => item.workspace),
     [worktrees]
+  );
+  const workspaceBranchOptions = useMemo(
+    () =>
+      buildWorkspaceBranchOptions({
+        workspaces: createWorkspaceOptions,
+        repoBranches: primaryRepoBranches,
+      }),
+    [createWorkspaceOptions, primaryRepoBranches]
+  );
+  const defaultNewSessionWorkspaceValue = useMemo(() => {
+    const currentWorkspaceOption = findWorkspaceBranchOptionByWorkspaceId(
+      workspaceBranchOptions,
+      workspaceId
+    );
+    if (currentWorkspaceOption) {
+      return currentWorkspaceOption.value;
+    }
+
+    return workspaceBranchOptions[0]?.value ?? '';
+  }, [workspaceBranchOptions, workspaceId]);
+  const [newSessionWorkspaceValue, setNewSessionWorkspaceValue] = useState(
+    defaultNewSessionWorkspaceValue
   );
   const {
     configs: newSessionRepoBranchConfigs,
@@ -317,15 +383,15 @@ export function TaskFollowUpSection({
 
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
-  const previousScratchIdRef = useRef<string | undefined>(scratchId);
+  const previousScratchIdRef = useRef<string | undefined>(scratchIdValue);
 
   useEffect(() => {
-    const scratchChanged = previousScratchIdRef.current !== scratchId;
-    previousScratchIdRef.current = scratchId;
+    const scratchChanged = previousScratchIdRef.current !== scratchIdValue;
+    previousScratchIdRef.current = scratchIdValue;
     if (scratchChanged || !selectedExecutorProfile) {
       setSelectedExecutorProfile(defaultExecutorProfile);
     }
-  }, [defaultExecutorProfile, selectedExecutorProfile, scratchId]);
+  }, [defaultExecutorProfile, selectedExecutorProfile, scratchIdValue]);
 
   const effectiveExecutorProfile =
     selectedExecutorProfile ?? defaultExecutorProfile;
@@ -388,10 +454,10 @@ export function TaskFollowUpSection({
   const hydratedScratchIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (isScratchLoading) return;
-    if (hydratedScratchIdRef.current === scratchId) return;
-    hydratedScratchIdRef.current = scratchId;
+    if (hydratedScratchIdRef.current === scratchIdValue) return;
+    hydratedScratchIdRef.current = scratchIdValue;
     setLocalMessage(scratchData?.message ?? '');
-  }, [isScratchLoading, scratchData?.message, scratchId]);
+  }, [isScratchLoading, scratchData?.message, scratchIdValue]);
 
   const { activeRetryProcessId } = useRetryUi();
   const isRetryActive = !!activeRetryProcessId;
@@ -522,7 +588,7 @@ export function TaskFollowUpSection({
     useFollowUpSend({
       sessionId,
       sessionExecutor: session?.executor,
-      workspaceId,
+      workspaceId: workspaceIdValue,
       isNewSessionMode,
       newSessionName,
       onSelectSession: handleSelectSession,
@@ -536,8 +602,8 @@ export function TaskFollowUpSection({
         cancelDebouncedSave();
         setLocalMessage('');
         setNewSessionName('');
-        hydratedScratchIdRef.current = scratchId;
-        if (scratchId) {
+        hydratedScratchIdRef.current = scratchIdValue;
+        if (scratchIdValue) {
           await deleteScratch();
         }
       },
@@ -779,28 +845,50 @@ export function TaskFollowUpSection({
       setNewSessionName('');
     }
   }, [isNewSessionConfigVisible, workspaceId]);
+  useEffect(() => {
+    if (
+      !newSessionWorkspaceValue ||
+      !workspaceBranchOptions.some(
+        (option) => option.value === newSessionWorkspaceValue
+      )
+    ) {
+      setNewSessionWorkspaceValue(defaultNewSessionWorkspaceValue);
+    }
+  }, [
+    defaultNewSessionWorkspaceValue,
+    newSessionWorkspaceValue,
+    workspaceBranchOptions,
+  ]);
+  const selectedWorkspaceOption = useMemo<WorkspaceBranchOption | null>(
+    () =>
+      findWorkspaceBranchOption(
+        workspaceBranchOptions,
+        newSessionWorkspaceValue
+      ),
+    [newSessionWorkspaceValue, workspaceBranchOptions]
+  );
 
   const handleCancelNewSession = useCallback(() => {
     selectLatestSession();
     setNewSessionName('');
-    setNewSessionWorkspaceId(workspaceId ?? '');
+    setNewSessionWorkspaceValue(defaultNewSessionWorkspaceValue);
     setNewSessionMode(
-      createWorkspaceOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
+      workspaceBranchOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
     );
     resetNewSessionRepoSelection();
     setSelectedExecutorProfile(defaultExecutorProfile);
   }, [
-    createWorkspaceOptions.length,
+    defaultNewSessionWorkspaceValue,
     defaultExecutorProfile,
     resetNewSessionRepoSelection,
     selectLatestSession,
-    workspaceId,
+    workspaceBranchOptions.length,
   ]);
 
   const canCreateSessionDirectly =
     !!effectiveExecutorProfile?.executor &&
     (newSessionMode === 'existing_workspace'
-      ? !!newSessionWorkspaceId
+      ? !!selectedWorkspaceOption
       : projectRepos.length > 0 &&
         newSessionRepoBranchConfigs.length > 0 &&
         newSessionRepoBranchConfigs.every((config) => !!config.targetBranch));
@@ -815,7 +903,14 @@ export function TaskFollowUpSection({
         project_id: projectId,
         workspace_id:
           newSessionMode === 'existing_workspace'
-            ? newSessionWorkspaceId
+            ? selectedWorkspaceOption?.useWorktree
+              ? selectedWorkspaceOption.existingWorkspaceId
+              : null
+            : null,
+        branch:
+          newSessionMode === 'existing_workspace' &&
+          !selectedWorkspaceOption?.useWorktree
+            ? (selectedWorkspaceOption?.branch ?? null)
             : null,
         executor: effectiveExecutorProfile?.executor ?? undefined,
         name: newSessionName.trim() || null,
@@ -830,13 +925,17 @@ export function TaskFollowUpSection({
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', newSession.workspace_id],
       });
+      if (primaryRepo?.id) {
+        await queryClient.invalidateQueries({
+          queryKey: ['repoBranches', primaryRepo.id],
+        });
+      }
       onSessionCreated?.({
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
       });
       handleSelectSession(newSession.id);
       setNewSessionName('');
-      setNewSessionWorkspaceId(newSession.workspace_id);
     },
   });
 
@@ -995,9 +1094,9 @@ export function TaskFollowUpSection({
               <SessionCreationForm
                 mode={newSessionMode}
                 onModeChange={setNewSessionMode}
-                createWorkspaceOptions={createWorkspaceOptions}
-                selectedWorkspaceId={newSessionWorkspaceId}
-                onSelectedWorkspaceIdChange={setNewSessionWorkspaceId}
+                workspaceBranchOptions={workspaceBranchOptions}
+                selectedWorkspaceValue={newSessionWorkspaceValue}
+                onSelectedWorkspaceValueChange={setNewSessionWorkspaceValue}
                 sessionName={newSessionName}
                 onSessionNameChange={setNewSessionName}
                 profiles={profiles}
@@ -1033,9 +1132,10 @@ export function TaskFollowUpSection({
             taskAttemptId={workspaceId}
             onCmdEnter={handleSubmitShortcut}
             sendShortcut={config?.send_message_shortcut}
-            className="min-h-[40px] break-words overflow-wrap-anywhere"
+            className="min-h-[40px] break-words overflow-wrap-anywhere text-[15px] leading-7 tracking-[0.01em]"
             onRegisterClickedElementInsert={handleRegisterClickedElementInsert}
             enableFloatingToolbar={false}
+            markdownPreset="session-input-minimal"
           />
 
           <ActionBar

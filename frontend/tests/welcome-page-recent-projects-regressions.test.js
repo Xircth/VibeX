@@ -18,6 +18,8 @@ test('welcome page recent projects use context-menu actions plus shared confirm 
   assert.match(source, /title="左键打开项目，右键显示打开和删除操作"/);
   assert.match(source, /ConfirmDialog\.show\(\{/);
   assert.match(source, /variant: 'destructive'/);
+  assert.match(source, /PROJECT_DELETE_CONFIRM_CLASSNAME/);
+  assert.match(source, /PROJECT_DELETE_TOAST_OPTIONS/);
   assert.match(source, /projectsApi\.delete\(targetProject\.id\)/);
   assert.match(source, /toast\.success\(/);
   assert.match(source, /toast\.error\(/);

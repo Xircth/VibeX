@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { CSSProperties, MouseEvent } from 'react';
 import { X } from 'lucide-react';
 import { highlightLine, languageFromPath } from '../../utils/syntax';
+import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
 
 type FilePreviewPopoverProps = {
   path: string;
@@ -100,7 +101,11 @@ export function FilePreviewPopover({
           </div>
           {imageSrc ? (
             <div className="file-preview-image">
-              <img src={imageSrc} alt={path} />
+              <ZoomableImagePreview
+                src={imageSrc}
+                alt={path}
+                className="h-[360px] w-full"
+              />
             </div>
           ) : (
             <div className="file-preview-status file-preview-error">

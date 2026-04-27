@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { forwardRef, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -11,7 +11,7 @@ const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
     attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
     sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
     useWorkspaceSessionsMock: vi.fn(() => ({
-      sessions: [],
+      sessions: [] as any[],
       selectedSession: undefined,
       selectedSessionId: undefined,
       selectSession: vi.fn(),
@@ -79,7 +79,8 @@ vi.mock('@/lib/api', () => ({
 }));
 
 describe('KanbanSessionConversationView', () => {
-  it('keeps the follow-up shell interactive when a workspace has no existing sessions', () => {
+  it('shows a standalone new-session button when a workspace has no existing sessions', () => {
+    const startNewSession = vi.fn();
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
       selectedSession: undefined,
@@ -87,12 +88,12 @@ describe('KanbanSessionConversationView', () => {
       selectSession: vi.fn(),
       selectLatestSession: vi.fn(),
       isLoading: false,
-      isNewSessionMode: true,
+      isNewSessionMode: false,
       isPendingNewSessionMode: false,
       requestNewSession: vi.fn(),
       confirmNewSession: vi.fn(),
       cancelNewSession: vi.fn(),
-      startNewSession: vi.fn(),
+      startNewSession,
     });
 
     const queryClient = new QueryClient({
@@ -115,10 +116,79 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
-      'workspace-empty:none'
+    const button = screen.getByRole('button', { name: '新建会话' });
+    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    expect(startNewSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the standalone new-session button centered on workspace routes without an explicit session selection', () => {
+    const startNewSession = vi.fn();
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [
+        {
+          id: 'session-existing',
+          workspace_id: 'workspace-empty',
+          taskId: 'task-1',
+          name: 'Existing Session',
+          status: 'todo',
+          executor: null,
+          created_at: '2026-03-24T00:00:00.000Z',
+          updated_at: '2026-03-24T00:00:00.000Z',
+          firstPrompt: null,
+          isRunning: false,
+          queueStatus: null,
+          displayName: 'Existing Session',
+          workspaceName: 'Workspace Empty',
+          workspaceBranch: 'main',
+          statusLabel: '待开始',
+          continuityMode: 'new_session',
+          continuityLabel: '新会话',
+        },
+      ],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession,
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId="workspace-empty"
+            interactive={true}
+            showSessionSelector={true}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
     );
-    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+
+    const button = screen.getByRole('button', { name: '新建会话' });
+    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    expect(startNewSession).toHaveBeenCalledTimes(1);
   });
 
   it('renders immediately from initial Kanban session data', () => {

@@ -37,6 +37,11 @@ export interface OpencodeModelsResponse {
   models: string[];
 }
 
+export interface ClearLocalDataResponse {
+  cleared: boolean;
+  requires_reload: boolean;
+}
+
 // Config APIs
 export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
@@ -74,6 +79,9 @@ export const configApi = {
   },
   listOpencodeModels: async (): Promise<OpencodeModelsResponse> => {
     return tauriInvoke<OpencodeModelsResponse>('list_opencode_models');
+  },
+  clearLocalData: async (): Promise<ClearLocalDataResponse> => {
+    return tauriInvoke<ClearLocalDataResponse>('clear_local_app_data');
   },
 };
 

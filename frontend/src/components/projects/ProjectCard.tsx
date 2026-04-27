@@ -19,11 +19,18 @@ import {
   MoreHorizontal,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { projectsApi } from '@/lib/api';
+import {
+  PROJECT_DELETE_CONFIRM_CLASSNAME,
+  PROJECT_DELETE_CONFIRM_STYLE,
+  PROJECT_DELETE_TOAST_OPTIONS,
+} from '@/lib/projectDeleteUi';
 type Props = {
   project: Project;
   isFocused: boolean;
@@ -46,18 +53,28 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
   }, [isFocused]);
 
   const handleDelete = async (id: string, name: string) => {
-    if (
-      !confirm(
-        `Are you sure you want to delete "${name}"? This action cannot be undone.`
-      )
-    )
+    const result = await ConfirmDialog.show({
+      title: `Delete "${name}"?`,
+      message:
+        'This removes the project and its local VibeUltra data. Project files and Git worktrees are not deleted.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
+      contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
+    });
+
+    if (result !== 'confirmed') {
       return;
+    }
 
     try {
       await projectsApi.delete(id);
+      toast.success('Project deleted', PROJECT_DELETE_TOAST_OPTIONS);
     } catch (error) {
       console.error('Failed to delete project:', error);
       setError('Failed to delete project');
+      toast.error('Failed to delete project', PROJECT_DELETE_TOAST_OPTIONS);
     }
   };
 

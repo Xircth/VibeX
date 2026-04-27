@@ -54,6 +54,11 @@ export function buildWorkspaceBranchOptions({
   const currentProjectBranch =
     localBranches.find((branch) => branch.is_current)?.name ?? null;
   const workspaceByBranch = new Map<string, Workspace>();
+  const branchByName = new Map<string, GitBranch>();
+
+  localBranches.forEach((branch) => {
+    branchByName.set(normalizeBranchName(branch.name), branch);
+  });
 
   workspaces.forEach((workspace) => {
     const key = normalizeBranchName(workspace.branch);
@@ -73,13 +78,15 @@ export function buildWorkspaceBranchOptions({
     }
 
     seenBranches.add(key);
+    const branchMeta = branchByName.get(key) ?? null;
+    const isWorktree = workspace?.use_worktree ?? branchMeta?.is_worktree ?? false;
     options.push({
       value: createOptionValue(workspace, branch),
       branch,
       workspace,
       existingWorkspaceId: workspace?.id ?? null,
       directWorkspaceId: workspace?.use_worktree ? workspace.id : null,
-      useWorktree: workspace?.use_worktree ?? false,
+      useWorktree: isWorktree,
       isCurrentProjectBranch:
         currentProjectBranch !== null &&
         normalizeBranchName(currentProjectBranch) === key,
@@ -147,4 +154,24 @@ export function getWorkspaceBranchCheckoutHint(
   }
 
   return '选择后会先在当前项目目录 checkout 到该分支，以确保工作区正确。';
+}
+
+export function resolveWorkspaceBranchSelection(
+  option: WorkspaceBranchOption | null
+): { workspaceId: string | null; branch: string | null } {
+  if (!option) {
+    return { workspaceId: null, branch: null };
+  }
+
+  if (option.existingWorkspaceId) {
+    return {
+      workspaceId: option.existingWorkspaceId,
+      branch: null,
+    };
+  }
+
+  return {
+    workspaceId: null,
+    branch: option.branch,
+  };
 }

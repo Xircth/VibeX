@@ -24,6 +24,7 @@ import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { defineModal } from '@/lib/modals';
 import { fileSystemApi, repoApi } from '@/lib/api';
+import { normalizeDisplayPath } from '@/utils/displayPath';
 
 export interface ProjectFormDialogProps {
   autoOpenFolderPicker?: boolean;
@@ -34,7 +35,7 @@ export type ProjectFormDialogResult =
   | { status: 'canceled' };
 
 function getPathName(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, '');
+  const normalized = normalizeDisplayPath(path).replace(/[\\/]+$/, '');
   if (!normalized) return '';
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? normalized;
@@ -106,11 +107,12 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
           return;
         }
 
-        const isGitRepo = await repoApi.checkGitRepoPath(selected);
+        const normalizedSelected = normalizeDisplayPath(selected);
+        const isGitRepo = await repoApi.checkGitRepoPath(normalizedSelected);
         setSelectedRepoPath('');
-        setSelectedFolderPath(selected);
+        setSelectedFolderPath(normalizedSelected);
         setSelectedFolderIsGitRepo(isGitRepo);
-        setProjectName(getPathName(selected));
+        setProjectName(getPathName(normalizedSelected));
       } catch (err) {
         setError(err instanceof Error ? err.message : '选择文件夹失败');
       } finally {
@@ -132,7 +134,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
     }, [autoOpenFolderPicker, handlePickFolder, modal.visible]);
 
     const handleSelectRepo = (repo: DirectoryEntry) => {
-      setSelectedRepoPath(repo.path);
+      setSelectedRepoPath(normalizeDisplayPath(repo.path));
       setSelectedFolderPath('');
       setSelectedFolderIsGitRepo(null);
       setProjectName(repo.name);
@@ -262,7 +264,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                                 {repo.name}
                               </div>
                               <div className="text-xs text-muted-foreground truncate mt-1">
-                                {repo.path}
+                                {normalizeDisplayPath(repo.path)}
                               </div>
                             </div>
                             {isSelected && (
@@ -302,7 +304,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
 
                 <div
                   className="flex-1 min-w-0 h-9 border rounded-md px-3 text-xs text-muted-foreground truncate flex items-center"
-                  title={selectedFolderPath || ''}
+                  title={normalizeDisplayPath(selectedFolderPath)}
                 >
                   {selectedFolderPath || '未选择文件夹'}
                 </div>

@@ -15,6 +15,8 @@ import {
   GitMerge,
 } from 'lucide-react';
 import type { GitBranch } from 'shared/types';
+import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 
 interface GitBranchListProps {
   branches: GitBranch[];
@@ -104,15 +106,23 @@ const BranchRow = memo(function BranchRow({
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (branch.is_current) return;
-      if (
-        !window.confirm(
-          `Delete branch "${branch.name}"? This cannot be undone.`
-        )
-      )
+      const result = await ConfirmDialog.show({
+        title: `Delete branch "${branch.name}"?`,
+        message: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'destructive',
+      });
+      if (result !== 'confirmed') {
         return;
+      }
       setActionLoading(true);
       try {
         await onDelete(branch.name);
+        toast.success(`Deleted branch "${branch.name}"`);
+      } catch (error) {
+        console.error('Failed to delete branch:', error);
+        toast.error(`Failed to delete branch "${branch.name}"`);
       } finally {
         setActionLoading(false);
       }

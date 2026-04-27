@@ -10,6 +10,7 @@ use db::models::{
 };
 use sqlx::SqlitePool;
 use thiserror::Error;
+use utils::path::normalize_windows_extended_path_prefix;
 use uuid::Uuid;
 
 use super::{
@@ -77,9 +78,11 @@ impl ProjectService {
 
         for repo in &payload.repositories {
             let path = repo_service.normalize_path(&repo.git_repo_path)?;
-            repo_service.validate_git_repo_path(&path)?;
+            let repo_path = repo_service.resolve_git_repo_path(&path)?;
 
-            let normalized_path = path.to_string_lossy().to_string();
+            let normalized_path = normalize_windows_extended_path_prefix(&repo_path)
+                .to_string_lossy()
+                .to_string();
 
             if !seen_names.insert(repo.display_name.clone()) {
                 return Err(ProjectServiceError::DuplicateRepositoryName);
@@ -137,12 +140,15 @@ impl ProjectService {
         );
 
         let path = repo_service.normalize_path(&payload.git_repo_path)?;
-        repo_service.validate_git_repo_path(&path)?;
+        let repo_path = repo_service.resolve_git_repo_path(&path)?;
+        let normalized_repo_path = normalize_windows_extended_path_prefix(&repo_path)
+            .to_string_lossy()
+            .to_string();
 
         let repository = ProjectRepo::add_repo_to_project(
             pool,
             project_id,
-            &path.to_string_lossy(),
+            &normalized_repo_path,
             &payload.display_name,
         )
         .await

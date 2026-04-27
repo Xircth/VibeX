@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
@@ -159,6 +159,98 @@ fn derive_workspace_seed_title(name: Option<&str>, initial_prompt: Option<&str>)
     }
 
     NEW_SESSION_WORKSPACE_TITLE.to_string()
+}
+
+fn normalize_branch_name(branch: &str) -> String {
+    branch.trim().to_lowercase()
+}
+
+fn canonicalize_for_workspace_safety(path: &Path) -> PathBuf {
+    if let Ok(path) = std::fs::canonicalize(path) {
+        return path;
+    }
+
+    let mut missing_segments = Vec::new();
+    let mut cursor = path;
+    while !cursor.exists() {
+        let Some(name) = cursor.file_name() else {
+            break;
+        };
+        missing_segments.push(name.to_os_string());
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent;
+    }
+
+    let mut resolved = std::fs::canonicalize(cursor).unwrap_or_else(|_| cursor.to_path_buf());
+    for segment in missing_segments.iter().rev() {
+        resolved.push(segment);
+    }
+    resolved
+}
+
+fn workspace_container_overlaps_repo(workspace: &Workspace, repos: &[Repo]) -> bool {
+    if !workspace.use_worktree {
+        return false;
+    }
+
+    let Some(container_ref) = workspace.container_ref.as_deref() else {
+        return false;
+    };
+
+    let container_path = canonicalize_for_workspace_safety(Path::new(container_ref));
+    repos.iter().any(|repo| {
+        let repo_path = canonicalize_for_workspace_safety(&repo.path);
+        container_path == repo_path
+            || container_path.starts_with(&repo_path)
+            || repo_path.starts_with(&container_path)
+    })
+}
+
+async fn find_matching_project_worktree_workspace(
+    state: &AppState,
+    project_id: Uuid,
+    branch: &str,
+) -> Result<Option<Workspace>, AppError> {
+    let pool = &state.deployment.db().pool;
+    let normalized_branch = normalize_branch_name(branch);
+    let repos = ProjectRepo::find_repos_for_project(pool, project_id).await?;
+    let mut workspaces = Workspace::fetch_by_project_id(pool, project_id).await?;
+    workspaces.retain(|workspace| {
+        workspace.use_worktree
+            && !workspace.archived
+            && normalize_branch_name(&workspace.branch) == normalized_branch
+            && !workspace_container_overlaps_repo(workspace, &repos)
+    });
+    workspaces.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then(right.created_at.cmp(&left.created_at))
+    });
+
+    Ok(workspaces.into_iter().next())
+}
+
+async fn resolve_project_workspace(
+    state: &AppState,
+    project_id: Uuid,
+    branch: Option<&str>,
+) -> Result<Workspace, AppError> {
+    let desired_branch = branch
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    if let Some(ref desired_branch) = desired_branch
+        && let Some(workspace) =
+            find_matching_project_worktree_workspace(state, project_id, desired_branch).await?
+    {
+        return Ok(workspace);
+    }
+
+    ensure_project_root_workspace(state, project_id, desired_branch.as_deref()).await
 }
 
 async fn create_worktree_workspace_for_project_session(
@@ -535,8 +627,7 @@ pub async fn ensure_project_workspace(
     project_id: Uuid,
     branch: Option<String>,
 ) -> Result<Workspace, AppError> {
-    let workspace =
-        ensure_project_root_workspace(state.inner(), project_id, branch.as_deref()).await?;
+    let workspace = resolve_project_workspace(state.inner(), project_id, branch.as_deref()).await?;
 
     state
         .deployment
@@ -574,7 +665,15 @@ pub async fn create_project_session(
                 workspace_id, payload.project_id
             )));
         }
-        if workspace.use_worktree {
+        let repos = ProjectRepo::find_repos_for_project(pool, payload.project_id).await?;
+        if workspace_container_overlaps_repo(&workspace, &repos) {
+            ensure_project_root_workspace(
+                state.inner(),
+                payload.project_id,
+                Some(workspace.branch.as_str()),
+            )
+            .await?
+        } else if workspace.use_worktree {
             workspace
         } else {
             ensure_project_root_workspace(
@@ -585,7 +684,7 @@ pub async fn create_project_session(
             .await?
         }
     } else {
-        ensure_project_root_workspace(state.inner(), payload.project_id, payload.branch.as_deref())
+        resolve_project_workspace(state.inner(), payload.project_id, payload.branch.as_deref())
             .await?
     };
 

@@ -33,7 +33,33 @@ test('项目栏默认隐藏，且可见性不再跨窗口持久化', () => {
   const source = readFile('src/stores/useWindowProjectsStore.ts');
 
   assert.match(source, /railVisible:\s*false/);
-  assert.match(source, /version:\s*3/);
+  assert.match(source, /version:\s*4/);
   assert.match(source, /migrate:\s*\(persistedState:\s*unknown\)/);
   assert.doesNotMatch(source, /partialize:[\s\S]*railVisible:/);
+});
+
+test('项目窗口状态会裁剪不存在的项目，避免本地数据清理后显示幽灵项目', () => {
+  const storeSource = readFile('src/stores/useWindowProjectsStore.ts');
+  const managerSource = readFile('src/components/layout/ProjectWindowManager.tsx');
+  const statusSource = readFile(
+    'src/components/layout/ProjectWindowStatusSummary.tsx'
+  );
+
+  assert.match(storeSource, /pruneProjectState: \(validProjectIds\)/);
+  assert.match(storeSource, /resetProjectWindowState: \(\) =>/);
+  assert.match(
+    managerSource,
+    /pruneProjectState\(projects\.map\(\(project\) => project\.id\)\)/
+  );
+  assert.match(managerSource, /isProjectsLoading/);
+  assert.match(statusSource, /existingProjectIds/);
+  assert.match(
+    statusSource,
+    /\.filter\(\(projectId\) => existingProjectIds\.has\(projectId\)\)/
+  );
+  assert.match(statusSource, /projectName: project\.name/);
+  assert.doesNotMatch(
+    statusSource,
+    /projectName: projectsById\[projectId\]\?\.name \?\?/
+  );
 });

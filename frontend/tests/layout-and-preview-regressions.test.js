@@ -12,48 +12,55 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 }
 
-test('布局控制改为基于稳定 group id 切换中1与中2', () => {
+test('layout actions choose editor groups from stable editor-group helpers', () => {
   const source = readFile('src/contexts/PanelActionsContext.tsx');
 
-  assert.match(source, /getGroup\(GROUP_IDS\.CENTER_1\)/);
-  assert.match(source, /getGroup\(GROUP_IDS\.CENTER_2\)/);
-  assert.doesNotMatch(source, /const\s+group\s*=\s*centerGroups\[0\]/);
+  assert.match(source, /const\s+getEditorGroups\s*=\s*useCallback/);
+  assert.match(source, /compareEditorGroups/);
+  assert.match(source, /getNextEditorGroupId/);
+  assert.doesNotMatch(source, /centerGroups\[0\]/);
 });
 
-test('默认布局显式绑定中1 group id 且左栏默认宽度为 300', () => {
+test('default workspace layout keeps explicit group ids and current left width', () => {
   const source = readFile('src/components/layout/IDELayout.tsx');
 
-  assert.match(source, /GROUP_IDS\.CENTER_1/);
-  assert.match(source, /initialWidth:\s*300/);
+  assert.match(source, /GROUP_IDS/);
+  assert.match(source, /LEFT_PANEL_DEFAULT_WIDTH:\s*220/);
 });
 
-test('中1中2预览分配遵从有空占空、无空占少，并优先中1', () => {
+test('new panels open in the active editor group without first-group fallback', () => {
   const source = readFile('src/contexts/PanelActionsContext.tsx');
 
-  assert.match(source, /chooseCenterGroupForNewPanel|selectCenterGroupForNewPanel/);
-  assert.match(source, /GROUP_IDS\.CENTER_1/);
-  assert.match(source, /GROUP_IDS\.CENTER_2/);
-  assert.match(source, /countContentPanels/);
+  assert.match(source, /getActiveEditorGroup/);
+  assert.match(
+    source,
+    /getEditorGroups\(dockviewApi\)\[0\] \?\? ensureWelcomeEditorGroup\(\)/
+  );
+  assert.match(source, /referenceGroup:\s*targetGroup/);
   assert.doesNotMatch(source, /referenceGroup:\s*centerGroups\[0\]/);
 });
 
-test('左栏允许手动拖动宽度，不会在布局变更后被强制压回 300', () => {
+test('left sidebar width remains user-resizable instead of being forced back to 300', () => {
   const source = readFile('src/components/layout/IDELayout.tsx');
 
   assert.match(source, /maxLeftWidth/);
   assert.doesNotMatch(source, /Math\.min\(leftWidth,\s*300\)/);
 });
 
-test('预览区恢复选择元素与 DevTools 按钮', () => {
-  const source = readFile('src/components/tasks/TaskDetails/preview/ReadyContent.tsx');
+test('preview toolbar exposes element selection and the docked inspector instead of native DevTools', () => {
+  const source = readFile(
+    'src/components/tasks/TaskDetails/preview/ReadyContent.tsx'
+  );
 
   assert.match(source, /onToggleSelectMode\??/);
-  assert.match(source, /onToggleDevTools\??/);
-  assert.match(source, /选择元素作为内容|select element as content/i);
-  assert.match(source, /切换 DevTools|toggle devtools/i);
+  assert.match(source, /onToggleInspector\??/);
+  assert.match(source, /Crosshair/);
+  assert.match(source, /Bug/);
+  assert.match(source, /isInspectorOpen \? inspectorPane : null/);
+  assert.doesNotMatch(source, /toggle_main_window_devtools|DevTools/);
 });
 
-test('Companion 提示可关闭且安装后有成功或失败反馈', () => {
+test('companion prompt can be dismissed and install reports success or failure', () => {
   const source = readFile('src/components/panels/PreviewPanel.tsx');
 
   assert.match(source, /isCompanionHelpDismissed/);
@@ -63,23 +70,32 @@ test('Companion 提示可关闭且安装后有成功或失败反馈', () => {
   assert.match(source, /onError:/);
 });
 
-test('开发服务器启动错误会显示可见错误弹窗', () => {
+test('right sidebar network button removes the old dev-server config dialog and uses status coloring', () => {
   const source = readFile('src/components/layout/RightPanelSidebar.tsx');
 
-  assert.match(source, /showStartErrorDialog|setShowStartErrorDialog/);
-  assert.match(source, /<Dialog\s+open=\{showStartErrorDialog\}/);
-  assert.match(source, /startError/);
+  assert.doesNotMatch(source, /Configure Dev Server/);
+  assert.doesNotMatch(source, /showStartErrorDialog|setShowStartErrorDialog/);
+  assert.doesNotMatch(source, /showDevConfig|setShowDevConfig/);
+  assert.match(
+    source,
+    /const hasRunningDevServer = runningDevServers\.length > 0/
+  );
+  assert.match(source, /const hasFailedDevServer = devServerProcesses\.some/);
+  assert.match(source, /text-sky-600/);
+  assert.match(source, /text-destructive/);
 });
 
-test('git 管理器切换与文件管理器一样走稳定左栏显隐逻辑', () => {
+test('git manager toggle shares the stable left-sidebar switching path', () => {
   const source = readFile('src/contexts/PanelActionsContext.tsx');
+  const layoutSource = readFile('src/components/layout/IDELayout.tsx');
 
   assert.match(source, /const\s+toggleGitPanel\s*=\s*useCallback/);
-  assert.match(source, /leftGroup\?\.api\.isVisible/);
-  assert.match(source, /resolvedLeftGroup/);
+  assert.match(source, /switchLeftPanel\(PANEL_IDS\.GIT/);
+  assert.match(layoutSource, /leftGroup\?\.api\.isVisible/);
+  assert.match(layoutSource, /toggleGitPanel/);
 });
 
-test('workspace 页面进入时会自动自愈文件管理器与终端布局', () => {
+test('workspace entry heals file tree and terminal layout visibility', () => {
   const source = readFile('src/components/layout/IDELayout.tsx');
 
   assert.match(source, /ensureWorkspacePanelsVisible|healWorkspaceLayout/);
@@ -88,9 +104,70 @@ test('workspace 页面进入时会自动自愈文件管理器与终端布局', (
   assert.match(source, /activeWorktreeId/);
 });
 
-test('终端面板移除无作用滚动条的外层 overflow', () => {
+test('terminal panel avoids the obsolete outer overflow wrapper', () => {
   const source = readFile('src/components/panels/DockviewTerminalPanel.tsx');
 
   assert.match(source, /min-h-0/);
-  assert.doesNotMatch(source, /w-24 bg-secondary border-l border-border overflow-y-auto flex flex-col gap-0/);
+  assert.doesNotMatch(
+    source,
+    /w-24 bg-secondary border-l border-border overflow-y-auto flex flex-col gap-0/
+  );
+});
+
+test('recent project delete confirmation stays compact', () => {
+  const source = readFile('src/components/welcome/WelcomePage.tsx');
+  const projectCardSource = readFile('src/components/projects/ProjectCard.tsx');
+  const projectDetailSource = readFile(
+    'src/components/projects/ProjectDetail.tsx'
+  );
+  const projectDeleteUiSource = readFile('src/lib/projectDeleteUi.ts');
+  const confirmSource = readFile(
+    'src/components/dialogs/shared/ConfirmDialog.tsx'
+  );
+
+  assert.match(source, /PROJECT_DELETE_CONFIRM_CLASSNAME/);
+  assert.match(source, /PROJECT_DELETE_TOAST_OPTIONS/);
+  assert.match(projectCardSource, /PROJECT_DELETE_TOAST_OPTIONS/);
+  assert.match(projectDetailSource, /PROJECT_DELETE_TOAST_OPTIONS/);
+  assert.match(projectDeleteUiSource, /PROJECT_DELETE_CONFIRM_CLASSNAME/);
+  assert.match(projectDeleteUiSource, /PROJECT_DELETE_CONFIRM_STYLE/);
+  assert.match(projectDeleteUiSource, /PROJECT_DELETE_TOAST_OPTIONS/);
+  assert.match(projectDeleteUiSource, /!w-\[404px\] !max-w-\[404px\]/);
+  assert.match(projectDeleteUiSource, /width:\s*'404px'/);
+  assert.match(projectDeleteUiSource, /maxWidth:\s*'calc\(100vw - 32px\)'/);
+  assert.match(projectDeleteUiSource, /vu-project-delete-toast/);
+  assert.match(projectDeleteUiSource, /\['--width' as string\]:\s*'224px'/);
+  assert.match(confirmSource, /contentStyle\?: CSSProperties/);
+  assert.match(confirmSource, /<Dialog[\s\S]*style=\{contentStyle\}/);
+  assert.doesNotMatch(
+    confirmSource,
+    /<DialogContent[\s\S]*style=\{contentStyle\}/
+  );
+  assert.match(source, /PROJECT_DELETE_TOAST_OPTIONS/);
+  assert.match(
+    readFile('src/styles/legacy/index.css'),
+    /\[data-sonner-toast\]\.vu-project-delete-toast/
+  );
+  assert.match(
+    readFile('src/styles/legacy/index.css'),
+    /--width:\s*224px !important/
+  );
+  assert.match(
+    readFile('src/styles/legacy/index.css'),
+    /right:\s*7px !important/
+  );
+  assert.match(
+    confirmSource,
+    /contentClassName \?\? '!max-w-\[360px\] sm:!max-w-\[360px\]'/
+  );
+  assert.doesNotMatch(source, /contentClassName:\s*'sm:max-w-\[224px\]'/);
+  assert.doesNotMatch(source, /contentClassName:\s*'sm:max-w-\[320px\]'/);
+  assert.doesNotMatch(confirmSource, /cn\('sm:max-w-\[360px\]'/);
+});
+
+test('x icon close buttons avoid the blue focus ring', () => {
+  const source = readFile('src/styles/legacy/index.css');
+
+  assert.match(source, /button:has\(svg\.lucide-x\):focus-visible/);
+  assert.match(source, /box-shadow:\s*none !important/);
 });

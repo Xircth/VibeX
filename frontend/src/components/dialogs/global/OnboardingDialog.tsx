@@ -32,6 +32,7 @@ import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
 import { toPrettyCase } from '@/utils/string';
 import {
+  getClaudeVariantFromSelection,
   getCodexModelOptions,
   getCodexVariantConfig,
   getCodexVariantFromSelection,
@@ -53,10 +54,9 @@ export type OnboardingResult = {
 
 /** Model choices mapped to ~/.claude/settings.json env keys */
 const CLAUDE_MODEL_CHOICES = [
-  { key: 'default', label: 'Default', envKey: 'ANTHROPIC_MODEL' },
-  { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
   { key: 'sonnet', label: 'Sonnet', envKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL' },
   { key: 'opus', label: 'Opus', envKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
+  { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
 ] as const;
 
 type ClaudeModelKey = (typeof CLAUDE_MODEL_CHOICES)[number]['key'];
@@ -93,7 +93,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
       variant: null,
     }
   );
-  const [claudeModel, setClaudeModel] = useState<ClaudeModelKey>('default');
+  const [claudeModel, setClaudeModel] = useState<ClaudeModelKey>('sonnet');
   const [editorType, setEditorType] = useState<EditorType>(EditorType.VS_CODE);
   const [customCommand, setCustomCommand] = useState<string>('');
 
@@ -151,7 +151,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                 value={profile.executor}
                 onValueChange={(v) => {
                   setProfile({ executor: v as BaseCodingAgent, variant: null });
-                  setClaudeModel('default');
+                  setClaudeModel('sonnet');
                 }}
               >
                 <SelectTrigger id="profile">
@@ -182,7 +182,17 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                     return (
                       <button
                         key={model.key}
-                        onClick={() => setClaudeModel(model.key)}
+                        onClick={() => {
+                          setClaudeModel(model.key);
+                          setProfile({
+                            ...profile,
+                            variant: getClaudeVariantFromSelection(
+                              profiles,
+                              'auto',
+                              model.key
+                            ),
+                          });
+                        }}
                         className={cn(
                           'flex flex-col items-start rounded-md border px-3 py-2 text-left transition-colors',
                           isSelected
@@ -222,7 +232,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                           (option) => option.value === codexVariantConfig?.model
                         )?.label ??
                           codexModelOptions[0]?.label ??
-                          'Default'}
+                          'GPT-5.3 Codex'}
                       </span>
                       <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
                     </Button>

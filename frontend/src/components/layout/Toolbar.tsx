@@ -323,19 +323,8 @@ export function Toolbar() {
     if (!projectId) return;
 
     if (isWorkspaceTab) {
-      if (rightSession) {
-        navigate(
-          `${paths.projectSession(
-            projectId,
-            rightSession.workspaceId,
-            rightSession.sessionId
-          )}?newSession=1`
-        );
-        return;
-      }
-
       const targetWorkspaceId =
-        workspaceId ?? activeWorktreeId;
+        workspaceId ?? activeWorktreeId ?? rightSession?.workspaceId;
       if (targetWorkspaceId) {
         navigate(
           `${paths.projectWorkspace(projectId, targetWorkspaceId)}?newSession=1`

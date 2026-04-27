@@ -57,6 +57,7 @@ import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { useRightPanelSessionCreation } from '@/contexts/RightPanelSessionCreationContext';
 import { useParams } from 'react-router-dom';
 
 import { DiffStatsBar } from './follow-up/DiffStatsBar';
@@ -73,8 +74,10 @@ import {
   buildWorkspaceBranchOptions,
   findWorkspaceBranchOption,
   findWorkspaceBranchOptionByWorkspaceId,
+  resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
+import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -158,6 +161,7 @@ export function TaskFollowUpSection({
 }: TaskFollowUpSectionProps) {
   const { projectId } = useProject();
   const { activeWorktreeId } = useWorktree();
+  const rightPanelSessionCreation = useRightPanelSessionCreation();
   const { workspaceId: routeWorkspaceId } = useParams<{ workspaceId?: string }>();
   const workspaceId =
     activeWorktreeId ??
@@ -174,7 +178,8 @@ export function TaskFollowUpSection({
     startNewSession,
     isNewSessionMode,
   } = sessionState;
-  const isNewSessionConfigVisible = isNewSessionMode;
+  const isNewSessionConfigVisible =
+    isNewSessionMode && !rightPanelSessionCreation;
   const isAwaitingNewSessionConfirmation = false;
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
@@ -899,19 +904,15 @@ export function TaskFollowUpSection({
         throw new Error('Project is required');
       }
 
+      const workspaceSelection =
+        newSessionMode === 'existing_workspace'
+          ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
+          : { workspaceId: null, branch: null };
+
       return sessionsApi.createProject({
         project_id: projectId,
-        workspace_id:
-          newSessionMode === 'existing_workspace'
-            ? selectedWorkspaceOption?.useWorktree
-              ? selectedWorkspaceOption.existingWorkspaceId
-              : null
-            : null,
-        branch:
-          newSessionMode === 'existing_workspace' &&
-          !selectedWorkspaceOption?.useWorktree
-            ? (selectedWorkspaceOption?.branch ?? null)
-            : null,
+        workspace_id: workspaceSelection.workspaceId,
+        branch: workspaceSelection.branch,
         executor: effectiveExecutorProfile?.executor ?? undefined,
         name: newSessionName.trim() || null,
         create_workspace: newSessionMode === 'new_workspace',
@@ -925,6 +926,11 @@ export function TaskFollowUpSection({
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', newSession.workspace_id],
       });
+      if (projectId) {
+        await queryClient.invalidateQueries({
+          queryKey: ['projectWorktrees', projectId],
+        });
+      }
       if (primaryRepo?.id) {
         await queryClient.invalidateQueries({
           queryKey: ['repoBranches', primaryRepo.id],
@@ -1067,7 +1073,14 @@ export function TaskFollowUpSection({
                   compactSessionLabel={compactSessionLabel}
                   selectedSessionLabel={selectedSessionLabel}
                   onSelectSession={handleSelectSession}
-                  onStartNewSession={startNewSession}
+                  onStartNewSession={() => {
+                    if (rightPanelSessionCreation) {
+                      rightPanelSessionCreation.openCreateSessionOverlay();
+                      return;
+                    }
+
+                    startNewSession();
+                  }}
                   onRenameSession={handleRenameSession}
                   dropdownSide="top"
                 />
@@ -1109,7 +1122,10 @@ export function TaskFollowUpSection({
                 isSubmitting={createSessionMutation.isPending}
                 errorMessage={
                   createSessionMutation.error
-                    ? getErrorMessage(createSessionMutation.error)
+                    ? getSessionUiErrorMessage(
+                        createSessionMutation.error,
+                        '创建会话失败，请稍后重试。'
+                      )
                     : null
                 }
                 onSubmit={() => createSessionMutation.mutate()}

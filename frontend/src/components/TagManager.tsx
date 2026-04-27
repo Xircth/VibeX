@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { tagsApi } from '@/lib/api';
 import { TagEditDialog } from '@/components/dialogs/tasks/TagEditDialog';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import type { Tag } from 'shared/types';
 
@@ -14,29 +16,30 @@ export function TagManager() {
     try {
       const data = await tagsApi.list();
       setTags(data);
-    } catch (err) {
-      console.error('Failed to fetch tags:', err);
+    } catch (error) {
+      console.error('Failed to fetch tags:', error);
+      toast.error('Failed to load tags');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchTags();
+    void fetchTags();
   }, [fetchTags]);
 
   const handleOpenDialog = useCallback(
     async (tag?: Tag) => {
       try {
         const result = await TagEditDialog.show({
-          tag: tag || null,
+          tag: tag ?? null,
         });
 
         if (result === 'saved') {
           await fetchTags();
         }
       } catch {
-        // User cancelled - do nothing
+        // Modal cancelled.
       }
     },
     [fetchTags]
@@ -44,15 +47,25 @@ export function TagManager() {
 
   const handleDelete = useCallback(
     async (tag: Tag) => {
-      if (!confirm(`您确定要删除提示词 ${tag.tag_name} 吗？`)) {
+      const result = await ConfirmDialog.show({
+        title: `Delete tag #${tag.tag_name}?`,
+        message: 'This action cannot be undone.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'destructive',
+      });
+
+      if (result !== 'confirmed') {
         return;
       }
 
       try {
         await tagsApi.delete(tag.id);
         await fetchTags();
-      } catch (err) {
-        console.error('Failed to delete tag:', err);
+        toast.success('Tag deleted');
+      } catch (error) {
+        console.error('Failed to delete tag:', error);
+        toast.error('Failed to delete tag');
       }
     },
     [fetchTags]
@@ -68,35 +81,37 @@ export function TagManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold">固定提示词</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Tags</h3>
         <Button variant="outline" onClick={() => handleOpenDialog()}>
           <Plus className="mr-2 h-4 w-4" />
-          新增提示词
+          New Tag
         </Button>
       </div>
 
       {tags.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          还没有固定提示词。为常见任务描述创建可重用的文本片段，在任何任务中使用{' '}
-          #tag_name 插入。
+        <div className="py-8 text-center text-muted-foreground">
+          No saved tags yet. Create reusable snippets and insert them with
+          `#tag_name` in any task.
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
+        <div className="overflow-hidden rounded-lg border">
           <div className="max-h-[400px] overflow-auto">
             <table className="w-full">
-              <thead className="border-b bg-muted/50 sticky top-0">
+              <thead className="sticky top-0 border-b bg-muted/50">
                 <tr>
-                  <th className="text-left p-2 text-sm font-medium">名称</th>
-                  <th className="text-left p-2 text-sm font-medium">内容</th>
-                  <th className="text-right p-2 text-sm font-medium">操作</th>
+                  <th className="p-2 text-left text-sm font-medium">Name</th>
+                  <th className="p-2 text-left text-sm font-medium">Content</th>
+                  <th className="p-2 text-right text-sm font-medium">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {tags.map((tag) => (
                   <tr
                     key={tag.id}
-                    className="border-b hover:bg-muted/30 transition-colors"
+                    className="border-b transition-colors hover:bg-muted/30"
                   >
                     <td className="p-2 text-sm font-medium">#{tag.tag_name}</td>
                     <td className="p-2 text-sm">
@@ -116,7 +131,7 @@ export function TagManager() {
                           size="icon"
                           aria-label="edit"
                           onClick={() => handleOpenDialog(tag)}
-                          title="编辑提示词"
+                          title="Edit tag"
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -125,7 +140,7 @@ export function TagManager() {
                           size="icon"
                           aria-label="delete"
                           onClick={() => handleDelete(tag)}
-                          title="删除提示词"
+                          title="Delete tag"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

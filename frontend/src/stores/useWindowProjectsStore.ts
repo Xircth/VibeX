@@ -64,6 +64,8 @@ interface WindowProjectsState {
   ) => void;
   setProjectAlert: (alert: ProjectActivityAlert) => void;
   markProjectAlertRead: (projectId: string) => void;
+  pruneProjectState: (validProjectIds: string[]) => void;
+  resetProjectWindowState: () => void;
   requestProjectFocus: (
     projectId: string,
     focusRequest: ProjectFocusRequest
@@ -139,6 +141,17 @@ function isSameAlert(
     left.title === right.title &&
     left.description === right.description
   );
+}
+
+function filterRecordByProjectIds<T>(
+  record: Record<string, T>,
+  validProjectIds: Set<string>
+) {
+  return Object.fromEntries(
+    Object.entries(record).filter(([projectId]) =>
+      validProjectIds.has(projectId)
+    )
+  ) as Record<string, T>;
 }
 
 export const useWindowProjectsStore = create<WindowProjectsState>()(
@@ -252,6 +265,60 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
               },
             },
           };
+        }),
+      pruneProjectState: (validProjectIds) =>
+        set((state) => {
+          const validProjectIdSet = new Set(validProjectIds);
+          const nextOpenProjectIds = state.openProjectIds.filter((projectId) =>
+            validProjectIdSet.has(projectId)
+          );
+          const nextLastRouteByProject = filterRecordByProjectIds(
+            state.lastRouteByProject,
+            validProjectIdSet
+          );
+          const nextProjectSnapshots = filterRecordByProjectIds(
+            state.projectSnapshots,
+            validProjectIdSet
+          );
+          const nextProjectAlerts = filterRecordByProjectIds(
+            state.projectAlerts,
+            validProjectIdSet
+          );
+          const nextFocusRequests = filterRecordByProjectIds(
+            state.focusRequests,
+            validProjectIdSet
+          );
+
+          if (
+            arraysEqual(state.openProjectIds, nextOpenProjectIds) &&
+            Object.keys(state.lastRouteByProject).length ===
+              Object.keys(nextLastRouteByProject).length &&
+            Object.keys(state.projectSnapshots).length ===
+              Object.keys(nextProjectSnapshots).length &&
+            Object.keys(state.projectAlerts).length ===
+              Object.keys(nextProjectAlerts).length &&
+            Object.keys(state.focusRequests).length ===
+              Object.keys(nextFocusRequests).length
+          ) {
+            return state;
+          }
+
+          return {
+            openProjectIds: nextOpenProjectIds,
+            lastRouteByProject: nextLastRouteByProject,
+            projectSnapshots: nextProjectSnapshots,
+            projectAlerts: nextProjectAlerts,
+            focusRequests: nextFocusRequests,
+          };
+        }),
+      resetProjectWindowState: () =>
+        set({
+          railVisible: false,
+          openProjectIds: [],
+          lastRouteByProject: {},
+          projectSnapshots: {},
+          projectAlerts: {},
+          focusRequests: {},
         }),
       requestProjectFocus: (projectId, focusRequest) =>
         set((state) => ({

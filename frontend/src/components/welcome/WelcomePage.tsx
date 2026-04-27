@@ -10,6 +10,11 @@ import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { projectsApi, settingsWindowApi } from '@/lib/api';
+import {
+  PROJECT_DELETE_CONFIRM_CLASSNAME,
+  PROJECT_DELETE_CONFIRM_STYLE,
+  PROJECT_DELETE_TOAST_OPTIONS,
+} from '@/lib/projectDeleteUi';
 import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 import { toast } from 'sonner';
 
@@ -187,11 +192,12 @@ export function WelcomePage() {
 
     const result = await ConfirmDialog.show({
       title: `删除项目“${targetProject.name}”？`,
-      message:
-        '删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。',
+      message: '删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。',
       confirmText: '确认删除',
       cancelText: '取消',
       variant: 'destructive',
+      contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
+      contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
     });
 
     if (result !== 'confirmed') {
@@ -201,10 +207,13 @@ export function WelcomePage() {
     setIsDeletingProject(true);
     try {
       await projectsApi.delete(targetProject.id);
-      toast.success(`已删除项目“${targetProject.name}”`);
+      toast.success(
+        `已删除项目“${targetProject.name}”`,
+        PROJECT_DELETE_TOAST_OPTIONS
+      );
     } catch (error) {
       console.error('Failed to delete recent project:', error);
-      toast.error('删除项目失败');
+      toast.error('删除项目失败', PROJECT_DELETE_TOAST_OPTIONS);
     } finally {
       setIsDeletingProject(false);
     }

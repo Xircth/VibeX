@@ -21,17 +21,49 @@ test('preview panel classifies image, pdf, and word files before loading text co
   const source = readFrontendFile(
     'src/components/panels/DockviewPreviewPanel.tsx'
   );
+  const hookSource = readFrontendFile('src/hooks/useFileContent.ts');
+  const apiSource = readFrontendFile('src/lib/api/misc.ts');
+  const zoomableImageSource = readFrontendFile(
+    'src/components/previews/ZoomableImagePreview.tsx'
+  );
+  const popoverSource = readFrontendFile(
+    'src/components/file-tree/FilePreviewPopover.tsx'
+  );
+  const backendSource = readRepoFile('src-tauri/src/commands/file_tree.rs');
 
   assert.match(source, /getFilePreviewKind/);
   assert.match(source, /previewKind === 'text'/);
-  assert.match(source, /convertFileSrc\(resolvedFilePath\)/);
+  assert.match(source, /useBinaryAssetPreview/);
+  assert.match(source, /ZoomableImagePreview/);
+  assert.match(source, /shouldFetchBinaryAsset/);
+  assert.match(source, /Loading image preview/);
+  assert.match(source, /Loading PDF preview/);
   assert.match(source, /effectivePreviewKind === 'pdf'/);
   assert.match(source, /effectivePreviewKind === 'document'/);
   assert.match(source, /useDocumentPreview/);
   assert.match(source, /Read-only document preview/);
+  assert.match(source, /format === 'html'/);
+  assert.match(source, /dangerouslySetInnerHTML/);
   assert.match(source, /PDF preview is unavailable/);
   assert.match(source, /Binary file preview is not supported/);
   assert.match(source, /Image preview is unavailable/);
+  assert.match(hookSource, /export function useBinaryAssetPreview/);
+  assert.match(hookSource, /URL\.createObjectURL\(blob\)/);
+  assert.match(hookSource, /URL\.revokeObjectURL\(nextObjectUrl\)/);
+  assert.match(apiSource, /readBinaryAsset: async \(path: string\)/);
+  assert.match(apiSource, /'read_binary_asset'/);
+  assert.match(apiSource, /format: 'text' \| 'html'/);
+  assert.match(backendSource, /pub async fn read_binary_asset/);
+  assert.match(backendSource, /data_base64/);
+  assert.match(backendSource, /mime_type/);
+  assert.match(backendSource, /extract_docx_html_from_xml/);
+  assert.match(backendSource, /format: "html"\.to_string\(\)/);
+  assert.match(zoomableImageSource, /Wheel to zoom/);
+  assert.match(zoomableImageSource, /Drag to pan/);
+  assert.match(zoomableImageSource, /View image at actual size/);
+  assert.match(zoomableImageSource, /Fit to viewport/);
+  assert.match(zoomableImageSource, /onDoubleClick/);
+  assert.match(popoverSource, /ZoomableImagePreview/);
 });
 
 test('diff panel and diff cards no longer force-load readonly assets as UTF-8 text', () => {
@@ -91,9 +123,15 @@ test('binary read failures are downgraded from noisy global console errors', () 
   assert.match(mainSource, /isBinaryContentError\(error\)/);
   assert.match(tauriApiSource, /isCanceledError/);
   assert.match(tauriApiSource, /isExpectedBinaryTextReadError/);
+  assert.match(tauriApiSource, /!isCanceledError\(error\)/);
+  assert.match(tauriApiSource, /!isExpectedBinaryTextReadError\(cmd, error\)/);
   assert.match(
     tauriApiSource,
-    /if \(!isCanceledError\(error\) && !isExpectedBinaryTextReadError\(cmd, error\)\)/
+    /!isExpectedAttachTerminalNotFoundError\(cmd, error\)/
+  );
+  assert.match(
+    tauriApiSource,
+    /!isExpectedRepoRemoteConfigError\(cmd, error\)/
   );
 });
 

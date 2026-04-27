@@ -79,22 +79,46 @@ pub struct LocalContainerService {
 }
 
 impl LocalContainerService {
+    fn workspace_with_container_ref(workspace: &Workspace, container_ref: &Path) -> Workspace {
+        let mut next = workspace.clone();
+        next.container_ref = Some(container_ref.to_string_lossy().to_string());
+        next
+    }
+
+    fn workspace_agent_dir_targets_repo_folder(workspace: &Workspace, repo_name: &str) -> bool {
+        workspace
+            .agent_working_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|dir| !dir.is_empty())
+            .and_then(|dir| dir.split(['/', '\\']).find(|segment| !segment.is_empty()))
+            .is_some_and(|segment| segment == repo_name)
+    }
+
     fn workspace_repo_path(
         workspace: &Workspace,
         workspace_root: &Path,
         repo_name: &str,
     ) -> PathBuf {
         if workspace.use_worktree {
-            workspace_root.join(repo_name)
+            if workspace_root.join(".git").exists() {
+                workspace_root.to_path_buf()
+            } else if Self::workspace_agent_dir_targets_repo_folder(workspace, repo_name) {
+                workspace_root.join(repo_name)
+            } else if workspace
+                .agent_working_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|dir| !dir.is_empty())
+                .is_some()
+            {
+                workspace_root.to_path_buf()
+            } else {
+                workspace_root.join(repo_name)
+            }
         } else {
             workspace_root.to_path_buf()
         }
-    }
-
-    fn path_points_at_repo_root(path: &Path, repo: &Repo) -> bool {
-        path.file_name()
-            .and_then(|segment| segment.to_str())
-            .is_some_and(|segment| segment == repo.name)
     }
 
     fn normalized_workspace_base_dir(workspace: &Workspace, repos: &[Repo]) -> PathBuf {
@@ -107,14 +131,25 @@ impl LocalContainerService {
             return repo.path.clone();
         }
 
-        if Self::path_points_at_repo_root(&container_path, repo) {
-            return container_path
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or(container_path);
+        container_path
+    }
+
+    fn is_direct_external_worktree(
+        workspace: &Workspace,
+        workspace_root: &Path,
+        repositories: &[Repo],
+    ) -> bool {
+        if !workspace.use_worktree || WorkspaceManager::is_app_owned_workspace_dir(workspace_root) {
+            return false;
         }
 
-        container_path
+        let [repo] = repositories else {
+            return false;
+        };
+
+        Self::workspace_with_container_ref(workspace, workspace_root)
+            .repo_path(repo)
+            .is_some_and(|repo_path| repo_path == workspace_root)
     }
 
     fn discover_workspace_dir_from_existing_worktree(
@@ -245,6 +280,88 @@ impl LocalContainerService {
         map.remove(id)
     }
 
+    fn canonicalize_for_safety(path: &Path) -> PathBuf {
+        if let Ok(path) = std::fs::canonicalize(path) {
+            return path;
+        }
+
+        let mut missing_segments = Vec::new();
+        let mut cursor = path;
+        while !cursor.exists() {
+            let Some(name) = cursor.file_name() else {
+                break;
+            };
+            missing_segments.push(name.to_os_string());
+            let Some(parent) = cursor.parent() else {
+                break;
+            };
+            cursor = parent;
+        }
+
+        let mut resolved = std::fs::canonicalize(cursor).unwrap_or_else(|_| cursor.to_path_buf());
+        for segment in missing_segments.iter().rev() {
+            resolved.push(segment);
+        }
+        resolved
+    }
+
+    fn path_overlaps_repo(path: &Path, repo: &Repo) -> bool {
+        let path = Self::canonicalize_for_safety(path);
+        let repo_path = Self::canonicalize_for_safety(&repo.path);
+        path == repo_path || path.starts_with(&repo_path) || repo_path.starts_with(&path)
+    }
+
+    async fn repair_workspace_storage_mode(
+        &self,
+        workspace: &mut Workspace,
+        repositories: &[Repo],
+    ) -> Result<(), ContainerError> {
+        if !workspace.use_worktree {
+            return Ok(());
+        }
+
+        let Some(container_ref) = workspace.container_ref.clone() else {
+            return Ok(());
+        };
+        let container_path = PathBuf::from(&container_ref);
+        let Some(overlapping_repo) = repositories
+            .iter()
+            .find(|repo| Self::path_overlaps_repo(&container_path, repo))
+        else {
+            return Ok(());
+        };
+
+        tracing::error!(
+            "Workspace {} has unsafe worktree container_ref {} overlapping repo {}; repairing before use",
+            workspace.id,
+            container_path.display(),
+            overlapping_repo.path.display()
+        );
+
+        let current_branch = self.git.get_current_branch(&overlapping_repo.path).ok();
+        if current_branch
+            .as_deref()
+            .is_some_and(|branch| branch.eq_ignore_ascii_case(&workspace.branch))
+        {
+            Workspace::update_storage_mode(
+                &self.db.pool,
+                workspace.id,
+                false,
+                Some(overlapping_repo.path.to_string_lossy().as_ref()),
+                overlapping_repo.default_working_dir.as_deref(),
+            )
+            .await?;
+            workspace.use_worktree = false;
+            workspace.container_ref = Some(overlapping_repo.path.to_string_lossy().to_string());
+            workspace.agent_working_dir = overlapping_repo.default_working_dir.clone();
+            return Ok(());
+        }
+
+        Workspace::clear_container_ref(&self.db.pool, workspace.id).await?;
+        workspace.container_ref = None;
+        Ok(())
+    }
+
     pub async fn cleanup_workspace(db: &DBService, workspace: &Workspace) {
         let Some(container_ref) = &workspace.container_ref else {
             return;
@@ -265,7 +382,12 @@ impl LocalContainerService {
                 "No repositories found for workspace {}, cleaning up workspace directory only",
                 workspace.id
             );
-            if workspace_dir.exists()
+            if !WorkspaceManager::is_app_owned_workspace_dir(&workspace_dir) {
+                tracing::warn!(
+                    "Refusing to remove workspace directory outside VibeUltra-owned storage: {}",
+                    workspace_dir.display()
+                );
+            } else if workspace_dir.exists()
                 && let Err(e) = tokio::fs::remove_dir_all(&workspace_dir).await
             {
                 tracing::warn!("Failed to remove workspace directory: {}", e);
@@ -1141,6 +1263,10 @@ impl ContainerService for LocalContainerService {
             )));
         }
 
+        let mut workspace = workspace.clone();
+        self.repair_workspace_storage_mode(&mut workspace, &repositories)
+            .await?;
+
         if !workspace.use_worktree {
             let repo = repositories.first().ok_or_else(|| {
                 ContainerError::Other(anyhow!(
@@ -1167,7 +1293,7 @@ impl ContainerService for LocalContainerService {
                 .await?;
             }
 
-            self.copy_files_and_images(&workspace_dir, workspace)
+            self.copy_files_and_images(&workspace_dir, &workspace)
                 .await?;
             return Ok(workspace_dir.to_string_lossy().to_string());
         }
@@ -1188,6 +1314,25 @@ impl ContainerService for LocalContainerService {
             WorkspaceManager::get_workspace_base_dir().join(&workspace_dir_name)
         };
 
+        if Self::is_direct_external_worktree(&workspace, &workspace_dir, &repositories) {
+            if !workspace_dir.exists() {
+                return Err(ContainerError::Other(anyhow!(
+                    "External worktree path does not exist: {}",
+                    workspace_dir.display()
+                )));
+            }
+
+            let workspace_dir_ref = workspace_dir.to_string_lossy().to_string();
+            if workspace.container_ref.as_deref() != Some(workspace_dir_ref.as_str()) {
+                Workspace::update_container_ref(&self.db.pool, workspace.id, &workspace_dir_ref)
+                    .await?;
+            }
+
+            self.copy_files_and_images(&workspace_dir, &workspace)
+                .await?;
+            return Ok(workspace_dir.to_string_lossy().to_string());
+        }
+
         WorkspaceManager::ensure_workspace_exists(&workspace_dir, &repositories, &workspace.branch)
             .await?;
 
@@ -1201,7 +1346,7 @@ impl ContainerService for LocalContainerService {
         }
 
         // Copy project files and images (fast no-op if already exist)
-        self.copy_files_and_images(&workspace_dir, workspace)
+        self.copy_files_and_images(&workspace_dir, &workspace)
             .await?;
 
         Self::create_workspace_config_files(&workspace_dir, &repositories, workspace.use_worktree)

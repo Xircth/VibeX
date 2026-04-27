@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -134,6 +134,39 @@ pub struct CreateWorkspace {
 }
 
 impl Workspace {
+    fn agent_working_dir_targets_repo_folder(&self, repo: &Repo) -> bool {
+        self.agent_working_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|dir| !dir.is_empty())
+            .and_then(|dir| dir.split(['/', '\\']).find(|segment| !segment.is_empty()))
+            .is_some_and(|segment| segment == repo.name)
+    }
+
+    fn container_points_to_direct_checkout(&self, container_path: &Path, repo: &Repo) -> bool {
+        if !self.use_worktree {
+            return false;
+        }
+
+        if container_path.join(".git").exists() {
+            return true;
+        }
+
+        if self.agent_working_dir_targets_repo_folder(repo) {
+            return false;
+        }
+
+        self.agent_working_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|dir| !dir.is_empty())
+            .is_some()
+            || container_path
+                .file_name()
+                .and_then(|segment| segment.to_str())
+                .is_some_and(|segment| segment == repo.name)
+    }
+
     pub fn container_path(&self) -> Option<PathBuf> {
         self.container_ref.as_ref().map(PathBuf::from)
     }
@@ -141,12 +174,7 @@ impl Workspace {
     pub fn repo_path(&self, repo: &Repo) -> Option<PathBuf> {
         self.container_path().map(|container_path| {
             if self.use_worktree {
-                let points_at_repo_root = container_path
-                    .file_name()
-                    .and_then(|segment| segment.to_str())
-                    .is_some_and(|segment| segment == repo.name);
-
-                if points_at_repo_root {
+                if self.container_points_to_direct_checkout(&container_path, repo) {
                     container_path
                 } else {
                     container_path.join(&repo.name)
@@ -346,6 +374,30 @@ impl Workspace {
             "UPDATE workspaces SET container_ref = NULL, updated_at = datetime('now') WHERE id = ?",
             workspace_id
         )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_storage_mode(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        use_worktree: bool,
+        container_ref: Option<&str>,
+        agent_working_dir: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE workspaces
+               SET use_worktree = ?,
+                   container_ref = ?,
+                   agent_working_dir = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(use_worktree)
+        .bind(container_ref)
+        .bind(agent_working_dir)
+        .bind(workspace_id)
         .execute(pool)
         .await?;
         Ok(())
@@ -880,5 +932,84 @@ impl Workspace {
         }
 
         Ok(Some(ws))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn sample_repo(name: &str, path: &str) -> Repo {
+        Repo {
+            id: Uuid::new_v4(),
+            path: PathBuf::from(path),
+            name: name.to_string(),
+            display_name: name.to_string(),
+            setup_script: None,
+            cleanup_script: None,
+            archive_script: None,
+            copy_files: None,
+            parallel_setup_script: false,
+            dev_server_script: None,
+            default_target_branch: None,
+            default_working_dir: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn sample_workspace(
+        container_ref: Option<&str>,
+        use_worktree: bool,
+        agent_working_dir: Option<&str>,
+    ) -> Workspace {
+        Workspace {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(),
+            parent_workspace_id: None,
+            container_ref: container_ref.map(ToOwned::to_owned),
+            branch: "feature/worktree".to_string(),
+            use_worktree,
+            agent_working_dir: agent_working_dir.map(ToOwned::to_owned),
+            setup_completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            archived: false,
+            pinned: false,
+            name: None,
+        }
+    }
+
+    #[test]
+    fn repo_path_uses_direct_checkout_for_external_single_repo_worktree() {
+        let workspace =
+            sample_workspace(Some("C:/worktrees/repo-feature-b"), true, Some("frontend"));
+        let repo = sample_repo("repo-feature-a", "C:/worktrees/repo-feature-a");
+
+        assert_eq!(
+            workspace.repo_path(&repo),
+            Some(PathBuf::from("C:/worktrees/repo-feature-b"))
+        );
+    }
+
+    #[test]
+    fn repo_path_keeps_repo_subdirectory_for_managed_workspace_container() {
+        let workspace = sample_workspace(
+            Some("C:/Users/test/.vibe-ultra-workspaces/ws-123"),
+            true,
+            Some("repo-feature-a/frontend"),
+        );
+        let repo = sample_repo("repo-feature-a", "C:/worktrees/repo-feature-a");
+
+        assert_eq!(
+            workspace.repo_path(&repo),
+            Some(PathBuf::from(
+                "C:/Users/test/.vibe-ultra-workspaces/ws-123/repo-feature-a"
+            ))
+        );
     }
 }

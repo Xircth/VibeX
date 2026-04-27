@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use chrono::{DateTime, Utc};
@@ -79,6 +79,8 @@ pub struct GitBranch {
     pub name: String,
     pub is_current: bool,
     pub is_remote: bool,
+    pub is_worktree: bool,
+    pub worktree_path: Option<String>,
     #[ts(type = "Date")]
     pub last_commit_date: DateTime<Utc>,
 }
@@ -288,6 +290,11 @@ impl Default for GitService {
 }
 
 impl GitService {
+    fn canonicalize_path_for_compare(path: &Path) -> PathBuf {
+        let normalized = utils::path::normalize_macos_private_alias(path);
+        std::fs::canonicalize(&normalized).unwrap_or(normalized)
+    }
+
     fn summarize_cli_failure(output: &str) -> String {
         output
             .lines()
@@ -1571,6 +1578,19 @@ impl GitService {
         let repo = Repository::open(repo_path)?;
         let current_branch = self.get_current_branch(repo_path).unwrap_or_default();
         let mut branches = Vec::new();
+        let repo_root = Self::canonicalize_path_for_compare(repo_path);
+        let worktree_paths_by_branch = GitCli::new()
+            .list_worktrees(repo_path)
+            .map(|entries| {
+                let mut by_branch = HashMap::new();
+                for entry in entries {
+                    if let Some(branch) = entry.branch {
+                        by_branch.insert(branch, entry.path);
+                    }
+                }
+                by_branch
+            })
+            .unwrap_or_default();
 
         // Helper function to get last commit date for a branch
         let get_last_commit_date = |branch: &git2::Branch| -> Result<DateTime<Utc>, git2::Error> {
@@ -1589,10 +1609,18 @@ impl GitService {
             let (branch, _) = branch_result?;
             if let Some(name) = branch.name()? {
                 let last_commit_date = get_last_commit_date(&branch)?;
+                let worktree_path = worktree_paths_by_branch.get(name).cloned();
+                let is_worktree = worktree_path
+                    .as_deref()
+                    .map(Path::new)
+                    .map(Self::canonicalize_path_for_compare)
+                    .is_some_and(|path| path != repo_root);
                 branches.push(GitBranch {
                     name: name.to_string(),
                     is_current: name == current_branch,
                     is_remote: false,
+                    is_worktree,
+                    worktree_path,
                     last_commit_date,
                 });
             }
@@ -1610,6 +1638,8 @@ impl GitService {
                         name: name.to_string(),
                         is_current: false,
                         is_remote: true,
+                        is_worktree: false,
+                        worktree_path: None,
                         last_commit_date,
                     });
                 }

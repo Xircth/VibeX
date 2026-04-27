@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  RefreshCw,
-  Monitor,
-  Tablet,
-  Smartphone,
-  Copy,
-  ExternalLink,
-  Pause,
-  Loader2,
   ArrowLeft,
   ArrowRight,
-  Crosshair,
   Bug,
+  Copy,
+  Crosshair,
+  ExternalLink,
+  Loader2,
+  Monitor,
+  Pause,
+  RefreshCw,
+  Smartphone,
+  Tablet,
 } from 'lucide-react';
 
 type ViewMode = 'desktop' | 'tablet' | 'mobile';
@@ -32,8 +32,9 @@ interface ReadyContentProps {
   isStopping?: boolean;
   onToggleSelectMode?: (iframe: HTMLIFrameElement | null) => void;
   isSelectModeEnabled?: boolean;
-  onToggleDevTools?: () => void;
-  isDevToolsOpen?: boolean;
+  onToggleInspector?: () => void;
+  isInspectorOpen?: boolean;
+  inspectorPane?: ReactNode;
 }
 
 export function ReadyContent({
@@ -46,8 +47,9 @@ export function ReadyContent({
   isStopping,
   onToggleSelectMode,
   isSelectModeEnabled = false,
-  onToggleDevTools,
-  isDevToolsOpen = false,
+  onToggleInspector,
+  isInspectorOpen = false,
+  inspectorPane,
 }: ReadyContentProps) {
   const [currentUrl, setCurrentUrl] = useState(url ?? '');
   const [urlInput, setUrlInput] = useState(url ?? '');
@@ -61,11 +63,11 @@ export function ReadyContent({
       target = 'http://' + target;
     }
     setCurrentUrl(target);
-    setLocalRefreshKey((k) => k + 1);
+    setLocalRefreshKey((key) => key + 1);
   };
 
   const handleRefresh = () => {
-    setLocalRefreshKey((k) => k + 1);
+    setLocalRefreshKey((key) => key + 1);
   };
 
   useEffect(() => {
@@ -73,83 +75,76 @@ export function ReadyContent({
     setUrlInput(url ?? '');
   }, [url]);
 
-  // Use the parent URL if it changes (e.g. from custom URL in PreviewToolbar)
   const effectiveSrc = currentUrl || url;
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Unified browser toolbar */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-border bg-muted/50 shrink-0">
-        {/* Navigation arrows (disabled - cannot control iframe history) */}
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/50 px-2 py-1">
         <button
           disabled
-          className="p-1 rounded text-muted-foreground/40 cursor-not-allowed"
+          className="cursor-not-allowed rounded p-1 text-muted-foreground/40"
           title="后退"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
         </button>
         <button
           disabled
-          className="p-1 rounded text-muted-foreground/40 cursor-not-allowed"
+          className="cursor-not-allowed rounded p-1 text-muted-foreground/40"
           title="前进"
         >
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
 
-        {/* URL input */}
         <input
           value={urlInput}
-          onChange={(e) => setUrlInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleNavigate()}
-          className="flex-1 px-2 py-0.5 text-xs border rounded bg-background font-mono"
+          onChange={(event) => setUrlInput(event.target.value)}
+          onKeyDown={(event) => event.key === 'Enter' && handleNavigate()}
+          className="flex-1 rounded border bg-background px-2 py-0.5 font-mono text-xs"
           placeholder="输入 URL..."
         />
 
-        <div className="border-l border-border mx-0.5 h-4" />
+        <div className="mx-0.5 h-4 border-l border-border" />
 
-        {/* Copy URL */}
         {onCopyUrl && (
           <button
             onClick={onCopyUrl}
-            className="p-1 hover:bg-accent rounded"
+            className="rounded p-1 hover:bg-accent"
             title="复制 URL"
           >
             <Copy className="h-3.5 w-3.5" />
           </button>
         )}
 
-        {/* Open externally */}
         {effectiveSrc && (
           <a
             href={effectiveSrc}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1 hover:bg-accent rounded inline-flex"
+            className="inline-flex rounded p-1 hover:bg-accent"
             title="在新标签页中打开"
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         )}
 
-        {/* Refresh */}
         <button
           onClick={handleRefresh}
-          className="p-1 hover:bg-accent rounded"
+          className="rounded p-1 hover:bg-accent"
           title="刷新"
         >
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
 
-        <div className="border-l border-border mx-0.5 h-4" />
+        <div className="mx-0.5 h-4 border-l border-border" />
 
         {onToggleSelectMode && (
           <button
             onClick={() => onToggleSelectMode?.(iframeRef.current)}
             aria-pressed={isSelectModeEnabled}
-            className={`p-1 rounded ${
+            className={`rounded p-1 ${
               isSelectModeEnabled
                 ? 'bg-accent text-foreground'
-                : 'hover:bg-accent text-muted-foreground'
+                : 'text-muted-foreground hover:bg-accent'
             }`}
             title="选择元素作为内容"
             aria-label="选择元素作为内容"
@@ -158,32 +153,31 @@ export function ReadyContent({
           </button>
         )}
 
-        {onToggleDevTools && (
+        {onToggleInspector && (
           <button
-            onClick={onToggleDevTools}
-            className={`p-1 rounded ${
-              isDevToolsOpen
+            onClick={onToggleInspector}
+            className={`rounded p-1 ${
+              isInspectorOpen
                 ? 'bg-accent text-foreground'
-                : 'hover:bg-accent text-muted-foreground'
+                : 'text-muted-foreground hover:bg-accent'
             }`}
-            title="切换 DevTools"
-            aria-label="切换 DevTools"
+            title="切换检查器"
+            aria-label="切换检查器"
           >
             <Bug className="h-3.5 w-3.5" />
           </button>
         )}
 
-        <div className="border-l border-border mx-0.5 h-4" />
+        <div className="mx-0.5 h-4 border-l border-border" />
 
-        {/* Device view modes */}
         {(['desktop', 'tablet', 'mobile'] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`p-1 rounded text-xs ${
+            className={`rounded p-1 text-xs ${
               viewMode === mode
                 ? 'bg-accent text-foreground'
-                : 'hover:bg-accent text-muted-foreground'
+                : 'text-muted-foreground hover:bg-accent'
             }`}
             title={mode}
           >
@@ -197,14 +191,13 @@ export function ReadyContent({
           </button>
         ))}
 
-        {/* Stop dev server */}
         {onStop && (
           <>
-            <div className="border-l border-border mx-0.5 h-4" />
+            <div className="mx-0.5 h-4 border-l border-border" />
             <button
               onClick={onStop}
               disabled={isStopping}
-              className="p-1 hover:bg-accent rounded text-destructive"
+              className="rounded p-1 text-destructive hover:bg-accent"
               title="停止开发服务器"
             >
               {isStopping ? (
@@ -216,24 +209,27 @@ export function ReadyContent({
           </>
         )}
       </div>
-      {/* iframe */}
-      <div className="flex-1 flex items-start justify-center overflow-auto bg-muted/20">
-        <iframe
-          key={`${iframeKey}-${localRefreshKey}`}
-          ref={iframeRef}
-          src={effectiveSrc}
-          title="开发服务器预览"
-          style={
-            viewMode === 'desktop'
-              ? { width: '100%', height: '100%' }
-              : viewSizes[viewMode]
-          }
-          className="border-0 bg-white"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-          referrerPolicy="no-referrer"
-          onLoad={() => onIframeLoad?.(iframeRef.current)}
-          onError={onIframeError}
-        />
+
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-muted/20">
+        <div className="flex min-w-0 flex-1 items-start justify-center overflow-auto">
+          <iframe
+            key={`${iframeKey}-${localRefreshKey}`}
+            ref={iframeRef}
+            src={effectiveSrc}
+            title="开发服务器预览"
+            style={
+              viewMode === 'desktop'
+                ? { width: '100%', height: '100%' }
+                : viewSizes[viewMode]
+            }
+            className="border-0 bg-white"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+            referrerPolicy="no-referrer"
+            onLoad={() => onIframeLoad?.(iframeRef.current)}
+            onError={onIframeError}
+          />
+        </div>
+        {isInspectorOpen ? inspectorPane : null}
       </div>
     </div>
   );

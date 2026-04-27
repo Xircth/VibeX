@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   GitPullRequest,
   ExternalLink,
@@ -9,6 +9,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import type { OpenPrInfo } from 'shared/types';
+import { getGitHostErrorPresentation } from '@/lib/gitHostUiErrors';
 
 interface GitPRsViewProps {
   prs: OpenPrInfo[];
@@ -23,6 +24,11 @@ export const GitPRsView = memo(function GitPRsView({
   error,
   onRefresh,
 }: GitPRsViewProps) {
+  const errorPresentation = useMemo(
+    () => getGitHostErrorPresentation(error, 'PRs'),
+    [error]
+  );
+
   const openInBrowser = (url: string) => {
     window.open(url, '_blank');
   };
@@ -53,10 +59,19 @@ export const GitPRsView = memo(function GitPRsView({
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 text-destructive bg-destructive/5 border-b border-border/30">
-          <AlertCircle className="h-3 w-3 shrink-0" />
-          <span className="text-[10px] truncate">{error}</span>
+      {errorPresentation && (
+        <div className="mx-2 mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="min-w-0 space-y-1">
+              <p className="font-medium">{errorPresentation.title}</p>
+              {errorPresentation.hint ? (
+                <p className="whitespace-pre-line text-amber-900/80 dark:text-amber-100/80">
+                  {errorPresentation.hint}
+                </p>
+              ) : null}
+            </div>
+          </div>
         </div>
       )}
 
@@ -67,12 +82,7 @@ export const GitPRsView = memo(function GitPRsView({
             <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
             Loading pull requests...
           </div>
-        ) : prs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <GitPullRequest className="h-6 w-6 opacity-30 mb-2" />
-            <span className="text-xs">No open pull requests</span>
-          </div>
-        ) : (
+        ) : prs.length > 0 ? (
           <div className="flex flex-col">
             {prs.map((pr) => (
               <button
@@ -113,7 +123,12 @@ export const GitPRsView = memo(function GitPRsView({
               </button>
             ))}
           </div>
-        )}
+        ) : !errorPresentation ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+            <GitPullRequest className="h-6 w-6 opacity-30 mb-2" />
+            <span className="text-xs">No open pull requests</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

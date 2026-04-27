@@ -1,4 +1,4 @@
-import vibeUltraLogo from '@/assets/vibe-ultra.png';
+import vibeUltraLogo from '@/assets/vibe_ultra_logo.svg';
 import { APP_NAME } from '@/lib/branding';
 
 interface LogoProps {

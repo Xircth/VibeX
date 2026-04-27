@@ -19,7 +19,21 @@ import {
 } from './workspaceRootPath';
 
 function isAbsolutePath(path: string): boolean {
-  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('/');
+  const normalizedPath = stripWindowsExtendedPathPrefix(path);
+  return (
+    /^[a-zA-Z]:[\\/]/.test(normalizedPath) ||
+    /^[\\/]\?[\\/][a-zA-Z]:[\\/]/.test(normalizedPath) ||
+    normalizedPath.startsWith('/') ||
+    normalizedPath.startsWith('\\\\')
+  );
+}
+
+function stripWindowsExtendedPathPrefix(path: string): string {
+  return path
+    .replace(/^\\\\\?\\UNC\\/i, '\\\\')
+    .replace(/^\\\\\?\\/i, '')
+    .replace(/^\/\?\//i, '')
+    .replace(/^\\\?\\/i, '');
 }
 
 /**
@@ -228,6 +242,11 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     }
   }, [rootPath, setRootPath, workspaceRootCandidates]);
 
+  const refreshFileTree = useCallback(async () => {
+    await loadRootChildren();
+    setRefreshToken((value) => value + 1);
+  }, [loadRootChildren]);
+
   useEffect(() => {
     void loadRootChildren();
   }, [loadRootChildren]);
@@ -247,8 +266,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       }
       refreshTimerRef.current = window.setTimeout(() => {
         refreshTimerRef.current = null;
-        void loadRootChildren();
-        setRefreshToken((value) => value + 1);
+        void refreshFileTree();
       }, 120);
     };
 
@@ -303,20 +321,21 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         refreshTimerRef.current = null;
       }
     };
-  }, [loadRootChildren, normalizeWatchedPath, rootPath]);
+  }, [normalizeWatchedPath, refreshFileTree, rootPath]);
 
   const handleOpenFile = useCallback(
     (relativePath: string) => {
       if (!rootPath) return;
-      const absolutePath = isAbsolutePath(relativePath)
-        ? relativePath
+      const normalizedPath = stripWindowsExtendedPathPrefix(relativePath);
+      const absolutePath = isAbsolutePath(normalizedPath)
+        ? normalizedPath
         : (() => {
             const usesWindowsSeparator = rootPath.includes('\\');
             const separator = usesWindowsSeparator ? '\\' : '/';
             const base = rootPath.replace(/[\\/]+$/, '');
             const normalizedRelative = usesWindowsSeparator
-              ? relativePath.replaceAll('/', '\\')
-              : relativePath;
+              ? normalizedPath.replaceAll('/', '\\')
+              : normalizedPath;
             return `${base}${separator}${normalizedRelative}`;
           })();
       setSelectedFilePath(absolutePath);
@@ -375,7 +394,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         onOpenFile={handleOpenFile}
         gitignoredFiles={gitignoredFiles}
         gitignoredDirectories={gitignoredDirectories}
-        onRefreshFiles={loadRootChildren}
+        onRefreshFiles={refreshFileTree}
         refreshToken={refreshToken}
       />
     </div>

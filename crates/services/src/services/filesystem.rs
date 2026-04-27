@@ -12,6 +12,7 @@ use thiserror::Error;
 #[cfg(not(feature = "qa-mode"))]
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
+use utils::path::normalize_windows_extended_path_prefix;
 
 #[derive(Clone)]
 pub struct FilesystemService {}
@@ -63,6 +64,7 @@ impl FilesystemService {
 
         let normalized = utils::path::normalize_macos_private_alias(&path);
         let canonical = normalized.canonicalize().unwrap_or(normalized);
+        let canonical = normalize_windows_extended_path_prefix(canonical);
 
         if canonical.exists() && canonical.is_dir() && seen.insert(canonical.clone()) {
             paths.push(canonical);
@@ -102,6 +104,7 @@ impl FilesystemService {
                 "Library",
                 "AppData",
                 "Applications",
+                ".git",
             ]
             .map(String::from),
         );
@@ -142,6 +145,7 @@ impl FilesystemService {
         {
             let base_path = path
                 .map(PathBuf::from)
+                .map(normalize_windows_extended_path_prefix)
                 .unwrap_or_else(Self::get_home_directory);
             Self::verify_directory(&base_path)?;
             self.list_git_repos_with_timeout(
@@ -309,21 +313,21 @@ impl FilesystemService {
                 }
 
                 let path = entry.path();
-                let name = entry.file_name().to_str()?;
                 if !path.join(".git").exists() {
                     return None;
                 }
 
-                let normalized_path = utils::path::normalize_macos_private_alias(path);
-                let canonical_path = normalized_path
-                    .canonicalize()
-                    .unwrap_or(normalized_path.clone());
+                let repo = git2::Repository::open(path).ok()?;
+                let workdir = repo.workdir()?;
+                let normalized_path = utils::path::normalize_macos_private_alias(workdir);
+                let canonical_path = normalized_path.canonicalize().unwrap_or(normalized_path);
+                let canonical_path = normalize_windows_extended_path_prefix(canonical_path);
+                let name = canonical_path.file_name()?.to_str()?;
                 if !seen_repo_paths.insert(canonical_path.clone()) {
                     return None;
                 }
 
-                let last_modified = entry
-                    .metadata()
+                let last_modified = fs::metadata(&canonical_path)
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .map(|t| t.elapsed().unwrap_or_default().as_secs());
@@ -405,6 +409,7 @@ impl FilesystemService {
     ) -> Result<DirectoryListResponse, FilesystemError> {
         let path = path
             .map(PathBuf::from)
+            .map(normalize_windows_extended_path_prefix)
             .unwrap_or_else(Self::get_home_directory);
         Self::verify_directory(&path)?;
 
@@ -429,7 +434,7 @@ impl FilesystemService {
 
                 directory_entries.push(DirectoryEntry {
                     name: name.to_string(),
-                    path,
+                    path: normalize_windows_extended_path_prefix(path),
                     is_directory,
                     is_git_repo,
                     last_modified: None,
@@ -445,7 +450,9 @@ impl FilesystemService {
 
         Ok(DirectoryListResponse {
             entries: directory_entries,
-            current_path: path.to_string_lossy().to_string(),
+            current_path: normalize_windows_extended_path_prefix(path)
+                .to_string_lossy()
+                .to_string(),
         })
     }
 }

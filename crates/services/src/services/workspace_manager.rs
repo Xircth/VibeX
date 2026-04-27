@@ -23,6 +23,49 @@ impl RepoWorkspaceInput {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn test_repo(path: PathBuf) -> Repo {
+        Repo {
+            id: Uuid::new_v4(),
+            path,
+            name: "project".to_string(),
+            display_name: "project".to_string(),
+            setup_script: None,
+            cleanup_script: None,
+            archive_script: None,
+            copy_files: None,
+            parallel_setup_script: false,
+            dev_server_script: None,
+            default_target_branch: Some("main".to_string()),
+            default_working_dir: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_workspace_refuses_user_project_directory_as_container() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        let repo = test_repo(project_dir.clone());
+
+        let result = WorkspaceManager::ensure_workspace_exists(&project_dir, &[repo], "main").await;
+
+        assert!(matches!(
+            result,
+            Err(WorkspaceError::UnsafeWorkspacePath(path)) if path == project_dir
+        ));
+        assert!(project_dir.exists());
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
     #[error(transparent)]
@@ -31,6 +74,8 @@ pub enum WorkspaceError {
     Io(#[from] std::io::Error),
     #[error("No repositories provided")]
     NoRepositories,
+    #[error("Unsafe workspace path outside VibeUltra-owned storage: {0}")]
+    UnsafeWorkspacePath(PathBuf),
     #[error("Partial workspace creation failed: {0}")]
     PartialCreation(String),
 }
@@ -54,6 +99,91 @@ pub struct WorktreeContainer {
 pub struct WorkspaceManager;
 
 impl WorkspaceManager {
+    const CUSTOM_WORKSPACE_DIR_NAME: &'static str = ".vibe-ultra-workspaces";
+
+    fn canonicalize_for_safety(path: &Path) -> PathBuf {
+        if let Ok(path) = dunce::canonicalize(path) {
+            return path;
+        }
+
+        let mut missing_segments = Vec::new();
+        let mut cursor = path;
+        while !cursor.exists() {
+            let Some(name) = cursor.file_name() else {
+                break;
+            };
+            missing_segments.push(name.to_os_string());
+            let Some(parent) = cursor.parent() else {
+                break;
+            };
+            cursor = parent;
+        }
+
+        let mut resolved = dunce::canonicalize(cursor).unwrap_or_else(|_| cursor.to_path_buf());
+        for segment in missing_segments.iter().rev() {
+            resolved.push(segment);
+        }
+        resolved
+    }
+
+    pub fn is_app_owned_workspace_dir(path: &Path) -> bool {
+        let path = Self::canonicalize_for_safety(path);
+        let default_base =
+            Self::canonicalize_for_safety(&WorktreeManager::get_default_worktree_base_dir());
+
+        if path == default_base || path.starts_with(&default_base) {
+            return true;
+        }
+
+        path.ancestors().any(|ancestor| {
+            ancestor
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == Self::CUSTOM_WORKSPACE_DIR_NAME)
+        })
+    }
+
+    fn overlaps_known_repo(path: &Path, repos: &[Repo]) -> bool {
+        let path = Self::canonicalize_for_safety(path);
+
+        repos.iter().any(|repo| {
+            let repo_path = Self::canonicalize_for_safety(&repo.path);
+            path == repo_path || path.starts_with(&repo_path) || repo_path.starts_with(&path)
+        })
+    }
+
+    fn refuse_unsafe_cleanup(path: &Path, repos: &[Repo]) -> bool {
+        if !Self::is_app_owned_workspace_dir(path) {
+            warn!(
+                "Refusing to clean workspace path outside VibeUltra-owned workspace storage: {}",
+                path.display()
+            );
+            return true;
+        }
+
+        if Self::overlaps_known_repo(path, repos) {
+            warn!(
+                "Refusing to clean workspace path that overlaps a registered repository: {}",
+                path.display()
+            );
+            return true;
+        }
+
+        false
+    }
+
+    fn validate_workspace_container_path(path: &Path) -> Result<(), WorkspaceError> {
+        if Self::is_app_owned_workspace_dir(path) {
+            return Ok(());
+        }
+
+        warn!(
+            "Refusing to use workspace path outside VibeUltra-owned workspace storage: {}",
+            path.display()
+        );
+        Err(WorkspaceError::UnsafeWorkspacePath(path.to_path_buf()))
+    }
+
     /// Create a workspace with worktrees for all repositories.
     /// On failure, rolls back any already-created worktrees.
     pub async fn create_workspace(
@@ -64,6 +194,7 @@ impl WorkspaceManager {
         if repos.is_empty() {
             return Err(WorkspaceError::NoRepositories);
         }
+        Self::validate_workspace_container_path(workspace_dir)?;
 
         info!(
             "Creating workspace at {} with {} repositories",
@@ -146,6 +277,7 @@ impl WorkspaceManager {
         if repos.is_empty() {
             return Err(WorkspaceError::NoRepositories);
         }
+        Self::validate_workspace_container_path(workspace_dir)?;
 
         // Try legacy migration first (single repo projects only)
         // Old layout had worktree directly at workspace_dir; new layout has it at workspace_dir/{repo_name}
@@ -179,6 +311,9 @@ impl WorkspaceManager {
         repos: &[Repo],
     ) -> Result<(), WorkspaceError> {
         info!("Cleaning up workspace at {}", workspace_dir.display());
+        if Self::refuse_unsafe_cleanup(workspace_dir, repos) {
+            return Ok(());
+        }
 
         let cleanup_data: Vec<WorktreeCleanup> = repos
             .iter()
@@ -304,6 +439,14 @@ impl WorkspaceManager {
     }
 
     async fn cleanup_orphans_in_directory(db: &Pool<Sqlite>, workspace_base_dir: &Path) {
+        if !Self::is_app_owned_workspace_dir(workspace_base_dir) {
+            warn!(
+                "Skipping orphan cleanup for non VibeUltra-owned workspace directory: {}",
+                workspace_base_dir.display()
+            );
+            return;
+        }
+
         if !workspace_base_dir.exists() {
             debug!(
                 "Workspace base directory {} does not exist, skipping orphan cleanup",
@@ -361,6 +504,13 @@ impl WorkspaceManager {
             "Cleaning up orphaned workspace at {}",
             workspace_dir.display()
         );
+        if !Self::is_app_owned_workspace_dir(workspace_dir) {
+            warn!(
+                "Refusing to remove orphan workspace outside VibeUltra-owned storage: {}",
+                workspace_dir.display()
+            );
+            return Ok(());
+        }
 
         let entries = match std::fs::read_dir(workspace_dir) {
             Ok(entries) => entries,

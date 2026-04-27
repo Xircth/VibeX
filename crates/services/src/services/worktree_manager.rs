@@ -60,6 +60,52 @@ pub enum WorktreeError {
 pub struct WorktreeManager;
 
 impl WorktreeManager {
+    fn canonicalize_for_safety(path: &Path) -> PathBuf {
+        if let Ok(path) = dunce::canonicalize(path) {
+            return path;
+        }
+
+        let mut missing_segments = Vec::new();
+        let mut cursor = path;
+        while !cursor.exists() {
+            let Some(name) = cursor.file_name() else {
+                break;
+            };
+            missing_segments.push(name.to_os_string());
+            let Some(parent) = cursor.parent() else {
+                break;
+            };
+            cursor = parent;
+        }
+
+        let mut resolved = dunce::canonicalize(cursor).unwrap_or_else(|_| cursor.to_path_buf());
+        for segment in missing_segments.iter().rev() {
+            resolved.push(segment);
+        }
+        resolved
+    }
+
+    fn validate_worktree_target(
+        repo_path: &Path,
+        worktree_path: &Path,
+    ) -> Result<(), WorktreeError> {
+        let repo_path = Self::canonicalize_for_safety(repo_path);
+        let worktree_path = Self::canonicalize_for_safety(worktree_path);
+
+        if repo_path == worktree_path
+            || worktree_path.starts_with(&repo_path)
+            || repo_path.starts_with(&worktree_path)
+        {
+            return Err(WorktreeError::InvalidPath(format!(
+                "Refusing to use repository path {} as worktree target {}",
+                repo_path.display(),
+                worktree_path.display()
+            )));
+        }
+
+        Ok(())
+    }
+
     pub fn set_workspace_dir_override(path: Option<PathBuf>) {
         let mut override_path = WORKSPACE_DIR_OVERRIDE
             .write()
@@ -75,6 +121,8 @@ impl WorktreeManager {
         base_branch: &str,
         create_branch: bool,
     ) -> Result<(), WorktreeError> {
+        Self::validate_worktree_target(repo_path, worktree_path)?;
+
         if create_branch {
             let repo_path_owned = repo_path.to_path_buf();
             let branch_name_owned = branch_name.to_string();
@@ -105,6 +153,7 @@ impl WorktreeManager {
         branch_name: &str,
         worktree_path: &Path,
     ) -> Result<(), WorktreeError> {
+        Self::validate_worktree_target(repo_path, worktree_path)?;
         let path_str = worktree_path.to_string_lossy().to_string();
 
         // Get or create a lock for this specific worktree path
@@ -524,6 +573,7 @@ impl WorktreeManager {
         };
 
         if let Some(repo_path) = resolved_repo_path {
+            Self::validate_worktree_target(&repo_path, &worktree.worktree_path)?;
             Self::comprehensive_worktree_cleanup_async(&repo_path, &worktree.worktree_path).await?;
         } else {
             // Can't determine repo path, just clean up the worktree directory
@@ -637,6 +687,47 @@ impl WorktreeManager {
         let cleanup = WorktreeCleanup::new(path.to_path_buf(), None);
         Self::cleanup_worktree(&cleanup).await?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn ensure_worktree_refuses_to_target_source_repo() {
+        let td = TempDir::new().unwrap();
+        let repo_path = td.path().join("repo");
+        GitService::new()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+
+        let error = WorktreeManager::ensure_worktree_exists(&repo_path, "main", &repo_path)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, WorktreeError::InvalidPath(_)));
+        assert!(repo_path.exists());
+    }
+
+    #[tokio::test]
+    async fn ensure_worktree_refuses_target_inside_source_repo() {
+        let td = TempDir::new().unwrap();
+        let repo_path = td.path().join("repo");
+        GitService::new()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+        let nested_target = repo_path.join("child-worktree");
+
+        let error = WorktreeManager::ensure_worktree_exists(&repo_path, "main", &nested_target)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, WorktreeError::InvalidPath(_)));
+        assert!(repo_path.exists());
+        assert!(!nested_target.exists());
     }
 }
 

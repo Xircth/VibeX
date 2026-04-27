@@ -16,10 +16,12 @@ import {
   Search,
 } from 'lucide-react';
 import type { GitLogEntry } from 'shared/types';
+import { toast } from 'sonner';
 import { attemptsApi, repoApi } from '@/lib/api';
 import { GitContextMenu, type ContextMenuAction } from './GitContextMenu';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 
 interface GitLogViewProps {
   entries: GitLogEntry[];
@@ -297,13 +299,20 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
   }, []);
 
   const executeAction = useCallback(
-    async (action: () => Promise<void>) => {
+    async (
+      action: () => Promise<void>,
+      messages?: { success?: string; error?: string }
+    ) => {
       setActionLoading(true);
       try {
         await action();
         await onRefresh?.();
-      } catch {
-        // errors handled by toast / parent
+        if (messages?.success) {
+          toast.success(messages.success);
+        }
+      } catch (error) {
+        console.error('Git log action failed:', error);
+        toast.error(messages?.error ?? 'Git action failed');
       } finally {
         setActionLoading(false);
       }
@@ -355,7 +364,11 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
                   repoId!,
                   entry.sha,
                   'soft'
-                )
+                ),
+                {
+                  success: 'Soft reset completed',
+                  error: 'Soft reset failed',
+                }
               ),
           },
           {
@@ -368,7 +381,11 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
                   repoId!,
                   entry.sha,
                   'mixed'
-                )
+                ),
+                {
+                  success: 'Mixed reset completed',
+                  error: 'Mixed reset failed',
+                }
               ),
           },
           {
@@ -376,20 +393,32 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             icon: <RotateCcw className="h-3 w-3" />,
             danger: true,
             onClick: () => {
-              if (
-                window.confirm(
-                  'This will discard all uncommitted changes. Continue?'
-                )
-              ) {
+              void (async () => {
+                const result = await ConfirmDialog.show({
+                  title: 'Discard all uncommitted changes?',
+                  message:
+                    'Hard reset will discard all uncommitted changes in the current workspace.',
+                  confirmText: 'Discard',
+                  cancelText: 'Cancel',
+                  variant: 'destructive',
+                });
+                if (result !== 'confirmed') {
+                  return;
+                }
+
                 executeAction(() =>
                   attemptsApi.resetToCommit(
                     workspaceId!,
                     repoId!,
                     entry.sha,
                     'hard'
-                  )
+                  ),
+                  {
+                    success: 'Hard reset completed',
+                    error: 'Hard reset failed',
+                  }
                 );
-              }
+              })();
             },
           },
         ],
@@ -402,9 +431,10 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         group: 'write',
         disabled: !canOperate,
         onClick: () =>
-          executeAction(() =>
-            attemptsApi.cherryPick(workspaceId!, repoId!, entry.sha)
-          ),
+          executeAction(() => attemptsApi.cherryPick(workspaceId!, repoId!, entry.sha), {
+            success: 'Cherry-pick completed',
+            error: 'Cherry-pick failed',
+          }),
       });
       actions.push({
         label: 'Revert',
@@ -412,9 +442,10 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         group: 'write',
         disabled: !canOperate,
         onClick: () =>
-          executeAction(() =>
-            attemptsApi.revertCommit(workspaceId!, repoId!, entry.sha)
-          ),
+          executeAction(() => attemptsApi.revertCommit(workspaceId!, repoId!, entry.sha), {
+            success: 'Revert completed',
+            error: 'Revert failed',
+          }),
       });
 
       return actions;

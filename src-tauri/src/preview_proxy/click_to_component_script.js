@@ -10,14 +10,188 @@
   var overlay = null;
   var nameLabel = null;
   var lastHoveredElement = null;
+  var bridgeToken = null;
 
   // --- Helper: send message to parent ---
   function send(type, payload, version) {
     try {
       var msg = { source: SOURCE, type: type, payload: payload };
       if (version) msg.version = version;
+      if (bridgeToken) msg.bridgeToken = bridgeToken;
       window.parent.postMessage(msg, '*');
     } catch(e) {}
+  }
+
+  function timestamp() {
+    return Date.now();
+  }
+
+  function stringifyConsoleArg(value) {
+    try {
+      if (value instanceof Error) {
+        return value.stack || value.message || String(value);
+      }
+      if (typeof value === 'string') return value;
+      if (typeof value === 'undefined') return 'undefined';
+      if (value === null) return 'null';
+      if (typeof value === 'function') {
+        return value.name ? '[Function ' + value.name + ']' : '[Function]';
+      }
+      if (typeof value === 'bigint') return value.toString() + 'n';
+      if (typeof value === 'symbol') return value.toString();
+      return JSON.stringify(value);
+    } catch (e) {
+      try {
+        return String(value);
+      } catch (_) {
+        return '[Unserializable]';
+      }
+    }
+  }
+
+  function sendConsole(level, args) {
+    send('console', {
+      level: level,
+      message: Array.prototype.slice.call(args).map(stringifyConsoleArg).join(' '),
+      timestamp: timestamp()
+    }, 1);
+  }
+
+  function installConsoleCapture() {
+    if (window.__vibeUltraConsoleCaptureInstalled) return;
+    window.__vibeUltraConsoleCaptureInstalled = true;
+
+    ['log', 'info', 'warn', 'error', 'debug'].forEach(function(level) {
+      var original = console[level];
+      if (typeof original !== 'function') return;
+      console[level] = function() {
+        sendConsole(level, arguments);
+        return original.apply(console, arguments);
+      };
+    });
+
+    window.addEventListener('error', function(event) {
+      send('console', {
+        level: 'error',
+        message: event.message || 'Uncaught error',
+        source: event.filename || '',
+        line: event.lineno || null,
+        column: event.colno || null,
+        timestamp: timestamp()
+      }, 1);
+    });
+
+    window.addEventListener('unhandledrejection', function(event) {
+      send('console', {
+        level: 'error',
+        message: 'Unhandled promise rejection: ' + stringifyConsoleArg(event.reason),
+        timestamp: timestamp()
+      }, 1);
+    });
+  }
+
+  function requestUrl(input) {
+    if (typeof input === 'string') return input;
+    if (input && typeof input.url === 'string') return input.url;
+    return String(input);
+  }
+
+  function requestMethod(input, init) {
+    if (init && init.method) return String(init.method).toUpperCase();
+    if (input && input.method) return String(input.method).toUpperCase();
+    return 'GET';
+  }
+
+  function sendNetwork(payload) {
+    var safePayload = {};
+    Object.keys(payload).forEach(function(key) {
+      if (key !== '__done') safePayload[key] = payload[key];
+    });
+    send('network', safePayload, 1);
+  }
+
+  function installFetchCapture() {
+    if (typeof window.fetch !== 'function' || window.__vibeUltraFetchCaptureInstalled) return;
+    window.__vibeUltraFetchCaptureInstalled = true;
+
+    var originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+      var startedAt = performance.now();
+      var payload = {
+        kind: 'fetch',
+        method: requestMethod(input, init),
+        url: requestUrl(input),
+        status: null,
+        ok: null,
+        durationMs: null,
+        error: null,
+        timestamp: timestamp()
+      };
+
+      return originalFetch.apply(this, arguments).then(function(response) {
+        payload.status = response.status;
+        payload.ok = response.ok;
+        payload.durationMs = Math.round(performance.now() - startedAt);
+        sendNetwork(payload);
+        return response;
+      }).catch(function(error) {
+        payload.ok = false;
+        payload.error = error && error.message ? error.message : String(error);
+        payload.durationMs = Math.round(performance.now() - startedAt);
+        sendNetwork(payload);
+        throw error;
+      });
+    };
+  }
+
+  function installXhrCapture() {
+    if (!window.XMLHttpRequest || window.__vibeUltraXhrCaptureInstalled) return;
+    window.__vibeUltraXhrCaptureInstalled = true;
+
+    var originalOpen = XMLHttpRequest.prototype.open;
+    var originalSend = XMLHttpRequest.prototype.send;
+
+    XMLHttpRequest.prototype.open = function(method, url) {
+      this.__vibeUltraRequest = {
+        kind: 'xhr',
+        method: method ? String(method).toUpperCase() : 'GET',
+        url: requestUrl(url),
+        status: null,
+        ok: null,
+        durationMs: null,
+        error: null,
+        timestamp: timestamp()
+      };
+      return originalOpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function() {
+      var xhr = this;
+      var request = xhr.__vibeUltraRequest;
+      var startedAt = performance.now();
+
+      function finalize(error) {
+        if (!request || request.__done) return;
+        request.__done = true;
+        request.status = xhr.status || null;
+        request.ok = xhr.status >= 200 && xhr.status < 400;
+        request.durationMs = Math.round(performance.now() - startedAt);
+        request.error = error || null;
+        sendNetwork(request);
+      }
+
+      xhr.addEventListener('loadend', function() { finalize(null); });
+      xhr.addEventListener('error', function() { finalize('Network error'); });
+      xhr.addEventListener('abort', function() { finalize('Request aborted'); });
+      xhr.addEventListener('timeout', function() { finalize('Request timed out'); });
+
+      return originalSend.apply(this, arguments);
+    };
+  }
+
+  function installNetworkCapture() {
+    installFetchCapture();
+    installXhrCapture();
   }
 
   // --- Helper: truncate attribute value ---
@@ -638,20 +812,6 @@
 
   var adapters = [astroAdapter, reactAdapter, vueAdapter, svelteAdapter];
 
-  // --- Diagnostic: detect which frameworks are present on the page ---
-  function detectFrameworks() {
-    var detected = [];
-    // Check for Astro islands
-    if (document.querySelector('astro-island')) detected.push('astro');
-    // Check for React (VKBippy)
-    if (typeof VKBippy !== 'undefined' && VKBippy.isInstrumentationActive && VKBippy.isInstrumentationActive()) detected.push('react');
-    // Check for Vue
-    if (window.__VUE__ || document.querySelector('[data-v-app]')) detected.push('vue');
-    // Check for Svelte (check for svelte CSS classes)
-    if (document.querySelector('[class*="svelte-"]') || document.querySelector('[data-svelte-h]')) detected.push('svelte');
-    return detected;
-  }
-
   // --- Convert ComponentPayload to markdown string (v1 postMessage format) ---
   function payloadToMarkdown(payload) {
     var markdown = payload.htmlPreview;
@@ -786,25 +946,25 @@
   // --- Message listener ---
   window.addEventListener('message', function(event) {
     if (!event.data || event.data.source !== SOURCE) return;
+    if (event.source !== window.parent) return;
     if (event.data.type === 'toggle-inspect') {
       setInspectMode(event.data.payload && event.data.payload.active);
     } else if (event.data.type === 'set-targeting') {
+      if (typeof event.data.bridgeToken === 'string' && event.data.bridgeToken) {
+        bridgeToken = event.data.bridgeToken;
+      }
       setInspectMode(event.data.payload && event.data.payload.enabled);
     } else if (event.data.type === 'enable-button') {
+      if (typeof event.data.bridgeToken === 'string' && event.data.bridgeToken) {
+        bridgeToken = event.data.bridgeToken;
+      }
       // Acknowledge the companion bridge is ready
       send('toolbar-bridge-ready', undefined, 1);
     }
   });
 
   // --- Notify parent that companion bridge is ready ---
+  installConsoleCapture();
+  installNetworkCapture();
   send('ready', undefined, 1);
-
-  // --- Log detected frameworks on page load (diagnostic only) ---
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function() {
-      console.debug('[vk-ctc] Detected frameworks:', detectFrameworks().join(', ') || 'none');
-    });
-  } else {
-    console.debug('[vk-ctc] Detected frameworks:', detectFrameworks().join(', ') || 'none');
-  }
 })();

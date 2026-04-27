@@ -105,6 +105,28 @@ pub fn normalize_macos_private_alias<P: AsRef<Path>>(p: P) -> PathBuf {
     p.to_path_buf()
 }
 
+/// Strip Windows verbatim path prefixes (for example `\\?\C:\...`) so paths
+/// remain readable in the UI while keeping the same filesystem target.
+pub fn normalize_windows_extended_path_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
+    let path = path.as_ref();
+
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+        if let Some(rest) = raw.strip_prefix(r"\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+
+    path.to_path_buf()
+}
+
 pub fn get_vibe_ultra_temp_dir() -> std::path::PathBuf {
     let dir_name = if cfg!(debug_assertions) {
         "vibe-ultra-dev"
@@ -142,15 +164,27 @@ mod tests {
         );
 
         // Test with absolute path (should become relative if possible)
-        let test_worktree = "/tmp/test-worktree";
-        let absolute_path = format!("{test_worktree}/src/main.rs");
-        let result = make_path_relative(&absolute_path, test_worktree);
-        assert_eq!(result, "src/main.rs");
+        let test_worktree = std::env::temp_dir().join("test-worktree");
+        let absolute_path = test_worktree.join("src").join("main.rs");
+        let result = make_path_relative(
+            &absolute_path.to_string_lossy(),
+            &test_worktree.to_string_lossy(),
+        );
+        assert_eq!(
+            result,
+            std::path::PathBuf::from("src")
+                .join("main.rs")
+                .to_string_lossy()
+        );
 
         // Test with path outside worktree (should return original)
+        let outside_path = std::env::temp_dir().join("other").join("file.js");
         assert_eq!(
-            make_path_relative("/other/path/file.js", "/tmp/test-worktree"),
-            "/other/path/file.js"
+            make_path_relative(
+                &outside_path.to_string_lossy(),
+                &test_worktree.to_string_lossy()
+            ),
+            outside_path.to_string_lossy()
         );
     }
 
@@ -175,5 +209,32 @@ mod tests {
             make_path_relative(&path_under_var, &worktree_private),
             "hello-world.txt"
         );
+    }
+
+    #[test]
+    fn normalize_windows_extended_path_prefix_preserves_regular_paths() {
+        let path = PathBuf::from(r"C:\Users\Administrator\Documents\Projects");
+        assert_eq!(normalize_windows_extended_path_prefix(&path), path);
+    }
+
+    #[test]
+    fn normalize_windows_extended_path_prefix_strips_drive_prefix() {
+        let normalized =
+            normalize_windows_extended_path_prefix(PathBuf::from(r"\\?\C:\Users\Admin"));
+        #[cfg(windows)]
+        assert_eq!(normalized, PathBuf::from(r"C:\Users\Admin"));
+        #[cfg(not(windows))]
+        assert_eq!(normalized, PathBuf::from(r"\\?\C:\Users\Admin"));
+    }
+
+    #[test]
+    fn normalize_windows_extended_path_prefix_strips_unc_prefix() {
+        let normalized = normalize_windows_extended_path_prefix(PathBuf::from(
+            r"\\?\UNC\server\share\workspace",
+        ));
+        #[cfg(windows)]
+        assert_eq!(normalized, PathBuf::from(r"\\server\share\workspace"));
+        #[cfg(not(windows))]
+        assert_eq!(normalized, PathBuf::from(r"\\?\UNC\server\share\workspace"));
     }
 }

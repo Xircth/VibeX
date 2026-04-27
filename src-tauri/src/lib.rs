@@ -1,4 +1,4 @@
-use tauri::Manager;
+use tauri::{Manager, image::Image};
 
 pub mod commands;
 mod error;
@@ -8,25 +8,20 @@ mod state;
 mod workspace_paths;
 use state::AppState;
 
-#[tauri::command]
-async fn health_check() -> Result<String, String> {
-    Ok("ok".to_string())
+const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
+
+pub(crate) fn load_app_icon() -> Result<Image<'static>, tauri::Error> {
+    Image::from_bytes(APP_ICON_BYTES).map(|icon| icon.to_owned())
+}
+
+pub(crate) fn apply_app_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let icon = load_app_icon().map_err(|error| error.to_string())?;
+    window.set_icon(icon).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-async fn toggle_main_window_devtools(app: tauri::AppHandle) -> Result<bool, String> {
-    let webview = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-
-    let is_open = webview.is_devtools_open();
-    if is_open {
-        webview.close_devtools();
-        Ok(false)
-    } else {
-        webview.open_devtools();
-        Ok(true)
-    }
+async fn health_check() -> Result<String, String> {
+    Ok("ok".to_string())
 }
 
 #[tauri::command]
@@ -65,6 +60,10 @@ pub fn run() {
             }
 
             if let Some(main_window) = app.get_webview_window("main") {
+                if let Err(error) = apply_app_icon(&main_window) {
+                    tracing::warn!("Failed to apply app icon to main window: {}", error);
+                }
+
                 let app_handle = app.handle().clone();
                 main_window.on_window_event(move |event| match event {
                     tauri::WindowEvent::Moved(_)
@@ -82,7 +81,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             health_check,
-            toggle_main_window_devtools,
             get_preview_proxy_url,
             commands::projects::get_projects,
             commands::projects::get_project,
@@ -237,6 +235,7 @@ pub fn run() {
             // Config commands
             commands::config::get_user_system_info,
             commands::config::update_config,
+            commands::config::clear_local_app_data,
             commands::config::get_mcp_servers,
             commands::config::update_mcp_servers,
             commands::config::get_profiles,
@@ -280,6 +279,7 @@ pub fn run() {
             commands::file_tree::get_file_tree,
             commands::file_tree::read_file_content,
             commands::file_tree::read_document_preview,
+            commands::file_tree::read_binary_asset,
             commands::file_tree::save_file_content,
             commands::file_tree::delete_file,
             commands::file_tree::get_file_at_head,

@@ -400,7 +400,7 @@ export type ShowcaseState = { seen_features: Array<string>, };
 
 export type SendMessageShortcut = "ModifierEnter" | "Enter";
 
-export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, last_commit_date: Date, };
+export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, is_worktree: boolean, worktree_path: string | null, last_commit_date: Date, };
 
 export type QueuedMessage = { 
 /**

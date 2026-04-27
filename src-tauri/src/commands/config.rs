@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
+use db::models::execution_process::ExecutionProcess;
 use deployment::Deployment;
 use executors::{
     executors::{
@@ -15,8 +16,10 @@ use services::services::{
         editor::{EditorConfig, EditorType},
         save_config_to_file,
     },
+    container::ContainerService,
     worktree_manager::WorktreeManager,
 };
+use sqlx::Acquire;
 use tauri::Emitter;
 
 use crate::{error::AppError, state::AppState};
@@ -73,6 +76,12 @@ pub struct UserSystemInfo {
 pub struct ProfilesContent {
     pub content: String,
     pub path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClearLocalDataResponse {
+    pub cleared: bool,
+    pub requires_reload: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -143,6 +152,115 @@ pub async fn update_config(
     }
 
     Ok(new_config)
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<(), AppError> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    if path.is_dir() {
+        std::fs::remove_dir_all(path).map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to remove directory {}: {error}",
+                path.display()
+            ))
+        })?;
+    } else {
+        std::fs::remove_file(path).map_err(|error| {
+            AppError::Internal(format!("Failed to remove file {}: {error}", path.display()))
+        })?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_local_app_data(
+    state: tauri::State<'_, AppState>,
+) -> Result<ClearLocalDataResponse, AppError> {
+    let pool = &state.deployment.db().pool;
+    let running_processes = ExecutionProcess::find_running(pool).await?;
+    if !running_processes.is_empty() {
+        state
+            .deployment
+            .container()
+            .kill_all_running_processes()
+            .await?;
+
+        let still_running = ExecutionProcess::find_running(pool).await?;
+        if !still_running.is_empty() {
+            return Err(AppError::Conflict(
+                "Some running processes could not be stopped. Please stop them manually and try again."
+                    .to_string(),
+            ));
+        }
+    }
+
+    remove_path_if_exists(&utils::assets::profiles_path())?;
+    if let Err(error) = remove_path_if_exists(&utils::cache_dir()) {
+        tracing::warn!("Failed to clear cache directory during local data reset: {error}");
+    }
+    ExecutorConfigs::reload();
+
+    let mut connection = pool.acquire().await?;
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *connection)
+        .await?;
+
+    let clear_result: Result<(), AppError> = async {
+        let mut tx = connection.begin().await?;
+
+        let table_names: Vec<String> = sqlx::query_scalar::<_, String>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_sqlx_migrations'",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for table_name in table_names {
+            let escaped: String = table_name.replace('"', "\"\"");
+            let statement = format!("DELETE FROM \"{escaped}\"");
+            sqlx::query(&statement).execute(&mut *tx).await?;
+        }
+
+        let _ = sqlx::query("DELETE FROM sqlite_sequence")
+            .execute(&mut *tx)
+            .await;
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+
+    let restore_result = sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&mut *connection)
+        .await;
+    if restore_result.is_err() {
+        connection.close_on_drop();
+    }
+    restore_result
+        .map_err(|error| AppError::Internal(format!("Failed to restore foreign keys: {error}")))?;
+    clear_result?;
+    drop(connection);
+
+    let _ = sqlx::query("VACUUM").execute(pool).await;
+
+    let default_config = Config::default();
+    save_config_to_file(&default_config, &utils::assets::config_path()).await?;
+    {
+        let mut config = state.deployment.config().write().await;
+        *config = default_config;
+    }
+    WorktreeManager::set_workspace_dir_override(None);
+
+    state.file_tree_watchers.lock().await.clear();
+    state.conversation_streams.lock().await.clear();
+    state.local_usage_cache.lock().await.clear();
+    *state.desktop_toast_state.lock().await = Default::default();
+
+    Ok(ClearLocalDataResponse {
+        cleared: true,
+        requires_reload: true,
+    })
 }
 
 #[tauri::command]

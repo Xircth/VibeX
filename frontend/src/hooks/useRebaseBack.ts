@@ -29,12 +29,24 @@ export function useRebaseBack(
       queryClient.invalidateQueries({
         queryKey: ['branchStatus', workspaceId],
       });
+      queryClient.invalidateQueries({
+        queryKey: ['gitDiffs', workspaceId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['gitLog', workspaceId],
+      });
       onSuccess?.();
     },
     onError: (err: RebaseResult) => {
       // Even on failure (likely conflicts), re-fetch branch status
       queryClient.invalidateQueries({
         queryKey: ['branchStatus', workspaceId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['gitDiffs', workspaceId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['gitLog', workspaceId],
       });
       onError?.(err);
     },

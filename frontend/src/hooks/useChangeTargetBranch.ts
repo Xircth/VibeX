@@ -40,6 +40,12 @@ export function useChangeTargetBranch(
         queryClient.invalidateQueries({
           queryKey: ['branchStatus', attemptId],
         });
+        queryClient.invalidateQueries({
+          queryKey: ['gitDiffs', attemptId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['gitLog', attemptId],
+        });
         // Invalidate taskAttempt query to refresh attempt.target_branch
         queryClient.invalidateQueries({
           queryKey: ['taskAttempt', attemptId],
@@ -63,6 +69,12 @@ export function useChangeTargetBranch(
       if (attemptId) {
         queryClient.invalidateQueries({
           queryKey: ['branchStatus', attemptId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['gitDiffs', attemptId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ['gitLog', attemptId],
         });
       }
       onError?.(err);

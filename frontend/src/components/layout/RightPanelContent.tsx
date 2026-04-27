@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Outlet, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
+import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Button } from '@/components/ui/button';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import {
   useProjectRepos,
@@ -22,17 +24,20 @@ import {
   buildWorkspaceBranchOptions,
   findWorkspaceBranchOption,
   findWorkspaceBranchOptionByWorkspaceId,
+  resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { getFirstAvailableProfile } from '@/utils/executor';
-import { Loader2, Plus, X } from 'lucide-react';
 import {
   SessionCreationForm,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
 import type { ExecutorProfileId, Workspace } from 'shared/types';
+import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
+const CREATE_SESSION_ERROR_FALLBACK =
+  'Failed to create session. Please try again.';
 
 function matchesBranch(branch: string, expectedBranch: string) {
   const normalized = branch.trim().toLowerCase();
@@ -50,29 +55,92 @@ function isMainlineBranch(branch: string) {
   );
 }
 
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
+function CreateSessionOverlay({
+  createMode,
+  setCreateMode,
+  workspaceBranchOptions,
+  createWorkspaceValue,
+  setCreateWorkspaceValue,
+  createSessionName,
+  setCreateSessionName,
+  profiles,
+  selectedExecutorProfile,
+  setSelectedExecutorProfile,
+  repoBranchConfigs,
+  setRepoBranch,
+  isLoadingRepoBranches,
+  canCreateSession,
+  isCreatePending,
+  createError,
+  onSubmitCreate,
+  onClose,
+}: {
+  createMode: SessionCreationMode;
+  setCreateMode: (value: SessionCreationMode) => void;
+  workspaceBranchOptions: WorkspaceBranchOption[];
+  createWorkspaceValue: string;
+  setCreateWorkspaceValue: (value: string) => void;
+  createSessionName: string;
+  setCreateSessionName: (value: string) => void;
+  profiles: ReturnType<typeof useUserSystem>['profiles'];
+  selectedExecutorProfile: ExecutorProfileId | null;
+  setSelectedExecutorProfile: (value: ExecutorProfileId | null) => void;
+  repoBranchConfigs: ReturnType<typeof useRepoBranchSelection>['configs'];
+  setRepoBranch: ReturnType<typeof useRepoBranchSelection>['setRepoBranch'];
+  isLoadingRepoBranches: boolean;
+  canCreateSession: boolean;
+  isCreatePending: boolean;
+  createError: unknown;
+  onSubmitCreate: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/86 p-6 backdrop-blur-sm">
+      <div className="relative w-full max-w-[360px] rounded-xl border border-border bg-background p-4 shadow-xl">
+        <button
+          className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </button>
+        <div className="mb-4 space-y-1">
+          <div className="text-sm font-semibold text-foreground">
+            新建会话
+          </div>
+        </div>
 
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  if (
-    error &&
-    typeof error === 'object' &&
-    'message' in error &&
-    typeof (error as { message?: unknown }).message === 'string'
-  ) {
-    return (error as { message: string }).message;
-  }
-
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return '创建会话失败，请稍后重试。';
-  }
+        <SessionCreationForm
+          mode={createMode}
+          onModeChange={setCreateMode}
+          workspaceBranchOptions={workspaceBranchOptions}
+          selectedWorkspaceValue={createWorkspaceValue}
+          onSelectedWorkspaceValueChange={setCreateWorkspaceValue}
+          sessionName={createSessionName}
+          onSessionNameChange={setCreateSessionName}
+          profiles={profiles}
+          selectedExecutorProfile={selectedExecutorProfile}
+          onSelectedExecutorProfileChange={setSelectedExecutorProfile}
+          repoBranchConfigs={repoBranchConfigs}
+          onRepoBranchChange={setRepoBranch}
+          isLoadingBranches={isLoadingRepoBranches}
+          canSubmit={canCreateSession}
+          isSubmitting={isCreatePending}
+          errorMessage={
+            createError
+              ? getSessionUiErrorMessage(
+                  createError,
+                  CREATE_SESSION_ERROR_FALLBACK
+                )
+              : null
+          }
+          onSubmit={onSubmitCreate}
+          onCancel={onClose}
+          dropdownSide="top"
+        />
+      </div>
+    </div>
+  );
 }
 
 export function RightPanelContent() {
@@ -100,6 +168,7 @@ export function RightPanelContent() {
   const { profiles, config } = useUserSystem();
   const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
+  const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;
   const fallbackWorkspaceId =
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
@@ -241,6 +310,7 @@ export function RightPanelContent() {
 
     setSelectedExecutorProfile(defaultExecutorProfile);
   }, [defaultExecutorProfile, selectedExecutorProfile]);
+
   const selectedWorkspaceOption = useMemo<WorkspaceBranchOption | null>(
     () =>
       findWorkspaceBranchOption(workspaceBranchOptions, createWorkspaceValue),
@@ -253,7 +323,7 @@ export function RightPanelContent() {
       ? !!selectedWorkspaceOption
       : repos.length > 0 &&
         repoBranchConfigs.length > 0 &&
-        repoBranchConfigs.every((config) => !!config.targetBranch));
+        repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch));
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
@@ -261,19 +331,15 @@ export function RightPanelContent() {
         throw new Error('Project is required');
       }
 
+      const workspaceSelection =
+        createMode === 'existing_workspace'
+          ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
+          : { workspaceId: null, branch: null };
+
       return sessionsApi.createProject({
         project_id: effectiveProjectId,
-        workspace_id:
-          createMode === 'existing_workspace'
-            ? selectedWorkspaceOption?.useWorktree
-              ? selectedWorkspaceOption.existingWorkspaceId
-              : null
-            : null,
-        branch:
-          createMode === 'existing_workspace' &&
-          !selectedWorkspaceOption?.useWorktree
-            ? (selectedWorkspaceOption?.branch ?? null)
-            : null,
+        workspace_id: workspaceSelection.workspaceId,
+        branch: workspaceSelection.branch,
         executor: selectedExecutorProfile?.executor ?? undefined,
         name: createSessionName.trim() || null,
         create_workspace: createMode === 'new_workspace',
@@ -323,98 +389,89 @@ export function RightPanelContent() {
       createSessionMutation.reset();
     },
     [
-      createSessionMutation,
       canUseExistingWorkspace,
+      createSessionMutation,
       defaultExecutorProfile,
       defaultWorkspaceValue,
       resetRepoBranchSelection,
     ]
   );
 
+  const openCreateSessionOverlay = useCallback(() => {
+    handleCreateOverlayOpenChange(true);
+  }, [handleCreateOverlayOpenChange]);
+
+  const overlayProps = {
+    createMode,
+    setCreateMode,
+    workspaceBranchOptions,
+    createWorkspaceValue,
+    setCreateWorkspaceValue,
+    createSessionName,
+    setCreateSessionName,
+    profiles,
+    selectedExecutorProfile,
+    setSelectedExecutorProfile,
+    repoBranchConfigs,
+    setRepoBranch,
+    isLoadingRepoBranches,
+    canCreateSession,
+    isCreatePending: createSessionMutation.isPending,
+    createError: createSessionMutation.error,
+    onSubmitCreate: () => createSessionMutation.mutate(undefined),
+    onClose: () => handleCreateOverlayOpenChange(false),
+  };
+
   return (
-    <div className="h-full flex overflow-hidden bg-background">
-      <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
-        <BranchInfoHeader />
-        {showRightSession && visibleRightSession ? (
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <KanbanSessionConversationView
-              workspaceId={visibleRightSession.workspaceId}
-              sessionId={visibleRightSession.sessionId}
-              interactive={true}
-              showSessionSelector={true}
-              onSessionCreated={replaceRightSession}
-              onSessionSelected={replaceRightSession}
-              className="h-full"
-            />
-          </div>
-        ) : effectiveActiveTab === 'workspace' && workspaceId ? (
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <Outlet />
-          </div>
-        ) : isRightSessionPending ? (
-          <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            <p className="text-sm">Loading session...</p>
-          </div>
-        ) : (
-          <div className="relative flex flex-1 min-h-0 flex-col items-center justify-center gap-3">
-            <p className="text-sm text-muted-foreground">创建新会话开始工作</p>
-            <Button
-              className="flex items-center gap-1.5 text-sm"
-              onClick={() => handleCreateOverlayOpenChange(true)}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              新建会话
-            </Button>
+    <RightPanelSessionCreationProvider
+      value={{ openCreateSessionOverlay }}
+    >
+      <div className="h-full flex overflow-hidden bg-background">
+        <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
+          <BranchInfoHeader />
+          <div className="relative flex-1 min-h-0 overflow-hidden">
+            {isWorkspaceRoute && workspaceId ? (
+              <div className="h-full min-h-0 overflow-hidden">
+                <KanbanSessionConversationView
+                  workspaceId={workspaceId}
+                  sessionId={sessionId}
+                  interactive={true}
+                  showSessionSelector={true}
+                  onSessionCreated={replaceRightSession}
+                  onSessionSelected={replaceRightSession}
+                  className="h-full"
+                />
+              </div>
+            ) : showRightSession && visibleRightSession ? (
+              <div className="h-full min-h-0 overflow-hidden">
+                <KanbanSessionConversationView
+                  workspaceId={visibleRightSession.workspaceId}
+                  sessionId={visibleRightSession.sessionId}
+                  interactive={true}
+                  showSessionSelector={true}
+                  onSessionCreated={replaceRightSession}
+                  onSessionSelected={replaceRightSession}
+                  className="h-full"
+                />
+              </div>
+            ) : isRightSessionPending ? (
+              <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-sm">Loading session...</p>
+              </div>
+            ) : (
+              <RightPanelNewSessionPrompt
+                onCreateSession={openCreateSessionOverlay}
+              />
+            )}
 
             {isCreateOverlayOpen ? (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/86 p-6 backdrop-blur-sm">
-                <div className="relative w-full max-w-[360px] rounded-xl border border-border bg-background p-4 shadow-xl">
-                  <button
-                    className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    onClick={() => handleCreateOverlayOpenChange(false)}
-                  >
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">关闭</span>
-                  </button>
-                  <div className="mb-4 space-y-1">
-                    <div className="text-sm font-semibold text-foreground">
-                      新建会话
-                    </div>
-                  </div>
-
-                  <SessionCreationForm
-                    mode={createMode}
-                    onModeChange={setCreateMode}
-                    workspaceBranchOptions={workspaceBranchOptions}
-                    selectedWorkspaceValue={createWorkspaceValue}
-                    onSelectedWorkspaceValueChange={setCreateWorkspaceValue}
-                    sessionName={createSessionName}
-                    onSessionNameChange={setCreateSessionName}
-                    profiles={profiles}
-                    selectedExecutorProfile={selectedExecutorProfile}
-                    onSelectedExecutorProfileChange={setSelectedExecutorProfile}
-                    repoBranchConfigs={repoBranchConfigs}
-                    onRepoBranchChange={setRepoBranch}
-                    isLoadingBranches={isLoadingRepoBranches}
-                    canSubmit={canCreateSession}
-                    isSubmitting={createSessionMutation.isPending}
-                    errorMessage={
-                      createSessionMutation.error
-                        ? getErrorMessage(createSessionMutation.error)
-                        : null
-                    }
-                    onSubmit={() => createSessionMutation.mutate()}
-                    onCancel={() => handleCreateOverlayOpenChange(false)}
-                    dropdownSide="top"
-                  />
-                </div>
-              </div>
+              <CreateSessionOverlay {...overlayProps} />
             ) : null}
           </div>
-        )}
+        </div>
+        {effectiveActiveTab === 'workspace' ? <RightPanelSidebar /> : null}
       </div>
-      {effectiveActiveTab === 'workspace' ? <RightPanelSidebar /> : null}
-    </div>
+    </RightPanelSessionCreationProvider>
   );
 }

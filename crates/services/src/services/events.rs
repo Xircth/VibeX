@@ -289,20 +289,19 @@ impl EventService {
                                     let patch = execution_process_patch::remove(*process_id);
                                     msg_store_for_hook.push_patch(patch);
 
-                                    if let Some(session_id) = session_id {
-                                        if let Err(err) =
+                                    if let Some(session_id) = session_id
+                                        && let Err(err) =
                                             EventService::push_workspace_update_for_session(
                                                 &db.pool,
                                                 msg_store_for_hook.clone(),
                                                 *session_id,
                                             )
                                             .await
-                                        {
-                                            tracing::error!(
-                                                "Failed to push workspace update after execution process removal: {:?}",
-                                                err
-                                            );
-                                        }
+                                    {
+                                        tracing::error!(
+                                            "Failed to push workspace update after execution process removal: {:?}",
+                                            err
+                                        );
                                     }
 
                                     return;

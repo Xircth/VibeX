@@ -45,7 +45,7 @@ pub async fn list_git_repos(
         state
             .deployment
             .filesystem()
-            .list_common_git_repos(2500, 6000, Some(6))
+            .list_git_repos(None, 6000, 12000, Some(8))
             .await
     };
     res.map_err(|e| AppError::Internal(e.to_string()))

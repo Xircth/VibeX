@@ -23,6 +23,7 @@ import { defineModal } from '@/lib/modals';
 import { repoApi, attemptsApi } from '@/lib/api';
 import { useLogStream } from '@/hooks/useLogStream';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
+import { normalizeDisplayPath } from '@/utils/displayPath';
 import type { RepoWithTargetBranch, PatchType, UpdateRepo } from 'shared/types';
 
 export type ScriptType = 'setup' | 'cleanup' | 'dev_server' | 'archive';
@@ -289,7 +290,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                   <SelectContent>
                     {repos.map((repo) => (
                       <SelectItem key={repo.id} value={repo.id}>
-                        {repo.display_name || repo.path}
+                        {repo.display_name || normalizeDisplayPath(repo.path)}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -6,6 +6,7 @@ use db::models::{
     workspace::{Workspace, WorkspaceWithStatus},
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
+use git::GitBranch;
 use services::services::config::Config;
 use ts_rs::TS;
 use vibe_ultra::commands::sessions::{SessionContinuityMode, SessionSummary};
@@ -145,6 +146,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<WorkspaceWithStatus>(&mut decls);
     insert_declaration::<WorkspaceRepo>(&mut decls);
     insert_declaration::<RepoWithTargetBranch>(&mut decls);
+    insert_declaration::<GitBranch>(&mut decls);
     decls
 }
 

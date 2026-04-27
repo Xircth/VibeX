@@ -2,6 +2,7 @@
 import type { SessionStatus } from '@/lib/api';
 import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
+import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 
 export const MONITOR_SLOT_STYLES = [
   {
@@ -153,31 +154,7 @@ export function getExecutorDisplayName(executor: string | null) {
 }
 
 export function mapSessionErrorMessage(error: unknown, fallback: string) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : '';
-
-  if (message.includes('Workspace is required')) return '请选择工作区。';
-  if (
-    message.includes('会话仍在执行') ||
-    message.includes('Process already running')
-  ) {
-    return '会话仍在执行，暂时无法删除。';
-  }
-  if (message.includes('Session') && message.includes('not found')) {
-    return '会话不存在或已被删除。';
-  }
-  if (message.includes('Workspace') && message.includes('not found')) {
-    return '工作区不存在。';
-  }
-  if (message.includes('Executor mismatch')) {
-    return '当前会话绑定的代理与所选代理不一致。';
-  }
-
-  return fallback;
+  return getSessionUiErrorMessage(error, fallback);
 }
 
 export function sortSessions(

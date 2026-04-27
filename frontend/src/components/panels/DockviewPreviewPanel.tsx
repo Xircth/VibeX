@@ -9,7 +9,6 @@ import {
   type ComponentType,
 } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
 import {
@@ -21,6 +20,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import {
+  useBinaryAssetPreview,
   useDocumentPreview,
   useFileAtHead,
   useFileContent,
@@ -42,6 +42,7 @@ import {
   getFilePreviewKind,
   isBinaryContentError,
 } from '@/utils/filePreviewKind';
+import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
 
 const LazyMarkdown = lazy(
   () => import('@/components/NormalizedConversation/Markdown')
@@ -137,23 +138,29 @@ function PreviewPlaceholder({
 
 function ReadonlyDocumentPreview({
   content,
-  extractor,
+  format,
 }: {
   content: string;
-  extractor: string;
+  format: 'text' | 'html';
 }) {
   return (
     <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground shadow-sm">
-          <span>Read-only document preview</span>
-          <span>{extractor}</span>
+        <div className="rounded-lg border border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground shadow-sm">
+          本预览仅针对内容，无法完全保留原格式
         </div>
         <div className="rounded-xl border border-border bg-background p-6 shadow-sm">
           {content.trim().length > 0 ? (
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-foreground">
-              {content}
-            </pre>
+            format === 'html' ? (
+              <div
+                className="doc-preview-html text-foreground"
+                dangerouslySetInnerHTML={{ __html: content }}
+              />
+            ) : (
+              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-foreground">
+                {content}
+              </pre>
+            )
           ) : (
             <p className="text-sm text-muted-foreground">
               This document does not contain previewable text content.
@@ -246,23 +253,27 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const hasBinaryReadError = isBinaryContentError(contentError);
   const effectivePreviewKind =
     previewKind === 'text' && hasBinaryReadError ? 'binary' : previewKind;
+  const shouldFetchBinaryAsset =
+    mode !== 'diff' &&
+    (effectivePreviewKind === 'image' || effectivePreviewKind === 'pdf');
   const modifiedContent = modifiedContentOverride ?? content ?? '';
   const originalContent =
     originalContentOverride ?? (headError ? '' : (headContent ?? ''));
-  const fileAssetSrc = useMemo(() => {
-    if (
-      (effectivePreviewKind !== 'image' && effectivePreviewKind !== 'pdf') ||
-      !resolvedFilePath
-    ) {
+  const {
+    assetUrl: fileAssetSrc,
+    isLoading: isLoadingBinaryAsset,
+    error: binaryAssetError,
+  } = useBinaryAssetPreview(
+    shouldFetchBinaryAsset ? resolvedFilePath : null
+  );
+  const binaryAssetErrorMessage = useMemo(() => {
+    if (!binaryAssetError) {
       return null;
     }
-
-    try {
-      return convertFileSrc(resolvedFilePath);
-    } catch {
-      return null;
-    }
-  }, [effectivePreviewKind, resolvedFilePath]);
+    return binaryAssetError instanceof Error
+      ? binaryAssetError.message
+      : String(binaryAssetError);
+  }, [binaryAssetError]);
 
   const [isRendered, setIsRendered] = useState(() =>
     filePath ? (markdownRenderStateMap.get(filePath) ?? false) : false
@@ -494,43 +505,62 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             }
           />
         ) : effectivePreviewKind === 'image' ? (
-          <div className="flex h-full items-center justify-center overflow-auto bg-muted/10 p-4">
-            {fileAssetSrc ? (
-              <img
-                src={fileAssetSrc}
-                alt={resolvedDisplayPath ?? filePath}
-                className="max-h-full max-w-full rounded-lg border border-border bg-background object-contain shadow-sm"
-              />
-            ) : (
-              <PreviewPlaceholder
-                icon={ImageIcon}
-                title="Image preview is unavailable"
-                description="The image source could not be resolved for this file."
-              />
-            )}
-          </div>
-        ) : effectivePreviewKind === 'pdf' ? (
-          <div className="h-full bg-muted/10 p-3">
-            {fileAssetSrc ? (
-              <object
-                data={fileAssetSrc}
-                type="application/pdf"
-                className="h-full w-full rounded-lg border border-border bg-background shadow-sm"
-              >
-                <iframe
+          isLoadingBinaryAsset ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              Loading image preview...
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center overflow-auto bg-muted/10 p-4">
+              {fileAssetSrc ? (
+                <ZoomableImagePreview
                   src={fileAssetSrc}
-                  title={resolvedDisplayPath ?? filePath}
-                  className="h-full w-full rounded-lg border border-border bg-background"
+                  alt={resolvedDisplayPath ?? filePath}
+                  className="h-full w-full"
+                  viewportClassName="border border-border bg-background shadow-sm"
                 />
-              </object>
-            ) : (
-              <PreviewPlaceholder
-                icon={FileText}
-                title="PDF preview is unavailable"
-                description="The PDF source could not be resolved for this file."
-              />
-            )}
-          </div>
+              ) : (
+                <PreviewPlaceholder
+                  icon={ImageIcon}
+                  title="Image preview is unavailable"
+                  description={
+                    binaryAssetErrorMessage ??
+                    'The image data could not be loaded for this file.'
+                  }
+                />
+              )}
+            </div>
+          )
+        ) : effectivePreviewKind === 'pdf' ? (
+          isLoadingBinaryAsset ? (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              Loading PDF preview...
+            </div>
+          ) : (
+            <div className="h-full bg-muted/10 p-3">
+              {fileAssetSrc ? (
+                <object
+                  data={fileAssetSrc}
+                  type="application/pdf"
+                  className="h-full w-full rounded-lg border border-border bg-background shadow-sm"
+                >
+                  <iframe
+                    src={fileAssetSrc}
+                    title={resolvedDisplayPath ?? filePath}
+                    className="h-full w-full rounded-lg border border-border bg-background"
+                  />
+                </object>
+              ) : (
+                <PreviewPlaceholder
+                  icon={FileText}
+                  title="PDF preview is unavailable"
+                  description={
+                    binaryAssetErrorMessage ??
+                    'The PDF data could not be loaded for this file.'
+                  }
+                />
+              )}
+            </div>
+          )
         ) : effectivePreviewKind === 'document' ? (
           isLoadingDocumentPreview ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -545,7 +575,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           ) : (
             <ReadonlyDocumentPreview
               content={documentPreview?.content ?? ''}
-              extractor={documentPreview?.extractor ?? 'word-preview'}
+              format={documentPreview?.format ?? 'text'}
             />
           )
         ) : isLoading ? (

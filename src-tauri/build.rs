@@ -2,6 +2,8 @@
 use std::path::{Path, PathBuf};
 
 fn main() {
+    println!("cargo:rerun-if-changed=icons");
+
     tauri_build::build();
 
     #[cfg(windows)]

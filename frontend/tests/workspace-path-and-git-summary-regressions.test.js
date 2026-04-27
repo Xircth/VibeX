@@ -24,12 +24,15 @@ test('workspace path resolution is centralized for editor, terminal, and agent w
   const terminalSource = readRepoFile('src-tauri/src/commands/terminal.rs');
 
   assert.match(helperSource, /pub fn resolve_workspace_agent_working_dir/);
+  assert.match(helperSource, /pub fn resolve_workspace_repo_script_working_dir/);
   assert.match(helperSource, /pub fn resolve_workspace_repo_root/);
   assert.match(helperSource, /pub fn resolve_workspace_default_open_path/);
   assert.match(helperSource, /return repo\.path\.clone\(\);/);
   assert.match(helperSource, /resolve_workspace_base_path/);
   assert.match(workspacesSource, /resolve_workspace_repo_root/);
   assert.match(workspacesSource, /resolve_workspace_default_open_path/);
+  assert.match(workspacesSource, /resolve_workspace_repo_script_working_dir/);
+  assert.match(workspacesSource, /ensure_container_exists\(&workspace\)/);
   assert.match(
     sessionsSource,
     /resolve_workspace_agent_working_dir\(&workspace, &container_ref, &repos\)/
@@ -58,6 +61,8 @@ test('workspace file tree resyncs when the resolved worktree root changes after 
   assert.match(source, /setSelectedFilePath\(null\)/);
   assert.match(source, /setDiffFilePath\(null\)/);
   assert.match(workspaceRootSource, /containerAlreadyPointsAtRepoRoot/);
+  assert.match(workspaceRootSource, /resolveSingleRepoWorktreeRootPath/);
+  assert.match(workspaceRootSource, /firstWorkingDirSegment === repoRootName/);
 });
 
 test('task follow-up diff badge uses git status from the selected repo instead of diff-stream stats', () => {

@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Copy,
   ExternalLink,
-  FolderOpen,
   Loader2,
   Play,
   Settings,
@@ -14,12 +12,10 @@ import {
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useProjectRepos } from '@/hooks';
-import { useAiHostedDevServerStart } from '@/hooks/useAiHostedDevServerStart';
-import { desktopApi, repoApi, settingsWindowApi } from '@/lib/api';
+import { repoApi, settingsWindowApi } from '@/lib/api';
 import type { Project, Repo } from 'shared/types';
 
 interface NoServerContentProps {
-  workspaceId?: string;
   projectHasDevScript: boolean;
   runningDevServer: boolean;
   isStartingDevServer: boolean;
@@ -34,7 +30,6 @@ interface NoServerContentProps {
 }
 
 export function NoServerContent({
-  workspaceId,
   projectHasDevScript,
   runningDevServer,
   isStartingDevServer,
@@ -49,7 +44,6 @@ export function NoServerContent({
 }: NoServerContentProps) {
   const queryClient = useQueryClient();
   const { data: projectRepos = [] } = useProjectRepos(project?.id);
-  const aiHostedDevStart = useAiHostedDevServerStart(workspaceId);
   const [scriptInput, setScriptInput] = useState('');
 
   const saveScriptMutation = useMutation({
@@ -75,79 +69,30 @@ export function NoServerContent({
     },
   });
 
-  const effectiveStartError =
-    startError ?? aiHostedDevStart.state?.error ?? null;
-  const resultPath = aiHostedDevStart.state?.resultPath ?? null;
-
   const handleSaveAndStart = () => {
     const trimmed = scriptInput.trim();
     if (!trimmed) return;
     saveScriptMutation.mutate(trimmed);
   };
 
-  const handleAiHostedStart = async () => {
-    aiHostedDevStart.clearError();
-    await aiHostedDevStart.start();
-  };
-
   const handleConfigureDevScript = () => {
     settingsWindowApi.open();
   };
 
-  const handleCopyResultPath = async () => {
-    if (!resultPath) return;
-    await navigator.clipboard.writeText(resultPath);
-  };
-
-  const handleRevealResultPath = async () => {
-    if (!resultPath) return;
-    await desktopApi.revealInFileManager(resultPath);
-  };
-
-  const isBusy =
-    isStartingDevServer ||
-    saveScriptMutation.isPending ||
-    aiHostedDevStart.isBusy;
+  const isBusy = isStartingDevServer || saveScriptMutation.isPending;
 
   return (
-    <div className="flex-1 flex items-center justify-center">
+    <div className="flex flex-1 items-center justify-center">
       <div className="mx-auto max-w-md space-y-6 p-6 text-center">
         <div className="flex items-center justify-center">
           <SquareTerminal className="h-8 w-8 text-muted-foreground" />
         </div>
 
         <div className="space-y-4">
-          {effectiveStartError && (
+          {startError && (
             <Alert variant="destructive" className="text-left text-sm">
               <p className="font-medium">开发服务器启动失败</p>
-              <p>{effectiveStartError}</p>
-            </Alert>
-          )}
-
-          {resultPath && !effectiveStartError && (
-            <Alert className="text-left text-sm">
-              <p className="font-medium">AI 已返回构建产物路径</p>
-              <p className="break-all text-muted-foreground">{resultPath}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleCopyResultPath()}
-                  className="gap-1"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  复制路径
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleRevealResultPath()}
-                  className="gap-1"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  打开位置
-                </Button>
-              </div>
+              <p>{startError}</p>
             </Alert>
           )}
 
@@ -157,8 +102,8 @@ export function NoServerContent({
             </h3>
             <p className="text-sm text-muted-foreground">
               {projectHasDevScript
-                ? '你可以直接启动开发服务器，或者交给 AI 自动分析项目并完成启动。'
-                : '请输入启动命令，或使用 AI 托管启动自动检查依赖、环境并尝试启动。'}
+                ? '你可以直接启动开发服务器，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。'
+                : '请输入启动命令，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。'}
             </p>
           </div>
 
@@ -184,25 +129,7 @@ export function NoServerContent({
                   <Play className="h-4 w-4" />
                   保存并启动
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleAiHostedStart()}
-                  disabled={aiHostedDevStart.isBusy}
-                  className="gap-1"
-                >
-                  {aiHostedDevStart.isBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Settings className="h-4 w-4" />
-                  )}
-                  AI 托管启动
-                </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                AI
-                会分析当前项目、补齐依赖与环境，并在成功后直接回复可访问地址或构建产物路径。
-              </p>
             </div>
           )}
 
@@ -233,23 +160,6 @@ export function NoServerContent({
                   </>
                 )}
               </Button>
-
-              {!runningDevServer && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleAiHostedStart()}
-                  disabled={aiHostedDevStart.isBusy}
-                  className="gap-1"
-                >
-                  {aiHostedDevStart.isBusy ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Settings className="h-4 w-4" />
-                  )}
-                  AI 托管启动
-                </Button>
-              )}
 
               {!runningDevServer && (
                 <Button
@@ -290,9 +200,14 @@ export function NoServerContent({
                 className="gap-1"
                 variant="outline"
               >
-                {isInstallingCompanion
-                  ? '正在安装 Companion…'
-                  : '自动安装 Companion'}
+                {isInstallingCompanion ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    正在安装 Companion…
+                  </>
+                ) : (
+                  '自动安装 Companion'
+                )}
               </Button>
               <div>
                 <a

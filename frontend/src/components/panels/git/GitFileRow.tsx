@@ -74,15 +74,15 @@ export const GitFileRow = memo(function GitFileRow({
       data-section={section}
       data-status={file.status}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex min-w-0 items-start gap-2">
         <GitStatusBadge status={file.status} />
         <FileIcon filePath={name} className="mt-[1px]" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-mono text-xs leading-tight text-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs leading-tight text-foreground">
               {name}
             </span>
-            <div className="ml-auto flex items-center justify-end gap-1">
+            <div className="ml-auto flex shrink-0 items-center justify-end gap-1">
               <GitChangeStats
                 additions={file.additions}
                 deletions={file.deletions}

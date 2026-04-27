@@ -4,6 +4,7 @@ import {
   buildWorkspaceBranchOptions,
   getWorkspaceBranchCheckoutHint,
   getWorkspaceBranchWarning,
+  resolveWorkspaceBranchSelection,
 } from './workspaceBranchOptions';
 
 const now = '2026-04-22T10:00:00.000Z';
@@ -33,6 +34,8 @@ function createBranch(overrides: Partial<GitBranch>): GitBranch {
     name: 'feature/worktree',
     is_current: false,
     is_remote: false,
+    is_worktree: false,
+    worktree_path: null,
     last_commit_date: new Date(now),
     ...overrides,
   };
@@ -106,6 +109,89 @@ describe('buildWorkspaceBranchOptions', () => {
     );
     expect(getWorkspaceBranchCheckoutHint(otherBranchOption)).toBe(
       '选择后会先在当前项目目录 checkout 到该分支，以确保工作区正确。'
+    );
+  });
+
+  it('prefers existing workspace ids when building a session selection payload', () => {
+    const [projectRootOption, worktreeOption] = buildWorkspaceBranchOptions({
+      workspaces: [
+        createWorkspace({
+          id: 'root-main',
+          branch: 'main',
+          use_worktree: false,
+        }),
+        createWorkspace({
+          id: 'wt-feature',
+          branch: 'feature/worktree',
+          use_worktree: true,
+        }),
+      ],
+      repoBranches: [
+        createBranch({
+          name: 'main',
+          is_current: true,
+        }),
+        createBranch({
+          name: 'feature/worktree',
+        }),
+      ],
+    });
+
+    expect(resolveWorkspaceBranchSelection(projectRootOption)).toEqual({
+      workspaceId: 'root-main',
+      branch: null,
+    });
+    expect(resolveWorkspaceBranchSelection(worktreeOption)).toEqual({
+      workspaceId: 'wt-feature',
+      branch: null,
+    });
+    expect(resolveWorkspaceBranchSelection(null)).toEqual({
+      workspaceId: null,
+      branch: null,
+    });
+  });
+
+  it('treats only branches flagged by git worktree metadata as worktree choices without an existing workspace', () => {
+    const [option] = buildWorkspaceBranchOptions({
+      workspaces: [],
+      repoBranches: [
+        createBranch({
+          name: 'feature/worktree',
+          is_worktree: true,
+          worktree_path: 'C:\\worktrees\\feature-worktree',
+        }),
+      ],
+    });
+
+    expect(option).toEqual(
+      expect.objectContaining({
+        branch: 'feature/worktree',
+        useWorktree: true,
+        existingWorkspaceId: null,
+      })
+    );
+    expect(resolveWorkspaceBranchSelection(option)).toEqual({
+      workspaceId: null,
+      branch: 'feature/worktree',
+    });
+  });
+
+  it('does not treat same-prefix manual branches as worktrees without git worktree metadata', () => {
+    const [option] = buildWorkspaceBranchOptions({
+      workspaces: [],
+      repoBranches: [
+        createBranch({
+          name: 'vu/manual-branch',
+        }),
+      ],
+    });
+
+    expect(option).toEqual(
+      expect.objectContaining({
+        branch: 'vu/manual-branch',
+        useWorktree: false,
+        existingWorkspaceId: null,
+      })
     );
   });
 });

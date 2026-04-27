@@ -11,6 +11,7 @@ import { getContinuityActionCopy } from '@/utils/sessionContinuity';
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;
   initialSessionId?: string;
+  autoSelectFirstSession?: boolean;
 }
 
 export type SessionSelection =
@@ -105,7 +106,11 @@ export function useWorkspaceSessions(
   workspaceId: string | undefined,
   options: UseWorkspaceSessionsOptions = {}
 ): UseWorkspaceSessionsResult {
-  const { enabled = true, initialSessionId } = options;
+  const {
+    enabled = true,
+    initialSessionId,
+    autoSelectFirstSession = true,
+  } = options;
   const [selection, setSelection] = useState<SessionSelection | undefined>(
     undefined
   );
@@ -218,14 +223,17 @@ export function useWorkspaceSessions(
         ) {
           return { mode: 'existing', sessionId: initialSessionId };
         }
+        if (!autoSelectFirstSession) {
+          return undefined;
+        }
         return { mode: 'existing', sessionId: sessions[0].id };
       });
     } else {
-      setSelection(undefined);
+      setSelection((prev) => (prev?.mode === 'new' ? prev : undefined));
     }
-  }, [workspaceId, sessions, initialSessionId]);
+  }, [autoSelectFirstSession, workspaceId, sessions, initialSessionId]);
 
-  const isNewSessionMode = selection?.mode === 'new' || sessions.length === 0;
+  const isNewSessionMode = selection?.mode === 'new';
   const selectedSessionId =
     selection?.mode === 'existing' ? selection.sessionId : undefined;
 

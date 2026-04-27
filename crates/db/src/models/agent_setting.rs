@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use thiserror::Error;
 
+const DEFAULT_AGENT_SETTINGS: [(&str, i32); 3] =
+    [("claude_code", 0), ("codex", 1), ("open_code", 2)];
+
 #[derive(Debug, Error)]
 pub enum AgentSettingError {
     #[error(transparent)]
@@ -24,8 +27,24 @@ pub struct AgentSetting {
 }
 
 impl AgentSetting {
+    pub async fn ensure_defaults(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        for (agent_type, sort_order) in DEFAULT_AGENT_SETTINGS {
+            sqlx::query(
+                r#"INSERT OR IGNORE INTO agent_setting (agent_type, sort_order)
+                   VALUES ($1, $2)"#,
+            )
+            .bind(agent_type)
+            .bind(sort_order)
+            .execute(pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
     /// List all agent settings ordered by sort_order.
     pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
                       env_json, config_json, created_at, updated_at
@@ -41,6 +60,7 @@ impl AgentSetting {
         pool: &SqlitePool,
         agent_type: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
+        Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
                       env_json, config_json, created_at, updated_at
@@ -117,6 +137,7 @@ impl AgentSetting {
         agent_type: &str,
         version: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        Self::ensure_defaults(pool).await?;
         sqlx::query(
             r#"UPDATE agent_setting
                SET installed_version = $1, updated_at = datetime('now')
@@ -127,5 +148,58 @@ impl AgentSetting {
         .execute(pool)
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::SqlitePool;
+
+    use super::AgentSetting;
+
+    async fn setup_pool() -> SqlitePool {
+        let pool = SqlitePool::connect(":memory:").await.expect("memory db");
+        sqlx::query(
+            r#"CREATE TABLE agent_setting (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_type TEXT NOT NULL UNIQUE,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                installed_version TEXT,
+                env_json TEXT,
+                config_json TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create table");
+        pool
+    }
+
+    #[tokio::test]
+    async fn list_all_backfills_missing_default_agent_rows() {
+        let pool = setup_pool().await;
+
+        let rows = AgentSetting::list_all(&pool).await.expect("list rows");
+        let agent_types = rows
+            .iter()
+            .map(|row| row.agent_type.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(agent_types, vec!["claude_code", "codex", "open_code"]);
+    }
+
+    #[tokio::test]
+    async fn find_by_type_backfills_defaults_before_lookup() {
+        let pool = setup_pool().await;
+
+        let row = AgentSetting::find_by_type(&pool, "codex")
+            .await
+            .expect("lookup")
+            .expect("codex row");
+
+        assert_eq!(row.agent_type, "codex");
     }
 }

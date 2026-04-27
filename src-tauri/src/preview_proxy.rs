@@ -206,16 +206,9 @@ fn inject_preview_scripts(html: &str) -> String {
 
     if let Some(head_pos) = lower.find("<head>") {
         let insert_pos = head_pos + "<head>".len();
-        output.insert_str(insert_pos, &bippy_tag);
+        output.insert_str(insert_pos, &format!("{}{}", bippy_tag, inspect_tag));
     } else {
-        output = format!("{}{}", bippy_tag, output);
-    }
-
-    let lower = output.to_ascii_lowercase();
-    if let Some(body_pos) = lower.rfind("</body>") {
-        output.insert_str(body_pos, &inspect_tag);
-    } else {
-        output.push_str(&inspect_tag);
+        output = format!("{}{}{}", bippy_tag, inspect_tag, output);
     }
 
     output

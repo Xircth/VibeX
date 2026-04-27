@@ -23,6 +23,8 @@ export function useMerge(
     onSuccess: () => {
       // Refresh attempt-specific branch information
       queryClient.invalidateQueries({ queryKey: ['branchStatus', attemptId] });
+      queryClient.invalidateQueries({ queryKey: ['gitDiffs', attemptId] });
+      queryClient.invalidateQueries({ queryKey: ['gitLog', attemptId] });
 
       // Invalidate all repo branches queries
       queryClient.invalidateQueries({ queryKey: repoBranchKeys.all });
@@ -30,6 +32,9 @@ export function useMerge(
       onSuccess?.();
     },
     onError: (err) => {
+      queryClient.invalidateQueries({ queryKey: ['branchStatus', attemptId] });
+      queryClient.invalidateQueries({ queryKey: ['gitDiffs', attemptId] });
+      queryClient.invalidateQueries({ queryKey: ['gitLog', attemptId] });
       console.error('Failed to merge:', err);
       onError?.(err);
     },

@@ -4,6 +4,7 @@ use executors::executors::{BaseCodingAgent, codex::codex_home};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use ts_rs::TS;
+use utils::path::normalize_windows_extended_path_prefix;
 
 use crate::{error::AppError, state::AppState};
 
@@ -72,7 +73,11 @@ pub(crate) async fn read_agent_native_configs(
     match agent_type {
         BaseCodingAgent::Codex => {
             let home = codex_home();
-            let home_str = home.as_ref().map(|path| path.display().to_string());
+            let home_str = home.as_ref().map(|path| {
+                normalize_windows_extended_path_prefix(path)
+                    .display()
+                    .to_string()
+            });
 
             let config_toml = match &home {
                 Some(dir) => {
@@ -111,7 +116,11 @@ pub(crate) async fn read_agent_native_configs(
         }
         BaseCodingAgent::Opencode => {
             let config_dir = opencode_config_dir();
-            let config_path_str = config_dir.as_ref().map(|path| path.display().to_string());
+            let config_path_str = config_dir.as_ref().map(|path| {
+                normalize_windows_extended_path_prefix(path)
+                    .display()
+                    .to_string()
+            });
 
             let config_json = match &config_dir {
                 Some(dir) => {

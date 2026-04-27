@@ -54,6 +54,7 @@ function ThemedToaster() {
 function MainAppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Track previous path for back navigation
   usePreviousPath();
@@ -70,6 +71,7 @@ function MainAppContent() {
 
   useEffect(() => {
     if (!config) return;
+    if (location.pathname.startsWith('/settings')) return;
     let cancelled = false;
 
     const showNextStep = async () => {
@@ -113,7 +115,7 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config, navigate, updateAndSaveConfig]);
+  }, [config, location.pathname, navigate, updateAndSaveConfig]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>

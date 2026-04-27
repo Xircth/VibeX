@@ -324,6 +324,47 @@ fn get_all_branches_lists_current_and_others() {
     // current should be main
     let main_entry = branches.iter().find(|b| b.name == "main").unwrap();
     assert!(main_entry.is_current);
+    assert!(!main_entry.is_worktree);
+}
+
+#[test]
+fn get_all_branches_marks_only_detached_worktree_paths_as_worktrees() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    create_branch(&repo_path, "feature/worktree");
+
+    let worktree_path = td.path().join("feature-worktree");
+    let git = GitCli::new();
+    git.worktree_add(
+        Path::new(&repo_path),
+        &worktree_path,
+        "feature/worktree",
+        false,
+    )
+    .unwrap();
+
+    let branches = GitService::new().get_all_branches(&repo_path).unwrap();
+    let worktree_branch = branches
+        .iter()
+        .find(|branch| branch.name == "feature/worktree")
+        .unwrap();
+    let main_branch = branches
+        .iter()
+        .find(|branch| branch.name == "main")
+        .unwrap();
+    let reported_worktree_path = PathBuf::from(
+        worktree_branch
+            .worktree_path
+            .as_deref()
+            .expect("worktree path should be present"),
+    );
+
+    assert!(worktree_branch.is_worktree);
+    assert_eq!(
+        reported_worktree_path.canonicalize().unwrap(),
+        worktree_path.canonicalize().unwrap()
+    );
+    assert!(!main_branch.is_worktree);
 }
 
 #[test]

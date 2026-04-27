@@ -9,9 +9,11 @@ import {
   Save,
   Sun,
   Tag,
+  Trash2,
   Undo2,
   Volume2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   DEFAULT_COMMIT_REMINDER_PROMPT,
   DEFAULT_PR_DESCRIPTION_PROMPT,
@@ -37,6 +39,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
 import { tauriEmit } from '@/lib/tauriApi';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toPrettyCase } from '@/utils/string';
 
 type SystemSettingsConfig = Config;
@@ -59,6 +62,12 @@ Rules:
 
 Output shape:
 {"EnhancedPrompt":"..."}`;
+
+const CLEAR_LOCAL_DATA_TITLE =
+  '\u6e05\u9664 VibeUltra \u672c\u5730\u6570\u636e';
+
+const CLEAR_LOCAL_DATA_DESCRIPTION =
+  '\u53ea\u4f1a\u6e05\u9664 VibeUltra \u5f53\u524d\u672c\u5730\u7684\u914d\u7f6e\u3001\u6570\u636e\u5e93\u3001\u7f13\u5b58\u4e0e\u672c\u5730\u8bb0\u5f55\uff0c\u4e0d\u4f1a\u5220\u9664\u9879\u76ee\u6587\u4ef6\u6216 Git Worktree \u76ee\u5f55\u3002';
 
 function deepMerge<T extends Record<string, unknown>>(
   target: T,
@@ -150,6 +159,7 @@ export function SystemSettings() {
   const [opencodeModelsError, setOpencodeModelsError] = useState<string | null>(
     null
   );
+  const [isClearingLocalData, setIsClearingLocalData] = useState(false);
 
   const validateBranchPrefix = useCallback((prefix: string): string | null => {
     if (!prefix) return null;
@@ -319,6 +329,50 @@ export function SystemSettings() {
       updateDraft({ workspace_dir: result });
     }
   };
+
+  const confirmClearLocalData = useCallback(async () => {
+    setIsClearingLocalData(true);
+    const toastId = toast.loading('\u6b63\u5728\u6e05\u9664\u672c\u5730\u6570\u636e...');
+
+    try {
+      const result = await configApi.clearLocalData();
+      useWindowProjectsStore.getState().resetProjectWindowState();
+      toast.success('\u672c\u5730\u6570\u636e\u5df2\u6e05\u9664', { id: toastId });
+      if (
+        result.requires_reload &&
+        !window.location.pathname.startsWith('/settings')
+      ) {
+        window.setTimeout(() => window.location.reload(), 700);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : '\u6e05\u9664\u672c\u5730\u6570\u636e\u5931\u8d25',
+        { id: toastId }
+      );
+    } finally {
+      setIsClearingLocalData(false);
+    }
+  }, []);
+
+  const handleClearLocalData = useCallback(() => {
+    let toastId: string | number;
+    toastId = toast.warning('\u786e\u8ba4\u6e05\u9664\u672c\u5730\u6570\u636e\uff1f', {
+      duration: 8000,
+      action: {
+        label: '\u6e05\u9664',
+        onClick: () => {
+          toast.dismiss(toastId);
+          void confirmClearLocalData();
+        },
+      },
+      cancel: {
+        label: '\u53d6\u6d88',
+        onClick: () => toast.dismiss(toastId),
+      },
+    });
+  }, [confirmClearLocalData]);
 
   if (loading) {
     return (
@@ -756,6 +810,34 @@ export function SystemSettings() {
           description="管理 `#tag_name` 插入时使用的内容。"
         >
           <TagManager />
+        </SettingsSection>
+        <SettingsSection
+          icon={Trash2}
+          title={CLEAR_LOCAL_DATA_TITLE}
+          description={CLEAR_LOCAL_DATA_DESCRIPTION}
+        >
+          <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4">
+            <p className="text-xs leading-5 text-muted-foreground">
+              {
+                '\u6e05\u9664\u540e\u4f1a\u91cd\u7f6e\u7cfb\u7edf\u8bbe\u7f6e\u3001\u672c\u5730\u6570\u636e\u5e93\u3001\u7f13\u5b58\u56fe\u50cf\u3001\u672c\u5730\u7edf\u8ba1\u4e0e\u5176\u4ed6\u5e94\u7528\u79c1\u6709\u6570\u636e\u3002'
+              }
+            </p>
+            <div className="mt-3">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleClearLocalData}
+                disabled={isClearingLocalData}
+              >
+                {isClearingLocalData ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                )}
+                {'\u6e05\u9664\u672c\u5730\u6570\u636e'}
+              </Button>
+            </div>
+          </div>
         </SettingsSection>
       </div>
 

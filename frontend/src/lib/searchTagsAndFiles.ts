@@ -19,6 +19,14 @@ export interface SearchOptions {
 }
 
 const TAG_CACHE_TTL_MS = 30_000;
+const BUILTIN_DEV_SERVER_TAG: Tag = {
+  id: 'builtin:start-project-dev-server',
+  tag_name: '启动项目开发服务器',
+  content:
+    '分析当前项目并识别正确的开发服务器启动方式；必要时检查或安装依赖并修复基础环境问题；成功启动后验证服务可访问，再把可访问的本地 URL 直接告诉我。',
+  created_at: '',
+  updated_at: '',
+};
 
 let cachedTags: Tag[] | null = null;
 let cachedTagsAt = 0;
@@ -37,9 +45,20 @@ async function loadCachedTags(): Promise<Tag[]> {
   pendingTagsRequest = tagsApi
     .list()
     .then((tags) => {
-      cachedTags = tags;
+      const mergedTags = new Map<string, Tag>();
+      mergedTags.set(
+        BUILTIN_DEV_SERVER_TAG.tag_name.toLowerCase(),
+        BUILTIN_DEV_SERVER_TAG
+      );
+      for (const tag of tags) {
+        mergedTags.set(tag.tag_name.toLowerCase(), tag);
+      }
+
+      cachedTags = Array.from(mergedTags.values()).sort((left, right) =>
+        left.tag_name.localeCompare(right.tag_name, 'zh-CN')
+      );
       cachedTagsAt = Date.now();
-      return tags;
+      return cachedTags;
     })
     .finally(() => {
       pendingTagsRequest = null;

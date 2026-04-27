@@ -1,3 +1,5 @@
+import { materializePromptTagReferences } from '@/lib/tagReferenceMarkers';
+
 function isSlashCommandPrompt(prompt: string): boolean {
   const trimmed = prompt.trimStart();
   if (!trimmed.startsWith('/')) return false;
@@ -14,10 +16,11 @@ export function buildAgentPrompt(
 ) {
   const trimmed = rawUserMessage.trim();
   const isSlashCommand = !!trimmed && isSlashCommandPrompt(trimmed);
+  const materializedUserMessage = materializePromptTagReferences(rawUserMessage);
 
   const parts = isSlashCommand
     ? [trimmed]
-    : [...contextParts, rawUserMessage].filter(Boolean);
+    : [...contextParts, materializedUserMessage].filter(Boolean);
 
   return {
     prompt: parts.join('\n\n'),

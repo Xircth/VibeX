@@ -41,6 +41,7 @@ export interface ClickToComponentReadyMessage {
   source: 'click-to-component';
   version: 1;
   type: 'ready';
+  bridgeToken?: string;
 }
 
 export interface ClickToComponentOpenInEditorMessage {
@@ -48,18 +49,21 @@ export interface ClickToComponentOpenInEditorMessage {
   version: 1;
   type: 'open-in-editor';
   payload?: OpenInEditorPayload;
+  bridgeToken?: string;
 }
 
 export interface ClickToComponentEnableMessage {
   source: 'click-to-component';
   version: 1;
   type: 'enable-button';
+  bridgeToken?: string;
 }
 
 export interface ClickToComponentToolbarBridgeReadyMessage {
   source: 'click-to-component';
   version: 1;
   type: 'toolbar-bridge-ready';
+  bridgeToken?: string;
 }
 
 export interface ClickToComponentSetTargetingMessage {
@@ -69,12 +73,51 @@ export interface ClickToComponentSetTargetingMessage {
   payload: {
     enabled: boolean;
   };
+  bridgeToken?: string;
+}
+
+export interface PreviewConsolePayload {
+  level: 'log' | 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  source?: string;
+  line?: number | null;
+  column?: number | null;
+  timestamp: number;
+}
+
+export interface PreviewConsoleMessage {
+  source: 'click-to-component';
+  version: 1;
+  type: 'console';
+  payload: PreviewConsolePayload;
+  bridgeToken?: string;
+}
+
+export interface PreviewNetworkPayload {
+  kind: 'fetch' | 'xhr';
+  method: string;
+  url: string;
+  status: number | null;
+  ok: boolean | null;
+  durationMs: number | null;
+  error: string | null;
+  timestamp: number;
+}
+
+export interface PreviewNetworkMessage {
+  source: 'click-to-component';
+  version: 1;
+  type: 'network';
+  payload: PreviewNetworkPayload;
+  bridgeToken?: string;
 }
 
 export type ClickToComponentMessage =
   | ClickToComponentReadyMessage
   | ClickToComponentOpenInEditorMessage
-  | ClickToComponentToolbarBridgeReadyMessage;
+  | ClickToComponentToolbarBridgeReadyMessage
+  | PreviewConsoleMessage
+  | PreviewNetworkMessage;
 
 export type ClickToComponentIframeMessage =
   | ClickToComponentEnableMessage
@@ -84,15 +127,22 @@ export interface EventHandlers {
   onReady?: () => void;
   onToolbarBridgeReady?: () => void;
   onOpenInEditor?: (payload: OpenInEditorPayload) => void;
+  onConsole?: (payload: PreviewConsolePayload) => void;
+  onNetwork?: (payload: PreviewNetworkPayload) => void;
   onUnknownMessage?: (message: unknown) => void;
 }
 
 export class ClickToComponentListener {
   private handlers: EventHandlers = {};
   private messageListener: ((event: MessageEvent) => void) | null = null;
+  private getBridgeToken: (() => string | null) | null = null;
 
-  constructor(handlers: EventHandlers = {}) {
+  constructor(
+    handlers: EventHandlers = {},
+    getBridgeToken?: () => string | null
+  ) {
     this.handlers = handlers;
+    this.getBridgeToken = getBridgeToken ?? null;
   }
 
   /**
@@ -111,13 +161,15 @@ export class ClickToComponentListener {
         return;
       }
 
+      const currentBridgeToken = this.getBridgeToken?.() ?? null;
+      if (data.type !== 'ready') {
+        if (!currentBridgeToken || data.bridgeToken !== currentBridgeToken) {
+          return;
+        }
+      }
+
       switch (data.type) {
         case 'ready':
-          this.postToMessageSource(event.source, {
-            source: 'click-to-component',
-            version: 1,
-            type: 'enable-button',
-          });
           this.handlers.onReady?.();
           break;
 
@@ -129,6 +181,18 @@ export class ClickToComponentListener {
 
         case 'toolbar-bridge-ready':
           this.handlers.onToolbarBridgeReady?.();
+          break;
+
+        case 'console':
+          if (data.payload) {
+            this.handlers.onConsole?.(data.payload);
+          }
+          break;
+
+        case 'network':
+          if (data.payload) {
+            this.handlers.onNetwork?.(data.payload);
+          }
           break;
 
         default:
@@ -156,23 +220,29 @@ export class ClickToComponentListener {
     this.handlers = { ...this.handlers, ...handlers };
   }
 
-  enableButton(iframe: HTMLIFrameElement | null): boolean {
+  enableButton(
+    iframe: HTMLIFrameElement | null,
+    bridgeToken?: string
+  ): boolean {
     return this.sendToIframe(iframe, {
       source: 'click-to-component',
       version: 1,
       type: 'enable-button',
+      bridgeToken,
     });
   }
 
   setTargetingEnabled(
     iframe: HTMLIFrameElement | null,
-    enabled: boolean
+    enabled: boolean,
+    bridgeToken?: string
   ): boolean {
     return this.sendToIframe(iframe, {
       source: 'click-to-component',
       version: 1,
       type: 'set-targeting',
       payload: { enabled },
+      bridgeToken,
     });
   }
 
@@ -182,18 +252,6 @@ export class ClickToComponentListener {
   ): boolean {
     if (iframe?.contentWindow) {
       iframe.contentWindow.postMessage(message, '*');
-      return true;
-    }
-
-    return false;
-  }
-
-  private postToMessageSource(
-    target: MessageEventSource | null,
-    message: ClickToComponentIframeMessage
-  ): boolean {
-    if (target && 'postMessage' in target) {
-      (target as Window).postMessage(message, '*');
       return true;
     }
 

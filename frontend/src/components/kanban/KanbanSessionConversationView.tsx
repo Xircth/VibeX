@@ -12,6 +12,8 @@ import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
+import { useRightPanelSessionCreation } from '@/contexts/RightPanelSessionCreationContext';
+import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import {
   resolveActiveSession,
   useWorkspaceSessions,
@@ -116,20 +118,32 @@ function KanbanSessionConversationContent({
 }) {
   const logsRef = useRef<VirtualizedListRef | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const rightPanelSessionCreation = useRightPanelSessionCreation();
   const sessionState = useWorkspaceSessions(attempt.id, {
     initialSessionId: attempt.session?.id,
     enabled: interactive,
+    autoSelectFirstSession: Boolean(attempt.session?.id),
   });
 
   useEffect(() => {
     if (!interactive) return;
     if (searchParams.get('newSession') !== '1') return;
 
-    sessionState.startNewSession();
+    if (rightPanelSessionCreation) {
+      rightPanelSessionCreation.openCreateSessionOverlay();
+    } else {
+      sessionState.startNewSession();
+    }
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('newSession');
     setSearchParams(nextSearchParams, { replace: true });
-  }, [interactive, searchParams, sessionState, setSearchParams]);
+  }, [
+    interactive,
+    rightPanelSessionCreation,
+    searchParams,
+    sessionState,
+    setSearchParams,
+  ]);
 
   const activeSession = interactive
     ? resolveActiveSession(attempt.session, sessionState)
@@ -139,6 +153,11 @@ function KanbanSessionConversationContent({
     () => createWorkspaceWithSession(attempt, activeSession),
     [activeSession, attempt]
   );
+  const shouldShowNewSessionPrompt =
+    interactive &&
+    !activeSession &&
+    (!attempt.session?.id || sessionState.sessions.length === 0) &&
+    !sessionState.isNewSessionMode;
 
   const conversationKey = `${attempt.id}:${activeSession?.id ?? attempt.session?.id ?? 'unknown'}`;
 
@@ -151,14 +170,28 @@ function KanbanSessionConversationContent({
       >
         <RetryUiProvider attemptId={attempt.id}>
           <div className="flex h-full min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <VirtualizedList
-                ref={logsRef}
-                attempt={activeAttempt}
-                task={null}
+            {shouldShowNewSessionPrompt ? (
+              <RightPanelNewSessionPrompt
+                className="flex-1"
+                onCreateSession={() => {
+                  if (rightPanelSessionCreation) {
+                    rightPanelSessionCreation.openCreateSessionOverlay();
+                    return;
+                  }
+
+                  sessionState.startNewSession();
+                }}
               />
-            </div>
-            {interactive ? (
+            ) : (
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <VirtualizedList
+                  ref={logsRef}
+                  attempt={activeAttempt}
+                  task={null}
+                />
+              </div>
+            )}
+            {interactive && !shouldShowNewSessionPrompt ? (
               <TaskFollowUpSection
                 taskId={taskId}
                 session={activeSession}

@@ -21,6 +21,7 @@ test('welcome page recent projects use a context menu and shared centered confir
   assert.match(source, /handleDeleteFromContextMenu/);
   assert.match(source, /ConfirmDialog\.show\(\{/);
   assert.match(source, /toast\.success\(/);
+  assert.match(source, /PROJECT_DELETE_TOAST_OPTIONS/);
   assert.doesNotMatch(source, /<Dialog/);
 });
 

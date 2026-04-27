@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ExecutorConfigs } from 'shared/types';
 import {
+  getClaudeModelOptions,
+  getClaudeVariantConfig,
   getClaudeVariantFromSelection,
+  getCodexModelOptions,
   getCodexVariantConfig,
   getCodexVariantFromConfigSelection,
   getOpenCodeVariantConfig,
@@ -117,12 +120,36 @@ describe('executor utilities', () => {
     );
   });
 
+  it('uses fixed Claude Code model choices without a Default option', () => {
+    expect(getClaudeVariantConfig(profiles, null).model).toBe('sonnet');
+    expect(
+      getClaudeVariantFromSelection(profiles, 'auto', 'sonnet')
+    ).toBeNull();
+    expect(getClaudeModelOptions(profiles)).toEqual([
+      { value: 'sonnet', label: 'Sonnet' },
+      { value: 'opus', label: 'Opus' },
+      { value: 'haiku', label: 'Haiku' },
+    ]);
+  });
+
   it('derives Codex config from the selected variant', () => {
     expect(getCodexVariantConfig(profiles, 'GPT_5_2_APPROVALS')).toMatchObject({
       model: 'gpt-5.2',
       sandbox: 'workspace-write',
       approvalPolicy: 'unless-trusted',
     });
+  });
+
+  it('uses GPT-5.3 Codex as the Codex model fallback without a Default option', () => {
+    expect(getCodexVariantConfig(profiles, null).model).toBe('gpt-5.3-codex');
+
+    const options = getCodexModelOptions(profiles);
+    expect(options[0]).toEqual({
+      value: 'gpt-5.3-codex',
+      label: 'GPT-5.3 Codex',
+    });
+    expect(options.some((option) => option.value === null)).toBe(false);
+    expect(options.some((option) => option.label === 'Default')).toBe(false);
   });
 
   it('maps Codex sandbox, approval and model back to real variants', () => {

@@ -61,6 +61,16 @@ const CODEX_REASONING_EFFORTS = [
   { value: 'xhigh', label: 'X-High', description: '最大推理深度' },
 ];
 
+const CODEX_MODEL_OPTIONS = [
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.3-codex',
+  'gpt-5.2',
+  'gpt-5.2-codex',
+  'gpt-5.1-codex-max',
+];
+
 // Agent draft state
 export interface AgentDraft {
   enabled: boolean;
@@ -924,12 +934,20 @@ function CodexFields({
         </div>
         <div className="space-y-1.5">
           <Label className="text-[11px] text-muted-foreground">Model</Label>
-          <Input
-            value={draft.codexModel}
-            onChange={(e) => onChange({ codexModel: e.target.value })}
-            placeholder="gpt-5"
-            className="h-8 text-xs"
-          />
+          <>
+            <Input
+              list="codex-model-options"
+              value={draft.codexModel}
+              onChange={(e) => onChange({ codexModel: e.target.value })}
+              placeholder="gpt-5.5"
+              className="h-8 text-xs"
+            />
+            <datalist id="codex-model-options">
+              {CODEX_MODEL_OPTIONS.map((model) => (
+                <option key={model} value={model} />
+              ))}
+            </datalist>
+          </>
         </div>
       </div>
 

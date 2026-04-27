@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { AlertTriangle, Info, CheckCircle, XCircle } from 'lucide-react';
 import { defineModal, type ConfirmResult } from '@/lib/modals';
+import { cn } from '@/lib/utils';
 
 export interface ConfirmDialogProps {
   title: string;
@@ -18,6 +20,8 @@ export interface ConfirmDialogProps {
   cancelText?: string;
   variant?: 'default' | 'destructive' | 'info' | 'success';
   icon?: boolean;
+  contentClassName?: string;
+  contentStyle?: CSSProperties;
 }
 
 const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
@@ -29,6 +33,8 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
     cancelText = 'Cancel',
     variant = 'default',
     icon = true,
+    contentClassName,
+    contentStyle,
   } = props;
 
   const handleConfirm = () => {
@@ -63,13 +69,15 @@ const ConfirmDialogImpl = NiceModal.create<ConfirmDialogProps>((props) => {
   return (
     <Dialog
       open={modal.visible}
+      className={cn(contentClassName ?? '!max-w-[360px] sm:!max-w-[360px]')}
+      style={contentStyle}
       onOpenChange={(open) => {
         if (!open) {
           handleCancel();
         }
       }}
     >
-      <DialogContent className="sm:max-w-[360px]">
+      <DialogContent>
         <DialogHeader>
           <div className="flex items-center gap-3">
             {getIcon()}

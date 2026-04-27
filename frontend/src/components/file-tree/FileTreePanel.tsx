@@ -1,12 +1,12 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import { FilePlus, FolderPlus, Plus, SquareMinus } from 'lucide-react';
+import { FilePlus, FolderPlus, Plus, RefreshCw, SquareMinus } from 'lucide-react';
 import FileIcon from '../FileIcon';
 import { desktopApi, fileTreeApi } from '../../lib/api';
 import type { DirectoryChildrenResponse } from '../../lib/api';
+import { useBinaryAssetPreview } from '@/hooks/useFileContent';
 import { languageFromPath } from '../../utils/syntax';
 import { type FileReferencePayload } from '../../utils/fileReferences';
 import {
@@ -53,6 +53,24 @@ const FILE_TREE_LABELS = {
   openInFileManager: '\u5728\u6587\u4ef6\u7ba1\u7406\u5668\u4e2d\u6253\u5f00',
   delete: '\u5220\u9664',
 } as const;
+
+function isAbsolutePath(path: string): boolean {
+  const normalizedPath = stripWindowsExtendedPathPrefix(path);
+  return (
+    /^[a-zA-Z]:[\\/]/.test(normalizedPath) ||
+    /^[\\/]\?[\\/][a-zA-Z]:[\\/]/.test(normalizedPath) ||
+    normalizedPath.startsWith('/') ||
+    normalizedPath.startsWith('\\\\')
+  );
+}
+
+function stripWindowsExtendedPathPrefix(path: string): string {
+  return path
+    .replace(/^\\\\\?\\UNC\\/i, '\\\\')
+    .replace(/^\\\\\?\\/i, '')
+    .replace(/^\/\?\//i, '')
+    .replace(/^\\\?\\/i, '');
+}
 
 export function FileTreePanel({
   workspaceName,
@@ -484,27 +502,34 @@ export function FileTreePanel({
 
   const resolvePath = useCallback(
     (relativePath: string) => {
+      const normalizedPath = stripWindowsExtendedPathPrefix(relativePath);
+      if (isAbsolutePath(normalizedPath)) {
+        return normalizedPath;
+      }
+
       const usesWindowsSeparator = workspacePath.includes('\\');
       const separator = usesWindowsSeparator ? '\\' : '/';
       const base = workspacePath.replace(/[\\/]+$/, '');
       const normalizedRelative = usesWindowsSeparator
-        ? relativePath.replaceAll('/', '\\')
-        : relativePath;
+        ? normalizedPath.replaceAll('/', '\\')
+        : normalizedPath;
       return `${base}${separator}${normalizedRelative}`;
     },
     [workspacePath]
   );
 
-  const previewImageSrc = useMemo(() => {
+  const previewImagePath = useMemo(() => {
     if (!previewPath || previewKind !== 'image') {
       return null;
     }
-    try {
-      return convertFileSrc(resolvePath(previewPath));
-    } catch {
-      return null;
-    }
-  }, [previewPath, previewKind, resolvePath]);
+
+    return resolvePath(previewPath);
+  }, [previewKind, previewPath, resolvePath]);
+  const {
+    assetUrl: previewImageSrc,
+    isLoading: isLoadingPreviewImage,
+    error: previewImageError,
+  } = useBinaryAssetPreview(previewImagePath);
 
   const openPreview = useCallback((path: string, target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
@@ -589,6 +614,15 @@ export function FileTreePanel({
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, [isDragSelecting]);
+
+  const effectivePreviewLoading =
+    previewKind === 'image' ? isLoadingPreviewImage : previewLoading;
+  const effectivePreviewError =
+    previewKind === 'image'
+      ? (previewImageError instanceof Error
+          ? previewImageError.message
+          : (previewImageError ?? null))
+      : previewError;
 
   const selectRangeFromAnchor = useCallback((anchor: number, index: number) => {
     const start = Math.min(anchor, index);
@@ -1547,6 +1581,20 @@ export function FileTreePanel({
             <button
               type="button"
               className="ghost icon-button file-tree-root-action"
+              onClick={() => onRefreshFiles?.()}
+              disabled={!onRefreshFiles}
+              aria-label="刷新文件树"
+              title="刷新文件树"
+            >
+              <RefreshCw
+                size={14}
+                aria-hidden
+                className={isLoading ? 'animate-spin' : undefined}
+              />
+            </button>
+            <button
+              type="button"
+              className="ghost icon-button file-tree-root-action"
               onClick={toggleAllFolders}
               disabled={!hasFolders}
               aria-label={
@@ -1745,8 +1793,8 @@ export function FileTreePanel({
                 maxHeight: previewAnchor.height,
                 ['--file-preview-arrow-top' as string]: `${previewAnchor.arrowTop}px`,
               }}
-              isLoading={previewLoading}
-              error={previewError}
+              isLoading={effectivePreviewLoading}
+              error={effectivePreviewError}
             />,
             document.body
           )

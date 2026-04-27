@@ -4,7 +4,7 @@ use db::models::repo::Repo as RepoModel;
 use git::{GitService, GitServiceError};
 use sqlx::SqlitePool;
 use thiserror::Error;
-use utils::path::expand_tilde;
+use utils::path::{expand_tilde, normalize_windows_extended_path_prefix};
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -39,7 +39,7 @@ impl RepoService {
         Self
     }
 
-    pub fn validate_git_repo_path(&self, path: &Path) -> Result<()> {
+    pub fn resolve_git_repo_path(&self, path: &Path) -> Result<PathBuf> {
         if !path.exists() {
             return Err(RepoError::PathNotFound(path.to_path_buf()));
         }
@@ -52,11 +52,30 @@ impl RepoService {
             return Err(RepoError::NotGitRepository(path.to_path_buf()));
         }
 
-        Ok(())
+        let repository = git2::Repository::open(path)
+            .map_err(|_| RepoError::NotGitRepository(path.to_path_buf()))?;
+        let workdir = repository
+            .workdir()
+            .ok_or_else(|| RepoError::NotGitRepository(path.to_path_buf()))?;
+        let normalized_workdir = utils::path::normalize_macos_private_alias(workdir);
+        let normalized_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical_workdir = normalized_workdir
+            .canonicalize()
+            .unwrap_or_else(|_| normalized_workdir.clone());
+
+        if canonical_workdir != normalized_path {
+            return Err(RepoError::NotGitRepository(path.to_path_buf()));
+        }
+
+        Ok(normalize_windows_extended_path_prefix(canonical_workdir))
+    }
+
+    pub fn validate_git_repo_path(&self, path: &Path) -> Result<()> {
+        self.resolve_git_repo_path(path).map(|_| ())
     }
 
     pub fn normalize_path(&self, path: &str) -> std::io::Result<PathBuf> {
-        std::path::absolute(expand_tilde(path))
+        std::path::absolute(expand_tilde(path)).map(normalize_windows_extended_path_prefix)
     }
 
     pub async fn register(
@@ -66,16 +85,16 @@ impl RepoService {
         display_name: Option<&str>,
     ) -> Result<RepoModel> {
         let normalized_path = self.normalize_path(path)?;
-        self.validate_git_repo_path(&normalized_path)?;
+        let repo_path = self.resolve_git_repo_path(&normalized_path)?;
 
-        let name = normalized_path
+        let name = repo_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "unnamed".to_string());
 
         let display_name = display_name.unwrap_or(&name);
 
-        let repo = RepoModel::find_or_create(pool, &normalized_path, display_name).await?;
+        let repo = RepoModel::find_or_create(pool, &repo_path, display_name).await?;
         Ok(repo)
     }
 
@@ -90,7 +109,11 @@ impl RepoService {
             return Err(RepoError::PathNotDirectory(normalized_path));
         }
 
-        Ok(normalized_path.join(".git").exists())
+        match self.resolve_git_repo_path(&normalized_path) {
+            Ok(_) => Ok(true),
+            Err(RepoError::NotGitRepository(_)) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     pub async fn find_by_id(&self, pool: &SqlitePool, repo_id: Uuid) -> Result<Option<RepoModel>> {
@@ -162,12 +185,61 @@ impl RepoService {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "unnamed".to_string());
-        let repo = RepoModel::find_or_create(
-            pool,
-            &normalized_path,
-            display_name.unwrap_or(&default_name),
-        )
-        .await?;
+        let repo_path = self.resolve_git_repo_path(&normalized_path)?;
+        let repo =
+            RepoModel::find_or_create(pool, &repo_path, display_name.unwrap_or(&default_name))
+                .await?;
         Ok(repo)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use git::GitService;
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn child_directory_inside_parent_repo_is_not_registered_as_parent_repo() {
+        let temp = TempDir::new().unwrap();
+        let parent_repo = temp.path().join("parent");
+        GitService::new()
+            .initialize_repo_with_main_branch(&parent_repo)
+            .unwrap();
+        let child = parent_repo.join("child");
+        std::fs::create_dir_all(&child).unwrap();
+
+        let service = RepoService::new();
+
+        assert!(matches!(
+            service.resolve_git_repo_path(&child),
+            Err(RepoError::NotGitRepository(path)) if path == child
+        ));
+        assert!(!service.is_git_repo_path(child.to_str().unwrap()).unwrap());
+    }
+
+    #[test]
+    fn exact_nested_repo_is_registered_as_itself() {
+        let temp = TempDir::new().unwrap();
+        let parent_repo = temp.path().join("parent");
+        GitService::new()
+            .initialize_repo_with_main_branch(&parent_repo)
+            .unwrap();
+        let child_repo = parent_repo.join("child");
+        GitService::new()
+            .initialize_repo_with_main_branch(&child_repo)
+            .unwrap();
+
+        let service = RepoService::new();
+        let resolved = service.resolve_git_repo_path(&child_repo).unwrap();
+        let expected = normalize_windows_extended_path_prefix(child_repo.canonicalize().unwrap());
+
+        assert_eq!(resolved, expected);
+        assert!(
+            service
+                .is_git_repo_path(child_repo.to_str().unwrap())
+                .unwrap()
+        );
     }
 }

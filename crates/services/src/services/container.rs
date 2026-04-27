@@ -126,9 +126,7 @@ fn normalized_workspace_agent_working_dir(
 
     if workspace.use_worktree
         && !base_is_repo_root
-        && !segments
-            .first()
-            .is_some_and(|segment| segment == &repo.name)
+        && segments.first().is_none_or(|segment| segment != &repo.name)
     {
         segments.insert(0, repo.name.clone());
         let mut path = PathBuf::new();

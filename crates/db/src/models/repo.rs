@@ -6,6 +6,7 @@ use serde_with::rust::double_option;
 use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
 use thiserror::Error;
 use ts_rs::TS;
+use utils::path::normalize_windows_extended_path_prefix;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -113,10 +114,19 @@ pub struct UpdateRepo {
 }
 
 impl Repo {
+    fn normalize_windows_path(mut self) -> Self {
+        self.path = normalize_windows_extended_path_prefix(&self.path);
+        self
+    }
+
+    fn normalize_windows_paths(rows: Vec<Self>) -> Vec<Self> {
+        rows.into_iter().map(Self::normalize_windows_path).collect()
+    }
+
     /// Get repos that still have the migration sentinel as their name.
     /// Used by the startup backfill to fix repo names.
     pub async fn list_needing_name_fix(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
+        let rows = sqlx::query_as!(
             Repo,
             r#"SELECT id as "id!: Uuid",
                       path,
@@ -136,7 +146,8 @@ impl Repo {
                WHERE name = '__NEEDS_BACKFILL__'"#
         )
         .fetch_all(pool)
-        .await
+        .await?;
+        Ok(Self::normalize_windows_paths(rows))
     }
 
     pub async fn update_name(
@@ -157,7 +168,7 @@ impl Repo {
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as!(
+        let repo = sqlx::query_as!(
             Repo,
             r#"SELECT id as "id!: Uuid",
                       path,
@@ -178,7 +189,8 @@ impl Repo {
             id
         )
         .fetch_optional(pool)
-        .await
+        .await?;
+        Ok(repo.map(Self::normalize_windows_path))
     }
 
     pub async fn find_by_ids(pool: &SqlitePool, ids: &[Uuid]) -> Result<Vec<Self>, sqlx::Error> {
@@ -204,7 +216,9 @@ impl Repo {
     where
         E: Executor<'e, Database = Sqlite>,
     {
-        let path_str = path.to_string_lossy().to_string();
+        let path_str = normalize_windows_extended_path_prefix(path)
+            .to_string_lossy()
+            .to_string();
         let id = Uuid::new_v4();
         let repo_name = path
             .file_name()
@@ -238,6 +252,7 @@ impl Repo {
         )
         .fetch_one(executor)
         .await
+        .map(Self::normalize_windows_path)
     }
 
     pub async fn delete_orphaned(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
@@ -252,7 +267,7 @@ impl Repo {
     }
 
     pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
+        let rows = sqlx::query_as!(
             Repo,
             r#"SELECT id as "id!: Uuid",
                       path,
@@ -272,13 +287,14 @@ impl Repo {
                ORDER BY display_name ASC"#
         )
         .fetch_all(pool)
-        .await
+        .await?;
+        Ok(Self::normalize_windows_paths(rows))
     }
 
     pub async fn list_by_recent_workspace_usage(
         pool: &SqlitePool,
     ) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
+        let rows = sqlx::query_as!(
             Repo,
             r#"SELECT r.id as "id!: Uuid",
                       r.path,
@@ -303,7 +319,8 @@ impl Repo {
                ORDER BY wr.last_used_at DESC, r.display_name ASC"#
         )
         .fetch_all(pool)
-        .await
+        .await?;
+        Ok(Self::normalize_windows_paths(rows))
     }
 
     pub async fn update(
@@ -396,6 +413,7 @@ impl Repo {
         )
         .fetch_one(pool)
         .await
+        .map(Self::normalize_windows_path)
         .map_err(RepoError::from)
     }
 }

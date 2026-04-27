@@ -64,7 +64,7 @@ test('workspace_dir override is runtime-updatable and applied on config save', (
   );
 });
 
-test('homepage git repo discovery scans broader roots with deeper search and longer timeouts', () => {
+test('homepage git repo discovery scans the user root and only accepts openable git repositories', () => {
   const filesystemServiceSource = readRepoFile(
     'crates/services/src/services/filesystem.rs'
   );
@@ -72,19 +72,32 @@ test('homepage git repo discovery scans broader roots with deeper search and lon
     'src-tauri/src/commands/filesystem.rs'
   );
 
-  assert.match(filesystemServiceSource, /fn push_unique_directory/);
-  assert.match(filesystemServiceSource, /dirs::document_dir\(\)/);
-  assert.match(filesystemServiceSource, /dirs::desktop_dir\(\)/);
-  assert.match(filesystemServiceSource, /dirs::download_dir\(\)/);
-  assert.match(filesystemServiceSource, /"projects"/);
-  assert.match(filesystemServiceSource, /"source"/);
+  assert.match(
+    filesystemServiceSource,
+    /unwrap_or_else\(Self::get_home_directory\)/
+  );
+  assert.match(filesystemServiceSource, /Self::verify_directory\(&base_path\)\?/);
+  assert.match(filesystemServiceSource, /vec!\[base_path\]/);
   assert.match(
     filesystemCommandSource,
     /list_git_repos\(Some\(p\.clone\(\)\), 2000, 5000, Some\(6\)\)/
   );
   assert.match(
     filesystemCommandSource,
+    /list_git_repos\(None, 6000, 12000, Some\(8\)\)/
+  );
+  assert.doesNotMatch(
+    filesystemCommandSource,
     /list_common_git_repos\(2500, 6000, Some\(6\)\)/
+  );
+  assert.match(filesystemServiceSource, /git2::Repository::open\(path\)/);
+  assert.match(filesystemServiceSource, /repo\.workdir\(\)\?/);
+
+  const repoServiceSource = readRepoFile('crates/services/src/services/repo.rs');
+  assert.match(repoServiceSource, /pub fn resolve_git_repo_path/);
+  assert.match(
+    repoServiceSource,
+    /RepoModel::find_or_create\(pool, &repo_path, display_name\)/
   );
 });
 
@@ -107,4 +120,41 @@ test('file tree clears stale project state and waits for repo data before syncin
     /if \(pendingProjectRootSyncRef\.current !== projectId\)/
   );
   assert.match(source, /if \(!workspaceBelongsToCurrentProject\)/);
+});
+
+test('file tree treats Windows extended-length paths as absolute paths', () => {
+  const dockviewSource = readFrontendFile(
+    'src/components/panels/DockviewFileTreePanel.tsx'
+  );
+  const fileTreeSource = readFrontendFile(
+    'src/components/file-tree/FileTreePanel.tsx'
+  );
+
+  assert.match(dockviewSource, /normalizedPath\.startsWith\('\\\\\\\\'\)/);
+  assert.match(fileTreeSource, /normalizedPath\.startsWith\('\\\\\\\\'\)/);
+  assert.match(dockviewSource, /stripWindowsExtendedPathPrefix/);
+  assert.match(fileTreeSource, /stripWindowsExtendedPathPrefix/);
+  assert.match(fileTreeSource, /\^\[\\\\\/\]\\\?\[\\\\\/\]\[a-zA-Z\]:/);
+  assert.match(fileTreeSource, /if \(isAbsolutePath\(normalizedPath\)\) \{/);
+  assert.match(fileTreeSource, /return normalizedPath;/);
+});
+
+test('file tree exposes a manual refresh button and routes it through the full refresh token path', () => {
+  const panelSource = readFrontendFile(
+    'src/components/panels/DockviewFileTreePanel.tsx'
+  );
+  const fileTreeSource = readFrontendFile(
+    'src/components/file-tree/FileTreePanel.tsx'
+  );
+
+  assert.match(panelSource, /const refreshFileTree = useCallback\(async \(\) => \{/);
+  assert.match(panelSource, /await loadRootChildren\(\);/);
+  assert.match(panelSource, /setRefreshToken\(\(value\) => value \+ 1\)/);
+  assert.match(panelSource, /void refreshFileTree\(\);/);
+  assert.match(panelSource, /onRefreshFiles=\{refreshFileTree\}/);
+
+  assert.match(fileTreeSource, /RefreshCw/);
+  assert.match(fileTreeSource, /aria-label="刷新文件树"/);
+  assert.match(fileTreeSource, /title="刷新文件树"/);
+  assert.match(fileTreeSource, /onClick=\{\(\) => onRefreshFiles\?\.\(\)\}/);
 });

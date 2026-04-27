@@ -14,11 +14,16 @@ mod filesystem_tests {
         fs::create_dir_all(&full_path).unwrap();
     }
 
-    /// Helper function to create a git repository (just creates .git directory)
+    /// Helper function to create a git repository.
     fn create_git_repo(base: &Path, path: &str) {
         create_dir_structure(base, path);
-        let git_dir = base.join(path).join(".git");
-        fs::create_dir_all(&git_dir).unwrap();
+        git2::Repository::init(base.join(path)).unwrap();
+    }
+
+    /// Helper function to create a directory that looks like a repo but cannot be opened.
+    fn create_invalid_git_repo_marker(base: &Path, path: &str) {
+        create_dir_structure(base, path);
+        fs::create_dir_all(base.join(path).join(".git")).unwrap();
     }
 
     #[tokio::test]
@@ -128,6 +133,38 @@ mod filesystem_tests {
 
         // Should return empty list
         assert!(repos.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_git_repos_ignores_invalid_git_marker_parent() {
+        let temp_dir = TempDir::new().unwrap();
+        let base_path = temp_dir.path();
+
+        create_invalid_git_repo_marker(base_path, "invalid_parent");
+        create_git_repo(base_path, "invalid_parent/real_repo");
+
+        let filesystem_service = FilesystemService::new();
+        let repos = filesystem_service
+            .list_git_repos(
+                Some(base_path.to_string_lossy().to_string()),
+                5000,
+                10000,
+                Some(3),
+            )
+            .await
+            .unwrap();
+
+        let repo_paths: Vec<String> = repos
+            .iter()
+            .map(|repo| repo.path.to_string_lossy().to_string())
+            .collect();
+
+        assert!(repo_paths.iter().any(|path| path.ends_with("real_repo")));
+        assert!(
+            !repo_paths
+                .iter()
+                .any(|path| path.ends_with("invalid_parent"))
+        );
     }
 
     #[tokio::test]

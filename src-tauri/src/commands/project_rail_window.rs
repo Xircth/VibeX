@@ -68,11 +68,12 @@ pub struct ProjectRailTargetPayload {
 
 pub fn ensure_project_rail_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(PROJECT_RAIL_WINDOW_LABEL) {
+        crate::apply_app_icon(&window)?;
         configure_project_rail_window_appearance(&window)?;
         return Ok(window);
     }
 
-    let window = tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         app,
         PROJECT_RAIL_WINDOW_LABEL,
         WebviewUrl::App("/project-rail".into()),
@@ -86,9 +87,13 @@ pub fn ensure_project_rail_window(app: &tauri::AppHandle) -> Result<tauri::Webvi
     .skip_taskbar(true)
     .background_color(Color(0, 0, 0, 0))
     .shadow(false)
-    .visible(false)
-    .build()
-    .map_err(|error| error.to_string())?;
+    .visible(false);
+
+    let builder = builder
+        .icon(crate::load_app_icon().map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+
+    let window = builder.build().map_err(|error| error.to_string())?;
 
     configure_project_rail_window_appearance(&window)?;
     Ok(window)

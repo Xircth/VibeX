@@ -26,24 +26,28 @@ export function ProjectWindowStatusSummary() {
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
 
   const statusItems = useMemo(() => {
+    const existingProjectIds = new Set(Object.keys(projectsById));
     const candidateProjectIds = Array.from(
       new Set([
         ...Object.keys(projectSnapshots),
         ...openProjectIds,
         ...(currentProjectId ? [currentProjectId] : []),
       ])
-    ).slice(0, BOTTOM_STATUS_LIMIT);
+    )
+      .filter((projectId) => existingProjectIds.has(projectId))
+      .slice(0, BOTTOM_STATUS_LIMIT);
 
     return candidateProjectIds
       .map((projectId) => {
+        const project = projectsById[projectId];
         const snapshot = projectSnapshots[projectId];
-        if (!snapshot) {
+        if (!project || !snapshot) {
           return null;
         }
 
         return {
           projectId,
-          projectName: projectsById[projectId]?.name ?? '项目',
+          projectName: project.name,
           visualState: deriveProjectVisualState(
             snapshot,
             projectAlerts[projectId]

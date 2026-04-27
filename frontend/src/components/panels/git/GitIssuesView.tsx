@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   CircleDot,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import type { GitHubIssueInfo } from 'shared/types';
+import { getGitHostErrorPresentation } from '@/lib/gitHostUiErrors';
 
 interface GitIssuesViewProps {
   issues: GitHubIssueInfo[];
@@ -101,6 +102,11 @@ export const GitIssuesView = memo(function GitIssuesView({
   onSetIssueState,
   onRefresh,
 }: GitIssuesViewProps) {
+  const errorPresentation = useMemo(
+    () => getGitHostErrorPresentation(error, 'Issues'),
+    [error]
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Filter bar */}
@@ -137,14 +143,23 @@ export const GitIssuesView = memo(function GitIssuesView({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {error && (
-          <div className="flex items-center gap-1.5 px-2 py-2 text-[10px] text-destructive">
-            <AlertCircle className="h-3 w-3 shrink-0" />
-            <span className="truncate">{error}</span>
+        {errorPresentation && (
+          <div className="mx-2 mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">{errorPresentation.title}</p>
+                {errorPresentation.hint ? (
+                  <p className="whitespace-pre-line text-amber-900/80 dark:text-amber-100/80">
+                    {errorPresentation.hint}
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </div>
         )}
 
-        {!isLoading && !error && issues.length === 0 && (
+        {!isLoading && !errorPresentation && issues.length === 0 && (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
             <div className="text-center space-y-1">
               <CircleDot className="h-6 w-6 opacity-40 mx-auto" />
@@ -153,7 +168,7 @@ export const GitIssuesView = memo(function GitIssuesView({
           </div>
         )}
 
-        {isLoading && issues.length === 0 && (
+        {isLoading && issues.length === 0 && !errorPresentation && (
           <div className="h-full flex items-center justify-center text-muted-foreground text-xs">
             Loading issues...
           </div>

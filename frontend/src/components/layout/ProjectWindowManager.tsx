@@ -337,16 +337,19 @@ function ProjectActivityTracker({
             description,
           });
 
-          if (!config?.notifications.push_enabled) {
-            return;
-          }
-
-          if (config.notifications.sound_enabled) {
+          if (config?.notifications.sound_enabled) {
             void configApi
               .playNotificationSound(config.notifications.sound_file)
               .catch((error) => {
-                console.error('Failed to play desktop toast sound:', error);
+                console.error(
+                  'Failed to play session notification sound:',
+                  error
+                );
               });
+          }
+
+          if (!config?.notifications.push_enabled) {
+            return;
           }
 
           if (!windowFocused) {
@@ -408,7 +411,7 @@ export function ProjectWindowManager() {
   const location = useLocation();
   const navigate = useNavigate();
   const { projectId } = useProject();
-  const { projects } = useProjects();
+  const { projects, projectsById, isLoading: isProjectsLoading } = useProjects();
   const ensureProjectOpen = useWindowProjectsStore(
     (state) => state.ensureProjectOpen
   );
@@ -419,7 +422,12 @@ export function ProjectWindowManager() {
     (state) => state.openProjectIds
   );
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
-  const setRailVisible = useWindowProjectsStore((state) => state.setRailVisible);
+  const setRailVisible = useWindowProjectsStore(
+    (state) => state.setRailVisible
+  );
+  const pruneProjectState = useWindowProjectsStore(
+    (state) => state.pruneProjectState
+  );
   const isProjectRailWindow = location.pathname === '/project-rail';
   const isSettingsWindowRoute = location.pathname.startsWith('/settings');
   const shouldManageProjectWindows = !isSettingsWindowRoute;
@@ -441,6 +449,19 @@ export function ProjectWindowManager() {
     location.search,
     projectId,
     rememberProjectRoute,
+    shouldManageProjectWindows,
+  ]);
+
+  useEffect(() => {
+    if (!shouldManageProjectWindows || isProjectsLoading) {
+      return;
+    }
+
+    pruneProjectState(projects.map((project) => project.id));
+  }, [
+    isProjectsLoading,
+    projects,
+    pruneProjectState,
     shouldManageProjectWindows,
   ]);
 
@@ -468,11 +489,14 @@ export function ProjectWindowManager() {
 
     return Array.from(
       new Set([...(projectId ? [projectId] : []), ...openProjectIds])
+    ).filter((trackedProjectId) =>
+      Boolean(projectsById[trackedProjectId])
     );
   }, [
     isProjectRailWindow,
     openProjectIds,
     projectId,
+    projectsById,
     shouldManageProjectWindows,
   ]);
 

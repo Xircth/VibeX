@@ -49,6 +49,12 @@ export function useRebase(
       queryClient.invalidateQueries({
         queryKey: ['attemptRepo', attemptId],
       });
+      queryClient.invalidateQueries({
+        queryKey: ['gitDiffs', attemptId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['gitLog', attemptId],
+      });
 
       // Refresh branch list
       if (repoId) {
@@ -63,6 +69,12 @@ export function useRebase(
       // Even on failure (likely conflicts), re-fetch branch status immediately to show rebase-in-progress
       queryClient.invalidateQueries({
         queryKey: ['branchStatus', attemptId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['gitDiffs', attemptId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['gitLog', attemptId],
       });
       onError?.(err);
     },

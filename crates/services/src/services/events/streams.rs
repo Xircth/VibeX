@@ -56,34 +56,34 @@ impl EventService {
                 async move {
                     match msg_result {
                         Ok(LogMsg::JsonPatch(patch)) => {
-                            if let Some(patch_op) = patch.0.first() {
-                                if patch_op.path().starts_with("/workspaces/") {
-                                    match patch_op {
-                                        json_patch::PatchOperation::Add(op) => {
-                                            if let Ok(workspace) =
-                                                serde_json::from_value::<WorkspaceWithStatus>(
-                                                    op.value.clone(),
-                                                )
-                                                && workspace.project_id == project_id
-                                            {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
-                                            }
-                                        }
-                                        json_patch::PatchOperation::Replace(op) => {
-                                            if let Ok(workspace) =
-                                                serde_json::from_value::<WorkspaceWithStatus>(
-                                                    op.value.clone(),
-                                                )
-                                                && workspace.project_id == project_id
-                                            {
-                                                return Some(Ok(LogMsg::JsonPatch(patch)));
-                                            }
-                                        }
-                                        json_patch::PatchOperation::Remove(_) => {
+                            if let Some(patch_op) = patch.0.first()
+                                && patch_op.path().starts_with("/workspaces/")
+                            {
+                                match patch_op {
+                                    json_patch::PatchOperation::Add(op) => {
+                                        if let Ok(workspace) =
+                                            serde_json::from_value::<WorkspaceWithStatus>(
+                                                op.value.clone(),
+                                            )
+                                            && workspace.project_id == project_id
+                                        {
                                             return Some(Ok(LogMsg::JsonPatch(patch)));
                                         }
-                                        _ => {}
                                     }
+                                    json_patch::PatchOperation::Replace(op) => {
+                                        if let Ok(workspace) =
+                                            serde_json::from_value::<WorkspaceWithStatus>(
+                                                op.value.clone(),
+                                            )
+                                            && workspace.project_id == project_id
+                                        {
+                                            return Some(Ok(LogMsg::JsonPatch(patch)));
+                                        }
+                                    }
+                                    json_patch::PatchOperation::Remove(_) => {
+                                        return Some(Ok(LogMsg::JsonPatch(patch)));
+                                    }
+                                    _ => {}
                                 }
                             }
                             None

@@ -19,3 +19,6 @@ serde_with = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true }
+

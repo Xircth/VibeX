@@ -261,6 +261,50 @@
     @apply ring-inset;
   }
 
+  :where(.legacy-design) button:has(svg.lucide-x):focus,
+  :where(.legacy-design) button:has(svg.lucide-x):focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-project-delete-toast {
+    --width: 224px !important;
+    width: 224px !important;
+    min-width: 224px !important;
+    max-width: 224px !important;
+    min-height: 56px !important;
+    padding: 12px 34px 12px 12px !important;
+    gap: 8px !important;
+  }
+
+  :where(.legacy-design)
+    [data-sonner-toast].vu-project-delete-toast
+    [data-content] {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+    max-width: 100% !important;
+  }
+
+  :where(.legacy-design)
+    [data-sonner-toast].vu-project-delete-toast
+    [data-title],
+  :where(.legacy-design)
+    [data-sonner-toast].vu-project-delete-toast
+    [data-description] {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  :where(.legacy-design)
+    [data-sonner-toast].vu-project-delete-toast
+    [data-close-button] {
+    left: auto !important;
+    right: 7px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+  }
+
   .legacy-design .logo {
     @apply fill-foreground;
   }

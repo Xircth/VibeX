@@ -31,6 +31,7 @@ import {
   buildWorkspaceBranchOptions,
   findWorkspaceBranchOption,
   findWorkspaceBranchOptionByWorkspaceId,
+  resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { getFirstAvailableProfile } from '@/utils/executor';
@@ -402,19 +403,15 @@ export function KanbanSessionHub() {
         mode === 'existing_workspace'
           ? findWorkspaceBranchOption(workspaceBranchOptions, workspaceValue)
           : null;
+      const workspaceSelection =
+        mode === 'existing_workspace'
+          ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
+          : { workspaceId: null, branch: null };
 
       const session = await sessionsApi.createProject({
         project_id: projectId,
-        workspace_id:
-          mode === 'existing_workspace'
-            ? selectedWorkspaceOption?.useWorktree
-              ? selectedWorkspaceOption.existingWorkspaceId
-              : null
-            : null,
-        branch:
-          mode === 'existing_workspace' && !selectedWorkspaceOption?.useWorktree
-            ? (selectedWorkspaceOption?.branch ?? null)
-            : null,
+        workspace_id: workspaceSelection.workspaceId,
+        branch: workspaceSelection.branch,
         executor: executorProfile?.executor ?? undefined,
         name: sessionName.trim() || null,
         create_workspace: mode === 'new_workspace',

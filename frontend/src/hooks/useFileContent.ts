@@ -1,5 +1,10 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fileTreeApi, type DocumentPreviewResponse } from '@/lib/api';
+import {
+  fileTreeApi,
+  type BinaryAssetResponse,
+  type DocumentPreviewResponse,
+} from '@/lib/api';
 import { fileTreeKeys } from '@/hooks/useFileTree';
 
 export const fileContentKeys = {
@@ -8,6 +13,7 @@ export const fileContentKeys = {
   headByPath: (path: string | null) => ['fileContentHead', path] as const,
   documentPreviewByPath: (path: string | null) =>
     ['documentPreview', path] as const,
+  binaryAssetByPath: (path: string | null) => ['binaryAsset', path] as const,
 };
 
 /**
@@ -55,6 +61,63 @@ export function useDocumentPreview(path: string | null) {
       suppressGlobalError: true,
     },
   });
+}
+
+function decodeBase64ToBlob(base64: string, mimeType: string) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new Blob([bytes], { type: mimeType });
+}
+
+/**
+ * Hook to read a binary asset and expose it as a local blob URL for preview.
+ */
+export function useBinaryAssetPreview(path: string | null) {
+  const query = useQuery<BinaryAssetResponse>({
+    queryKey: fileContentKeys.binaryAssetByPath(path),
+    queryFn: () => fileTreeApi.readBinaryAsset(path!),
+    enabled: !!path,
+    staleTime: 30_000,
+    retry: false,
+    meta: {
+      suppressGlobalError: true,
+    },
+  });
+
+  const blob = useMemo(() => {
+    if (!query.data) {
+      return null;
+    }
+
+    return decodeBase64ToBlob(query.data.data_base64, query.data.mime_type);
+  }, [query.data]);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!blob) {
+      setObjectUrl(null);
+      return;
+    }
+
+    const nextObjectUrl = URL.createObjectURL(blob);
+    setObjectUrl(nextObjectUrl);
+
+    return () => {
+      URL.revokeObjectURL(nextObjectUrl);
+    };
+  }, [blob]);
+
+  return {
+    assetUrl: objectUrl,
+    mimeType: query.data?.mime_type ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+  };
 }
 
 /**

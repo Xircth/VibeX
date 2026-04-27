@@ -27,8 +27,17 @@ type ExecutorVariantRecord<T extends Record<string, unknown>> = {
 const CLAUDE_CODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CLAUDE_CODE;
 const CODEX_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CODEX;
 const OPENCODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.OPENCODE;
+const CLAUDE_DEFAULT_MODEL = 'sonnet';
+const CODEX_DEFAULT_MODEL = 'gpt-5.3-codex';
+
+const CLAUDE_MODEL_OPTIONS: CodexModelOption[] = [
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'haiku', label: 'Haiku' },
+];
 
 const CODEX_MODEL_LABELS: Record<string, string> = {
+  'gpt-5.5': 'GPT-5.5',
   'gpt-5.4': 'GPT-5.4',
   'gpt-5.4-mini': 'GPT-5.4 Mini',
   'gpt-5.1-codex-max': 'GPT-5.1 Codex Max',
@@ -274,7 +283,8 @@ export function getClaudeVariantConfig(
   );
 
   return {
-    model: typeof record?.model === 'string' ? record.model : null,
+    model:
+      typeof record?.model === 'string' ? record.model : CLAUDE_DEFAULT_MODEL,
     permissionMode: record?.plan ? 'plan' : record?.approvals ? 'ask' : 'auto',
     variant,
   };
@@ -303,27 +313,9 @@ export function getClaudePermissionOptions(
 }
 
 export function getClaudeModelOptions(
-  profiles: ExecutorConfigs['executors'] | null | undefined
+  _profiles: ExecutorConfigs['executors'] | null | undefined
 ): CodexModelOption[] {
-  const seen = new Set<string>();
-  const options: CodexModelOption[] = [];
-
-  for (const entry of getExecutorVariantRecords<ClaudeCode>(
-    profiles,
-    CLAUDE_CODE_EXECUTOR
-  )) {
-    const model = getClaudeVariantConfig(profiles, entry.variant).model;
-    const modelKey = model ?? 'DEFAULT';
-    if (seen.has(modelKey)) continue;
-
-    seen.add(modelKey);
-    options.push({
-      value: model,
-      label: formatSimpleLabel(model),
-    });
-  }
-
-  return options.length > 0 ? options : [{ value: null, label: 'Default' }];
+  return CLAUDE_MODEL_OPTIONS;
 }
 
 export function getClaudeVariantFromSelection(
@@ -367,7 +359,8 @@ export function getCodexVariantConfig(
     typeof record?.sandbox === 'string'
       ? (record.sandbox as SandboxMode)
       : CODEX_DEFAULT_SANDBOX_MODE;
-  const model = typeof record?.model === 'string' ? record.model : null;
+  const model =
+    typeof record?.model === 'string' ? record.model : CODEX_DEFAULT_MODEL;
   const reasoningEffort =
     typeof record?.model_reasoning_effort === 'string'
       ? (record.model_reasoning_effort as CodexReasoningEffort)
@@ -384,7 +377,7 @@ export function getCodexVariantConfig(
 }
 
 export function formatCodexModelLabel(model: string | null): string {
-  if (!model) return 'Default';
+  if (!model) return formatCodexModelLabel(CODEX_DEFAULT_MODEL);
   return CODEX_MODEL_LABELS[model] ?? formatSimpleLabel(model);
 }
 
@@ -398,7 +391,7 @@ export function getCodexModelOptions(
   for (const variantKey of variants) {
     const variant = variantKey === 'DEFAULT' ? null : variantKey;
     const model = getCodexVariantConfig(profiles, variant).model;
-    const modelKey = model ?? 'DEFAULT';
+    const modelKey = model ?? CODEX_DEFAULT_MODEL;
     if (seen.has(modelKey)) continue;
 
     seen.add(modelKey);
@@ -410,18 +403,20 @@ export function getCodexModelOptions(
 
   const sortPriority = (value: string | null): number => {
     switch (value) {
-      case 'gpt-5.4':
+      case 'gpt-5.5':
         return 0;
-      case 'gpt-5.4-mini':
-        return 1;
-      case 'gpt-5.1-codex-max':
-        return 2;
-      case 'gpt-5.2':
-        return 3;
-      case 'gpt-5.2-codex':
-        return 4;
       case 'gpt-5.3-codex':
+        return 1;
+      case 'gpt-5.4':
+        return 2;
+      case 'gpt-5.4-mini':
+        return 3;
+      case 'gpt-5.1-codex-max':
+        return 4;
+      case 'gpt-5.2':
         return 5;
+      case 'gpt-5.2-codex':
+        return 6;
       case null:
         return 99;
       default:
@@ -429,16 +424,16 @@ export function getCodexModelOptions(
     }
   };
 
-  if (!seen.has('gpt-5.4')) {
+  if (!seen.has(CODEX_DEFAULT_MODEL)) {
     options.push({
-      value: 'gpt-5.4',
-      label: formatCodexModelLabel('gpt-5.4'),
+      value: CODEX_DEFAULT_MODEL,
+      label: formatCodexModelLabel(CODEX_DEFAULT_MODEL),
     });
   }
 
-  return (
-    options.length > 0 ? options : [{ value: null, label: 'Default' }]
-  ).sort((a, b) => sortPriority(a.value) - sortPriority(b.value));
+  return options
+    .filter((option) => option.value !== null)
+    .sort((a, b) => sortPriority(a.value) - sortPriority(b.value));
 }
 
 export function getCodexSandboxOptions(

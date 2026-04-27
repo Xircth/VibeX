@@ -78,8 +78,13 @@ export interface ReadFileResponse {
 
 export interface DocumentPreviewResponse {
   content: string;
-  format: 'text';
+  format: 'text' | 'html';
   extractor: string;
+}
+
+export interface BinaryAssetResponse {
+  data_base64: string;
+  mime_type: string;
 }
 
 export interface TextSearchMatch {
@@ -170,6 +175,12 @@ export const fileTreeApi = {
     });
   },
 
+  readBinaryAsset: async (path: string): Promise<BinaryAssetResponse> => {
+    return tauriInvoke<BinaryAssetResponse>('read_binary_asset', {
+      path,
+    });
+  },
+
   trashItem: async (path: string): Promise<void> => {
     return tauriInvoke<void>('trash_item', { path });
   },
@@ -198,9 +209,6 @@ export const fileTreeApi = {
 };
 
 export const desktopApi = {
-  toggleMainWindowDevtools: async (): Promise<boolean> => {
-    return tauriInvoke<boolean>('toggle_main_window_devtools');
-  },
   getPreviewProxyUrl: async (url: string): Promise<string> => {
     return tauriInvoke<string>('get_preview_proxy_url', { url });
   },

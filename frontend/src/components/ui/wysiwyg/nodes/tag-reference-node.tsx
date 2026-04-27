@@ -1,18 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import {
-  DecoratorNode,
-  LexicalNode,
-  NodeKey,
-  SerializedLexicalNode,
-  Spread,
-  $getNodeByKey,
   $createTextNode,
+  $getNodeByKey,
+  DecoratorNode,
+  type LexicalNode,
+  type NodeKey,
+  type SerializedLexicalNode,
+  type Spread,
 } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import type { TextMatchTransformer } from '@lexical/markdown';
-import { Tag as TagIcon, X } from 'lucide-react';
-
-// ====== Data Types ======
+import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
+import {
+  parseTagReferenceMarker,
+  serializeTagReferenceMarker,
+} from '@/lib/tagReferenceMarkers';
 
 export interface TagReferenceData {
   tagId: string;
@@ -28,8 +30,6 @@ type SerializedTagReferenceNode = Spread<
   },
   SerializedLexicalNode
 >;
-
-// ====== Node Class ======
 
 export class TagReferenceNode extends DecoratorNode<JSX.Element> {
   __tagId: string;
@@ -57,9 +57,9 @@ export class TagReferenceNode extends DecoratorNode<JSX.Element> {
   }
 
   createDOM(): HTMLElement {
-    const el = document.createElement('span');
-    el.style.display = 'inline';
-    return el;
+    const element = document.createElement('span');
+    element.style.display = 'inline';
+    return element;
   }
 
   updateDOM(): false {
@@ -90,8 +90,7 @@ export class TagReferenceNode extends DecoratorNode<JSX.Element> {
 
   decorate(): JSX.Element {
     return (
-      <TagReferenceChip
-        tagId={this.__tagId}
+      <EditableTagReferenceChip
         tagName={this.__tagName}
         content={this.__content}
         nodeKey={this.__key}
@@ -99,8 +98,6 @@ export class TagReferenceNode extends DecoratorNode<JSX.Element> {
     );
   }
 }
-
-// ====== Factory & Guards ======
 
 export function $createTagReferenceNode(
   data: TagReferenceData
@@ -114,50 +111,49 @@ export function $isTagReferenceNode(
   return node instanceof TagReferenceNode;
 }
 
-// ====== Transformer (export-only) ======
-// Exports tag content as markdown so AI agents can read the full content.
-// Import uses a pattern that never matches — tags are inserted only via typeahead.
-
 export const TAG_REFERENCE_TRANSFORMER: TextMatchTransformer = {
   dependencies: [TagReferenceNode],
   export: (node) => {
-    if ($isTagReferenceNode(node)) {
-      // Output the tag content for AI consumption, prefixed with tag name for context
-      const content = node.__content;
-      if (content) {
-        return `[#${node.__tagName}]:\n${content}`;
-      }
-      return `#${node.__tagName}`;
+    if (!$isTagReferenceNode(node)) {
+      return null;
     }
-    return null;
+
+    return serializeTagReferenceMarker({
+      tagId: node.__tagId,
+      tagName: node.__tagName,
+      content: node.__content,
+    });
   },
-  importRegExp: /(?!)/, // Never match — tags are created via typeahead only
-  regExp: /(?!)$/, // Never match
-  replace: () => {},
+  importRegExp: /\[\[tag:[^[\]]+\]\]/,
+  regExp: /(?!)$/,
+  replace: (textNode, match) => {
+    const payload = parseTagReferenceMarker(match[0]);
+    if (!payload) {
+      return;
+    }
+
+    textNode.replace($createTagReferenceNode(payload));
+  },
   trigger: '',
   type: 'text-match',
 };
 
-// ====== React Component ======
-
-function TagReferenceChip({
+function EditableTagReferenceChip({
   tagName,
   content,
   nodeKey,
 }: {
-  tagId: string;
   tagName: string;
   content: string;
   nodeKey: NodeKey;
 }) {
   const [editor] = useLexicalComposerContext();
-  const [showTooltip, setShowTooltip] = useState(false);
   const isEditable = editor.isEditable();
 
   const handleRemove = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
       editor.update(() => {
         const node = $getNodeByKey(nodeKey);
         if ($isTagReferenceNode(node)) {
@@ -169,49 +165,33 @@ function TagReferenceChip({
   );
 
   const handleDoubleClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isEditable) return;
-      e.preventDefault();
-      e.stopPropagation();
-      // Convert back to plain text on double-click
+    (event: React.MouseEvent) => {
+      if (!isEditable) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
       editor.update(() => {
         const node = $getNodeByKey(nodeKey);
         if ($isTagReferenceNode(node)) {
-          const textNode = $createTextNode(node.__content || `#${tagName}`);
+          const textNode = $createTextNode(`#${tagName}`);
           node.replace(textNode);
-          const len = textNode.getTextContentSize();
-          textNode.select(len, len);
+          const textLength = textNode.getTextContentSize();
+          textNode.select(textLength, textLength);
         }
       });
     },
-    [editor, nodeKey, tagName, isEditable]
+    [editor, isEditable, nodeKey, tagName]
   );
 
   return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-blue-500/15 text-blue-400 text-sm cursor-default select-none align-baseline relative"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
+    <TagReferenceChip
+      tagName={tagName}
+      content={content}
+      isEditable={isEditable}
+      onRemove={handleRemove}
       onDoubleClick={handleDoubleClick}
-    >
-      <TagIcon className="h-3 w-3 shrink-0" />
-      <span className="font-medium">#{tagName}</span>
-      {isEditable && (
-        <button
-          type="button"
-          className="ml-0.5 rounded-sm hover:bg-blue-500/30 p-0.5 transition-colors"
-          onClick={handleRemove}
-          tabIndex={-1}
-          aria-label={`Remove tag #${tagName}`}
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
-      )}
-      {showTooltip && content && (
-        <div className="absolute bottom-full left-0 mb-1.5 z-50 max-w-[400px] max-h-[200px] overflow-y-auto p-2 rounded-md bg-popover border border-border text-xs text-foreground shadow-lg whitespace-pre-wrap pointer-events-none">
-          {content}
-        </div>
-      )}
-    </span>
+    />
   );
 }

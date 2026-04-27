@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ignore::WalkBuilder;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
@@ -93,7 +94,8 @@ fn validate_path_within_sandbox(
 /// 3. Verifying the canonical path does not escape the original path's parent
 ///    hierarchy (detects symlink escapes)
 fn sanitize_file_path(path: &str) -> Result<PathBuf, AppError> {
-    let p = PathBuf::from(path);
+    let normalized_path = normalize_windows_verbatim_input(path);
+    let p = PathBuf::from(&normalized_path);
 
     // Reject any path containing parent-dir (`..`) components
     for comp in p.components() {
@@ -124,13 +126,13 @@ fn sanitize_file_path(path: &str) -> Result<PathBuf, AppError> {
         } else {
             return Err(AppError::BadRequest(format!(
                 "Parent directory does not exist for path: {}",
-                path
+                normalized_path
             )));
         }
     } else {
         return Err(AppError::BadRequest(format!(
             "Cannot resolve path: {}",
-            path
+            normalized_path
         )));
     };
 
@@ -145,6 +147,63 @@ fn sanitize_file_path(path: &str) -> Result<PathBuf, AppError> {
     }
 
     Ok(canonical)
+}
+
+#[cfg(windows)]
+fn normalize_windows_verbatim_input(path: &str) -> String {
+    fn marker_len_at(path: &str, index: usize) -> Option<usize> {
+        let rest = path.get(index..)?;
+        let bytes = rest.as_bytes();
+        let looks_like_drive = |offset: usize| {
+            bytes
+                .get(offset)
+                .is_some_and(|byte| byte.is_ascii_alphabetic())
+                && bytes.get(offset + 1) == Some(&b':')
+                && bytes
+                    .get(offset + 2)
+                    .is_some_and(|byte| *byte == b'\\' || *byte == b'/')
+        };
+
+        if bytes.len() >= 7
+            && bytes[0] == b'\\'
+            && bytes[1] == b'\\'
+            && bytes[2] == b'?'
+            && (bytes[3] == b'\\' || bytes[3] == b'/')
+            && looks_like_drive(4)
+        {
+            return Some(4);
+        }
+
+        if bytes.len() >= 6
+            && (bytes[0] == b'\\' || bytes[0] == b'/')
+            && bytes[1] == b'?'
+            && (bytes[2] == b'\\' || bytes[2] == b'/')
+            && looks_like_drive(3)
+        {
+            return Some(3);
+        }
+
+        None
+    }
+
+    let mut last_marker = None;
+    for (index, _) in path.char_indices() {
+        if let Some(marker_len) = marker_len_at(path, index) {
+            last_marker = Some((index, marker_len));
+        }
+    }
+
+    let Some((index, marker_len)) = last_marker else {
+        return path.to_string();
+    };
+
+    let candidate = &path[index + marker_len..];
+    candidate.replace('/', "\\")
+}
+
+#[cfg(not(windows))]
+fn normalize_windows_verbatim_input(path: &str) -> String {
+    path.to_string()
 }
 
 fn read_utf8_text_file(path: &Path, display_path: &str) -> Result<String, AppError> {
@@ -171,6 +230,49 @@ pub struct DocumentPreviewResponse {
     pub content: String,
     pub format: String,
     pub extractor: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BinaryAssetResponse {
+    pub data_base64: String,
+    pub mime_type: String,
+}
+
+fn mime_type_for_path(path: &Path) -> &'static str {
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
+        "tif" | "tiff" => "image/tiff",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }
+}
+
+fn read_binary_asset_file(
+    path: &Path,
+    display_path: &str,
+) -> Result<BinaryAssetResponse, AppError> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| AppError::Internal(format!("Failed to read file {}: {}", display_path, e)))?;
+
+    Ok(BinaryAssetResponse {
+        data_base64: BASE64.encode(bytes),
+        mime_type: mime_type_for_path(path).to_string(),
+    })
 }
 
 fn decode_xml_entities(input: &str) -> String {
@@ -218,6 +320,308 @@ fn normalize_document_preview_text(content: &str) -> String {
     normalized.trim().to_string()
 }
 
+fn escape_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn wrap_inline_run_html(run_xml: &str, content: String) -> String {
+    let mut wrapped = content;
+
+    if run_xml.contains("<w:b") {
+        wrapped = format!("<strong>{wrapped}</strong>");
+    }
+    if run_xml.contains("<w:i") {
+        wrapped = format!("<em>{wrapped}</em>");
+    }
+    if run_xml.contains("<w:u") {
+        wrapped = format!("<u>{wrapped}</u>");
+    }
+
+    wrapped
+}
+
+fn extract_run_html(run_xml: &str) -> String {
+    let token_re = Regex::new(r#"(?s)<w:t[^>]*>(.*?)</w:t>|<w:(?:br|cr)\b[^>]*/>|<w:tab\b[^>]*/>"#)
+        .expect("valid run token regex");
+    let mut html = String::new();
+
+    for token in token_re.find_iter(run_xml) {
+        let raw = token.as_str();
+        if raw.starts_with("<w:t") {
+            let start = raw.find('>').unwrap_or(0) + 1;
+            let end = raw.rfind("</w:t>").unwrap_or(raw.len());
+            let text = decode_xml_entities(&raw[start..end]);
+            html.push_str(&escape_html(&text));
+        } else if raw.starts_with("<w:tab") {
+            html.push_str("&emsp;");
+        } else {
+            html.push_str("<br/>");
+        }
+    }
+
+    wrap_inline_run_html(run_xml, html)
+}
+
+fn extract_paragraph_inline_html(paragraph_xml: &str) -> String {
+    let run_re = Regex::new(r#"(?s)<w:r\b[^>]*>.*?</w:r>|<w:hyperlink\b[^>]*>.*?</w:hyperlink>"#)
+        .expect("valid paragraph run regex");
+    let mut html = String::new();
+
+    for block in run_re.find_iter(paragraph_xml) {
+        let raw = block.as_str();
+        if raw.starts_with("<w:hyperlink") {
+            let inner_start = raw.find('>').unwrap_or(0) + 1;
+            let inner_end = raw.rfind("</w:hyperlink>").unwrap_or(raw.len());
+            html.push_str(&extract_paragraph_inline_html(&raw[inner_start..inner_end]));
+        } else {
+            html.push_str(&extract_run_html(raw));
+        }
+    }
+
+    html.trim().to_string()
+}
+
+fn paragraph_alignment_class(paragraph_xml: &str) -> &'static str {
+    if paragraph_xml.contains(r#"w:jc w:val="center""#) {
+        " is-center"
+    } else if paragraph_xml.contains(r#"w:jc w:val="right""#) {
+        " is-right"
+    } else {
+        ""
+    }
+}
+
+enum DocxBlock {
+    Heading { level: u8, html: String },
+    Paragraph(String),
+    ListItem(String),
+}
+
+fn extract_paragraph_block(paragraph_xml: &str) -> Option<DocxBlock> {
+    let html = extract_paragraph_inline_html(paragraph_xml);
+    if html.is_empty() {
+        return None;
+    }
+
+    let alignment_class = paragraph_alignment_class(paragraph_xml);
+    let style_re =
+        Regex::new(r#"w:pStyle[^>]*w:val="([^"]+)""#).expect("valid paragraph style regex");
+    let style_name = style_re
+        .captures(paragraph_xml)
+        .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()));
+
+    if paragraph_xml.contains("<w:numPr") {
+        return Some(DocxBlock::ListItem(format!(
+            r#"<li class="doc-preview-list-item{alignment_class}">{html}</li>"#
+        )));
+    }
+
+    if let Some(style_name) = style_name {
+        let normalized = style_name.to_ascii_lowercase();
+        if let Some(level_text) = normalized.strip_prefix("heading")
+            && let Ok(level) = level_text.parse::<u8>()
+        {
+            let heading_level = level.clamp(1, 6);
+            return Some(DocxBlock::Heading {
+                level: heading_level,
+                html,
+            });
+        }
+
+        if normalized == "title" {
+            return Some(DocxBlock::Heading { level: 1, html });
+        }
+
+        if normalized == "subtitle" {
+            return Some(DocxBlock::Heading { level: 2, html });
+        }
+    }
+
+    Some(DocxBlock::Paragraph(format!(
+        r#"<p class="doc-preview-paragraph{alignment_class}">{html}</p>"#
+    )))
+}
+
+fn extract_table_html(table_xml: &str) -> Option<String> {
+    let row_re = Regex::new(r#"(?s)<w:tr\b[^>]*>.*?</w:tr>"#).expect("valid table row regex");
+    let cell_re = Regex::new(r#"(?s)<w:tc\b[^>]*>.*?</w:tc>"#).expect("valid table cell regex");
+    let paragraph_re =
+        Regex::new(r#"(?s)<w:p\b[^>]*>.*?</w:p>"#).expect("valid table paragraph regex");
+    let mut rows = Vec::new();
+
+    for row_match in row_re.find_iter(table_xml) {
+        let mut cells = Vec::new();
+        for cell_match in cell_re.find_iter(row_match.as_str()) {
+            let mut paragraphs = Vec::new();
+            for paragraph_match in paragraph_re.find_iter(cell_match.as_str()) {
+                if let Some(block) = extract_paragraph_block(paragraph_match.as_str()) {
+                    match block {
+                        DocxBlock::Heading { html, .. } => paragraphs.push(format!(
+                            r#"<div class="doc-preview-cell-heading">{html}</div>"#
+                        )),
+                        DocxBlock::Paragraph(html) => paragraphs.push(html),
+                        DocxBlock::ListItem(html) => paragraphs
+                            .push(format!(r#"<ul class="doc-preview-cell-list">{html}</ul>"#)),
+                    }
+                }
+            }
+
+            let cell_html = if paragraphs.is_empty() {
+                "<div class=\"doc-preview-cell-empty\"></div>".to_string()
+            } else {
+                paragraphs.join("")
+            };
+            cells.push(format!(r#"<td>{cell_html}</td>"#));
+        }
+
+        if !cells.is_empty() {
+            rows.push(format!(r#"<tr>{}</tr>"#, cells.join("")));
+        }
+    }
+
+    if rows.is_empty() {
+        None
+    } else {
+        Some(format!(
+            r#"<div class="doc-preview-table-wrap"><table class="doc-preview-table"><tbody>{}</tbody></table></div>"#,
+            rows.join("")
+        ))
+    }
+}
+
+fn extract_docx_html_from_xml(document_xml: &str) -> String {
+    let body_re = Regex::new(r#"(?s)<w:body\b[^>]*>(.*)</w:body>"#).expect("valid docx body regex");
+    let block_re = Regex::new(r#"(?s)<w:tbl\b[^>]*>.*?</w:tbl>|<w:p\b[^>]*>.*?</w:p>"#)
+        .expect("valid docx block regex");
+    let body = body_re
+        .captures(document_xml)
+        .and_then(|captures| captures.get(1).map(|value| value.as_str()))
+        .unwrap_or(document_xml);
+    let mut rendered = String::new();
+    let mut pending_list_items: Vec<String> = Vec::new();
+
+    let flush_list = |buffer: &mut String, items: &mut Vec<String>| {
+        if items.is_empty() {
+            return;
+        }
+
+        buffer.push_str(r#"<ul class="doc-preview-list">"#);
+        buffer.push_str(&items.join(""));
+        buffer.push_str("</ul>");
+        items.clear();
+    };
+
+    for block_match in block_re.find_iter(body) {
+        let block_xml = block_match.as_str();
+
+        if block_xml.starts_with("<w:tbl") {
+            flush_list(&mut rendered, &mut pending_list_items);
+            if let Some(table_html) = extract_table_html(block_xml) {
+                rendered.push_str(&table_html);
+            }
+            continue;
+        }
+
+        let Some(block) = extract_paragraph_block(block_xml) else {
+            continue;
+        };
+
+        match block {
+            DocxBlock::Heading { level, html } => {
+                flush_list(&mut rendered, &mut pending_list_items);
+                rendered.push_str(&format!(
+                    r#"<h{level} class="doc-preview-heading doc-preview-heading-{level}">{html}</h{level}>"#
+                ));
+            }
+            DocxBlock::Paragraph(html) => {
+                flush_list(&mut rendered, &mut pending_list_items);
+                rendered.push_str(&html);
+            }
+            DocxBlock::ListItem(html) => {
+                pending_list_items.push(html);
+            }
+        }
+    }
+
+    flush_list(&mut rendered, &mut pending_list_items);
+
+    if rendered.trim().is_empty() {
+        "<p class=\"doc-preview-empty\">This document does not contain previewable text content.</p>"
+            .to_string()
+    } else {
+        format!(
+            r#"<div class="doc-preview-root"><style>
+.doc-preview-root {{
+  color: inherit;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.75;
+}}
+.doc-preview-root strong {{ font-weight: 700; }}
+.doc-preview-root em {{ font-style: italic; }}
+.doc-preview-root u {{ text-decoration: underline; }}
+.doc-preview-root .is-center {{ text-align: center; }}
+.doc-preview-root .is-right {{ text-align: right; }}
+.doc-preview-root h1,
+.doc-preview-root h2,
+.doc-preview-root h3,
+.doc-preview-root h4,
+.doc-preview-root h5,
+.doc-preview-root h6 {{
+  margin: 1.25rem 0 0.5rem;
+  color: hsl(var(--foreground));
+  line-height: 1.3;
+}}
+.doc-preview-root h1 {{ font-size: 1.75rem; }}
+.doc-preview-root h2 {{ font-size: 1.45rem; }}
+.doc-preview-root h3 {{ font-size: 1.2rem; }}
+.doc-preview-root p {{
+  margin: 0.6rem 0;
+  font-size: 0.95rem;
+  color: hsl(var(--foreground));
+}}
+.doc-preview-root ul {{
+  margin: 0.6rem 0;
+  padding-left: 1.4rem;
+}}
+.doc-preview-root li {{
+  margin: 0.25rem 0;
+}}
+.doc-preview-root .doc-preview-table-wrap {{
+  margin: 1rem 0;
+  overflow-x: auto;
+}}
+.doc-preview-root table {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}}
+.doc-preview-root td {{
+  min-width: 6rem;
+  border: 1px solid hsl(var(--border));
+  padding: 0.65rem 0.75rem;
+  vertical-align: top;
+}}
+.doc-preview-root .doc-preview-cell-heading {{
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}}
+.doc-preview-root .doc-preview-cell-list {{
+  margin: 0.35rem 0;
+}}
+.doc-preview-root .doc-preview-empty {{
+  color: hsl(var(--muted-foreground));
+}}
+</style>{rendered}</div>"#
+        )
+    }
+}
+
+#[cfg(test)]
 fn extract_docx_text_from_xml(document_xml: &str) -> String {
     let inter_tag_whitespace_re = Regex::new(r">\s+<").expect("valid inter-tag whitespace regex");
     let paragraph_end_re = Regex::new(r"</w:p>").expect("valid docx paragraph regex");
@@ -385,11 +789,11 @@ async fn read_document_preview_content(path: &Path) -> Result<DocumentPreviewRes
     match extension.as_str() {
         "docx" => {
             let document_xml = extract_docx_xml_with_powershell(path).await?;
-            let content = extract_docx_text_from_xml(&document_xml);
+            let content = extract_docx_html_from_xml(&document_xml);
             Ok(DocumentPreviewResponse {
                 content,
-                format: "text".to_string(),
-                extractor: "docx-xml".to_string(),
+                format: "html".to_string(),
+                extractor: "docx-xml-structured".to_string(),
             })
         }
         "doc" => {
@@ -829,6 +1233,16 @@ pub async fn read_document_preview(path: String) -> Result<DocumentPreviewRespon
     }
 
     read_document_preview_content(&file_path).await
+}
+
+#[tauri::command]
+pub async fn read_binary_asset(path: String) -> Result<BinaryAssetResponse, AppError> {
+    let file_path = sanitize_file_path(&path)?;
+    if !file_path.is_file() {
+        return Err(AppError::NotFound(format!("File not found: {}", path)));
+    }
+
+    read_binary_asset_file(&file_path, &path)
 }
 
 #[tauri::command]
@@ -1523,7 +1937,10 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use super::{extract_docx_text_from_xml, read_utf8_text_file};
+    use super::{
+        extract_docx_html_from_xml, extract_docx_text_from_xml, read_binary_asset_file,
+        read_utf8_text_file,
+    };
     use crate::error::AppError;
 
     fn temp_file_path(prefix: &str) -> std::path::PathBuf {
@@ -1532,6 +1949,17 @@ mod tests {
             .unwrap_or_default()
             .as_nanos();
         std::env::temp_dir().join(format!("vibe-ultra-{prefix}-{unique}.tmp"))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_windows_verbatim_input_extracts_real_path_from_duplicated_path() {
+        let duplicated = r"\\?\C:\Users\Administrator\Documents\Projects\self\gameCard\\\?\C:\Users\Administrator\Documents\Projects\self\gameCard\app.py";
+
+        assert_eq!(
+            super::normalize_windows_verbatim_input(duplicated),
+            r"C:\Users\Administrator\Documents\Projects\self\gameCard\app.py"
+        );
     }
 
     #[test]
@@ -1567,6 +1995,21 @@ mod tests {
     }
 
     #[test]
+    fn read_binary_asset_file_returns_base64_and_mime_type() {
+        let path = temp_file_path("png");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A])
+            .unwrap();
+        drop(file);
+
+        let asset = read_binary_asset_file(&path, &path.display().to_string()).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(asset.mime_type, "application/octet-stream");
+        assert!(!asset.data_base64.is_empty());
+    }
+
+    #[test]
     fn extract_docx_text_from_xml_preserves_paragraphs_and_entities() {
         let xml = r#"
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -1588,5 +2031,44 @@ mod tests {
         let text = extract_docx_text_from_xml(xml);
 
         assert_eq!(text, "Hello & goodbye\tworld\n\nLine\nbreak");
+    }
+
+    #[test]
+    fn extract_docx_html_from_xml_preserves_basic_structure() {
+        let xml = r#"
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+      <w:r><w:t>Project Plan</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:t>Intro paragraph</w:t></w:r>
+      <w:r><w:b/><w:t> bold</w:t></w:r>
+    </w:p>
+    <w:tbl>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>Left</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>Right</w:t></w:r></w:p></w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p>
+      <w:pPr><w:numPr/></w:pPr>
+      <w:r><w:t>Checklist</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>
+"#;
+
+        let html = extract_docx_html_from_xml(xml);
+
+        assert!(html.contains("<h1"));
+        assert!(html.contains("Project Plan"));
+        assert!(html.contains("<p class=\"doc-preview-paragraph\">"));
+        assert!(html.contains("<strong> bold</strong>"));
+        assert!(html.contains("doc-preview-table"));
+        assert!(html.contains("<td><p class=\"doc-preview-paragraph\">Left</p></td>"));
+        assert!(html.contains("<ul class=\"doc-preview-list\">"));
+        assert!(html.contains("Checklist"));
     }
 }

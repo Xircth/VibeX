@@ -37,6 +37,41 @@ function isExpectedBinaryTextReadError(cmd: string, error: unknown) {
   );
 }
 
+function isExpectedAttachTerminalNotFoundError(cmd: string, error: unknown) {
+  if (cmd !== 'attach_terminal') {
+    return false;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : getErrorField(error, 'message');
+  const normalized = message.toLowerCase();
+
+  return normalized.includes('terminal') && normalized.includes('not found');
+}
+
+function isExpectedRepoRemoteConfigError(cmd: string, error: unknown) {
+  if (cmd !== 'list_repo_issues' && cmd !== 'list_open_prs') {
+    return false;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : getErrorField(error, 'message');
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('invalid repository') &&
+    normalized.includes('no remotes configured')
+  );
+}
+
 export function isCanceledError(error: unknown) {
   const message =
     error instanceof Error
@@ -62,7 +97,12 @@ export async function tauriInvoke<T>(
   try {
     return await invoke<T>(cmd, args);
   } catch (error) {
-    if (!isCanceledError(error) && !isExpectedBinaryTextReadError(cmd, error)) {
+    if (
+      !isCanceledError(error) &&
+      !isExpectedBinaryTextReadError(cmd, error) &&
+      !isExpectedAttachTerminalNotFoundError(cmd, error) &&
+      !isExpectedRepoRemoteConfigError(cmd, error)
+    ) {
       console.error(`Tauri command failed: ${cmd}`, error);
     }
     throw error;

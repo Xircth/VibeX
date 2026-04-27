@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2, Wrench, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { ScriptFixerDialog } from '@/components/dialogs/scripts/ScriptFixerDialog';
-import { useClickedElements } from '@/contexts/ClickedElementsProvider';
+import {
+  buildClickedElementData,
+  useClickedElements,
+} from '@/contexts/ClickedElementsProvider';
 import { useProject } from '@/contexts/ProjectContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
@@ -19,6 +22,11 @@ import { desktopApi } from '@/lib/api';
 import { DevServerLogsView } from '@/components/tasks/TaskDetails/preview/DevServerLogsView';
 import { NoServerContent } from '@/components/tasks/TaskDetails/preview/NoServerContent';
 import { ReadyContent } from '@/components/tasks/TaskDetails/preview/ReadyContent';
+import {
+  PreviewInspectorPane,
+  type PreviewConsoleEntry,
+  type PreviewNetworkEntry,
+} from '@/components/tasks/TaskDetails/preview/PreviewInspectorPane';
 import { installWebCompanion } from '@/utils/installWebCompanion';
 import {
   ClickToComponentListener,
@@ -29,6 +37,9 @@ type CompanionInstallFeedback = {
   type: 'success' | 'error';
   message: string;
 };
+
+const MAX_PREVIEW_CONSOLE_ENTRIES = 200;
+const MAX_PREVIEW_NETWORK_ENTRIES = 200;
 
 type ProxyDetectedComponentPayload = {
   framework?: string;
@@ -133,7 +144,7 @@ export function PreviewPanel() {
   const [proxiedPreviewUrl, setProxiedPreviewUrl] = useState<string | null>(
     null
   );
-  const [isDevToolsOpen, setIsDevToolsOpen] = useState(false);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isCompanionHelpDismissed, setIsCompanionHelpDismissed] =
     useState(false);
   const [companionInstallFeedback, setCompanionInstallFeedback] =
@@ -141,9 +152,16 @@ export function PreviewPanel() {
   const [devServerStartError, setDevServerStartError] = useState<string | null>(
     null
   );
+  const [consoleEntries, setConsoleEntries] = useState<PreviewConsoleEntry[]>(
+    []
+  );
+  const [networkEntries, setNetworkEntries] = useState<PreviewNetworkEntry[]>(
+    []
+  );
   const listenerRef = useRef<ClickToComponentListener | null>(null);
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeBootstrapTimerRef = useRef<number | null>(null);
+  const bridgeTokenRef = useRef<string | null>(null);
   const requestedSelectModeRef = useRef<boolean | null>(null);
   const companionReadyRef = useRef(false);
   const toolbarBridgeReadyRef = useRef(false);
@@ -191,7 +209,30 @@ export function PreviewPanel() {
   const supportsNativeInspect = Boolean(
     rawPreviewUrl && proxiedPreviewUrl && proxiedPreviewUrl !== rawPreviewUrl
   );
-  const { addElement } = useClickedElements();
+  const { addElement, elements: clickedElements, workspaceRoot } =
+    useClickedElements();
+  const latestClickedElement = clickedElements[clickedElements.length - 1];
+  const previewInspectorElement = useMemo(
+    () =>
+      latestClickedElement
+        ? buildClickedElementData(latestClickedElement, workspaceRoot)
+        : null,
+    [latestClickedElement, workspaceRoot]
+  );
+
+  const appendConsoleEntry = useCallback((entry: PreviewConsoleEntry) => {
+    setConsoleEntries((previous) => [...previous, entry].slice(-MAX_PREVIEW_CONSOLE_ENTRIES));
+  }, []);
+
+  const appendNetworkEntry = useCallback((entry: PreviewNetworkEntry) => {
+    setNetworkEntries((previous) => [...previous, entry].slice(-MAX_PREVIEW_NETWORK_ENTRIES));
+  }, []);
+
+  const resetBridgeToken = useCallback(() => {
+    bridgeTokenRef.current =
+      window.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }, []);
 
   const handleCopyUrl = async () => {
     const urlToCopy = rawPreviewUrl ?? effectiveUrl;
@@ -267,12 +308,16 @@ export function PreviewPanel() {
           return;
         }
 
-        listener.enableButton(activeIframe);
+        listener.enableButton(
+          activeIframe,
+          bridgeTokenRef.current ?? undefined
+        );
 
         if (requestedSelectModeRef.current !== null) {
           listener.setTargetingEnabled(
             activeIframe,
-            requestedSelectModeRef.current
+            requestedSelectModeRef.current,
+            bridgeTokenRef.current ?? undefined
           );
         }
 
@@ -304,34 +349,51 @@ export function PreviewPanel() {
   };
 
   useEffect(() => {
-    const listener = new ClickToComponentListener({
-      onOpenInEditor: (payload) => {
-        addElement(payload);
-        requestedSelectModeRef.current = false;
-        setIsSelectModeEnabled(false);
-      },
-      onReady: () => {
-        companionReadyRef.current = true;
-        setCompanionReady(true);
-        setShowLogs(false);
-        setShowHelp(false);
-        bootstrapPreviewBridge(previewIframeRef.current);
-      },
-      onToolbarBridgeReady: () => {
-        toolbarBridgeReadyRef.current = true;
-        setIsToolbarBridgeReady(true);
+    const listener = new ClickToComponentListener(
+      {
+        onOpenInEditor: (payload) => {
+          addElement(payload);
+          requestedSelectModeRef.current = false;
+          setIsSelectModeEnabled(false);
+          setIsInspectorOpen(true);
+        },
+        onReady: () => {
+          companionReadyRef.current = true;
+          setCompanionReady(true);
+          setShowLogs(false);
+          setShowHelp(false);
+          bootstrapPreviewBridge(previewIframeRef.current);
+        },
+        onToolbarBridgeReady: () => {
+          toolbarBridgeReadyRef.current = true;
+          setIsToolbarBridgeReady(true);
 
-        if (
-          requestedSelectModeRef.current !== null &&
-          previewIframeRef.current !== null
-        ) {
-          listener.setTargetingEnabled(
-            previewIframeRef.current,
-            requestedSelectModeRef.current
-          );
-        }
+          if (
+            requestedSelectModeRef.current !== null &&
+            previewIframeRef.current !== null
+          ) {
+            listener.setTargetingEnabled(
+              previewIframeRef.current,
+              requestedSelectModeRef.current,
+              bridgeTokenRef.current ?? undefined
+            );
+          }
+        },
+        onConsole: (payload) => {
+          appendConsoleEntry({
+            id: `${payload.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
+            ...payload,
+          });
+        },
+        onNetwork: (payload) => {
+          appendNetworkEntry({
+            id: `${payload.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
+            ...payload,
+          });
+        },
       },
-    });
+      () => bridgeTokenRef.current
+    );
 
     listener.start();
     listenerRef.current = listener;
@@ -341,7 +403,13 @@ export function PreviewPanel() {
       listenerRef.current = null;
       clearBridgeBootstrap();
     };
-  }, [addElement, bootstrapPreviewBridge, clearBridgeBootstrap]);
+  }, [
+    addElement,
+    appendConsoleEntry,
+    appendNetworkEntry,
+    bootstrapPreviewBridge,
+    clearBridgeBootstrap,
+  ]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -349,6 +417,14 @@ export function PreviewPanel() {
       // cross-origin iframe contentWindow proxy comparison fails in Tauri's
       // webview when the preview URL goes through the HTTP proxy.
       if (!event.data || event.data.source !== 'click-to-component') {
+        return;
+      }
+
+      const currentBridgeToken = bridgeTokenRef.current;
+      if (
+        event.data.type !== 'ready' &&
+        (!currentBridgeToken || event.data.bridgeToken !== currentBridgeToken)
+      ) {
         return;
       }
 
@@ -360,6 +436,7 @@ export function PreviewPanel() {
         addElement(createClickedElementPayload(event.data.payload));
         requestedSelectModeRef.current = false;
         setIsSelectModeEnabled(false);
+        setIsInspectorOpen(true);
       }
     };
 
@@ -368,7 +445,12 @@ export function PreviewPanel() {
   }, [addElement]);
 
   useEffect(() => {
+    resetBridgeToken();
+  }, [resetBridgeToken]);
+
+  useEffect(() => {
     clearBridgeBootstrap();
+    resetBridgeToken();
     previewIframeRef.current = null;
     requestedSelectModeRef.current = null;
     companionReadyRef.current = false;
@@ -381,14 +463,20 @@ export function PreviewPanel() {
     setShowHelp(false);
     setIsCompanionHelpDismissed(false);
     setDevServerStartError(null);
-  }, [clearBridgeBootstrap, effectiveUrl, primaryDevServer?.id]);
+    setConsoleEntries([]);
+    setNetworkEntries([]);
+  }, [clearBridgeBootstrap, effectiveUrl, primaryDevServer?.id, resetBridgeToken]);
 
   useEffect(() => {
     // Sync select mode state via the companion bridge when it changes
     const listener = listenerRef.current;
     const iframe = previewIframeRef.current;
     if (listener && iframe) {
-      listener.setTargetingEnabled(iframe, isSelectModeEnabled);
+      listener.setTargetingEnabled(
+        iframe,
+        isSelectModeEnabled,
+        bridgeTokenRef.current ?? undefined
+      );
     }
   }, [isSelectModeEnabled]);
 
@@ -481,13 +569,6 @@ export function PreviewPanel() {
         type: 'error',
         message,
       });
-    },
-  });
-
-  const devToolsMutation = useMutation({
-    mutationFn: async () => desktopApi.toggleMainWindowDevtools(),
-    onSuccess: (isOpen) => {
-      setIsDevToolsOpen(isOpen);
     },
   });
 
@@ -629,12 +710,29 @@ export function PreviewPanel() {
             isStopping={isStoppingDevServer}
             onToggleSelectMode={handleToggleSelectMode}
             isSelectModeEnabled={isSelectModeEnabled}
-            onToggleDevTools={() => devToolsMutation.mutate()}
-            isDevToolsOpen={isDevToolsOpen}
+            onToggleInspector={() => setIsInspectorOpen((open) => !open)}
+            isInspectorOpen={isInspectorOpen}
+            inspectorPane={
+              <PreviewInspectorPane
+                clickedElement={previewInspectorElement}
+                consoleEntries={consoleEntries}
+                networkEntries={networkEntries}
+                devServerProcesses={devServerProcesses}
+                currentUrl={effectiveUrl ?? undefined}
+                rawUrl={rawPreviewUrl ?? undefined}
+                proxiedUrl={proxiedPreviewUrl}
+                previewLoaded={previewLoaded}
+                companionReady={companionReady}
+                toolbarBridgeReady={isToolbarBridgeReady}
+                isSelectModeEnabled={isSelectModeEnabled}
+                onClearConsole={() => setConsoleEntries([])}
+                onClearNetwork={() => setNetworkEntries([])}
+                onClose={() => setIsInspectorOpen(false)}
+              />
+            }
           />
         ) : (
           <NoServerContent
-            workspaceId={attemptId}
             projectHasDevScript={projectHasDevScript}
             runningDevServer={hasRunningDevServer}
             isStartingDevServer={isStartingDevServer}

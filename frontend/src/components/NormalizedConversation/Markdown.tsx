@@ -3,13 +3,18 @@ import {
   useMemo,
   useCallback,
   type ReactNode,
-  isValidElement,
 } from 'react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { highlightLine } from '@/utils/syntax';
+import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
+import {
+  parseTagReferenceHref,
+  replaceTagReferenceMarkersWithMarkdownLinks,
+  stripTagReferenceAppendix,
+} from '@/lib/tagReferenceMarkers';
 
 type MarkdownProps = {
   value: string;
@@ -59,8 +64,15 @@ function extractCodeFromPre(node?: PreProps['node']): {
 function flattenNodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(flattenNodeText).join('');
-  if (isValidElement<{ children?: ReactNode }>(node)) {
-    return flattenNodeText(node.props?.children);
+  if (
+    node &&
+    typeof node === 'object' &&
+    'props' in node &&
+    node.props &&
+    typeof node.props === 'object' &&
+    'children' in node.props
+  ) {
+    return flattenNodeText(node.props.children as ReactNode);
   }
   return '';
 }
@@ -145,6 +157,11 @@ export const Markdown = memo(function Markdown({
   value,
   className,
 }: MarkdownProps) {
+  const normalizedValue = useMemo(
+    () => replaceTagReferenceMarkersWithMarkdownLinks(stripTagReferenceAppendix(value)),
+    [value]
+  );
+
   const components = useMemo<Components>(
     () => ({
       pre: ({ node, children }) => (
@@ -157,6 +174,16 @@ export const Markdown = memo(function Markdown({
         );
       },
       a: ({ href, children }) => {
+        const tagReferencePayload = href ? parseTagReferenceHref(href) : null;
+        if (tagReferencePayload) {
+          return (
+            <TagReferenceChip
+              tagName={tagReferencePayload.tagName}
+              content={tagReferencePayload.content}
+            />
+          );
+        }
+
         const isExternal =
           (href?.startsWith('http://') || href?.startsWith('https://')) ??
           false;
@@ -190,7 +217,7 @@ export const Markdown = memo(function Markdown({
   return (
     <div className={`conv-markdown${className ? ` ${className}` : ''}`}>
       <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-        {value}
+        {normalizedValue}
       </ReactMarkdown>
     </div>
   );

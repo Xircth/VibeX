@@ -11,10 +11,9 @@ import { cn } from '@/lib/utils';
 import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
 const MODEL_CHOICES = [
-  { key: 'default', label: '默认', envKey: 'ANTHROPIC_MODEL' },
-  { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
   { key: 'sonnet', label: 'Sonnet', envKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL' },
   { key: 'opus', label: 'Opus', envKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
+  { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
 ] as const;
 
 export type ModelKey = (typeof MODEL_CHOICES)[number]['key'];
@@ -36,7 +35,7 @@ function ModelSelectorInner({
   const env = settings?.env ?? {};
 
   const currentLabel =
-    MODEL_CHOICES.find((model) => model.key === value)?.label ?? '默认';
+    MODEL_CHOICES.find((model) => model.key === value)?.label ?? 'Sonnet';
 
   return (
     <DropdownMenu modal={false}>

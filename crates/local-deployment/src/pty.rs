@@ -41,6 +41,21 @@ pub struct PtyService {
 }
 
 impl PtyService {
+    fn normalize_working_dir_for_shell(working_dir: PathBuf) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let raw = working_dir.to_string_lossy();
+            if let Some(path) = raw.strip_prefix(r"\\?\UNC\") {
+                return PathBuf::from(format!(r"\\{path}"));
+            }
+            if let Some(path) = raw.strip_prefix(r"\\?\") {
+                return PathBuf::from(path);
+            }
+        }
+
+        working_dir
+    }
+
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -57,6 +72,7 @@ impl PtyService {
     ) -> Result<(Uuid, mpsc::UnboundedReceiver<Vec<u8>>), PtyError> {
         let session_id = preset_session_id.unwrap_or_else(Uuid::new_v4);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
+        let working_dir = Self::normalize_working_dir_for_shell(working_dir);
         let shell = if let Some(ref s) = shell_override {
             std::path::PathBuf::from(s)
         } else {
@@ -290,5 +306,36 @@ impl PtyService {
 impl Default for PtyService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::PtyService;
+
+    #[test]
+    fn normalize_working_dir_preserves_regular_windows_paths() {
+        let path = PathBuf::from(r"C:\Users\Administrator\Documents\Projects");
+        assert_eq!(
+            PtyService::normalize_working_dir_for_shell(path.clone()),
+            path
+        );
+    }
+
+    #[test]
+    fn normalize_working_dir_strips_extended_windows_drive_prefix() {
+        let normalized =
+            PtyService::normalize_working_dir_for_shell(PathBuf::from(r"\\?\C:\Users\Admin"));
+        assert_eq!(normalized, PathBuf::from(r"C:\Users\Admin"));
+    }
+
+    #[test]
+    fn normalize_working_dir_strips_extended_unc_prefix() {
+        let normalized = PtyService::normalize_working_dir_for_shell(PathBuf::from(
+            r"\\?\UNC\server\share\workspace",
+        ));
+        assert_eq!(normalized, PathBuf::from(r"\\server\share\workspace"));
     }
 }

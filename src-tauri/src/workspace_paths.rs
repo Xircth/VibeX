@@ -92,10 +92,18 @@ fn infer_single_repo_working_dir(
     }
 }
 
-fn path_points_at_repo_root(path: &Path, repo: &Repo) -> bool {
-    path.file_name()
-        .and_then(|segment| segment.to_str())
-        .is_some_and(|segment| segment == repo.name)
+fn normalized_repo_default_working_dir(repo: &Repo) -> Option<String> {
+    repo.default_working_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|dir| !dir.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn workspace_with_container_ref(workspace: &Workspace, container_ref: &str) -> Workspace {
+    let mut next = workspace.clone();
+    next.container_ref = Some(container_ref.to_string());
+    next
 }
 
 fn single_repo_base_path_is_repo_root(
@@ -107,7 +115,9 @@ fn single_repo_base_path_is_repo_root(
         return true;
     }
 
-    path_points_at_repo_root(Path::new(container_ref), repo)
+    workspace_with_container_ref(workspace, container_ref)
+        .repo_path(repo)
+        .is_some_and(|path| path == Path::new(container_ref))
 }
 
 fn resolve_workspace_base_path(
@@ -124,13 +134,6 @@ fn resolve_workspace_base_path(
         return repo.path.clone();
     }
 
-    if path_points_at_repo_root(&container_path, repo) {
-        return container_path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or(container_path);
-    }
-
     container_path
 }
 
@@ -141,6 +144,39 @@ pub fn resolve_workspace_agent_working_dir(
 ) -> Option<String> {
     normalized_agent_working_dir(workspace, container_ref, repos)
         .or_else(|| infer_single_repo_working_dir(workspace, container_ref, repos))
+}
+
+pub fn resolve_workspace_repo_script_working_dir(
+    workspace: &Workspace,
+    container_ref: &str,
+    repos: &[Repo],
+    repo: &Repo,
+) -> Option<String> {
+    let default_working_dir = normalized_repo_default_working_dir(repo);
+
+    if repos.len() != 1 {
+        return Some(match default_working_dir {
+            Some(subdir) => PathBuf::from(&repo.name)
+                .join(subdir)
+                .to_string_lossy()
+                .to_string(),
+            None => repo.name.clone(),
+        });
+    }
+
+    let container_is_repo_root = single_repo_base_path_is_repo_root(workspace, container_ref, repo);
+
+    match default_working_dir {
+        Some(subdir) if !workspace.use_worktree || container_is_repo_root => Some(subdir),
+        Some(subdir) => Some(
+            PathBuf::from(&repo.name)
+                .join(subdir)
+                .to_string_lossy()
+                .to_string(),
+        ),
+        None if !workspace.use_worktree || container_is_repo_root => None,
+        None => Some(repo.name.clone()),
+    }
 }
 
 pub fn resolve_workspace_repo_root(
@@ -156,8 +192,9 @@ pub fn resolve_workspace_repo_root(
         return repo.path.clone();
     }
 
-    let base_path = resolve_workspace_base_path(workspace, container_ref, repos);
-    base_path.join(&repo.name)
+    workspace_with_container_ref(workspace, container_ref)
+        .repo_path(repo)
+        .unwrap_or_else(|| PathBuf::from(container_ref))
 }
 
 pub fn resolve_workspace_default_open_path(
@@ -173,4 +210,172 @@ pub fn resolve_workspace_default_open_path(
     }
 
     resolve_workspace_repo_root(workspace, container_ref, repos)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use chrono::Utc;
+    use db::models::{repo::Repo, workspace::Workspace};
+    use uuid::Uuid;
+
+    use super::{
+        resolve_workspace_default_open_path, resolve_workspace_repo_root,
+        resolve_workspace_repo_script_working_dir,
+    };
+
+    fn sample_repo(name: &str, default_working_dir: Option<&str>) -> Repo {
+        Repo {
+            id: Uuid::new_v4(),
+            path: PathBuf::from(format!("C:/repos/{name}")),
+            name: name.to_string(),
+            display_name: name.to_string(),
+            setup_script: None,
+            cleanup_script: None,
+            archive_script: None,
+            copy_files: None,
+            parallel_setup_script: false,
+            dev_server_script: Some("npm run dev".to_string()),
+            default_target_branch: None,
+            default_working_dir: default_working_dir.map(ToOwned::to_owned),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn sample_workspace(use_worktree: bool) -> Workspace {
+        Workspace {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(),
+            parent_workspace_id: None,
+            container_ref: None,
+            branch: "main".to_string(),
+            use_worktree,
+            agent_working_dir: None,
+            setup_completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            archived: false,
+            pinned: false,
+            name: None,
+        }
+    }
+
+    #[test]
+    fn single_repo_project_root_dev_script_runs_at_repo_root() {
+        let workspace = sample_workspace(false);
+        let repo = sample_repo("app", None);
+
+        let working_dir = resolve_workspace_repo_script_working_dir(
+            &workspace,
+            "C:/repos/app",
+            std::slice::from_ref(&repo),
+            &repo,
+        );
+
+        assert_eq!(working_dir, None);
+    }
+
+    #[test]
+    fn single_repo_project_root_dev_script_keeps_default_subdir() {
+        let workspace = sample_workspace(false);
+        let repo = sample_repo("app", Some("frontend"));
+
+        let working_dir = resolve_workspace_repo_script_working_dir(
+            &workspace,
+            "C:/repos/app",
+            std::slice::from_ref(&repo),
+            &repo,
+        );
+
+        assert_eq!(working_dir.as_deref(), Some("frontend"));
+    }
+
+    #[test]
+    fn single_repo_workspace_root_prefixes_repo_name_for_worktree() {
+        let workspace = sample_workspace(true);
+        let repo = sample_repo("app", Some("frontend"));
+
+        let working_dir = resolve_workspace_repo_script_working_dir(
+            &workspace,
+            "C:/workspaces/vu-task-123",
+            std::slice::from_ref(&repo),
+            &repo,
+        );
+
+        let expected = PathBuf::from("app")
+            .join("frontend")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(working_dir.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn single_repo_repo_root_worktree_drops_repo_prefix() {
+        let workspace = sample_workspace(true);
+        let repo = sample_repo("app", None);
+
+        let working_dir = resolve_workspace_repo_script_working_dir(
+            &workspace,
+            "C:/workspaces/vu-task-123/app",
+            std::slice::from_ref(&repo),
+            &repo,
+        );
+
+        assert_eq!(working_dir, None);
+    }
+
+    #[test]
+    fn direct_single_repo_worktree_keeps_subdir_relative_to_worktree_root() {
+        let mut workspace = sample_workspace(true);
+        workspace.agent_working_dir = Some("frontend".to_string());
+        let repo = sample_repo("app-main", Some("frontend"));
+
+        let working_dir = resolve_workspace_repo_script_working_dir(
+            &workspace,
+            "C:/worktrees/app-feature-b",
+            std::slice::from_ref(&repo),
+            &repo,
+        );
+
+        assert_eq!(working_dir.as_deref(), Some("frontend"));
+        assert_eq!(
+            resolve_workspace_repo_root(
+                &workspace,
+                "C:/worktrees/app-feature-b",
+                std::slice::from_ref(&repo),
+            ),
+            PathBuf::from("C:/worktrees/app-feature-b")
+        );
+        assert_eq!(
+            resolve_workspace_default_open_path(
+                &workspace,
+                "C:/worktrees/app-feature-b",
+                std::slice::from_ref(&repo),
+            ),
+            PathBuf::from("C:/worktrees/app-feature-b/frontend")
+        );
+    }
+
+    #[test]
+    fn multi_repo_workspace_always_scopes_to_repo_folder() {
+        let workspace = sample_workspace(true);
+        let repo = sample_repo("frontend", Some("packages/web"));
+        let backend = sample_repo("backend", None);
+
+        let working_dir = resolve_workspace_repo_script_working_dir(
+            &workspace,
+            "C:/workspaces/vu-task-123",
+            &[repo.clone(), backend],
+            &repo,
+        );
+
+        let expected = PathBuf::from("frontend")
+            .join("packages/web")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(working_dir.as_deref(), Some(expected.as_str()));
+    }
 }

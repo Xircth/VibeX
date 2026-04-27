@@ -85,4 +85,6 @@ vibe-ultra-cloud/
 
 # ===== Logs =====
 logs/
+!frontend/src/components/logs/
+!frontend/src/components/logs/**
 *.log

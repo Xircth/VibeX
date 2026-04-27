@@ -19,6 +19,10 @@ function joinPath(base: string, child: string): string {
   return `${normalizedBase}${separator}${normalizedChild}`;
 }
 
+function splitPathSegments(path: string | null | undefined): string[] {
+  return (path ?? '').split(/[\\/]+/).filter(Boolean);
+}
+
 function inferSingleRepoRootName(
   workspace: WorkspacePathSource,
   workspaceRepos: WorkspaceRepoPathSource[]
@@ -66,6 +70,34 @@ function containerAlreadyPointsAtRepoRoot(
   return segments.at(-1) === repoRootName;
 }
 
+function resolveSingleRepoWorktreeRootPath(
+  workspace: WorkspacePathSource,
+  workspaceRepos: WorkspaceRepoPathSource[],
+  containerRef: string
+): string | null {
+  if (!workspace.use_worktree || workspaceRepos.length !== 1) {
+    return null;
+  }
+
+  const repoRootName = inferSingleRepoRootName(workspace, workspaceRepos);
+  if (!repoRootName) {
+    return containerRef;
+  }
+
+  if (containerAlreadyPointsAtRepoRoot(containerRef, repoRootName)) {
+    return containerRef;
+  }
+
+  const [firstWorkingDirSegment] = splitPathSegments(workspace.agent_working_dir);
+  if (!firstWorkingDirSegment) {
+    return containerRef;
+  }
+
+  return firstWorkingDirSegment === repoRootName
+    ? joinPath(containerRef, repoRootName)
+    : containerRef;
+}
+
 export function deriveWorkspaceRootPathCandidates(
   workspace: WorkspacePathSource | null | undefined,
   workspaceRepos: WorkspaceRepoPathSource[] = []
@@ -78,6 +110,28 @@ export function deriveWorkspaceRootPathCandidates(
   const singleRepoRootPath = resolveSingleRepoRootPath(workspace, workspaceRepos);
   if (singleRepoRootPath) {
     return [...new Set([singleRepoRootPath, containerRef])];
+  }
+
+  const singleRepoWorktreeRootPath = resolveSingleRepoWorktreeRootPath(
+    workspace,
+    workspaceRepos,
+    containerRef
+  );
+  if (singleRepoWorktreeRootPath) {
+    const repoRootName = inferSingleRepoRootName(workspace, workspaceRepos);
+    const repoNamedChild =
+      repoRootName && !containerAlreadyPointsAtRepoRoot(containerRef, repoRootName)
+        ? joinPath(containerRef, repoRootName)
+        : null;
+    return [
+      ...new Set(
+        [
+          singleRepoWorktreeRootPath,
+          containerRef,
+          repoNamedChild,
+        ].filter((value): value is string => Boolean(value))
+      ),
+    ];
   }
 
   const repoRootName = inferSingleRepoRootName(workspace, workspaceRepos);

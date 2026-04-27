@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useNavigateWithSearch } from '@/hooks';
-import { settingsWindowApi } from '@/lib/api';
+import { projectsApi, settingsWindowApi } from '@/lib/api';
 import {
   Card,
   CardContent,
@@ -10,9 +9,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { projectsApi } from '@/lib/api';
 import { useProjects } from '@/hooks/useProjects';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import {
+  PROJECT_DELETE_CONFIRM_CLASSNAME,
+  PROJECT_DELETE_CONFIRM_STYLE,
+  PROJECT_DELETE_TOAST_OPTIONS,
+} from '@/lib/projectDeleteUi';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   ArrowLeft,
@@ -32,27 +36,30 @@ interface ProjectDetailProps {
 export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const navigate = useNavigateWithSearch();
   const { projectsById, isLoading, error: projectsError } = useProjects();
-  const [deleteError, setDeleteError] = useState('');
-
   const project = projectsById[projectId] || null;
 
   const handleDelete = async () => {
     if (!project) return;
-    if (
-      !confirm(
-        `Are you sure you want to delete "${project.name}"? This action cannot be undone.`
-      )
-    )
-      return;
+
+    const result = await ConfirmDialog.show({
+      title: `Delete "${project.name}"?`,
+      message:
+        'This removes the project and its local VibeUltra data. Project files and Git worktrees are not deleted.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
+      contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
+    });
+    if (result !== 'confirmed') return;
 
     try {
       await projectsApi.delete(projectId);
+      toast.success('Project deleted', PROJECT_DELETE_TOAST_OPTIONS);
       onBack();
     } catch (error) {
       console.error('Failed to delete project:', error);
-      // @ts-expect-error it is type ApiError
-      setDeleteError(error.message || '删除项目失败');
-      setTimeout(() => setDeleteError(''), 5000);
+      toast.error('Failed to delete project', PROJECT_DELETE_TOAST_OPTIONS);
     }
   };
 
@@ -72,9 +79,10 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   if ((!project && !isLoading) || projectsError) {
     const errorMsg = projectsError
       ? projectsError.message
-      : '您查找的项目不存在或已被删除。';
+      : 'The project you requested was not found or has already been deleted.';
+
     return (
-      <div className="space-y-4 py-12 px-4">
+      <div className="space-y-4 px-4 py-12">
         <Button variant="outline" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Projects
@@ -96,8 +104,8 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   }
 
   return (
-    <div className="space-y-6 py-12 px-4">
-      <div className="flex justify-between items-start">
+    <div className="space-y-6 px-4 py-12">
+      <div className="flex items-start justify-between">
         <div className="flex items-center space-x-4">
           <Button variant="outline" onClick={onBack}>
             <ArrowLeft className="mr-2 h-4 w-4" />
@@ -117,7 +125,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             onClick={() => navigate(`/local-projects/${projectId}/sessions`)}
           >
             <CheckSquare className="mr-2 h-4 w-4" />
-            查看会话
+            View Sessions
           </Button>
           <Button variant="outline" onClick={handleEditClick}>
             <Edit className="mr-2 h-4 w-4" />
@@ -126,20 +134,13 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
           <Button
             variant="outline"
             onClick={handleDelete}
-            className="text-destructive hover:text-destructive-foreground hover:bg-destructive/10"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive-foreground"
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
           </Button>
         </div>
       </div>
-
-      {deleteError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{deleteError}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
@@ -187,7 +188,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
               <h4 className="text-sm font-medium text-muted-foreground">
                 Project ID
               </h4>
-              <code className="mt-1 block text-xs bg-muted p-2 rounded font-mono">
+              <code className="mt-1 block rounded bg-muted p-2 font-mono text-xs">
                 {project.id}
               </code>
             </div>

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Dialog,
   DialogContent,
   DialogFooter,

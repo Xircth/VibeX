@@ -17,6 +17,7 @@ import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
 
 import {
   AgentSettings,
+  AppearanceSettings,
   EditorSettings,
   McpSettings,
   SkillsSettings,
@@ -170,6 +171,7 @@ function MainAppContent() {
             <Route path="skills" element={<SkillsSettings />} />
             <Route path="shortcuts" element={<ShortcutSettings />} />
             <Route path="editor" element={<EditorSettings />} />
+            <Route path="appearance" element={<AppearanceSettings />} />
             <Route path="system" element={<SystemSettings />} />
           </Route>
 

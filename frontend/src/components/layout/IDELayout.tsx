@@ -14,7 +14,7 @@ import {
   type DockviewReadyEvent,
 } from 'dockview-react';
 import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
-import { FolderOpen, GitBranch, Search } from 'lucide-react';
+import { Code2, FolderOpen, GitBranch, Search } from 'lucide-react';
 import { panelComponents } from '@/components/layout/panels/PanelRegistry';
 import { StatusBar } from '@/components/layout/StatusBar';
 import {
@@ -315,6 +315,8 @@ export function IDELayout({
     isRightPanelVisible,
     rightPanelWidth,
     setRightPanelWidth,
+    isEditorAreaVisible,
+    toggleEditorArea,
     activeTab,
   } = useLayoutStore();
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
@@ -342,6 +344,8 @@ export function IDELayout({
   } = usePanelActionsContext();
 
   serializedLayoutRef.current = serializedLayout;
+  const isWorkspaceEditorAreaCollapsed =
+    effectiveActiveTab === 'workspace' && !isEditorAreaVisible;
 
   const applyDefaultSizes = useCallback(
     (
@@ -930,10 +934,33 @@ export function IDELayout({
             >
               <Search className="h-[18px] w-[18px]" />
             </button>
+            <button
+              onClick={toggleEditorArea}
+              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
+                isEditorAreaVisible
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+              title={
+                isEditorAreaVisible
+                  ? '隐藏编辑区和终端区'
+                  : '显示编辑区和终端区'
+              }
+              aria-pressed={isEditorAreaVisible}
+            >
+              <Code2 className="h-[18px] w-[18px]" />
+            </button>
           </div>
         ) : null}
 
-        <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
+        <div
+          className={
+            isWorkspaceEditorAreaCollapsed
+              ? 'hidden'
+              : 'relative flex-1 min-w-0'
+          }
+          ref={dockviewRootRef}
+        >
           <div
             className={
               effectiveActiveTab === 'kanban' ? 'invisible h-full' : 'h-full'
@@ -987,14 +1014,24 @@ export function IDELayout({
 
         {isRightPanelVisible && rightPanelContent && (
           <>
+            {!isWorkspaceEditorAreaCollapsed ? (
+              <div
+                ref={resizeHandleRef}
+                className="workspace-resize-handle relative z-20 w-px shrink-0 cursor-col-resize after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
+                onMouseDown={handleResizeMouseDown}
+              />
+            ) : null}
             <div
-              ref={resizeHandleRef}
-              className="workspace-resize-handle relative z-20 w-px shrink-0 cursor-col-resize after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
-              onMouseDown={handleResizeMouseDown}
-            />
-            <div
-              className="shrink-0 overflow-hidden bg-background z-20"
-              style={{ width: rightPanelWidth }}
+              className={
+                isWorkspaceEditorAreaCollapsed
+                  ? 'z-20 min-w-0 flex-1 overflow-hidden bg-background'
+                  : 'z-20 shrink-0 overflow-hidden bg-background'
+              }
+              style={
+                isWorkspaceEditorAreaCollapsed
+                  ? undefined
+                  : { width: rightPanelWidth }
+              }
             >
               {rightPanelContent}
             </div>

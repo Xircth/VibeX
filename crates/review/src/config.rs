@@ -9,9 +9,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// Get the path to the config file (~/.config/vibe-ultra/review.toml)
+    /// Get the path to the config file (~/.config/vibex/review.toml)
     fn config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("vibe-ultra").join("review.toml"))
+        dirs::config_dir().map(|p| p.join("vibex").join("review.toml"))
     }
 
     /// Load config from disk, returning default if file doesn't exist

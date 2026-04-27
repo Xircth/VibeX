@@ -315,13 +315,104 @@
   .settings-page {
     --foreground: 0 0% 13%;
     --muted-foreground: 0 0% 35%;
+    --card: 0 0% 96%;
     --card-foreground: 0 0% 13%;
+    --border: 0 0% 72%;
+    --input: 0 0% 90%;
   }
 
   .dark .settings-page {
     --foreground: 0 0% 93%;
     --muted-foreground: 0 0% 70%;
+    --card: 220 18% 18%;
     --card-foreground: 0 0% 93%;
+    --border: 220 14% 38%;
+    --input: 220 16% 24%;
+  }
+
+  .settings-page .settings-card {
+    background: hsl(var(--card) / 0.72);
+    border-color: hsl(var(--border) / 0.75);
+  }
+
+  .settings-page .settings-card > :not([hidden]) {
+    padding: 0.8rem 1rem;
+  }
+
+  .settings-page .settings-card > :not([hidden]) + :not([hidden]) {
+    border-top: 1px solid hsl(var(--border) / 0.55);
+  }
+
+  .settings-page input:not([type='checkbox']):not([type='radio']),
+  .settings-page textarea,
+  .settings-page button[role='combobox'],
+  .settings-page .settings-card kbd {
+    border-width: 1px;
+    border-color: hsl(var(--border) / 0.9);
+    background-color: hsl(var(--background));
+    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+  }
+
+  .settings-page input:not([type='checkbox']):not([type='radio']),
+  .settings-page button[role='combobox'],
+  .settings-page button:not([role='switch']):not([role='checkbox']) {
+    height: 2rem;
+    min-height: 2rem;
+  }
+
+  .settings-page button[role='combobox'] {
+    user-select: none;
+    -webkit-user-select: none;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .settings-page input:not([type='checkbox']):not([type='radio']):focus,
+  .settings-page input:not([type='checkbox']):not([type='radio']):focus-visible,
+  .settings-page textarea:focus,
+  .settings-page textarea:focus-visible,
+  .settings-page button[role='combobox']:focus,
+  .settings-page button[role='combobox']:focus-visible {
+    outline: none !important;
+    border-color: hsl(var(--border));
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08) !important;
+  }
+
+  .settings-page button[role='switch'] {
+    border: 1px solid hsl(var(--border) / 0.95);
+    box-shadow:
+      inset 0 1px 2px hsl(0 0% 0% / 0.18),
+      0 1px 2px hsl(0 0% 0% / 0.08);
+  }
+
+  .settings-page button[role='switch'][data-state='unchecked'] {
+    background-color: hsl(var(--background));
+  }
+
+  .settings-page button[role='switch'][data-state='unchecked'] > span {
+    background-color: hsl(var(--muted-foreground) / 0.58);
+    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.24);
+  }
+
+  .settings-page button[role='checkbox'] {
+    border: 1px solid hsl(var(--border) / 0.95);
+    background-color: hsl(var(--background));
+    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+  }
+
+  .settings-page button[role='checkbox'][aria-checked='true'] {
+    border-color: hsl(var(--primary));
+    background-color: hsl(var(--primary));
+  }
+
+  .settings-page textarea {
+    min-height: 7rem;
+  }
+
+  .settings-page .settings-card textarea {
+    min-height: 9rem;
   }
 }
 

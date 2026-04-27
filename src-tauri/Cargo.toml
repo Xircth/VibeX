@@ -1,8 +1,8 @@
 [package]
-name = "vibe-ultra"
+name = "vibex"
 version = "0.1.0"
 edition = "2024"
-default-run = "vibe-ultra"
+default-run = "vibex"
 
 [build-dependencies]
 cc = "1"

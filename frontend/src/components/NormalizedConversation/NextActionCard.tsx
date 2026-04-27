@@ -1,4 +1,4 @@
-﻿import { useCallback } from 'react';
+import { useCallback } from 'react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { Check, Copy, FileDiff, GitBranch, Settings } from 'lucide-react';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';

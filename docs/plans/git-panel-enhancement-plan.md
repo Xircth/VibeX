@@ -1,91 +1,91 @@
-# Git 面板增强计划
+# Git 闈㈡澘澧炲己璁″垝
 
-> 基于 mossx Git 模块的深度审计，制定 VibeUltra Git 面板功能对齐与增强路线图。
-> 本计划是 `improvement-plan.md` Phase 2.4（Git 历史可视化）的细化扩展。
+> 鍩轰簬 mossx Git 妯″潡鐨勬繁搴﹀璁★紝鍒跺畾 VibeX Git 闈㈡澘鍔熻兘瀵归綈涓庡寮鸿矾绾垮浘銆?
+> 鏈鍒掓槸 `improvement-plan.md` Phase 2.4锛圙it 鍘嗗彶鍙鍖栵級鐨勭粏鍖栨墿灞曘€?
 
 ---
 
-## 现状总结
+## 鐜扮姸鎬荤粨
 
-### 已实现
+### 宸插疄鐜?
 
-| 功能 | 状态 |
+| 鍔熻兘 | 鐘舵€?|
 |------|------|
-| Staged/Unstaged 分区文件列表 | 完成 |
-| 单文件 Stage/Unstage/Revert | 完成 |
-| 批量 Stage All / Revert All | 完成 |
-| Commit 消息输入 + Commit/Commit&Push 按钮 | 完成 |
-| Push 按钮（含 ahead 计数） | 完成 |
-| Diff 查看器（虚拟滚动 + Split/Unified） | 完成 |
-| 提交日志视图（100 条 + ahead/behind） | 完成 |
-| 文件状态徽标（A/M/D/R/U） | 完成 |
-| 行级 +/- 统计 | 完成 |
-| 图片 Diff 特殊处理 | 完成 |
-| 自适应轮询 | 完成 |
+| Staged/Unstaged 鍒嗗尯鏂囦欢鍒楄〃 | 瀹屾垚 |
+| 鍗曟枃浠?Stage/Unstage/Revert | 瀹屾垚 |
+| 鎵归噺 Stage All / Revert All | 瀹屾垚 |
+| Commit 娑堟伅杈撳叆 + Commit/Commit&Push 鎸夐挳 | 瀹屾垚 |
+| Push 鎸夐挳锛堝惈 ahead 璁℃暟锛?| 瀹屾垚 |
+| Diff 鏌ョ湅鍣紙铏氭嫙婊氬姩 + Split/Unified锛?| 瀹屾垚 |
+| 鎻愪氦鏃ュ織瑙嗗浘锛?00 鏉?+ ahead/behind锛?| 瀹屾垚 |
+| 鏂囦欢鐘舵€佸窘鏍囷紙A/M/D/R/U锛?| 瀹屾垚 |
+| 琛岀骇 +/- 缁熻 | 瀹屾垚 |
+| 鍥剧墖 Diff 鐗规畩澶勭悊 | 瀹屾垚 |
+| 鑷€傚簲杞 | 瀹屾垚 |
 
-### 后端已有但前端未用
+### 鍚庣宸叉湁浣嗗墠绔湭鐢?
 
-| 后端命令 | 功能 | 前端状态 |
+| 鍚庣鍛戒护 | 鍔熻兘 | 鍓嶇鐘舵€?|
 |----------|------|----------|
-| `get_repo_branches` | 获取分支列表 | API 已封装，前端未调用 |
-| `get_repo_remotes` | 获取远端列表 | API 已封装，前端未调用 |
-| `get_workspace_commit_graph` | 提交图谱（两分支对比） | 前端未调用 |
-| `get_workspace_commit_history` | 提交历史 | 前端未调用 |
-| `rebase_workspace` | Rebase 操作 | 前端未调用 |
-| `merge_workspace` | 合并操作 | 前端未调用 |
-| `rename_workspace_branch` | 重命名分支 | 前端未调用 |
-| `create_workspace_pr` | 创建 PR（gh CLI） | 前端未调用 |
-| `list_open_prs` | 列出开放 PR | 前端未调用 |
+| `get_repo_branches` | 鑾峰彇鍒嗘敮鍒楄〃 | API 宸插皝瑁咃紝鍓嶇鏈皟鐢?|
+| `get_repo_remotes` | 鑾峰彇杩滅鍒楄〃 | API 宸插皝瑁咃紝鍓嶇鏈皟鐢?|
+| `get_workspace_commit_graph` | 鎻愪氦鍥捐氨锛堜袱鍒嗘敮瀵规瘮锛?| 鍓嶇鏈皟鐢?|
+| `get_workspace_commit_history` | 鎻愪氦鍘嗗彶 | 鍓嶇鏈皟鐢?|
+| `rebase_workspace` | Rebase 鎿嶄綔 | 鍓嶇鏈皟鐢?|
+| `merge_workspace` | 鍚堝苟鎿嶄綔 | 鍓嶇鏈皟鐢?|
+| `rename_workspace_branch` | 閲嶅懡鍚嶅垎鏀?| 鍓嶇鏈皟鐢?|
+| `create_workspace_pr` | 鍒涘缓 PR锛坓h CLI锛?| 鍓嶇鏈皟鐢?|
+| `list_open_prs` | 鍒楀嚭寮€鏀?PR | 鍓嶇鏈皟鐢?|
 
 ---
 
-## Phase 划分
+## Phase 鍒掑垎
 
-### Phase G1 — Git 面板核心增强（高优先级）
+### Phase G1 鈥?Git 闈㈡澘鏍稿績澧炲己锛堥珮浼樺厛绾э級
 
-> 目标：补齐用户明确要求的 4 项核心功能。
-> 预估：3-5 个工作日
+> 鐩爣锛氳ˉ榻愮敤鎴锋槑纭姹傜殑 4 椤规牳蹇冨姛鑳姐€?
+> 棰勪及锛?-5 涓伐浣滄棩
 
-#### G1.1 Pull/Fetch 操作
+#### G1.1 Pull/Fetch 鎿嶄綔
 
-**缺失**：当前只有 Push，无 Pull/Fetch。
+**缂哄け**锛氬綋鍓嶅彧鏈?Push锛屾棤 Pull/Fetch銆?
 
-**后端新增**：
-- `crates/git/src/lib.rs` 新增方法：
-  - `pull_from_remote(branch, remote)` — `git pull --ff-only`（默认快进合并）
-  - `fetch_remote(remote)` — `git fetch`
-- `src-tauri/src/commands/workspaces.rs` 新增命令：
-  - `pull_workspace_branch` — 调用 `pull_from_remote`
-  - `fetch_workspace` — 调用 `fetch_remote`
-- `crates/api-types/` 新增响应类型：
+**鍚庣鏂板**锛?
+- `crates/git/src/lib.rs` 鏂板鏂规硶锛?
+  - `pull_from_remote(branch, remote)` 鈥?`git pull --ff-only`锛堥粯璁ゅ揩杩涘悎骞讹級
+  - `fetch_remote(remote)` 鈥?`git fetch`
+- `src-tauri/src/commands/workspaces.rs` 鏂板鍛戒护锛?
+  - `pull_workspace_branch` 鈥?璋冪敤 `pull_from_remote`
+  - `fetch_workspace` 鈥?璋冪敤 `fetch_remote`
+- `crates/api-types/` 鏂板鍝嶅簲绫诲瀷锛?
   - `PullResult { updated: bool, new_commits: u32, conflicts: Vec<String> }`
 
-**前端修改**：
-- `frontend/src/lib/api.ts` — 新增 `pullBranch()`、`fetchRemote()`
-- `frontend/src/hooks/git/useGitActions.ts` — 新增 `onPull`、`onFetch` 操作
-- `frontend/src/components/panels/git/GitPanel.tsx` — 工具栏新增：
-  - Pull 按钮（Download 图标）— 当 `commitsBehind > 0` 时高亮显示 behind 数量
-  - Fetch 按钮（RefreshCw 图标）— 获取远端最新状态
-  - Sync 按钮（ArrowUpDown 图标）— Pull + Push 一键同步（可选）
+**鍓嶇淇敼**锛?
+- `frontend/src/lib/api.ts` 鈥?鏂板 `pullBranch()`銆乣fetchRemote()`
+- `frontend/src/hooks/git/useGitActions.ts` 鈥?鏂板 `onPull`銆乣onFetch` 鎿嶄綔
+- `frontend/src/components/panels/git/GitPanel.tsx` 鈥?宸ュ叿鏍忔柊澧烇細
+  - Pull 鎸夐挳锛圖ownload 鍥炬爣锛夆€?褰?`commitsBehind > 0` 鏃堕珮浜樉绀?behind 鏁伴噺
+  - Fetch 鎸夐挳锛圧efreshCw 鍥炬爣锛夆€?鑾峰彇杩滅鏈€鏂扮姸鎬?
+  - Sync 鎸夐挳锛圓rrowUpDown 鍥炬爣锛夆€?Pull + Push 涓€閿悓姝ワ紙鍙€夛級
 
-**参考**：mossx `GitDiffPanel.tsx` Push/Pull/Sync 按钮区。
+**鍙傝€?*锛歮ossx `GitDiffPanel.tsx` Push/Pull/Sync 鎸夐挳鍖恒€?
 
 ---
 
-#### G1.2 分支管理
+#### G1.2 鍒嗘敮绠＄悊
 
-**缺失**：无法查看/切换/创建分支。
+**缂哄け**锛氭棤娉曟煡鐪?鍒囨崲/鍒涘缓鍒嗘敮銆?
 
-**后端利用**：`get_repo_branches` 命令已存在。
+**鍚庣鍒╃敤**锛歚get_repo_branches` 鍛戒护宸插瓨鍦ㄣ€?
 
-**后端新增**：
-- `src-tauri/src/commands/repos.rs` 或 `workspaces.rs` 新增：
-  - `checkout_branch { repo_path, branch_name }` — `git checkout <branch>`
-  - `create_branch { repo_path, branch_name, from_ref? }` — `git checkout -b <name> [from]`
-  - `delete_branch { repo_path, branch_name, force }` — `git branch -d/-D`
+**鍚庣鏂板**锛?
+- `src-tauri/src/commands/repos.rs` 鎴?`workspaces.rs` 鏂板锛?
+  - `checkout_branch { repo_path, branch_name }` 鈥?`git checkout <branch>`
+  - `create_branch { repo_path, branch_name, from_ref? }` 鈥?`git checkout -b <name> [from]`
+  - `delete_branch { repo_path, branch_name, force }` 鈥?`git branch -d/-D`
 
-**前端新增**：
-- `frontend/src/hooks/git/useGitBranches.ts` — 新 Hook：
+**鍓嶇鏂板**锛?
+- `frontend/src/hooks/git/useGitBranches.ts` 鈥?鏂?Hook锛?
   ```typescript
   interface UseGitBranches {
     branches: Branch[]
@@ -97,362 +97,362 @@
     isLoading: boolean
   }
   ```
-- `frontend/src/components/panels/git/GitBranchList.tsx` — 分支列表组件：
-  - 本地分支 / 远端分支分组展示
-  - 当前分支高亮标记（星号或粗体）
-  - 点击切换分支
-  - 右上角「+」按钮创建新分支
-  - 每个分支行悬停显示操作按钮（checkout / delete）
-  - 排序：按最近提交时间降序（利用 `last_commit_date`）
-- `GitPanel.tsx` 面板模式新增 `branches` Tab
+- `frontend/src/components/panels/git/GitBranchList.tsx` 鈥?鍒嗘敮鍒楄〃缁勪欢锛?
+  - 鏈湴鍒嗘敮 / 杩滅鍒嗘敮鍒嗙粍灞曠ず
+  - 褰撳墠鍒嗘敮楂樹寒鏍囪锛堟槦鍙锋垨绮椾綋锛?
+  - 鐐瑰嚮鍒囨崲鍒嗘敮
+  - 鍙充笂瑙掋€?銆嶆寜閽垱寤烘柊鍒嗘敮
+  - 姣忎釜鍒嗘敮琛屾偓鍋滄樉绀烘搷浣滄寜閽紙checkout / delete锛?
+  - 鎺掑簭锛氭寜鏈€杩戞彁浜ゆ椂闂撮檷搴忥紙鍒╃敤 `last_commit_date`锛?
+- `GitPanel.tsx` 闈㈡澘妯″紡鏂板 `branches` Tab
 
-**参考**：mossx `useGitBranches.ts`。
-
----
-
-#### G1.3 提交日志增强
-
-**缺失**：Log 视图缺少 To Push/To Pull 分区和右键操作。
-
-**前端修改**：
-- `frontend/src/components/panels/git/GitLogView.tsx` — 增强：
-  1. **三分区布局**：
-     - "To Push"（`commitsAhead > 0` 时显示）— 待推送提交列表
-     - "To Pull"（`commitsBehind > 0` 时显示）— 待拉取提交列表
-     - "Recent Commits" — 全部提交历史
-  2. **右键上下文菜单**（Tauri 原生菜单）：
-     - `Copy SHA` — 复制完整 SHA 到剪贴板
-     - `Open on GitHub` — 如有 remote URL，打开 `{githubUrl}/commit/{sha}`
-  3. **提交详情展开**：
-     - 点击提交行展开显示该提交的文件变更列表
-     - 显示每个文件的 +/- 统计
-     - 点击文件可在 Diff 查看器中预览
-
-**后端利用**：
-- `get_workspace_git_log` 已返回 `ahead_entries` / `behind_entries`，前端只需分区渲染
-- `get_workspace_commit_history` 已存在，可用于获取详细提交信息
-
-**参考**：mossx `GitLogEntryRow` + 右键菜单。
+**鍙傝€?*锛歮ossx `useGitBranches.ts`銆?
 
 ---
 
-#### G1.4 Flat/Tree 视图切换
+#### G1.3 鎻愪氦鏃ュ織澧炲己
 
-**缺失**：文件列表仅有扁平列表，无目录树视图。
+**缂哄け**锛歀og 瑙嗗浘缂哄皯 To Push/To Pull 鍒嗗尯鍜屽彸閿搷浣溿€?
 
-**前端新增**：
-- `frontend/src/components/panels/git/GitFileTree.tsx` — 目录树组件：
-  - `buildDiffTree(files)` — 将扁平文件列表构建为树结构
-  - 文件夹节点可折叠/展开（ChevronRight/ChevronDown）
-  - 缩进：10px/层
-  - 每个文件夹显示包含的变更文件数量
-  - 文件节点复用 `GitFileRow` 的操作按钮
-- `frontend/src/components/panels/git/GitStagingArea.tsx` — 修改：
-  - 顶部新增 Flat/Tree 切换按钮（LayoutGrid / FolderTree 图标）
-  - 状态持久化到 `useLayoutStore`
-  - 快捷键：`Alt+Shift+V` 切换
+**鍓嶇淇敼**锛?
+- `frontend/src/components/panels/git/GitLogView.tsx` 鈥?澧炲己锛?
+  1. **涓夊垎鍖哄竷灞€**锛?
+     - "To Push"锛坄commitsAhead > 0` 鏃舵樉绀猴級鈥?寰呮帹閫佹彁浜ゅ垪琛?
+     - "To Pull"锛坄commitsBehind > 0` 鏃舵樉绀猴級鈥?寰呮媺鍙栨彁浜ゅ垪琛?
+     - "Recent Commits" 鈥?鍏ㄩ儴鎻愪氦鍘嗗彶
+  2. **鍙抽敭涓婁笅鏂囪彍鍗?*锛圱auri 鍘熺敓鑿滃崟锛夛細
+     - `Copy SHA` 鈥?澶嶅埗瀹屾暣 SHA 鍒板壀璐存澘
+     - `Open on GitHub` 鈥?濡傛湁 remote URL锛屾墦寮€ `{githubUrl}/commit/{sha}`
+  3. **鎻愪氦璇︽儏灞曞紑**锛?
+     - 鐐瑰嚮鎻愪氦琛屽睍寮€鏄剧ず璇ユ彁浜ょ殑鏂囦欢鍙樻洿鍒楄〃
+     - 鏄剧ず姣忎釜鏂囦欢鐨?+/- 缁熻
+     - 鐐瑰嚮鏂囦欢鍙湪 Diff 鏌ョ湅鍣ㄤ腑棰勮
 
-**参考**：mossx `DiffTreeSection` + `buildDiffTree`。
+**鍚庣鍒╃敤**锛?
+- `get_workspace_git_log` 宸茶繑鍥?`ahead_entries` / `behind_entries`锛屽墠绔彧闇€鍒嗗尯娓叉煋
+- `get_workspace_commit_history` 宸插瓨鍦紝鍙敤浜庤幏鍙栬缁嗘彁浜や俊鎭?
 
----
-
-### Phase G2 — 交互体验增强（中优先级）
-
-> 目标：对齐 mossx 的交互细节，提升操作效率。
-> 预估：2-3 个工作日
-
-#### G2.1 丢弃确认弹窗
-
-**缺失**：Revert/Discard 操作无确认，可能导致误操作。
-
-**前端新增**：
-- `frontend/src/components/panels/git/GitDiscardDialog.tsx`：
-  - 警告文字："此操作不可逆"
-  - 受影响文件列表（`<code>` 标签）
-  - Cancel / Confirm 按钮
-  - 提交中禁用按钮 + loading 状态
-- 修改 `GitStagingArea.tsx`：Revert 单文件 / Revert All 触发弹窗
-
-**参考**：mossx `diff-danger-dialog`。
+**鍙傝€?*锛歮ossx `GitLogEntryRow` + 鍙抽敭鑿滃崟銆?
 
 ---
 
-#### G2.2 Commit 区域折叠
+#### G1.4 Flat/Tree 瑙嗗浘鍒囨崲
 
-**缺失**：Commit 框始终显示，占用面板空间。
+**缂哄け**锛氭枃浠跺垪琛ㄤ粎鏈夋墎骞冲垪琛紝鏃犵洰褰曟爲瑙嗗浘銆?
 
-**前端修改**：
-- `GitPanel.tsx` 或 `GitCommitBox.tsx`：
-  - 添加折叠/展开按钮（ChevronsUpDown / ChevronsDownUp）
-  - 默认展开，折叠时仅显示一行提示
-  - 状态持久化
+**鍓嶇鏂板**锛?
+- `frontend/src/components/panels/git/GitFileTree.tsx` 鈥?鐩綍鏍戠粍浠讹細
+  - `buildDiffTree(files)` 鈥?灏嗘墎骞虫枃浠跺垪琛ㄦ瀯寤轰负鏍戠粨鏋?
+  - 鏂囦欢澶硅妭鐐瑰彲鎶樺彔/灞曞紑锛圕hevronRight/ChevronDown锛?
+  - 缂╄繘锛?0px/灞?
+  - 姣忎釜鏂囦欢澶规樉绀哄寘鍚殑鍙樻洿鏂囦欢鏁伴噺
+  - 鏂囦欢鑺傜偣澶嶇敤 `GitFileRow` 鐨勬搷浣滄寜閽?
+- `frontend/src/components/panels/git/GitStagingArea.tsx` 鈥?淇敼锛?
+  - 椤堕儴鏂板 Flat/Tree 鍒囨崲鎸夐挳锛圠ayoutGrid / FolderTree 鍥炬爣锛?
+  - 鐘舵€佹寔涔呭寲鍒?`useLayoutStore`
+  - 蹇嵎閿細`Alt+Shift+V` 鍒囨崲
 
----
-
-#### G2.3 文件预览模态框
-
-**缺失**：无法全屏查看单文件 Diff。
-
-**前端新增**：
-- `frontend/src/components/panels/git/GitDiffModal.tsx`：
-  - 双击 `GitFileRow` 触发
-  - Portal 到 `document.body`
-  - 文件状态 + 路径 + +/-统计 标题栏
-  - 最大化/还原按钮
-  - 关闭按钮 + ESC 快捷键
-  - 内嵌完整 `GitDiffViewer`（支持 split/unified 切换）
-
-**参考**：mossx `git-history-diff-modal`。
+**鍙傝€?*锛歮ossx `DiffTreeSection` + `buildDiffTree`銆?
 
 ---
 
-#### G2.4 多文件选择
+### Phase G2 鈥?浜や簰浣撻獙澧炲己锛堜腑浼樺厛绾э級
 
-**缺失**：只能单个操作文件，无法批量选中。
+> 鐩爣锛氬榻?mossx 鐨勪氦浜掔粏鑺傦紝鎻愬崌鎿嶄綔鏁堢巼銆?
+> 棰勪及锛?-3 涓伐浣滄棩
 
-**前端修改**：
-- `GitStagingArea.tsx` 新增选中状态管理：
-  - 单击：选中单文件
-  - `Ctrl/Cmd + Click`：追加/移除选中
-  - `Shift + Click`：范围选中
-- 选中文件高亮样式
-- 批量操作：选中多个文件后一键 Stage/Unstage/Discard
+#### G2.1 涓㈠純纭寮圭獥
 
----
+**缂哄け**锛歊evert/Discard 鎿嶄綔鏃犵‘璁わ紝鍙兘瀵艰嚧璇搷浣溿€?
 
-#### G2.5 右键上下文菜单（文件列表）
+**鍓嶇鏂板**锛?
+- `frontend/src/components/panels/git/GitDiscardDialog.tsx`锛?
+  - 璀﹀憡鏂囧瓧锛?姝ゆ搷浣滀笉鍙€?
+  - 鍙楀奖鍝嶆枃浠跺垪琛紙`<code>` 鏍囩锛?
+  - Cancel / Confirm 鎸夐挳
+  - 鎻愪氦涓鐢ㄦ寜閽?+ loading 鐘舵€?
+- 淇敼 `GitStagingArea.tsx`锛歊evert 鍗曟枃浠?/ Revert All 瑙﹀彂寮圭獥
 
-**缺失**：文件列表无右键菜单。
-
-**前端新增**：
-- 使用 Tauri 原生菜单 API（`@tauri-apps/plugin-menu`）
-- 菜单项根据文件状态动态生成：
-  - Staged 文件：`Unstage file(s) (N)`
-  - Unstaged 文件：`Stage file(s) (N)` / `Discard change(s) (N)`
-- 多选时显示操作数量
-
-**参考**：mossx 右键菜单实现。
+**鍙傝€?*锛歮ossx `diff-danger-dialog`銆?
 
 ---
 
-### Phase G3 — Diff 查看器增强（中优先级）
+#### G2.2 Commit 鍖哄煙鎶樺彔
 
-> 目标：提升 Diff 阅读体验，对齐 mossx 的高级浏览功能。
-> 预估：2-3 个工作日
+**缂哄け**锛欳ommit 妗嗗缁堟樉绀猴紝鍗犵敤闈㈡澘绌洪棿銆?
 
-#### G3.1 Sticky 文件头
-
-**缺失**：滚动 Diff 时不知道当前查看的是哪个文件。
-
-**前端修改**：
-- `GitDiffViewer.tsx`：
-  - 滚动时通过 `IntersectionObserver` 或 `scrollTop` 计算当前可见文件
-  - 顶部固定显示当前文件路径 + 状态 + +/-统计
-  - 平滑切换动画
-
-**参考**：mossx Sticky 文件头实现。
+**鍓嶇淇敼**锛?
+- `GitPanel.tsx` 鎴?`GitCommitBox.tsx`锛?
+  - 娣诲姞鎶樺彔/灞曞紑鎸夐挳锛圕hevronsUpDown / ChevronsDownUp锛?
+  - 榛樿灞曞紑锛屾姌鍙犳椂浠呮樉绀轰竴琛屾彁绀?
+  - 鐘舵€佹寔涔呭寲
 
 ---
 
-#### G3.2 Change Anchor 导航
+#### G2.3 鏂囦欢棰勮妯℃€佹
 
-**缺失**：在长 Diff 中无法快速跳转到变更位置。
+**缂哄け**锛氭棤娉曞叏灞忔煡鐪嬪崟鏂囦欢 Diff銆?
 
-**前端新增**：
-- `GitDiffViewer.tsx` 工具栏新增：
-  - 上一个变更（ChevronUp）/ 下一个变更（ChevronDown）按钮
-  - 当前位置 `N/M` 显示
-  - 扫描 `[data-line-type="change-*"]` DOM 元素定位
+**鍓嶇鏂板**锛?
+- `frontend/src/components/panels/git/GitDiffModal.tsx`锛?
+  - 鍙屽嚮 `GitFileRow` 瑙﹀彂
+  - Portal 鍒?`document.body`
+  - 鏂囦欢鐘舵€?+ 璺緞 + +/-缁熻 鏍囬鏍?
+  - 鏈€澶у寲/杩樺師鎸夐挳
+  - 鍏抽棴鎸夐挳 + ESC 蹇嵎閿?
+  - 鍐呭祵瀹屾暣 `GitDiffViewer`锛堟敮鎸?split/unified 鍒囨崲锛?
+
+**鍙傝€?*锛歮ossx `git-history-diff-modal`銆?
+
+---
+
+#### G2.4 澶氭枃浠堕€夋嫨
+
+**缂哄け**锛氬彧鑳藉崟涓搷浣滄枃浠讹紝鏃犳硶鎵归噺閫変腑銆?
+
+**鍓嶇淇敼**锛?
+- `GitStagingArea.tsx` 鏂板閫変腑鐘舵€佺鐞嗭細
+  - 鍗曞嚮锛氶€変腑鍗曟枃浠?
+  - `Ctrl/Cmd + Click`锛氳拷鍔?绉婚櫎閫変腑
+  - `Shift + Click`锛氳寖鍥撮€変腑
+- 閫変腑鏂囦欢楂樹寒鏍峰紡
+- 鎵归噺鎿嶄綔锛氶€変腑澶氫釜鏂囦欢鍚庝竴閿?Stage/Unstage/Discard
+
+---
+
+#### G2.5 鍙抽敭涓婁笅鏂囪彍鍗曪紙鏂囦欢鍒楄〃锛?
+
+**缂哄け**锛氭枃浠跺垪琛ㄦ棤鍙抽敭鑿滃崟銆?
+
+**鍓嶇鏂板**锛?
+- 浣跨敤 Tauri 鍘熺敓鑿滃崟 API锛坄@tauri-apps/plugin-menu`锛?
+- 鑿滃崟椤规牴鎹枃浠剁姸鎬佸姩鎬佺敓鎴愶細
+  - Staged 鏂囦欢锛歚Unstage file(s) (N)`
+  - Unstaged 鏂囦欢锛歚Stage file(s) (N)` / `Discard change(s) (N)`
+- 澶氶€夋椂鏄剧ず鎿嶄綔鏁伴噺
+
+**鍙傝€?*锛歮ossx 鍙抽敭鑿滃崟瀹炵幇銆?
+
+---
+
+### Phase G3 鈥?Diff 鏌ョ湅鍣ㄥ寮猴紙涓紭鍏堢骇锛?
+
+> 鐩爣锛氭彁鍗?Diff 闃呰浣撻獙锛屽榻?mossx 鐨勯珮绾ф祻瑙堝姛鑳姐€?
+> 棰勪及锛?-3 涓伐浣滄棩
+
+#### G3.1 Sticky 鏂囦欢澶?
+
+**缂哄け**锛氭粴鍔?Diff 鏃朵笉鐭ラ亾褰撳墠鏌ョ湅鐨勬槸鍝釜鏂囦欢銆?
+
+**鍓嶇淇敼**锛?
+- `GitDiffViewer.tsx`锛?
+  - 婊氬姩鏃堕€氳繃 `IntersectionObserver` 鎴?`scrollTop` 璁＄畻褰撳墠鍙鏂囦欢
+  - 椤堕儴鍥哄畾鏄剧ず褰撳墠鏂囦欢璺緞 + 鐘舵€?+ +/-缁熻
+  - 骞虫粦鍒囨崲鍔ㄧ敾
+
+**鍙傝€?*锛歮ossx Sticky 鏂囦欢澶村疄鐜般€?
+
+---
+
+#### G3.2 Change Anchor 瀵艰埅
+
+**缂哄け**锛氬湪闀?Diff 涓棤娉曞揩閫熻烦杞埌鍙樻洿浣嶇疆銆?
+
+**鍓嶇鏂板**锛?
+- `GitDiffViewer.tsx` 宸ュ叿鏍忔柊澧烇細
+  - 涓婁竴涓彉鏇达紙ChevronUp锛? 涓嬩竴涓彉鏇达紙ChevronDown锛夋寜閽?
+  - 褰撳墠浣嶇疆 `N/M` 鏄剧ず
+  - 鎵弿 `[data-line-type="change-*"]` DOM 鍏冪礌瀹氫綅
   - `scrollIntoView({ behavior: "smooth", block: "center" })`
 
-**参考**：mossx Change Anchors 实现。
+**鍙傝€?*锛歮ossx Change Anchors 瀹炵幇銆?
 
 ---
 
-#### G3.3 Full Diff 模式
+#### G3.3 Full Diff 妯″紡
 
-**缺失**：只能看变更上下文，无法查看完整文件内容。
+**缂哄け**锛氬彧鑳界湅鍙樻洿涓婁笅鏂囷紝鏃犳硶鏌ョ湅瀹屾暣鏂囦欢鍐呭銆?
 
-**后端新增**：
-- `crates/git/src/lib.rs` 新增：
-  - `get_file_full_diff(repo_path, file_path)` — 生成完整文件 Diff（所有行）
-- `src-tauri/src/commands/workspaces.rs` 新增命令：
+**鍚庣鏂板**锛?
+- `crates/git/src/lib.rs` 鏂板锛?
+  - `get_file_full_diff(repo_path, file_path)` 鈥?鐢熸垚瀹屾暣鏂囦欢 Diff锛堟墍鏈夎锛?
+- `src-tauri/src/commands/workspaces.rs` 鏂板鍛戒护锛?
   - `get_workspace_file_full_diff`
 
-**前端修改**：
-- `GitDiffViewer.tsx` 新增内容模式切换：
-  - `Focused` — 仅变更上下文（默认，当前行为）
-  - `All Content` — 加载完整文件 Diff
-  - 切换时显示加载状态
+**鍓嶇淇敼**锛?
+- `GitDiffViewer.tsx` 鏂板鍐呭妯″紡鍒囨崲锛?
+  - `Focused` 鈥?浠呭彉鏇翠笂涓嬫枃锛堥粯璁わ紝褰撳墠琛屼负锛?
+  - `All Content` 鈥?鍔犺浇瀹屾暣鏂囦欢 Diff
+  - 鍒囨崲鏃舵樉绀哄姞杞界姸鎬?
 
-**参考**：mossx `contentMode` 实现。
-
----
-
-### Phase G4 — GitHub 集成（低优先级）
-
-> 目标：集成 GitHub Issues 和 PR 功能，与 AI 对话联动。
-> 预估：5-7 个工作日
-> 依赖：需要 GitHub Personal Access Token 配置机制
-
-#### G4.1 GitHub Issues 模式
-
-**前提**：新增 GitHub API 集成层。
-
-**后端新增**：
-- `crates/github/` 新 crate（或在 `crates/services/` 中新增模块）：
-  - GitHub REST/GraphQL API 客户端
-  - PAT Token 配置存储（加密存储在 SQLite 或系统 keychain）
-  - `list_issues(owner, repo)` — 获取 open issues
-  - `get_issue(owner, repo, number)` — 获取单个 issue 详情
-
-**前端新增**：
-- `GitPanel.tsx` 面板模式新增 `issues` Tab
-- `frontend/src/components/panels/git/GitIssuesView.tsx`：
-  - Issue 列表：`#{number}` + 标题 + 相对时间
-  - 点击打开浏览器
-  - 显示 open issue 总数
-  - 加载/空/错误状态
-
-**参考**：mossx `useGitHubIssues.ts` + Issues 模式。
+**鍙傝€?*锛歮ossx `contentMode` 瀹炵幇銆?
 
 ---
 
-#### G4.2 GitHub PRs 模式
+### Phase G4 鈥?GitHub 闆嗘垚锛堜綆浼樺厛绾э級
 
-**后端新增**：
-- `crates/github/` 扩展：
-  - `list_pull_requests(owner, repo)` — 获取 open PRs
-  - `get_pr_diffs(owner, repo, number)` — 获取 PR Diff
-  - `get_pr_comments(owner, repo, number)` — 获取 PR 评论
+> 鐩爣锛氶泦鎴?GitHub Issues 鍜?PR 鍔熻兘锛屼笌 AI 瀵硅瘽鑱斿姩銆?
+> 棰勪及锛?-7 涓伐浣滄棩
+> 渚濊禆锛氶渶瑕?GitHub Personal Access Token 閰嶇疆鏈哄埗
 
-**前端新增**：
-- `GitPanel.tsx` 面板模式新增 `prs` Tab
-- `frontend/src/components/panels/git/GitPRsView.tsx`：
-  - PR 列表：`#{number}` + 标题 + 作者 + Draft 标记 + 更新时间
-  - 选中 PR 切换 Diff 查看器显示 PR Diff
-  - PR 详情摘要（标题、描述、分支信息）
-  - 评论时间线（Activity Timeline）
-  - 右键菜单：`Open on GitHub`
+#### G4.1 GitHub Issues 妯″紡
 
-**参考**：mossx PRs 模式 + `PullRequestSummary`。
+**鍓嶆彁**锛氭柊澧?GitHub API 闆嗘垚灞傘€?
 
----
+**鍚庣鏂板**锛?
+- `crates/github/` 鏂?crate锛堟垨鍦?`crates/services/` 涓柊澧炴ā鍧楋級锛?
+  - GitHub REST/GraphQL API 瀹㈡埛绔?
+  - PAT Token 閰嶇疆瀛樺偍锛堝姞瀵嗗瓨鍌ㄥ湪 SQLite 鎴栫郴缁?keychain锛?
+  - `list_issues(owner, repo)` 鈥?鑾峰彇 open issues
+  - `get_issue(owner, repo, number)` 鈥?鑾峰彇鍗曚釜 issue 璇︽儏
 
-#### G4.3 PR 智能对话（AI 联动）
+**鍓嶇鏂板**锛?
+- `GitPanel.tsx` 闈㈡澘妯″紡鏂板 `issues` Tab
+- `frontend/src/components/panels/git/GitIssuesView.tsx`锛?
+  - Issue 鍒楄〃锛歚#{number}` + 鏍囬 + 鐩稿鏃堕棿
+  - 鐐瑰嚮鎵撳紑娴忚鍣?
+  - 鏄剧ず open issue 鎬绘暟
+  - 鍔犺浇/绌?閿欒鐘舵€?
 
-**前端新增**：
-- `frontend/src/hooks/git/usePullRequestComposer.ts`：
-  - 选中 PR 时在 AI 输入框预填上下文
-  - Send 按钮标签变为 "Ask PR"
-  - 构建包含 PR 上下文的完整 prompt
-  - 发送后自动创建新 Thread/Attempt
-
-**参考**：mossx `usePullRequestComposer.ts` + `buildPullRequestPrompt`。
+**鍙傝€?*锛歮ossx `useGitHubIssues.ts` + Issues 妯″紡銆?
 
 ---
 
-#### G4.4 AI 生成 Commit 消息
+#### G4.2 GitHub PRs 妯″紡
 
-**后端利用**：可复用已有的 AI 执行器基础设施。
+**鍚庣鏂板**锛?
+- `crates/github/` 鎵╁睍锛?
+  - `list_pull_requests(owner, repo)` 鈥?鑾峰彇 open PRs
+  - `get_pr_diffs(owner, repo, number)` 鈥?鑾峰彇 PR Diff
+  - `get_pr_comments(owner, repo, number)` 鈥?鑾峰彇 PR 璇勮
 
-**前端修改**：
-- `GitCommitBox.tsx`：
-  - 新增 AI 生成按钮（Sparkles 图标）
-  - 点击后：收集 staged diff → 调用 AI → 填入 commit 消息
-  - 加载中显示旋转动画
-  - 错误状态处理
+**鍓嶇鏂板**锛?
+- `GitPanel.tsx` 闈㈡澘妯″紡鏂板 `prs` Tab
+- `frontend/src/components/panels/git/GitPRsView.tsx`锛?
+  - PR 鍒楄〃锛歚#{number}` + 鏍囬 + 浣滆€?+ Draft 鏍囪 + 鏇存柊鏃堕棿
+  - 閫変腑 PR 鍒囨崲 Diff 鏌ョ湅鍣ㄦ樉绀?PR Diff
+  - PR 璇︽儏鎽樿锛堟爣棰樸€佹弿杩般€佸垎鏀俊鎭級
+  - 璇勮鏃堕棿绾匡紙Activity Timeline锛?
+  - 鍙抽敭鑿滃崟锛歚Open on GitHub`
+
+**鍙傝€?*锛歮ossx PRs 妯″紡 + `PullRequestSummary`銆?
 
 ---
 
-## 实施顺序与依赖关系
+#### G4.3 PR 鏅鸿兘瀵硅瘽锛圓I 鑱斿姩锛?
+
+**鍓嶇鏂板**锛?
+- `frontend/src/hooks/git/usePullRequestComposer.ts`锛?
+  - 閫変腑 PR 鏃跺湪 AI 杈撳叆妗嗛濉笂涓嬫枃
+  - Send 鎸夐挳鏍囩鍙樹负 "Ask PR"
+  - 鏋勫缓鍖呭惈 PR 涓婁笅鏂囩殑瀹屾暣 prompt
+  - 鍙戦€佸悗鑷姩鍒涘缓鏂?Thread/Attempt
+
+**鍙傝€?*锛歮ossx `usePullRequestComposer.ts` + `buildPullRequestPrompt`銆?
+
+---
+
+#### G4.4 AI 鐢熸垚 Commit 娑堟伅
+
+**鍚庣鍒╃敤**锛氬彲澶嶇敤宸叉湁鐨?AI 鎵ц鍣ㄥ熀纭€璁炬柦銆?
+
+**鍓嶇淇敼**锛?
+- `GitCommitBox.tsx`锛?
+  - 鏂板 AI 鐢熸垚鎸夐挳锛圫parkles 鍥炬爣锛?
+  - 鐐瑰嚮鍚庯細鏀堕泦 staged diff 鈫?璋冪敤 AI 鈫?濉叆 commit 娑堟伅
+  - 鍔犺浇涓樉绀烘棆杞姩鐢?
+  - 閿欒鐘舵€佸鐞?
+
+---
+
+## 瀹炴柦椤哄簭涓庝緷璧栧叧绯?
 
 ```
-Phase G1（核心）
-  G1.1 Pull/Fetch  ← 独立，可首先实施
-  G1.2 分支管理    ← 独立，可与 G1.1 并行
-  G1.3 日志增强    ← 依赖 G1.1（Pull 后 behind 数据更准确）
-  G1.4 Flat/Tree   ← 独立，可与 G1.1/G1.2 并行
+Phase G1锛堟牳蹇冿級
+  G1.1 Pull/Fetch  鈫?鐙珛锛屽彲棣栧厛瀹炴柦
+  G1.2 鍒嗘敮绠＄悊    鈫?鐙珛锛屽彲涓?G1.1 骞惰
+  G1.3 鏃ュ織澧炲己    鈫?渚濊禆 G1.1锛圥ull 鍚?behind 鏁版嵁鏇村噯纭級
+  G1.4 Flat/Tree   鈫?鐙珛锛屽彲涓?G1.1/G1.2 骞惰
 
-Phase G2（交互）
-  G2.1 丢弃确认    ← 独立
-  G2.2 Commit折叠  ← 独立
-  G2.3 预览模态    ← 独立
-  G2.4 多文件选择  ← 独立
-  G2.5 右键菜单    ← 依赖 G2.4（多选后批量操作）
+Phase G2锛堜氦浜掞級
+  G2.1 涓㈠純纭    鈫?鐙珛
+  G2.2 Commit鎶樺彔  鈫?鐙珛
+  G2.3 棰勮妯℃€?   鈫?鐙珛
+  G2.4 澶氭枃浠堕€夋嫨  鈫?鐙珛
+  G2.5 鍙抽敭鑿滃崟    鈫?渚濊禆 G2.4锛堝閫夊悗鎵归噺鎿嶄綔锛?
 
-Phase G3（Diff增强）
-  G3.1 Sticky头    ← 独立
-  G3.2 Anchor导航  ← 独立
-  G3.3 Full Diff   ← 需后端新增命令
+Phase G3锛圖iff澧炲己锛?
+  G3.1 Sticky澶?   鈫?鐙珛
+  G3.2 Anchor瀵艰埅  鈫?鐙珛
+  G3.3 Full Diff   鈫?闇€鍚庣鏂板鍛戒护
 
-Phase G4（GitHub）
-  G4.1 Issues      ← 需新建 GitHub API 集成层
-  G4.2 PRs         ← 依赖 G4.1 的 API 层
-  G4.3 PR 智能对话 ← 依赖 G4.2
-  G4.4 AI Commit   ← 独立（但建议与 G4 一起做）
+Phase G4锛圙itHub锛?
+  G4.1 Issues      鈫?闇€鏂板缓 GitHub API 闆嗘垚灞?
+  G4.2 PRs         鈫?渚濊禆 G4.1 鐨?API 灞?
+  G4.3 PR 鏅鸿兘瀵硅瘽 鈫?渚濊禆 G4.2
+  G4.4 AI Commit   鈫?鐙珛锛堜絾寤鸿涓?G4 涓€璧峰仛锛?
 ```
 
 ---
 
-## 文件修改清单
+## 鏂囦欢淇敼娓呭崟
 
-### 新增文件
+### 鏂板鏂囦欢
 
-| 文件 | Phase | 用途 |
+| 鏂囦欢 | Phase | 鐢ㄩ€?|
 |------|-------|------|
-| `frontend/src/hooks/git/useGitBranches.ts` | G1.2 | 分支管理 Hook |
-| `frontend/src/components/panels/git/GitBranchList.tsx` | G1.2 | 分支列表组件 |
-| `frontend/src/components/panels/git/GitFileTree.tsx` | G1.4 | 目录树视图组件 |
-| `frontend/src/components/panels/git/GitDiscardDialog.tsx` | G2.1 | 丢弃确认弹窗 |
-| `frontend/src/components/panels/git/GitDiffModal.tsx` | G2.3 | 文件预览模态框 |
-| `crates/github/` (整个 crate) | G4.1 | GitHub API 集成 |
-| `frontend/src/components/panels/git/GitIssuesView.tsx` | G4.1 | Issues 列表 |
-| `frontend/src/components/panels/git/GitPRsView.tsx` | G4.2 | PR 列表与审查 |
-| `frontend/src/hooks/git/usePullRequestComposer.ts` | G4.3 | PR AI 对话组合 |
+| `frontend/src/hooks/git/useGitBranches.ts` | G1.2 | 鍒嗘敮绠＄悊 Hook |
+| `frontend/src/components/panels/git/GitBranchList.tsx` | G1.2 | 鍒嗘敮鍒楄〃缁勪欢 |
+| `frontend/src/components/panels/git/GitFileTree.tsx` | G1.4 | 鐩綍鏍戣鍥剧粍浠?|
+| `frontend/src/components/panels/git/GitDiscardDialog.tsx` | G2.1 | 涓㈠純纭寮圭獥 |
+| `frontend/src/components/panels/git/GitDiffModal.tsx` | G2.3 | 鏂囦欢棰勮妯℃€佹 |
+| `crates/github/` (鏁翠釜 crate) | G4.1 | GitHub API 闆嗘垚 |
+| `frontend/src/components/panels/git/GitIssuesView.tsx` | G4.1 | Issues 鍒楄〃 |
+| `frontend/src/components/panels/git/GitPRsView.tsx` | G4.2 | PR 鍒楄〃涓庡鏌?|
+| `frontend/src/hooks/git/usePullRequestComposer.ts` | G4.3 | PR AI 瀵硅瘽缁勫悎 |
 
-### 修改文件
+### 淇敼鏂囦欢
 
-| 文件 | Phase | 修改内容 |
+| 鏂囦欢 | Phase | 淇敼鍐呭 |
 |------|-------|----------|
-| `crates/git/src/lib.rs` | G1.1, G3.3 | 新增 pull/fetch/full-diff 方法 |
-| `src-tauri/src/commands/workspaces.rs` | G1.1, G1.2, G3.3 | 新增 Tauri 命令 |
-| `crates/api-types/src/*.rs` | G1.1 | 新增 PullResult 等类型 |
-| `frontend/src/lib/api.ts` | G1.1, G1.2, G3.3 | 新增 API 封装 |
-| `frontend/src/hooks/git/useGitActions.ts` | G1.1 | 新增 pull/fetch 操作 |
-| `frontend/src/components/panels/git/GitPanel.tsx` | G1.1-G1.4, G2.2 | 工具栏、模式 Tab |
-| `frontend/src/components/panels/git/GitLogView.tsx` | G1.3 | 三分区 + 右键菜单 |
-| `frontend/src/components/panels/git/GitStagingArea.tsx` | G1.4, G2.1, G2.4, G2.5 | Tree 视图、多选、右键 |
-| `frontend/src/components/panels/git/GitFileRow.tsx` | G2.3, G2.4 | 双击预览、选中状态 |
-| `frontend/src/components/panels/git/GitDiffViewer.tsx` | G3.1, G3.2, G3.3 | Sticky头、导航、Full Diff |
-| `frontend/src/components/panels/git/GitCommitBox.tsx` | G4.4 | AI 生成按钮 |
-| `shared/types.ts` | G1.1 | 自动生成更新 |
+| `crates/git/src/lib.rs` | G1.1, G3.3 | 鏂板 pull/fetch/full-diff 鏂规硶 |
+| `src-tauri/src/commands/workspaces.rs` | G1.1, G1.2, G3.3 | 鏂板 Tauri 鍛戒护 |
+| `crates/api-types/src/*.rs` | G1.1 | 鏂板 PullResult 绛夌被鍨?|
+| `frontend/src/lib/api.ts` | G1.1, G1.2, G3.3 | 鏂板 API 灏佽 |
+| `frontend/src/hooks/git/useGitActions.ts` | G1.1 | 鏂板 pull/fetch 鎿嶄綔 |
+| `frontend/src/components/panels/git/GitPanel.tsx` | G1.1-G1.4, G2.2 | 宸ュ叿鏍忋€佹ā寮?Tab |
+| `frontend/src/components/panels/git/GitLogView.tsx` | G1.3 | 涓夊垎鍖?+ 鍙抽敭鑿滃崟 |
+| `frontend/src/components/panels/git/GitStagingArea.tsx` | G1.4, G2.1, G2.4, G2.5 | Tree 瑙嗗浘銆佸閫夈€佸彸閿?|
+| `frontend/src/components/panels/git/GitFileRow.tsx` | G2.3, G2.4 | 鍙屽嚮棰勮銆侀€変腑鐘舵€?|
+| `frontend/src/components/panels/git/GitDiffViewer.tsx` | G3.1, G3.2, G3.3 | Sticky澶淬€佸鑸€丗ull Diff |
+| `frontend/src/components/panels/git/GitCommitBox.tsx` | G4.4 | AI 鐢熸垚鎸夐挳 |
+| `shared/types.ts` | G1.1 | 鑷姩鐢熸垚鏇存柊 |
 
 ---
 
-## 验收标准
+## 楠屾敹鏍囧噯
 
-### Phase G1 完成标准
-- [ ] 可以执行 Pull/Fetch 操作，按钮在有 behind 提交时高亮显示
-- [ ] 可以查看所有分支列表，切换分支，创建新分支
-- [ ] Log 视图按 To Push / To Pull / Recent 三区分列
-- [ ] Log 提交行支持右键 Copy SHA / Open on GitHub
-- [ ] 文件列表支持 Flat/Tree 两种视图模式切换
+### Phase G1 瀹屾垚鏍囧噯
+- [ ] 鍙互鎵ц Pull/Fetch 鎿嶄綔锛屾寜閽湪鏈?behind 鎻愪氦鏃堕珮浜樉绀?
+- [ ] 鍙互鏌ョ湅鎵€鏈夊垎鏀垪琛紝鍒囨崲鍒嗘敮锛屽垱寤烘柊鍒嗘敮
+- [ ] Log 瑙嗗浘鎸?To Push / To Pull / Recent 涓夊尯鍒嗗垪
+- [ ] Log 鎻愪氦琛屾敮鎸佸彸閿?Copy SHA / Open on GitHub
+- [ ] 鏂囦欢鍒楄〃鏀寔 Flat/Tree 涓ょ瑙嗗浘妯″紡鍒囨崲
 
-### Phase G2 完成标准
-- [ ] Revert/Discard 操作弹出确认对话框
-- [ ] Commit 区域可以折叠/展开
-- [ ] 双击文件行打开全屏 Diff 预览
-- [ ] 支持 Ctrl+Click 多选和 Shift+Click 范围选
-- [ ] 文件列表支持右键上下文菜单
+### Phase G2 瀹屾垚鏍囧噯
+- [ ] Revert/Discard 鎿嶄綔寮瑰嚭纭瀵硅瘽妗?
+- [ ] Commit 鍖哄煙鍙互鎶樺彔/灞曞紑
+- [ ] 鍙屽嚮鏂囦欢琛屾墦寮€鍏ㄥ睆 Diff 棰勮
+- [ ] 鏀寔 Ctrl+Click 澶氶€夊拰 Shift+Click 鑼冨洿閫?
+- [ ] 鏂囦欢鍒楄〃鏀寔鍙抽敭涓婁笅鏂囪彍鍗?
 
-### Phase G3 完成标准
-- [ ] 滚动 Diff 时顶部固定显示当前文件路径
-- [ ] 可通过上/下按钮在变更位置之间跳转
-- [ ] 可切换 Focused/All Content 两种 Diff 内容模式
+### Phase G3 瀹屾垚鏍囧噯
+- [ ] 婊氬姩 Diff 鏃堕《閮ㄥ浐瀹氭樉绀哄綋鍓嶆枃浠惰矾寰?
+- [ ] 鍙€氳繃涓?涓嬫寜閽湪鍙樻洿浣嶇疆涔嬮棿璺宠浆
+- [ ] 鍙垏鎹?Focused/All Content 涓ょ Diff 鍐呭妯″紡
 
-### Phase G4 完成标准
-- [ ] 可查看 GitHub Issues 列表并打开链接
-- [ ] 可查看 GitHub PRs 列表、PR Diff 和评论
-- [ ] 选中 PR 可触发 AI 对话并注入 PR 上下文
-- [ ] 可通过 AI 自动生成 Commit 消息
+### Phase G4 瀹屾垚鏍囧噯
+- [ ] 鍙煡鐪?GitHub Issues 鍒楄〃骞舵墦寮€閾炬帴
+- [ ] 鍙煡鐪?GitHub PRs 鍒楄〃銆丳R Diff 鍜岃瘎璁?
+- [ ] 閫変腑 PR 鍙Е鍙?AI 瀵硅瘽骞舵敞鍏?PR 涓婁笅鏂?
+- [ ] 鍙€氳繃 AI 鑷姩鐢熸垚 Commit 娑堟伅

@@ -1,94 +1,94 @@
-# VibeUltra 项目优化方案
+# VibeX 椤圭洰浼樺寲鏂规
 
-> 制定日期: 2026-03-16 (第二轮)
-> 基于: 代码审查报告、前端审查报告、依赖分析报告、性能与安全分析报告
+> 鍒跺畾鏃ユ湡: 2026-03-16 (绗簩杞?
+> 鍩轰簬: 浠ｇ爜瀹℃煡鎶ュ憡銆佸墠绔鏌ユ姤鍛娿€佷緷璧栧垎鏋愭姤鍛娿€佹€ц兘涓庡畨鍏ㄥ垎鏋愭姤鍛?
 
 ---
 
-## 优化路线图
+## 浼樺寲璺嚎鍥?
 
-### 阶段一：P0 安全修复（1-2 小时）
+### 闃舵涓€锛歅0 瀹夊叏淇锛?-2 灏忔椂锛?
 
-| # | 任务 | 文件 | 修复方式 |
+| # | 浠诲姟 | 鏂囦欢 | 淇鏂瑰紡 |
 |---|------|------|----------|
-| S1 | 收紧 Tauri fs 权限 | `src-tauri/capabilities/default.json` | 限制为 `$HOME/.claude/**`、`$HOME/.vibe-ultra/**`、`$RESOURCE/**`、仓库路径 |
-| S2 | file_tree 路径沙盒 | `src-tauri/src/commands/file_tree.rs` | 验证路径必须位于已注册仓库/工作区下；拒绝 `..` 组件 |
-| S3 | PowerShell 命令注入修复 | `crates/utils/src/browser.rs:8-9` | 对单引号转义或改用 `-Uri` 参数化 |
-| S4 | PowerShell 命令注入修复 | `crates/services/src/services/notification.rs:90-91` | 参数化传递文件路径 |
-| S5 | osascript 命令注入修复 | `crates/services/src/services/notification.rs:111-120` | 改用 `notify-rust` crate |
-| S6 | aimax filename 验证 | `src-tauri/src/commands/skills.rs:206-218` | 添加白名单校验 |
+| S1 | 鏀剁揣 Tauri fs 鏉冮檺 | `src-tauri/capabilities/default.json` | 闄愬埗涓?`$HOME/.claude/**`銆乣$HOME/.vibex/**`銆乣$RESOURCE/**`銆佷粨搴撹矾寰?|
+| S2 | file_tree 璺緞娌欑洅 | `src-tauri/src/commands/file_tree.rs` | 楠岃瘉璺緞蹇呴』浣嶄簬宸叉敞鍐屼粨搴?宸ヤ綔鍖轰笅锛涙嫆缁?`..` 缁勪欢 |
+| S3 | PowerShell 鍛戒护娉ㄥ叆淇 | `crates/utils/src/browser.rs:8-9` | 瀵瑰崟寮曞彿杞箟鎴栨敼鐢?`-Uri` 鍙傛暟鍖?|
+| S4 | PowerShell 鍛戒护娉ㄥ叆淇 | `crates/services/src/services/notification.rs:90-91` | 鍙傛暟鍖栦紶閫掓枃浠惰矾寰?|
+| S5 | osascript 鍛戒护娉ㄥ叆淇 | `crates/services/src/services/notification.rs:111-120` | 鏀圭敤 `notify-rust` crate |
+| S6 | aimax filename 楠岃瘉 | `src-tauri/src/commands/skills.rs:206-218` | 娣诲姞鐧藉悕鍗曟牎楠?|
 
 ---
 
-### 阶段二：零成本清理（30 分钟）
+### 闃舵浜岋細闆舵垚鏈竻鐞嗭紙30 鍒嗛挓锛?
 
-无功能变更，纯清理操作。
+鏃犲姛鑳藉彉鏇达紝绾竻鐞嗘搷浣溿€?
 
-| # | 任务 | 操作 |
+| # | 浠诲姟 | 鎿嶄綔 |
 |---|------|------|
-| C1 | 移除 `@ibm/plex` devDep | `pnpm remove @ibm/plex` -- 节省 ~30MB |
-| C2 | 移除 `@tailwindcss/container-queries` | `pnpm remove` + 清理 Tailwind 配置 |
-| C3 | 修正 `@rjsf/*` 分类 | devDep -> dependencies |
-| C4 | 移动 tailwind 插件到 devDep | `tailwind-scrollbar`、`tailwindcss-animate` |
-| C5 | 清理 New Design 残留 | 删除 `tailwind.new.config.js`；更新 `components.json`；清理文档引用 |
-| C6 | 重命名 `useConversationHistoryOld.ts` | -> `useConversationHistory.ts` |
+| C1 | 绉婚櫎 `@ibm/plex` devDep | `pnpm remove @ibm/plex` -- 鑺傜渷 ~30MB |
+| C2 | 绉婚櫎 `@tailwindcss/container-queries` | `pnpm remove` + 娓呯悊 Tailwind 閰嶇疆 |
+| C3 | 淇 `@rjsf/*` 鍒嗙被 | devDep -> dependencies |
+| C4 | 绉诲姩 tailwind 鎻掍欢鍒?devDep | `tailwind-scrollbar`銆乣tailwindcss-animate` |
+| C5 | 娓呯悊 New Design 娈嬬暀 | 鍒犻櫎 `tailwind.new.config.js`锛涙洿鏂?`components.json`锛涙竻鐞嗘枃妗ｅ紩鐢?|
+| C6 | 閲嶅懡鍚?`useConversationHistoryOld.ts` | -> `useConversationHistory.ts` |
 
 ---
 
-### 阶段三：主题适配 Bug 修复（1-2 小时）
+### 闃舵涓夛細涓婚閫傞厤 Bug 淇锛?-2 灏忔椂锛?
 
-#### 3.1 conversation.css 亮色模式 Bug
+#### 3.1 conversation.css 浜壊妯″紡 Bug
 
 ```css
-/* 修复前 (第498行) */
+/* 淇鍓?(绗?98琛? */
 .conv-assistant-msg .ProseMirror pre {
   background: #1e1e2e !important;
 }
 
-/* 修复后 -- 使用 CSS 变量 */
+/* 淇鍚?-- 浣跨敤 CSS 鍙橀噺 */
 .conv-assistant-msg .ProseMirror pre {
   background: var(--conv-code-bg) !important;
 }
 ```
 
-#### 3.2 file-tree.css 添加暗色/亮色支持
+#### 3.2 file-tree.css 娣诲姞鏆楄壊/浜壊鏀寔
 
-为约 15 个 token 类型颜色和 Git 状态颜色添加 `.dark` 变体：
+涓虹害 15 涓?token 绫诲瀷棰滆壊鍜?Git 鐘舵€侀鑹叉坊鍔?`.dark` 鍙樹綋锛?
 
 ```css
-/* 亮色模式（默认） */
+/* 浜壊妯″紡锛堥粯璁わ級 */
 .file-tree-token-keyword { color: #cf222e; }
-/* 暗色模式 */
+/* 鏆楄壊妯″紡 */
 .dark .file-tree-token-keyword { color: #ff7b72; }
 ```
 
-#### 3.3 ProjectTasks.tsx 硬编码颜色
+#### 3.3 ProjectTasks.tsx 纭紪鐮侀鑹?
 
 ```tsx
-/* 修复前 */
+/* 淇鍓?*/
 style={{ backgroundColor: '#FCFCFC' }}
-/* 修复后 */
+/* 淇鍚?*/
 className="bg-background"
 ```
 
 ---
 
-### 阶段四：代码质量优化（3-4 小时）
+### 闃舵鍥涳細浠ｇ爜璐ㄩ噺浼樺寲锛?-4 灏忔椂锛?
 
-#### 4.1 空 catch 块清理（101 处）
+#### 4.1 绌?catch 鍧楁竻鐞嗭紙101 澶勶級
 
-按优先级分批处理：
-1. 关键路径（Git 操作、文件操作）-- 添加用户可见的 toast 错误提示
-2. 防御性编程（dockview 操作）-- 添加 `// expected: dockview may throw during reconstruction` 注释
-3. 其余 -- 至少添加 `console.error` 日志
+鎸変紭鍏堢骇鍒嗘壒澶勭悊锛?
+1. 鍏抽敭璺緞锛圙it 鎿嶄綔銆佹枃浠舵搷浣滐級-- 娣诲姞鐢ㄦ埛鍙鐨?toast 閿欒鎻愮ず
+2. 闃插尽鎬х紪绋嬶紙dockview 鎿嶄綔锛?- 娣诲姞 `// expected: dockview may throw during reconstruction` 娉ㄩ噴
+3. 鍏朵綑 -- 鑷冲皯娣诲姞 `console.error` 鏃ュ織
 
-#### 4.2 Rust unwrap() 替换（7+ 处）
+#### 4.2 Rust unwrap() 鏇挎崲锛?+ 澶勶級
 
-替换为 `unwrap_or_else`/`ok_or`/`?` 操作符，返回 `anyhow::Result`。
+鏇挎崲涓?`unwrap_or_else`/`ok_or`/`?` 鎿嶄綔绗︼紝杩斿洖 `anyhow::Result`銆?
 
-#### 4.3 提取魔法数字
+#### 4.3 鎻愬彇榄旀硶鏁板瓧
 
-**文件**: `IDELayout.tsx`
+**鏂囦欢**: `IDELayout.tsx`
 
 ```typescript
 const LAYOUT = {
@@ -99,68 +99,68 @@ const LAYOUT = {
 } as const;
 ```
 
-#### 4.4 修复 pushError 语义
+#### 4.4 淇 pushError 璇箟
 
-**文件**: `useGitCommit.ts` -- 重命名为 `operationError`，或为 pull/fetch 提供独立错误状态。
+**鏂囦欢**: `useGitCommit.ts` -- 閲嶅懡鍚嶄负 `operationError`锛屾垨涓?pull/fetch 鎻愪緵鐙珛閿欒鐘舵€併€?
 
-#### 4.5 合并 usePush + useForcePush
+#### 4.5 鍚堝苟 usePush + useForcePush
 
-合并为 `usePushOperation(force: boolean)` hook。
-
----
-
-### 阶段五：性能优化（4-6 小时）
-
-#### 5.1 [P0] 文件树虚拟滚动
-
-**文件**: `FileTreePanel.tsx`
-
-使用 react-virtuoso 扁平化为虚拟滚动列表，通过缩进层级模拟树结构（VS Code 模式）。
-
-#### 5.2 [P0] 对话历史虚拟滚动
-
-**文件**: `DisplayConversationEntry.tsx`
-
-使用 react-virtuoso 的动态高度虚拟化。
-
-#### 5.3 [P1] scroll 事件节流
-
-**文件**: `GitDiffViewer.tsx:83-103`
-
-替换为 `IntersectionObserver`（参考 `DockviewDiffsReviewPanel.tsx:184` 的实现）。
-
-#### 5.4 [P1] N+1 查询修复
-
-- `agent_setting.rs:92` -- 使用事务批处理 reorder
-- `image.rs:186` -- 使用事务包裹批量 INSERT
-
-#### 5.5 [P2] 异步并行化
-
-对独立的数据库查询使用 `tokio::join!` 并行执行，而非串行 await。
-
-#### 5.6 [P2] localStorage 序列化优化
-
-将防抖延时从 100ms 增加到 300-500ms，或使用 `requestIdleCallback`。
-
-#### 5.7 提取 useTemporaryFlag hook
-
-统一 10+ 处 `setTimeout(() => setXxxSuccess(false), 2000)` 模式。
+鍚堝苟涓?`usePushOperation(force: boolean)` hook銆?
 
 ---
 
-### 阶段六：依赖缩减（2-3 小时）
+### 闃舵浜旓細鎬ц兘浼樺寲锛?-6 灏忔椂锛?
 
-#### 6.1 统一图标库
+#### 5.1 [P0] 鏂囦欢鏍戣櫄鎷熸粴鍔?
 
-移除 `@phosphor-icons/react`（修改 3 文件）和 `developer-icons`（修改 1 文件），统一到 `lucide-react`。节省 **~500KB+**。
+**鏂囦欢**: `FileTreePanel.tsx`
 
-#### 6.2 移除 CodeMirror 全套
+浣跨敤 react-virtuoso 鎵佸钩鍖栦负铏氭嫙婊氬姩鍒楄〃锛岄€氳繃缂╄繘灞傜骇妯℃嫙鏍戠粨鏋勶紙VS Code 妯″紡锛夈€?
 
-移除 `@uiw/react-codemirror` + 4 个 `@codemirror/*` 包，`json-editor.tsx` 改用 Monaco。节省 **~300KB**。
+#### 5.2 [P0] 瀵硅瘽鍘嗗彶铏氭嫙婊氬姩
 
-#### 6.3 Rust workspace 依赖统一
+**鏂囦欢**: `DisplayConversationEntry.tsx`
 
-在根 `Cargo.toml` 的 `[workspace.dependencies]` 中添加：
+浣跨敤 react-virtuoso 鐨勫姩鎬侀珮搴﹁櫄鎷熷寲銆?
+
+#### 5.3 [P1] scroll 浜嬩欢鑺傛祦
+
+**鏂囦欢**: `GitDiffViewer.tsx:83-103`
+
+鏇挎崲涓?`IntersectionObserver`锛堝弬鑰?`DockviewDiffsReviewPanel.tsx:184` 鐨勫疄鐜帮級銆?
+
+#### 5.4 [P1] N+1 鏌ヨ淇
+
+- `agent_setting.rs:92` -- 浣跨敤浜嬪姟鎵瑰鐞?reorder
+- `image.rs:186` -- 浣跨敤浜嬪姟鍖呰９鎵归噺 INSERT
+
+#### 5.5 [P2] 寮傛骞惰鍖?
+
+瀵圭嫭绔嬬殑鏁版嵁搴撴煡璇娇鐢?`tokio::join!` 骞惰鎵ц锛岃€岄潪涓茶 await銆?
+
+#### 5.6 [P2] localStorage 搴忓垪鍖栦紭鍖?
+
+灏嗛槻鎶栧欢鏃朵粠 100ms 澧炲姞鍒?300-500ms锛屾垨浣跨敤 `requestIdleCallback`銆?
+
+#### 5.7 鎻愬彇 useTemporaryFlag hook
+
+缁熶竴 10+ 澶?`setTimeout(() => setXxxSuccess(false), 2000)` 妯″紡銆?
+
+---
+
+### 闃舵鍏細渚濊禆缂╁噺锛?-3 灏忔椂锛?
+
+#### 6.1 缁熶竴鍥炬爣搴?
+
+绉婚櫎 `@phosphor-icons/react`锛堜慨鏀?3 鏂囦欢锛夊拰 `developer-icons`锛堜慨鏀?1 鏂囦欢锛夛紝缁熶竴鍒?`lucide-react`銆傝妭鐪?**~500KB+**銆?
+
+#### 6.2 绉婚櫎 CodeMirror 鍏ㄥ
+
+绉婚櫎 `@uiw/react-codemirror` + 4 涓?`@codemirror/*` 鍖咃紝`json-editor.tsx` 鏀圭敤 Monaco銆傝妭鐪?**~300KB**銆?
+
+#### 6.3 Rust workspace 渚濊禆缁熶竴
+
+鍦ㄦ牴 `Cargo.toml` 鐨?`[workspace.dependencies]` 涓坊鍔狅細
 
 ```toml
 [workspace.dependencies]
@@ -176,39 +176,39 @@ tokio-util = "0.7"
 tokio-stream = "0.1"
 ```
 
-各 crate 改为 `sqlx.workspace = true`，按需追加 features。
+鍚?crate 鏀逛负 `sqlx.workspace = true`锛屾寜闇€杩藉姞 features銆?
 
-#### 6.4 统一目录路径库
+#### 6.4 缁熶竴鐩綍璺緞搴?
 
-评估 `dirs` vs `directories` vs `xdg`，统一为一个。
+璇勪及 `dirs` vs `directories` vs `xdg`锛岀粺涓€涓轰竴涓€?
 
 ---
 
-### 阶段七：大文件拆分（长期，按需执行）
+### 闃舵涓冿細澶ф枃浠舵媶鍒嗭紙闀挎湡锛屾寜闇€鎵ц锛?
 
-#### 7.1 Rust 大文件
+#### 7.1 Rust 澶ф枃浠?
 
-| 文件 | 行数 | 拆分方案 |
+| 鏂囦欢 | 琛屾暟 | 鎷嗗垎鏂规 |
 |------|------|----------|
 | `git/src/lib.rs` | 2776 | `branch.rs` + `diff.rs` + `worktree.rs` + `rebase.rs` + `remote.rs` + `log.rs` |
-| `executors/claude.rs` | 2723 | `normalize.rs` + `protocol.rs` + `tool_handler.rs`；测试移至 `tests/` |
+| `executors/claude.rs` | 2723 | `normalize.rs` + `protocol.rs` + `tool_handler.rs`锛涙祴璇曠Щ鑷?`tests/` |
 | `local-deployment/container.rs` | 1467 | `container_lifecycle.rs` + `container_config.rs` |
-| `executors/opencode/sdk.rs` | 1463 | 拆分 SDK 连接层和消息处理层 |
-| `services/container.rs` | 1426 | 拆分服务注册与服务编排 |
-| `git/src/cli.rs` | 1263 | 按 Git 子命令拆分 |
+| `executors/opencode/sdk.rs` | 1463 | 鎷嗗垎 SDK 杩炴帴灞傚拰娑堟伅澶勭悊灞?|
+| `services/container.rs` | 1426 | 鎷嗗垎鏈嶅姟娉ㄥ唽涓庢湇鍔＄紪鎺?|
+| `git/src/cli.rs` | 1263 | 鎸?Git 瀛愬懡浠ゆ媶鍒?|
 
-#### 7.2 前端大文件
+#### 7.2 鍓嶇澶ф枃浠?
 
-| 文件 | 行数 | 拆分方案 |
+| 鏂囦欢 | 琛屾暟 | 鎷嗗垎鏂规 |
 |------|------|----------|
 | `api.ts` | 1367 | `api/attempts.ts` + `api/repos.ts` + `api/git.ts` + `api/config.ts` + `api/sessions.ts` |
 | `FileTreePanel.tsx` | 1359 | `FileTreeItem.tsx` + `FileTreeContextMenu.tsx` + `useFileTree.ts` + `fileTreeUtils.ts` |
 | `DisplayConversationEntry.tsx` | 1205 | `entries/AssistantMessage.tsx` + `ToolCallCard.tsx` + `ThinkingBlock.tsx` |
-| `IDELayout.tsx` | 971 | `dockviewLayoutUtils.ts` + `dockviewEventHandlers.ts` + `dockview-ayu.css`(提取内联) |
+| `IDELayout.tsx` | 971 | `dockviewLayoutUtils.ts` + `dockviewEventHandlers.ts` + `dockview-ayu.css`(鎻愬彇鍐呰仈) |
 
-#### 7.3 CSS 大文件
+#### 7.3 CSS 澶ф枃浠?
 
-| 文件 | 行数 | 拆分方案 |
+| 鏂囦欢 | 琛屾暟 | 鎷嗗垎鏂规 |
 |------|------|----------|
 | `file-tree.css` | 1094 | `file-tree-base.css` + `file-tree-syntax.css` + `file-tree-git.css` |
 | `conversation.css` | 1024 | `conv-base.css` + `conv-messages.css` + `conv-tools.css` + `conv-markdown.css` + `conv-syntax.css` |
@@ -216,26 +216,26 @@ tokio-stream = "0.1"
 
 ---
 
-### 阶段八：主题系统统一（长期）
+### 闃舵鍏細涓婚绯荤粺缁熶竴锛堥暱鏈燂級
 
-1. 确认并删除 New Design 系统残留
-2. 将 `conversation.css` 的颜色变量迁移到 Legacy Design 体系
-3. 将 `file-tree.css` 添加完整的暗色/亮色支持
-4. 统一暗色切换方式为 `.dark` class（消除 `data-theme='dark'`）
-5. 将所有组件硬编码颜色迁移为语义化 CSS 变量
-6. 消减 `conversation.css` 中 41 处 `!important`
+1. 纭骞跺垹闄?New Design 绯荤粺娈嬬暀
+2. 灏?`conversation.css` 鐨勯鑹插彉閲忚縼绉诲埌 Legacy Design 浣撶郴
+3. 灏?`file-tree.css` 娣诲姞瀹屾暣鐨勬殫鑹?浜壊鏀寔
+4. 缁熶竴鏆楄壊鍒囨崲鏂瑰紡涓?`.dark` class锛堟秷闄?`data-theme='dark'`锛?
+5. 灏嗘墍鏈夌粍浠剁‖缂栫爜棰滆壊杩佺Щ涓鸿涔夊寲 CSS 鍙橀噺
+6. 娑堝噺 `conversation.css` 涓?41 澶?`!important`
 
 ---
 
-## 优先级总览
+## 浼樺厛绾ф€昏
 
-| 阶段 | 优先级 | 预估时间 | 风险 | 核心收益 |
+| 闃舵 | 浼樺厛绾?| 棰勪及鏃堕棿 | 椋庨櫓 | 鏍稿績鏀剁泭 |
 |------|--------|----------|------|----------|
-| 一 | P0 | 1-2h | 低 | 修复 6 个安全漏洞 |
-| 二 | P0 | 30min | 极低 | 清理冗余，节省 30MB |
-| 三 | P1 | 1-2h | 低 | 修复亮色模式视觉 bug |
-| 四 | P1 | 3-4h | 低 | 修复 101 处空 catch + 7 处 unwrap |
-| 五 | P1 | 4-6h | 中 | 虚拟滚动 + N+1 修复 |
-| 六 | P2 | 2-3h | 低 | 减少 ~1MB bundle + Rust 依赖统一 |
-| 七 | P3 | 按需 | 中 | 文件组织优化 |
-| 八 | P3 | 按需 | 中 | 主题一致性 |
+| 涓€ | P0 | 1-2h | 浣?| 淇 6 涓畨鍏ㄦ紡娲?|
+| 浜?| P0 | 30min | 鏋佷綆 | 娓呯悊鍐椾綑锛岃妭鐪?30MB |
+| 涓?| P1 | 1-2h | 浣?| 淇浜壊妯″紡瑙嗚 bug |
+| 鍥?| P1 | 3-4h | 浣?| 淇 101 澶勭┖ catch + 7 澶?unwrap |
+| 浜?| P1 | 4-6h | 涓?| 铏氭嫙婊氬姩 + N+1 淇 |
+| 鍏?| P2 | 2-3h | 浣?| 鍑忓皯 ~1MB bundle + Rust 渚濊禆缁熶竴 |
+| 涓?| P3 | 鎸夐渶 | 涓?| 鏂囦欢缁勭粐浼樺寲 |
+| 鍏?| P3 | 鎸夐渶 | 涓?| 涓婚涓€鑷存€?|

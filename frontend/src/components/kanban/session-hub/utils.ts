@@ -1,4 +1,4 @@
-﻿import type { ExecutorProfileId } from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import type { SessionStatus } from '@/lib/api';
 import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
@@ -45,7 +45,7 @@ export const SESSION_LIST_ACTION_BUTTON_CLASS =
   'h-7 w-7 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground';
 export const SESSION_LIST_ACTION_ICON_CLASS = 'h-[11px] w-[11px]';
 export const SESSION_LIST_WIDTH_STORAGE_KEY =
-  'vibe-ultra-kanban-session-list-width';
+  'vibex-kanban-session-list-width';
 export const DEFAULT_SESSION_LIST_WIDTH = 320;
 export const MIN_SESSION_LIST_WIDTH = 280;
 export const MAX_SESSION_LIST_WIDTH = 560;

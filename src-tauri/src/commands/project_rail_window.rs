@@ -78,7 +78,7 @@ pub fn ensure_project_rail_window(app: &tauri::AppHandle) -> Result<tauri::Webvi
         PROJECT_RAIL_WINDOW_LABEL,
         WebviewUrl::App("/project-rail".into()),
     )
-    .title("Projects - VibeUltra")
+    .title("Projects - VibeX")
     .inner_size(PROJECT_RAIL_WIDTH as f64, PROJECT_RAIL_MIN_HEIGHT as f64)
     .resizable(false)
     .decorations(false)

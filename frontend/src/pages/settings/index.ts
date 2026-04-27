@@ -1,5 +1,6 @@
 export { SettingsLayout } from './SettingsLayout';
 export { AgentSettings } from './AgentSettings';
+export { AppearanceSettings } from './AppearanceSettings';
 export { EditorSettings } from './EditorSettings';
 export { McpSettings } from './McpSettings';
 export { SkillsSettings } from './SkillsSettings';

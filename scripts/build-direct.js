@@ -2,30 +2,30 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-console.log('🚀 VibeUltra 直接构建脚本');
+console.log('馃殌 VibeX 鐩存帴鏋勫缓鑴氭湰');
 
-// 设置环境变量
+// 璁剧疆鐜鍙橀噺
 const wixDir = path.join(__dirname, '..', 'src-tauri', 'target', 'wix');
 process.env.WIXTOOLSDIR = wixDir;
 process.env.CARGO_TERM_COLOR = 'always';
 
 console.log('WIXTOOLSDIR:', wixDir);
 
-// 确保路径是绝对路径
+// 纭繚璺緞鏄粷瀵硅矾寰?
 process.chdir(__dirname);
 
-// 检查前端是否已经构建
+// 妫€鏌ュ墠绔槸鍚﹀凡缁忔瀯寤?
 const frontendDistDir = path.join(__dirname, '..', 'frontend', 'dist');
 if (!fs.existsSync(frontendDistDir)) {
-  console.log('📦 构建前端...');
+  console.log('馃摝 鏋勫缓鍓嶇...');
   execSync('cd frontend && pnpm run build', { stdio: 'inherit' });
 }
 
-console.log('\n🔨 开始构建...');
+console.log('\n馃敤 寮€濮嬫瀯寤?..');
 
 try {
-  // 直接使用 @tauri-apps/cli
-  console.log('运行: npx @tauri-apps/cli build --no-bundle');
+  // 鐩存帴浣跨敤 @tauri-apps/cli
+  console.log('杩愯: npx @tauri-apps/cli build --no-bundle');
 
   execSync('npx @tauri-apps/cli build --no-bundle', {
     stdio: 'inherit',
@@ -35,70 +35,70 @@ try {
       CARGO_TERM_COLOR: 'always'
     },
     cwd: path.join(__dirname, '..'),
-    timeout: 600000 // 10分钟
+    timeout: 600000 // 10鍒嗛挓
   });
 
-  // 检查输出
-  const exePath = path.join(__dirname, '..', 'src-tauri', 'target', 'release', 'vibe-ultra.exe');
+  // 妫€鏌ヨ緭鍑?
+  const exePath = path.join(__dirname, '..', 'src-tauri', 'target', 'release', 'vibex.exe');
   if (fs.existsSync(exePath)) {
     const stats = fs.statSync(exePath);
-    console.log('\n✅ 构建成功！');
-    console.log(`📁 EXE 文件: ${exePath}`);
-    console.log(`📊 文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+    console.log('\n鉁?鏋勫缓鎴愬姛锛?);
+    console.log(`馃搧 EXE 鏂囦欢: ${exePath}`);
+    console.log(`馃搳 鏂囦欢澶у皬: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
 
-    // 列出输出目录的所有文件
+    // 鍒楀嚭杈撳嚭鐩綍鐨勬墍鏈夋枃浠?
     const outputDir = path.join(__dirname, '..', 'src-tauri', 'target', 'release');
-    console.log('\n📦 输出目录内容:');
+    console.log('\n馃摝 杈撳嚭鐩綍鍐呭:');
     fs.readdirSync(outputDir).forEach(file => {
       const filePath = path.join(outputDir, file);
       const stats = fs.statSync(filePath);
       const isDir = stats.isDirectory();
-      console.log(`  - ${file} ${isDir ? '(目录)' : `(${(stats.size / 1024 / 1024).toFixed(2)} MB)`}`);
+      console.log(`  - ${file} ${isDir ? '(鐩綍)' : `(${(stats.size / 1024 / 1024).toFixed(2)} MB)`}`);
     });
 
   } else {
-    console.error('\n❌ 未找到 EXE 文件');
+    console.error('\n鉂?鏈壘鍒?EXE 鏂囦欢');
 
-    // 尝试使用 cargo build
-    console.log('\n🔄 尝试使用 cargo build...');
+    // 灏濊瘯浣跨敤 cargo build
+    console.log('\n馃攧 灏濊瘯浣跨敤 cargo build...');
     execSync('cd src-tauri && cargo build --release', {
       stdio: 'inherit',
       timeout: 300000
     });
 
-    const fallbackExePath = path.join(__dirname, '..', 'src-tauri', 'target', 'release', 'vibe-ultra.exe');
+    const fallbackExePath = path.join(__dirname, '..', 'src-tauri', 'target', 'release', 'vibex.exe');
     if (fs.existsSync(fallbackExePath)) {
       const stats = fs.statSync(fallbackExePath);
-      console.log('✅ cargo build 成功！');
-      console.log(`📁 EXE 文件: ${fallbackExePath}`);
-      console.log(`📊 文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+      console.log('鉁?cargo build 鎴愬姛锛?);
+      console.log(`馃搧 EXE 鏂囦欢: ${fallbackExePath}`);
+      console.log(`馃搳 鏂囦欢澶у皬: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
     } else {
-      console.error('❌ 所有构建方法都失败了');
+      console.error('鉂?鎵€鏈夋瀯寤烘柟娉曢兘澶辫触浜?);
       process.exit(1);
     }
   }
 
 } catch (error) {
-  console.error('❌ 构建失败:', error.message);
+  console.error('鉂?鏋勫缓澶辫触:', error.message);
 
-  // 如果是 WIX 相关错误，提供更详细的错误信息
+  // 濡傛灉鏄?WIX 鐩稿叧閿欒锛屾彁渚涙洿璇︾粏鐨勯敊璇俊鎭?
   if (error.message.includes('WIX') || error.message.includes('wix')) {
-    console.log('\n🔧 WIX 相关错误可能的原因:');
-    console.log('1. WIXTOOLSDIR 路径错误');
-    console.log('2. WIX 工具未正确安装');
-    console.log('3. 权限问题');
+    console.log('\n馃敡 WIX 鐩稿叧閿欒鍙兘鐨勫師鍥?');
+    console.log('1. WIXTOOLSDIR 璺緞閿欒');
+    console.log('2. WIX 宸ュ叿鏈纭畨瑁?);
+    console.log('3. 鏉冮檺闂');
 
-    // 显示实际的 WIX 路径
-    console.log(`\nWIXTOOLSDIR 检查: ${wixDir}`);
+    // 鏄剧ず瀹為檯鐨?WIX 璺緞
+    console.log(`\nWIXTOOLSDIR 妫€鏌? ${wixDir}`);
     if (fs.existsSync(wixDir)) {
-      console.log('✅ WIX 目录存在');
+      console.log('鉁?WIX 鐩綍瀛樺湪');
       if (fs.existsSync(path.join(wixDir, 'candle.exe'))) {
-        console.log('✅ candle.exe 存在');
+        console.log('鉁?candle.exe 瀛樺湪');
       } else {
-        console.log('❌ candle.exe 不存在');
+        console.log('鉂?candle.exe 涓嶅瓨鍦?);
       }
     } else {
-      console.log('❌ WIX 目录不存在');
+      console.log('鉂?WIX 鐩綍涓嶅瓨鍦?);
     }
   }
 

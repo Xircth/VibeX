@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Keyboard, Code2, Type, Save, Undo2, Loader2, Eye } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Code2,
+  Eye,
+  FolderOpen,
+  GitBranch,
+  GitPullRequest,
+  Loader2,
+  Save,
+  Terminal,
+  Type,
+  Undo2,
+} from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -11,13 +22,16 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import { useEditorAvailability } from '@/hooks/useEditorAvailability';
 import { EditorAvailabilityIndicator } from '@/components/EditorAvailabilityIndicator';
 import {
+  DEFAULT_COMMIT_REMINDER_PROMPT,
+  DEFAULT_PR_DESCRIPTION_PROMPT,
   EditorType,
   type Config,
-  type SendMessageShortcut,
 } from 'shared/types';
 import {
   normalizeTerminalShell,
@@ -25,23 +39,6 @@ import {
   getDefaultTerminalShell,
 } from '@/lib/terminalPreferences';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
-
-const SEND_MESSAGE_SHORTCUT_OPTIONS: Array<{
-  value: SendMessageShortcut;
-  label: string;
-  helper: string;
-}> = [
-  {
-    value: 'ModifierEnter',
-    label: 'Ctrl / Cmd + Enter',
-    helper: '使用 Ctrl / Cmd + Enter 发送消息，Enter 仅换行。',
-  },
-  {
-    value: 'Enter',
-    label: 'Enter',
-    helper: '使用 Enter 直接发送消息，Shift + Enter 换行。',
-  },
-];
 
 type EditorSettingsConfig = Config & {
   default_terminal_shell?: string | null;
@@ -62,15 +59,17 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border bg-card p-4 space-y-4">
+    <section className="settings-section space-y-3">
       <div className="flex items-center gap-2">
         <Icon className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">{title}</h2>
       </div>
-      {description && (
-        <p className="text-xs text-muted-foreground leading-5">{description}</p>
-      )}
-      {children}
+      {description ? (
+        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+      ) : null}
+      <div className="settings-card overflow-hidden rounded-xl border">
+        {children}
+      </div>
     </section>
   );
 }
@@ -82,6 +81,9 @@ export function EditorSettings() {
   );
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [branchPrefixError, setBranchPrefixError] = useState<string | null>(
+    null
+  );
   const previewFontSize = useEditorSettingsStore(
     (state) => state.previewFontSize
   );
@@ -107,13 +109,38 @@ export function EditorSettings() {
     });
   }, []);
 
-  const selectedShortcutHelper = useMemo(
-    () =>
-      SEND_MESSAGE_SHORTCUT_OPTIONS.find(
-        (option) => option.value === draft?.send_message_shortcut
-      )?.helper ?? '',
-    [draft?.send_message_shortcut]
-  );
+  const validateBranchPrefix = useCallback((prefix: string): string | null => {
+    if (!prefix) return null;
+    if (prefix.includes('/')) return "分支前缀不能包含 '/'。";
+    if (prefix.startsWith('.')) return "分支前缀不能以 '.' 开头。";
+    if (prefix.endsWith('.') || prefix.endsWith('.lock')) {
+      return "分支前缀不能以 '.' 或 '.lock' 结尾。";
+    }
+    if (prefix.includes('..') || prefix.includes('@{')) {
+      return "分支前缀不能包含 '..' 或 '@{'。";
+    }
+    if (/[ \t~^:?*[\\]/.test(prefix)) return '分支前缀包含非法字符。';
+
+    for (let i = 0; i < prefix.length; i += 1) {
+      const code = prefix.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) return '分支前缀包含控制字符。';
+    }
+
+    return null;
+  }, []);
+
+  const handleBrowseWorkspaceDir = async () => {
+    const result = await FolderPickerDialog.show({
+      value: draft?.workspace_dir ?? '',
+      title: '选择工作区目录',
+      description:
+        '选择用于存放工作区和 worktree 的根目录，默认会在其中创建 .vibex-workspaces 目录。',
+    });
+
+    if (result) {
+      updateDraft({ workspace_dir: result });
+    }
+  };
 
   const handleSave = async () => {
     if (!draft) return;
@@ -130,6 +157,7 @@ export function EditorSettings() {
     if (!config) return;
     setDraft(structuredClone(config as EditorSettingsConfig));
     setDirty(false);
+    setBranchPrefixError(null);
   };
 
   if (loading) {
@@ -145,47 +173,21 @@ export function EditorSettings() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto py-6 px-4">
+    <div className="mx-auto max-w-2xl px-4 py-6">
       <div className="mb-4">
         <h2 className="text-base font-semibold">编辑设置</h2>
-        <p className="text-xs text-muted-foreground mt-1">
-          配置输入交互、编辑器类型以及文件预览标签页显示效果。
+        <p className="mt-1 text-xs text-muted-foreground">
+          配置输入交互、编辑器、终端、Git 与文件预览显示效果。
         </p>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-7">
         <SettingsSection
-          icon={Keyboard}
-          title="交互"
-          description="配置消息输入和终端相关的交互行为。"
+          icon={Terminal}
+          title="终端"
+          description="配置编辑工作区内置终端的默认启动方式。"
         >
-          <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground">
-              发送快捷键
-            </Label>
-            <Select
-              value={draft.send_message_shortcut}
-              onValueChange={(value: SendMessageShortcut) =>
-                updateDraft({ send_message_shortcut: value })
-              }
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {SEND_MESSAGE_SHORTCUT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-[11px] text-muted-foreground">
-              {selectedShortcutHelper}
-            </p>
-          </div>
-
-          <div className="space-y-2">
+          <div className="flex items-center justify-between gap-4">
             <Label className="text-xs font-medium text-muted-foreground">
               默认终端
             </Label>
@@ -202,7 +204,7 @@ export function EditorSettings() {
                 })
               }
             >
-              <SelectTrigger className="w-56">
+              <SelectTrigger className="!w-32">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
@@ -224,43 +226,47 @@ export function EditorSettings() {
         <SettingsSection
           icon={Code2}
           title="编辑器"
-          description="配置外部编辑器与文件预览标签页的显示偏好。"
+          description="配置外部编辑器与文件预览标签页显示偏好。"
         >
-          <div className="space-y-2">
+          <div className="flex items-center justify-between gap-6">
             <Label className="text-xs font-medium text-muted-foreground">
               编辑器类型
             </Label>
-            <Select
-              value={draft.editor.editor_type}
-              onValueChange={(value: EditorType) =>
-                updateDraft({
-                  editor: { ...draft.editor, editor_type: value },
-                })
-              }
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {Object.values(EditorType).map((editor) => (
-                  <SelectItem key={editor} value={editor}>
-                    {editor}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {draft.editor.editor_type !== EditorType.CUSTOM && (
-              <EditorAvailabilityIndicator availability={editorAvailability} />
-            )}
+            <div className="flex items-center gap-3">
+              <Select
+                value={draft.editor.editor_type}
+                onValueChange={(value: EditorType) =>
+                  updateDraft({
+                    editor: { ...draft.editor, editor_type: value },
+                  })
+                }
+              >
+                <SelectTrigger className="!w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {Object.values(EditorType).map((editor) => (
+                    <SelectItem key={editor} value={editor}>
+                      {editor}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {draft.editor.editor_type !== EditorType.CUSTOM ? (
+                <EditorAvailabilityIndicator
+                  availability={editorAvailability}
+                />
+              ) : null}
+            </div>
           </div>
 
-          {draft.editor.editor_type === EditorType.CUSTOM && (
+          {draft.editor.editor_type === EditorType.CUSTOM ? (
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground">
                 自定义编辑器命令
               </Label>
               <Input
-                placeholder="例如：code、subl、vim"
+                placeholder="例如 code、subl、vim"
                 value={draft.editor.custom_command || ''}
                 onChange={(event) =>
                   updateDraft({
@@ -273,16 +279,16 @@ export function EditorSettings() {
                 className="h-8 text-xs"
               />
             </div>
-          )}
+          ) : null}
 
-          <div className="space-y-2">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <Type className="h-3.5 w-3.5 text-muted-foreground" />
               <Label className="text-xs font-medium text-muted-foreground">
                 文件预览标签页字号
               </Label>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center justify-end gap-3">
               <Input
                 type="number"
                 min={10}
@@ -301,20 +307,197 @@ export function EditorSettings() {
         </SettingsSection>
 
         <SettingsSection
+          icon={GitBranch}
+          title="Git"
+          description="配置分支前缀、工作区目录和提交提醒。"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <Label className="text-xs font-medium text-muted-foreground">
+                分支前缀
+              </Label>
+              {branchPrefixError ? (
+                <p className="mt-1 text-[11px] text-destructive">
+                  {branchPrefixError}
+                </p>
+              ) : null}
+            </div>
+            <Input
+              placeholder="vu"
+              value={draft.git_branch_prefix ?? ''}
+              onChange={(event) => {
+                const value = event.target.value.trim();
+                updateDraft({ git_branch_prefix: value });
+                setBranchPrefixError(validateBranchPrefix(value));
+              }}
+              aria-invalid={!!branchPrefixError}
+              className={`h-8 w-24 text-xs ${
+                branchPrefixError ? 'border-destructive' : ''
+              }`}
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <Label className="shrink-0 text-xs font-medium text-muted-foreground">
+              工作区目录
+            </Label>
+            <div className="flex min-w-0 flex-1 justify-end gap-2">
+              <Input
+                placeholder="~/"
+                value={draft.workspace_dir ?? ''}
+                onChange={(event) =>
+                  updateDraft({ workspace_dir: event.target.value || null })
+                }
+                className="h-8 max-w-sm text-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0"
+                onClick={handleBrowseWorkspaceDir}
+              >
+                <FolderOpen className="mr-1 h-3.5 w-3.5" />
+                浏览
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="commit-reminder-enabled"
+                className="cursor-pointer text-xs font-medium text-muted-foreground"
+              >
+                AI 提交消息生成
+              </Label>
+              <Switch
+                id="commit-reminder-enabled"
+                className="settings-switch"
+                checked={draft.commit_reminder_enabled ?? true}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ commit_reminder_enabled: checked })
+                }
+              />
+            </div>
+            {draft.commit_reminder_enabled ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <Label
+                    htmlFor="use-custom-commit-prompt"
+                    className="cursor-pointer text-xs font-medium text-muted-foreground"
+                  >
+                    自定义提交提示词
+                  </Label>
+                  <Switch
+                    id="use-custom-commit-prompt"
+                    className="settings-switch"
+                    checked={draft.commit_reminder_prompt != null}
+                    onCheckedChange={(checked: boolean) =>
+                      updateDraft({
+                        commit_reminder_prompt: checked
+                          ? DEFAULT_COMMIT_REMINDER_PROMPT
+                          : null,
+                      })
+                    }
+                  />
+                </div>
+                <Textarea
+                  value={
+                    draft.commit_reminder_prompt ??
+                    DEFAULT_COMMIT_REMINDER_PROMPT
+                  }
+                  disabled={draft.commit_reminder_prompt == null}
+                  onChange={(event) =>
+                    updateDraft({ commit_reminder_prompt: event.target.value })
+                  }
+                  className={`min-h-28 font-mono text-xs ${
+                    draft.commit_reminder_prompt == null
+                      ? 'cursor-not-allowed opacity-50'
+                      : ''
+                  }`}
+                />
+              </div>
+            ) : null}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={GitPullRequest}
+          title="PR 描述"
+          description="配置 PR 描述自动生成与提示词。"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <Label
+              htmlFor="pr-auto-description"
+              className="cursor-pointer text-xs font-medium text-muted-foreground"
+            >
+              默认自动生成 PR 描述
+            </Label>
+            <Switch
+              id="pr-auto-description"
+              className="settings-switch"
+              checked={draft.pr_auto_description_enabled ?? false}
+              onCheckedChange={(checked: boolean) =>
+                updateDraft({ pr_auto_description_enabled: checked })
+              }
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="use-custom-pr-prompt"
+                className="cursor-pointer text-xs font-medium text-muted-foreground"
+              >
+                自定义 PR 提示词
+              </Label>
+              <Switch
+                id="use-custom-pr-prompt"
+                className="settings-switch"
+                checked={draft.pr_auto_description_prompt != null}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({
+                    pr_auto_description_prompt: checked
+                      ? DEFAULT_PR_DESCRIPTION_PROMPT
+                      : null,
+                  })
+                }
+              />
+            </div>
+            <Textarea
+              value={
+                draft.pr_auto_description_prompt ??
+                DEFAULT_PR_DESCRIPTION_PROMPT
+              }
+              disabled={draft.pr_auto_description_prompt == null}
+              onChange={(event) =>
+                updateDraft({ pr_auto_description_prompt: event.target.value })
+              }
+              className={`min-h-28 font-mono text-xs ${
+                draft.pr_auto_description_prompt == null
+                  ? 'cursor-not-allowed opacity-50'
+                  : ''
+              }`}
+            />
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
           icon={Eye}
-          title="表现"
-          description="配置编辑相关预览区域的默认展示方式。"
+          title="预览"
+          description="配置编辑区文件预览和会话文件变更显示偏好。"
         >
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 px-3 py-3">
             <div className="space-y-1">
               <div className="text-sm font-medium">
                 `files changed` 默认折叠
               </div>
-              <p className="text-xs text-muted-foreground leading-5">
-                控制右侧执行器中 Hook 结束后 `files changed` 预览是否默认收起。
+              <p className="text-xs leading-5 text-muted-foreground">
+                控制新的会话 Hook 文件变更摘要是否默认折叠。
               </p>
             </div>
             <Switch
+              className="settings-switch"
               checked={draft.files_changed_default_collapsed ?? false}
               onCheckedChange={(checked) =>
                 updateDraft({ files_changed_default_collapsed: checked })
@@ -324,11 +507,11 @@ export function EditorSettings() {
         </SettingsSection>
       </div>
 
-      {dirty && (
+      {dirty ? (
         <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              有未保存的更改
+              设置已修改，保存后生效。
             </span>
             <div className="flex gap-2">
               <Button
@@ -339,13 +522,13 @@ export function EditorSettings() {
                 disabled={saving}
               >
                 <Undo2 className="mr-1 h-3 w-3" />
-                放弃
+                取消
               </Button>
               <Button
                 size="sm"
                 className="h-7 text-xs"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || !!branchPrefixError}
               >
                 {saving ? (
                   <Loader2 className="mr-1 h-3 w-3 animate-spin" />
@@ -357,7 +540,7 @@ export function EditorSettings() {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

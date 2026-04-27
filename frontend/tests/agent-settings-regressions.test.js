@@ -44,11 +44,34 @@ test('agent settings page keeps coding agent cards collapsed by default after lo
 test('codex agent settings expose GPT-5.5 as a selectable model suggestion', () => {
   const source = readFrontendFile('src/components/settings/AgentCard.tsx');
   const executorSource = readFrontendFile('src/utils/executor.ts');
+  const defaultProfiles = readRepoFile(
+    'crates/executors/default_profiles.json'
+  );
 
   assert.match(source, /const CODEX_MODEL_OPTIONS = \[/);
   assert.match(source, /'gpt-5\.5'/);
   assert.match(source, /list="codex-model-options"/);
   assert.match(executorSource, /'gpt-5\.5': 'GPT-5\.5'/);
+  assert.match(defaultProfiles, /"GPT_5_5"/);
+  assert.match(defaultProfiles, /"model": "gpt-5\.5"/);
+});
+
+test('agent settings API sends preference mutations through the backend payload argument', () => {
+  const source = readFrontendFile('src/lib/api/config.ts');
+
+  assert.match(source, /updatePreferences: async/);
+  assert.match(
+    source,
+    /tauriInvoke<AgentSettingInfo>\('update_agent_preferences'/
+  );
+  assert.match(source, /payload: \{/);
+  assert.match(source, /agent_type: params\.agentType/);
+  assert.match(source, /env_json: params\.envJson/);
+  assert.match(source, /config_json: params\.configJson/);
+  assert.match(source, /tauriInvoke<AgentSettingInfo\[\]>\('reorder_agents'/);
+  assert.match(source, /payload: \{ order: agentTypes \}/);
+  assert.doesNotMatch(source, /update_agent_preferences', params/);
+  assert.doesNotMatch(source, /reorder_agents', \{ agentTypes \}/);
 });
 
 test('agent settings model backfills default rows before listing or lookup', () => {

@@ -8,6 +8,7 @@ import {
   Keyboard,
   PlugZap,
   Settings,
+  Sun,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -22,11 +23,12 @@ interface SettingsNavItem {
 }
 
 const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
-  { path: '/settings/agents', label: '代理', icon: Bot },
-  { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
+  { path: '/settings/agents', label: 'Agent', icon: Bot },
   { path: '/settings/skills', label: '技能', icon: BookOpenText },
-  { path: '/settings/shortcuts', label: '快捷键', icon: Keyboard },
+  { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
+  { path: '/settings/shortcuts', label: '交互', icon: Keyboard },
   { path: '/settings/editor', label: '编辑', icon: Code2 },
+  { path: '/settings/appearance', label: '外观', icon: Sun },
   { path: '/settings/system', label: '系统', icon: Settings },
 ];
 
@@ -88,7 +90,7 @@ export function SettingsLayout() {
               isStandaloneWindow && 'pointer-events-none'
             )}
           >
-            <Logo showText={false} />
+            <Logo showText={false} size="window" />
             <span className="text-sm font-semibold tracking-tight text-foreground">
               设置
             </span>
@@ -138,7 +140,7 @@ export function SettingsLayout() {
         </aside>
 
         <section
-          className="flex-1 min-w-0 min-h-0 p-4 overflow-y-auto"
+          className="flex-1 min-w-0 min-h-0 p-4 overflow-y-auto [scrollbar-gutter:stable]"
           style={{ scrollbarGutter: 'stable' }}
         >
           <Outlet />

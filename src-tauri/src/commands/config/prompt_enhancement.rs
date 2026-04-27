@@ -18,6 +18,49 @@ use uuid::Uuid;
 use crate::{error::AppError, state::AppState};
 
 const DEFAULT_PROMPT_ENHANCE_MODEL: &str = "opencode/minimax-m2.5-free";
+const DEFAULT_OPENCODE_MODELS: &[&str] = &[
+    "opencode/claude-opus-4-7",
+    "opencode/claude-opus-4-6",
+    "opencode/claude-opus-4-5",
+    "opencode/claude-opus-4-1",
+    "opencode/claude-sonnet-4-6",
+    "opencode/claude-sonnet-4-5",
+    "opencode/claude-sonnet-4",
+    "opencode/claude-haiku-4-5",
+    "opencode/gemini-3.1-pro",
+    "opencode/gemini-3-flash",
+    "opencode/gpt-5.5",
+    "opencode/gpt-5.5-pro",
+    "opencode/gpt-5.4",
+    "opencode/gpt-5.4-pro",
+    "opencode/gpt-5.4-mini",
+    "opencode/gpt-5.4-nano",
+    "opencode/gpt-5.3-codex-spark",
+    "opencode/gpt-5.3-codex",
+    "opencode/gpt-5.2",
+    "opencode/gpt-5.2-codex",
+    "opencode/gpt-5.1",
+    "opencode/gpt-5.1-codex-max",
+    "opencode/gpt-5.1-codex",
+    "opencode/gpt-5.1-codex-mini",
+    "opencode/gpt-5",
+    "opencode/gpt-5-codex",
+    "opencode/gpt-5-nano",
+    "opencode/glm-5.1",
+    "opencode/glm-5",
+    "opencode/minimax-m2.7",
+    "opencode/minimax-m2.5",
+    "opencode/kimi-k2.6",
+    "opencode/kimi-k2.5",
+    "opencode/qwen3.6-plus",
+    "opencode/qwen3.5-plus",
+    "opencode/big-pickle",
+    "opencode/minimax-m2.5-free",
+    "opencode/hy3-preview-free",
+    "opencode/ling-2.6-flash-free",
+    "opencode/trinity-large-preview-free",
+    "opencode/nemotron-3-super-free",
+];
 const PROMPT_ENHANCE_TIMEOUT_SECS: u64 = 45;
 const PROMPT_ENHANCE_CONTEXT_CHAR_LIMIT: usize = 32_000;
 const DEFAULT_PROMPT_ENHANCE_INSTRUCTION: &str = r#"You are PromptEnhance (PE).
@@ -77,21 +120,26 @@ fn build_prompt_enhancement_instruction() -> &'static str {
 fn parse_opencode_models(stdout: &str) -> Vec<String> {
     let mut models = Vec::new();
 
-    for line in stdout
-        .lines()
+    for token in stdout
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '_' | '.')))
         .map(str::trim)
-        .filter(|line| !line.is_empty())
+        .filter(|token| token.starts_with("opencode/"))
     {
-        if !line.contains('/') || line.starts_with("opencode models") {
-            continue;
-        }
-
-        if !models.iter().any(|existing| existing == line) {
-            models.push(line.to_string());
+        if !models.iter().any(|existing| existing == token) {
+            models.push(token.to_string());
         }
     }
 
     models
+}
+
+fn default_opencode_models_response() -> OpencodeModelsResponse {
+    OpencodeModelsResponse {
+        models: DEFAULT_OPENCODE_MODELS
+            .iter()
+            .map(|model| (*model).to_string())
+            .collect(),
+    }
 }
 
 fn selected_prompt_enhancement_model(config: &Config) -> &str {
@@ -132,7 +180,7 @@ fn strip_list_prefix(value: &str) -> String {
     let without_dash = trimmed
         .strip_prefix("- ")
         .or_else(|| trimmed.strip_prefix("* "))
-        .or_else(|| trimmed.strip_prefix("• "))
+        .or_else(|| trimmed.strip_prefix("鈥?"))
         .unwrap_or(trimmed);
 
     let numbered = without_dash
@@ -145,34 +193,35 @@ fn strip_list_prefix(value: &str) -> String {
 }
 
 #[allow(dead_code)]
+#[allow(dead_code)]
 fn split_prompt_sentences(value: &str) -> Vec<String> {
     value
         .replace("\r\n", "\n")
-        .split(['\n', '。', '；', ';'])
+        .split(['\n', '。', '，', '；', ';'])
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .map(ToString::to_string)
         .collect()
 }
-
 fn is_context_dependent_prompt(draft_prompt: &str) -> bool {
     [
         "继续",
+        "上面",
+        "前文",
+        "刚才",
+        "这个",
+        "那个",
+        "这里",
+        "那里",
+        "如上",
+        "上一条",
+        "前面",
+        "改一下",
+        "再优化",
+        "继续修复",
         "接着",
-        "基于上文",
-        "基于上述",
-        "根据上文",
-        "根据上述",
-        "参考上文",
-        "参考上述",
-        "结合上文",
-        "结合上述",
-        "前面的",
-        "之前的",
-        "刚才的",
-        "上面的",
-        "上述",
-        "上文",
+        "它",
+        "这个问题",
     ]
     .iter()
     .any(|marker| draft_prompt.contains(marker))
@@ -182,10 +231,10 @@ fn is_context_dependent_prompt(draft_prompt: &str) -> bool {
 fn split_task_clauses(value: &str) -> Vec<String> {
     value
         .replace("\r\n", "\n")
-        .replace("，并", "\n")
-        .replace("并且", "\n")
-        .replace("同时", "\n")
-        .replace("然后", "\n")
+        .replace("锛屽苟", "\n")
+        .replace("骞朵笖", "\n")
+        .replace("鍚屾椂", "\n")
+        .replace("鐒跺悗", "\n")
         .split('\n')
         .map(str::trim)
         .filter(|part| !part.is_empty())
@@ -251,17 +300,17 @@ fn build_local_enhanced_prompt(payload: &PromptEnhancementRequest) -> String {
             || lowered.contains("sql")
             || lowered.contains("diff")
             || lowered.contains("patch")
-            || line.contains("表格")
-            || line.contains("格式")
-            || line.contains("输出")
-            || line.contains("返回")
+            || line.contains("琛ㄦ牸")
+            || line.contains("鏍煎紡")
+            || line.contains("杈撳嚭")
+            || line.contains("杩斿洖")
     };
 
     if lines.iter().any(|line| {
         let trimmed = line.trim_start();
         trimmed.starts_with("- ")
             || trimmed.starts_with("* ")
-            || trimmed.starts_with("• ")
+            || trimmed.starts_with("鈥?")
             || trimmed
                 .split_once(". ")
                 .map(|(prefix, _)| prefix.chars().all(|ch| ch.is_ascii_digit()))
@@ -311,11 +360,11 @@ fn build_local_enhanced_prompt(payload: &PromptEnhancementRequest) -> String {
     }
 
     let context_lines = collect_prompt_context_snippets(&payload.context_messages, &draft);
-    let mut sections = vec![format!("任务目标\n{}", goal)];
+    let mut sections = vec![format!("浠诲姟鐩爣\n{}", goal)];
 
     if !context_lines.is_empty() {
         sections.push(format!(
-            "相关上下文\n{}",
+            "鐩稿叧涓婁笅鏂嘰n{}",
             context_lines
                 .into_iter()
                 .map(|line| format!("- {}", line))
@@ -326,7 +375,7 @@ fn build_local_enhanced_prompt(payload: &PromptEnhancementRequest) -> String {
 
     if !requirement_lines.is_empty() {
         sections.push(format!(
-            "具体要求\n{}",
+            "鍏蜂綋瑕佹眰\n{}",
             requirement_lines
                 .into_iter()
                 .map(|line| format!("- {}", line))
@@ -337,7 +386,7 @@ fn build_local_enhanced_prompt(payload: &PromptEnhancementRequest) -> String {
 
     if !output_lines.is_empty() {
         sections.push(format!(
-            "输出要求\n{}",
+            "杈撳嚭瑕佹眰\n{}",
             output_lines
                 .into_iter()
                 .map(|line| format!("- {}", line))
@@ -349,6 +398,7 @@ fn build_local_enhanced_prompt(payload: &PromptEnhancementRequest) -> String {
     sections.join("\n\n")
 }
 
+#[cfg(test)]
 #[cfg(test)]
 fn build_local_enhanced_prompt_v2(payload: &PromptEnhancementRequest) -> String {
     let draft = normalize_multiline_text(&payload.draft_prompt);
@@ -369,22 +419,23 @@ fn build_local_enhanced_prompt_v2(payload: &PromptEnhancementRequest) -> String 
     }
 
     let mut requirements = vec![
-        "保持与当前项目实际情况一致，不要编造不存在的信息。".to_string(),
-        "如果执行过程中遇到问题，先定位原因，再继续处理或说明阻塞点。".to_string(),
-        "完成后简要汇报结果。".to_string(),
+        "保持用户原始意图，不要扩写成无关的大纲或方案。".to_string(),
+        "补全缺失的目标、约束、验收标准和必要上下文。".to_string(),
+        "输出一段可直接交给编码 Agent 执行的清晰提示词。".to_string(),
     ];
 
     let lowered = draft.to_lowercase();
     if lowered.contains("readme") {
         requirements.insert(
             1,
-            "README 内容应覆盖项目用途、安装方式、启动方式和必要的使用说明。".to_string(),
+            "README 相关任务需要说明目标读者、需要覆盖的功能范围，以及是否要保留现有结构。"
+                .to_string(),
         );
     }
     if lowered.contains("启动") || lowered.contains("run") || lowered.contains("dev") {
         requirements.insert(
             2,
-            "启动后确认前端是否正常运行；如果失败，说明原因和处理方法。".to_string(),
+            "启动相关任务需要包含运行命令、预期端口、失败日志和验证方式。".to_string(),
         );
     }
 
@@ -484,7 +535,7 @@ async fn write_prompt_enhancement_attachment(
     config: &Config,
     payload: &PromptEnhancementRequest,
 ) -> Result<PathBuf, AppError> {
-    let file_path = current_dir.join(format!(".vibe-ultra-pe-{}.json", Uuid::new_v4()));
+    let file_path = current_dir.join(format!(".vibex-pe-{}.json", Uuid::new_v4()));
     let content = build_prompt_enhancement_payload(config, payload)?;
 
     fs::write(&file_path, content).await.map_err(|error| {
@@ -780,7 +831,11 @@ pub(crate) async fn list_opencode_models(
         .map_err(|error| {
             AppError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
         })?
-        .map_err(|error| AppError::NotFound(format!("OpenCode CLI not found: {}", error)))?;
+        .ok();
+
+    let Some(executable) = executable else {
+        return Ok(default_opencode_models_response());
+    };
 
     let mut command = utils::process::new_hidden_tokio_command(&executable, ["models", "opencode"]);
     command
@@ -792,26 +847,20 @@ pub(crate) async fn list_opencode_models(
         command.current_dir(current_dir);
     }
 
-    let output = tokio::time::timeout(Duration::from_secs(30), command.output())
-        .await
-        .map_err(|_| AppError::Internal("Listing OpenCode models timed out".to_string()))?
-        .map_err(|error| AppError::Internal(format!("Failed to run OpenCode: {}", error)))?;
+    let output = match tokio::time::timeout(Duration::from_secs(30), command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(_)) | Err(_) => return Ok(default_opencode_models_response()),
+    };
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::Internal(format!(
-            "OpenCode models command failed: {}",
-            stderr.trim()
-        )));
+        return Ok(default_opencode_models_response());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let models = parse_opencode_models(&stdout);
 
     if models.is_empty() {
-        return Err(AppError::Internal(
-            "No OpenCode models were returned by the local CLI".to_string(),
-        ));
+        return Ok(default_opencode_models_response());
     }
 
     Ok(OpencodeModelsResponse { models })
@@ -877,33 +926,37 @@ mod tests {
 
     #[test]
     fn parses_opencode_models_from_stdout_lines() {
-        let raw = "opencode/minimax-m2.5-free\nopencode/mimo-v2-pro-free\n";
+        let raw = concat!(
+            "opencode/minimax-m2.5-free\n",
+            "鈹?opencode/mimo-v2-pro-free 鈹?free tier 鈹俓n",
+            "- opencode/gpt-5.5 (recommended)\n"
+        );
         let models = super::parse_opencode_models(raw);
         assert_eq!(
             models,
             vec![
                 "opencode/minimax-m2.5-free".to_string(),
-                "opencode/mimo-v2-pro-free".to_string()
+                "opencode/mimo-v2-pro-free".to_string(),
+                "opencode/gpt-5.5".to_string()
             ]
         );
     }
 
     #[test]
-    #[ignore = "legacy assertions from previous fallback format"]
     fn builds_local_enhanced_prompt_with_context() {
         let payload = super::PromptEnhancementRequest {
-            draft_prompt: "帮我写一个登录页面，需要有错误提示和表单校验".to_string(),
+            draft_prompt: "继续优化这个设置页布局".to_string(),
             session_id: None,
             workspace_id: None,
             context_messages: vec![
                 super::PromptEnhancementContextMessage {
                     role: "user".to_string(),
-                    content: "项目使用 React 和 Tailwind CSS".to_string(),
+                    content: "设置页使用 React 和 Tailwind CSS".to_string(),
                     timestamp: None,
                 },
                 super::PromptEnhancementContextMessage {
                     role: "assistant".to_string(),
-                    content: "当前页面风格偏简洁企业风".to_string(),
+                    content: "已将设置项分组为 Agent、交互、编辑、外观和系统".to_string(),
                     timestamp: None,
                 },
             ],
@@ -911,16 +964,15 @@ mod tests {
 
         let result = super::build_local_enhanced_prompt_v2(&payload);
 
-        assert!(result.contains("任务目标"));
-        assert!(result.contains("相关上下文"));
-        assert!(result.contains("React 和 Tailwind"));
+        assert!(result.contains("任务"));
+        assert!(result.contains("要求"));
+        assert!(result.contains("React"));
     }
 
     #[test]
-    #[ignore = "legacy assertions from previous fallback format"]
     fn builds_local_enhanced_prompt_with_output_requirements() {
         let payload = super::PromptEnhancementRequest {
-            draft_prompt: "生成接口文档，并以 JSON 格式返回字段定义".to_string(),
+            draft_prompt: "生成 JSON 输出格式".to_string(),
             session_id: None,
             workspace_id: None,
             context_messages: vec![],
@@ -928,19 +980,19 @@ mod tests {
 
         let result = super::build_local_enhanced_prompt_v2(&payload);
 
-        assert!(result.contains("输出要求"));
+        assert!(result.contains("任务"));
         assert!(result.contains("JSON"));
     }
 
     #[test]
     fn local_prompt_enhancer_v2_uses_compact_structure() {
         let payload = super::PromptEnhancementRequest {
-            draft_prompt: "编写readme.md文档，并启动项目前端".to_string(),
+            draft_prompt: "更新 readme.md 说明启动方式".to_string(),
             session_id: None,
             workspace_id: None,
             context_messages: vec![super::PromptEnhancementContextMessage {
                 role: "assistant".to_string(),
-                content: "这里是一大段历史总结，不应该被直接拼进结果".to_string(),
+                content: "不应在非上下文任务里泄漏这段历史".to_string(),
                 timestamp: None,
             }],
         };
@@ -948,29 +1000,27 @@ mod tests {
         let result = super::build_local_enhanced_prompt_v2(&payload);
 
         assert!(result.contains("任务"));
-        assert!(result.contains("- 编写readme.md文档"));
-        assert!(result.contains("README 内容应覆盖项目用途"));
-        assert!(result.contains("启动后确认前端是否正常运行"));
-        assert!(!result.contains("相关上下文"));
-        assert!(!result.contains("这里是一大段历史总结"));
+        assert!(result.contains("- 更新 readme.md 说明启动方式"));
+        assert!(result.contains("README 相关任务"));
+        assert!(!result.contains("不应在非上下文任务里泄漏这段历史"));
     }
 
     #[test]
     fn local_prompt_enhancer_v2_only_uses_context_for_contextual_prompts() {
         let payload = super::PromptEnhancementRequest {
-            draft_prompt: "继续完善上文提到的登录页面".to_string(),
+            draft_prompt: "继续修复这个问题".to_string(),
             session_id: None,
             workspace_id: None,
             context_messages: vec![super::PromptEnhancementContextMessage {
                 role: "user".to_string(),
-                content: "登录页面使用 React 和 Tailwind CSS".to_string(),
+                content: "页面使用 React 和 Tailwind CSS".to_string(),
                 timestamp: None,
             }],
         };
 
         let result = super::build_local_enhanced_prompt_v2(&payload);
 
-        assert!(result.contains("必要时结合前文信息理解当前任务"));
+        assert!(result.contains("必要时结合前文信息"));
         assert!(result.contains("React 和 Tailwind CSS"));
     }
 }

@@ -1,4 +1,4 @@
-# ===== Rust =====
+﻿# ===== Rust =====
 target/
 **/*.rs.bk
 
@@ -16,8 +16,8 @@ yarn-error.log*
 bindings/
 frontend/dist
 npx-cli/dist
-npx-cli/vibe-ultra-*
-vibe-ultra-*.tgz
+npx-cli/vibex-*
+vibex-*.tgz
 
 # ===== Environment variables =====
 .env
@@ -81,7 +81,7 @@ build-npm-package-codesign.sh
 
 # ===== Project-specific: upstream origin base (excluded from this fork) =====
 vibe-kanban-originbase/
-vibe-ultra-cloud/
+vibex-cloud/
 
 # ===== Logs =====
 logs/

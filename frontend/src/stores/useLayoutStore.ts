@@ -57,6 +57,9 @@ interface LayoutState {
   /** Whether the right (AI chat) panel is visible */
   isRightPanelVisible: boolean;
 
+  /** Whether the workspace editor/terminal area is visible */
+  isEditorAreaVisible: boolean;
+
   /** Active tab: workspace or kanban */
   activeTab: WorkspaceTab;
 
@@ -68,6 +71,8 @@ interface LayoutState {
   setRightPanelWidth: (width: number) => void;
   toggleRightPanel: () => void;
   setRightPanelVisible: (visible: boolean) => void;
+  toggleEditorArea: () => void;
+  setEditorAreaVisible: (visible: boolean) => void;
   setActiveTab: (tab: WorkspaceTab) => void;
   setProjectActiveTab: (projectKey: string, tab: WorkspaceTab) => void;
   resetLayout: () => void;
@@ -81,6 +86,7 @@ interface LayoutSnapshot {
   isFileTreeVisible: boolean;
   rightPanelWidth: number;
   isRightPanelVisible: boolean;
+  isEditorAreaVisible: boolean;
   activeTab: WorkspaceTab;
 }
 
@@ -89,6 +95,7 @@ const DEFAULT_LAYOUT_SNAPSHOT: LayoutSnapshot = {
   isFileTreeVisible: true,
   rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
   isRightPanelVisible: true,
+  isEditorAreaVisible: true,
   activeTab: 'kanban',
 };
 
@@ -116,6 +123,7 @@ function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
     isFileTreeVisible: state.isFileTreeVisible,
     rightPanelWidth: state.rightPanelWidth,
     isRightPanelVisible: state.isRightPanelVisible,
+    isEditorAreaVisible: state.isEditorAreaVisible,
     activeTab: state.activeTab,
   };
 }
@@ -126,6 +134,7 @@ function applySnapshot(nextSnapshot: LayoutSnapshot): Partial<LayoutState> {
     isFileTreeVisible: nextSnapshot.isFileTreeVisible,
     rightPanelWidth: nextSnapshot.rightPanelWidth,
     isRightPanelVisible: nextSnapshot.isRightPanelVisible,
+    isEditorAreaVisible: nextSnapshot.isEditorAreaVisible,
     activeTab: nextSnapshot.activeTab,
   };
 }
@@ -246,6 +255,33 @@ export const useLayoutStore = create<LayoutState>()(
           },
         })),
 
+      toggleEditorArea: () =>
+        set((state) => {
+          const nextValue = !state.isEditorAreaVisible;
+          return {
+            isEditorAreaVisible: nextValue,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                isEditorAreaVisible: nextValue,
+              },
+            },
+          };
+        }),
+
+      setEditorAreaVisible: (visible) =>
+        set((state) => ({
+          isEditorAreaVisible: visible,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              isEditorAreaVisible: visible,
+            },
+          },
+        })),
+
       setActiveTab: (tab) =>
         set((state) => ({
           activeTab: tab,
@@ -304,8 +340,8 @@ export const useLayoutStore = create<LayoutState>()(
         }),
     }),
     {
-      name: 'vibe-ultra-ide-layout',
-      version: 17,
+      name: 'vibex-ide-layout',
+      version: 18,
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const legacySnapshot = buildProjectLayoutState({
@@ -313,6 +349,7 @@ export const useLayoutStore = create<LayoutState>()(
           isFileTreeVisible: state.isFileTreeVisible,
           rightPanelWidth: state.rightPanelWidth,
           isRightPanelVisible: state.isRightPanelVisible,
+          isEditorAreaVisible: state.isEditorAreaVisible,
           activeTab: state.activeTab,
         });
         const currentProjectKey =

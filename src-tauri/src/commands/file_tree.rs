@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
-// ── Path safety ──
+// 鈹€鈹€ Path safety 鈹€鈹€
 
 /// Validate that a resolved path falls within one of the allowed sandbox roots.
 /// Returns the canonicalized path on success.
@@ -812,7 +812,7 @@ async fn read_document_preview_content(path: &Path) -> Result<DocumentPreviewRes
     }
 }
 
-// ── Existing types ──
+// 鈹€鈹€ Existing types 鈹€鈹€
 
 #[derive(Debug, Serialize, Clone)]
 pub struct FileTreeEntry {
@@ -823,7 +823,7 @@ pub struct FileTreeEntry {
     pub git_status: Option<String>,
 }
 
-// ── New types for directory listing ──
+// 鈹€鈹€ New types for directory listing 鈹€鈹€
 
 #[derive(Debug, Serialize, Clone)]
 pub struct DirectoryChildrenResponse {
@@ -872,7 +872,7 @@ pub struct ReadFileResponse {
     pub truncated: bool,
 }
 
-// ── Constants ──
+// 鈹€鈹€ Constants 鈹€鈹€
 
 const SKIP_DIRS: &[&str] = &[".git"];
 
@@ -938,7 +938,7 @@ fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
-// ── Git status helpers ──
+// 鈹€鈹€ Git status helpers 鈹€鈹€
 
 fn build_git_status_map(root: &Path) -> HashMap<PathBuf, String> {
     let mut map = HashMap::new();
@@ -1073,7 +1073,7 @@ fn derive_dir_git_status(children: &[FileTreeEntry]) -> Option<String> {
     None
 }
 
-// ── Search helpers ──
+// 鈹€鈹€ Search helpers 鈹€鈹€
 
 fn compile_search_regex(query: &str, options: &TextSearchOptions) -> Result<Regex, String> {
     let trimmed = query.trim();
@@ -1179,9 +1179,9 @@ fn build_preview(line: &str, start: usize, end: usize) -> String {
     preview.trim().to_string()
 }
 
-// ══════════════════════════════════════════════════════
-//  TAURI COMMANDS — Existing
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+//  TAURI COMMANDS 鈥?Existing
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 #[tauri::command]
 pub async fn get_file_tree(
@@ -1329,9 +1329,9 @@ pub async fn get_file_at_head(file_path: String) -> Result<String, AppError> {
         })
 }
 
-// ══════════════════════════════════════════════════════
-//  TAURI COMMANDS — New (from mossx)
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+//  TAURI COMMANDS 鈥?New (from mossx)
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 /// List directory children with gitignore classification.
 ///
@@ -1948,7 +1948,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        std::env::temp_dir().join(format!("vibe-ultra-{prefix}-{unique}.tmp"))
+        std::env::temp_dir().join(format!("vibex-{prefix}-{unique}.tmp"))
     }
 
     #[cfg(windows)]

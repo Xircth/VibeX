@@ -2,15 +2,15 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 在 Kanban 页面新增第三段“计量统计看板”视图，支持通过右侧箭头从“会话列表+监控”切换进入，并基于当前项目下全部 workspace 的 ClaudeCode、Codex、OpenCode 本地历史文件聚合 Token 与费用统计。
+**Goal:** 鍦?Kanban 椤甸潰鏂板绗笁娈碘€滆閲忕粺璁＄湅鏉库€濊鍥撅紝鏀寔閫氳繃鍙充晶绠ご浠庘€滀細璇濆垪琛?鐩戞帶鈥濆垏鎹㈣繘鍏ワ紝骞跺熀浜庡綋鍓嶉」鐩笅鍏ㄩ儴 workspace 鐨?ClaudeCode銆丆odex銆丱penCode 鏈湴鍘嗗彶鏂囦欢鑱氬悎 Token 涓庤垂鐢ㄧ粺璁°€?
 
-**Architecture:** 前端将 `DockviewKanbanPanel` 的双屏滑动重构为三屏枚举状态；后端新增项目级 usage 聚合命令，按 `projectId` 收集 workspace 路径，再适配复用 `mossx` 的本地 usage 扫描逻辑；前端新增 Kanban 专用 usage 面板，复用 `mossx` 的四标签页结构与数据映射思路。
+**Architecture:** 鍓嶇灏?`DockviewKanbanPanel` 鐨勫弻灞忔粦鍔ㄩ噸鏋勪负涓夊睆鏋氫妇鐘舵€侊紱鍚庣鏂板椤圭洰绾?usage 鑱氬悎鍛戒护锛屾寜 `projectId` 鏀堕泦 workspace 璺緞锛屽啀閫傞厤澶嶇敤 `mossx` 鐨勬湰鍦?usage 鎵弿閫昏緫锛涘墠绔柊澧?Kanban 涓撶敤 usage 闈㈡澘锛屽鐢?`mossx` 鐨勫洓鏍囩椤电粨鏋勪笌鏁版嵁鏄犲皠鎬濊矾銆?
 
 **Tech Stack:** Tauri commands, Rust, ts-rs, React, TypeScript, TanStack Query, Vitest, Tailwind/shadcn
 
 ---
 
-### Task 1: 定义项目级 usage 类型与后端命令骨架
+### Task 1: 瀹氫箟椤圭洰绾?usage 绫诲瀷涓庡悗绔懡浠ら鏋?
 
 **Files:**
 - Create: `src-tauri/src/commands/local_usage.rs`
@@ -19,9 +19,9 @@
 - Modify: `src-tauri/src/bin/generate_types.rs`
 - Test: `src-tauri/src/commands/local_usage.rs`
 
-**Step 1: 写失败测试，定义空项目与基础聚合输出**
+**Step 1: 鍐欏け璐ユ祴璇曪紝瀹氫箟绌洪」鐩笌鍩虹鑱氬悎杈撳嚭**
 
-在 `src-tauri/src/commands/local_usage.rs` 底部新增 `#[cfg(test)]`，先写最小单测：
+鍦?`src-tauri/src/commands/local_usage.rs` 搴曢儴鏂板 `#[cfg(test)]`锛屽厛鍐欐渶灏忓崟娴嬶細
 
 ```rust
 #[test]
@@ -41,34 +41,34 @@ fn build_empty_project_usage_statistics_returns_zeroed_result() {
 }
 ```
 
-**Step 2: 运行测试，确认失败**
+**Step 2: 杩愯娴嬭瘯锛岀‘璁ゅけ璐?*
 
-Run: `cargo test build_empty_project_usage_statistics_returns_zeroed_result --package vibe-ultra`
+Run: `cargo test build_empty_project_usage_statistics_returns_zeroed_result --package vibex`
 
-Expected: FAIL，提示函数或类型尚未定义。
+Expected: FAIL锛屾彁绀哄嚱鏁版垨绫诲瀷灏氭湭瀹氫箟銆?
 
-**Step 3: 写最小实现**
+**Step 3: 鍐欐渶灏忓疄鐜?*
 
-在 `src-tauri/src/commands/local_usage.rs` 中：
+鍦?`src-tauri/src/commands/local_usage.rs` 涓細
 
-- 定义 `ProjectUsageStatistics`
-- 定义 `ProjectUsageProviderStatus`
-- 定义基础 `build_project_usage_statistics(...)`
-- 使用 `#[derive(Serialize, TS)]`
+- 瀹氫箟 `ProjectUsageStatistics`
+- 瀹氫箟 `ProjectUsageProviderStatus`
+- 瀹氫箟鍩虹 `build_project_usage_statistics(...)`
+- 浣跨敤 `#[derive(Serialize, TS)]`
 
-同时在：
+鍚屾椂鍦細
 
-- `src-tauri/src/commands/mod.rs` 注册 `pub mod local_usage;`
-- `src-tauri/src/lib.rs` 注册 Tauri command
-- `src-tauri/src/bin/generate_types.rs` 添加新类型导出
+- `src-tauri/src/commands/mod.rs` 娉ㄥ唽 `pub mod local_usage;`
+- `src-tauri/src/lib.rs` 娉ㄥ唽 Tauri command
+- `src-tauri/src/bin/generate_types.rs` 娣诲姞鏂扮被鍨嬪鍑?
 
-**Step 4: 运行测试，确认通过**
+**Step 4: 杩愯娴嬭瘯锛岀‘璁ら€氳繃**
 
-Run: `cargo test build_empty_project_usage_statistics_returns_zeroed_result --package vibe-ultra`
+Run: `cargo test build_empty_project_usage_statistics_returns_zeroed_result --package vibex`
 
 Expected: PASS
 
-**Step 5: 提交检查点**
+**Step 5: 鎻愪氦妫€鏌ョ偣**
 
 Run:
 
@@ -77,16 +77,16 @@ git add src-tauri/src/commands/local_usage.rs src-tauri/src/commands/mod.rs src-
 git commit -m "feat: add project usage command skeleton"
 ```
 
-### Task 2: 适配并实现项目级本地 usage 聚合
+### Task 2: 閫傞厤骞跺疄鐜伴」鐩骇鏈湴 usage 鑱氬悎
 
 **Files:**
 - Modify: `src-tauri/src/commands/local_usage.rs`
 - Modify: `src-tauri/src/commands/projects.rs`
 - Test: `src-tauri/src/commands/local_usage.rs`
 
-**Step 1: 写失败测试，覆盖多 workspace 聚合与 provider 状态**
+**Step 1: 鍐欏け璐ユ祴璇曪紝瑕嗙洊澶?workspace 鑱氬悎涓?provider 鐘舵€?*
 
-在 `src-tauri/src/commands/local_usage.rs` 新增测试：
+鍦?`src-tauri/src/commands/local_usage.rs` 鏂板娴嬭瘯锛?
 
 ```rust
 #[test]
@@ -110,40 +110,40 @@ fn merge_provider_sessions_combines_multiple_workspaces() {
 }
 ```
 
-**Step 2: 运行测试，确认失败**
+**Step 2: 杩愯娴嬭瘯锛岀‘璁ゅけ璐?*
 
-Run: `cargo test merge_provider_sessions_combines_multiple_workspaces --package vibe-ultra`
+Run: `cargo test merge_provider_sessions_combines_multiple_workspaces --package vibex`
 
-Expected: FAIL，提示辅助构造函数或聚合字段不完整。
+Expected: FAIL锛屾彁绀鸿緟鍔╂瀯閫犲嚱鏁版垨鑱氬悎瀛楁涓嶅畬鏁淬€?
 
-**Step 3: 写最小实现**
+**Step 3: 鍐欐渶灏忓疄鐜?*
 
-在 `src-tauri/src/commands/local_usage.rs` 中实现：
+鍦?`src-tauri/src/commands/local_usage.rs` 涓疄鐜帮細
 
-- 项目下 workspace 路径收集逻辑
-- provider 逐个扫描
-- 聚合 `sessions / daily_usage / by_model / weekly_comparison`
-- 部分 provider 失败时记录到 `provider_status`
+- 椤圭洰涓?workspace 璺緞鏀堕泦閫昏緫
+- provider 閫愪釜鎵弿
+- 鑱氬悎 `sessions / daily_usage / by_model / weekly_comparison`
+- 閮ㄥ垎 provider 澶辫触鏃惰褰曞埌 `provider_status`
 - `get_project_usage_statistics(project_id, date_range)` Tauri command
 
-实现时参考：
+瀹炵幇鏃跺弬鑰冿細
 
 - `code-referance/mossx/src-tauri/src/local_usage.rs`
 - `src-tauri/src/commands/projects.rs`
 
-要求：
+瑕佹眰锛?
 
-- 使用 `spawn_blocking`
-- 不因单个 provider 失败导致整体失败
-- 日期范围只支持 `7d | 30d | all`
+- 浣跨敤 `spawn_blocking`
+- 涓嶅洜鍗曚釜 provider 澶辫触瀵艰嚧鏁翠綋澶辫触
+- 鏃ユ湡鑼冨洿鍙敮鎸?`7d | 30d | all`
 
-**Step 4: 运行测试，确认通过**
+**Step 4: 杩愯娴嬭瘯锛岀‘璁ら€氳繃**
 
-Run: `cargo test project_usage --package vibe-ultra`
+Run: `cargo test project_usage --package vibex`
 
-Expected: PASS，新增 usage 相关测试全部通过。
+Expected: PASS锛屾柊澧?usage 鐩稿叧娴嬭瘯鍏ㄩ儴閫氳繃銆?
 
-**Step 5: 提交检查点**
+**Step 5: 鎻愪氦妫€鏌ョ偣**
 
 Run:
 
@@ -152,7 +152,7 @@ git add src-tauri/src/commands/local_usage.rs src-tauri/src/commands/projects.rs
 git commit -m "feat: add project usage aggregation"
 ```
 
-### Task 3: 生成共享类型并接入前端 API
+### Task 3: 鐢熸垚鍏变韩绫诲瀷骞舵帴鍏ュ墠绔?API
 
 **Files:**
 - Create: `frontend/src/lib/api/localUsage.ts`
@@ -160,9 +160,9 @@ git commit -m "feat: add project usage aggregation"
 - Modify: `shared/types.ts`
 - Test: `shared/types.ts`
 
-**Step 1: 写失败测试或类型使用点，先让前端引用不存在的 API**
+**Step 1: 鍐欏け璐ユ祴璇曟垨绫诲瀷浣跨敤鐐癸紝鍏堣鍓嶇寮曠敤涓嶅瓨鍦ㄧ殑 API**
 
-在新文件 `frontend/src/lib/api/localUsage.ts` 中先引用尚不存在的类型：
+鍦ㄦ柊鏂囦欢 `frontend/src/lib/api/localUsage.ts` 涓厛寮曠敤灏氫笉瀛樺湪鐨勭被鍨嬶細
 
 ```ts
 import type { ProjectUsageStatistics } from 'shared/types';
@@ -177,24 +177,24 @@ export const localUsageApi = {
 };
 ```
 
-**Step 2: 运行类型生成检查，确认失败或缺少类型**
+**Step 2: 杩愯绫诲瀷鐢熸垚妫€鏌ワ紝纭澶辫触鎴栫己灏戠被鍨?*
 
 Run: `pnpm run generate-types:check`
 
-Expected: FAIL，提示新类型尚未导出，或前端类型不可用。
+Expected: FAIL锛屾彁绀烘柊绫诲瀷灏氭湭瀵煎嚭锛屾垨鍓嶇绫诲瀷涓嶅彲鐢ㄣ€?
 
-**Step 3: 写最小实现**
+**Step 3: 鍐欐渶灏忓疄鐜?*
 
-- 运行 `pnpm run generate-types`
-- 在 `frontend/src/lib/api/localUsage.ts` 中调用 `tauriInvoke('get_project_usage_statistics', ...)`
-- 在 `frontend/src/lib/api/index.ts` 中导出 `localUsageApi`
+- 杩愯 `pnpm run generate-types`
+- 鍦?`frontend/src/lib/api/localUsage.ts` 涓皟鐢?`tauriInvoke('get_project_usage_statistics', ...)`
+- 鍦?`frontend/src/lib/api/index.ts` 涓鍑?`localUsageApi`
 
-注意：
+娉ㄦ剰锛?
 
-- 不手改 `shared/types.ts`
-- 仅通过 `src-tauri/src/bin/generate_types.rs` 驱动生成
+- 涓嶆墜鏀?`shared/types.ts`
+- 浠呴€氳繃 `src-tauri/src/bin/generate_types.rs` 椹卞姩鐢熸垚
 
-**Step 4: 运行检查，确认通过**
+**Step 4: 杩愯妫€鏌ワ紝纭閫氳繃**
 
 Run:
 
@@ -205,7 +205,7 @@ pnpm run check
 
 Expected: PASS
 
-**Step 5: 提交检查点**
+**Step 5: 鎻愪氦妫€鏌ョ偣**
 
 Run:
 
@@ -214,7 +214,7 @@ git add frontend/src/lib/api/localUsage.ts frontend/src/lib/api/index.ts src-tau
 git commit -m "feat: expose project usage api"
 ```
 
-### Task 4: 抽离三段式 Kanban 视图状态
+### Task 4: 鎶界涓夋寮?Kanban 瑙嗗浘鐘舵€?
 
 **Files:**
 - Create: `frontend/src/lib/kanbanPanelView.ts`
@@ -222,9 +222,9 @@ git commit -m "feat: expose project usage api"
 - Modify: `frontend/src/contexts/KanbanSessionContext.tsx`
 - Modify: `frontend/src/components/panels/DockviewKanbanPanel.tsx`
 
-**Step 1: 写失败测试，定义三段式切换规则**
+**Step 1: 鍐欏け璐ユ祴璇曪紝瀹氫箟涓夋寮忓垏鎹㈣鍒?*
 
-在 `frontend/src/lib/kanbanPanelView.test.ts` 写测试：
+鍦?`frontend/src/lib/kanbanPanelView.test.ts` 鍐欐祴璇曪細
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -246,21 +246,21 @@ describe('kanbanPanelView', () => {
 });
 ```
 
-**Step 2: 运行测试，确认失败**
+**Step 2: 杩愯娴嬭瘯锛岀‘璁ゅけ璐?*
 
 Run: `pnpm vitest frontend/src/lib/kanbanPanelView.test.ts`
 
-Expected: FAIL，提示模块不存在。
+Expected: FAIL锛屾彁绀烘ā鍧椾笉瀛樺湪銆?
 
-**Step 3: 写最小实现**
+**Step 3: 鍐欐渶灏忓疄鐜?*
 
-- 新建 `frontend/src/lib/kanbanPanelView.ts`
-- 导出 `KanbanPanelView = 'board' | 'sessionHub' | 'usageDashboard'`
-- 提供前进/后退纯函数
-- 在 `frontend/src/contexts/KanbanSessionContext.tsx` 中用枚举状态替代 `isSessionHubVisible`
-- 在 `frontend/src/components/panels/DockviewKanbanPanel.tsx` 中把滑动宽度从 `200%` 改为 `300%`
+- 鏂板缓 `frontend/src/lib/kanbanPanelView.ts`
+- 瀵煎嚭 `KanbanPanelView = 'board' | 'sessionHub' | 'usageDashboard'`
+- 鎻愪緵鍓嶈繘/鍚庨€€绾嚱鏁?
+- 鍦?`frontend/src/contexts/KanbanSessionContext.tsx` 涓敤鏋氫妇鐘舵€佹浛浠?`isSessionHubVisible`
+- 鍦?`frontend/src/components/panels/DockviewKanbanPanel.tsx` 涓妸婊戝姩瀹藉害浠?`200%` 鏀逛负 `300%`
 
-**Step 4: 运行测试，确认通过**
+**Step 4: 杩愯娴嬭瘯锛岀‘璁ら€氳繃**
 
 Run:
 
@@ -271,7 +271,7 @@ pnpm run check
 
 Expected: PASS
 
-**Step 5: 提交检查点**
+**Step 5: 鎻愪氦妫€鏌ョ偣**
 
 Run:
 
@@ -280,7 +280,7 @@ git add frontend/src/lib/kanbanPanelView.ts frontend/src/lib/kanbanPanelView.tes
 git commit -m "refactor: add three-stage kanban panel state"
 ```
 
-### Task 5: 构建 Kanban usage 看板 UI
+### Task 5: 鏋勫缓 Kanban usage 鐪嬫澘 UI
 
 **Files:**
 - Create: `frontend/src/components/kanban/kanban-usage/KanbanUsageDashboard.tsx`
@@ -289,9 +289,9 @@ git commit -m "refactor: add three-stage kanban panel state"
 - Modify: `frontend/src/components/panels/DockviewKanbanPanel.tsx`
 - Test: `frontend/src/components/kanban/kanban-usage/KanbanUsageDashboard.test.tsx`
 
-**Step 1: 写失败测试，定义基础渲染**
+**Step 1: 鍐欏け璐ユ祴璇曪紝瀹氫箟鍩虹娓叉煋**
 
-在 `frontend/src/components/kanban/kanban-usage/KanbanUsageDashboard.test.tsx` 中写最小测试：
+鍦?`frontend/src/components/kanban/kanban-usage/KanbanUsageDashboard.test.tsx` 涓啓鏈€灏忔祴璇曪細
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -301,38 +301,38 @@ import { KanbanUsageDashboard } from './KanbanUsageDashboard';
 describe('KanbanUsageDashboard', () => {
   it('renders four tabs', () => {
     render(<KanbanUsageDashboard projectId="p1" />);
-    expect(screen.getByRole('tab', { name: '概览' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '模型' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '会话' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: '时间线' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '姒傝' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '妯″瀷' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '浼氳瘽' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '鏃堕棿绾? })).toBeInTheDocument();
   });
 });
 ```
 
-**Step 2: 运行测试，确认失败**
+**Step 2: 杩愯娴嬭瘯锛岀‘璁ゅけ璐?*
 
 Run: `pnpm vitest frontend/src/components/kanban/kanban-usage/KanbanUsageDashboard.test.tsx`
 
-Expected: FAIL，提示组件不存在。
+Expected: FAIL锛屾彁绀虹粍浠朵笉瀛樺湪銆?
 
-**Step 3: 写最小实现**
+**Step 3: 鍐欐渶灏忓疄鐜?*
 
-- `useProjectUsageStatistics.ts`：封装 TanStack Query
-- `KanbanUsageDashboard.tsx`：实现四标签页
-- `usageFormatting.ts`：放 `formatNumber / formatCost / formatDate`
-- 先完成：
-  - 概览卡片
-  - 模型排行
-  - 会话分页列表
-  - 时间线柱状图
-- 在 `DockviewKanbanPanel.tsx` 中挂载第三屏内容
+- `useProjectUsageStatistics.ts`锛氬皝瑁?TanStack Query
+- `KanbanUsageDashboard.tsx`锛氬疄鐜板洓鏍囩椤?
+- `usageFormatting.ts`锛氭斁 `formatNumber / formatCost / formatDate`
+- 鍏堝畬鎴愶細
+  - 姒傝鍗＄墖
+  - 妯″瀷鎺掕
+  - 浼氳瘽鍒嗛〉鍒楄〃
+  - 鏃堕棿绾挎煴鐘跺浘
+- 鍦?`DockviewKanbanPanel.tsx` 涓寕杞界涓夊睆鍐呭
 
-样式要求：
+鏍峰紡瑕佹眰锛?
 
-- 使用当前项目现有 Tailwind / shadcn 风格
-- 不直接复制 `mossx` 的 settings CSS
+- 浣跨敤褰撳墠椤圭洰鐜版湁 Tailwind / shadcn 椋庢牸
+- 涓嶇洿鎺ュ鍒?`mossx` 鐨?settings CSS
 
-**Step 4: 运行测试，确认通过**
+**Step 4: 杩愯娴嬭瘯锛岀‘璁ら€氳繃**
 
 Run:
 
@@ -343,7 +343,7 @@ pnpm run check
 
 Expected: PASS
 
-**Step 5: 提交检查点**
+**Step 5: 鎻愪氦妫€鏌ョ偣**
 
 Run:
 
@@ -352,7 +352,7 @@ git add frontend/src/components/kanban/kanban-usage/KanbanUsageDashboard.tsx fro
 git commit -m "feat: add kanban usage dashboard"
 ```
 
-### Task 6: 接入箭头交互与回归验证
+### Task 6: 鎺ュ叆绠ご浜や簰涓庡洖褰掗獙璇?
 
 **Files:**
 - Modify: `frontend/src/components/panels/DockviewKanbanPanel.tsx`
@@ -360,15 +360,15 @@ git commit -m "feat: add kanban usage dashboard"
 - Test: `frontend/src/lib/kanbanPanelView.test.ts`
 - Test: `frontend/src/lib/kanbanSessionLayout.test.ts`
 
-**Step 1: 写失败测试，覆盖箭头显隐与方向**
+**Step 1: 鍐欏け璐ユ祴璇曪紝瑕嗙洊绠ご鏄鹃殣涓庢柟鍚?*
 
-在已有测试基础上新增断言，确保：
+鍦ㄥ凡鏈夋祴璇曞熀纭€涓婃柊澧炴柇瑷€锛岀‘淇濓細
 
-- `board` 只显示进入 `sessionHub` 的箭头
-- `sessionHub` 同时具备返回和前进
-- `usageDashboard` 只显示返回
+- `board` 鍙樉绀鸿繘鍏?`sessionHub` 鐨勭澶?
+- `sessionHub` 鍚屾椂鍏峰杩斿洖鍜屽墠杩?
+- `usageDashboard` 鍙樉绀鸿繑鍥?
 
-**Step 2: 运行测试，确认失败**
+**Step 2: 杩愯娴嬭瘯锛岀‘璁ゅけ璐?*
 
 Run:
 
@@ -376,34 +376,34 @@ Run:
 pnpm vitest frontend/src/lib/kanbanPanelView.test.ts frontend/src/lib/kanbanSessionLayout.test.ts
 ```
 
-Expected: FAIL，提示新状态尚未完全接入。
+Expected: FAIL锛屾彁绀烘柊鐘舵€佸皻鏈畬鍏ㄦ帴鍏ャ€?
 
-**Step 3: 写最小实现**
+**Step 3: 鍐欐渶灏忓疄鐜?*
 
-在 `frontend/src/components/panels/DockviewKanbanPanel.tsx` 中：
+鍦?`frontend/src/components/panels/DockviewKanbanPanel.tsx` 涓細
 
-- 增加右侧箭头
-- 根据当前视图状态控制箭头显隐与 aria-label
-- 保证原有 Session Hub 与会话卡点击逻辑不变
+- 澧炲姞鍙充晶绠ご
+- 鏍规嵁褰撳墠瑙嗗浘鐘舵€佹帶鍒剁澶存樉闅愪笌 aria-label
+- 淇濊瘉鍘熸湁 Session Hub 涓庝細璇濆崱鐐瑰嚮閫昏緫涓嶅彉
 
-在 `frontend/src/contexts/KanbanSessionContext.tsx` 中：
+鍦?`frontend/src/contexts/KanbanSessionContext.tsx` 涓細
 
-- 提供 `goToBoard / goToSessionHub / goToUsageDashboard`
-- 保持 `openSessionFromList`、`replaceRightSession`、`promoteMonitorSession` 现有行为不变
+- 鎻愪緵 `goToBoard / goToSessionHub / goToUsageDashboard`
+- 淇濇寔 `openSessionFromList`銆乣replaceRightSession`銆乣promoteMonitorSession` 鐜版湁琛屼负涓嶅彉
 
-**Step 4: 运行验证，确认通过**
+**Step 4: 杩愯楠岃瘉锛岀‘璁ら€氳繃**
 
 Run:
 
 ```bash
 pnpm vitest frontend/src/lib/kanbanPanelView.test.ts frontend/src/lib/kanbanSessionLayout.test.ts
 pnpm run check
-cargo test --package vibe-ultra
+cargo test --package vibex
 ```
 
 Expected: PASS
 
-**Step 5: 提交检查点**
+**Step 5: 鎻愪氦妫€鏌ョ偣**
 
 Run:
 
@@ -412,13 +412,13 @@ git add frontend/src/components/panels/DockviewKanbanPanel.tsx frontend/src/cont
 git commit -m "feat: wire kanban usage dashboard navigation"
 ```
 
-### Task 7: 最终回归与文档校验
+### Task 7: 鏈€缁堝洖褰掍笌鏂囨。鏍￠獙
 
 **Files:**
 - Modify: `docs/plans/2026-03-22-kanban-usage-dashboard-design.md`
 - Modify: `docs/plans/2026-03-22-kanban-usage-dashboard.md`
 
-**Step 1: 运行完整验证**
+**Step 1: 杩愯瀹屾暣楠岃瘉**
 
 Run:
 
@@ -430,22 +430,22 @@ cargo test --workspace
 
 Expected: PASS
 
-**Step 2: 手动验证**
+**Step 2: 鎵嬪姩楠岃瘉**
 
-手动检查：
+鎵嬪姩妫€鏌ワ細
 
-- Kanban 默认进入主视图
-- 左箭头进入 Session Hub
-- 右箭头进入 Usage Dashboard
-- Usage Dashboard 可以正确展示四个 tab
-- 项目没有 usage 数据时显示空态
-- 某个 provider 失败时显示部分成功状态
+- Kanban 榛樿杩涘叆涓昏鍥?
+- 宸︾澶磋繘鍏?Session Hub
+- 鍙崇澶磋繘鍏?Usage Dashboard
+- Usage Dashboard 鍙互姝ｇ‘灞曠ず鍥涗釜 tab
+- 椤圭洰娌℃湁 usage 鏁版嵁鏃舵樉绀虹┖鎬?
+- 鏌愪釜 provider 澶辫触鏃舵樉绀洪儴鍒嗘垚鍔熺姸鎬?
 
-**Step 3: 更新计划文档中的实际差异**
+**Step 3: 鏇存柊璁″垝鏂囨。涓殑瀹為檯宸紓**
 
-若实现过程有偏差，回写到这两份文档，确保文档与代码一致。
+鑻ュ疄鐜拌繃绋嬫湁鍋忓樊锛屽洖鍐欏埌杩欎袱浠芥枃妗ｏ紝纭繚鏂囨。涓庝唬鐮佷竴鑷淬€?
 
-**Step 4: 再次运行关键验证**
+**Step 4: 鍐嶆杩愯鍏抽敭楠岃瘉**
 
 Run:
 
@@ -456,7 +456,7 @@ cargo test --workspace
 
 Expected: PASS
 
-**Step 5: 提交最终检查点**
+**Step 5: 鎻愪氦鏈€缁堟鏌ョ偣**
 
 Run:
 

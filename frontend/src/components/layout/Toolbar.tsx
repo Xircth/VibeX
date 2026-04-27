@@ -364,9 +364,7 @@ export function Toolbar() {
             {isWorkspaceTab ? <WorktreeSelector /> : null}
           </div>
 
-          {workspaceId && (
-            <BranchStatusBadge workspaceId={workspaceId} />
-          )}
+          {workspaceId && <BranchStatusBadge workspaceId={workspaceId} />}
 
           <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
             <div className="pointer-events-auto">
@@ -498,11 +496,11 @@ export function Toolbar() {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="shrink-0 rounded-md p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label="返回首页或打开最近项目"
                   title="返回首页或打开最近项目"
                 >
-                  <Logo showText={false} />
+                  <Logo showText={false} size="window" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

@@ -179,11 +179,20 @@ export const agentSettingsApi = {
     enabled?: boolean;
     envJson?: string | null;
     configJson?: string | null;
-  }): Promise<void> => {
-    return tauriInvoke<void>('update_agent_preferences', params);
+  }): Promise<AgentSettingInfo> => {
+    return tauriInvoke<AgentSettingInfo>('update_agent_preferences', {
+      payload: {
+        agent_type: params.agentType,
+        enabled: params.enabled,
+        env_json: params.envJson,
+        config_json: params.configJson,
+      },
+    });
   },
-  reorder: async (agentTypes: string[]): Promise<void> => {
-    return tauriInvoke<void>('reorder_agents', { agentTypes });
+  reorder: async (agentTypes: string[]): Promise<AgentSettingInfo[]> => {
+    return tauriInvoke<AgentSettingInfo[]>('reorder_agents', {
+      payload: { order: agentTypes },
+    });
   },
   preflight: async (agentType: string): Promise<PreflightResult> => {
     return tauriInvoke<PreflightResult>('agent_preflight', { agentType });

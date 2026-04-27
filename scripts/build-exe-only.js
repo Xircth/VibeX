@@ -1,54 +1,54 @@
 const { execSync } = require('child_process');
 const path = require('path');
 
-console.log('🚀 VibeUltra 仅生成可执行文件脚本');
+console.log('馃殌 VibeX 浠呯敓鎴愬彲鎵ц鏂囦欢鑴氭湰');
 
-// 设置 WIX 环境变量（即使不使用 bundle，某些依赖可能需要）
+// 璁剧疆 WIX 鐜鍙橀噺锛堝嵆浣夸笉浣跨敤 bundle锛屾煇浜涗緷璧栧彲鑳介渶瑕侊級
 const wixDir = path.join(__dirname, '..', 'src-tauri', 'target', 'wix');
 process.env.WIXTOOLSDIR = wixDir;
 
 console.log('WIXTOOLSDIR:', wixDir);
 
-console.log('\n🔨 开始构建（不创建安装包）...');
+console.log('\n馃敤 寮€濮嬫瀯寤猴紙涓嶅垱寤哄畨瑁呭寘锛?..');
 
 try {
-  // 使用 --no-bundle 标志跳过安装包创建
+  // 浣跨敤 --no-bundle 鏍囧織璺宠繃瀹夎鍖呭垱寤?
   execSync('pnpm tauri build --no-bundle', {
     stdio: 'inherit'
   });
 
-  console.log('\n🎉 构建完成！');
-  console.log('可执行文件位置: target/release/vibe-ultra.exe');
+  console.log('\n馃帀 鏋勫缓瀹屾垚锛?);
+  console.log('鍙墽琛屾枃浠朵綅缃? target/release/vibex.exe');
 
-  // 检查文件是否存在
-  const exePath = path.join(__dirname, '..', 'target', 'release', 'vibe-ultra.exe');
+  // 妫€鏌ユ枃浠舵槸鍚﹀瓨鍦?
+  const exePath = path.join(__dirname, '..', 'target', 'release', 'vibex.exe');
   const stats = require('fs').statSync(exePath);
-  console.log(`文件大小: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`鏂囦欢澶у皬: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
 
 } catch (error) {
-  // 如果 --no-bundle 不支持，尝试直接编译
-  console.log('\n⚠️  --no-bundle 不支持，尝试直接编译...');
+  // 濡傛灉 --no-bundle 涓嶆敮鎸侊紝灏濊瘯鐩存帴缂栬瘧
+  console.log('\n鈿狅笍  --no-bundle 涓嶆敮鎸侊紝灏濊瘯鐩存帴缂栬瘧...');
 
   try {
-    // 1. 构建前端
-    console.log('1. 构建前端...');
+    // 1. 鏋勫缓鍓嶇
+    console.log('1. 鏋勫缓鍓嶇...');
     execSync('pnpm --filter ./frontend build', {
       stdio: 'inherit'
     });
 
-    // 2. 直接使用 cargo build
-    console.log('\n2. 编译 Rust 代码...');
+    // 2. 鐩存帴浣跨敤 cargo build
+    console.log('\n2. 缂栬瘧 Rust 浠ｇ爜...');
     execSync('cargo build --release', {
       stdio: 'inherit'
     });
 
-    const exePath = path.join(__dirname, '..', 'target', 'release', 'vibe-ultra.exe');
+    const exePath = path.join(__dirname, '..', 'target', 'release', 'vibex.exe');
     if (require('fs').existsSync(exePath)) {
-      console.log('\n✅ 可执行文件已生成:', exePath);
+      console.log('\n鉁?鍙墽琛屾枃浠跺凡鐢熸垚:', exePath);
     }
 
   } catch (buildError) {
-    console.error('❌ 构建失败:', buildError.message);
+    console.error('鉂?鏋勫缓澶辫触:', buildError.message);
     process.exit(1);
   }
 }

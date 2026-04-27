@@ -138,7 +138,7 @@ mod tests {
             .expect("system clock before unix epoch")
             .as_nanos();
         let temp_dir = std::env::temp_dir().join(format!(
-            "vibe-ultra-process-{unique_suffix}-{}",
+            "vibex-process-{unique_suffix}-{}",
             std::process::id()
         ));
         fs::create_dir_all(&temp_dir).expect("create temp test dir");

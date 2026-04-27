@@ -74,7 +74,7 @@ pub enum WorkspaceError {
     Io(#[from] std::io::Error),
     #[error("No repositories provided")]
     NoRepositories,
-    #[error("Unsafe workspace path outside VibeUltra-owned storage: {0}")]
+    #[error("Unsafe workspace path outside VibeX-owned storage: {0}")]
     UnsafeWorkspacePath(PathBuf),
     #[error("Partial workspace creation failed: {0}")]
     PartialCreation(String),
@@ -99,7 +99,7 @@ pub struct WorktreeContainer {
 pub struct WorkspaceManager;
 
 impl WorkspaceManager {
-    const CUSTOM_WORKSPACE_DIR_NAME: &'static str = ".vibe-ultra-workspaces";
+    const CUSTOM_WORKSPACE_DIR_NAME: &'static str = ".vibex-workspaces";
 
     fn canonicalize_for_safety(path: &Path) -> PathBuf {
         if let Ok(path) = dunce::canonicalize(path) {
@@ -155,7 +155,7 @@ impl WorkspaceManager {
     fn refuse_unsafe_cleanup(path: &Path, repos: &[Repo]) -> bool {
         if !Self::is_app_owned_workspace_dir(path) {
             warn!(
-                "Refusing to clean workspace path outside VibeUltra-owned workspace storage: {}",
+                "Refusing to clean workspace path outside VibeX-owned workspace storage: {}",
                 path.display()
             );
             return true;
@@ -178,7 +178,7 @@ impl WorkspaceManager {
         }
 
         warn!(
-            "Refusing to use workspace path outside VibeUltra-owned workspace storage: {}",
+            "Refusing to use workspace path outside VibeX-owned workspace storage: {}",
             path.display()
         );
         Err(WorkspaceError::UnsafeWorkspacePath(path.to_path_buf()))
@@ -441,7 +441,7 @@ impl WorkspaceManager {
     async fn cleanup_orphans_in_directory(db: &Pool<Sqlite>, workspace_base_dir: &Path) {
         if !Self::is_app_owned_workspace_dir(workspace_base_dir) {
             warn!(
-                "Skipping orphan cleanup for non VibeUltra-owned workspace directory: {}",
+                "Skipping orphan cleanup for non VibeX-owned workspace directory: {}",
                 workspace_base_dir.display()
             );
             return;
@@ -506,7 +506,7 @@ impl WorkspaceManager {
         );
         if !Self::is_app_owned_workspace_dir(workspace_dir) {
             warn!(
-                "Refusing to remove orphan workspace outside VibeUltra-owned storage: {}",
+                "Refusing to remove orphan workspace outside VibeX-owned storage: {}",
                 workspace_dir.display()
             );
             return Ok(());

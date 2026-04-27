@@ -16,7 +16,7 @@ fn auto_fix_migration_checksum_mismatch_enabled(
 }
 
 fn should_auto_fix_migration_checksum_mismatch() -> bool {
-    auto_fix_migration_checksum_mismatch_enabled(std::env::var_os("VIBE_ULTRA_STRICT_MIGRATIONS"))
+    auto_fix_migration_checksum_mismatch_enabled(std::env::var_os("VIBEX_STRICT_MIGRATIONS"))
 }
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {

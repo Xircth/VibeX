@@ -1,41 +1,41 @@
 const { execSync } = require('child_process');
 const path = require('path');
 
-console.log('🚀 VibeUltra 完整构建脚本');
+console.log('馃殌 VibeX 瀹屾暣鏋勫缓鑴氭湰');
 
-// 首先下载所有依赖
-console.log('📥 下载构建依赖...');
+// 棣栧厛涓嬭浇鎵€鏈変緷璧?
+console.log('馃摜 涓嬭浇鏋勫缓渚濊禆...');
 execSync('node scripts/download-all-deps.js', {
   stdio: 'inherit'
 });
 
-// 设置环境变量
+// 璁剧疆鐜鍙橀噺
 const wixDir = path.join(__dirname, '..', 'src-tauri', 'target', 'wix');
 const nsisDir = path.join(__dirname, '..', 'src-tauri', 'target', 'deps', 'nsis');
 process.env.WIXTOOLSDIR = wixDir;
 process.env.NSIS_DIR = nsisDir;
 
-console.log('\n🔨 开始构建...');
+console.log('\n馃敤 寮€濮嬫瀯寤?..');
 console.log('WIXTOOLSDIR:', wixDir);
 console.log('NSIS_DIR:', nsisDir);
 
 try {
-  // 使用原生 cargo build 避免网络依赖
-  console.log('1. 编译 Rust 代码...');
+  // 浣跨敤鍘熺敓 cargo build 閬垮厤缃戠粶渚濊禆
+  console.log('1. 缂栬瘧 Rust 浠ｇ爜...');
   execSync('cargo build --release', {
     stdio: 'inherit',
     env: { ...process.env }
   });
 
-  console.log('\n2. 构建 Tauri 应用...');
+  console.log('\n2. 鏋勫缓 Tauri 搴旂敤...');
   execSync('pnpm tauri build', {
     stdio: 'inherit',
     env: { ...process.env, WIXTOOLSDIR, NSIS_DIR }
   });
 
-  console.log('\n🎉 构建完成！');
-  console.log('输出位置: target/release/');
+  console.log('\n馃帀 鏋勫缓瀹屾垚锛?);
+  console.log('杈撳嚭浣嶇疆: target/release/');
 } catch (error) {
-  console.error('❌ 构建失败:', error.message);
+  console.error('鉂?鏋勫缓澶辫触:', error.message);
   process.exit(1);
 }

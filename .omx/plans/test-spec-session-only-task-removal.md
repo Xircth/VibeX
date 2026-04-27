@@ -89,12 +89,12 @@ This spec validates the removal of the task layer and the replacement model `Pro
 - `pnpm run backend:check`
 - `cargo test -p db session_only_migration_backfills_seed_intent -- --exact`
 - `cargo test -p db session_only_migration_rehomes_images -- --exact`
-- `cargo test -p vibe-ultra create_session_and_start_new_workspace -- --exact`
-- `cargo test -p vibe-ultra create_session_and_start_existing_workspace -- --exact`
-- `cargo test -p vibe-ultra project_session_stream_orders_snapshot_before_patches -- --exact`
-- `cargo test -p vibe-ultra delete_session_preserves_nonempty_workspace -- --exact`
-- `cargo test -p vibe-ultra delete_workspace_blocks_on_running_process -- --exact`
-- `cargo test -p vibe-ultra delete_workspace_cleans_owned_worktree -- --exact`
+- `cargo test -p vibex create_session_and_start_new_workspace -- --exact`
+- `cargo test -p vibex create_session_and_start_existing_workspace -- --exact`
+- `cargo test -p vibex project_session_stream_orders_snapshot_before_patches -- --exact`
+- `cargo test -p vibex delete_session_preserves_nonempty_workspace -- --exact`
+- `cargo test -p vibex delete_workspace_blocks_on_running_process -- --exact`
+- `cargo test -p vibex delete_workspace_cleans_owned_worktree -- --exact`
 - `cd frontend && pnpm vitest run src/hooks/useWorkspaceSessions.session-only.test.ts src/hooks/useKanbanProjectSessions.session-only.test.ts src/pages/ProjectSessions.test.tsx src/components/kanban/session-hub/SessionDeletion.session-only.test.tsx`
 - `rg -n --glob '!frontend/dist/**' --glob '!target/**' 'workspace\\.task_id|session\\.task_id|subscribe_tasks_stream|stream_tasks_raw|useProjectTasks|create_task_and_start|get_tasks\\b|get_task\\b|delete_task\\b|update_task\\b' .`
 

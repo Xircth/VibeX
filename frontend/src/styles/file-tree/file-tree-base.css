@@ -1,12 +1,12 @@
 /*
  * file-tree-base.css
  *
- * CSS variable bridge from mossx → VibeUltra and all base file tree styles
+ * CSS variable bridge from mossx 鈫?VibeX and all base file tree styles
  * including: layout, scroll, hover, selection, icons, search, skeleton,
  * workspace search, file preview popover, and code preview lines.
  */
 
-/* ── mossx → VibeUltra CSS variable bridge ── */
+/* 鈹€鈹€ mossx 鈫?VibeX CSS variable bridge 鈹€鈹€ */
 .file-tree-panel {
   --surface-hover: hsl(var(--_accent));
   --surface-active: hsl(var(--_accent));

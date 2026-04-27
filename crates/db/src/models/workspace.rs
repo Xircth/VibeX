@@ -999,7 +999,7 @@ mod tests {
     #[test]
     fn repo_path_keeps_repo_subdirectory_for_managed_workspace_container() {
         let workspace = sample_workspace(
-            Some("C:/Users/test/.vibe-ultra-workspaces/ws-123"),
+            Some("C:/Users/test/.vibex-workspaces/ws-123"),
             true,
             Some("repo-feature-a/frontend"),
         );
@@ -1008,7 +1008,7 @@ mod tests {
         assert_eq!(
             workspace.repo_path(&repo),
             Some(PathBuf::from(
-                "C:/Users/test/.vibe-ultra-workspaces/ws-123/repo-feature-a"
+                "C:/Users/test/.vibex-workspaces/ws-123/repo-feature-a"
             ))
         );
     }

@@ -1,4 +1,4 @@
-﻿import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { queueApi, sessionsApi } from '@/lib/api';
 import type {

@@ -161,19 +161,19 @@ jobs:
           fi
 
           # server
-          cp "target/${TARGET}/release/server${EXT}" "vibe-ultra${EXT}"
-          zip -j "release-assets/vibe-ultra-${TAG}-${NAME}.zip" "vibe-ultra${EXT}"
-          rm -f "vibe-ultra${EXT}"
+          cp "target/${TARGET}/release/server${EXT}" "vibex${EXT}"
+          zip -j "release-assets/vibex-${TAG}-${NAME}.zip" "vibex${EXT}"
+          rm -f "vibex${EXT}"
 
           # mcp
-          cp "target/${TARGET}/release/mcp_task_server${EXT}" "vibe-ultra-mcp${EXT}"
-          zip -j "release-assets/vibe-ultra-mcp-${TAG}-${NAME}.zip" "vibe-ultra-mcp${EXT}"
-          rm -f "vibe-ultra-mcp${EXT}"
+          cp "target/${TARGET}/release/mcp_task_server${EXT}" "vibex-mcp${EXT}"
+          zip -j "release-assets/vibex-mcp-${TAG}-${NAME}.zip" "vibex-mcp${EXT}"
+          rm -f "vibex-mcp${EXT}"
 
           # review
-          cp "target/${TARGET}/release/review${EXT}" "vibe-ultra-review${EXT}"
-          zip -j "release-assets/vibe-ultra-review-${TAG}-${NAME}.zip" "vibe-ultra-review${EXT}"
-          rm -f "vibe-ultra-review${EXT}"
+          cp "target/${TARGET}/release/review${EXT}" "vibex-review${EXT}"
+          zip -j "release-assets/vibex-review-${TAG}-${NAME}.zip" "vibex-review${EXT}"
+          rm -f "vibex-review${EXT}"
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4
@@ -231,17 +231,17 @@ jobs:
 
             | Platform | Link |
             |----------|------|
-            | Windows (x64) | [vibe-ultra-${tag}-windows-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-ultra-${tag}-windows-x64.zip) |
-            | macOS (x64) | [vibe-ultra-${tag}-macos-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-ultra-${tag}-macos-x64.zip) |
-            | Linux (x64) | [vibe-ultra-${tag}-linux-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibe-ultra-${tag}-linux-x64.zip) |
+            | Windows (x64) | [vibex-${tag}-windows-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibex-${tag}-windows-x64.zip) |
+            | macOS (x64) | [vibex-${tag}-macos-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibex-${tag}-macos-x64.zip) |
+            | Linux (x64) | [vibex-${tag}-linux-x64.zip](https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/vibex-${tag}-linux-x64.zip) |
 
-            ## macOS 用户注意
+            ## macOS 鐢ㄦ埛娉ㄦ剰
 
-            macOS 可能会提示"无法验证开发者"而阻止运行。请在终端中执行以下命令解除限制：
+            macOS 鍙兘浼氭彁绀?鏃犳硶楠岃瘉寮€鍙戣€?鑰岄樆姝㈣繍琛屻€傝鍦ㄧ粓绔腑鎵ц浠ヤ笅鍛戒护瑙ｉ櫎闄愬埗锛?
 
             \`\`\`bash
-            # 解除 quarantine 属性（在解压后的文件所在目录执行）
-            xattr -cr vibe-ultra
+            # 瑙ｉ櫎 quarantine 灞炴€э紙鍦ㄨВ鍘嬪悗鐨勬枃浠舵墍鍦ㄧ洰褰曟墽琛岋級
+            xattr -cr vibex
             \`\`\`
 
             ${autoNotes}

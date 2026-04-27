@@ -119,7 +119,7 @@ pub struct CommitGraph {
     pub target_branch: String,
 }
 
-// ── Types for Git Panel UI ───────────────────────────────────────────
+// 鈹€鈹€ Types for Git Panel UI 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /// A single file entry in git status (staged or unstaged).
 #[derive(Debug, Clone, Serialize, TS)]
@@ -213,7 +213,7 @@ pub struct PullResult {
     pub error: Option<String>,
 }
 
-// ─────────────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 #[derive(Debug, Clone)]
 pub struct Commit(git2::Oid);
@@ -336,8 +336,8 @@ impl GitService {
         let has_email = cfg.get_string("user.email").is_ok();
         if !(has_name && has_email) {
             let mut cfg = repo.config()?;
-            cfg.set_str("user.name", "Vibe Ultra")?;
-            cfg.set_str("user.email", "noreply@vibeultra.com")?;
+            cfg.set_str("user.name", "VibeX")?;
+            cfg.set_str("user.email", "noreply@vibex.com")?;
         }
         Ok(())
     }
@@ -349,8 +349,9 @@ impl GitService {
     ) -> Result<git2::Signature<'a>, GitServiceError> {
         match repo.signature() {
             Ok(sig) => Ok(sig),
-            Err(_) => git2::Signature::now("Vibe Ultra", "noreply@vibeultra.com")
-                .map_err(GitServiceError::from),
+            Err(_) => {
+                git2::Signature::now("VibeX", "noreply@vibex.com").map_err(GitServiceError::from)
+            }
         }
     }
 
@@ -2401,7 +2402,7 @@ impl GitService {
         Ok(stats)
     }
 
-    // ── Git Panel methods (staging, diffs, log, commit) ──────────────
+    // 鈹€鈹€ Git Panel methods (staging, diffs, log, commit) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     /// Get detailed file status grouped into staged and unstaged files.
     /// Returns structured data suitable for a Git staging UI.
@@ -2789,7 +2790,7 @@ impl GitService {
             .map_err(GitServiceError::from)
     }
 
-    // ── Helper functions ──────────────────────────────────────────────
+    // 鈹€鈹€ Helper functions 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     fn parse_numstat(raw: &str) -> HashMap<String, (i32, i32)> {
         let mut map = HashMap::new();

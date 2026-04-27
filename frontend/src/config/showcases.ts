@@ -5,45 +5,44 @@ export const showcases = {
     id: 'task-panel-onboarding',
     stages: [
       {
-        title: 'VibeUltra Companion 点选能力',
+        title: 'VibeX Companion 点击能力',
         description:
-          '在预览窗口中直接点击任意 UI 元素即可精准选中。编码代理会拿到明确的 DOM 选择器和组件层级，避免模糊反馈。',
+          '在预览页面中启用点击组件定位，帮助 Agent 更快理解当前 UI 与源代码之间的关系。',
         media: {
           type: 'video',
           src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-onb-companion-demo-3.mp4',
         },
       },
       {
-        title: '开发服务与 Companion 安装',
+        title: '为开发服务器安装 Companion',
         description:
-          '为预览配置开发服务命令，并在设置中补充所需脚本。编码代理也可以自动安装 VibeUltra Web Companion。',
+          '当项目已配置开发服务器时，可以自动安装并接入 VibeX Web Companion。',
         media: {
           type: 'video',
           src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-onb-install-companion-3.mp4',
         },
       },
       {
-        title: '内置代码审查',
+        title: '查看代码审查反馈',
         description:
-          '使用加号图标直接在差异视图中添加行级评论，所有反馈会被整理后一起发送给编码代理。',
+          '在任务面板中集中查看代码审查结果，并根据反馈继续调整实现。',
         media: {
           type: 'video',
           src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-onb-code-review-3.mp4',
         },
       },
       {
-        title: '从任务直接创建 PR',
+        title: '从 Git 变更创建 PR',
         description:
-          '可以直接从任务尝试中合并改动或发起拉取请求。PR 对话框会预填任务标题和描述，减少重复输入。',
+          '结合当前工作区变更生成提交与 PR 描述，减少手动整理上下文的成本。',
         media: {
           type: 'video',
           src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-onb-git-pr-3.mp4',
         },
       },
       {
-        title: '自定义提示标签',
-        description:
-          '把常用提示保存为标签，并快速插入到新任务或后续消息里，保持工作流一致性。',
+        title: '复用标签提示词',
+        description: '保存常用提示词片段，并通过标签快速插入到任务输入中。',
         media: {
           type: 'video',
           src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-tags.mp4',

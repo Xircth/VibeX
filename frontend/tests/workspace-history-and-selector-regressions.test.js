@@ -12,16 +12,16 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 }
 
-test('settings header no longer shows the VibeUltra desktop wording', () => {
+test('settings header no longer shows the VibeX desktop wording', () => {
   const source = readFile('src/pages/settings/SettingsLayout.tsx');
 
-  assert.doesNotMatch(source, /VibeUltra 妗岄潰绔缃?/);
+  assert.doesNotMatch(source, /VibeX 濡楀矂娼扮粩顖濐啎缂?/);
 });
 
 test('branding tagline stays on the multi-task Vibe Coding copy', () => {
   const source = readFile('src/lib/branding.ts');
 
-  assert.match(source, /APP_TAGLINE\s*=\s*['"]多任务驱动高效Vibe Coding['"]/);
+  assert.match(source, /APP_TAGLINE\s*=\s*['"]澶氫换鍔￠┍鍔ㄩ珮鏁圴ibe Coding['"]/);
 });
 
 test('loading history view uses the current scroll container instead of the old timeout overlay', () => {

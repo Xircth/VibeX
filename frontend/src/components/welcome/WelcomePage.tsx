@@ -223,8 +223,12 @@ export function WelcomePage() {
     <div className="h-full overflow-auto bg-background">
       <div className="mx-auto max-w-2xl px-8 py-16">
         <div className="mb-12 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Logo showText={false} />
+          <div className="-ml-3 flex items-center gap-3">
+            <Logo
+              showText={false}
+              size="hero"
+              className="-ml-4 translate-y-2"
+            />
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 {APP_NAME}

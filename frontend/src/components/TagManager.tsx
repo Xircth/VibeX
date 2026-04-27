@@ -80,19 +80,18 @@ export function TagManager() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Tags</h3>
-        <Button variant="outline" onClick={() => handleOpenDialog()}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Tag
+        <h3 className="text-sm font-semibold">标签</h3>
+        <Button variant="outline" size="sm" onClick={() => handleOpenDialog()}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          新建标签
         </Button>
       </div>
 
       {tags.length === 0 ? (
-        <div className="py-8 text-center text-muted-foreground">
-          No saved tags yet. Create reusable snippets and insert them with
-          `#tag_name` in any task.
+        <div className="py-6 text-center text-xs text-muted-foreground">
+          暂无已保存的标签。创建可复用片段后，可在任务中用 `#tag_name` 插入。
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border">
@@ -100,11 +99,9 @@ export function TagManager() {
             <table className="w-full">
               <thead className="sticky top-0 border-b bg-muted/50">
                 <tr>
-                  <th className="p-2 text-left text-sm font-medium">Name</th>
-                  <th className="p-2 text-left text-sm font-medium">Content</th>
-                  <th className="p-2 text-right text-sm font-medium">
-                    Actions
-                  </th>
+                  <th className="p-2 text-left text-sm font-medium">名称</th>
+                  <th className="p-2 text-left text-sm font-medium">内容</th>
+                  <th className="p-2 text-right text-sm font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>

@@ -1,34 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bell,
-  FolderOpen,
-  GitBranch,
-  GitPullRequest,
   Lightbulb,
   Loader2,
   Save,
-  Sun,
   Tag,
   Trash2,
   Undo2,
   Volume2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  DEFAULT_COMMIT_REMINDER_PROMPT,
-  DEFAULT_PR_DESCRIPTION_PROMPT,
-  SoundFile,
-  ThemeMode,
-  type Config,
-} from 'shared/types';
+import { SoundFile, type Config } from 'shared/types';
 import { TagManager } from '@/components/TagManager';
-import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -38,7 +25,6 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
-import { tauriEmit } from '@/lib/tauriApi';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toPrettyCase } from '@/utils/string';
 
@@ -63,11 +49,51 @@ Rules:
 Output shape:
 {"EnhancedPrompt":"..."}`;
 
-const CLEAR_LOCAL_DATA_TITLE =
-  '\u6e05\u9664 VibeUltra \u672c\u5730\u6570\u636e';
+const FALLBACK_OPENCODE_MODELS = [
+  'opencode/claude-opus-4-7',
+  'opencode/claude-opus-4-6',
+  'opencode/claude-opus-4-5',
+  'opencode/claude-opus-4-1',
+  'opencode/claude-sonnet-4-6',
+  'opencode/claude-sonnet-4-5',
+  'opencode/claude-sonnet-4',
+  'opencode/claude-haiku-4-5',
+  'opencode/gemini-3.1-pro',
+  'opencode/gemini-3-flash',
+  'opencode/gpt-5.5',
+  'opencode/gpt-5.5-pro',
+  'opencode/gpt-5.4',
+  'opencode/gpt-5.4-pro',
+  'opencode/gpt-5.4-mini',
+  'opencode/gpt-5.4-nano',
+  'opencode/gpt-5.3-codex-spark',
+  'opencode/gpt-5.3-codex',
+  'opencode/gpt-5.2',
+  'opencode/gpt-5.2-codex',
+  'opencode/gpt-5.1',
+  'opencode/gpt-5.1-codex-max',
+  'opencode/gpt-5.1-codex',
+  'opencode/gpt-5.1-codex-mini',
+  'opencode/gpt-5',
+  'opencode/gpt-5-codex',
+  'opencode/gpt-5-nano',
+  'opencode/glm-5.1',
+  'opencode/glm-5',
+  'opencode/minimax-m2.7',
+  'opencode/minimax-m2.5',
+  'opencode/kimi-k2.6',
+  'opencode/kimi-k2.5',
+  'opencode/qwen3.6-plus',
+  'opencode/qwen3.5-plus',
+  'opencode/big-pickle',
+  'opencode/minimax-m2.5-free',
+  'opencode/hy3-preview-free',
+  'opencode/ling-2.6-flash-free',
+  'opencode/trinity-large-preview-free',
+  'opencode/nemotron-3-super-free',
+] as const;
 
-const CLEAR_LOCAL_DATA_DESCRIPTION =
-  '\u53ea\u4f1a\u6e05\u9664 VibeUltra \u5f53\u524d\u672c\u5730\u7684\u914d\u7f6e\u3001\u6570\u636e\u5e93\u3001\u7f13\u5b58\u4e0e\u672c\u5730\u8bb0\u5f55\uff0c\u4e0d\u4f1a\u5220\u9664\u9879\u76ee\u6587\u4ef6\u6216 Git Worktree \u76ee\u5f55\u3002';
+const CLEAR_LOCAL_DATA_TITLE = '清除 VibeX 本地数据';
 
 function deepMerge<T extends Record<string, unknown>>(
   target: T,
@@ -128,7 +154,7 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-4 rounded-xl border bg-card p-4">
+    <section className="settings-section space-y-3">
       <div className="flex items-center gap-2">
         <Icon className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">{title}</h2>
@@ -136,50 +162,25 @@ function SettingsSection({
       {description ? (
         <p className="text-xs leading-5 text-muted-foreground">{description}</p>
       ) : null}
-      {children}
+      <div className="settings-card overflow-hidden rounded-xl border">
+        {children}
+      </div>
     </section>
   );
 }
 
 export function SystemSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
-  const { setTheme } = useTheme();
 
   const [draft, setDraft] = useState<SystemSettingsConfig | null>(() =>
     config ? structuredClone(config as SystemSettingsConfig) : null
   );
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [branchPrefixError, setBranchPrefixError] = useState<string | null>(
-    null
-  );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [opencodeModels, setOpencodeModels] = useState<string[]>([]);
   const [opencodeModelsLoading, setOpencodeModelsLoading] = useState(false);
-  const [opencodeModelsError, setOpencodeModelsError] = useState<string | null>(
-    null
-  );
   const [isClearingLocalData, setIsClearingLocalData] = useState(false);
-
-  const validateBranchPrefix = useCallback((prefix: string): string | null => {
-    if (!prefix) return null;
-    if (prefix.includes('/')) return "前缀不能包含 '/'。";
-    if (prefix.startsWith('.')) return "前缀不能以 '.' 开头。";
-    if (prefix.endsWith('.') || prefix.endsWith('.lock')) {
-      return "前缀不能以 '.' 或 '.lock' 结尾。";
-    }
-    if (prefix.includes('..') || prefix.includes('@{')) {
-      return "包含无效序列 '..' 或 '@{'。";
-    }
-    if (/[ \t~^:?*[\\]/.test(prefix)) return '包含无效字符。';
-
-    for (let i = 0; i < prefix.length; i += 1) {
-      const code = prefix.charCodeAt(i);
-      if (code < 0x20 || code === 0x7f) return '包含控制字符。';
-    }
-
-    return null;
-  }, []);
 
   useEffect(() => {
     if (!config || dirty) {
@@ -194,18 +195,15 @@ export function SystemSettings() {
 
     const loadOpencodeModels = async () => {
       setOpencodeModelsLoading(true);
-      setOpencodeModelsError(null);
 
       try {
         const result = await configApi.listOpencodeModels();
         if (!cancelled) {
           setOpencodeModels(result.models);
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          setOpencodeModelsError(
-            error instanceof Error ? error.message : 'Failed to load models'
-          );
+          setOpencodeModels([]);
         }
       } finally {
         if (!cancelled) {
@@ -230,14 +228,21 @@ export function SystemSettings() {
   }, [config, draft]);
 
   const promptEnhancementModels = useMemo(() => {
-    const models = [...opencodeModels];
+    const models = [...opencodeModels, ...FALLBACK_OPENCODE_MODELS];
     const current = draft?.prompt_enhancement_model?.trim();
+    const uniqueModels: string[] = [];
 
-    if (current && !models.includes(current)) {
-      models.unshift(current);
+    for (const model of models) {
+      if (model && !uniqueModels.includes(model)) {
+        uniqueModels.push(model);
+      }
     }
 
-    return models;
+    if (current && !uniqueModels.includes(current)) {
+      uniqueModels.unshift(current);
+    }
+
+    return uniqueModels;
   }, [draft?.prompt_enhancement_model, opencodeModels]);
 
   const updateDraft = useCallback(
@@ -292,8 +297,6 @@ export function SystemSettings() {
       const saved = await updateAndSaveConfig(sanitized);
 
       if (saved) {
-        setTheme(sanitized.theme);
-        tauriEmit('theme-changed', { theme: sanitized.theme });
         setDraft(structuredClone(sanitized));
         setDirty(false);
       }
@@ -314,30 +317,16 @@ export function SystemSettings() {
     setDraft(structuredClone(config as SystemSettingsConfig));
     setDirty(false);
     setSaveError(null);
-    setBranchPrefixError(null);
-  };
-
-  const handleBrowseWorkspaceDir = async () => {
-    const result = await FolderPickerDialog.show({
-      value: draft?.workspace_dir ?? '',
-      title: '选择工作区目录',
-      description:
-        '选择一个目录，工作区会创建在该目录下的 .vibe-ultra-workspaces 子目录中。',
-    });
-
-    if (result) {
-      updateDraft({ workspace_dir: result });
-    }
   };
 
   const confirmClearLocalData = useCallback(async () => {
     setIsClearingLocalData(true);
-    const toastId = toast.loading('\u6b63\u5728\u6e05\u9664\u672c\u5730\u6570\u636e...');
+    const toastId = toast.loading('正在清除本地数据...');
 
     try {
       const result = await configApi.clearLocalData();
       useWindowProjectsStore.getState().resetProjectWindowState();
-      toast.success('\u672c\u5730\u6570\u636e\u5df2\u6e05\u9664', { id: toastId });
+      toast.success('本地数据已清除', { id: toastId });
       if (
         result.requires_reload &&
         !window.location.pathname.startsWith('/settings')
@@ -345,12 +334,9 @@ export function SystemSettings() {
         window.setTimeout(() => window.location.reload(), 700);
       }
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : '\u6e05\u9664\u672c\u5730\u6570\u636e\u5931\u8d25',
-        { id: toastId }
-      );
+      toast.error(error instanceof Error ? error.message : '清除本地数据失败', {
+        id: toastId,
+      });
     } finally {
       setIsClearingLocalData(false);
     }
@@ -358,17 +344,17 @@ export function SystemSettings() {
 
   const handleClearLocalData = useCallback(() => {
     let toastId: string | number;
-    toastId = toast.warning('\u786e\u8ba4\u6e05\u9664\u672c\u5730\u6570\u636e\uff1f', {
+    toastId = toast.warning('确认清除本地数据？', {
       duration: 8000,
       action: {
-        label: '\u6e05\u9664',
+        label: '清除',
         onClick: () => {
           toast.dismiss(toastId);
           void confirmClearLocalData();
         },
       },
       cancel: {
-        label: '\u53d6\u6d88',
+        label: '取消',
         onClick: () => toast.dismiss(toastId),
       },
     });
@@ -391,236 +377,40 @@ export function SystemSettings() {
       <div className="mb-4">
         <h2 className="text-base font-semibold">系统设置</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          配置外观、Git、PR、通知和提示词相关的系统偏好。
+          配置提示词优化、通知、标签提示词与本地数据维护。
         </p>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-7">
         <SettingsSection
-          icon={Sun}
-          title="外观"
-          description="自定义应用程序的外观和感觉。"
+          icon={Lightbulb}
+          title="提示词优化"
+          description="配置输入框提示词优化功能和使用的 OpenCode 模型。"
         >
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground">
-              主题
-            </Label>
-            <Select
-              value={draft.theme}
-              onValueChange={(value: ThemeMode) =>
-                updateDraft({ theme: value })
-              }
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {Object.values(ThemeMode).map((theme) => (
-                  <SelectItem key={theme} value={theme}>
-                    {toPrettyCase(theme)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={GitBranch}
-          title="Git"
-          description="配置分支前缀、工作区目录和提交提醒。"
-        >
-          <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground">
-              分支前缀
-            </Label>
-            <Input
-              placeholder="vu"
-              value={draft.git_branch_prefix ?? ''}
-              onChange={(event) => {
-                const value = event.target.value.trim();
-                updateDraft({ git_branch_prefix: value });
-                setBranchPrefixError(validateBranchPrefix(value));
-              }}
-              aria-invalid={!!branchPrefixError}
-              className={`h-8 text-xs ${
-                branchPrefixError ? 'border-destructive' : ''
-              }`}
-            />
-            {branchPrefixError ? (
-              <p className="text-[11px] text-destructive">
-                {branchPrefixError}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground">
-              工作区目录
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="~/"
-                value={draft.workspace_dir ?? ''}
-                onChange={(event) =>
-                  updateDraft({ workspace_dir: event.target.value || null })
-                }
-                className="h-8 flex-1 text-xs"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8"
-                onClick={handleBrowseWorkspaceDir}
-              >
-                <FolderOpen className="mr-1 h-3.5 w-3.5" />
-                浏览
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="commit-reminder-enabled"
-                checked={draft.commit_reminder_enabled ?? true}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({ commit_reminder_enabled: checked })
-                }
-              />
+            <div className="flex items-center justify-between gap-4">
               <Label
-                htmlFor="commit-reminder-enabled"
+                htmlFor="prompt-enhancement-enabled"
                 className="cursor-pointer text-xs"
               >
-                启用 AI 提交消息生成
+                启用提示词优化按钮
               </Label>
-            </div>
-            {draft.commit_reminder_enabled ? (
-              <div className="ml-5 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="use-custom-commit-prompt"
-                    checked={draft.commit_reminder_prompt != null}
-                    onCheckedChange={(checked: boolean) =>
-                      updateDraft({
-                        commit_reminder_prompt: checked
-                          ? DEFAULT_COMMIT_REMINDER_PROMPT
-                          : null,
-                      })
-                    }
-                  />
-                  <Label
-                    htmlFor="use-custom-commit-prompt"
-                    className="cursor-pointer text-xs"
-                  >
-                    使用自定义提交提示词
-                  </Label>
-                </div>
-                <Textarea
-                  value={
-                    draft.commit_reminder_prompt ??
-                    DEFAULT_COMMIT_REMINDER_PROMPT
-                  }
-                  disabled={draft.commit_reminder_prompt == null}
-                  onChange={(event) =>
-                    updateDraft({ commit_reminder_prompt: event.target.value })
-                  }
-                  className={`min-h-20 font-mono text-xs ${
-                    draft.commit_reminder_prompt == null
-                      ? 'cursor-not-allowed opacity-50'
-                      : ''
-                  }`}
-                />
-              </div>
-            ) : null}
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={GitPullRequest}
-          title="拉取请求"
-          description="配置 PR 自动描述生成行为。"
-        >
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="pr-auto-description"
-                checked={draft.pr_auto_description_enabled ?? false}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({ pr_auto_description_enabled: checked })
-                }
-              />
-              <Label
-                htmlFor="pr-auto-description"
-                className="cursor-pointer text-xs"
-              >
-                默认自动生成 PR 描述
-              </Label>
-            </div>
-          </div>
-
-          <div className="ml-5 space-y-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="use-custom-pr-prompt"
-                checked={draft.pr_auto_description_prompt != null}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({
-                    pr_auto_description_prompt: checked
-                      ? DEFAULT_PR_DESCRIPTION_PROMPT
-                      : null,
-                  })
-                }
-              />
-              <Label
-                htmlFor="use-custom-pr-prompt"
-                className="cursor-pointer text-xs"
-              >
-                使用自定义提示词
-              </Label>
-            </div>
-            <Textarea
-              value={
-                draft.pr_auto_description_prompt ??
-                DEFAULT_PR_DESCRIPTION_PROMPT
-              }
-              disabled={draft.pr_auto_description_prompt == null}
-              onChange={(event) =>
-                updateDraft({ pr_auto_description_prompt: event.target.value })
-              }
-              className={`min-h-20 font-mono text-xs ${
-                draft.pr_auto_description_prompt == null
-                  ? 'cursor-not-allowed opacity-50'
-                  : ''
-              }`}
-            />
-          </div>
-        </SettingsSection>
-
-        <SettingsSection icon={Lightbulb} title="提示词优化">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
+              <Switch
                 id="prompt-enhancement-enabled"
+                className="settings-switch"
                 checked={draft.prompt_enhancement_enabled ?? false}
                 onCheckedChange={(checked: boolean) =>
                   updateDraft({ prompt_enhancement_enabled: checked })
                 }
               />
-              <Label
-                htmlFor="prompt-enhancement-enabled"
-                className="cursor-pointer text-xs"
-              >
-                启用提示词优化功能
-              </Label>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              开启后，右侧执行区输入框会显示提示词优化按钮。
+              在会话输入框中显示提示词优化入口，帮助改写当前输入。
             </p>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground">
+          <div className="flex items-center justify-between gap-4">
+            <Label className="shrink-0 text-xs font-medium text-muted-foreground">
               OpenCode 模型
             </Label>
             <Select
@@ -628,14 +418,12 @@ export function SystemSettings() {
               onValueChange={(value: string) =>
                 updateDraft({ prompt_enhancement_model: value })
               }
-              disabled={
-                opencodeModelsLoading || promptEnhancementModels.length === 0
-              }
+              disabled={promptEnhancementModels.length === 0}
             >
-              <SelectTrigger className="w-80">
+              <SelectTrigger className="!w-64">
                 <SelectValue
                   placeholder={
-                    opencodeModelsLoading ? '正在读取本机模型...' : '选择模型'
+                    opencodeModelsLoading ? '正在加载模型...' : '选择模型'
                   }
                 />
               </SelectTrigger>
@@ -647,36 +435,19 @@ export function SystemSettings() {
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              value={draft.prompt_enhancement_model}
-              onChange={(event) =>
-                updateDraft({
-                  prompt_enhancement_model: event.target.value,
-                })
-              }
-              placeholder="例如：opencode/minimax-m2.5-free"
-              className="h-8 text-xs"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              模型列表读取自本机 `opencode models opencode`，也可以手动填写
-              `provider/model`。
-            </p>
-            {opencodeModelsLoading ? (
-              <p className="text-[11px] text-muted-foreground">
-                正在读取本机 OpenCode 模型列表...
-              </p>
-            ) : null}
-            {opencodeModelsError ? (
-              <p className="text-[11px] text-destructive">
-                读取模型列表失败：{opencodeModelsError}
-              </p>
-            ) : null}
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="use-custom-pe-prompt"
+                className="cursor-pointer text-xs"
+              >
+                使用自定义优化提示词
+              </Label>
+              <Switch
                 id="use-custom-pe-prompt"
+                className="settings-switch"
                 checked={draft.prompt_enhancement_prompt != null}
                 onCheckedChange={(checked: boolean) =>
                   updateDraft({
@@ -686,12 +457,6 @@ export function SystemSettings() {
                   })
                 }
               />
-              <Label
-                htmlFor="use-custom-pe-prompt"
-                className="cursor-pointer text-xs"
-              >
-                使用自定义优化系统提示词
-              </Label>
             </div>
             <Textarea
               value={
@@ -704,7 +469,7 @@ export function SystemSettings() {
                   prompt_enhancement_prompt: event.target.value,
                 })
               }
-              placeholder="不自定义时，会使用当前默认的优化提示词。"
+              placeholder="输入提示词优化系统提示词"
               className={`min-h-32 font-mono text-xs ${
                 draft.prompt_enhancement_prompt == null
                   ? 'cursor-not-allowed opacity-50'
@@ -712,7 +477,7 @@ export function SystemSettings() {
               }`}
             />
             <p className="text-[11px] text-muted-foreground">
-              不自定义则使用当前默认的优化提示词。
+              关闭自定义时使用内置默认提示词；开启后可直接编辑。
             </p>
           </div>
         </SettingsSection>
@@ -720,12 +485,16 @@ export function SystemSettings() {
         <SettingsSection
           icon={Bell}
           title="通知"
-          description="控制声音和推送通知。"
+          description="配置声音和系统推送通知。"
         >
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Checkbox
+            <div className="flex items-center justify-between gap-4">
+              <Label htmlFor="sound-enabled" className="cursor-pointer text-xs">
+                声音通知
+              </Label>
+              <Switch
                 id="sound-enabled"
+                className="settings-switch"
                 checked={draft.notifications.sound_enabled}
                 onCheckedChange={(checked: boolean) =>
                   updateDraft({
@@ -736,17 +505,14 @@ export function SystemSettings() {
                   })
                 }
               />
-              <Label htmlFor="sound-enabled" className="cursor-pointer text-xs">
-                声音通知
-              </Label>
             </div>
 
             {draft.notifications.sound_enabled ? (
-              <div className="ml-5 space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
+              <div className="flex items-center justify-between gap-4">
+                <Label className="shrink-0 text-xs font-medium text-muted-foreground">
                   声音
                 </Label>
-                <div className="flex gap-2">
+                <div className="flex items-center justify-end gap-2">
                   <Select
                     value={draft.notifications.sound_file}
                     onValueChange={(value: SoundFile) =>
@@ -758,7 +524,7 @@ export function SystemSettings() {
                       })
                     }
                   >
-                    <SelectTrigger className="w-40">
+                    <SelectTrigger className="!w-36">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent align="start">
@@ -781,9 +547,16 @@ export function SystemSettings() {
               </div>
             ) : null}
 
-            <div className="flex items-center gap-2">
-              <Checkbox
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="push-notifications"
+                className="cursor-pointer text-xs"
+              >
+                系统推送通知
+              </Label>
+              <Switch
                 id="push-notifications"
+                className="settings-switch"
                 checked={draft.notifications.push_enabled}
                 onCheckedChange={(checked: boolean) =>
                   updateDraft({
@@ -794,12 +567,6 @@ export function SystemSettings() {
                   })
                 }
               />
-              <Label
-                htmlFor="push-notifications"
-                className="cursor-pointer text-xs"
-              >
-                推送通知
-              </Label>
             </div>
           </div>
         </SettingsSection>
@@ -807,36 +574,27 @@ export function SystemSettings() {
         <SettingsSection
           icon={Tag}
           title="标签提示词"
-          description="管理 `#tag_name` 插入时使用的内容。"
+          description="管理可通过 `#tag_name` 插入任务输入框的复用片段。"
         >
           <TagManager />
         </SettingsSection>
-        <SettingsSection
-          icon={Trash2}
-          title={CLEAR_LOCAL_DATA_TITLE}
-          description={CLEAR_LOCAL_DATA_DESCRIPTION}
-        >
-          <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-4">
-            <p className="text-xs leading-5 text-muted-foreground">
-              {
-                '\u6e05\u9664\u540e\u4f1a\u91cd\u7f6e\u7cfb\u7edf\u8bbe\u7f6e\u3001\u672c\u5730\u6570\u636e\u5e93\u3001\u7f13\u5b58\u56fe\u50cf\u3001\u672c\u5730\u7edf\u8ba1\u4e0e\u5176\u4ed6\u5e94\u7528\u79c1\u6709\u6570\u636e\u3002'
-              }
-            </p>
-            <div className="mt-3">
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={handleClearLocalData}
-                disabled={isClearingLocalData}
-              >
-                {isClearingLocalData ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
-                )}
-                {'\u6e05\u9664\u672c\u5730\u6570\u636e'}
-              </Button>
-            </div>
+
+        <SettingsSection icon={Trash2} title={CLEAR_LOCAL_DATA_TITLE}>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm font-medium">清除本机配置和缓存</span>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleClearLocalData}
+              disabled={isClearingLocalData}
+            >
+              {isClearingLocalData ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+              )}
+              清除
+            </Button>
           </div>
         </SettingsSection>
       </div>
@@ -845,7 +603,7 @@ export function SystemSettings() {
         <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              有未保存的更改
+              设置已修改，保存后生效。
             </span>
             <div className="flex gap-2">
               <Button
@@ -856,13 +614,13 @@ export function SystemSettings() {
                 disabled={saving}
               >
                 <Undo2 className="mr-1 h-3 w-3" />
-                放弃更改
+                取消
               </Button>
               <Button
                 size="sm"
                 className="h-7 text-xs"
                 onClick={handleSave}
-                disabled={saving || !!branchPrefixError}
+                disabled={saving}
               >
                 {saving ? (
                   <Loader2 className="mr-1 h-3 w-3 animate-spin" />

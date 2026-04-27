@@ -17,9 +17,9 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('system settings and config defaults use the vu worktree branch prefix', () => {
+test('editor settings and config defaults use the vu worktree branch prefix', () => {
   const settingsSource = readFrontendFile(
-    'src/pages/settings/SystemSettings.tsx'
+    'src/pages/settings/EditorSettings.tsx'
   );
   const v7Source = readRepoFile(
     'crates/services/src/services/config/versions/v7.rs'
@@ -76,7 +76,10 @@ test('homepage git repo discovery scans the user root and only accepts openable 
     filesystemServiceSource,
     /unwrap_or_else\(Self::get_home_directory\)/
   );
-  assert.match(filesystemServiceSource, /Self::verify_directory\(&base_path\)\?/);
+  assert.match(
+    filesystemServiceSource,
+    /Self::verify_directory\(&base_path\)\?/
+  );
   assert.match(filesystemServiceSource, /vec!\[base_path\]/);
   assert.match(
     filesystemCommandSource,
@@ -93,7 +96,9 @@ test('homepage git repo discovery scans the user root and only accepts openable 
   assert.match(filesystemServiceSource, /git2::Repository::open\(path\)/);
   assert.match(filesystemServiceSource, /repo\.workdir\(\)\?/);
 
-  const repoServiceSource = readRepoFile('crates/services/src/services/repo.rs');
+  const repoServiceSource = readRepoFile(
+    'crates/services/src/services/repo.rs'
+  );
   assert.match(repoServiceSource, /pub fn resolve_git_repo_path/);
   assert.match(
     repoServiceSource,
@@ -147,7 +152,10 @@ test('file tree exposes a manual refresh button and routes it through the full r
     'src/components/file-tree/FileTreePanel.tsx'
   );
 
-  assert.match(panelSource, /const refreshFileTree = useCallback\(async \(\) => \{/);
+  assert.match(
+    panelSource,
+    /const refreshFileTree = useCallback\(async \(\) => \{/
+  );
   assert.match(panelSource, /await loadRootChildren\(\);/);
   assert.match(panelSource, /setRefreshToken\(\(value\) => value \+ 1\)/);
   assert.match(panelSource, /void refreshFileTree\(\);/);

@@ -595,7 +595,7 @@ export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 
-// ── Git Panel Types (from crates/git/src/lib.rs) ────────────────────
+// 鈹€鈹€ Git Panel Types (from crates/git/src/lib.rs) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export type GitFileStatusEntry = {
   path: string;
@@ -657,13 +657,13 @@ export type CommitDetail = {
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-// ─────────────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-export const DEFAULT_PR_DESCRIPTION_PROMPT = "Update the PR that was just created with a better title and description.\nThe PR number is #{pr_number} and the URL is {pr_url}.\n\nAnalyze the changes in this branch and write:\n1. A concise, descriptive title that summarizes the changes, postfixed with \"(Vibe Ultra)\"\n2. A detailed description that explains:\n   - What changes were made\n   - Why they were made (based on the task context)\n   - Any important implementation details\n   - At the end, include a note: \"This PR was written using [Vibe Ultra](https://vibeultra.com)\"\n\nUse the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps).";
+export const DEFAULT_PR_DESCRIPTION_PROMPT = "Update the PR that was just created with a better title and description.\nThe PR number is #{pr_number} and the URL is {pr_url}.\n\nAnalyze the changes in this branch and write:\n1. A concise, descriptive title that summarizes the changes, postfixed with \"(VibeX)\"\n2. A detailed description that explains:\n   - What changes were made\n   - Why they were made (based on the task context)\n   - Any important implementation details\n   - At the end, include a note: \"This PR was written using [VibeX](https://vibex.com)\"\n\nUse the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps).";
 
 export const DEFAULT_COMMIT_REMINDER_PROMPT = "There are uncommitted changes. Please review the diff with `git diff` and `git diff --staged`, then stage and commit them.\n\nGenerate a commit message following this format:\n- First line: a short header under 50 characters in the format `<type>(<scope>): <subject>`\n  - Use types: feat (features), fix (bug fixes), docs (documentation), style (formatting), refactor (restructuring), perf (performance), test (tests), chore (maintenance), revert (rollbacks)\n  - Include scope to specify the affected area\n- Second line: blank\n- Third line onwards: a full summary explaining the change in detail, including the problem, solution, and context, wrapping lines at 72 characters\n\nBase the commit message on the actual code changes shown in the diff.";
 
-export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE = "{title} (Vibe Ultra {id})\n\n{description}";
+export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE = "{title} (VibeX {id})\n\n{description}";
 
 export type CreateSession = { executor: string | null, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus | null, };
 

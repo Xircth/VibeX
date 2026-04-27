@@ -89,16 +89,16 @@ export function NoServerContent({
         </div>
 
         <div className="space-y-4">
-          {startError && (
+          {startError ? (
             <Alert variant="destructive" className="text-left text-sm">
               <p className="font-medium">开发服务器启动失败</p>
               <p>{startError}</p>
             </Alert>
-          )}
+          ) : null}
 
           <div>
             <h3 className="mb-2 text-lg font-medium text-foreground">
-              当前没有运行中的开发服务器
+              启动项目开发服务器
             </h3>
             <p className="text-sm text-muted-foreground">
               {projectHasDevScript
@@ -107,7 +107,7 @@ export function NoServerContent({
             </p>
           </div>
 
-          {!projectHasDevScript && !runningDevServer && (
+          {!projectHasDevScript && !runningDevServer ? (
             <div className="space-y-3 text-left">
               <label className="text-sm font-medium text-foreground">
                 启动命令
@@ -131,9 +131,9 @@ export function NoServerContent({
                 </Button>
               </div>
             </div>
-          )}
+          ) : null}
 
-          {(projectHasDevScript || runningDevServer) && (
+          {projectHasDevScript || runningDevServer ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Button
                 size="sm"
@@ -161,7 +161,7 @@ export function NoServerContent({
                 )}
               </Button>
 
-              {!runningDevServer && (
+              {!runningDevServer ? (
                 <Button
                   size="sm"
                   variant="outline"
@@ -169,11 +169,11 @@ export function NoServerContent({
                   className="gap-1"
                 >
                   <Settings className="h-3 w-3" />
-                  配置
+                  设置
                 </Button>
-              )}
+              ) : null}
 
-              {hasFailedDevServer && onFixDevScript && (
+              {hasFailedDevServer && onFixDevScript ? (
                 <Button
                   size="sm"
                   variant="outline"
@@ -183,14 +183,13 @@ export function NoServerContent({
                   <Wrench className="h-4 w-4" />
                   修复启动脚本
                 </Button>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
 
           <div className="space-y-4 border-t border-border pt-6">
             <p className="text-sm text-muted-foreground">
-              如果你希望在预览页中点击页面元素后回到编辑器，请先为当前前端项目安装
-              Web Companion。
+              如果需要在预览中启用点击组件定位，请安装 VibeX Web Companion。
             </p>
             <div className="space-y-2">
               <Button
@@ -203,21 +202,21 @@ export function NoServerContent({
                 {isInstallingCompanion ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    正在安装 Companion…
+                    正在安装 Companion
                   </>
                 ) : (
-                  '自动安装 Companion'
+                  '安装 Companion'
                 )}
               </Button>
               <div>
                 <a
-                  href="https://github.com/vibe-ultra/vibe-ultra-web-companion"
+                  href="https://github.com/vibex/vibex-web-companion"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
                 >
                   <ExternalLink className="h-3 w-3" />
-                  查看安装指南
+                  查看 Companion 仓库
                 </a>
               </div>
             </div>

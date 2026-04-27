@@ -1,18 +1,18 @@
-[core]
+﻿[core]
 	repositoryformatversion = 0
 	filemode = false
 	bare = false
 	logallrefupdates = true
 	ignorecase = true
 [remote "origin"]
-	url = https://github.com/Xircth/VibeUltra.git
+	url = https://github.com/Xircth/VibeX.git
 	fetch = +refs/heads/*:refs/remotes/origin/*
 [branch "master"]
 	remote = origin
 	merge = refs/heads/master
 	vscode-merge-base = origin/master
 [user]
-	name = Vibe Ultra
-	email = noreply@vibeultra.com
+	name = VibeX
+	email = noreply@vibex.com
 [branch "vk/61df-bugfix"]
 	vscode-merge-base = origin/master

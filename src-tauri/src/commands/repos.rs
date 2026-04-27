@@ -169,7 +169,7 @@ async fn request_github_json<T: for<'de> Deserialize<'de>>(
     let client = reqwest::Client::new();
     let mut request = client
         .get(url)
-        .header(USER_AGENT, "VibeUltra/1.0")
+        .header(USER_AGENT, "VibeX/1.0")
         .header(ACCEPT, "application/vnd.github+json");
 
     if let Some(token) = github_token_from_env() {
@@ -559,7 +559,7 @@ pub async fn open_repo_in_editor(
     }
 }
 
-// ─── Repo-level Git operations ───────────────────────────────────────────────
+// 鈹€鈹€鈹€ Repo-level Git operations 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 #[tauri::command]
 pub async fn get_repo_git_status(

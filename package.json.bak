@@ -1,9 +1,9 @@
-{
-  "name": "vibe-ultra",
+﻿{
+  "name": "vibex",
   "version": "0.1.8",
   "private": true,
   "bin": {
-    "vibe-ultra": "npx-cli/bin/cli.js"
+    "vibex": "npx-cli/bin/cli.js"
   },
   "files": [
     "npx-cli/bin/cli.js",

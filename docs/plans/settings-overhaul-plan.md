@@ -1,112 +1,112 @@
-# 设置页面大规模改造计划
+# 璁剧疆椤甸潰澶ц妯℃敼閫犺鍒?
 
-> 参考: `./code-referance/codeg` 设置系统
-> 范围: 5 个 Tab (Agents, MCP, Skills, Shortcuts, System) + 独立窗口
-> 策略: 完整移植 UI + 所有后端功能
+> 鍙傝€? `./code-referance/codeg` 璁剧疆绯荤粺
+> 鑼冨洿: 5 涓?Tab (Agents, MCP, Skills, Shortcuts, System) + 鐙珛绐楀彛
+> 绛栫暐: 瀹屾暣绉绘 UI + 鎵€鏈夊悗绔姛鑳?
 
 ---
 
-## 架构差异和适配策略
+## 鏋舵瀯宸紓鍜岄€傞厤绛栫暐
 
-| 维度 | codeg | VibeUltra | 适配方案 |
+| 缁村害 | codeg | VibeX | 閫傞厤鏂规 |
 |------|-------|-----------|----------|
-| 前端框架 | Next.js 16 (App Router) | Vite + React 18 | 路由改用 react-router-dom |
-| 状态管理 | React useState + Tauri IPC | Zustand + TanStack Query | 沿用 VibeUltra 现有模式 |
-| 数据库 ORM | sea-orm | sqlx | 新增 migration + 表结构 |
-| UI 组件库 | shadcn/ui | shadcn/ui | 直接复用，高度兼容 |
-| i18n | next-intl | 无 | 暂不移植 i18n，使用中文硬编码 |
-| 窗口 | 路由页面 | **独立 Tauri 窗口** | 新增 settings 窗口 |
-| Agent 数据存储 | SQLite agent_setting 表 | profiles.json 文件 | **新增 agent_setting 表，同时保留 profiles.json 兼容** |
+| 鍓嶇妗嗘灦 | Next.js 16 (App Router) | Vite + React 18 | 璺敱鏀圭敤 react-router-dom |
+| 鐘舵€佺鐞?| React useState + Tauri IPC | Zustand + TanStack Query | 娌跨敤 VibeX 鐜版湁妯″紡 |
+| 鏁版嵁搴?ORM | sea-orm | sqlx | 鏂板 migration + 琛ㄧ粨鏋?|
+| UI 缁勪欢搴?| shadcn/ui | shadcn/ui | 鐩存帴澶嶇敤锛岄珮搴﹀吋瀹?|
+| i18n | next-intl | 鏃?| 鏆備笉绉绘 i18n锛屼娇鐢ㄤ腑鏂囩‖缂栫爜 |
+| 绐楀彛 | 璺敱椤甸潰 | **鐙珛 Tauri 绐楀彛** | 鏂板 settings 绐楀彛 |
+| Agent 鏁版嵁瀛樺偍 | SQLite agent_setting 琛?| profiles.json 鏂囦欢 | **鏂板 agent_setting 琛紝鍚屾椂淇濈暀 profiles.json 鍏煎** |
 
 ---
 
-## Phase 0: 独立窗口基础设施 [预估 2-3 小时]
+## Phase 0: 鐙珛绐楀彛鍩虹璁炬柦 [棰勪及 2-3 灏忔椂]
 
-### 目标
-创建独立的设置窗口，从主窗口通过 Toolbar 按钮或快捷键 `Ctrl+,` 打开。
+### 鐩爣
+鍒涘缓鐙珛鐨勮缃獥鍙ｏ紝浠庝富绐楀彛閫氳繃 Toolbar 鎸夐挳鎴栧揩鎹烽敭 `Ctrl+,` 鎵撳紑銆?
 
-### 任务
+### 浠诲姟
 
-#### 0.1 Tauri 后端 - 窗口创建命令
-- **文件**: `src-tauri/src/commands/settings_window.rs` (新建)
-- **内容**:
+#### 0.1 Tauri 鍚庣 - 绐楀彛鍒涘缓鍛戒护
+- **鏂囦欢**: `src-tauri/src/commands/settings_window.rs` (鏂板缓)
+- **鍐呭**:
   ```rust
   #[tauri::command]
   pub async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-      // 如果 settings 窗口已存在，聚焦它
-      // 否则创建新窗口，URL 指向 /settings
-      // 窗口配置: 900x650, 居中, 可调整大小, 无最小化
+      // 濡傛灉 settings 绐楀彛宸插瓨鍦紝鑱氱劍瀹?
+      // 鍚﹀垯鍒涘缓鏂扮獥鍙ｏ紝URL 鎸囧悜 /settings
+      // 绐楀彛閰嶇疆: 900x650, 灞呬腑, 鍙皟鏁村ぇ灏? 鏃犳渶灏忓寲
   }
   ```
-- **注册**: 在 `src-tauri/src/lib.rs` 的 `generate_handler!` 中添加
+- **娉ㄥ唽**: 鍦?`src-tauri/src/lib.rs` 鐨?`generate_handler!` 涓坊鍔?
 
-#### 0.2 前端 - 设置窗口入口路由
-- **文件**: `frontend/src/App.tsx`
-- **修改**: 保留 `/settings/*` 路由（用于独立窗口渲染），但移除主窗口中的导航链接
-- **新建**: `frontend/src/pages/settings/SettingsWindow.tsx` - 独立窗口的根组件（带窗口标题栏）
+#### 0.2 鍓嶇 - 璁剧疆绐楀彛鍏ュ彛璺敱
+- **鏂囦欢**: `frontend/src/App.tsx`
+- **淇敼**: 淇濈暀 `/settings/*` 璺敱锛堢敤浜庣嫭绔嬬獥鍙ｆ覆鏌擄級锛屼絾绉婚櫎涓荤獥鍙ｄ腑鐨勫鑸摼鎺?
+- **鏂板缓**: `frontend/src/pages/settings/SettingsWindow.tsx` - 鐙珛绐楀彛鐨勬牴缁勪欢锛堝甫绐楀彛鏍囬鏍忥級
 
-#### 0.3 前端 - Toolbar 打开按钮
-- **文件**: `frontend/src/components/layout/Toolbar.tsx`
-- **修改**: 添加设置按钮，点击调用 `api.openSettingsWindow()`
+#### 0.3 鍓嶇 - Toolbar 鎵撳紑鎸夐挳
+- **鏂囦欢**: `frontend/src/components/layout/Toolbar.tsx`
+- **淇敼**: 娣诲姞璁剧疆鎸夐挳锛岀偣鍑昏皟鐢?`api.openSettingsWindow()`
 
-#### 0.4 前端 API 封装
-- **文件**: `frontend/src/lib/api.ts`
-- **新增**: `openSettingsWindow()` 函数
+#### 0.4 鍓嶇 API 灏佽
+- **鏂囦欢**: `frontend/src/lib/api.ts`
+- **鏂板**: `openSettingsWindow()` 鍑芥暟
 
 ---
 
-## Phase 1: 设置外壳 (Settings Shell) [预估 1-2 小时]
+## Phase 1: 璁剧疆澶栧３ (Settings Shell) [棰勪及 1-2 灏忔椂]
 
-### 目标
-创建 codeg 风格的设置布局：左侧导航 + 右侧内容区。
+### 鐩爣
+鍒涘缓 codeg 椋庢牸鐨勮缃竷灞€锛氬乏渚у鑸?+ 鍙充晶鍐呭鍖恒€?
 
-### 任务
+### 浠诲姟
 
-#### 1.1 重写 SettingsLayout
-- **文件**: `frontend/src/pages/settings/SettingsLayout.tsx` (重写)
-- **参考**: `code-referance/codeg/src/components/settings/settings-shell.tsx`
-- **结构**:
+#### 1.1 閲嶅啓 SettingsLayout
+- **鏂囦欢**: `frontend/src/pages/settings/SettingsLayout.tsx` (閲嶅啓)
+- **鍙傝€?*: `code-referance/codeg/src/components/settings/settings-shell.tsx`
+- **缁撴瀯**:
   ```
   div.h-screen.bg-background
-  ├── TitleBar (窗口标题栏 + 拖拽区域)
-  └── div.flex.flex-1
-      ├── aside.w-56 (左侧导航)
-      │   ├── "偏好设置" 标题
-      │   └── nav (5 个导航项)
-      │       ├── 代理 (Bot icon)
-      │       ├── MCP (PlugZap icon)
-      │       ├── 技能 (BookOpenText icon)
-      │       ├── 快捷键 (Keyboard icon)
-      │       └── 系统 (Settings icon)
-      └── section.flex-1.overflow-y-auto
-          └── <Outlet />
+  鈹溾攢鈹€ TitleBar (绐楀彛鏍囬鏍?+ 鎷栨嫿鍖哄煙)
+  鈹斺攢鈹€ div.flex.flex-1
+      鈹溾攢鈹€ aside.w-56 (宸︿晶瀵艰埅)
+      鈹?  鈹溾攢鈹€ "鍋忓ソ璁剧疆" 鏍囬
+      鈹?  鈹斺攢鈹€ nav (5 涓鑸」)
+      鈹?      鈹溾攢鈹€ 浠ｇ悊 (Bot icon)
+      鈹?      鈹溾攢鈹€ MCP (PlugZap icon)
+      鈹?      鈹溾攢鈹€ 鎶€鑳?(BookOpenText icon)
+      鈹?      鈹溾攢鈹€ 蹇嵎閿?(Keyboard icon)
+      鈹?      鈹斺攢鈹€ 绯荤粺 (Settings icon)
+      鈹斺攢鈹€ section.flex-1.overflow-y-auto
+          鈹斺攢鈹€ <Outlet />
   ```
 
-#### 1.2 更新路由配置
-- **文件**: `frontend/src/App.tsx`
-- **修改**: 更新子路由
+#### 1.2 鏇存柊璺敱閰嶇疆
+- **鏂囦欢**: `frontend/src/App.tsx`
+- **淇敼**: 鏇存柊瀛愯矾鐢?
   ```
-  /settings → 重定向到 /settings/agents
-  /settings/agents → AgentSettings (新)
-  /settings/mcp → McpSettings (重写)
-  /settings/skills → SkillsSettings (新建)
-  /settings/shortcuts → ShortcutSettings (新建)
-  /settings/system → SystemSettings (重写自 GeneralSettings)
+  /settings 鈫?閲嶅畾鍚戝埌 /settings/agents
+  /settings/agents 鈫?AgentSettings (鏂?
+  /settings/mcp 鈫?McpSettings (閲嶅啓)
+  /settings/skills 鈫?SkillsSettings (鏂板缓)
+  /settings/shortcuts 鈫?ShortcutSettings (鏂板缓)
+  /settings/system 鈫?SystemSettings (閲嶅啓鑷?GeneralSettings)
   ```
-- **移除**: `/settings/projects`, `/settings/repos` 路由（功能合并到 System）
+- **绉婚櫎**: `/settings/projects`, `/settings/repos` 璺敱锛堝姛鑳藉悎骞跺埌 System锛?
 
 ---
 
-## Phase 2: Agent 设置页面 [预估 8-12 小时] - 最复杂
+## Phase 2: Agent 璁剧疆椤甸潰 [棰勪及 8-12 灏忔椂] - 鏈€澶嶆潅
 
-### 目标
-完整移植 codeg 的 Agent 设置，包含拖拽排序、Preflight 检查、二进制管理。
+### 鐩爣
+瀹屾暣绉绘 codeg 鐨?Agent 璁剧疆锛屽寘鍚嫋鎷芥帓搴忋€丳reflight 妫€鏌ャ€佷簩杩涘埗绠＄悊銆?
 
-### 2.1 后端 - 数据库层
+### 2.1 鍚庣 - 鏁版嵁搴撳眰
 
-#### 2.1.1 新增 agent_setting 表
-- **文件**: `crates/db/migrations/` 新增 migration
-- **表结构**:
+#### 2.1.1 鏂板 agent_setting 琛?
+- **鏂囦欢**: `crates/db/migrations/` 鏂板 migration
+- **琛ㄧ粨鏋?*:
   ```sql
   CREATE TABLE agent_setting (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,39 +115,39 @@
     sort_order INTEGER NOT NULL DEFAULT 0,
     installed_version TEXT,
     env_json TEXT,                     -- JSON: {"KEY": "VALUE", ...}
-    config_json TEXT,                  -- Agent 特定 JSON 配置
+    config_json TEXT,                  -- Agent 鐗瑰畾 JSON 閰嶇疆
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   ```
 
-#### 2.1.2 CRUD 服务
-- **文件**: `crates/db/src/agent_setting.rs` (新建)
-- **方法**: `list_all()`, `get_by_type()`, `upsert()`, `update_sort_order()`
+#### 2.1.2 CRUD 鏈嶅姟
+- **鏂囦欢**: `crates/db/src/agent_setting.rs` (鏂板缓)
+- **鏂规硶**: `list_all()`, `get_by_type()`, `upsert()`, `update_sort_order()`
 
-### 2.2 后端 - Tauri 命令
+### 2.2 鍚庣 - Tauri 鍛戒护
 
-#### 2.2.1 Agent 管理命令
-- **文件**: `src-tauri/src/commands/agent_settings.rs` (新建)
-- **命令**:
-  | 命令 | 说明 |
+#### 2.2.1 Agent 绠＄悊鍛戒护
+- **鏂囦欢**: `src-tauri/src/commands/agent_settings.rs` (鏂板缓)
+- **鍛戒护**:
+  | 鍛戒护 | 璇存槑 |
   |------|------|
-  | `list_agents` | 列出所有 Agent 及其配置/状态 |
-  | `update_agent_preferences` | 更新 Agent 的 enabled/env/config |
-  | `reorder_agents` | 更新 Agent 排序 |
-  | `agent_preflight` | 运行 Preflight 检查 |
-  | `download_agent_binary` | 下载 Agent 二进制 |
-  | `detect_agent_local_version` | 检测本地安装版本 |
-  | `uninstall_agent` | 卸载 Agent |
-  | `clear_agent_binary_cache` | 清理缓存 |
+  | `list_agents` | 鍒楀嚭鎵€鏈?Agent 鍙婂叾閰嶇疆/鐘舵€?|
+  | `update_agent_preferences` | 鏇存柊 Agent 鐨?enabled/env/config |
+  | `reorder_agents` | 鏇存柊 Agent 鎺掑簭 |
+  | `agent_preflight` | 杩愯 Preflight 妫€鏌?|
+  | `download_agent_binary` | 涓嬭浇 Agent 浜岃繘鍒?|
+  | `detect_agent_local_version` | 妫€娴嬫湰鍦板畨瑁呯増鏈?|
+  | `uninstall_agent` | 鍗歌浇 Agent |
+  | `clear_agent_binary_cache` | 娓呯悊缂撳瓨 |
 
-#### 2.2.2 Preflight 检查实现
-- **文件**: `crates/services/src/services/agent_preflight.rs` (新建)
-- **逻辑**:
-  - Claude Code: 检查 `claude` CLI 是否在 PATH、版本号
-  - Codex: 检查 `codex` CLI 或 npm/npx 可用性
-  - OpenCode: 检查 `opencode` CLI 或 go install 可用性
-- **返回**: `PreflightResult { checks: Vec<PreflightCheck> }`
+#### 2.2.2 Preflight 妫€鏌ュ疄鐜?
+- **鏂囦欢**: `crates/services/src/services/agent_preflight.rs` (鏂板缓)
+- **閫昏緫**:
+  - Claude Code: 妫€鏌?`claude` CLI 鏄惁鍦?PATH銆佺増鏈彿
+  - Codex: 妫€鏌?`codex` CLI 鎴?npm/npx 鍙敤鎬?
+  - OpenCode: 妫€鏌?`opencode` CLI 鎴?go install 鍙敤鎬?
+- **杩斿洖**: `PreflightResult { checks: Vec<PreflightCheck> }`
   ```rust
   struct PreflightCheck {
       check_id: String,
@@ -158,70 +158,70 @@
   }
   ```
 
-#### 2.2.3 二进制下载/安装实现
-- **文件**: `crates/services/src/services/agent_binary.rs` (新建)
-- **逻辑**:
-  - 检测 OS/架构
-  - 从 GitHub Releases / npm registry 下载
-  - 解压到 `~/.vibe-ultra/bin/`
-  - 更新 PATH（可选）
+#### 2.2.3 浜岃繘鍒朵笅杞?瀹夎瀹炵幇
+- **鏂囦欢**: `crates/services/src/services/agent_binary.rs` (鏂板缓)
+- **閫昏緫**:
+  - 妫€娴?OS/鏋舵瀯
+  - 浠?GitHub Releases / npm registry 涓嬭浇
+  - 瑙ｅ帇鍒?`~/.vibex/bin/`
+  - 鏇存柊 PATH锛堝彲閫夛級
 
-### 2.3 前端 - Agent 设置组件
+### 2.3 鍓嶇 - Agent 璁剧疆缁勪欢
 
-#### 2.3.1 主页面组件
-- **文件**: `frontend/src/pages/settings/AgentSettings.tsx` (重写)
-- **参考**: `code-referance/codeg/src/components/settings/acp-agent-settings.tsx`
-- **结构**:
+#### 2.3.1 涓婚〉闈㈢粍浠?
+- **鏂囦欢**: `frontend/src/pages/settings/AgentSettings.tsx` (閲嶅啓)
+- **鍙傝€?*: `code-referance/codeg/src/components/settings/acp-agent-settings.tsx`
+- **缁撴瀯**:
   ```
   div.space-y-6
-  ├── Header: "代理设置" + 描述
-  └── Reorder.Group (Framer Motion 拖拽排序)
-      ├── AgentCard[claude_code]
-      ├── AgentCard[codex]
-      └── AgentCard[open_code]
+  鈹溾攢鈹€ Header: "浠ｇ悊璁剧疆" + 鎻忚堪
+  鈹斺攢鈹€ Reorder.Group (Framer Motion 鎷栨嫿鎺掑簭)
+      鈹溾攢鈹€ AgentCard[claude_code]
+      鈹溾攢鈹€ AgentCard[codex]
+      鈹斺攢鈹€ AgentCard[open_code]
   ```
 
-#### 2.3.2 AgentCard 组件
-- **文件**: `frontend/src/components/settings/AgentCard.tsx` (新建)
-- **结构**:
+#### 2.3.2 AgentCard 缁勪欢
+- **鏂囦欢**: `frontend/src/components/settings/AgentCard.tsx` (鏂板缓)
+- **缁撴瀯**:
   ```
   Reorder.Item
-  └── Card
-      ├── CardHeader
-      │   ├── 拖拽手柄 (GripVertical)
-      │   ├── Agent 图标 + 名称
-      │   ├── 版本 Badge
-      │   └── Enable/Disable Switch
-      ├── Preflight 检查区域 (可折叠)
-      │   ├── CheckCircle / XCircle / AlertTriangle 图标
-      │   ├── 检查消息
-      │   └── 修复按钮
-      ├── 配置区域 (Collapsible)
-      │   ├── Agent 特定表单
-      │   ├── 环境变量编辑器
-      │   └── JSON 配置编辑器
-      └── 操作按钮
-          ├── Check (运行 Preflight)
-          ├── Download / Update
-          ├── Uninstall
-          └── Save
+  鈹斺攢鈹€ Card
+      鈹溾攢鈹€ CardHeader
+      鈹?  鈹溾攢鈹€ 鎷栨嫿鎵嬫焺 (GripVertical)
+      鈹?  鈹溾攢鈹€ Agent 鍥炬爣 + 鍚嶇О
+      鈹?  鈹溾攢鈹€ 鐗堟湰 Badge
+      鈹?  鈹斺攢鈹€ Enable/Disable Switch
+      鈹溾攢鈹€ Preflight 妫€鏌ュ尯鍩?(鍙姌鍙?
+      鈹?  鈹溾攢鈹€ CheckCircle / XCircle / AlertTriangle 鍥炬爣
+      鈹?  鈹溾攢鈹€ 妫€鏌ユ秷鎭?
+      鈹?  鈹斺攢鈹€ 淇鎸夐挳
+      鈹溾攢鈹€ 閰嶇疆鍖哄煙 (Collapsible)
+      鈹?  鈹溾攢鈹€ Agent 鐗瑰畾琛ㄥ崟
+      鈹?  鈹溾攢鈹€ 鐜鍙橀噺缂栬緫鍣?
+      鈹?  鈹斺攢鈹€ JSON 閰嶇疆缂栬緫鍣?
+      鈹斺攢鈹€ 鎿嶄綔鎸夐挳
+          鈹溾攢鈹€ Check (杩愯 Preflight)
+          鈹溾攢鈹€ Download / Update
+          鈹溾攢鈹€ Uninstall
+          鈹斺攢鈹€ Save
   ```
 
-#### 2.3.3 Agent 特定表单 (重写)
-- **文件**: `frontend/src/components/settings/agents/ClaudeCodeForm.tsx` (重写)
+#### 2.3.3 Agent 鐗瑰畾琛ㄥ崟 (閲嶅啓)
+- **鏂囦欢**: `frontend/src/components/settings/agents/ClaudeCodeForm.tsx` (閲嶅啓)
   - API Base URL, API Key, Models Grid (Main, Reasoning, Haiku, Sonnet, Opus)
-- **文件**: `frontend/src/components/settings/agents/CodexForm.tsx` (重写)
+- **鏂囦欢**: `frontend/src/components/settings/agents/CodexForm.tsx` (閲嶅啓)
   - Provider, Model, API Base URL, API Key, Reasoning Effort, WebSocket, TOML, Auth JSON
-- **文件**: `frontend/src/components/settings/agents/OpenCodeForm.tsx` (重写)
+- **鏂囦欢**: `frontend/src/components/settings/agents/OpenCodeForm.tsx` (閲嶅啓)
   - Model, Small Model, JSON Config, Auth JSON
 
-#### 2.3.4 新增依赖
-- `framer-motion` (拖拽排序)
+#### 2.3.4 鏂板渚濊禆
+- `framer-motion` (鎷栨嫿鎺掑簭)
 
-### 2.4 前端 API
+### 2.4 鍓嶇 API
 
-- **文件**: `frontend/src/lib/api.ts`
-- **新增**:
+- **鏂囦欢**: `frontend/src/lib/api.ts`
+- **鏂板**:
   ```typescript
   listAgents(): Promise<AgentInfo[]>
   updateAgentPreferences(params): Promise<void>
@@ -235,125 +235,125 @@
 
 ---
 
-## Phase 3: MCP 设置页面 [预估 4-6 小时]
+## Phase 3: MCP 璁剧疆椤甸潰 [棰勪及 4-6 灏忔椂]
 
-### 目标
-移植 codeg 的 MCP 设置，包含本地扫描和 Marketplace 功能。
+### 鐩爣
+绉绘 codeg 鐨?MCP 璁剧疆锛屽寘鍚湰鍦版壂鎻忓拰 Marketplace 鍔熻兘銆?
 
-### 3.1 后端 - MCP 命令增强
+### 3.1 鍚庣 - MCP 鍛戒护澧炲己
 
-#### 3.1.1 MCP 扫描和管理
-- **文件**: `src-tauri/src/commands/mcp_settings.rs` (新建或扩展现有)
-- **新增命令**:
-  | 命令 | 说明 |
+#### 3.1.1 MCP 鎵弿鍜岀鐞?
+- **鏂囦欢**: `src-tauri/src/commands/mcp_settings.rs` (鏂板缓鎴栨墿灞曠幇鏈?
+- **鏂板鍛戒护**:
+  | 鍛戒护 | 璇存槑 |
   |------|------|
-  | `mcp_scan_local` | 扫描本地已安装的 MCP 服务器 |
-  | `mcp_upsert_local_server` | 新增/更新本地 MCP 配置 |
-  | `mcp_remove_server` | 删除 MCP 服务器 |
-  | `mcp_list_marketplaces` | 列出可用 Marketplace |
-  | `mcp_search_marketplace` | 搜索 Marketplace |
-  | `mcp_get_marketplace_detail` | 获取 Marketplace 服务器详情 |
-  | `mcp_install_from_marketplace` | 从 Marketplace 安装 |
+  | `mcp_scan_local` | 鎵弿鏈湴宸插畨瑁呯殑 MCP 鏈嶅姟鍣?|
+  | `mcp_upsert_local_server` | 鏂板/鏇存柊鏈湴 MCP 閰嶇疆 |
+  | `mcp_remove_server` | 鍒犻櫎 MCP 鏈嶅姟鍣?|
+  | `mcp_list_marketplaces` | 鍒楀嚭鍙敤 Marketplace |
+  | `mcp_search_marketplace` | 鎼滅储 Marketplace |
+  | `mcp_get_marketplace_detail` | 鑾峰彇 Marketplace 鏈嶅姟鍣ㄨ鎯?|
+  | `mcp_install_from_marketplace` | 浠?Marketplace 瀹夎 |
 
-### 3.2 前端 - MCP 设置组件
+### 3.2 鍓嶇 - MCP 璁剧疆缁勪欢
 
-#### 3.2.1 主页面 (重写)
-- **文件**: `frontend/src/pages/settings/McpSettings.tsx` (重写)
-- **参考**: `code-referance/codeg/src/components/settings/mcp-settings.tsx`
-- **结构**:
+#### 3.2.1 涓婚〉闈?(閲嶅啓)
+- **鏂囦欢**: `frontend/src/pages/settings/McpSettings.tsx` (閲嶅啓)
+- **鍙傝€?*: `code-referance/codeg/src/components/settings/mcp-settings.tsx`
+- **缁撴瀯**:
   ```
   div.flex.h-full
-  ├── Left Panel (w-80)
-  │   ├── Tabs: Local | Marketplace
-  │   ├── Local Tab:
-  │   │   ├── 搜索框
-  │   │   └── Server 列表 (名称 + 协议 badge)
-  │   └── Marketplace Tab:
-  │       ├── Marketplace 选择器
-  │       ├── 搜索框
-  │       └── Server 列表
-  └── Right Panel (flex-1)
-      ├── Server 详情卡
-      │   ├── 名称 + 版本 + 描述
-      │   ├── Tools 列表
-      │   ├── Resources 列表
-      │   └── Prompts 列表
-      └── 安装向导
-          ├── 协议选择 (stdio/sse/http)
-          ├── 动态参数表单
-          └── 安装按钮
+  鈹溾攢鈹€ Left Panel (w-80)
+  鈹?  鈹溾攢鈹€ Tabs: Local | Marketplace
+  鈹?  鈹溾攢鈹€ Local Tab:
+  鈹?  鈹?  鈹溾攢鈹€ 鎼滅储妗?
+  鈹?  鈹?  鈹斺攢鈹€ Server 鍒楄〃 (鍚嶇О + 鍗忚 badge)
+  鈹?  鈹斺攢鈹€ Marketplace Tab:
+  鈹?      鈹溾攢鈹€ Marketplace 閫夋嫨鍣?
+  鈹?      鈹溾攢鈹€ 鎼滅储妗?
+  鈹?      鈹斺攢鈹€ Server 鍒楄〃
+  鈹斺攢鈹€ Right Panel (flex-1)
+      鈹溾攢鈹€ Server 璇︽儏鍗?
+      鈹?  鈹溾攢鈹€ 鍚嶇О + 鐗堟湰 + 鎻忚堪
+      鈹?  鈹溾攢鈹€ Tools 鍒楄〃
+      鈹?  鈹溾攢鈹€ Resources 鍒楄〃
+      鈹?  鈹斺攢鈹€ Prompts 鍒楄〃
+      鈹斺攢鈹€ 瀹夎鍚戝
+          鈹溾攢鈹€ 鍗忚閫夋嫨 (stdio/sse/http)
+          鈹溾攢鈹€ 鍔ㄦ€佸弬鏁拌〃鍗?
+          鈹斺攢鈹€ 瀹夎鎸夐挳
   ```
 
 ---
 
-## Phase 4: Skills 设置页面 [预估 3-4 小时]
+## Phase 4: Skills 璁剧疆椤甸潰 [棰勪及 3-4 灏忔椂]
 
-### 目标
-移植 codeg 的 Skills 编辑器。
+### 鐩爣
+绉绘 codeg 鐨?Skills 缂栬緫鍣ㄣ€?
 
-### 4.1 后端 - Skills 命令
+### 4.1 鍚庣 - Skills 鍛戒护
 
-#### 4.1.1 Skills 读写
-- **文件**: `src-tauri/src/commands/skills.rs` (新建)
-- **命令**:
-  | 命令 | 说明 |
+#### 4.1.1 Skills 璇诲啓
+- **鏂囦欢**: `src-tauri/src/commands/skills.rs` (鏂板缓)
+- **鍛戒护**:
+  | 鍛戒护 | 璇存槑 |
   |------|------|
-  | `list_agent_skills` | 列出某 Agent 的所有 Skills |
-  | `read_agent_skill` | 读取 Skill 内容 |
-  | `save_agent_skill` | 保存 Skill |
-  | `delete_agent_skill` | 删除 Skill |
-  | `create_agent_skill` | 创建新 Skill |
+  | `list_agent_skills` | 鍒楀嚭鏌?Agent 鐨勬墍鏈?Skills |
+  | `read_agent_skill` | 璇诲彇 Skill 鍐呭 |
+  | `save_agent_skill` | 淇濆瓨 Skill |
+  | `delete_agent_skill` | 鍒犻櫎 Skill |
+  | `create_agent_skill` | 鍒涘缓鏂?Skill |
 
-#### 4.1.2 Skills 服务层
-- **文件**: `crates/services/src/services/skills.rs` (新建)
-- **逻辑**:
-  - Claude Code Skills: 读写 `~/.claude/commands/` 目录
-  - Codex Skills: 读写 `~/.codex/skills/` 或类似目录
-  - OpenCode Skills: 读写对应目录
+#### 4.1.2 Skills 鏈嶅姟灞?
+- **鏂囦欢**: `crates/services/src/services/skills.rs` (鏂板缓)
+- **閫昏緫**:
+  - Claude Code Skills: 璇诲啓 `~/.claude/commands/` 鐩綍
+  - Codex Skills: 璇诲啓 `~/.codex/skills/` 鎴栫被浼肩洰褰?
+  - OpenCode Skills: 璇诲啓瀵瑰簲鐩綍
 
-### 4.2 前端 - Skills 组件
+### 4.2 鍓嶇 - Skills 缁勪欢
 
-#### 4.2.1 主页面
-- **文件**: `frontend/src/pages/settings/SkillsSettings.tsx` (新建)
-- **参考**: `code-referance/codeg/src/components/settings/skills-settings.tsx`
-- **结构**:
+#### 4.2.1 涓婚〉闈?
+- **鏂囦欢**: `frontend/src/pages/settings/SkillsSettings.tsx` (鏂板缓)
+- **鍙傝€?*: `code-referance/codeg/src/components/settings/skills-settings.tsx`
+- **缁撴瀯**:
   ```
   div.flex.h-full
-  ├── Left Panel
-  │   ├── Agent 选择器
-  │   ├── 搜索框
-  │   ├── Skill 列表
-  │   └── + 新建按钮
-  └── Right Panel (分割面板)
-      ├── 编辑区 (Markdown + Front Matter)
-      └── 预览区 (Markdown 渲染)
+  鈹溾攢鈹€ Left Panel
+  鈹?  鈹溾攢鈹€ Agent 閫夋嫨鍣?
+  鈹?  鈹溾攢鈹€ 鎼滅储妗?
+  鈹?  鈹溾攢鈹€ Skill 鍒楄〃
+  鈹?  鈹斺攢鈹€ + 鏂板缓鎸夐挳
+  鈹斺攢鈹€ Right Panel (鍒嗗壊闈㈡澘)
+      鈹溾攢鈹€ 缂栬緫鍖?(Markdown + Front Matter)
+      鈹斺攢鈹€ 棰勮鍖?(Markdown 娓叉煋)
   ```
 
 ---
 
-## Phase 5: Shortcuts 设置页面 [预估 2-3 小时]
+## Phase 5: Shortcuts 璁剧疆椤甸潰 [棰勪及 2-3 灏忔椂]
 
-### 目标
-移植 codeg 的快捷键设置，支持录制和冲突检测。
+### 鐩爣
+绉绘 codeg 鐨勫揩鎹烽敭璁剧疆锛屾敮鎸佸綍鍒跺拰鍐茬獊妫€娴嬨€?
 
-### 5.1 前端 - 快捷键组件
+### 5.1 鍓嶇 - 蹇嵎閿粍浠?
 
-#### 5.1.1 主页面
-- **文件**: `frontend/src/pages/settings/ShortcutSettings.tsx` (新建)
-- **参考**: `code-referance/codeg/src/components/settings/shortcut-settings.tsx`
-- **结构**:
+#### 5.1.1 涓婚〉闈?
+- **鏂囦欢**: `frontend/src/pages/settings/ShortcutSettings.tsx` (鏂板缓)
+- **鍙傝€?*: `code-referance/codeg/src/components/settings/shortcut-settings.tsx`
+- **缁撴瀯**:
   ```
   div.space-y-4
-  ├── Header: "快捷键" + "恢复默认" 按钮
-  └── 快捷键列表
-      ├── 每行: 操作名称 | 快捷键按钮 (可点击录制)
-      └── 录制模式: 捕获 keydown → 验证 → 保存
+  鈹溾攢鈹€ Header: "蹇嵎閿? + "鎭㈠榛樿" 鎸夐挳
+  鈹斺攢鈹€ 蹇嵎閿垪琛?
+      鈹溾攢鈹€ 姣忚: 鎿嶄綔鍚嶇О | 蹇嵎閿寜閽?(鍙偣鍑诲綍鍒?
+      鈹斺攢鈹€ 褰曞埗妯″紡: 鎹曡幏 keydown 鈫?楠岃瘉 鈫?淇濆瓨
   ```
 
-#### 5.1.2 快捷键工具库
-- **文件**: `frontend/src/lib/keyboard-shortcuts.ts` (新建)
-- **参考**: `code-referance/codeg/src/lib/keyboard-shortcuts.ts`
-- **导出**:
+#### 5.1.2 蹇嵎閿伐鍏峰簱
+- **鏂囦欢**: `frontend/src/lib/keyboard-shortcuts.ts` (鏂板缓)
+- **鍙傝€?*: `code-referance/codeg/src/lib/keyboard-shortcuts.ts`
+- **瀵煎嚭**:
   ```typescript
   SHORTCUT_DEFINITIONS: ShortcutDefinition[]
   normalizeShortcut(raw: string): string | null
@@ -363,176 +363,176 @@
   writeShortcutSettings(settings: ShortcutSettings): void
   ```
 
-#### 5.1.3 快捷键 Hook
-- **文件**: `frontend/src/hooks/useShortcutSettings.ts` (新建)
+#### 5.1.3 蹇嵎閿?Hook
+- **鏂囦欢**: `frontend/src/hooks/useShortcutSettings.ts` (鏂板缓)
 
-#### 5.1.4 快捷键定义 (适配 VibeUltra)
+#### 5.1.4 蹇嵎閿畾涔?(閫傞厤 VibeX)
 ```typescript
 const SHORTCUT_DEFINITIONS = [
-  { id: "toggle_search", defaultKey: "mod+k", label: "搜索" },
-  { id: "toggle_sidebar", defaultKey: "mod+b", label: "切换侧栏" },
-  { id: "toggle_terminal", defaultKey: "mod+j", label: "切换终端" },
-  { id: "new_terminal_tab", defaultKey: "mod+t", label: "新建终端标签" },
-  { id: "close_terminal_tab", defaultKey: "mod+w", label: "关闭终端标签" },
-  { id: "open_settings", defaultKey: "mod+,", label: "打开设置" },
-  { id: "send_message", defaultKey: "enter", label: "发送消息" },
-  { id: "newline_in_message", defaultKey: "shift+enter", label: "消息换行" },
-  // ... 可根据 VibeUltra 实际需求调整
+  { id: "toggle_search", defaultKey: "mod+k", label: "鎼滅储" },
+  { id: "toggle_sidebar", defaultKey: "mod+b", label: "鍒囨崲渚ф爮" },
+  { id: "toggle_terminal", defaultKey: "mod+j", label: "鍒囨崲缁堢" },
+  { id: "new_terminal_tab", defaultKey: "mod+t", label: "鏂板缓缁堢鏍囩" },
+  { id: "close_terminal_tab", defaultKey: "mod+w", label: "鍏抽棴缁堢鏍囩" },
+  { id: "open_settings", defaultKey: "mod+,", label: "鎵撳紑璁剧疆" },
+  { id: "send_message", defaultKey: "enter", label: "鍙戦€佹秷鎭? },
+  { id: "newline_in_message", defaultKey: "shift+enter", label: "娑堟伅鎹㈣" },
+  // ... 鍙牴鎹?VibeX 瀹為檯闇€姹傝皟鏁?
 ]
 ```
 
-### 5.2 存储
-- `localStorage['vibe-ultra-shortcuts:v1']` - JSON 格式
+### 5.2 瀛樺偍
+- `localStorage['vibex-shortcuts:v1']` - JSON 鏍煎紡
 
 ---
 
-## Phase 6: System 设置页面 [预估 2-3 小时]
+## Phase 6: System 璁剧疆椤甸潰 [棰勪及 2-3 灏忔椂]
 
-### 目标
-将现有 GeneralSettings 重构为 codeg 风格的 System 设置页面。
+### 鐩爣
+灏嗙幇鏈?GeneralSettings 閲嶆瀯涓?codeg 椋庢牸鐨?System 璁剧疆椤甸潰銆?
 
-### 6.1 后端 - 系统设置命令
+### 6.1 鍚庣 - 绯荤粺璁剧疆鍛戒护
 
-#### 6.1.1 代理设置 (可选，如需 HTTP 代理)
-- **文件**: 扩展 `src-tauri/src/commands/config.rs`
-- **新增**: `get_proxy_settings`, `update_proxy_settings`
+#### 6.1.1 浠ｇ悊璁剧疆 (鍙€夛紝濡傞渶 HTTP 浠ｇ悊)
+- **鏂囦欢**: 鎵╁睍 `src-tauri/src/commands/config.rs`
+- **鏂板**: `get_proxy_settings`, `update_proxy_settings`
 
-### 6.2 前端 - System 组件
+### 6.2 鍓嶇 - System 缁勪欢
 
-#### 6.2.1 主页面
-- **文件**: `frontend/src/pages/settings/SystemSettings.tsx` (新建，替代 GeneralSettings)
-- **参考**: `code-referance/codeg/src/components/settings/system-network-settings.tsx`
-- **结构**:
+#### 6.2.1 涓婚〉闈?
+- **鏂囦欢**: `frontend/src/pages/settings/SystemSettings.tsx` (鏂板缓锛屾浛浠?GeneralSettings)
+- **鍙傝€?*: `code-referance/codeg/src/components/settings/system-network-settings.tsx`
+- **缁撴瀯**:
   ```
   div.space-y-8
-  ├── Section: 外观
-  │   └── 主题选择 (System / Light / Dark)
-  ├── Section: 交互
-  │   ├── 发送消息快捷键
-  │   └── 默认终端 Shell
-  ├── Section: 编辑器
-  │   ├── 编辑器类型选择
-  │   └── 自定义命令
-  ├── Section: Git
-  │   ├── 分支名前缀
-  │   ├── 工作区目录
-  │   └── 提交提醒
-  ├── Section: 通知
-  │   ├── 声音开关 + 选择
-  │   └── 推送通知
-  ├── Section: 应用更新
-  │   ├── 当前版本
-  │   ├── 检查更新按钮
-  │   └── 更新日志
-  └── Section: 重置
-      ├── 重置免责声明
-      └── 重置入门流程
+  鈹溾攢鈹€ Section: 澶栬
+  鈹?  鈹斺攢鈹€ 涓婚閫夋嫨 (System / Light / Dark)
+  鈹溾攢鈹€ Section: 浜や簰
+  鈹?  鈹溾攢鈹€ 鍙戦€佹秷鎭揩鎹烽敭
+  鈹?  鈹斺攢鈹€ 榛樿缁堢 Shell
+  鈹溾攢鈹€ Section: 缂栬緫鍣?
+  鈹?  鈹溾攢鈹€ 缂栬緫鍣ㄧ被鍨嬮€夋嫨
+  鈹?  鈹斺攢鈹€ 鑷畾涔夊懡浠?
+  鈹溾攢鈹€ Section: Git
+  鈹?  鈹溾攢鈹€ 鍒嗘敮鍚嶅墠缂€
+  鈹?  鈹溾攢鈹€ 宸ヤ綔鍖虹洰褰?
+  鈹?  鈹斺攢鈹€ 鎻愪氦鎻愰啋
+  鈹溾攢鈹€ Section: 閫氱煡
+  鈹?  鈹溾攢鈹€ 澹伴煶寮€鍏?+ 閫夋嫨
+  鈹?  鈹斺攢鈹€ 鎺ㄩ€侀€氱煡
+  鈹溾攢鈹€ Section: 搴旂敤鏇存柊
+  鈹?  鈹溾攢鈹€ 褰撳墠鐗堟湰
+  鈹?  鈹溾攢鈹€ 妫€鏌ユ洿鏂版寜閽?
+  鈹?  鈹斺攢鈹€ 鏇存柊鏃ュ織
+  鈹斺攢鈹€ Section: 閲嶇疆
+      鈹溾攢鈹€ 閲嶇疆鍏嶈矗澹版槑
+      鈹斺攢鈹€ 閲嶇疆鍏ラ棬娴佺▼
   ```
 
 ---
 
-## Phase 7: 清理和集成 [预估 2-3 小时]
+## Phase 7: 娓呯悊鍜岄泦鎴?[棰勪及 2-3 灏忔椂]
 
-### 任务
+### 浠诲姟
 
-#### 7.1 移除旧设置页面
-- 删除: `frontend/src/pages/settings/ProjectSettings.tsx`
-- 删除: `frontend/src/pages/settings/ReposSettings.tsx`
-- 更新: `frontend/src/pages/settings/index.ts` 导出
+#### 7.1 绉婚櫎鏃ц缃〉闈?
+- 鍒犻櫎: `frontend/src/pages/settings/ProjectSettings.tsx`
+- 鍒犻櫎: `frontend/src/pages/settings/ReposSettings.tsx`
+- 鏇存柊: `frontend/src/pages/settings/index.ts` 瀵煎嚭
 
-#### 7.2 主窗口设置入口
-- 移除主窗口中的 `/settings` 路由导航（Sidebar 等）
-- 确保 `Ctrl+,` 快捷键全局生效
-- Toolbar 中添加齿轮图标按钮
+#### 7.2 涓荤獥鍙ｈ缃叆鍙?
+- 绉婚櫎涓荤獥鍙ｄ腑鐨?`/settings` 璺敱瀵艰埅锛圫idebar 绛夛級
+- 纭繚 `Ctrl+,` 蹇嵎閿叏灞€鐢熸晥
+- Toolbar 涓坊鍔犻娇杞浘鏍囨寜閽?
 
-#### 7.3 窗口间通信
-- 设置窗口保存配置后，主窗口需要刷新
-- 使用 Tauri Events: `settings-updated` 事件
-- 主窗口监听事件并 `reloadSystem()`
+#### 7.3 绐楀彛闂撮€氫俊
+- 璁剧疆绐楀彛淇濆瓨閰嶇疆鍚庯紝涓荤獥鍙ｉ渶瑕佸埛鏂?
+- 浣跨敤 Tauri Events: `settings-updated` 浜嬩欢
+- 涓荤獥鍙ｇ洃鍚簨浠跺苟 `reloadSystem()`
 
-#### 7.4 类型更新
-- 运行 `cargo run --bin generate-types` 更新 `shared/types.ts`
-- 确保所有新类型正确导出
+#### 7.4 绫诲瀷鏇存柊
+- 杩愯 `cargo run --bin generate-types` 鏇存柊 `shared/types.ts`
+- 纭繚鎵€鏈夋柊绫诲瀷姝ｇ‘瀵煎嚭
 
 ---
 
-## 文件变更清单
+## 鏂囦欢鍙樻洿娓呭崟
 
-### 新建文件 (~25 个)
+### 鏂板缓鏂囦欢 (~25 涓?
 
-**后端 (Rust)**:
-1. `src-tauri/src/commands/settings_window.rs` - 窗口管理
-2. `src-tauri/src/commands/agent_settings.rs` - Agent 设置命令
-3. `src-tauri/src/commands/mcp_settings.rs` - MCP 设置命令 (扩展)
-4. `src-tauri/src/commands/skills.rs` - Skills 命令
-5. `crates/db/migrations/YYYYMMDD_agent_setting.sql` - 数据库迁移
-6. `crates/db/src/agent_setting.rs` - Agent 设置 CRUD
-7. `crates/services/src/services/agent_preflight.rs` - Preflight 检查
-8. `crates/services/src/services/agent_binary.rs` - 二进制管理
-9. `crates/services/src/services/skills.rs` - Skills 服务
-10. `crates/api-types/src/agent_settings.rs` - Agent 设置类型
+**鍚庣 (Rust)**:
+1. `src-tauri/src/commands/settings_window.rs` - 绐楀彛绠＄悊
+2. `src-tauri/src/commands/agent_settings.rs` - Agent 璁剧疆鍛戒护
+3. `src-tauri/src/commands/mcp_settings.rs` - MCP 璁剧疆鍛戒护 (鎵╁睍)
+4. `src-tauri/src/commands/skills.rs` - Skills 鍛戒护
+5. `crates/db/migrations/YYYYMMDD_agent_setting.sql` - 鏁版嵁搴撹縼绉?
+6. `crates/db/src/agent_setting.rs` - Agent 璁剧疆 CRUD
+7. `crates/services/src/services/agent_preflight.rs` - Preflight 妫€鏌?
+8. `crates/services/src/services/agent_binary.rs` - 浜岃繘鍒剁鐞?
+9. `crates/services/src/services/skills.rs` - Skills 鏈嶅姟
+10. `crates/api-types/src/agent_settings.rs` - Agent 璁剧疆绫诲瀷
 
-**前端 (TypeScript/React)**:
-11. `frontend/src/pages/settings/SettingsWindow.tsx` - 窗口根组件
-12. `frontend/src/pages/settings/SkillsSettings.tsx` - Skills 页面
-13. `frontend/src/pages/settings/ShortcutSettings.tsx` - 快捷键页面
-14. `frontend/src/pages/settings/SystemSettings.tsx` - 系统设置
-15. `frontend/src/components/settings/AgentCard.tsx` - Agent 卡片
-16. `frontend/src/components/settings/agents/ClaudeCodeForm.tsx` - Claude 表单 (重写)
-17. `frontend/src/components/settings/agents/CodexForm.tsx` - Codex 表单 (重写)
-18. `frontend/src/components/settings/agents/OpenCodeForm.tsx` - OpenCode 表单 (重写)
-19. `frontend/src/components/settings/McpServerCard.tsx` - MCP 服务器卡片
-20. `frontend/src/components/settings/SkillEditor.tsx` - Skill 编辑器
-21. `frontend/src/lib/keyboard-shortcuts.ts` - 快捷键工具
-22. `frontend/src/hooks/useShortcutSettings.ts` - 快捷键 Hook
-23. `frontend/src/hooks/useAgentSettings.ts` - Agent 设置 Hook (新)
+**鍓嶇 (TypeScript/React)**:
+11. `frontend/src/pages/settings/SettingsWindow.tsx` - 绐楀彛鏍圭粍浠?
+12. `frontend/src/pages/settings/SkillsSettings.tsx` - Skills 椤甸潰
+13. `frontend/src/pages/settings/ShortcutSettings.tsx` - 蹇嵎閿〉闈?
+14. `frontend/src/pages/settings/SystemSettings.tsx` - 绯荤粺璁剧疆
+15. `frontend/src/components/settings/AgentCard.tsx` - Agent 鍗＄墖
+16. `frontend/src/components/settings/agents/ClaudeCodeForm.tsx` - Claude 琛ㄥ崟 (閲嶅啓)
+17. `frontend/src/components/settings/agents/CodexForm.tsx` - Codex 琛ㄥ崟 (閲嶅啓)
+18. `frontend/src/components/settings/agents/OpenCodeForm.tsx` - OpenCode 琛ㄥ崟 (閲嶅啓)
+19. `frontend/src/components/settings/McpServerCard.tsx` - MCP 鏈嶅姟鍣ㄥ崱鐗?
+20. `frontend/src/components/settings/SkillEditor.tsx` - Skill 缂栬緫鍣?
+21. `frontend/src/lib/keyboard-shortcuts.ts` - 蹇嵎閿伐鍏?
+22. `frontend/src/hooks/useShortcutSettings.ts` - 蹇嵎閿?Hook
+23. `frontend/src/hooks/useAgentSettings.ts` - Agent 璁剧疆 Hook (鏂?
 
-### 修改文件 (~15 个)
+### 淇敼鏂囦欢 (~15 涓?
 
-1. `src-tauri/src/lib.rs` - 注册新命令
-2. `src-tauri/tauri.conf.json` - 窗口权限配置
-3. `frontend/src/App.tsx` - 路由更新
-4. `frontend/src/pages/settings/SettingsLayout.tsx` - 布局重写
-5. `frontend/src/pages/settings/AgentSettings.tsx` - 完全重写
-6. `frontend/src/pages/settings/McpSettings.tsx` - 完全重写
-7. `frontend/src/pages/settings/index.ts` - 导出更新
-8. `frontend/src/lib/api.ts` - 新增 API 封装
-9. `frontend/src/lib/agentConfigUtils.ts` - 适配新数据结构
-10. `frontend/src/components/layout/Toolbar.tsx` - 添加设置按钮
-11. `frontend/src/components/ConfigProvider.tsx` - 适配新数据流
-12. `crates/db/src/lib.rs` - 注册新模块
-13. `crates/services/src/lib.rs` - 注册新服务
-14. `crates/api-types/src/lib.rs` - 注册新类型
-15. `frontend/package.json` - 添加 framer-motion 依赖
+1. `src-tauri/src/lib.rs` - 娉ㄥ唽鏂板懡浠?
+2. `src-tauri/tauri.conf.json` - 绐楀彛鏉冮檺閰嶇疆
+3. `frontend/src/App.tsx` - 璺敱鏇存柊
+4. `frontend/src/pages/settings/SettingsLayout.tsx` - 甯冨眬閲嶅啓
+5. `frontend/src/pages/settings/AgentSettings.tsx` - 瀹屽叏閲嶅啓
+6. `frontend/src/pages/settings/McpSettings.tsx` - 瀹屽叏閲嶅啓
+7. `frontend/src/pages/settings/index.ts` - 瀵煎嚭鏇存柊
+8. `frontend/src/lib/api.ts` - 鏂板 API 灏佽
+9. `frontend/src/lib/agentConfigUtils.ts` - 閫傞厤鏂版暟鎹粨鏋?
+10. `frontend/src/components/layout/Toolbar.tsx` - 娣诲姞璁剧疆鎸夐挳
+11. `frontend/src/components/ConfigProvider.tsx` - 閫傞厤鏂版暟鎹祦
+12. `crates/db/src/lib.rs` - 娉ㄥ唽鏂版ā鍧?
+13. `crates/services/src/lib.rs` - 娉ㄥ唽鏂版湇鍔?
+14. `crates/api-types/src/lib.rs` - 娉ㄥ唽鏂扮被鍨?
+15. `frontend/package.json` - 娣诲姞 framer-motion 渚濊禆
 
-### 删除文件 (~2 个)
+### 鍒犻櫎鏂囦欢 (~2 涓?
 
 1. `frontend/src/pages/settings/ProjectSettings.tsx`
 2. `frontend/src/pages/settings/ReposSettings.tsx`
 
 ---
 
-## 实施顺序和依赖关系
+## 瀹炴柦椤哄簭鍜屼緷璧栧叧绯?
 
 ```
-Phase 0 (独立窗口) ──┐
-                      ├──→ Phase 1 (Shell 布局) ──→ Phase 6 (System)
-                      │                          ──→ Phase 5 (Shortcuts)
-Phase 2.1 (DB 层)  ──┤
-Phase 2.2 (命令层) ──┤──→ Phase 2.3 (Agent UI) ──→ Phase 3 (MCP)
-                      │                          ──→ Phase 4 (Skills)
-                      └──→ Phase 7 (清理集成)
+Phase 0 (鐙珛绐楀彛) 鈹€鈹€鈹?
+                      鈹溾攢鈹€鈫?Phase 1 (Shell 甯冨眬) 鈹€鈹€鈫?Phase 6 (System)
+                      鈹?                         鈹€鈹€鈫?Phase 5 (Shortcuts)
+Phase 2.1 (DB 灞?  鈹€鈹€鈹?
+Phase 2.2 (鍛戒护灞? 鈹€鈹€鈹も攢鈹€鈫?Phase 2.3 (Agent UI) 鈹€鈹€鈫?Phase 3 (MCP)
+                      鈹?                         鈹€鈹€鈫?Phase 4 (Skills)
+                      鈹斺攢鈹€鈫?Phase 7 (娓呯悊闆嗘垚)
 ```
 
-**建议执行顺序**: 0 → 1 → 2 → 6 → 5 → 3 → 4 → 7
+**寤鸿鎵ц椤哄簭**: 0 鈫?1 鈫?2 鈫?6 鈫?5 鈫?3 鈫?4 鈫?7
 
 ---
 
-## 风险和注意事项
+## 椋庨櫓鍜屾敞鎰忎簨椤?
 
-1. **profiles.json 兼容性**: 新增 agent_setting 表后，需确保与现有 profiles.json 数据双向同步
-2. **二进制下载安全**: 需验证下载源的可信度，使用 SHA256 校验
-3. **跨平台路径**: Windows/macOS/Linux 的配置文件路径不同，需使用 `dirs` crate
-4. **窗口生命周期**: 独立窗口关闭时需正确清理资源
-5. **Framer Motion 兼容**: 确认与现有动画库无冲突
-6. **代码量大**: Agent 设置页面约 5000+ 行，建议拆分为多个子组件（AgentCard、Forms 等）
+1. **profiles.json 鍏煎鎬?*: 鏂板 agent_setting 琛ㄥ悗锛岄渶纭繚涓庣幇鏈?profiles.json 鏁版嵁鍙屽悜鍚屾
+2. **浜岃繘鍒朵笅杞藉畨鍏?*: 闇€楠岃瘉涓嬭浇婧愮殑鍙俊搴︼紝浣跨敤 SHA256 鏍￠獙
+3. **璺ㄥ钩鍙拌矾寰?*: Windows/macOS/Linux 鐨勯厤缃枃浠惰矾寰勪笉鍚岋紝闇€浣跨敤 `dirs` crate
+4. **绐楀彛鐢熷懡鍛ㄦ湡**: 鐙珛绐楀彛鍏抽棴鏃堕渶姝ｇ‘娓呯悊璧勬簮
+5. **Framer Motion 鍏煎**: 纭涓庣幇鏈夊姩鐢诲簱鏃犲啿绐?
+6. **浠ｇ爜閲忓ぇ**: Agent 璁剧疆椤甸潰绾?5000+ 琛岋紝寤鸿鎷嗗垎涓哄涓瓙缁勪欢锛圓gentCard銆丗orms 绛夛級

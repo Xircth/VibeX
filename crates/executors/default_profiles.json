@@ -65,6 +65,19 @@
           "ask_for_approval": "unless-trusted"
         }
       },
+      "GPT_5_5": {
+        "CODEX": {
+          "model": "gpt-5.5",
+          "sandbox": "danger-full-access"
+        }
+      },
+      "GPT_5_5_APPROVALS": {
+        "CODEX": {
+          "model": "gpt-5.5",
+          "sandbox": "workspace-write",
+          "ask_for_approval": "unless-trusted"
+        }
+      },
       "MAX": {
         "CODEX": {
           "model": "gpt-5.1-codex-max",

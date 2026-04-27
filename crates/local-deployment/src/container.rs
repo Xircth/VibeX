@@ -384,7 +384,7 @@ impl LocalContainerService {
             );
             if !WorkspaceManager::is_app_owned_workspace_dir(&workspace_dir) {
                 tracing::warn!(
-                    "Refusing to remove workspace directory outside VibeUltra-owned storage: {}",
+                    "Refusing to remove workspace directory outside VibeX-owned storage: {}",
                     workspace_dir.display()
                 );
             } else if workspace_dir.exists()

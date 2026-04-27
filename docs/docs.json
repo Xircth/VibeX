@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Vibe Ultra",
+  "name": "VibeX",
   "description": "A kanban board for developers to track coding tasks with AI coding agents",
   "appearance": {
     "default": "light"
@@ -133,7 +133,7 @@
           "integrations/azure-repos-integration",
           "integrations/vscode-extension",
           "integrations/mcp-server-configuration",
-          "integrations/vibe-ultra-mcp-server"
+          "integrations/vibex-mcp-server"
         ]
       },
       {
@@ -152,13 +152,13 @@
     "links": [
       {
         "label": "GitHub",
-        "href": "https://github.com/vibe-ultra/vibe-ultra"
+        "href": "https://github.com/vibex/vibex"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Get Started",
-      "href": "https://vibeultra.com/docs"
+      "href": "https://vibex.com/docs"
     }
   },
   "contextual": {
@@ -175,8 +175,8 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/vibe-ultra/vibe-ultra",
-      "x": "https://x.com/vibeultra"
+      "github": "https://github.com/vibex/vibex",
+      "x": "https://x.com/vibex"
     }
   }
 }

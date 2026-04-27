@@ -658,7 +658,7 @@ impl WorktreeManager {
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
     }
 
-    /// Get the base directory for Vibe Ultra worktrees
+    /// Get the base directory for VibeX worktrees
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
         if let Some(override_path) = WORKSPACE_DIR_OVERRIDE
             .read()
@@ -667,14 +667,14 @@ impl WorktreeManager {
         {
             // Always use app-owned subdirectory within custom path for safety.
             // This ensures orphan cleanup never touches user's existing folders.
-            return override_path.join(".vibe-ultra-workspaces");
+            return override_path.join(".vibex-workspaces");
         }
         Self::get_default_worktree_base_dir()
     }
 
     /// Get the default base directory (ignoring any override)
     pub fn get_default_worktree_base_dir() -> std::path::PathBuf {
-        utils::path::get_vibe_ultra_temp_dir().join("worktrees")
+        utils::path::get_vibex_temp_dir().join("worktrees")
     }
 
     pub async fn cleanup_suspected_worktree(path: &Path) -> Result<bool, WorktreeError> {

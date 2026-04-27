@@ -1,7 +1,7 @@
 ---
 title: "Factory Droid"
 description: "Set up Factory AI's Droid coding agent"
-icon: https://www.vibeultra.com/images/logos/factory-ai-logo-light.png
+icon: https://www.vibex.com/images/logos/factory-ai-logo-light.png
 ---
 
 <Steps>
@@ -24,7 +24,7 @@ icon: https://www.vibeultra.com/images/logos/factory-ai-logo-light.png
 </Step>
 
 <Step title="Authenticate with Factory AI">
-  To use Droid in Vibe Ultra, you must first authenticate:
+  To use Droid in VibeX, you must first authenticate:
 
   1. Run `droid` to launch the interactive CLI
   2. Use the `/login` command within Droid to authenticate
@@ -38,11 +38,11 @@ icon: https://www.vibeultra.com/images/logos/factory-ai-logo-light.png
   For detailed authentication instructions, see the [Factory AI documentation](https://docs.factory.ai/factory-cli/getting-started/overview).
 </Step>
 
-<Step title="Start Vibe Ultra">
-  Once authenticated, launch Vibe Ultra:
+<Step title="Start VibeX">
+  Once authenticated, launch VibeX:
 
   ```bash
-  npx vibe-ultra
+  npx vibex
   ```
 
   You can now select Factory Droid when creating task attempts.
@@ -51,10 +51,10 @@ icon: https://www.vibeultra.com/images/logos/factory-ai-logo-light.png
 
 ## Configuration Options
 
-Droid supports several configuration options in Vibe Ultra:
+Droid supports several configuration options in VibeX:
 
 - **Autonomy Level**: Controls permission level for file and system operations
-  - `normal`: Read-only mode – safe for reviewing planned changes without execution
+  - `normal`: Read-only mode 鈥?safe for reviewing planned changes without execution
   - `low`: Basic file creation/editing while blocking system changes
   - `medium`: Development operations with recoverable side effects
   - `high`: Production operations with security implications or major side effects
@@ -68,4 +68,4 @@ Droid supports several configuration options in Vibe Ultra:
   - `medium`: Balanced reasoning
   - `high`: Deep reasoning for complex tasks
 
-These options can be configured when creating agent configurations in Vibe Ultra.
+These options can be configured when creating agent configurations in VibeX.

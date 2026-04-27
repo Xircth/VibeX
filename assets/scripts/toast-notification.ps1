@@ -1,9 +1,9 @@
 param(
     [Parameter(Mandatory=$false)]
-    [string]$AppId = "com.vibe-ultra.app",
+    [string]$AppId = "com.vibex.app",
 
     [Parameter(Mandatory=$false)]
-    [string]$AppName = "VibeUltra",
+    [string]$AppName = "VibeX",
 
     [Parameter(Mandatory=$true)]
     [string]$Title,

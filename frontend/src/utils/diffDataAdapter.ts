@@ -21,15 +21,15 @@ export type CommentAnnotation =
   | { type: 'github'; comment: NormalizedGitHubComment };
 
 /**
- * Maps Vibe Ultra's DiffChangeKind to pierre/diffs ChangeTypes.
+ * Maps VibeX's DiffChangeKind to pierre/diffs ChangeTypes.
  *
  * Mapping:
- * - 'added' → 'new'
- * - 'deleted' → 'deleted'
- * - 'modified' → 'change'
- * - 'renamed' → 'rename-pure' or 'rename-changed' (based on content diff)
- * - 'copied' → 'change'
- * - 'permissionChange' → 'change'
+ * - 'added' 鈫?'new'
+ * - 'deleted' 鈫?'deleted'
+ * - 'modified' 鈫?'change'
+ * - 'renamed' 鈫?'rename-pure' or 'rename-changed' (based on content diff)
+ * - 'copied' 鈫?'change'
+ * - 'permissionChange' 鈫?'change'
  */
 function mapChangeKindToChangeType(
   kind: DiffChangeKind,
@@ -70,12 +70,12 @@ function getFilePath(diff: Diff): string {
 }
 
 /**
- * Transforms a Vibe Ultra Diff to pierre/diffs FileDiffMetadata.
+ * Transforms a VibeX Diff to pierre/diffs FileDiffMetadata.
  *
  * Uses parseDiffFromFile from @pierre/diffs to generate the diff metadata
  * from old and new file contents.
  *
- * @param diff - The Vibe Ultra Diff object
+ * @param diff - The VibeX Diff object
  * @returns FileDiffMetadata for use with pierre/diffs components
  */
 export function transformDiffToFileDiffMetadata(

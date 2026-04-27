@@ -13,7 +13,7 @@ const ENTRY_CANDIDATES = [
   'src/main.js',
 ] as const;
 
-const TOOLBAR_BRIDGE_MARKER = 'data-vibe-ultra-toolbar-bridge';
+const TOOLBAR_BRIDGE_MARKER = 'data-vibex-toolbar-bridge';
 
 const TOOLBAR_BRIDGE_SNIPPET = `if (typeof window !== 'undefined') {
   const bridgeRoot = document.documentElement;
@@ -107,19 +107,19 @@ async function findEntryFile(
     }
   }
 
-  throw new Error('未找到可自动接入的入口文件（支持 src/main.tsx/jsx/ts/js）');
+  throw new Error('未找到可自动接入的入口文件：src/main.tsx/jsx/ts/js。');
 }
 
 function ensureCompanionImport(source: string): string {
-  if (source.includes('vibe-ultra-web-companion')) {
+  if (source.includes('vibex-web-companion')) {
     return source;
   }
 
-  return `import { VibeUltraWebCompanion } from 'vibe-ultra-web-companion';\n${source}`;
+  return `import { VibeXWebCompanion } from 'vibex-web-companion';\n${source}`;
 }
 
 function ensureCompanionRender(source: string): string {
-  if (source.includes('<VibeUltraWebCompanion />')) {
+  if (source.includes('<VibeXWebCompanion />')) {
     return source;
   }
 
@@ -128,12 +128,12 @@ function ensureCompanionRender(source: string): string {
       '<App />',
       `<>
         <App />
-        <VibeUltraWebCompanion />
+        <VibeXWebCompanion />
       </>`
     );
   }
 
-  throw new Error('入口文件中未找到 <App />，暂无法自动接入 Web Companion');
+  throw new Error('未在入口文件中找到 <App />，无法自动接入 Web Companion。');
 }
 
 function ensureCompanionToolbarBridge(source: string): string {
@@ -156,11 +156,11 @@ export async function installWebCompanion({
   runningDevServers: ExecutionProcess[];
 }): Promise<{ entryPath: string; repoName: string }> {
   if (!attempt?.container_ref) {
-    throw new Error('当前工作区没有可用的文件目录');
+    throw new Error('当前工作区没有可用的项目目录。');
   }
 
   if (repos.length === 0) {
-    throw new Error('当前工作区没有可用仓库');
+    throw new Error('当前工作区没有可用的仓库。');
   }
 
   const targetRepo = chooseTargetRepo(repos, runningDevServers);

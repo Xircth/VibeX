@@ -171,8 +171,8 @@ impl NotificationService {
     /// Send Windows/WSL notification using PowerShell toast script
     #[allow(dead_code)]
     async fn send_windows_notification(title: &str, message: &str) {
-        const WINDOWS_TOAST_APP_ID: &str = "com.vibe-ultra.app";
-        const WINDOWS_TOAST_APP_NAME: &str = "VibeUltra";
+        const WINDOWS_TOAST_APP_ID: &str = "com.vibex.app";
+        const WINDOWS_TOAST_APP_NAME: &str = "VibeX";
         let script_path = match utils::get_powershell_script().await {
             Ok(path) => path,
             Err(e) => {

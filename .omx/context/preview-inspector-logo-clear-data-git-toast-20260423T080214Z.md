@@ -1,12 +1,12 @@
-﻿# Ralph Context Snapshot
+# Ralph Context Snapshot
 
 ## Task statement
-Add Console and Network to the Dev Preview inspector, switch all app logo usage from the old raster logo to `frontend/src/assets/vibe_ultra_logo.svg`, add a Settings > System local-data clear action with confirmation toast, audit/fix Git rebase/Git manager/Git diff workspace-following behavior, and audit/fix notifications that bypass Toast or appear in the wrong place.
+Add Console and Network to the Dev Preview inspector, switch all app logo usage from the old raster logo to `frontend/src/assets/vibex_logo.svg`, add a Settings > System local-data clear action with confirmation toast, audit/fix Git rebase/Git manager/Git diff workspace-following behavior, and audit/fix notifications that bypass Toast or appear in the wrong place.
 
 ## Desired outcome
 - Dev Preview inspector has in-panel Elements, Console, Network, Logs, and Page views.
 - Old Image #1 logo usage is replaced with the SVG asset.
-- Settings/System exposes a destructive local-data reset with themed confirmation toast; reset removes VibeUltra local app data without touching project files or worktrees.
+- Settings/System exposes a destructive local-data reset with themed confirmation toast; reset removes VibeX local app data without touching project files or worktrees.
 - Git UI/actions follow the selected workspace consistently.
 - Misplaced notification paths are converted to the app Toast surface where appropriate.
 
@@ -23,7 +23,7 @@ Add Console and Network to the Dev Preview inspector, switch all app logo usage 
 - Verify with frontend check/lint and targeted tests; Rust checks if backend commands change.
 
 ## Unknowns/open questions
-- Where VibeUltra local app data is stored and which files are safe to clear.
+- Where VibeX local app data is stored and which files are safe to clear.
 - Whether preview proxy already injects scripts suitable for console/network capture.
 - Which settings component owns Settings > System.
 - Whether current Git workspace-following bugs remain after prior fixes.

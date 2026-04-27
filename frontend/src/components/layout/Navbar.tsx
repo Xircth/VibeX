@@ -39,12 +39,12 @@ const EXTERNAL_LINKS = [
   {
     label: 'Docs',
     icon: BookOpen,
-    href: 'https://vibeultra.com/docs',
+    href: 'https://vibex.com/docs',
   },
   {
     label: 'Support',
     icon: MessageCircleQuestion,
-    href: 'https://github.com/vibe-ultra/vibe-ultra/issues',
+    href: 'https://github.com/vibex/vibex/issues',
   },
   {
     label: 'Discord',
@@ -107,9 +107,7 @@ export function Navbar() {
           suffix.startsWith('/sessions') ||
           suffix.startsWith('/workspaces')
         ) {
-          navigate(
-            `${paths.projectSessions(nextProjectId)}${location.search}`
-          );
+          navigate(`${paths.projectSessions(nextProjectId)}${location.search}`);
           return;
         }
 
@@ -128,7 +126,7 @@ export function Navbar() {
         <div className="flex items-center h-12 py-2">
           <div className="flex-1 flex items-center">
             <Link to="/local-projects">
-              <Logo />
+              <Logo size="window" />
             </Link>
             <ProjectRailToggleButton />
             <DropdownMenu>

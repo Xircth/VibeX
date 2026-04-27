@@ -58,8 +58,8 @@
   }
 
   function installConsoleCapture() {
-    if (window.__vibeUltraConsoleCaptureInstalled) return;
-    window.__vibeUltraConsoleCaptureInstalled = true;
+    if (window.__vibeXConsoleCaptureInstalled) return;
+    window.__vibeXConsoleCaptureInstalled = true;
 
     ['log', 'info', 'warn', 'error', 'debug'].forEach(function(level) {
       var original = console[level];
@@ -111,8 +111,8 @@
   }
 
   function installFetchCapture() {
-    if (typeof window.fetch !== 'function' || window.__vibeUltraFetchCaptureInstalled) return;
-    window.__vibeUltraFetchCaptureInstalled = true;
+    if (typeof window.fetch !== 'function' || window.__vibeXFetchCaptureInstalled) return;
+    window.__vibeXFetchCaptureInstalled = true;
 
     var originalFetch = window.fetch;
     window.fetch = function(input, init) {
@@ -145,14 +145,14 @@
   }
 
   function installXhrCapture() {
-    if (!window.XMLHttpRequest || window.__vibeUltraXhrCaptureInstalled) return;
-    window.__vibeUltraXhrCaptureInstalled = true;
+    if (!window.XMLHttpRequest || window.__vibeXXhrCaptureInstalled) return;
+    window.__vibeXXhrCaptureInstalled = true;
 
     var originalOpen = XMLHttpRequest.prototype.open;
     var originalSend = XMLHttpRequest.prototype.send;
 
     XMLHttpRequest.prototype.open = function(method, url) {
-      this.__vibeUltraRequest = {
+      this.__vibeXRequest = {
         kind: 'xhr',
         method: method ? String(method).toUpperCase() : 'GET',
         url: requestUrl(url),
@@ -167,7 +167,7 @@
 
     XMLHttpRequest.prototype.send = function() {
       var xhr = this;
-      var request = xhr.__vibeUltraRequest;
+      var request = xhr.__vibeXRequest;
       var startedAt = performance.now();
 
       function finalize(error) {
@@ -434,7 +434,7 @@
   // =============================================================================
 
   // --- Helper: extract component name from file path ---
-  // e.g. '/src/components/AppHeader.vue' → 'AppHeader'
+  // e.g. '/src/components/AppHeader.vue' 鈫?'AppHeader'
   function extractNameFromFile(filePath) {
     if (!filePath || typeof filePath !== 'string') return null;
     var parts = filePath.replace(/\\/g, '/').split('/');
@@ -574,7 +574,7 @@
   }
 
   // --- Helper: extract component name from Svelte file path ---
-  // e.g. 'src/routes/+page.svelte' → '+page', 'src/lib/Button.svelte' → 'Button'
+  // e.g. 'src/routes/+page.svelte' 鈫?'+page', 'src/lib/Button.svelte' 鈫?'Button'
   function extractSvelteComponentName(filePath) {
     if (!filePath || typeof filePath !== 'string') return null;
     var parts = filePath.replace(/\\/g, '/').split('/');
@@ -604,7 +604,7 @@
       // Also check for svelte-* CSS class as a hint, but only return true
       // if __svelte_meta is actually found somewhere
       if (findSvelteMeta(element)) return true;
-      // Svelte CSS class hint present but no __svelte_meta found — not enough
+      // Svelte CSS class hint present but no __svelte_meta found 鈥?not enough
       return false;
     },
 
@@ -652,7 +652,7 @@
   // =============================================================================
 
   // --- Helper: extract component name from Astro component-url ---
-  // e.g. '/src/components/Counter.jsx' → 'Counter'
+  // e.g. '/src/components/Counter.jsx' 鈫?'Counter'
   function extractAstroComponentName(componentUrl) {
     if (!componentUrl || typeof componentUrl !== 'string') return null;
     var clean = componentUrl.split('?')[0].split('#')[0];
@@ -832,7 +832,7 @@
   }
 
   // --- Dispatcher: iterate adapters, first match wins, fallback to HTML ---
-  // Returns raw ComponentPayload (v2 protocol — no markdown conversion)
+  // Returns raw ComponentPayload (v2 protocol 鈥?no markdown conversion)
   function getElementContext(element) {
     for (var i = 0; i < adapters.length; i++) {
       if (adapters[i].detect(element)) {

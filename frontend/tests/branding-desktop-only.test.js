@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(frontendRoot, '..');
-const brandPattern = /VibeUltra|APP_NAME/;
+const brandPattern = /VibeX|APP_NAME/;
 
 function readFrontendFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
@@ -18,16 +18,16 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('Logo 组件与设置页展示 VibeUltra 内部品牌', () => {
+test('Logo 缁勪欢涓庤缃〉灞曠ず VibeX 鍐呴儴鍝佺墝', () => {
   const logoSource = readFrontendFile('src/components/Logo.tsx');
   const settingsSource = readFrontendFile('src/pages/settings/SettingsLayout.tsx');
 
   assert.match(logoSource, brandPattern);
-  assert.match(logoSource, /vibe-ultra\.png/);
+  assert.match(logoSource, /vibex\.png/);
   assert.match(settingsSource, /Logo/);
 });
 
-test('关键前端页面品牌文案更新为 VibeUltra', () => {
+test('鍏抽敭鍓嶇椤甸潰鍝佺墝鏂囨鏇存柊涓?VibeX', () => {
   const welcomeSource = readFrontendFile('src/components/welcome/WelcomePage.tsx');
   const statusBarSource = readFrontendFile('src/components/layout/StatusBar.tsx');
   const onboardingSource = readFrontendFile(
@@ -46,30 +46,30 @@ test('关键前端页面品牌文案更新为 VibeUltra', () => {
   assert.match(onboardingSource, brandPattern);
   assert.doesNotMatch(disclaimerSource, /Vibe Kanban runs AI coding agents/);
   assert.match(disclaimerSource, brandPattern);
-  assert.doesNotMatch(projectContextSource, /vibe-kanban(?!.*vibe-ultra)/);
+  assert.doesNotMatch(projectContextSource, /vibe-kanban(?!.*vibex)/);
   assert.match(projectContextSource, brandPattern);
 });
 
-test('桌面宿主页不再暴露独立 Web/PWA 图标入口', () => {
+test('妗岄潰瀹夸富椤典笉鍐嶆毚闇茬嫭绔?Web/PWA 鍥炬爣鍏ュ彛', () => {
   const indexSource = readFrontendFile('index.html');
 
   assert.doesNotMatch(indexSource, /favicon-vk/);
   assert.doesNotMatch(indexSource, /site\.webmanifest/);
-  assert.match(indexSource, /<title>VibeUltra<\/title>/);
+  assert.match(indexSource, /<title>VibeX<\/title>/);
 });
 
-test('Tauri 桌面应用名称更新为 VibeUltra', () => {
+test('Tauri 妗岄潰搴旂敤鍚嶇О鏇存柊涓?VibeX', () => {
   const tauriConfigSource = readRepoFile('src-tauri/tauri.conf.json');
 
-  assert.match(tauriConfigSource, /"productName":\s*"VibeUltra"/);
-  assert.match(tauriConfigSource, /"title":\s*"VibeUltra"/);
+  assert.match(tauriConfigSource, /"productName":\s*"VibeX"/);
+  assert.match(tauriConfigSource, /"title":\s*"VibeX"/);
 });
 
-test('创建 PR 对话框使用新的品牌后缀', () => {
+test('鍒涘缓 PR 瀵硅瘽妗嗕娇鐢ㄦ柊鐨勫搧鐗屽悗缂€', () => {
   const createPrSource = readFrontendFile(
     'src/components/dialogs/tasks/CreatePRDialog.tsx'
   );
 
   assert.doesNotMatch(createPrSource, /\(vibe-kanban(?!.*ultra)\)/);
-  assert.match(createPrSource, /\(VibeUltra\)|APP_NAME/);
+  assert.match(createPrSource, /\(VibeX\)|APP_NAME/);
 });

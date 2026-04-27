@@ -2,46 +2,46 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-console.log('🚀 VibeUltra 离线构建脚本');
+console.log('馃殌 VibeX 绂荤嚎鏋勫缓鑴氭湰');
 
-// 设置 WIX 环境变量
+// 璁剧疆 WIX 鐜鍙橀噺
 const wixDir = path.join(__dirname, '..', 'src-tauri', 'target', 'wix');
 process.env.WIXTOOLSDIR = wixDir;
 
 console.log('WIXTOOLSDIR:', wixDir);
 
-// 检查 Wix 是否存在
+// 妫€鏌?Wix 鏄惁瀛樺湪
 if (!fs.existsSync(path.join(wixDir, 'candle.exe'))) {
-  console.log('❌ 错误：Wix 未找到。请先运行 node scripts/download-and-extract.js 下载 Wix');
+  console.log('鉂?閿欒锛歐ix 鏈壘鍒般€傝鍏堣繍琛?node scripts/download-and-extract.js 涓嬭浇 Wix');
   process.exit(1);
 }
 
-console.log('✅ Wix 已准备');
+console.log('鉁?Wix 宸插噯澶?);
 
-// 尝试直接使用 cargo 构建而不是 tauri bundle
-console.log('\n🔨 开始构建...');
+// 灏濊瘯鐩存帴浣跨敤 cargo 鏋勫缓鑰屼笉鏄?tauri bundle
+console.log('\n馃敤 寮€濮嬫瀯寤?..');
 
 try {
-  // 1. 编译 Rust 代码
-  console.log('1. 编译 Rust 代码...');
+  // 1. 缂栬瘧 Rust 浠ｇ爜
+  console.log('1. 缂栬瘧 Rust 浠ｇ爜...');
   execSync('cargo build --release', {
     stdio: 'inherit'
   });
 
-  console.log('\n2. 查找构建产物...');
-  const exePath = path.join(__dirname, '..', 'target', 'release', 'vibe-ultra.exe');
+  console.log('\n2. 鏌ユ壘鏋勫缓浜х墿...');
+  const exePath = path.join(__dirname, '..', 'target', 'release', 'vibex.exe');
   if (fs.existsSync(exePath)) {
-    console.log('✅ 可执行文件已生成:', exePath);
-    console.log('\n💡 提示：如果要创建安装包，请手动下载以下工具：');
+    console.log('鉁?鍙墽琛屾枃浠跺凡鐢熸垚:', exePath);
+    console.log('\n馃挕 鎻愮ず锛氬鏋滆鍒涘缓瀹夎鍖咃紝璇锋墜鍔ㄤ笅杞戒互涓嬪伐鍏凤細');
     console.log('   - NSIS: https://nsis.sourceforge.io/Download');
     console.log('   - WiX Toolset: https://wixtoolset.org/');
-    console.log('\n然后运行: pnpm tauri build');
+    console.log('\n鐒跺悗杩愯: pnpm tauri build');
   } else {
-    console.log('❌ 未找到可执行文件');
+    console.log('鉂?鏈壘鍒板彲鎵ц鏂囦欢');
   }
 
-  console.log('\n🎉 基础构建完成！');
+  console.log('\n馃帀 鍩虹鏋勫缓瀹屾垚锛?);
 } catch (error) {
-  console.error('❌ 构建失败:', error.message);
+  console.error('鉂?鏋勫缓澶辫触:', error.message);
   process.exit(1);
 }

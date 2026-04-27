@@ -345,7 +345,7 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       },
     }),
     {
-      name: 'vibe-ultra-window-projects',
+      name: 'vibex-window-projects',
       version: 4,
       migrate: (persistedState: unknown) => {
         const state = (persistedState ?? {}) as PersistedWindowProjectsState;

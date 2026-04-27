@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot, Check, GitBranch, Pencil, X } from 'lucide-react';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';

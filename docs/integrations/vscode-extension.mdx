@@ -1,9 +1,9 @@
 ---
 title: "VSCode Extension Integration"
-description: "Complete guide to using the Vibe Ultra extension with VSCode, Cursor, and Windsurf"
+description: "Complete guide to using the VibeX extension with VSCode, Cursor, and Windsurf"
 ---
 
-The Vibe Ultra VSCode extension brings task management directly into your IDE, providing seamless integration with logs, diffs, and process monitoring. This extension works with VSCode and popular forks including Cursor and Windsurf.
+The VibeX VSCode extension brings task management directly into your IDE, providing seamless integration with logs, diffs, and process monitoring. This extension works with VSCode and popular forks including Cursor and Windsurf.
 
 <video
   controls
@@ -17,21 +17,21 @@ The Vibe Ultra VSCode extension brings task management directly into your IDE, p
 <Tab title="VSCode">
 Install directly from the Visual Studio Code Marketplace:
 
-<Card title="VSCode Marketplace" icon="download" href="https://marketplace.visualstudio.com/items?itemName=bloop.vibe-ultra">
-  Install the official Vibe Ultra extension for VSCode
+<Card title="VSCode Marketplace" icon="download" href="https://marketplace.visualstudio.com/items?itemName=bloop.vibex">
+  Install the official VibeX extension for VSCode
 </Card>
 
 Alternatively, search for the extension ID in VSCode:
 1. Open VSCode
 2. Press `Ctrl+Shift+X` (Windows/Linux) or `Cmd+Shift+X` (macOS) to open Extensions
-3. Search for `@id:bloop.vibe-ultra`
+3. Search for `@id:bloop.vibex`
 4. Click **Install**
 </Tab>
 
 <Tab title="Cursor">
 For Cursor, use the Open VSX Registry:
 
-<Card title="Open VSX Registry" icon="download" href="https://open-vsx.org/extension/bloop/vibe-ultra">
+<Card title="Open VSX Registry" icon="download" href="https://open-vsx.org/extension/bloop/vibex">
   Install from Open VSX for Cursor compatibility
 </Card>
 
@@ -42,14 +42,14 @@ Since deeplinking from Open VSX doesn't work reliably in Cursor, the easiest ins
 **Installation Steps**:
 1. Open Cursor
 2. Open the Extensions panel
-3. Search for `@id:bloop.vibe-ultra`
+3. Search for `@id:bloop.vibex`
 4. Install the extension
 </Tab>
 
 <Tab title="Windsurf">
 For Windsurf, use the Open VSX Registry:
 
-<Card title="Open VSX Registry" icon="download" href="https://open-vsx.org/extension/bloop/vibe-ultra">
+<Card title="Open VSX Registry" icon="download" href="https://open-vsx.org/extension/bloop/vibex">
   Install from Open VSX for Windsurf compatibility
 </Card>
 
@@ -60,7 +60,7 @@ Since deeplinking from Open VSX doesn't work reliably in Windsurf, the easiest i
 **Installation Steps**:
 1. Open Windsurf
 2. Open the Extensions panel
-3. Search for `@id:bloop.vibe-ultra`
+3. Search for `@id:bloop.vibex`
 4. Install the extension
 </Tab>
 </Tabs>
@@ -88,7 +88,7 @@ The extension provides an integrated workspace view with three main components:
 ## Usage Workflow
 
 <Steps>
-<Step title="Start a task in Vibe Ultra">
+<Step title="Start a task in VibeX">
   Navigate to your project's kanban board and create or select an existing task.
 </Step>
 
@@ -100,7 +100,7 @@ The extension provides an integrated workspace view with three main components:
   Click the **"Open in VSCode"**, **"Open in Cursor"**, or **"Open in Windsurf"** button depending on your preferred IDE.
   
   <Note>
-  The button text will reflect your editor choice configured in Vibe Ultra settings.
+  The button text will reflect your editor choice configured in VibeX settings.
   </Note>
 </Step>
 
@@ -119,23 +119,23 @@ The extension provides an integrated workspace view with three main components:
 
 **Problem**: The extension UI appears empty or shows no task information.
 
-**Solution**: Ensure you're working within a worktree created by a Vibe Ultra task.
+**Solution**: Ensure you're working within a worktree created by a VibeX task.
 
 <Warning>
-The extension can only display task information when VSCode is opened in a directory that corresponds to an active Vibe Ultra task worktree.
+The extension can only display task information when VSCode is opened in a directory that corresponds to an active VibeX task worktree.
 </Warning>
 
 **Steps to resolve**:
-1. Verify you opened VSCode through the "Open in [IDE]" button from a Vibe Ultra task
+1. Verify you opened VSCode through the "Open in [IDE]" button from a VibeX task
 2. Check that you're in the correct directory/worktree
 3. If the issue persists, restart your IDE and try the workflow again
 
 ### Extension Not Loading
 
-**Problem**: The Vibe Ultra extension doesn't appear in your IDE.
+**Problem**: The VibeX extension doesn't appear in your IDE.
 
 **Solutions**:
-- Verify the extension is installed by searching `@id:bloop.vibe-ultra` in Extensions
+- Verify the extension is installed by searching `@id:bloop.vibex` in Extensions
 - Restart your IDE after installation
 - Check that you're using a compatible IDE version
 - For Cursor/Windsurf users, ensure you installed from Open VSX Registry
@@ -143,7 +143,7 @@ The extension can only display task information when VSCode is opened in a direc
 ## Best Practices
 
 <Tip>
-**Workflow Optimization**: Always start tasks from the Vibe Ultra web interface before opening in your IDE to ensure proper context and worktree setup.
+**Workflow Optimization**: Always start tasks from the VibeX web interface before opening in your IDE to ensure proper context and worktree setup.
 </Tip>
 
 <Tip>
@@ -154,10 +154,10 @@ The extension can only display task information when VSCode is opened in a direc
 
 | IDE | Status | Installation Method |
 |-----|--------|-------------------|
-| **VSCode** | ✅ Fully Supported | VSCode Marketplace |
-| **Cursor** | ✅ Fully Supported | Open VSX Registry |  
-| **Windsurf** | ✅ Fully Supported | Open VSX Registry |
+| **VSCode** | 鉁?Fully Supported | VSCode Marketplace |
+| **Cursor** | 鉁?Fully Supported | Open VSX Registry |  
+| **Windsurf** | 鉁?Fully Supported | Open VSX Registry |
 
 <Info>
-The extension is designed to work with any VSCode-compatible editor. If you're using a different VSCode fork, try installing from Open VSX Registry using the extension ID `bloop.vibe-ultra`.
+The extension is designed to work with any VSCode-compatible editor. If you're using a different VSCode fork, try installing from Open VSX Registry using the extension ID `bloop.vibex`.
 </Info>

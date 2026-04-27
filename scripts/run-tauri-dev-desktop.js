@@ -64,7 +64,7 @@ function terminateStaleDesktopProcess() {
     process.cwd(),
     'target',
     'debug',
-    'vibe-ultra.exe'
+    'vibex.exe'
   );
 
   const powershellScript = `

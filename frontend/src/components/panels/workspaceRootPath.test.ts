@@ -28,7 +28,7 @@ describe('workspaceRootPath', () => {
 
   it('keeps repo subdirectories for managed single-repo workspace containers', () => {
     const workspace = {
-      container_ref: 'C:\\Users\\test\\.vibe-ultra-workspaces\\ws-123',
+      container_ref: 'C:\\Users\\test\\.vibex-workspaces\\ws-123',
       use_worktree: true,
       agent_working_dir: 'repo-feature-a\\frontend',
     };
@@ -39,7 +39,7 @@ describe('workspaceRootPath', () => {
     ];
 
     expect(deriveWorkspaceRootPath(workspace, workspaceRepos)).toBe(
-      'C:\\Users\\test\\.vibe-ultra-workspaces\\ws-123\\repo-feature-a'
+      'C:\\Users\\test\\.vibex-workspaces\\ws-123\\repo-feature-a'
     );
   });
 

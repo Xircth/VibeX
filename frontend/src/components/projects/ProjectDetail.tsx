@@ -44,7 +44,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     const result = await ConfirmDialog.show({
       title: `Delete "${project.name}"?`,
       message:
-        'This removes the project and its local VibeUltra data. Project files and Git worktrees are not deleted.',
+        'This removes the project and its local VibeX data. Project files and Git worktrees are not deleted.',
       confirmText: 'Delete',
       cancelText: 'Cancel',
       variant: 'destructive',

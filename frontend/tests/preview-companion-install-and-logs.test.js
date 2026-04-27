@@ -17,7 +17,7 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('预览成功状态与 Companion 就绪状态分离', () => {
+test('棰勮鎴愬姛鐘舵€佷笌 Companion 灏辩华鐘舵€佸垎绂?, () => {
   const source = readFrontendFile('src/components/panels/PreviewPanel.tsx');
   const readyContent = readFrontendFile('src/components/tasks/TaskDetails/preview/ReadyContent.tsx');
 
@@ -31,7 +31,7 @@ test('预览成功状态与 Companion 就绪状态分离', () => {
   assert.match(readyContent, /onLoad=\{\(\) => onIframeLoad\?\.\(iframeRef\.current\)\}/);
 });
 
-test('右侧边栏启动开发服务器后不再重复创建日志标签', () => {
+test('鍙充晶杈规爮鍚姩寮€鍙戞湇鍔″櫒鍚庝笉鍐嶉噸澶嶅垱寤烘棩蹇楁爣绛?, () => {
   const source = readFrontendFile('src/components/layout/RightPanelSidebar.tsx');
 
   assert.doesNotMatch(source, /generateTerminalTabId/);
@@ -39,7 +39,7 @@ test('右侧边栏启动开发服务器后不再重复创建日志标签', () =>
   assert.doesNotMatch(source, /PANEL_IDS\.TERMINAL, 'Terminal'/);
 });
 
-test('Companion 安装入口改为本地安装与自动接入', () => {
+test('Companion 瀹夎鍏ュ彛鏀逛负鏈湴瀹夎涓庤嚜鍔ㄦ帴鍏?, () => {
   const noServerContent = readFrontendFile('src/components/tasks/TaskDetails/preview/NoServerContent.tsx');
   const helper = readFrontendFile('src/utils/installWebCompanion.ts');
   const api = readFrontendFile('src/lib/api.ts');
@@ -48,7 +48,7 @@ test('Companion 安装入口改为本地安装与自动接入', () => {
 
   assert.doesNotMatch(noServerContent, /createAndStart\.mutate/);
   assert.match(noServerContent, /installWebCompanion/);
-  assert.match(helper, /VibeUltraWebCompanion/);
+  assert.match(helper, /VibeXWebCompanion/);
   assert.match(helper, /src\/main\.(tsx|jsx|ts|js)/);
   assert.match(api, /installWebCompanion:\s*async/);
   assert.match(backend, /pub async fn install_web_companion/);

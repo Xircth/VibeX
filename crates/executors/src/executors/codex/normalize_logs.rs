@@ -269,6 +269,10 @@ struct LogState {
     entry_index: EntryIndexProvider,
     assistant: Option<StreamingText>,
     thinking: Option<StreamingText>,
+    pending_legacy_assistant_delta: Option<String>,
+    pending_legacy_thinking_delta: Option<String>,
+    last_assistant_content_delta: Option<String>,
+    last_thinking_content_delta: Option<String>,
     commands: HashMap<String, CommandState>,
     mcp_tools: HashMap<String, McpToolState>,
     patches: HashMap<String, PatchState>,
@@ -286,6 +290,10 @@ impl LogState {
             entry_index,
             assistant: None,
             thinking: None,
+            pending_legacy_assistant_delta: None,
+            pending_legacy_thinking_delta: None,
+            last_assistant_content_delta: None,
+            last_thinking_content_delta: None,
             commands: HashMap::new(),
             mcp_tools: HashMap::new(),
             patches: HashMap::new(),
@@ -359,6 +367,109 @@ impl LogState {
 
     fn thinking(&mut self, content: String) -> (NormalizedEntry, usize, bool) {
         self.streaming_text_set(content, StreamingTextKind::Thinking)
+    }
+
+    fn emit_assistant_delta(&mut self, delta: String, msg_store: &Arc<MsgStore>) {
+        let (entry, index, is_new) = self.assistant_message_append(delta);
+        upsert_normalized_entry(msg_store, index, entry, is_new);
+    }
+
+    fn emit_thinking_delta(&mut self, delta: String, msg_store: &Arc<MsgStore>) {
+        let (entry, index, is_new) = self.thinking_append(delta);
+        upsert_normalized_entry(msg_store, index, entry, is_new);
+    }
+
+    fn flush_pending_legacy_assistant_delta(&mut self, msg_store: &Arc<MsgStore>) {
+        let Some(delta) = self.pending_legacy_assistant_delta.take() else {
+            return;
+        };
+
+        if self.last_assistant_content_delta.as_deref() == Some(delta.as_str()) {
+            return;
+        }
+
+        self.emit_assistant_delta(delta, msg_store);
+    }
+
+    fn flush_pending_legacy_thinking_delta(&mut self, msg_store: &Arc<MsgStore>) {
+        let Some(delta) = self.pending_legacy_thinking_delta.take() else {
+            return;
+        };
+
+        if self.last_thinking_content_delta.as_deref() == Some(delta.as_str()) {
+            return;
+        }
+
+        self.emit_thinking_delta(delta, msg_store);
+    }
+
+    fn queue_legacy_assistant_delta(&mut self, delta: String, msg_store: &Arc<MsgStore>) {
+        if self.last_assistant_content_delta.as_deref() == Some(delta.as_str()) {
+            return;
+        }
+
+        self.flush_pending_legacy_assistant_delta(msg_store);
+        self.pending_legacy_assistant_delta = Some(delta);
+    }
+
+    fn queue_legacy_thinking_delta(&mut self, delta: String, msg_store: &Arc<MsgStore>) {
+        if self.last_thinking_content_delta.as_deref() == Some(delta.as_str()) {
+            return;
+        }
+
+        self.flush_pending_legacy_thinking_delta(msg_store);
+        self.pending_legacy_thinking_delta = Some(delta);
+    }
+
+    fn append_assistant_content_delta(&mut self, delta: String, msg_store: &Arc<MsgStore>) {
+        if self.pending_legacy_assistant_delta.as_deref() == Some(delta.as_str()) {
+            self.pending_legacy_assistant_delta = None;
+        } else {
+            self.flush_pending_legacy_assistant_delta(msg_store);
+        }
+
+        self.last_assistant_content_delta = Some(delta.clone());
+        self.emit_assistant_delta(delta, msg_store);
+    }
+
+    fn append_thinking_content_delta(&mut self, delta: String, msg_store: &Arc<MsgStore>) {
+        if self.pending_legacy_thinking_delta.as_deref() == Some(delta.as_str()) {
+            self.pending_legacy_thinking_delta = None;
+        } else {
+            self.flush_pending_legacy_thinking_delta(msg_store);
+        }
+
+        self.last_thinking_content_delta = Some(delta.clone());
+        self.emit_thinking_delta(delta, msg_store);
+    }
+
+    fn clear_assistant_stream(&mut self) {
+        self.pending_legacy_assistant_delta = None;
+        self.last_assistant_content_delta = None;
+        self.assistant = None;
+    }
+
+    fn clear_thinking_stream(&mut self) {
+        self.pending_legacy_thinking_delta = None;
+        self.last_thinking_content_delta = None;
+        self.thinking = None;
+    }
+
+    fn finish_assistant_stream(&mut self, msg_store: &Arc<MsgStore>) {
+        self.flush_pending_legacy_assistant_delta(msg_store);
+        self.last_assistant_content_delta = None;
+        self.assistant = None;
+    }
+
+    fn finish_thinking_stream(&mut self, msg_store: &Arc<MsgStore>) {
+        self.flush_pending_legacy_thinking_delta(msg_store);
+        self.last_thinking_content_delta = None;
+        self.thinking = None;
+    }
+
+    fn flush_pending_legacy_deltas(&mut self, msg_store: &Arc<MsgStore>) {
+        self.flush_pending_legacy_assistant_delta(msg_store);
+        self.flush_pending_legacy_thinking_delta(msg_store);
     }
 }
 
@@ -554,52 +665,56 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         &entry_index,
                     );
                 }
-                EventMsg::AgentMessageDelta(AgentMessageDeltaEvent { delta })
-                | EventMsg::AgentMessageContentDelta(AgentMessageContentDeltaEvent {
+                EventMsg::AgentMessageDelta(AgentMessageDeltaEvent { delta }) => {
+                    state.finish_thinking_stream(&msg_store);
+                    state.queue_legacy_assistant_delta(delta, &msg_store);
+                }
+                EventMsg::AgentMessageContentDelta(AgentMessageContentDeltaEvent {
                     delta, ..
                 }) => {
-                    state.thinking = None;
-                    let (entry, index, is_new) = state.assistant_message_append(delta);
-                    upsert_normalized_entry(&msg_store, index, entry, is_new);
+                    state.finish_thinking_stream(&msg_store);
+                    state.append_assistant_content_delta(delta, &msg_store);
                 }
                 EventMsg::AgentReasoningDelta(AgentReasoningDeltaEvent { delta })
-                | EventMsg::ReasoningContentDelta(ReasoningContentDeltaEvent { delta, .. })
                 | EventMsg::AgentReasoningRawContentDelta(AgentReasoningRawContentDeltaEvent {
                     delta,
-                })
+                }) => {
+                    state.finish_assistant_stream(&msg_store);
+                    state.queue_legacy_thinking_delta(delta, &msg_store);
+                }
+                EventMsg::ReasoningContentDelta(ReasoningContentDeltaEvent { delta, .. })
                 | EventMsg::ReasoningRawContentDelta(ReasoningRawContentDeltaEvent {
                     delta, ..
                 }) => {
-                    state.assistant = None;
-                    let (entry, index, is_new) = state.thinking_append(delta);
-                    upsert_normalized_entry(&msg_store, index, entry, is_new);
+                    state.finish_assistant_stream(&msg_store);
+                    state.append_thinking_content_delta(delta, &msg_store);
                 }
                 EventMsg::AgentMessage(AgentMessageEvent { message }) => {
-                    state.thinking = None;
+                    state.clear_thinking_stream();
                     let (entry, index, is_new) = state.assistant_message(message);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
-                    state.assistant = None;
+                    state.clear_assistant_stream();
                 }
                 EventMsg::AgentReasoning(AgentReasoningEvent { text }) => {
-                    state.assistant = None;
+                    state.clear_assistant_stream();
                     if state.thinking.is_none() && !text.is_empty() {
                         let (entry, index, is_new) = state.thinking(text);
                         upsert_normalized_entry(&msg_store, index, entry, is_new);
                     }
-                    state.thinking = None;
+                    state.clear_thinking_stream();
                 }
                 EventMsg::AgentReasoningRawContent(AgentReasoningRawContentEvent { text }) => {
-                    state.assistant = None;
+                    state.clear_assistant_stream();
                     let (entry, index, is_new) = state.thinking_append(text);
                     upsert_normalized_entry(&msg_store, index, entry, is_new);
-                    state.thinking = None;
+                    state.clear_thinking_stream();
                 }
                 EventMsg::AgentReasoningSectionBreak(AgentReasoningSectionBreakEvent {
                     item_id: _,
                     summary_index: _,
                 }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.clear_assistant_stream();
+                    state.clear_thinking_stream();
                 }
                 EventMsg::ExecApprovalRequest(ExecApprovalRequestEvent {
                     call_id,
@@ -610,8 +725,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     parsed_cmd: _,
                     proposed_execpolicy_amendment: _,
                 }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
 
                     let command_text = if command.is_empty() {
                         reason
@@ -650,8 +765,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     reason: _,
                     grant_root: _,
                 }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
 
                     let normalized = normalize_file_changes(&worktree_path_str, &changes);
                     let patch_state = state.patches.entry(call_id.clone()).or_default();
@@ -719,8 +834,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     interaction_input: _,
                     process_id: _,
                 }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
                     let command_text = command.join(" ");
                     if command_text.is_empty() {
                         continue;
@@ -842,8 +957,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     call_id,
                     invocation,
                 }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
                     state.mcp_tools.insert(
                         call_id.clone(),
                         McpToolState {
@@ -922,8 +1037,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 EventMsg::PatchApplyBegin(PatchApplyBeginEvent {
                     call_id, changes, ..
                 }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
                     let normalized = normalize_file_changes(&worktree_path_str, &changes);
                     if let Some(patch_state) = state.patches.get_mut(&call_id) {
                         let mut iter = normalized.into_iter();
@@ -1016,8 +1131,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     }
                 }
                 EventMsg::WebSearchBegin(WebSearchBeginEvent { call_id }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
                     state
                         .web_searches
                         .insert(call_id.clone(), WebSearchState::new());
@@ -1027,8 +1142,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     web_search_state.index = Some(index);
                 }
                 EventMsg::WebSearchEnd(WebSearchEndEvent { call_id, query, .. }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
                     if let Some(mut entry) = state.web_searches.remove(&call_id) {
                         entry.status = ToolStatus::Success;
                         entry.query = Some(query.clone());
@@ -1041,8 +1156,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     }
                 }
                 EventMsg::ViewImageToolCall(ViewImageToolCallEvent { call_id: _, path }) => {
-                    state.assistant = None;
-                    state.thinking = None;
+                    state.finish_assistant_stream(&msg_store);
+                    state.finish_thinking_stream(&msg_store);
                     let path_str = path.to_string_lossy().to_string();
                     let relative_path = make_path_relative(&path_str, &worktree_path_str);
                     add_normalized_entry(
@@ -1211,6 +1326,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                 | EventMsg::PlanDelta(..) => {}
             }
         }
+
+        state.flush_pending_legacy_deltas(&msg_store);
     });
 }
 
@@ -1417,6 +1534,26 @@ mod tests {
     };
     use crate::logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch};
 
+    async fn latest_normalized_entry(store: &Arc<MsgStore>) -> crate::logs::NormalizedEntry {
+        timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(entry) = store.get_history().into_iter().rev().find_map(|msg| {
+                    if let workspace_utils::log_msg::LogMsg::JsonPatch(patch) = msg {
+                        extract_normalized_entry_from_patch(&patch).map(|(_, entry)| entry)
+                    } else {
+                        None
+                    }
+                }) {
+                    break entry;
+                }
+
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("normalized entry should be emitted")
+    }
+
     #[test]
     fn classifies_search_like_mcp_tools() {
         assert!(is_search_like_tool("search"));
@@ -1474,28 +1611,86 @@ mod tests {
         store.push_stdout(serde_json::to_string(&notification).unwrap());
         store.push_finished();
 
-        let patch = timeout(Duration::from_secs(1), async {
-            loop {
-                if let Some(patch) = store.get_history().into_iter().find_map(|msg| match msg {
-                    workspace_utils::log_msg::LogMsg::JsonPatch(patch) => Some(patch),
-                    _ => None,
-                }) {
-                    break patch;
-                }
-
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("assistant delta should produce a normalized patch");
-
-        let (_, entry) =
-            extract_normalized_entry_from_patch(&patch).expect("normalized assistant entry");
+        let entry = latest_normalized_entry(&store).await;
         assert!(matches!(
             entry.entry_type,
             NormalizedEntryType::AssistantMessage
         ));
         assert_eq!(entry.content, "hello from delta");
+    }
+
+    #[tokio::test]
+    async fn dedupes_legacy_and_content_agent_message_delta_aliases() {
+        let store = Arc::new(MsgStore::new());
+        normalize_logs(store.clone(), Path::new("."));
+
+        let legacy_notification = JSONRPCNotification {
+            method: "codex/event/agent_message_delta".to_string(),
+            params: Some(json!({
+                "msg": {
+                    "type": "agent_message_delta",
+                    "delta": "\u{6211}"
+                }
+            })),
+        };
+        let content_notification = JSONRPCNotification {
+            method: "codex/event/agent_message_content_delta".to_string(),
+            params: Some(json!({
+                "msg": {
+                    "type": "agent_message_content_delta",
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-1",
+                    "item_id": "item-1",
+                    "delta": "\u{6211}"
+                }
+            })),
+        };
+        let second_content_notification = JSONRPCNotification {
+            method: "codex/event/agent_message_content_delta".to_string(),
+            params: Some(json!({
+                "msg": {
+                    "type": "agent_message_content_delta",
+                    "thread_id": "thread-1",
+                    "turn_id": "turn-1",
+                    "item_id": "item-1",
+                    "delta": "\u{5df2}"
+                }
+            })),
+        };
+        let second_legacy_notification = JSONRPCNotification {
+            method: "codex/event/agent_message_delta".to_string(),
+            params: Some(json!({
+                "msg": {
+                    "type": "agent_message_delta",
+                    "delta": "\u{5df2}"
+                }
+            })),
+        };
+
+        store.push_stdout(format!(
+            "{}\n",
+            serde_json::to_string(&legacy_notification).unwrap()
+        ));
+        store.push_stdout(format!(
+            "{}\n",
+            serde_json::to_string(&content_notification).unwrap()
+        ));
+        store.push_stdout(format!(
+            "{}\n",
+            serde_json::to_string(&second_content_notification).unwrap()
+        ));
+        store.push_stdout(format!(
+            "{}\n",
+            serde_json::to_string(&second_legacy_notification).unwrap()
+        ));
+        store.push_finished();
+
+        let entry = latest_normalized_entry(&store).await;
+        assert!(matches!(
+            entry.entry_type,
+            NormalizedEntryType::AssistantMessage
+        ));
+        assert_eq!(entry.content, "\u{6211}\u{5df2}");
     }
 
     #[tokio::test]
@@ -1520,23 +1715,7 @@ mod tests {
         store.push_stdout(serde_json::to_string(&notification).unwrap());
         store.push_finished();
 
-        let patch = timeout(Duration::from_secs(1), async {
-            loop {
-                if let Some(patch) = store.get_history().into_iter().find_map(|msg| match msg {
-                    workspace_utils::log_msg::LogMsg::JsonPatch(patch) => Some(patch),
-                    _ => None,
-                }) {
-                    break patch;
-                }
-
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("reasoning delta should produce a normalized patch");
-
-        let (_, entry) =
-            extract_normalized_entry_from_patch(&patch).expect("normalized thinking entry");
+        let entry = latest_normalized_entry(&store).await;
         assert!(matches!(entry.entry_type, NormalizedEntryType::Thinking));
         assert_eq!(entry.content, "thinking delta");
     }

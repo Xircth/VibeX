@@ -1,11 +1,15 @@
-import { Loader2, AlertCircle, ArrowUp, X } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2, ArrowUp, CheckSquare, X } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ScratchType } from 'shared/types';
 import {
@@ -106,6 +110,11 @@ interface TaskFollowUpSectionProps {
 
 const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
 
+interface TodoItem {
+  content: string;
+  status: string;
+}
+
 function truncateSessionLabel(label: string, maxUnits = 8): string {
   if (!label) return '\u4f1a\u8bdd';
 
@@ -149,6 +158,122 @@ function getErrorMessage(error: unknown): string {
   }
 }
 
+function getPromptEnhancementErrorMessage(error: unknown): string {
+  const rawMessage = getErrorMessage(error).trim();
+  const detail = rawMessage
+    .replace(/^(Bad request|Internal error|Not found):\s*/i, '')
+    .trim();
+
+  if (/Prompt enhancement is disabled in system settings/i.test(detail)) {
+    return '提示词优化失败：系统设置中已关闭提示词优化，请在设置中启用后重试。';
+  }
+
+  if (/Draft prompt cannot be empty/i.test(detail)) {
+    return '提示词优化失败：提示词内容不能为空。';
+  }
+
+  if (/Prompt enhancement returned empty content/i.test(detail)) {
+    return '提示词优化失败：模型返回了空内容，请重试或更换模型。';
+  }
+
+  if (/OpenCode CLI not found/i.test(detail)) {
+    return '提示词优化失败：未找到 OpenCode CLI，请先安装或配置 OpenCode。';
+  }
+
+  if (
+    /OpenCode response did not contain a valid EnhancedPrompt field/i.test(
+      detail
+    )
+  ) {
+    return '提示词优化失败：OpenCode 未返回有效的优化结果，请重试或更换模型。';
+  }
+
+  if (/OpenCode prompt enhancement failed/i.test(detail)) {
+    return '提示词优化失败：OpenCode 执行失败，请检查模型配置或稍后重试。';
+  }
+
+  if (/OpenCode prompt enhancement timed out/i.test(detail)) {
+    return '提示词优化失败：OpenCode 响应超时，请稍后重试或更换模型。';
+  }
+
+  if (/Failed to run OpenCode/i.test(detail)) {
+    return '提示词优化失败：无法启动 OpenCode，请检查 OpenCode 是否可用。';
+  }
+
+  const normalizedDetail = detail || rawMessage || '未知错误';
+  return `提示词优化失败：${normalizedDetail}`;
+}
+
+function TodoListButton({ todos }: { todos: TodoItem[] }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="任务列表"
+          aria-label="任务列表"
+          className={cn(
+            'flex items-center justify-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 transition-colors hover:text-foreground',
+            todos.length === 0 && 'opacity-50'
+          )}
+        >
+          <CheckSquare className="h-3.5 w-3.5" />
+          {todos.length > 0 ? (
+            <span className="ml-0.5 text-[10px] leading-none">
+              {todos.length}
+            </span>
+          ) : null}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" side="top" className="w-72 p-2">
+        {todos.length === 0 ? (
+          <div className="py-2 text-center text-xs text-muted-foreground">
+            暂无任务
+          </div>
+        ) : (
+          <>
+            <div className="mb-1.5 text-xs font-medium">
+              任务列表 ({todos.length})
+            </div>
+            <ul className="max-h-48 space-y-1 overflow-auto">
+              {todos.map((todo, index) => (
+                <li key={index} className="flex items-start gap-1.5 text-xs">
+                  <span
+                    className={`mt-0.5 shrink-0 ${
+                      todo.status === 'completed'
+                        ? 'text-green-500'
+                        : todo.status === 'in_progress' ||
+                            todo.status === 'in-progress'
+                          ? 'text-blue-500'
+                          : 'text-muted-foreground'
+                    }`}
+                  >
+                    {todo.status === 'completed'
+                      ? '\u2713'
+                      : todo.status === 'in_progress' ||
+                          todo.status === 'in-progress'
+                        ? '\u25CF'
+                        : '\u25CB'}
+                  </span>
+                  <span
+                    className={
+                      todo.status === 'cancelled'
+                        ? 'line-through text-muted-foreground'
+                        : ''
+                    }
+                  >
+                    {todo.content}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function TaskFollowUpSection({
   taskId,
   session,
@@ -162,7 +287,9 @@ export function TaskFollowUpSection({
   const { projectId } = useProject();
   const { activeWorktreeId } = useWorktree();
   const rightPanelSessionCreation = useRightPanelSessionCreation();
-  const { workspaceId: routeWorkspaceId } = useParams<{ workspaceId?: string }>();
+  const { workspaceId: routeWorkspaceId } = useParams<{
+    workspaceId?: string;
+  }>();
   const workspaceId =
     activeWorktreeId ??
     routeWorkspaceId ??
@@ -787,8 +914,7 @@ export function TaskFollowUpSection({
 
       handleEditorChange(enhancedPrompt);
     } catch (error) {
-      const message = getErrorMessage(error);
-      setFollowUpError(`Failed to enhance prompt: ${message}`);
+      setFollowUpError(getPromptEnhancementErrorMessage(error));
     } finally {
       setIsEnhancingPrompt(false);
     }
@@ -967,10 +1093,9 @@ export function TaskFollowUpSection({
         <div className="overflow-y-auto min-h-0 px-3">
           <div className="space-y-2">
             {followUpError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{followUpError}</AlertDescription>
-              </Alert>
+              <div className="px-1 text-[11px] leading-4 text-muted-foreground">
+                {followUpError}
+              </div>
             )}
             <div className="space-y-2">
               <ReviewCommentsPreview reviewMarkdown={reviewMarkdown} />
@@ -1046,6 +1171,8 @@ export function TaskFollowUpSection({
               <div className="flex-1" />
 
               <TokenUsageIndicator tokenUsageInfo={tokenUsageInfo} />
+
+              <TodoListButton todos={todos} />
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1148,7 +1275,7 @@ export function TaskFollowUpSection({
             taskAttemptId={workspaceId}
             onCmdEnter={handleSubmitShortcut}
             sendShortcut={config?.send_message_shortcut}
-            className="min-h-[40px] break-words overflow-wrap-anywhere text-[15px] leading-7 tracking-[0.01em]"
+            className="min-h-[40px] break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]"
             onRegisterClickedElementInsert={handleRegisterClickedElementInsert}
             enableFloatingToolbar={false}
             markdownPreset="session-input-minimal"

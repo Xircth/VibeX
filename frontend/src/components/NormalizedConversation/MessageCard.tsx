@@ -120,3 +120,13 @@ export const CompactNoticeEntry: React.FC<{
     </div>
   );
 };
+
+export const PlainNoticeEntry: React.FC<{
+  content: string;
+  markdown: boolean;
+  className?: string;
+}> = ({ content, markdown, className }) => (
+  <div className={`conv-plain-notice${className ? ` ${className}` : ''}`}>
+    {markdown ? <Markdown value={content} /> : content}
+  </div>
+);

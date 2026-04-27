@@ -176,66 +176,68 @@ export function ActionBar({
         </Button>
       ) : null}
 
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            size="sm"
-            variant="ghost"
-            title="查看待办事项"
-            className={cn('h-7 w-7 p-0', todos.length === 0 && 'opacity-50')}
-          >
-            <CheckSquare className="h-3.5 w-3.5" />
-            {todos.length > 0 && (
-              <span className="ml-0.5 text-[10px]">{todos.length}</span>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 p-2">
-          {todos.length === 0 ? (
-            <div className="text-xs text-muted-foreground py-2 text-center">
-              暂无待办事项
-            </div>
-          ) : (
-            <>
-              <div className="text-xs font-medium mb-1.5">
-                待办事项 ({todos.length})
+      <div className="hidden">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              title="查看待办事项"
+              className={cn('h-7 w-7 p-0', todos.length === 0 && 'opacity-50')}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              {todos.length > 0 && (
+                <span className="ml-0.5 text-[10px]">{todos.length}</span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 p-2">
+            {todos.length === 0 ? (
+              <div className="text-xs text-muted-foreground py-2 text-center">
+                暂无待办事项
               </div>
-              <ul className="space-y-1 max-h-48 overflow-auto">
-                {todos.map((todo, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-xs">
-                    <span
-                      className={`shrink-0 mt-0.5 ${
-                        todo.status === 'completed'
-                          ? 'text-green-500'
+            ) : (
+              <>
+                <div className="text-xs font-medium mb-1.5">
+                  待办事项 ({todos.length})
+                </div>
+                <ul className="space-y-1 max-h-48 overflow-auto">
+                  {todos.map((todo, i) => (
+                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                      <span
+                        className={`shrink-0 mt-0.5 ${
+                          todo.status === 'completed'
+                            ? 'text-green-500'
+                            : todo.status === 'in_progress' ||
+                                todo.status === 'in-progress'
+                              ? 'text-blue-500'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
+                        {todo.status === 'completed'
+                          ? '\u2713'
                           : todo.status === 'in_progress' ||
                               todo.status === 'in-progress'
-                            ? 'text-blue-500'
-                            : 'text-muted-foreground'
-                      }`}
-                    >
-                      {todo.status === 'completed'
-                        ? '\u2713'
-                        : todo.status === 'in_progress' ||
-                            todo.status === 'in-progress'
-                          ? '\u25CF'
-                          : '\u25CB'}
-                    </span>
-                    <span
-                      className={
-                        todo.status === 'cancelled'
-                          ? 'line-through text-muted-foreground'
-                          : ''
-                      }
-                    >
-                      {todo.content}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </PopoverContent>
-      </Popover>
+                            ? '\u25CF'
+                            : '\u25CB'}
+                      </span>
+                      <span
+                        className={
+                          todo.status === 'cancelled'
+                            ? 'line-through text-muted-foreground'
+                            : ''
+                        }
+                      >
+                        {todo.content}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </PopoverContent>
+        </Popover>
+      </div>
 
       <div className="flex-1" />
 

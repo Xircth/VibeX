@@ -243,6 +243,8 @@ const COMPACT_NOTICE_PATTERNS = [
   /\bcontinu(?:e|ing) with\b/i,
   /\bmodel mismatch\b/i,
   /\breasoning effort\b/i,
+  /\bunder-development features enabled\b/i,
+  /\bsuppress_unstable_features_warning\b/i,
 ];
 
 function getColonSeparatedNoticeLines(content: string) {
@@ -327,6 +329,16 @@ export function getCompactMetaNoticeText(
 
   if (
     (entryType.type === 'system_message' ||
+      entryType.type === 'error_message' ||
+      entryType.type === 'assistant_message') &&
+    COMPACT_NOTICE_PATTERNS.some((pattern) => pattern.test(normalized)) &&
+    normalized.length <= 360
+  ) {
+    return normalized;
+  }
+
+  if (
+    (entryType.type === 'system_message' ||
       entryType.type === 'error_message') &&
     lineCount <= 2 &&
     normalized.length <= 240
@@ -355,7 +367,7 @@ export const getContentClassName = (entryType: NormalizedEntryType) => {
     return `${base} font-mono`;
 
   if (entryType.type === 'error_message')
-    return `${base} font-mono text-destructive`;
+    return `${base} font-mono text-muted-foreground`;
 
   if (entryType.type === 'thinking') return `${base} opacity-60`;
 

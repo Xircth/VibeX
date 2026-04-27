@@ -17,6 +17,7 @@ import {
   Terminal,
   RotateCcw,
   FolderTree,
+  Code2,
   GitBranch,
   ArrowDown,
   ArrowUp,
@@ -310,8 +311,13 @@ export function Toolbar() {
   const effectiveActiveTab = routeTab ?? activeTab;
   const isWorkspaceTab = effectiveActiveTab === 'workspace';
 
-  const { toggleRightPanel, isRightPanelVisible, resetLayout } =
-    useLayoutStore();
+  const {
+    toggleRightPanel,
+    isRightPanelVisible,
+    resetLayout,
+    isEditorAreaVisible,
+    toggleEditorArea,
+  } = useLayoutStore();
 
   const { toggleFileTree, openNewTerminal } = usePanelActions();
   const recentProjects = useMemo(
@@ -394,6 +400,31 @@ export function Toolbar() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Toggle File Tree</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={toggleEditorArea}
+                    aria-label={
+                      isEditorAreaVisible
+                        ? '隐藏编辑区和终端区'
+                        : '显示编辑区和终端区'
+                    }
+                    aria-pressed={isEditorAreaVisible}
+                    tabIndex={isWorkspaceTab ? 0 : -1}
+                  >
+                    <Code2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {isEditorAreaVisible
+                    ? '隐藏编辑区和终端区'
+                    : '显示编辑区和终端区'}
+                </TooltipContent>
               </Tooltip>
 
               <Tooltip>

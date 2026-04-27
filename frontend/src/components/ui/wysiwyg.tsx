@@ -288,7 +288,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         onError: console.error,
         theme: {
           paragraph: isSessionInputMinimalPreset
-            ? 'mb-1.5 last:mb-0 text-[15px] font-normal leading-7 tracking-[0.01em] text-foreground'
+            ? 'mb-1 last:mb-0 text-[13px] font-normal leading-5 tracking-[0.005em] text-foreground'
             : 'mb-2 last:mb-0',
           heading: {
             h1: isSessionInputMinimalPreset
@@ -314,10 +314,10 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
             'my-3 border-l-4 border-primary-foreground pl-4 text-muted-foreground',
           list: {
             ul: isSessionInputMinimalPreset
-              ? 'my-1 list-disc pl-5 text-[15px] leading-7 tracking-[0.01em]'
+              ? 'my-1 list-disc pl-5 text-[13px] leading-5 tracking-[0.005em]'
               : 'my-1 list-disc list-inside',
             ol: isSessionInputMinimalPreset
-              ? 'my-1 list-decimal pl-5 text-[15px] leading-7 tracking-[0.01em]'
+              ? 'my-1 list-decimal pl-5 text-[13px] leading-5 tracking-[0.005em]'
               : 'my-1 list-decimal list-inside',
             listitem: '',
             nested: {
@@ -532,7 +532,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         className={cn(
           'relative wysiwyg text-base',
           isSessionInputMinimalPreset &&
-            'text-[15px] leading-7 tracking-[0.01em] antialiased [text-rendering:optimizeLegibility]'
+            'text-[13px] leading-5 tracking-[0.005em] antialiased [text-rendering:optimizeLegibility]'
         )}
         data-file-reference-drop-zone
       >

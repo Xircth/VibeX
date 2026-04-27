@@ -254,7 +254,25 @@
 }
 
 .conv-compact-notice-error {
-  color: var(--conv-text-primary);
+  color: var(--conv-text-tertiary);
+}
+
+.conv-plain-notice {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--conv-text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.conv-plain-notice .conv-markdown {
+  color: var(--conv-text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.conv-plain-notice .conv-markdown > * + * {
+  margin-top: 4px;
 }
 
 /* =========================================

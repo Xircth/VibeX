@@ -370,7 +370,9 @@ impl LogState {
                     return;
                 }
 
-                let (text, mode) = if let Some(delta) = delta {
+                let (text, mode) = if !part.text.is_empty() {
+                    (part.text.as_str(), UpdateMode::Set)
+                } else if let Some(delta) = delta {
                     (delta, UpdateMode::Append)
                 } else {
                     (part.text.as_str(), UpdateMode::Set)
@@ -388,7 +390,9 @@ impl LogState {
                 );
             }
             Part::Reasoning(part) => {
-                let (text, mode) = if let Some(delta) = delta {
+                let (text, mode) = if !part.text.is_empty() {
+                    (part.text.as_str(), UpdateMode::Set)
+                } else if let Some(delta) = delta {
                     (delta, UpdateMode::Append)
                 } else {
                     (part.text.as_str(), UpdateMode::Set)
@@ -1237,5 +1241,97 @@ fn extract_file_path_from_permission_metadata(metadata: &Value) -> Option<&str> 
         None
     } else {
         Some(trimmed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::Path, sync::Arc};
+
+    use serde_json::json;
+    use workspace_utils::{log_msg::LogMsg, msg_store::MsgStore};
+
+    use super::*;
+    use crate::logs::utils::{EntryIndexProvider, patch::extract_normalized_entry_from_patch};
+
+    fn latest_normalized_entry(store: &Arc<MsgStore>) -> NormalizedEntry {
+        store
+            .get_history()
+            .into_iter()
+            .rev()
+            .find_map(|msg| {
+                if let LogMsg::JsonPatch(patch) = msg {
+                    extract_normalized_entry_from_patch(&patch).map(|(_, entry)| entry)
+                } else {
+                    None
+                }
+            })
+            .expect("normalized entry should be emitted")
+    }
+
+    #[test]
+    fn message_part_update_uses_full_text_snapshot_over_delta() {
+        let store = Arc::new(MsgStore::new());
+        let mut state = LogState::new(EntryIndexProvider::test_new(), store.clone());
+        let worktree_path = Path::new(".");
+
+        state.handle_sdk_event(
+            &json!({
+                "type": "message.updated",
+                "properties": {
+                    "info": {
+                        "id": "msg-1",
+                        "role": "assistant"
+                    }
+                }
+            }),
+            worktree_path,
+            &store,
+        );
+
+        for event in [
+            json!({
+                "type": "message.part.updated",
+                "properties": {
+                    "part": {
+                        "type": "text",
+                        "messageID": "msg-1",
+                        "text": "\u{6211}"
+                    },
+                    "delta": "\u{6211}"
+                }
+            }),
+            json!({
+                "type": "message.part.updated",
+                "properties": {
+                    "part": {
+                        "type": "text",
+                        "messageID": "msg-1",
+                        "text": "\u{6211}\u{5df2}"
+                    },
+                    "delta": "\u{5df2}"
+                }
+            }),
+            json!({
+                "type": "message.part.updated",
+                "properties": {
+                    "part": {
+                        "type": "text",
+                        "messageID": "msg-1",
+                        "text": "\u{6211}\u{5df2}"
+                    },
+                    "delta": "\u{5df2}"
+                }
+            }),
+        ] {
+            state.handle_sdk_event(&event, worktree_path, &store);
+        }
+
+        let entry = latest_normalized_entry(&store);
+        assert!(matches!(
+            entry.entry_type,
+            NormalizedEntryType::AssistantMessage
+        ));
+        assert_eq!(entry.content, "\u{6211}\u{5df2}");
     }
 }

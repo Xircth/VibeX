@@ -314,17 +314,17 @@ pub fn build_review_prompt(
     context: Option<&[RepoReviewContext]>,
     additional_prompt: Option<&str>,
 ) -> String {
-    let mut prompt = String::from("Please review the code changes.\n\n");
+    let mut prompt = String::from("请审查当前代码变更。\n\n");
 
     if let Some(repos) = context {
         for repo in repos {
-            prompt.push_str(&format!("Repository: {}\n", repo.repo_name));
+            prompt.push_str(&format!("仓库：{}\n", repo.repo_name));
             prompt.push_str(&format!(
-                "Review all changes from base commit {} to HEAD.\n",
+                "审查从基础提交 {} 到 HEAD 的全部变更。\n",
                 repo.base_commit
             ));
             prompt.push_str(&format!(
-                "Use `git diff {}..HEAD` to see the changes.\n",
+                "请使用 git diff {}..HEAD 查看变更。\n",
                 repo.base_commit
             ));
             prompt.push('\n');

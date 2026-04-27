@@ -30,11 +30,13 @@
 /* Inline code inside user bubble — transparent bg + subtle border only */
 .conv-user-bubble .ProseMirror code,
 .conv-user-bubble code {
-  background: transparent !important;
-  background-color: transparent !important;
-  color: var(--conv-user-text) !important;
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  color: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
   border-radius: 4px;
+  padding: 1px 5px;
+  font-weight: 500;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }

@@ -936,7 +936,7 @@ export function IDELayout({
             </button>
             <button
               onClick={toggleEditorArea}
-              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
+              className={`hidden h-9 w-9 items-center justify-center rounded transition-colors ${
                 isEditorAreaVisible
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'

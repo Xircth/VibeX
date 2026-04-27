@@ -3,6 +3,7 @@ import {
   Bell,
   Lightbulb,
   Loader2,
+  RefreshCw,
   Save,
   Tag,
   Trash2,
@@ -92,6 +93,10 @@ const FALLBACK_OPENCODE_MODELS = [
   'opencode/trinity-large-preview-free',
   'opencode/nemotron-3-super-free',
 ] as const;
+
+function isFreeOpenCodeModel(model: string): boolean {
+  return model.toLowerCase().includes('-free');
+}
 
 const CLEAR_LOCAL_DATA_TITLE = '清除 VibeX 本地数据';
 
@@ -190,33 +195,20 @@ export function SystemSettings() {
     setDraft(structuredClone(config as SystemSettingsConfig));
   }, [config, dirty]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshOpencodeModels = useCallback(async () => {
+    setOpencodeModelsLoading(true);
 
-    const loadOpencodeModels = async () => {
-      setOpencodeModelsLoading(true);
-
-      try {
-        const result = await configApi.listOpencodeModels();
-        if (!cancelled) {
-          setOpencodeModels(result.models);
-        }
-      } catch {
-        if (!cancelled) {
-          setOpencodeModels([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setOpencodeModelsLoading(false);
-        }
-      }
-    };
-
-    void loadOpencodeModels();
-
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const result = await configApi.listOpencodeModels();
+      setOpencodeModels(result.models);
+      toast.success('模型列表已刷新');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : '读取模型列表失败，请稍后重试'
+      );
+    } finally {
+      setOpencodeModelsLoading(false);
+    }
   }, []);
 
   const hasUnsavedChanges = useMemo(() => {
@@ -239,10 +231,19 @@ export function SystemSettings() {
     }
 
     if (current && !uniqueModels.includes(current)) {
-      uniqueModels.unshift(current);
+      uniqueModels.push(current);
     }
 
-    return uniqueModels;
+    return uniqueModels.sort((a, b) => {
+      const aIsFree = isFreeOpenCodeModel(a);
+      const bIsFree = isFreeOpenCodeModel(b);
+
+      if (aIsFree !== bIsFree) {
+        return aIsFree ? -1 : 1;
+      }
+
+      return a.localeCompare(b);
+    });
   }, [draft?.prompt_enhancement_model, opencodeModels]);
 
   const updateDraft = useCallback(
@@ -413,28 +414,61 @@ export function SystemSettings() {
             <Label className="shrink-0 text-xs font-medium text-muted-foreground">
               OpenCode 模型
             </Label>
-            <Select
-              value={draft.prompt_enhancement_model}
-              onValueChange={(value: string) =>
-                updateDraft({ prompt_enhancement_model: value })
-              }
-              disabled={promptEnhancementModels.length === 0}
-            >
-              <SelectTrigger className="!w-64">
-                <SelectValue
-                  placeholder={
-                    opencodeModelsLoading ? '正在加载模型...' : '选择模型'
-                  }
+            <div className="flex items-center justify-end gap-2">
+              <Select
+                value={draft.prompt_enhancement_model}
+                onValueChange={(value: string) =>
+                  updateDraft({ prompt_enhancement_model: value })
+                }
+                disabled={promptEnhancementModels.length === 0}
+              >
+                <SelectTrigger className="!w-72">
+                  <SelectValue placeholder="选择模型" />
+                </SelectTrigger>
+                <SelectContent align="start" className="max-h-72">
+                  {promptEnhancementModels.map((model) => {
+                    const isFree = isFreeOpenCodeModel(model);
+
+                    return (
+                      <SelectItem
+                        key={model}
+                        value={model}
+                        textValue={model}
+                        className={
+                          isFree
+                            ? 'font-medium text-emerald-700 focus:text-emerald-800'
+                            : undefined
+                        }
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate">{model}</span>
+                          {isFree ? (
+                            <span className="shrink-0 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-emerald-700">
+                              FREE
+                            </span>
+                          ) : null}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => void refreshOpencodeModels()}
+                disabled={opencodeModelsLoading}
+                title="刷新模型列表"
+                aria-label="刷新模型列表"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${
+                    opencodeModelsLoading ? 'animate-spin' : ''
+                  }`}
                 />
-              </SelectTrigger>
-              <SelectContent align="start">
-                {promptEnhancementModels.map((model) => (
-                  <SelectItem key={model} value={model}>
-                    {model}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-2">

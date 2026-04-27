@@ -71,7 +71,7 @@ function TreeNodeView({
     return (
       <button
         onClick={() => onFileClick(node.file!.id)}
-        className={`group flex w-full items-center gap-1.5 rounded-md border px-2 py-[3px] text-left transition-colors ${
+        className={`group flex w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-[3px] text-left transition-colors ${
           isActive
             ? 'border-primary/40 bg-accent/60'
             : 'border-transparent hover:bg-accent/50'
@@ -84,7 +84,7 @@ function TreeNodeView({
           {node.file.badge.label}
         </span>
         <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <span className="text-xs truncate text-foreground/90 flex-1 font-mono">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90">
           {node.name}
         </span>
         {hasStats && (
@@ -109,7 +109,7 @@ function TreeNodeView({
       <div>
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center gap-1 rounded-md px-2 py-[3px] text-left transition-colors hover:bg-accent/30"
+          className="flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-[3px] text-left transition-colors hover:bg-accent/30"
           style={{ paddingLeft: `${10 + indent}px` }}
         >
           {collapsed ? (
@@ -118,7 +118,7 @@ function TreeNodeView({
             <ChevronDown className="h-3 w-3 text-muted-foreground/60 shrink-0" />
           )}
           <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-          <span className="text-xs text-muted-foreground flex-1 truncate">
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {node.name}
           </span>
           <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">

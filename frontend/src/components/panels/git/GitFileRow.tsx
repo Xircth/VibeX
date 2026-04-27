@@ -89,45 +89,43 @@ export const GitFileRow = memo(function GitFileRow({
               />
 
               {/* Hover action buttons */}
-              <div className="w-[44px] shrink-0">
-                <div className="flex items-center justify-end gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-                  {section === 'unstaged' && (
-                    <>
-                      <button
-                        className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                        onClick={(e) => {
-                          stop(e);
-                          onStageFile?.(file.path);
-                        }}
-                        title="Stage"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                      <button
-                        className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-red-400"
-                        onClick={(e) => {
-                          stop(e);
-                          onRevertFile?.(file.path);
-                        }}
-                        title="Discard changes"
-                      >
-                        <Undo2 className="h-3 w-3" />
-                      </button>
-                    </>
-                  )}
-                  {section === 'staged' && (
+              <div className="hidden shrink-0 items-center justify-end gap-0.5 group-hover:flex">
+                {section === 'unstaged' && (
+                  <>
                     <button
                       className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
                       onClick={(e) => {
                         stop(e);
-                        onUnstageFile?.(file.path);
+                        onStageFile?.(file.path);
                       }}
-                      title="Unstage"
+                      title="Stage"
                     >
-                      <Minus className="h-3 w-3" />
+                      <Plus className="h-3 w-3" />
                     </button>
-                  )}
-                </div>
+                    <button
+                      className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-red-400"
+                      onClick={(e) => {
+                        stop(e);
+                        onRevertFile?.(file.path);
+                      }}
+                      title="Discard changes"
+                    >
+                      <Undo2 className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+                {section === 'staged' && (
+                  <button
+                    className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                    onClick={(e) => {
+                      stop(e);
+                      onUnstageFile?.(file.path);
+                    }}
+                    title="Unstage"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             </div>
           </div>

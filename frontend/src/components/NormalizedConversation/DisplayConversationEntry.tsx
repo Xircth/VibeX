@@ -30,7 +30,7 @@ import {
   shouldHideInitializationNotice,
   type FileEditAction,
 } from './conversation-entry-utils';
-import { CollapsibleEntry, CompactNoticeEntry } from './MessageCard';
+import { CompactNoticeEntry, PlainNoticeEntry } from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
 import {
   ToolCallCard,
@@ -306,17 +306,14 @@ function DisplayConversationEntry({
     return (
       <div
         className={cn(
-          'conv-entry-item px-4 py-2 text-sm',
+          'conv-entry-item px-4 py-1',
           greyed && 'opacity-50 pointer-events-none'
         )}
       >
-        <CollapsibleEntry
+        <PlainNoticeEntry
           content={isNormalizedEntry(entry) ? entry.content : ''}
           markdown={shouldRenderMarkdown(entryType)}
-          expansionKey={expansionKey}
-          variant={isSystem ? 'system' : 'error'}
-          contentClassName={getContentClassName(entryType)}
-          taskAttemptId={taskAttempt?.id}
+          className={getContentClassName(entryType)}
         />
       </div>
     );

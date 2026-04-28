@@ -64,6 +64,48 @@ fn path_points_at_repo_root(path: &Path, repo: &Repo) -> bool {
         .is_some_and(|segment| segment == repo.name)
 }
 
+fn build_workspace_branch_name(prefix: &str, workspace_id: &Uuid, task_title: &str) -> String {
+    let task_title_id = git_branch_id(task_title);
+    let branch_id = if task_title_id.is_empty() {
+        short_uuid(workspace_id)
+    } else {
+        format!("{}-{}", short_uuid(workspace_id), task_title_id)
+    };
+
+    if prefix.is_empty() {
+        branch_id
+    } else {
+        format!("{}/{}", prefix, branch_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::build_workspace_branch_name;
+
+    #[test]
+    fn workspace_branch_name_omits_separator_when_title_slug_is_empty() {
+        let workspace_id = Uuid::parse_str("5f3a0000-0000-0000-0000-000000000000").unwrap();
+
+        assert_eq!(
+            build_workspace_branch_name("vu", &workspace_id, "新会话"),
+            "vu/5f3a"
+        );
+    }
+
+    #[test]
+    fn workspace_branch_name_keeps_title_slug_when_available() {
+        let workspace_id = Uuid::parse_str("5f3a0000-0000-0000-0000-000000000000").unwrap();
+
+        assert_eq!(
+            build_workspace_branch_name("vu", &workspace_id, "New Session"),
+            "vu/5f3a-new-session"
+        );
+    }
+}
+
 fn workspace_base_dir(workspace: &Workspace, container_ref: &str, repos: &[Repo]) -> PathBuf {
     let container_path = PathBuf::from(container_ref);
     let [repo] = repos else {
@@ -894,14 +936,8 @@ pub trait ContainerService {
     async fn git_branch_prefix(&self) -> String;
 
     async fn git_branch_from_workspace(&self, workspace_id: &Uuid, task_title: &str) -> String {
-        let task_title_id = git_branch_id(task_title);
         let prefix = self.git_branch_prefix().await;
-
-        if prefix.is_empty() {
-            format!("{}-{}", short_uuid(workspace_id), task_title_id)
-        } else {
-            format!("{}/{}-{}", prefix, short_uuid(workspace_id), task_title_id)
-        }
+        build_workspace_branch_name(&prefix, workspace_id, task_title)
     }
 
     async fn stream_raw_logs(

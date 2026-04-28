@@ -12,7 +12,7 @@ const WORKSPACE_NAME_MAX_LEN: usize = 60;
 
 use super::{
     project::Project,
-    repo::Repo,
+    repo::{Repo, normalize_repo_path_for_display},
     task::Task,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
@@ -134,6 +134,18 @@ pub struct CreateWorkspace {
 }
 
 impl Workspace {
+    fn normalize_paths(mut self) -> Self {
+        if let Some(container_ref) = &self.container_ref {
+            let normalized = normalize_repo_path_for_display(Path::new(container_ref));
+            self.container_ref = Some(normalized.to_string_lossy().to_string());
+        }
+        self
+    }
+
+    fn normalize_paths_vec(rows: Vec<Self>) -> Vec<Self> {
+        rows.into_iter().map(Self::normalize_paths).collect()
+    }
+
     fn agent_working_dir_targets_repo_folder(&self, repo: &Repo) -> bool {
         self.agent_working_dir
             .as_deref()
@@ -233,7 +245,10 @@ impl Workspace {
             sql = sql.bind(task_id).bind(task_id);
         }
 
-        sql.fetch_all(pool).await.map_err(WorkspaceError::Database)
+        sql.fetch_all(pool)
+            .await
+            .map(Self::normalize_paths_vec)
+            .map_err(WorkspaceError::Database)
     }
 
     pub async fn fetch_by_project_id(
@@ -262,6 +277,7 @@ impl Workspace {
         .bind(project_id)
         .fetch_all(pool)
         .await
+        .map(Self::normalize_paths_vec)
         .map_err(WorkspaceError::Database)
     }
 
@@ -291,6 +307,7 @@ impl Workspace {
         .bind(task_id)
         .fetch_all(pool)
         .await
+        .map(Self::normalize_paths_vec)
         .map_err(WorkspaceError::Database)
     }
 
@@ -326,7 +343,8 @@ impl Workspace {
         .bind(project_id)
         .fetch_optional(pool)
         .await?
-        .ok_or(WorkspaceError::TaskNotFound)?;
+        .ok_or(WorkspaceError::TaskNotFound)?
+        .normalize_paths();
 
         // Load task and project (we know they exist due to JOIN validation)
         let task = Task::find_by_id(pool, task_id)
@@ -437,6 +455,7 @@ impl Workspace {
         .bind(id)
         .fetch_optional(pool)
         .await
+        .map(|workspace| workspace.map(Self::normalize_paths))
     }
 
     pub async fn find_by_rowid(pool: &SqlitePool, rowid: i64) -> Result<Option<Self>, sqlx::Error> {
@@ -461,6 +480,7 @@ impl Workspace {
         .bind(rowid)
         .fetch_optional(pool)
         .await
+        .map(|workspace| workspace.map(Self::normalize_paths))
     }
 
     pub async fn container_ref_exists(
@@ -536,6 +556,7 @@ impl Workspace {
         )
         .fetch_all(pool)
         .await
+        .map(Self::normalize_paths_vec)
     }
 
     pub async fn create(
@@ -572,7 +593,8 @@ impl Workspace {
         .bind(data.agent_working_dir.as_deref())
         .bind(Option::<DateTime<Utc>>::None)
         .fetch_one(pool)
-        .await?)
+        .await?
+        .normalize_paths())
     }
 
     pub async fn update_branch_name(
@@ -784,7 +806,8 @@ impl Workspace {
                     archived: rec.archived,
                     pinned: rec.pinned,
                     name: rec.name,
-                },
+                }
+                .normalize_paths(),
                 is_running: rec.is_running != 0,
                 is_errored: rec.is_errored != 0,
             })
@@ -918,7 +941,8 @@ impl Workspace {
                 archived: rec.archived,
                 pinned: rec.pinned,
                 name: rec.name,
-            },
+            }
+            .normalize_paths(),
             is_running: rec.is_running != 0,
             is_errored: rec.is_errored != 0,
         };
@@ -1011,5 +1035,24 @@ mod tests {
                 "C:/Users/test/.vibex-workspaces/ws-123/repo-feature-a"
             ))
         );
+    }
+
+    #[test]
+    fn container_ref_gitdir_path_is_normalized_to_worktree_root() {
+        let root = std::env::temp_dir().join(format!("vibex-workspace-{}", Uuid::new_v4()));
+        let gitdir = root.join("repo_git_meta");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(root.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+
+        let workspace =
+            sample_workspace(Some(&gitdir.to_string_lossy()), false, None).normalize_paths();
+        let expected =
+            utils::path::normalize_windows_extended_path_prefix(root.canonicalize().unwrap())
+                .to_string_lossy()
+                .to_string();
+
+        assert_eq!(workspace.container_ref, Some(expected));
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

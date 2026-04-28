@@ -114,6 +114,35 @@ impl GitCli {
         Ok(())
     }
 
+    /// Run `git -C <repo> worktree add -b <branch> <path> <start_point>`.
+    pub fn worktree_add_from_ref(
+        &self,
+        repo_path: &Path,
+        worktree_path: &Path,
+        branch: &str,
+        start_point: &str,
+    ) -> Result<(), GitCliError> {
+        self.ensure_available()?;
+
+        self.git(
+            repo_path,
+            [
+                OsString::from("worktree"),
+                OsString::from("add"),
+                OsString::from("-b"),
+                OsString::from(branch),
+                worktree_path.as_os_str().into(),
+                OsString::from(start_point),
+            ],
+        )?;
+
+        // Good practice: reapply sparse-checkout in the new worktree to ensure materialization matches
+        // Non-fatal if it fails or not configured.
+        let _ = self.git(worktree_path, ["sparse-checkout", "reapply"]);
+
+        Ok(())
+    }
+
     /// Run `git -C <repo> worktree remove <path>`
     pub fn worktree_remove(
         &self,
@@ -1126,6 +1155,8 @@ impl GitCli {
         let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
         let mut cmd = Command::new(&git);
         configure_std_command_no_window(&mut cmd);
+        cmd.arg("-c")
+            .arg(format!("safe.directory={}", repo_path.display()));
         cmd.arg("-C").arg(repo_path);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
         cmd.env("GCM_INTERACTIVE", "Never");

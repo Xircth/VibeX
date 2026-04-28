@@ -26,6 +26,8 @@ impl RepoWorkspaceInput {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use git::GitService;
+    use git2::{BranchType, Repository};
     use uuid::Uuid;
 
     use super::*;
@@ -56,13 +58,44 @@ mod tests {
         std::fs::create_dir_all(&project_dir).expect("project dir");
         let repo = test_repo(project_dir.clone());
 
-        let result = WorkspaceManager::ensure_workspace_exists(&project_dir, &[repo], "main").await;
+        let input = RepoWorkspaceInput::new(repo, "main".to_string());
+        let result =
+            WorkspaceManager::ensure_workspace_exists(&project_dir, &[input], "main").await;
 
         assert!(matches!(
             result,
             Err(WorkspaceError::UnsafeWorkspacePath(path)) if path == project_dir
         ));
         assert!(project_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn ensure_workspace_creates_missing_branch_from_target_branch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_path = temp.path().join("source");
+        GitService::new()
+            .initialize_repo_with_main_branch(&repo_path)
+            .expect("init repo");
+
+        let workspace_dir = temp.path().join(".vibex-workspaces").join("workspace");
+        let repo = test_repo(repo_path.clone());
+        let input = RepoWorkspaceInput::new(repo, "main".to_string());
+
+        WorkspaceManager::ensure_workspace_exists(
+            &workspace_dir,
+            &[input],
+            "vu/9a6c-new-session-work",
+        )
+        .await
+        .expect("ensure workspace");
+
+        assert!(workspace_dir.join("project").join(".git").is_file());
+
+        let repo = Repository::open(&repo_path).expect("open repo");
+        assert!(
+            repo.find_branch("vu/9a6c-new-session-work", BranchType::Local)
+                .is_ok()
+        );
     }
 }
 
@@ -271,7 +304,7 @@ impl WorkspaceManager {
     /// Ensure all worktrees in a workspace exist (for cold restart scenarios)
     pub async fn ensure_workspace_exists(
         workspace_dir: &Path,
-        repos: &[Repo],
+        repos: &[RepoWorkspaceInput],
         branch_name: &str,
     ) -> Result<(), WorkspaceError> {
         if repos.is_empty() {
@@ -281,7 +314,7 @@ impl WorkspaceManager {
 
         // Try legacy migration first (single repo projects only)
         // Old layout had worktree directly at workspace_dir; new layout has it at workspace_dir/{repo_name}
-        if repos.len() == 1 && Self::migrate_legacy_worktree(workspace_dir, &repos[0]).await? {
+        if repos.len() == 1 && Self::migrate_legacy_worktree(workspace_dir, &repos[0].repo).await? {
             return Ok(());
         }
 
@@ -289,17 +322,22 @@ impl WorkspaceManager {
             tokio::fs::create_dir_all(workspace_dir).await?;
         }
 
-        for repo in repos {
-            let worktree_path = workspace_dir.join(&repo.name);
+        for input in repos {
+            let worktree_path = workspace_dir.join(&input.repo.name);
 
             debug!(
                 "Ensuring worktree exists for repo '{}' at {}",
-                repo.name,
+                input.repo.name,
                 worktree_path.display()
             );
 
-            WorktreeManager::ensure_worktree_exists(&repo.path, branch_name, &worktree_path)
-                .await?;
+            WorktreeManager::ensure_worktree_exists_from_ref(
+                &input.repo.path,
+                branch_name,
+                &worktree_path,
+                Some(input.target_branch.as_str()).filter(|branch| !branch.trim().is_empty()),
+            )
+            .await?;
         }
 
         Ok(())

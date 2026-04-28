@@ -95,6 +95,7 @@ impl ProjectRepo {
         )
         .fetch_all(pool)
         .await
+        .map(Repo::normalize_windows_paths)
     }
 
     pub async fn find_by_project_and_repo(

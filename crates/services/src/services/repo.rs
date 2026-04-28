@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use db::models::repo::Repo as RepoModel;
-use git::{GitService, GitServiceError};
+use git::{GitCli, GitService, GitServiceError};
 use sqlx::SqlitePool;
 use thiserror::Error;
 use utils::path::{expand_tilde, normalize_windows_extended_path_prefix};
@@ -52,11 +52,26 @@ impl RepoService {
             return Err(RepoError::NotGitRepository(path.to_path_buf()));
         }
 
-        let repository = git2::Repository::open(path)
-            .map_err(|_| RepoError::NotGitRepository(path.to_path_buf()))?;
-        let workdir = repository
-            .workdir()
-            .ok_or_else(|| RepoError::NotGitRepository(path.to_path_buf()))?;
+        if let Some(repo_path) = self.resolve_git_repo_path_with_libgit2(path)? {
+            return Ok(repo_path);
+        }
+
+        if let Some(repo_path) = self.resolve_git_repo_path_with_cli(path)? {
+            return Ok(repo_path);
+        }
+
+        Err(RepoError::NotGitRepository(path.to_path_buf()))
+    }
+
+    fn resolve_git_repo_path_with_libgit2(&self, path: &Path) -> Result<Option<PathBuf>> {
+        let repository = match git2::Repository::open(path) {
+            Ok(repository) => repository,
+            Err(_) => return Ok(None),
+        };
+        let Some(workdir) = repository.workdir() else {
+            return Ok(None);
+        };
+
         let normalized_workdir = utils::path::normalize_macos_private_alias(workdir);
         let normalized_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let canonical_workdir = normalized_workdir
@@ -64,10 +79,37 @@ impl RepoService {
             .unwrap_or_else(|_| normalized_workdir.clone());
 
         if canonical_workdir != normalized_path {
-            return Err(RepoError::NotGitRepository(path.to_path_buf()));
+            return Ok(None);
         }
 
-        Ok(normalize_windows_extended_path_prefix(canonical_workdir))
+        Ok(Some(normalize_windows_extended_path_prefix(
+            canonical_workdir,
+        )))
+    }
+
+    fn resolve_git_repo_path_with_cli(&self, path: &Path) -> Result<Option<PathBuf>> {
+        let output = match GitCli::new().git(path, ["rev-parse", "--show-toplevel"]) {
+            Ok(output) => output,
+            Err(_) => return Ok(None),
+        };
+        let top_level = output.trim();
+        if top_level.is_empty() {
+            return Ok(None);
+        }
+
+        let normalized_top_level = utils::path::normalize_macos_private_alias(Path::new(top_level));
+        let normalized_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical_top_level = normalized_top_level
+            .canonicalize()
+            .unwrap_or_else(|_| normalized_top_level.clone());
+
+        if canonical_top_level != normalized_path {
+            return Ok(None);
+        }
+
+        Ok(Some(normalize_windows_extended_path_prefix(
+            canonical_top_level,
+        )))
     }
 
     pub fn validate_git_repo_path(&self, path: &Path) -> Result<()> {
@@ -241,5 +283,29 @@ mod tests {
                 .is_git_repo_path(child_repo.to_str().unwrap())
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn gitdir_file_repo_is_registered_as_selected_worktree() {
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("worktree");
+        GitService::new()
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+
+        let git_dir = repo_path.join(".git");
+        let external_git_dir = repo_path.join("repo_git_meta");
+        std::fs::rename(&git_dir, &external_git_dir).unwrap();
+        std::fs::write(
+            &git_dir,
+            format!("gitdir: {}\n", external_git_dir.to_string_lossy()),
+        )
+        .unwrap();
+
+        let service = RepoService::new();
+        let resolved = service.resolve_git_repo_path(&repo_path).unwrap();
+        let expected = normalize_windows_extended_path_prefix(repo_path.canonicalize().unwrap());
+
+        assert_eq!(resolved, expected);
     }
 }

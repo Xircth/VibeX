@@ -10,7 +10,7 @@ static WORKSPACE_DIR_OVERRIDE: LazyLock<RwLock<Option<PathBuf>>> =
     LazyLock::new(|| RwLock::new(None));
 
 use git::{GitCli, GitService, GitServiceError};
-use git2::{Error as GitError, Repository};
+use git2::{BranchType, Error as GitError, Repository};
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use utils::{
@@ -125,25 +125,24 @@ impl WorktreeManager {
 
         if create_branch {
             let repo_path_owned = repo_path.to_path_buf();
-            let branch_name_owned = branch_name.to_string();
             let base_branch_owned = base_branch.to_string();
 
             tokio::task::spawn_blocking(move || {
                 let repo = Repository::open(&repo_path_owned)?;
-                let base_branch_ref =
-                    GitService::find_branch(&repo, &base_branch_owned)?.into_reference();
-                repo.branch(
-                    &branch_name_owned,
-                    &base_branch_ref.peel_to_commit()?,
-                    false,
-                )?;
+                GitService::find_branch(&repo, &base_branch_owned)?;
                 Ok::<(), GitServiceError>(())
             })
             .await
             .map_err(|e| WorktreeError::TaskJoin(format!("Task join error: {e}")))??;
         }
 
-        Self::ensure_worktree_exists(repo_path, branch_name, worktree_path).await
+        Self::ensure_worktree_exists_from_ref(
+            repo_path,
+            branch_name,
+            worktree_path,
+            create_branch.then_some(base_branch),
+        )
+        .await
     }
 
     /// Ensure worktree exists, recreating if necessary with proper synchronization
@@ -152,6 +151,15 @@ impl WorktreeManager {
         repo_path: &Path,
         branch_name: &str,
         worktree_path: &Path,
+    ) -> Result<(), WorktreeError> {
+        Self::ensure_worktree_exists_from_ref(repo_path, branch_name, worktree_path, None).await
+    }
+
+    pub async fn ensure_worktree_exists_from_ref(
+        repo_path: &Path,
+        branch_name: &str,
+        worktree_path: &Path,
+        start_point: Option<&str>,
     ) -> Result<(), WorktreeError> {
         Self::validate_worktree_target(repo_path, worktree_path)?;
         let path_str = worktree_path.to_string_lossy().to_string();
@@ -176,7 +184,7 @@ impl WorktreeManager {
 
         // If worktree doesn't exist or isn't properly set up, recreate it
         info!("Worktree needs recreation at path: {}", path_str);
-        Self::recreate_worktree_internal(repo_path, branch_name, worktree_path).await
+        Self::recreate_worktree_internal(repo_path, branch_name, worktree_path, start_point).await
     }
 
     pub async fn is_worktree_available(
@@ -191,6 +199,7 @@ impl WorktreeManager {
         repo_path: &Path,
         branch_name: &str,
         worktree_path: &Path,
+        start_point: Option<&str>,
     ) -> Result<(), WorktreeError> {
         let path_str = worktree_path.to_string_lossy().to_string();
         let branch_name_owned = branch_name.to_string();
@@ -219,6 +228,7 @@ impl WorktreeManager {
             &branch_name_owned,
             &worktree_path_owned,
             &path_str,
+            start_point,
         )
         .await
     }
@@ -430,16 +440,24 @@ impl WorktreeManager {
         branch_name: &str,
         worktree_path: &Path,
         path_str: &str,
+        start_point: Option<&str>,
     ) -> Result<(), WorktreeError> {
         let git_repo_path = git_repo_path.to_path_buf();
         let branch_name = branch_name.to_string();
         let worktree_path = worktree_path.to_path_buf();
         let path_str = path_str.to_string();
+        let start_point = start_point.map(ToOwned::to_owned);
 
         tokio::task::spawn_blocking(move || -> Result<(), WorktreeError> {
             // Prefer git CLI for worktree add to inherit sparse-checkout semantics
             let git_service = GitService::new();
-            match git_service.add_worktree(&git_repo_path, &worktree_path, &branch_name, false) {
+            match Self::add_worktree_for_branch(
+                &git_service,
+                &git_repo_path,
+                &worktree_path,
+                &branch_name,
+                start_point.as_deref(),
+            ) {
                 Ok(()) => {
                     if !worktree_path.exists() {
                         return Err(WorktreeError::Repository(format!(
@@ -470,11 +488,12 @@ impl WorktreeManager {
                     if worktree_path.exists() {
                         std::fs::remove_dir_all(&worktree_path).map_err(WorktreeError::Io)?;
                     }
-                    if let Err(e2) = git_service.add_worktree(
+                    if let Err(e2) = Self::add_worktree_for_branch(
+                        &git_service,
                         &git_repo_path,
                         &worktree_path,
                         &branch_name,
-                        false,
+                        start_point.as_deref(),
                     ) {
                         return Err(WorktreeError::GitService(e2));
                     }
@@ -499,6 +518,32 @@ impl WorktreeManager {
         })
         .await
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
+    }
+
+    fn add_worktree_for_branch(
+        git_service: &GitService,
+        git_repo_path: &Path,
+        worktree_path: &Path,
+        branch_name: &str,
+        start_point: Option<&str>,
+    ) -> Result<(), GitServiceError> {
+        if let Some(start_point) = start_point
+            && !Self::local_branch_exists(git_repo_path, branch_name)
+        {
+            return git_service.add_worktree_from_ref(
+                git_repo_path,
+                worktree_path,
+                branch_name,
+                start_point,
+            );
+        }
+
+        git_service.add_worktree(git_repo_path, worktree_path, branch_name, false)
+    }
+
+    fn local_branch_exists(git_repo_path: &Path, branch_name: &str) -> bool {
+        Repository::open(git_repo_path)
+            .is_ok_and(|repo| repo.find_branch(branch_name, BranchType::Local).is_ok())
     }
 
     /// Get the git repository path
@@ -774,6 +819,35 @@ async fn create_worktree_when_repo_path_is_a_worktree() {
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn create_worktree_creates_local_branch_when_only_remote_tracking_ref_exists() {
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("repo");
+    let git_service = GitService::new();
+    git_service
+        .initialize_repo_with_main_branch(&repo_path)
+        .unwrap();
+    std::fs::write(repo_path.join("README.md"), "hello\n").unwrap();
+    git_service.commit(&repo_path, "seed").unwrap();
+
+    let repo = Repository::open(&repo_path).unwrap();
+    let head = repo.head().unwrap().target().unwrap();
+    repo.reference("refs/remotes/origin/vu/3e19", head, true, "test remote ref")
+        .unwrap();
+
+    assert!(!WorktreeManager::local_branch_exists(&repo_path, "vu/3e19"));
+
+    let worktree_path = td.path().join("wt-new");
+    WorktreeManager::create_worktree(&repo_path, "vu/3e19", &worktree_path, "main", true)
+        .await
+        .unwrap();
+
+    assert!(worktree_path.join(".git").is_file());
+    assert!(WorktreeManager::local_branch_exists(&repo_path, "vu/3e19"));
 }
 
 #[tokio::test]

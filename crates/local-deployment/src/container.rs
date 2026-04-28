@@ -1254,6 +1254,8 @@ impl ContainerService for LocalContainerService {
         workspace: &Workspace,
     ) -> Result<ContainerRef, ContainerError> {
         Workspace::touch(&self.db.pool, workspace.id).await?;
+        let workspace_repos =
+            WorkspaceRepo::find_by_workspace_id(&self.db.pool, workspace.id).await?;
         let repositories =
             WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
 
@@ -1333,8 +1335,25 @@ impl ContainerService for LocalContainerService {
             return Ok(workspace_dir.to_string_lossy().to_string());
         }
 
-        WorkspaceManager::ensure_workspace_exists(&workspace_dir, &repositories, &workspace.branch)
-            .await?;
+        let target_branches: HashMap<_, _> = workspace_repos
+            .iter()
+            .map(|wr| (wr.repo_id, wr.target_branch.clone()))
+            .collect();
+
+        let workspace_inputs: Vec<RepoWorkspaceInput> = repositories
+            .iter()
+            .map(|repo| {
+                let target_branch = target_branches.get(&repo.id).cloned().unwrap_or_default();
+                RepoWorkspaceInput::new(repo.clone(), target_branch)
+            })
+            .collect();
+
+        WorkspaceManager::ensure_workspace_exists(
+            &workspace_dir,
+            &workspace_inputs,
+            &workspace.branch,
+        )
+        .await?;
 
         if workspace.container_ref.is_none() {
             Workspace::update_container_ref(

@@ -1531,6 +1531,20 @@ impl GitService {
         Ok(())
     }
 
+    /// Add a worktree by creating a new branch from an explicit start point.
+    pub fn add_worktree_from_ref(
+        &self,
+        repo_path: &Path,
+        worktree_path: &Path,
+        branch: &str,
+        start_point: &str,
+    ) -> Result<(), GitServiceError> {
+        let git = GitCli::new();
+        git.worktree_add_from_ref(repo_path, worktree_path, branch, start_point)
+            .map_err(|e| GitServiceError::InvalidRepository(e.to_string()))?;
+        Ok(())
+    }
+
     /// Remove a worktree
     pub fn remove_worktree(
         &self,

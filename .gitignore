@@ -82,6 +82,8 @@ build-npm-package-codesign.sh
 # ===== Project-specific: upstream origin base (excluded from this fork) =====
 vibe-kanban-originbase/
 vibex-cloud/
+code-reference/
+code-referance/
 
 # ===== Logs =====
 logs/

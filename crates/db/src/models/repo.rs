@@ -114,12 +114,12 @@ pub struct UpdateRepo {
 }
 
 impl Repo {
-    fn normalize_windows_path(mut self) -> Self {
-        self.path = normalize_windows_extended_path_prefix(&self.path);
+    pub(crate) fn normalize_windows_path(mut self) -> Self {
+        self.path = normalize_repo_path_for_display(&self.path);
         self
     }
 
-    fn normalize_windows_paths(rows: Vec<Self>) -> Vec<Self> {
+    pub(crate) fn normalize_windows_paths(rows: Vec<Self>) -> Vec<Self> {
         rows.into_iter().map(Self::normalize_windows_path).collect()
     }
 
@@ -415,5 +415,78 @@ impl Repo {
         .await
         .map(Self::normalize_windows_path)
         .map_err(RepoError::from)
+    }
+}
+
+pub(crate) fn normalize_repo_path_for_display(path: &Path) -> PathBuf {
+    let normalized = normalize_windows_extended_path_prefix(path);
+
+    if let Some(worktree_path) = gitdir_path_to_worktree_path(&normalized) {
+        return normalize_windows_extended_path_prefix(worktree_path);
+    }
+
+    normalized
+}
+
+fn gitdir_path_to_worktree_path(path: &Path) -> Option<PathBuf> {
+    if !path.is_dir() {
+        return None;
+    }
+
+    let parent = path.parent()?;
+    let dot_git = parent.join(".git");
+    if !dot_git.is_file() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&dot_git).ok()?;
+    let gitdir = content.strip_prefix("gitdir:")?.trim();
+    if gitdir.is_empty() {
+        return None;
+    }
+
+    let referenced_gitdir = PathBuf::from(gitdir);
+    let referenced_gitdir = if referenced_gitdir.is_absolute() {
+        referenced_gitdir
+    } else {
+        parent.join(referenced_gitdir)
+    };
+
+    let canonical_path = path.canonicalize().ok()?;
+    let canonical_referenced = referenced_gitdir.canonicalize().ok()?;
+    if canonical_path == canonical_referenced {
+        Some(
+            parent
+                .canonicalize()
+                .unwrap_or_else(|_| parent.to_path_buf()),
+        )
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[test]
+    fn normalizes_stored_gitdir_path_back_to_worktree_root() {
+        let root = std::env::temp_dir().join(format!("vibex-db-repo-{}", Uuid::new_v4()));
+        let gitdir = root.join("repo_git_meta");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(
+            &root.join(".git"),
+            format!("gitdir: {}\n", gitdir.display()),
+        )
+        .unwrap();
+
+        let normalized = normalize_repo_path_for_display(&gitdir);
+        let expected = normalize_windows_extended_path_prefix(root.canonicalize().unwrap());
+
+        assert_eq!(normalized, expected);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

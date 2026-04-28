@@ -6,7 +6,7 @@ use sqlx::{FromRow, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::repo::Repo;
+use super::repo::{Repo, normalize_repo_path_for_display};
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct WorkspaceRepo {
@@ -133,6 +133,7 @@ impl WorkspaceRepo {
         )
         .fetch_all(pool)
         .await
+        .map(Repo::normalize_windows_paths)
     }
 
     pub async fn find_repos_with_target_branch_for_workspace(
@@ -182,7 +183,8 @@ impl WorkspaceRepo {
                     default_working_dir: row.default_working_dir,
                     created_at: row.created_at,
                     updated_at: row.updated_at,
-                },
+                }
+                .normalize_windows_path(),
                 target_branch: row.target_branch,
             })
             .collect())
@@ -326,6 +328,7 @@ impl WorkspaceRepo {
         )
         .fetch_all(pool)
         .await
+        .map(Repo::normalize_windows_paths)
     }
 
     /// Find repos for a workspace with their copy_files configuration.
@@ -347,7 +350,7 @@ impl WorkspaceRepo {
             .into_iter()
             .map(|row| RepoWithCopyFiles {
                 id: row.id,
-                path: PathBuf::from(row.path),
+                path: normalize_repo_path_for_display(PathBuf::from(row.path).as_path()),
                 name: row.name,
                 copy_files: row.copy_files,
             })

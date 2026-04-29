@@ -34,6 +34,8 @@ import {
 } from '@/components/sessions/SessionCreationForm';
 import type { ExecutorProfileId, Workspace } from 'shared/types';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
+import { paths } from '@/lib/paths';
+import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
 const CREATE_SESSION_ERROR_FALLBACK =
@@ -144,6 +146,7 @@ function CreateSessionOverlay({
 }
 
 export function RightPanelContent() {
+  const navigate = useNavigateWithSearch();
   const {
     projectId: routeProjectId,
     workspaceId,
@@ -317,6 +320,47 @@ export function RightPanelContent() {
     [createWorkspaceValue, workspaceBranchOptions]
   );
 
+  const syncWorkspaceRouteSession = useCallback(
+    (session: { sessionId: string; workspaceId: string }) => {
+      if (activeWorktreeId !== session.workspaceId) {
+        setActiveWorktree(session.workspaceId, null);
+      }
+
+      if (effectiveProjectId && isWorkspaceRoute) {
+        navigate(
+          paths.projectSession(
+            effectiveProjectId,
+            session.workspaceId,
+            session.sessionId
+          )
+        );
+      }
+    },
+    [
+      activeWorktreeId,
+      effectiveProjectId,
+      isWorkspaceRoute,
+      navigate,
+      setActiveWorktree,
+    ]
+  );
+
+  const handleCreatedSession = useCallback(
+    (session: { sessionId: string; workspaceId: string }) => {
+      placeCreatedSession(session);
+      syncWorkspaceRouteSession(session);
+    },
+    [placeCreatedSession, syncWorkspaceRouteSession]
+  );
+
+  const handleSelectedSession = useCallback(
+    (session: { sessionId: string; workspaceId: string }) => {
+      replaceRightSession(session);
+      syncWorkspaceRouteSession(session);
+    },
+    [replaceRightSession, syncWorkspaceRouteSession]
+  );
+
   const canCreateSession =
     !!selectedExecutorProfile?.executor &&
     (createMode === 'existing_workspace'
@@ -352,6 +396,12 @@ export function RightPanelContent() {
         queryKey: ['workspaceSessions', newSession.workspace_id],
       });
       await queryClient.invalidateQueries({
+        queryKey: ['taskAttempt', newSession.workspace_id],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['taskAttemptWithSession', newSession.workspace_id],
+      });
+      await queryClient.invalidateQueries({
         queryKey: ['projectWorktrees', effectiveProjectId],
       });
       if (primaryRepo?.id) {
@@ -359,10 +409,7 @@ export function RightPanelContent() {
           queryKey: ['repoBranches', primaryRepo.id],
         });
       }
-      if (createMode === 'new_workspace') {
-        setActiveWorktree(newSession.workspace_id, newSession.task_id ?? null);
-      }
-      placeCreatedSession({
+      handleCreatedSession({
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
       });
@@ -437,8 +484,8 @@ export function RightPanelContent() {
                   sessionId={sessionId}
                   interactive={true}
                   showSessionSelector={true}
-                  onSessionCreated={replaceRightSession}
-                  onSessionSelected={replaceRightSession}
+                  onSessionCreated={handleCreatedSession}
+                  onSessionSelected={handleSelectedSession}
                   className="h-full"
                 />
               </div>
@@ -449,8 +496,8 @@ export function RightPanelContent() {
                   sessionId={visibleRightSession.sessionId}
                   interactive={true}
                   showSessionSelector={true}
-                  onSessionCreated={replaceRightSession}
-                  onSessionSelected={replaceRightSession}
+                  onSessionCreated={handleCreatedSession}
+                  onSessionSelected={handleSelectedSession}
                   className="h-full"
                 />
               </div>

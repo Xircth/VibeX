@@ -476,11 +476,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("vibex-db-repo-{}", Uuid::new_v4()));
         let gitdir = root.join("repo_git_meta");
         std::fs::create_dir_all(&gitdir).unwrap();
-        std::fs::write(
-            &root.join(".git"),
-            format!("gitdir: {}\n", gitdir.display()),
-        )
-        .unwrap();
+        std::fs::write(root.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
 
         let normalized = normalize_repo_path_for_display(&gitdir);
         let expected = normalize_windows_extended_path_prefix(root.canonicalize().unwrap());

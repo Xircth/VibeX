@@ -344,8 +344,7 @@ export function SystemSettings() {
   }, []);
 
   const handleClearLocalData = useCallback(() => {
-    let toastId: string | number;
-    toastId = toast.warning('确认清除本地数据？', {
+    const toastId = toast.warning('确认清除本地数据？', {
       duration: 8000,
       action: {
         label: '清除',

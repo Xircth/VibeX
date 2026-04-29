@@ -2167,6 +2167,25 @@ impl GitService {
             .map_err(GitServiceError::from)
     }
 
+    pub fn refresh_worktree_start_point(
+        &self,
+        repo_path: &Path,
+        start_point: &str,
+    ) -> Result<String, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+
+        if repo.find_branch(start_point, BranchType::Local).is_ok() {
+            return Ok(start_point.to_string());
+        }
+
+        if let Ok(remote_branch) = repo.find_branch(start_point, BranchType::Remote) {
+            let remote_ref = remote_branch.into_reference();
+            self.fetch_branch_from_remote(&repo, &remote_ref)?;
+        }
+
+        Ok(start_point.to_string())
+    }
+
     pub fn resolve_remote_for_branch(
         &self,
         repo_path: &Path,
@@ -2429,6 +2448,7 @@ impl GitService {
             .get_worktree_status(worktree_path)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
         let branch_name = git.get_current_branch(worktree_path).unwrap_or_default();
+        let repo = self.open_repo(worktree_path)?;
 
         // Parse numstat for additions/deletions (staged)
         let staged_numstat = git.get_numstat_staged(worktree_path).unwrap_or_default();
@@ -2461,7 +2481,10 @@ impl GitService {
 
             // Unstaged changes (column Y is not ' ') or untracked files
             if entry.is_untracked {
-                let (adds, dels) = all_stats.get(&path_str).copied().unwrap_or((0, 0));
+                let (adds, dels) = all_stats
+                    .get(&path_str)
+                    .copied()
+                    .unwrap_or_else(|| Self::untracked_file_stats(&repo, &path_str));
                 unstaged_files.push(GitFileStatusEntry {
                     path: path_str,
                     status: "?".to_string(),
@@ -2494,6 +2517,13 @@ impl GitService {
             total_additions,
             total_deletions,
         })
+    }
+
+    fn untracked_file_stats(repo: &Repository, path: &str) -> (i32, i32) {
+        let additions = Self::read_file_to_string(repo, Path::new(path))
+            .map(|content| content.lines().count() as i32)
+            .unwrap_or(0);
+        (additions, 0)
     }
 
     /// Stage a single file.
@@ -2850,5 +2880,51 @@ impl GitService {
         ];
         let lower = path.to_lowercase();
         image_exts.iter().any(|ext| lower.ends_with(ext))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn detailed_status_expands_untracked_directories_with_line_stats() {
+        let td = TempDir::new().unwrap();
+        let repo_path = td.path().join("repo");
+        let service = GitService::new();
+        service
+            .initialize_repo_with_main_branch(&repo_path)
+            .unwrap();
+
+        std::fs::create_dir_all(repo_path.join("backend").join("routes")).unwrap();
+        std::fs::create_dir_all(repo_path.join("frontend-react").join("src")).unwrap();
+        std::fs::write(
+            repo_path.join("backend").join("routes").join("contracts.js"),
+            "one\ntwo\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo_path.join("frontend-react").join("src").join("App.jsx"),
+            "three\n",
+        )
+        .unwrap();
+
+        let status = service.get_detailed_status(&repo_path).unwrap();
+        let paths = status
+            .unstaged_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(status.unstaged_files.len(), 2);
+        assert!(paths.contains(&"backend/routes/contracts.js"));
+        assert!(paths.contains(&"frontend-react/src/App.jsx"));
+        assert_eq!(status.total_additions, 3);
+        assert_eq!(status.total_deletions, 0);
+        assert!(status
+            .unstaged_files
+            .iter()
+            .all(|file| file.status == "?"));
     }
 }

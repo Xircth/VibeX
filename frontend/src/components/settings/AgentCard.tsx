@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   RotateCw,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,19 +38,19 @@ const AGENT_META: Record<
     name: 'Claude Code',
     description: 'Anthropic Claude Code - AI 编码助手',
     icon: 'CC',
-    installSource: 'npm -g @anthropic-ai/claude-code',
+    installSource: 'npm -g @agentclientprotocol/claude-agent-acp',
   },
   codex: {
     name: 'Codex',
     description: 'OpenAI Codex CLI - AI 编码助手',
     icon: 'CX',
-    installSource: 'npm -g @openai/codex',
+    installSource: 'npm -g @zed-industries/codex-acp',
   },
   open_code: {
     name: 'OpenCode',
     description: 'OpenCode - 开源 AI 编码助手',
     icon: 'OC',
-    installSource: 'go install github.com/opencode-ai/opencode@latest',
+    installSource: 'npm -g opencode-ai',
   },
 };
 
@@ -85,11 +86,9 @@ export interface AgentDraft {
   claudeDefaultOpusModel: string;
   // Codex
   codexModel: string;
-  codexModelProvider: string;
   codexReasoningEffort: string;
   codexApiBaseUrl: string;
   codexApiKey: string;
-  codexSupportsWebsockets: boolean;
   codexConfigTomlText: string;
   codexAuthJsonText: string;
   // OpenCode
@@ -116,11 +115,11 @@ function createEmptyDraft(agent: AgentSettingInfo): AgentDraft {
     claudeDefaultOpusModel: envMap['ANTHROPIC_DEFAULT_OPUS_MODEL'] ?? '',
     // Codex
     codexModel: String(config['model'] ?? ''),
-    codexModelProvider: String(config['model_provider'] ?? ''),
-    codexReasoningEffort: String(config['reasoning_effort'] ?? 'medium'),
+    codexReasoningEffort: String(
+      config['model_reasoning_effort'] ?? 'medium'
+    ),
     codexApiBaseUrl: envMap['OPENAI_BASE_URL'] ?? '',
     codexApiKey: envMap['OPENAI_API_KEY'] ?? '',
-    codexSupportsWebsockets: config['supports_websockets'] === true,
     codexConfigTomlText: String(config['_codex_config_toml'] ?? ''),
     codexAuthJsonText: String(config['_codex_auth_json'] ?? ''),
     // OpenCode
@@ -202,10 +201,7 @@ function buildConfigJson(agentType: string, draft: AgentDraft): string {
 
   if (agentType === 'codex') {
     if (draft.codexModel) config['model'] = draft.codexModel;
-    if (draft.codexModelProvider)
-      config['model_provider'] = draft.codexModelProvider;
-    config['reasoning_effort'] = draft.codexReasoningEffort;
-    config['supports_websockets'] = draft.codexSupportsWebsockets;
+    config['model_reasoning_effort'] = draft.codexReasoningEffort;
     if (draft.codexConfigTomlText)
       config['_codex_config_toml'] = draft.codexConfigTomlText;
     if (draft.codexAuthJsonText)
@@ -260,6 +256,21 @@ function summarizeChecks(
   return 'pass';
 }
 
+function getUpgradeAction(agentType: string): string | null {
+  switch (agentType) {
+    case 'claude_code':
+    case 'codex':
+    case 'open_code':
+      return 'upgrade_npm';
+    default:
+      return null;
+  }
+}
+
+function formatInstalledVersion(version: string | null): string {
+  return version && version.trim().length > 0 ? version : '未检测';
+}
+
 // ─── AgentCard Component ───────────────────────────────────────
 
 interface AgentCardProps {
@@ -300,6 +311,8 @@ export function AgentCard({
   const [draft, setDraft] = useState<AgentDraft>(() => createEmptyDraft(agent));
   const [checks, setChecks] = useState<PreflightCheck[]>([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [isVersionChecking, setIsVersionChecking] = useState(false);
+  const [versionMessage, setVersionMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [expandedChecks, setExpandedChecks] = useState<Record<string, boolean>>(
@@ -345,6 +358,27 @@ export function AgentCard({
       setIsChecking(false);
     }
   }, [agent.agent_type]);
+
+  const handleDetectVersion = useCallback(async () => {
+    setIsVersionChecking(true);
+    setVersionMessage(null);
+    setNativeConfigError(null);
+    try {
+      const version = await agentSettingsApi.detectVersion(agent.agent_type);
+      setVersionMessage(
+        version
+          ? `已检测到当前版本：${version}`
+          : '当前应用环境的 PATH 中未找到该 CLI'
+      );
+      onReload();
+    } catch (error) {
+      setVersionMessage(
+        error instanceof Error ? error.message : '检测版本失败'
+      );
+    } finally {
+      setIsVersionChecking(false);
+    }
+  }, [agent.agent_type, onReload]);
 
   useEffect(() => {
     if (selected && checks.length === 0 && !isChecking) {
@@ -490,6 +524,9 @@ export function AgentCard({
           agentType: agent.agent_type,
           action,
         });
+        if (action.startsWith('upgrade') || action.startsWith('install')) {
+          setVersionMessage('已执行更新，请重新检测版本确认结果');
+        }
         await onReload();
         await handlePreflight();
       } catch (error) {
@@ -502,6 +539,11 @@ export function AgentCard({
     },
     [agent.agent_type, handlePreflight, onReload]
   );
+
+  const upgradeAction = getUpgradeAction(agent.agent_type);
+  const isUpdating =
+    upgradeAction !== null &&
+    runningFixActions[`${agent.agent_type}:${upgradeAction}`] === true;
 
   return (
     <section
@@ -554,6 +596,55 @@ export function AgentCard({
         >
           {/* Preflight checks */}
           <div className="space-y-2">
+            <div className="rounded-md border bg-muted/10 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-foreground">
+                    版本
+                  </div>
+                  <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                    当前：{formatInstalledVersion(agent.installed_version)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={handleDetectVersion}
+                    disabled={isVersionChecking}
+                  >
+                    {isVersionChecking ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <RotateCw className="mr-1 h-3 w-3" />
+                    )}
+                    检查版本
+                  </Button>
+                  {upgradeAction && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => void handleRunFix(upgradeAction)}
+                      disabled={isUpdating}
+                    >
+                      {isUpdating ? (
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Download className="mr-1 h-3 w-3" />
+                      )}
+                      更新
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {versionMessage && (
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  {versionMessage}
+                </div>
+              )}
+            </div>
             <div className="flex items-center justify-between">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
@@ -920,35 +1011,22 @@ function CodexFields({
 }) {
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 grid-cols-2">
-        <div className="space-y-1.5">
-          <Label className="text-[11px] text-muted-foreground">
-            Model Provider
-          </Label>
+      <div className="space-y-1.5">
+        <Label className="text-[11px] text-muted-foreground">Model</Label>
+        <>
           <Input
-            value={draft.codexModelProvider}
-            onChange={(e) => onChange({ codexModelProvider: e.target.value })}
-            placeholder="openai"
+            list="codex-model-options"
+            value={draft.codexModel}
+            onChange={(e) => onChange({ codexModel: e.target.value })}
+            placeholder="gpt-5.5"
             className="h-8 text-xs"
           />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-[11px] text-muted-foreground">Model</Label>
-          <>
-            <Input
-              list="codex-model-options"
-              value={draft.codexModel}
-              onChange={(e) => onChange({ codexModel: e.target.value })}
-              placeholder="gpt-5.5"
-              className="h-8 text-xs"
-            />
-            <datalist id="codex-model-options">
-              {CODEX_MODEL_OPTIONS.map((model) => (
-                <option key={model} value={model} />
-              ))}
-            </datalist>
-          </>
-        </div>
+          <datalist id="codex-model-options">
+            {CODEX_MODEL_OPTIONS.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+        </>
       </div>
 
       <div className="space-y-1.5">
@@ -1012,16 +1090,6 @@ function CodexFields({
             (o) => o.value === draft.codexReasoningEffort
           )?.description ?? ''}
         </p>
-      </div>
-
-      <div className="flex items-center justify-between rounded-md border px-3 py-2">
-        <Label className="text-[11px] text-muted-foreground">
-          WebSocket 支持
-        </Label>
-        <Switch
-          checked={draft.codexSupportsWebsockets}
-          onCheckedChange={(v) => onChange({ codexSupportsWebsockets: v })}
-        />
       </div>
 
       <div className="space-y-1.5">

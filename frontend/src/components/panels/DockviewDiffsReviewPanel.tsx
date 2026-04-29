@@ -43,6 +43,21 @@ const exceedsMax = (d: Diff, max: number) =>
 const getDiffId = (diff: Diff, index: number) =>
   diff.newPath || diff.oldPath || String(index);
 
+function normalizeDiffPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function pathsReferToSameDiffFile(candidatePath: string, targetPath: string) {
+  const candidate = normalizeDiffPath(candidatePath);
+  const target = normalizeDiffPath(targetPath);
+
+  return (
+    candidate === target ||
+    candidate.endsWith(`/${target}`) ||
+    target.endsWith(`/${candidate}`)
+  );
+}
+
 const changeBadge: Record<DiffChangeKind, { label: string; color: string }> = {
   added: {
     label: 'A',
@@ -212,13 +227,9 @@ function DockviewDiffsReviewPanel() {
   useEffect(() => {
     if (!targetPath || diffs.length === 0) return;
 
-    const normalizedTargetPath = targetPath.replace(/\\/g, '/');
     const targetEntryIndex = diffs.findIndex((diff) => {
-      const candidate = (diff.newPath || diff.oldPath || '').replace(
-        /\\/g,
-        '/'
-      );
-      return candidate === normalizedTargetPath;
+      const candidate = diff.newPath || diff.oldPath || '';
+      return pathsReferToSameDiffFile(candidate, targetPath);
     });
 
     if (targetEntryIndex < 0) return;
@@ -330,9 +341,12 @@ function DockviewDiffsReviewPanel() {
   }
 
   return (
-    <div className="h-full w-full flex gap-2 p-2" data-panel="diffs">
+    <div
+      className="flex h-full min-h-0 w-full gap-2 overflow-hidden p-2"
+      data-panel="diffs"
+    >
       {/* Left: Diff content */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-background">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-background">
         {/* Commit info header (only in commit mode) */}
         {isCommitMode && commitInfo && (
           <div className="shrink-0 border-b border-border bg-muted/20">
@@ -445,7 +459,7 @@ function DockviewDiffsReviewPanel() {
         {/* Diff cards */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto px-3 pb-3"
+          className="min-h-0 flex-1 overflow-y-auto px-3 pb-3"
         >
           {diffs.length === 0 ? (
             <div className="flex items-center justify-center h-full text-sm text-muted-foreground">

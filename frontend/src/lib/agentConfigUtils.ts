@@ -32,13 +32,11 @@ export interface AgentDraft {
 
   // ── Codex (struct fields from profiles.json) ────────────────────────────
   codexModel: string;
-  codexModelProvider: string;
   codexReasoningEffort: CodexReasoningEffort;
 
   // ── Codex (native file fields) ──────────────────────────────────────────
   codexApiBaseUrl: string;
   codexApiKey: string;
-  codexSupportsWebsockets: boolean;
   codexAuthJsonText: string;
   codexConfigTomlText: string;
 
@@ -164,11 +162,9 @@ export function createEmptyDraft(): AgentDraft {
     claudeDefaultSonnetModel: '',
     claudeDefaultOpusModel: '',
     codexModel: '',
-    codexModelProvider: '',
     codexReasoningEffort: 'high',
     codexApiBaseUrl: '',
     codexApiKey: '',
-    codexSupportsWebsockets: false,
     codexAuthJsonText: '',
     codexConfigTomlText: '',
     openCodeModel: '',
@@ -218,7 +214,6 @@ export function buildDraftFromProfile(
   } else if (agentType === ('CODEX' as BaseCodingAgent)) {
     // Extract Codex struct fields
     draft.codexModel = (profileConfig.model as string) ?? '';
-    draft.codexModelProvider = (profileConfig.model_provider as string) ?? '';
     draft.codexReasoningEffort = normalizeReasoningEffort(
       profileConfig.model_reasoning_effort as string | undefined
     );
@@ -243,10 +238,6 @@ export function buildDraftFromProfile(
         nativeConfigs.codex_config_toml ?? ''
       );
       draft.codexApiBaseUrl = tomlValues.baseUrl;
-      draft.codexSupportsWebsockets = tomlValues.supportsWebsockets;
-      if (!draft.codexModelProvider && tomlValues.modelProvider) {
-        draft.codexModelProvider = tomlValues.modelProvider;
-      }
     }
   } else if (agentType === ('OPENCODE' as BaseCodingAgent)) {
     // Extract OpenCode struct fields
@@ -334,9 +325,9 @@ export function buildProfileConfigFromDraft(
     if (draft.codexModel) {
       config.model = draft.codexModel;
     }
-    if (draft.codexModelProvider) {
-      config.model_provider = draft.codexModelProvider;
-    }
+    delete config.model_provider;
+    delete config.supports_websockets;
+    delete config.reasoning_effort;
     config.model_reasoning_effort = draft.codexReasoningEffort || undefined;
 
     // Update cmd.env
@@ -365,9 +356,7 @@ export function buildProfileConfigFromDraft(
 // ---------------------------------------------------------------------------
 
 interface CodexTomlValues {
-  modelProvider: string;
   baseUrl: string;
-  supportsWebsockets: boolean;
 }
 
 /**
@@ -376,9 +365,7 @@ interface CodexTomlValues {
  */
 export function extractCodexTomlValues(tomlText: string): CodexTomlValues {
   const result: CodexTomlValues = {
-    modelProvider: '',
     baseUrl: '',
-    supportsWebsockets: false,
   };
 
   if (!tomlText) return result;
@@ -393,15 +380,8 @@ export function extractCodexTomlValues(tomlText: string): CodexTomlValues {
     const [, key, rawValue] = match;
     const value = rawValue.replace(/^["']|["']$/g, '').trim();
 
-    if (key === 'model_provider') {
-      result.modelProvider = value;
-    } else if (key === 'base_url') {
+    if (key === 'base_url') {
       result.baseUrl = value;
-    } else if (
-      key === 'supports_websockets' ||
-      key === 'responses_websockets_v2'
-    ) {
-      result.supportsWebsockets = value === 'true';
     }
   }
 

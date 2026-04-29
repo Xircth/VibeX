@@ -10,7 +10,7 @@
 
 .conv-user-bubble {
   background: var(--conv-user-bg);
-  color: var(--conv-user-text);
+  color: #fff;
   border-radius: var(--conv-user-bubble-radius);
   border: 1px solid rgba(255, 255, 255, 0.1);
   max-width: 85%;
@@ -20,11 +20,27 @@
   word-break: break-word;
 }
 
+.conv-user-bubble .wysiwyg,
+.conv-user-bubble [contenteditable='false'],
 .conv-user-bubble .ProseMirror,
 .conv-user-bubble .ProseMirror p,
 .conv-user-bubble .ProseMirror li,
-.conv-user-bubble .ProseMirror span {
-  color: var(--conv-user-text) !important;
+.conv-user-bubble .ProseMirror span,
+.conv-user-bubble [data-lexical-editor],
+.conv-user-bubble [data-lexical-editor] p,
+.conv-user-bubble [data-lexical-editor] li,
+.conv-user-bubble [data-lexical-editor] span,
+.conv-user-bubble [class*='text-foreground'],
+.conv-user-bubble [class*='text-muted-foreground'],
+.conv-user-bubble h1,
+.conv-user-bubble h2,
+.conv-user-bubble h3,
+.conv-user-bubble h4,
+.conv-user-bubble h5,
+.conv-user-bubble h6,
+.conv-user-bubble strong,
+.conv-user-bubble em {
+  color: #fff !important;
 }
 
 /* Inline code inside user bubble — transparent bg + subtle border only */
@@ -67,8 +83,16 @@
 }
 
 .conv-user-bubble .ProseMirror a {
-  color: rgba(255, 255, 255, 0.9) !important;
+  color: #fff !important;
   text-decoration: underline;
+}
+
+.conv-user-bubble [class*='bg-purple-500'],
+.conv-user-bubble [class*='bg-emerald-500'],
+.conv-user-bubble [class*='bg-sky-500'] {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  color: #fff !important;
 }
 
 /* Collapsible user message */

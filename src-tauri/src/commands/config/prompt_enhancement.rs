@@ -193,7 +193,6 @@ fn strip_list_prefix(value: &str) -> String {
 }
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 fn split_prompt_sentences(value: &str) -> Vec<String> {
     value
         .replace("\r\n", "\n")
@@ -399,14 +398,13 @@ fn build_local_enhanced_prompt(payload: &PromptEnhancementRequest) -> String {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 fn build_local_enhanced_prompt_v2(payload: &PromptEnhancementRequest) -> String {
     let draft = normalize_multiline_text(&payload.draft_prompt);
     let task_lines = split_task_clauses(&draft);
     let mut sections = Vec::new();
 
     if task_lines.len() <= 1 {
-        sections.push(format!("任务\n{}", draft));
+        sections.push(format!("任务\n- {}", draft));
     } else {
         sections.push(format!(
             "任务\n{}",

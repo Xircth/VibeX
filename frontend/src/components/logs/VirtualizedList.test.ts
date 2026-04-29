@@ -4,6 +4,7 @@ import {
   buildProcessChangeItems,
   findPreviousUserMessageKey,
 } from './VirtualizedList';
+import { buildProcessChangeFileGroups } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
 
 describe('findPreviousUserMessageKey', () => {
   it('jumps to the latest user turn above the current viewport anchor', () => {
@@ -109,6 +110,45 @@ describe('buildProcessChangeItems', () => {
           content: 'export const ok = true;\n',
         },
       },
+    ]);
+  });
+
+  it('groups repeated changes by file for the process summary count', () => {
+    expect(
+      buildProcessChangeFileGroups([
+        {
+          key: 'change-1',
+          path: 'src/App.tsx',
+          change: {
+            action: 'edit',
+            unified_diff: '@@\n-a\n+b',
+            has_line_numbers: true,
+          },
+        },
+        {
+          key: 'change-2',
+          path: 'src/main.tsx',
+          change: {
+            action: 'write',
+            content: 'console.log(1);\n',
+          },
+        },
+        {
+          key: 'change-3',
+          path: 'src/App.tsx',
+          change: {
+            action: 'edit',
+            unified_diff: '@@\n-b\n+c',
+            has_line_numbers: true,
+          },
+        },
+      ]).map((group) => ({
+        path: group.path,
+        count: group.items.length,
+      }))
+    ).toEqual([
+      { path: 'src/App.tsx', count: 2 },
+      { path: 'src/main.tsx', count: 1 },
     ]);
   });
 });

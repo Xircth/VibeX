@@ -1,6 +1,7 @@
 pub mod client;
 pub mod harness;
 pub mod normalize_logs;
+pub mod provider;
 pub mod session;
 pub mod terminal;
 
@@ -9,6 +10,7 @@ use std::{fmt::Display, str::FromStr};
 pub use client::AcpClient;
 pub use harness::AcpAgentHarness;
 pub use normalize_logs::*;
+pub use provider::*;
 use serde::{Deserialize, Serialize};
 pub use session::SessionManager;
 pub use terminal::{AcpTerminalLifecycleEvent, acp_terminal_registry};

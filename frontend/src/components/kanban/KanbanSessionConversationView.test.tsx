@@ -11,7 +11,7 @@ const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
     attemptsGetMock: vi.fn(() => new Promise<Workspace>(() => {})),
     sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
     useWorkspaceSessionsMock: vi.fn(() => ({
-      sessions: [] as any[],
+      sessions: [] as Array<Record<string, unknown>>,
       selectedSession: undefined,
       selectedSessionId: undefined,
       selectSession: vi.fn(),
@@ -116,7 +116,7 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    const button = screen.getByRole('button', { name: '新建会话' });
+    const button = screen.getByRole('button', { name: '鏂板缓浼氳瘽' });
     expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
     expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
 
@@ -125,8 +125,9 @@ describe('KanbanSessionConversationView', () => {
     expect(startNewSession).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the standalone new-session button centered on workspace routes without an explicit session selection', () => {
+  it('renders the existing session shell on workspace routes without an explicit session selection', () => {
     const startNewSession = vi.fn();
+    const selectSession = vi.fn();
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [
         {
@@ -144,14 +145,14 @@ describe('KanbanSessionConversationView', () => {
           displayName: 'Existing Session',
           workspaceName: 'Workspace Empty',
           workspaceBranch: 'main',
-          statusLabel: '待开始',
+          statusLabel: '寰呭紑濮?,
           continuityMode: 'new_session',
-          continuityLabel: '新会话',
+          continuityLabel: '鏂颁細璇?,
         },
       ],
       selectedSession: undefined,
       selectedSessionId: undefined,
-      selectSession: vi.fn(),
+      selectSession,
       selectLatestSession: vi.fn(),
       isLoading: false,
       isNewSessionMode: false,
@@ -182,13 +183,21 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    const button = screen.getByRole('button', { name: '新建会话' });
-    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
-
-    fireEvent.click(button);
-
-    expect(startNewSession).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceSessionsMock).toHaveBeenCalledWith(
+      'workspace-empty',
+      expect.objectContaining({
+        autoSelectFirstSession: true,
+      })
+    );
+    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
+      'workspace-empty:none'
+    );
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '鏂板缓浼氳瘽' })
+    ).not.toBeInTheDocument();
+    expect(selectSession).not.toHaveBeenCalled();
+    expect(startNewSession).not.toHaveBeenCalled();
   });
 
   it('renders immediately from initial Kanban session data', () => {

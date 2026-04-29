@@ -122,7 +122,7 @@ function KanbanSessionConversationContent({
   const sessionState = useWorkspaceSessions(attempt.id, {
     initialSessionId: attempt.session?.id,
     enabled: interactive,
-    autoSelectFirstSession: Boolean(attempt.session?.id),
+    autoSelectFirstSession: interactive,
   });
 
   useEffect(() => {
@@ -156,7 +156,7 @@ function KanbanSessionConversationContent({
   const shouldShowNewSessionPrompt =
     interactive &&
     !activeSession &&
-    (!attempt.session?.id || sessionState.sessions.length === 0) &&
+    sessionState.sessions.length === 0 &&
     !sessionState.isNewSessionMode;
 
   const conversationKey = `${attempt.id}:${activeSession?.id ?? attempt.session?.id ?? 'unknown'}`;

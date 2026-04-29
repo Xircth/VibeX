@@ -1,6 +1,9 @@
 import { useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { Check, ChevronDown, Clipboard, Pencil, Undo2 } from 'lucide-react';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import WYSIWYGEditor, {
+  SESSION_INPUT_MARKDOWN_PRESET,
+  SESSION_INPUT_TEXT_CLASS_NAME,
+} from '@/components/ui/wysiwyg';
 import { BaseAgentCapability } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -180,7 +183,8 @@ const UserMessage = ({
             <WYSIWYGEditor
               value={content}
               disabled
-              className="whitespace-pre-wrap break-words flex flex-col gap-1"
+              className={SESSION_INPUT_TEXT_CLASS_NAME}
+              markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
               taskAttemptId={taskAttempt?.id}
               hideReadOnlyActions
             />

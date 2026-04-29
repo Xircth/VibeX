@@ -34,7 +34,10 @@ import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
 import { buildClickedElementData } from '@/contexts/ClickedElementsProvider';
 import type { ClickedElementData } from '@/components/ui/wysiwyg/nodes/clicked-element-node';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import WYSIWYGEditor, {
+  SESSION_INPUT_EDITOR_CLASS_NAME,
+  SESSION_INPUT_MARKDOWN_PRESET,
+} from '@/components/ui/wysiwyg';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { useGitStatus } from '@/hooks/git';
@@ -1052,6 +1055,12 @@ export function TaskFollowUpSection({
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', newSession.workspace_id],
       });
+      await queryClient.invalidateQueries({
+        queryKey: ['taskAttempt', newSession.workspace_id],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['taskAttemptWithSession', newSession.workspace_id],
+      });
       if (projectId) {
         await queryClient.invalidateQueries({
           queryKey: ['projectWorktrees', projectId],
@@ -1066,7 +1075,9 @@ export function TaskFollowUpSection({
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
       });
-      handleSelectSession(newSession.id);
+      if (newSession.workspace_id === workspaceId) {
+        handleSelectSession(newSession.id);
+      }
       setNewSessionName('');
     },
   });
@@ -1275,10 +1286,10 @@ export function TaskFollowUpSection({
             taskAttemptId={workspaceId}
             onCmdEnter={handleSubmitShortcut}
             sendShortcut={config?.send_message_shortcut}
-            className="min-h-[40px] break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]"
+            className={SESSION_INPUT_EDITOR_CLASS_NAME}
             onRegisterClickedElementInsert={handleRegisterClickedElementInsert}
             enableFloatingToolbar={false}
-            markdownPreset="session-input-minimal"
+            markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
           />
 
           <ActionBar

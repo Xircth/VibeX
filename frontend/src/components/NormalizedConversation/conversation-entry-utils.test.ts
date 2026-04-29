@@ -152,7 +152,7 @@ describe('conversation meta notices', () => {
     expect(displayEntries[1]?.type).toBe('NORMALIZED_ENTRY');
   });
 
-  it('aggregates completed file edits into a process change summary group', () => {
+  it('aggregates consecutive file edits into an edit tool group', () => {
     const entries: PatchTypeWithKey[] = [
       {
         type: 'NORMALIZED_ENTRY',
@@ -204,9 +204,96 @@ describe('conversation meta notices', () => {
 
     expect(displayEntries).toHaveLength(1);
     expect(displayEntries[0]).toMatchObject({
-      type: 'AGGREGATED_DIFF_GROUP',
+      type: 'AGGREGATED_FILE_EDIT_GROUP',
       executionProcessId: 'proc-1',
     });
+  });
+
+  it('adds one process change summary after a completed assistant turn', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:1',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'edit',
+            action_type: {
+              action: 'file_edit',
+              path: 'src/App.tsx',
+              changes: [
+                {
+                  action: 'edit',
+                  unified_diff: '@@\\n-a\\n+b',
+                  has_line_numbers: true,
+                },
+              ],
+            },
+            status: { status: 'success' },
+          },
+          content: 'src/App.tsx',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:2',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'assistant_message' },
+          content: '已完成修改。',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      completedExecutionProcessIds: new Set(['proc-1']),
+    });
+
+    expect(displayEntries).toHaveLength(3);
+    expect(displayEntries[0]?.type).toBe('NORMALIZED_ENTRY');
+    expect(displayEntries[1]?.type).toBe('NORMALIZED_ENTRY');
+    expect(displayEntries[2]).toMatchObject({
+      type: 'PROCESS_CHANGE_SUMMARY',
+      executionProcessId: 'proc-1',
+    });
+  });
+
+  it('keeps a single completed file edit as an edit entry', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:1',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'edit',
+            action_type: {
+              action: 'file_edit',
+              path: 'src/App.tsx',
+              changes: [
+                {
+                  action: 'edit',
+                  unified_diff: '@@\\n-a\\n+b',
+                  has_line_numbers: true,
+                },
+              ],
+            },
+            status: { status: 'success' },
+          },
+          content: 'src/App.tsx',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries);
+
+    expect(displayEntries).toHaveLength(1);
+    expect(displayEntries[0]?.type).toBe('NORMALIZED_ENTRY');
   });
 
   it('aggregates consecutive thinking entries when thinking grouping is enabled', () => {

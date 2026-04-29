@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 use deployment::Deployment;
-use executors::executors::{acp::acp_terminal_registry, codex::codex_terminal_registry};
+use executors::executors::acp::acp_terminal_registry;
 use services::services::container::ContainerService;
 use tauri::Emitter;
 use uuid::Uuid;
@@ -115,11 +115,6 @@ pub async fn attach_terminal(
         return Ok(session_id);
     }
 
-    if let Some(output_rx) = codex_terminal_registry().subscribe_output(session_id).await {
-        spawn_terminal_output_bridge(app, session_id, output_rx);
-        return Ok(session_id);
-    }
-
     let output_rx = acp_terminal_registry()
         .subscribe_output(session_id)
         .await
@@ -138,9 +133,7 @@ pub async fn write_terminal(
     session_id: Uuid,
     data: String,
 ) -> Result<(), AppError> {
-    if acp_terminal_registry().exists(session_id).await
-        || codex_terminal_registry().exists(session_id).await
-    {
+    if acp_terminal_registry().exists(session_id).await {
         return Err(AppError::BadRequest(
             "Agent terminal is read-only in the embedded terminal panel".to_string(),
         ));
@@ -166,9 +159,7 @@ pub async fn resize_terminal(
     cols: u16,
     rows: u16,
 ) -> Result<(), AppError> {
-    if acp_terminal_registry().exists(session_id).await
-        || codex_terminal_registry().exists(session_id).await
-    {
+    if acp_terminal_registry().exists(session_id).await {
         return Ok(());
     }
 
@@ -187,9 +178,7 @@ pub async fn close_terminal(
     state: tauri::State<'_, AppState>,
     session_id: Uuid,
 ) -> Result<(), AppError> {
-    if acp_terminal_registry().exists(session_id).await
-        || codex_terminal_registry().exists(session_id).await
-    {
+    if acp_terminal_registry().exists(session_id).await {
         return Ok(());
     }
 

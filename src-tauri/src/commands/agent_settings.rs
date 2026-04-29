@@ -6,11 +6,9 @@ use api_types::{
 };
 use db::models::agent_setting::AgentSetting;
 use deployment::Deployment;
-use tokio::fs;
 
 use crate::{error::AppError, state::AppState};
 
-/// Convert a DB model to API response type.
 fn to_info(row: &AgentSetting) -> AgentSettingInfo {
     AgentSettingInfo {
         id: row.id,
@@ -23,7 +21,6 @@ fn to_info(row: &AgentSetting) -> AgentSettingInfo {
     }
 }
 
-/// List all agent settings ordered by sort_order.
 #[tauri::command]
 pub async fn list_agents(
     state: tauri::State<'_, AppState>,
@@ -33,12 +30,13 @@ pub async fn list_agents(
     Ok(rows.iter().map(to_info).collect())
 }
 
-/// Update an agent's preferences (enabled, env_json, config_json).
 #[tauri::command]
 pub async fn update_agent_preferences(
     state: tauri::State<'_, AppState>,
     payload: UpdateAgentPreferences,
 ) -> Result<AgentSettingInfo, AppError> {
+    validate_agent_config_json(&payload.agent_type, payload.config_json.as_deref())?;
+
     let pool = &state.deployment.db().pool;
     let updated = AgentSetting::update_preferences(
         pool,
@@ -59,7 +57,36 @@ pub async fn update_agent_preferences(
     Ok(to_info(&updated))
 }
 
-/// Reorder agents by providing an ordered list of agent_type strings.
+fn validate_agent_config_json(agent_type: &str, config_json: Option<&str>) -> Result<(), AppError> {
+    if agent_type != "codex" {
+        return Ok(());
+    }
+
+    let Some(config_json) = config_json else {
+        return Ok(());
+    };
+    let value: serde_json::Value = serde_json::from_str(config_json)
+        .map_err(|e| AppError::BadRequest(format!("Invalid config JSON: {}", e)))?;
+    let Some(config) = value.as_object() else {
+        return Err(AppError::BadRequest(
+            "Codex config JSON must be an object".to_string(),
+        ));
+    };
+
+    let unsupported = ["model_provider", "supports_websockets", "reasoning_effort"]
+        .into_iter()
+        .filter(|key| config.contains_key(*key))
+        .collect::<Vec<_>>();
+    if unsupported.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(format!(
+            "Codex ACP config does not support legacy field(s): {}",
+            unsupported.join(", ")
+        )))
+    }
+}
+
 #[tauri::command]
 pub async fn reorder_agents(
     state: tauri::State<'_, AppState>,
@@ -71,11 +98,9 @@ pub async fn reorder_agents(
     Ok(rows.iter().map(to_info).collect())
 }
 
-/// Determine the CLI command name for a given agent_type.
-fn cli_command_for_agent(agent_type: &str) -> Option<&'static str> {
+fn runtime_launcher_for_agent(agent_type: &str) -> Option<&'static str> {
     match agent_type {
-        "claude_code" => Some("claude"),
-        "codex" => Some("codex"),
+        "claude_code" | "codex" => Some(node_runner_program()),
         "open_code" => Some("opencode"),
         _ => None,
     }
@@ -83,9 +108,9 @@ fn cli_command_for_agent(agent_type: &str) -> Option<&'static str> {
 
 fn install_source_label(agent_type: &str) -> Option<&'static str> {
     match agent_type {
-        "claude_code" => Some("npm -g (@anthropic-ai/claude-code)"),
-        "codex" => Some("npm -g (@openai/codex)"),
-        "open_code" => Some("go install (github.com/opencode-ai/opencode@latest)"),
+        "claude_code" => Some("npm -g (@agentclientprotocol/claude-agent-acp)"),
+        "codex" => Some("npm -g (@zed-industries/codex-acp)"),
+        "open_code" => Some("npm -g (opencode-ai)"),
         _ => None,
     }
 }
@@ -93,16 +118,16 @@ fn install_source_label(agent_type: &str) -> Option<&'static str> {
 fn install_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
     match agent_type {
         "claude_code" => Some((
-            installer_program_for_node(),
-            vec!["install", "-g", "@anthropic-ai/claude-code"],
+            node_installer_program(),
+            vec!["install", "-g", "@agentclientprotocol/claude-agent-acp"],
         )),
         "codex" => Some((
-            installer_program_for_node(),
-            vec!["install", "-g", "@openai/codex"],
+            node_installer_program(),
+            vec!["install", "-g", "@zed-industries/codex-acp"],
         )),
         "open_code" => Some((
-            installer_program_for_go(),
-            vec!["install", "github.com/opencode-ai/opencode@latest"],
+            node_installer_program(),
+            vec!["install", "-g", "opencode-ai"],
         )),
         _ => None,
     }
@@ -111,35 +136,54 @@ fn install_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'st
 fn uninstall_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
     match agent_type {
         "claude_code" => Some((
-            installer_program_for_node(),
-            vec!["uninstall", "-g", "@anthropic-ai/claude-code"],
+            node_installer_program(),
+            vec!["uninstall", "-g", "@agentclientprotocol/claude-agent-acp"],
         )),
         "codex" => Some((
-            installer_program_for_node(),
-            vec!["uninstall", "-g", "@openai/codex"],
+            node_installer_program(),
+            vec!["uninstall", "-g", "@zed-industries/codex-acp"],
+        )),
+        "open_code" => Some((
+            node_installer_program(),
+            vec!["uninstall", "-g", "opencode-ai"],
         )),
         _ => None,
     }
 }
 
+fn version_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
+    match agent_type {
+        "claude_code" => Some((
+            node_runner_program(),
+            vec!["-y", "@agentclientprotocol/claude-agent-acp", "--version"],
+        )),
+        "codex" => Some((
+            node_runner_program(),
+            vec!["-y", "@zed-industries/codex-acp", "--version"],
+        )),
+        "open_code" => Some(("opencode", vec!["--version"])),
+        _ => None,
+    }
+}
+
 #[cfg(windows)]
-fn installer_program_for_node() -> &'static str {
+fn node_installer_program() -> &'static str {
     "npm.cmd"
 }
 
 #[cfg(not(windows))]
-fn installer_program_for_node() -> &'static str {
+fn node_installer_program() -> &'static str {
     "npm"
 }
 
 #[cfg(windows)]
-fn installer_program_for_go() -> &'static str {
-    "go.exe"
+fn node_runner_program() -> &'static str {
+    "npx.cmd"
 }
 
 #[cfg(not(windows))]
-fn installer_program_for_go() -> &'static str {
-    "go"
+fn node_runner_program() -> &'static str {
+    "npx"
 }
 
 async fn resolve_program_on_path(program: &str) -> Result<PathBuf, AppError> {
@@ -151,21 +195,58 @@ async fn resolve_program_on_path(program: &str) -> Result<PathBuf, AppError> {
         .map_err(|e| AppError::Internal(format!("{} not found in PATH: {}", program, e)))
 }
 
-/// Run preflight checks for an agent (check CLI availability, version, etc.).
+fn fix_actions(agent_type: &str, source: &str) -> Vec<PreflightFix> {
+    match agent_type {
+        "claude_code" | "codex" | "open_code" => vec![
+            PreflightFix {
+                action: "upgrade_npm".to_string(),
+                label: format!("Update ({})", source),
+            },
+            PreflightFix {
+                action: "uninstall_npm".to_string(),
+                label: format!("Uninstall ({})", source),
+            },
+        ],
+        _ => vec![],
+    }
+}
+
+async fn detect_agent_version_inner(
+    agent_type: &str,
+    executable: &PathBuf,
+) -> Result<Option<String>, AppError> {
+    let (_, args) = version_command_for_agent(agent_type)
+        .ok_or_else(|| AppError::Internal(format!("No ACP version command for {}", agent_type)))?;
+    let arg_strings = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    let mut command = utils::process::new_hidden_tokio_command(executable, &arg_strings);
+    let output = command.output().await.map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to run ACP version command for {}: {}",
+            agent_type, e
+        ))
+    })?;
+
+    if output.status.success() {
+        Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ))
+    } else {
+        Ok(None)
+    }
+}
+
 #[tauri::command]
 pub async fn agent_preflight(
     state: tauri::State<'_, AppState>,
     agent_type: String,
 ) -> Result<PreflightResult, AppError> {
-    let _ = &state;
     let mut checks = Vec::new();
-
-    let cli_cmd = match cli_command_for_agent(&agent_type) {
+    let launcher = match runtime_launcher_for_agent(&agent_type) {
         Some(cmd) => cmd,
         None => {
             checks.push(PreflightCheck {
                 check_id: "unknown_agent".to_string(),
-                label: "Agent Type".to_string(),
+                label: "Agent type".to_string(),
                 status: PreflightStatus::Fail,
                 message: format!("Unknown agent type: {}", agent_type),
                 fixes: vec![],
@@ -174,9 +255,8 @@ pub async fn agent_preflight(
         }
     };
 
-    // Check 1: CLI installed
     let which_result = tokio::task::spawn_blocking({
-        let cmd = cli_cmd.to_string();
+        let cmd = launcher.to_string();
         move || which::which(cmd)
     })
     .await
@@ -186,8 +266,8 @@ pub async fn agent_preflight(
     let executable = match which_result {
         Some(path) => {
             checks.push(PreflightCheck {
-                check_id: "cli_installed".to_string(),
-                label: format!("{} CLI", cli_cmd),
+                check_id: "runtime_launcher".to_string(),
+                label: format!("{} runtime launcher", launcher),
                 status: PreflightStatus::Pass,
                 message: format!("Found at {}", path.display()),
                 fixes: vec![],
@@ -195,121 +275,56 @@ pub async fn agent_preflight(
             path
         }
         None => {
-            let install_hint =
-                install_source_label(&agent_type).unwrap_or("See agent documentation");
-            let install_action = match agent_type.as_str() {
-                "claude_code" | "codex" => "install_npm",
-                "open_code" => "install_go",
-                _ => "install",
-            };
+            let source = install_source_label(&agent_type).unwrap_or("manual install");
             checks.push(PreflightCheck {
-                check_id: "cli_installed".to_string(),
-                label: format!("{} CLI", cli_cmd),
+                check_id: "runtime_launcher".to_string(),
+                label: format!("{} runtime launcher", launcher),
                 status: PreflightStatus::Fail,
-                message: format!("`{}` not found in PATH. Source: {}", cli_cmd, install_hint),
+                message: format!(
+                    "ACP runtime launcher `{}` was not found in the app PATH. Source: {}",
+                    launcher, source
+                ),
                 fixes: vec![PreflightFix {
-                    action: install_action.to_string(),
-                    label: format!("Install ({})", install_hint),
+                    action: "install_npm".to_string(),
+                    label: format!("Install ({})", source),
                 }],
             });
             return Ok(PreflightResult { checks });
         }
     };
 
-    // Check 2: version detection
-    let mut ver_cmd =
-        utils::process::new_hidden_tokio_command(&executable, &["--version".to_string()]);
-    let version_output = ver_cmd.output().await;
-
-    match version_output {
-        Ok(output) if output.status.success() => {
-            let version_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let source = install_source_label(&agent_type).unwrap_or("manual");
-            // Try to update the stored version in DB
+    let source = install_source_label(&agent_type).unwrap_or("manual install");
+    match detect_agent_version_inner(&agent_type, &executable).await {
+        Ok(Some(version)) if !version.is_empty() => {
             let pool = &state.deployment.db().pool;
-            let _ = AgentSetting::update_version(pool, &agent_type, Some(&version_str)).await;
-
+            let _ = AgentSetting::update_version(pool, &agent_type, Some(&version)).await;
             checks.push(PreflightCheck {
-                check_id: "cli_version".to_string(),
-                label: "Version".to_string(),
+                check_id: "adapter_version".to_string(),
+                label: "ACP adapter version".to_string(),
                 status: PreflightStatus::Pass,
-                message: format!("{} · Source: {}", version_str, source),
-                fixes: vec![
-                    PreflightFix {
-                        action: match agent_type.as_str() {
-                            "claude_code" | "codex" => "upgrade_npm".to_string(),
-                            "open_code" => "upgrade_go".to_string(),
-                            _ => "upgrade".to_string(),
-                        },
-                        label: format!("Upgrade ({})", source),
-                    },
-                    PreflightFix {
-                        action: match agent_type.as_str() {
-                            "claude_code" | "codex" => "uninstall_npm".to_string(),
-                            "open_code" => "uninstall_binary".to_string(),
-                            _ => "uninstall".to_string(),
-                        },
-                        label: format!("Uninstall ({})", source),
-                    },
-                ],
+                message: format!("{} - Source: {}", version, source),
+                fixes: fix_actions(&agent_type, source),
             });
         }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let source = install_source_label(&agent_type).unwrap_or("manual");
+        Ok(_) => {
             checks.push(PreflightCheck {
-                check_id: "cli_version".to_string(),
-                label: "Version".to_string(),
+                check_id: "adapter_version".to_string(),
+                label: "ACP adapter version".to_string(),
                 status: PreflightStatus::Warn,
-                message: format!(
-                    "Could not determine version: {}. Source: {}",
-                    stderr, source
-                ),
-                fixes: vec![
-                    PreflightFix {
-                        action: match agent_type.as_str() {
-                            "claude_code" | "codex" => "upgrade_npm".to_string(),
-                            "open_code" => "upgrade_go".to_string(),
-                            _ => "upgrade".to_string(),
-                        },
-                        label: format!("Upgrade ({})", source),
-                    },
-                    PreflightFix {
-                        action: match agent_type.as_str() {
-                            "claude_code" | "codex" => "uninstall_npm".to_string(),
-                            "open_code" => "uninstall_binary".to_string(),
-                            _ => "uninstall".to_string(),
-                        },
-                        label: format!("Uninstall ({})", source),
-                    },
-                ],
+                message: format!("Could not determine adapter version. Source: {}", source),
+                fixes: fix_actions(&agent_type, source),
             });
         }
         Err(e) => {
-            let source = install_source_label(&agent_type).unwrap_or("manual");
             checks.push(PreflightCheck {
-                check_id: "cli_version".to_string(),
-                label: "Version".to_string(),
+                check_id: "adapter_version".to_string(),
+                label: "ACP adapter version".to_string(),
                 status: PreflightStatus::Warn,
-                message: format!("Failed to run --version: {}. Source: {}", e, source),
-                fixes: vec![
-                    PreflightFix {
-                        action: match agent_type.as_str() {
-                            "claude_code" | "codex" => "upgrade_npm".to_string(),
-                            "open_code" => "upgrade_go".to_string(),
-                            _ => "upgrade".to_string(),
-                        },
-                        label: format!("Upgrade ({})", source),
-                    },
-                    PreflightFix {
-                        action: match agent_type.as_str() {
-                            "claude_code" | "codex" => "uninstall_npm".to_string(),
-                            "open_code" => "uninstall_binary".to_string(),
-                            _ => "uninstall".to_string(),
-                        },
-                        label: format!("Uninstall ({})", source),
-                    },
-                ],
+                message: format!(
+                    "Failed to run adapter version command: {}. Source: {}",
+                    e, source
+                ),
+                fixes: fix_actions(&agent_type, source),
             });
         }
     }
@@ -317,20 +332,18 @@ pub async fn agent_preflight(
     Ok(PreflightResult { checks })
 }
 
-/// Detect the locally installed version of an agent CLI.
 #[tauri::command]
 pub async fn detect_agent_local_version(
     state: tauri::State<'_, AppState>,
     agent_type: String,
 ) -> Result<Option<String>, AppError> {
-    let cli_cmd = match cli_command_for_agent(&agent_type) {
+    let launcher = match runtime_launcher_for_agent(&agent_type) {
         Some(cmd) => cmd,
         None => return Ok(None),
     };
 
-    // Check if CLI exists
     let which_result = tokio::task::spawn_blocking({
-        let cmd = cli_cmd.to_string();
+        let cmd = launcher.to_string();
         move || which::which(cmd)
     })
     .await
@@ -340,32 +353,18 @@ pub async fn detect_agent_local_version(
     let executable = match which_result {
         Some(path) => path,
         None => {
-            // Update DB to clear version
             let pool = &state.deployment.db().pool;
             let _ = AgentSetting::update_version(pool, &agent_type, None).await;
             return Ok(None);
         }
     };
 
-    let mut ver_cmd =
-        utils::process::new_hidden_tokio_command(&executable, &["--version".to_string()]);
-    let output = ver_cmd
-        .output()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to run {} --version: {}", cli_cmd, e)))?;
-
-    if output.status.success() {
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        // Update DB with detected version
-        let pool = &state.deployment.db().pool;
-        let _ = AgentSetting::update_version(pool, &agent_type, Some(&version)).await;
-        Ok(Some(version))
-    } else {
-        Ok(None)
-    }
+    let version = detect_agent_version_inner(&agent_type, &executable).await?;
+    let pool = &state.deployment.db().pool;
+    let _ = AgentSetting::update_version(pool, &agent_type, version.as_deref()).await;
+    Ok(version)
 }
 
-/// Run a supported fix action for an agent preflight check.
 #[tauri::command]
 pub async fn run_agent_fix(
     state: tauri::State<'_, AppState>,
@@ -373,7 +372,7 @@ pub async fn run_agent_fix(
     action: String,
 ) -> Result<(), AppError> {
     match action.as_str() {
-        "install_npm" | "upgrade_npm" | "install_go" | "upgrade_go" => {
+        "install_npm" | "upgrade_npm" => {
             let (program, args) = install_command_for_agent(&agent_type).ok_or_else(|| {
                 AppError::Internal(format!("No install action available for {}", agent_type))
             })?;
@@ -425,18 +424,6 @@ pub async fn run_agent_fix(
                 }));
             }
         }
-        "uninstall_binary" => {
-            let cli_cmd = cli_command_for_agent(&agent_type)
-                .ok_or_else(|| AppError::Internal(format!("Unknown agent type: {}", agent_type)))?;
-            let executable = resolve_program_on_path(cli_cmd).await?;
-            fs::remove_file(&executable).await.map_err(|e| {
-                AppError::Internal(format!(
-                    "Failed to remove executable {}: {}",
-                    executable.display(),
-                    e
-                ))
-            })?;
-        }
         _ => {
             return Err(AppError::Internal(format!(
                 "Unsupported agent fix action: {}",
@@ -447,4 +434,32 @@ pub async fn run_agent_fix(
 
     let _ = detect_agent_local_version(state, agent_type).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_acp_config_accepts_supported_fields() {
+        validate_agent_config_json(
+            "codex",
+            Some(r#"{"model":"gpt-5.4","model_reasoning_effort":"high"}"#),
+        )
+        .expect("supported codex config should pass");
+    }
+
+    #[test]
+    fn codex_acp_config_rejects_legacy_fields() {
+        let err = validate_agent_config_json(
+            "codex",
+            Some(r#"{"model_provider":"openai","supports_websockets":true,"reasoning_effort":"high"}"#),
+        )
+        .expect_err("legacy codex config should fail");
+
+        assert!(matches!(err, AppError::BadRequest(_)));
+        assert!(err.to_string().contains("model_provider"));
+        assert!(err.to_string().contains("supports_websockets"));
+        assert!(err.to_string().contains("reasoning_effort"));
+    }
 }

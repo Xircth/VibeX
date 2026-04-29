@@ -22,7 +22,7 @@ use executors::{
         coding_agent_initial::CodingAgentInitialRequest,
         script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     },
-    executors::{CodingAgent, ExecutorError},
+    executors::{ExecutorError, StandardCodingAgentExecutor},
     profile::{ExecutorConfig, ExecutorConfigs, ExecutorProfileId},
 };
 use git::{ConflictOp, GitCli, GitCliError, GitRemote, GitService, GitServiceError};
@@ -550,66 +550,64 @@ async fn sync_project_workspaces_from_local_worktrees(
             let workspace_root_ref = workspace_root.to_string_lossy().to_string();
             let root_branch_key = (workspace_root_ref.clone(), normalized_branch.clone());
 
-            if let Some(existing_workspace_ref) =
-                workspace_ref_by_repo_branch.get(&repo_branch_key).cloned()
+            if let Some(existing_workspace_ref) = workspace_ref_by_repo_branch
+                .get(&repo_branch_key)
+                .cloned()
+                .filter(|existing| existing.use_worktree)
             {
-                if existing_workspace_ref.use_worktree {
-                    if existing_workspace_ref.archived
-                        && let Err(err) = Workspace::update(
-                            pool,
-                            existing_workspace_ref.workspace_id,
-                            Some(false),
-                            None,
-                            None,
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            "Failed to restore archived workspace {} for branch '{}': {}",
-                            existing_workspace_ref.workspace_id,
-                            branch,
-                            err
-                        );
-                        continue;
-                    }
-
-                    if existing_workspace_ref.container_ref.as_deref()
-                        != Some(workspace_root_ref.as_str())
-                        || existing_workspace_ref.agent_working_dir != desired_agent_working_dir
-                    {
-                        if let Err(err) = Workspace::update_storage_mode(
-                            pool,
-                            existing_workspace_ref.workspace_id,
-                            true,
-                            Some(&workspace_root_ref),
-                            desired_agent_working_dir.as_deref(),
-                        )
-                        .await
-                        {
-                            tracing::warn!(
-                                "Failed to update imported worktree workspace {} for branch '{}': {}",
-                                existing_workspace_ref.workspace_id,
-                                branch,
-                                err
-                            );
-                            continue;
-                        }
-                    }
-
-                    workspace_by_root_and_branch
-                        .insert(root_branch_key, existing_workspace_ref.workspace_id);
-                    workspace_ref_by_repo_branch.insert(
-                        repo_branch_key,
-                        WorkspaceRepoBranchRef {
-                            workspace_id: existing_workspace_ref.workspace_id,
-                            archived: false,
-                            use_worktree: true,
-                            container_ref: Some(workspace_root_ref),
-                            agent_working_dir: desired_agent_working_dir,
-                        },
+                if existing_workspace_ref.archived
+                    && let Err(err) = Workspace::update(
+                        pool,
+                        existing_workspace_ref.workspace_id,
+                        Some(false),
+                        None,
+                        None,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        "Failed to restore archived workspace {} for branch '{}': {}",
+                        existing_workspace_ref.workspace_id,
+                        branch,
+                        err
                     );
                     continue;
                 }
+
+                if (existing_workspace_ref.container_ref.as_deref()
+                    != Some(workspace_root_ref.as_str())
+                    || existing_workspace_ref.agent_working_dir != desired_agent_working_dir)
+                    && let Err(err) = Workspace::update_storage_mode(
+                        pool,
+                        existing_workspace_ref.workspace_id,
+                        true,
+                        Some(&workspace_root_ref),
+                        desired_agent_working_dir.as_deref(),
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        "Failed to update imported worktree workspace {} for branch '{}': {}",
+                        existing_workspace_ref.workspace_id,
+                        branch,
+                        err
+                    );
+                    continue;
+                }
+
+                workspace_by_root_and_branch
+                    .insert(root_branch_key, existing_workspace_ref.workspace_id);
+                workspace_ref_by_repo_branch.insert(
+                    repo_branch_key,
+                    WorkspaceRepoBranchRef {
+                        workspace_id: existing_workspace_ref.workspace_id,
+                        archived: false,
+                        use_worktree: true,
+                        container_ref: Some(workspace_root_ref),
+                        agent_working_dir: desired_agent_working_dir,
+                    },
+                );
+                continue;
             }
 
             if let Some(existing_workspace_id) =
@@ -2051,31 +2049,15 @@ pub async fn run_agent_setup(
     let config = ExecutorConfigs::get_cached();
     let coding_agent = config.get_coding_agent_or_default(&executor_profile_id);
 
-    match coding_agent {
-        CodingAgent::Codex(ref codex) => {
-            run_codex_setup_helper(&state, &workspace, codex).await?;
-        }
-        _ => {
-            return Err(AppError::BadRequest(
-                "Setup helper not supported for this executor".to_string(),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-async fn run_codex_setup_helper(
-    state: &tauri::State<'_, AppState>,
-    workspace: &Workspace,
-    codex: &executors::executors::codex::Codex,
-) -> Result<ExecutionProcess, AppError> {
-    use executors::{
-        command::{CommandBuilder, apply_overrides},
-        executors::codex::Codex,
-    };
-
-    let pool = &state.deployment.db().pool;
+    let setup_action = coding_agent
+        .get_setup_helper_action()
+        .await
+        .map_err(|err| match err {
+            ExecutorError::SetupHelperNotSupported => AppError::BadRequest(
+                "当前代理不支持自动设置，请在终端中完成登录或安装后重试。".to_string(),
+            ),
+            other => AppError::Internal(other.to_string()),
+        })?;
 
     let latest_process = ExecutionProcess::find_latest_by_workspace_and_run_reason(
         pool,
@@ -2083,27 +2065,6 @@ async fn run_codex_setup_helper(
         &ExecutionProcessRunReason::CodingAgent,
     )
     .await?;
-
-    let mut login_command = CommandBuilder::new(Codex::base_command());
-    login_command = login_command.extend_params(["login"]);
-    login_command = apply_overrides(login_command, &codex.cmd)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    let (program_path, args) = login_command
-        .build_initial()
-        .map_err(|err| AppError::Internal(format!("{}", ExecutorError::from(err))))?
-        .into_resolved()
-        .await
-        .map_err(|err| AppError::Internal(err.to_string()))?;
-    let login_script = format!("{} {}", program_path.to_string_lossy(), args.join(" "));
-    let login_request = ScriptRequest {
-        script: login_script,
-        language: ScriptRequestLanguage::Bash,
-        context: ScriptContext::ToolInstallScript,
-        working_dir: None,
-    };
-
-    let setup_action = ExecutorAction::new(ExecutorActionType::ScriptRequest(login_request), None);
 
     let executor_action = if let Some(latest_process) = latest_process {
         let latest_action = latest_process
@@ -2117,7 +2078,7 @@ async fn run_codex_setup_helper(
     state
         .deployment
         .container()
-        .ensure_container_exists(workspace)
+        .ensure_container_exists(&workspace)
         .await?;
 
     let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
@@ -2126,7 +2087,7 @@ async fn run_codex_setup_helper(
             Session::create(
                 pool,
                 &CreateSession {
-                    executor: Some("codex".to_string()),
+                    executor: Some(executor_profile_id.executor.to_string()),
                     task_id: None,
                     name: None,
                     initial_prompt: None,
@@ -2139,18 +2100,18 @@ async fn run_codex_setup_helper(
         }
     };
 
-    let execution_process = state
+    state
         .deployment
         .container()
         .start_execution(
-            workspace,
+            &workspace,
             &session,
             &executor_action,
             &ExecutionProcessRunReason::SetupScript,
         )
         .await?;
 
-    Ok(execution_process)
+    Ok(())
 }
 
 #[tauri::command]

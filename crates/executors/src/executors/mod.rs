@@ -20,7 +20,7 @@ use crate::{
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     env::ExecutionEnv,
-    executors::{claude::ClaudeCode, codex::Codex, opencode::Opencode},
+    executors::{acp::AcpProvider, claude::ClaudeCode, codex::Codex, opencode::Opencode},
     logs::utils::patch,
     mcp_config::McpConfig,
     profile::ExecutorConfig,
@@ -79,6 +79,8 @@ pub enum ExecutorError {
     SetupHelperNotSupported,
     #[error("Auth required: {0}")]
     AuthRequired(String),
+    #[error("Unsupported executor configuration for ACP migration: {0}")]
+    UnsupportedExecutorConfig(String),
 }
 
 #[enum_dispatch]
@@ -140,22 +142,19 @@ impl CodingAgent {
     }
 
     pub fn capabilities(&self) -> Vec<BaseAgentCapability> {
+        let base_agent = BaseCodingAgent::from(self);
+        base_agent.capabilities()
+    }
+}
+
+impl BaseCodingAgent {
+    pub fn capabilities(self) -> Vec<BaseAgentCapability> {
         match self {
-            Self::ClaudeCode(_) => vec![
-                BaseAgentCapability::SessionFork,
-                BaseAgentCapability::ContextUsage,
-            ],
-            Self::Opencode(_) => vec![
-                BaseAgentCapability::SessionFork,
-                BaseAgentCapability::ContextUsage,
-            ],
-            Self::Codex(_) => vec![
-                BaseAgentCapability::SessionFork,
-                BaseAgentCapability::SetupHelper,
-                BaseAgentCapability::ContextUsage,
-            ],
+            Self::ClaudeCode => AcpProvider::ClaudeCode.base_capabilities(),
+            Self::Codex => AcpProvider::Codex.base_capabilities(),
+            Self::Opencode => AcpProvider::Opencode.base_capabilities(),
             #[cfg(feature = "qa-mode")]
-            Self::QaMock(_) => vec![], // QA mock doesn't need special capabilities
+            Self::QaMock => vec![],
         }
     }
 }

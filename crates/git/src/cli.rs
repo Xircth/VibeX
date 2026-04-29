@@ -272,7 +272,7 @@ impl GitCli {
             "status",
             "--porcelain",
             "-z",
-            "--untracked-files=normal",
+            "--untracked-files=all",
         ]);
         let out = self.git_impl(worktree_path, args, None, None)?;
         let mut entries = Vec::new();

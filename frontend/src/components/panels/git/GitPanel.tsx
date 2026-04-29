@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   GitBranch,
   History,
@@ -35,6 +35,7 @@ import { GitBranchList } from './GitBranchList';
 import { GitIssuesView } from './GitIssuesView';
 import { GitPRsView } from './GitPRsView';
 import { usePanelActions } from '@/hooks/usePanelActions';
+import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 
 function EmptyState() {
   return (
@@ -56,31 +57,9 @@ function LoadingState() {
   );
 }
 
-function isAbsoluteFilePath(path: string): boolean {
-  return (
-    /^[a-zA-Z]:[\\/]/.test(path) ||
-    path.startsWith('\\\\') ||
-    path.startsWith('/')
-  );
-}
-
-function resolveGitFilePath(path: string, repoRootPath: string | null): string {
-  if (!repoRootPath || isAbsoluteFilePath(path)) {
-    return path;
-  }
-
-  const usesWindowsSeparator = repoRootPath.includes('\\');
-  const separator = usesWindowsSeparator ? '\\' : '/';
-  const base = repoRootPath.replace(/[\\/]+$/, '');
-  const normalizedRelative = usesWindowsSeparator
-    ? path.replaceAll('/', '\\')
-    : path.replaceAll('\\', '/');
-
-  return `${base}${separator}${normalizedRelative}`;
-}
-
 export function GitPanel() {
-  const { openDiffPreviewAtPath } = usePanelActions();
+  const { openDiffPreview } = usePanelActions();
+  const focusDiffPath = useGitDiffNavigationStore((state) => state.focusPath);
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId, projectId } = useParams<{
     workspaceId?: string;
@@ -88,9 +67,7 @@ export function GitPanel() {
   }>();
   const effectiveWorkspaceId = activeWorktreeId ?? routeWorkspaceId ?? null;
   const { data: workspace } = useAttempt(effectiveWorkspaceId ?? undefined);
-  const { repos: workspaceRepos, selectedRepoId } = useAttemptRepo(
-    effectiveWorkspaceId ?? undefined
-  );
+  const { selectedRepoId } = useAttemptRepo(effectiveWorkspaceId ?? undefined);
 
   // When no workspace is active, fall back to the project's first repo
   const { data: projectRepos = [] } = useProjectRepos(projectId, {
@@ -100,22 +77,6 @@ export function GitPanel() {
 
   const workspaceId = effectiveWorkspaceId;
   const repoId = selectedRepoId ?? fallbackRepoId;
-  const repoRootPath = useMemo(() => {
-    if (workspaceId) {
-      if (workspaceRepos.length === 0) return null;
-      return (
-        workspaceRepos.find((repo) => repo.id === repoId)?.path ??
-        workspaceRepos[0].path
-      );
-    }
-
-    if (projectRepos.length === 0) return null;
-    return (
-      projectRepos.find((repo) => repo.id === repoId)?.path ??
-      projectRepos[0].path
-    );
-  }, [projectRepos, repoId, workspaceId, workspaceRepos]);
-
   const {
     mode,
     setMode,
@@ -188,17 +149,19 @@ export function GitPanel() {
   const handleSelectFile = useCallback(
     (path: string) => {
       setSelectedDiffPath(path);
-      openDiffPreviewAtPath(resolveGitFilePath(path, repoRootPath));
+      openDiffPreview();
+      focusDiffPath(path);
     },
-    [openDiffPreviewAtPath, repoRootPath, setSelectedDiffPath]
+    [focusDiffPath, openDiffPreview, setSelectedDiffPath]
   );
 
   const handleDoubleClickFile = useCallback(
     (path: string) => {
       setSelectedDiffPath(path);
-      openDiffPreviewAtPath(resolveGitFilePath(path, repoRootPath));
+      openDiffPreview();
+      focusDiffPath(path);
     },
-    [openDiffPreviewAtPath, repoRootPath, setSelectedDiffPath]
+    [focusDiffPath, openDiffPreview, setSelectedDiffPath]
   );
 
   const handleRevertAll = useCallback(() => {

@@ -479,7 +479,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               Loading diff...
             </div>
           ) : (
-            <div className="h-full overflow-auto">
+            <div className="h-full min-h-0 overflow-auto">
               <Suspense
                 fallback={<ContentLoadingFallback label="Loading diff..." />}
               >
@@ -490,7 +490,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                   theme={resolvedTheme}
                   diffMode={diffViewMode === 'inline' ? 'unified' : 'split'}
                   emptyMessage="No differences against HEAD."
-                  className="h-full"
+                  className="min-h-full"
                 />
               </Suspense>
             </div>

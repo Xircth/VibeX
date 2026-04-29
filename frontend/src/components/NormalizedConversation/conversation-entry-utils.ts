@@ -49,6 +49,7 @@ export type AggregationType =
 export type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 export type BuildDisplayEntriesOptions = {
   aggregateThinking?: boolean;
+  completedExecutionProcessIds?: ReadonlySet<string>;
 };
 
 /***********************
@@ -544,14 +545,27 @@ export function buildDisplayEntries(
   }
 
   const { aggregateThinking = false } = options;
+  const completedExecutionProcessIds = options.completedExecutionProcessIds;
   const displayEntries: DisplayEntry[] = [];
   let currentGroup: PatchTypeWithKey[] = [];
   let currentAggregationType: AggregationType | null = null;
   let currentAggregationKey: string | null = null;
-  let currentDiffGroup: PatchTypeWithKey[] = [];
-  let currentDiffProcessId: string | null = null;
   let currentThinkingGroup: PatchTypeWithKey[] = [];
   let currentThinkingProcessId: string | null = null;
+  let currentProcessId: string | null = null;
+  const processFileEdits = new Map<string, PatchTypeWithKey[]>();
+  const emittedFileEditGroups = new Set<string>();
+
+  for (const entry of entries) {
+    if (!isProcessChangeEntry(entry)) {
+      continue;
+    }
+
+    const processId = entry.executionProcessId;
+    const existing = processFileEdits.get(processId) ?? [];
+    existing.push(entry);
+    processFileEdits.set(processId, existing);
+  }
 
   const flushCurrentGroup = () => {
     if (currentGroup.length === 0 || !currentAggregationType) {
@@ -580,33 +594,6 @@ export function buildDisplayEntries(
     currentAggregationKey = null;
   };
 
-  const flushCurrentDiffGroup = () => {
-    if (currentDiffGroup.length === 0) {
-      currentDiffProcessId = null;
-      return;
-    }
-
-    const firstEntry = currentDiffGroup[0]!;
-    const lastEntry = currentDiffGroup[currentDiffGroup.length - 1]!;
-    const firstPath =
-      firstEntry.type === 'NORMALIZED_ENTRY' &&
-      firstEntry.content.entry_type.type === 'tool_use' &&
-      firstEntry.content.entry_type.action_type.action === 'file_edit'
-        ? firstEntry.content.entry_type.action_type.path
-        : '';
-
-    displayEntries.push({
-      type: 'AGGREGATED_DIFF_GROUP',
-      filePath: firstPath,
-      entries: [...currentDiffGroup],
-      patchKey: `aggregated-diff:${firstEntry.executionProcessId}:${firstEntry.patchKey}:${lastEntry.patchKey}`,
-      executionProcessId: firstEntry.executionProcessId,
-    });
-
-    currentDiffGroup = [];
-    currentDiffProcessId = null;
-  };
-
   const flushCurrentThinkingGroup = () => {
     if (currentThinkingGroup.length === 0) {
       currentThinkingProcessId = null;
@@ -630,26 +617,62 @@ export function buildDisplayEntries(
     currentThinkingProcessId = null;
   };
 
+  const flushProcessChangeSummary = (processId: string | null) => {
+    if (!processId || !completedExecutionProcessIds?.has(processId)) {
+      return;
+    }
+
+    const entriesForProcess = processFileEdits.get(processId);
+    if (!entriesForProcess || entriesForProcess.length === 0) {
+      return;
+    }
+
+    const firstEntry = entriesForProcess[0]!;
+    const lastEntry = entriesForProcess[entriesForProcess.length - 1]!;
+    displayEntries.push({
+      type: 'PROCESS_CHANGE_SUMMARY',
+      entries: [...entriesForProcess],
+      patchKey: `process-change-summary:${processId}:${firstEntry.patchKey}:${lastEntry.patchKey}`,
+      executionProcessId: processId,
+    });
+  };
+
+  const flushProcessScopedGroups = () => {
+    flushCurrentGroup();
+    flushCurrentThinkingGroup();
+  };
+
   for (const entry of entries) {
+    if (currentProcessId && currentProcessId !== entry.executionProcessId) {
+      flushProcessScopedGroups();
+      flushProcessChangeSummary(currentProcessId);
+    }
+    currentProcessId = entry.executionProcessId;
+
     if (isProcessChangeEntry(entry)) {
       flushCurrentGroup();
       flushCurrentThinkingGroup();
 
-      if (
-        currentDiffGroup.length > 0 &&
-        currentDiffProcessId === entry.executionProcessId
-      ) {
-        currentDiffGroup.push(entry);
+      const entriesForProcess =
+        processFileEdits.get(entry.executionProcessId) ?? [];
+      if (entriesForProcess.length <= 1) {
+        displayEntries.push(entry);
         continue;
       }
 
-      flushCurrentDiffGroup();
-      currentDiffGroup = [entry];
-      currentDiffProcessId = entry.executionProcessId;
+      if (!emittedFileEditGroups.has(entry.executionProcessId)) {
+        const firstEntry = entriesForProcess[0]!;
+        const lastEntry = entriesForProcess[entriesForProcess.length - 1]!;
+        displayEntries.push({
+          type: 'AGGREGATED_FILE_EDIT_GROUP',
+          entries: [...entriesForProcess],
+          patchKey: `aggregated-file-edit:${entry.executionProcessId}:${firstEntry.patchKey}:${lastEntry.patchKey}`,
+          executionProcessId: entry.executionProcessId,
+        });
+        emittedFileEditGroups.add(entry.executionProcessId);
+      }
       continue;
     }
-
-    flushCurrentDiffGroup();
 
     if (aggregateThinking && isThinkingEntry(entry)) {
       flushCurrentGroup();
@@ -694,9 +717,8 @@ export function buildDisplayEntries(
     currentAggregationKey = aggregationKey;
   }
 
-  flushCurrentGroup();
-  flushCurrentDiffGroup();
-  flushCurrentThinkingGroup();
+  flushProcessScopedGroups();
+  flushProcessChangeSummary(currentProcessId);
 
   return displayEntries;
 }

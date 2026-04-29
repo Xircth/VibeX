@@ -325,16 +325,6 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     });
   };
 
-  const handleProjectListWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    const container = projectListRef.current;
-    if (!container) {
-      return;
-    }
-
-    event.preventDefault();
-    container.scrollTop += event.deltaY;
-  };
-
   const handleProjectListPointerDown = (
     event: React.PointerEvent<HTMLDivElement>
   ) => {
@@ -464,7 +454,6 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
           standalone && 'max-h-none min-h-0 py-3',
           isDragging && 'is-dragging'
         )}
-        onWheel={handleProjectListWheel}
         onPointerDown={handleProjectListPointerDown}
         onPointerMove={handleProjectListPointerMove}
         onPointerUp={endProjectListDrag}

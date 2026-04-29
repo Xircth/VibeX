@@ -10,6 +10,12 @@ use state::AppState;
 
 const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
 
+fn install_rustls_crypto_provider() {
+    // The workspace uses reqwest's no-provider rustls mode, so the application
+    // must select a process-wide crypto provider before any TLS client is built.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 pub(crate) fn load_app_icon() -> Result<Image<'static>, tauri::Error> {
     Image::from_bytes(APP_ICON_BYTES).map(|icon| icon.to_owned())
 }
@@ -35,6 +41,8 @@ async fn get_preview_proxy_url(url: String) -> Result<String, String> {
 }
 
 pub fn run() {
+    install_rustls_crypto_provider();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -298,4 +306,16 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_rustls_crypto_provider;
+
+    #[test]
+    fn installs_rustls_crypto_provider_for_reqwest_clients() {
+        install_rustls_crypto_provider();
+
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
 }

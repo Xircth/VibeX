@@ -57,7 +57,7 @@ function FileContentView({
   }
 
   return diffFile ? (
-    <div className={cn('overflow-hidden', className)}>
+    <div className={cn('min-h-full overflow-visible', className)}>
       <DiffView
         diffFile={diffFile}
         diffViewWrap={false}

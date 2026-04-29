@@ -5,16 +5,22 @@ import {
   useMemo,
   useRef,
 } from 'react';
-import { BaseCodingAgent, type TaskWithAttemptStatus } from 'shared/types';
+import {
+  BaseCodingAgent,
+  ExecutionProcessStatus,
+  type TaskWithAttemptStatus,
+} from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import DisplayConversationEntry from '@/components/NormalizedConversation/DisplayConversationEntry';
 import { AggregatedThinkingCard } from '@/components/NormalizedConversation/AggregatedThinkingCard';
 import { AggregatedGroupCard } from '@/components/NormalizedConversation/AggregatedGroupCard';
+import { AggregatedFileEditCard } from '@/components/NormalizedConversation/AggregatedFileEditCard';
 import {
   ProcessChangeSummaryCard,
   type ProcessChangeItem,
 } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
 import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
+import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
 import type {
@@ -93,6 +99,7 @@ export function buildProcessChangeItems(
 const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
   function VirtualizedList({ attempt, task }, ref) {
     const { entries, setEntries } = useEntries();
+    const { executionProcessesVisible } = useExecutionProcessesContext();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -122,12 +129,22 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     );
 
     const displayEntries = useMemo<DisplayEntry[]>(
-      () =>
-        buildDisplayEntries(normalizedEntries, {
+      () => {
+        const completedExecutionProcessIds = new Set(
+          executionProcessesVisible
+            .filter(
+              (process) => process.status !== ExecutionProcessStatus.running
+            )
+            .map((process) => process.id)
+        );
+
+        return buildDisplayEntries(normalizedEntries, {
           aggregateThinking:
             attempt.session?.executor === BaseCodingAgent.CODEX,
-        }),
-      [attempt.session?.executor, normalizedEntries]
+          completedExecutionProcessIds,
+        });
+      },
+      [attempt.session?.executor, executionProcessesVisible, normalizedEntries]
     );
 
     useImperativeHandle(
@@ -202,7 +219,13 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
                   entries={entry.entries}
                   expansionKey={entry.patchKey}
                 />
-              ) : entry.type === 'AGGREGATED_DIFF_GROUP' ? (
+              ) : entry.type === 'AGGREGATED_FILE_EDIT_GROUP' ? (
+                <AggregatedFileEditCard
+                  entries={entry.entries}
+                  attempt={attempt}
+                  task={task ?? undefined}
+                />
+              ) : entry.type === 'PROCESS_CHANGE_SUMMARY' ? (
                 <ProcessChangeSummaryCard
                   executionProcessId={entry.executionProcessId}
                   attempt={attempt}

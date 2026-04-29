@@ -1,5 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import WYSIWYGEditor, {
+  SESSION_INPUT_EDITOR_CLASS_NAME,
+  SESSION_INPUT_MARKDOWN_PRESET,
+} from '@/components/ui/wysiwyg';
 import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { cn } from '@/lib/utils';
@@ -146,7 +149,8 @@ export function RetryEditorInline({
           disabled={isSending}
           onCmdEnter={handleCmdEnter}
           onPasteFiles={handlePasteFiles}
-          className={cn('min-h-[40px]', 'bg-background')}
+          className={cn(SESSION_INPUT_EDITOR_CLASS_NAME, 'bg-background')}
+          markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
           projectId={projectId}
           executorProfile={effectiveProfile}
           taskAttemptId={attemptId}

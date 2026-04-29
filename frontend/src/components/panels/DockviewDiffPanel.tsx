@@ -106,7 +106,7 @@ function DockviewDiffPanel() {
   const modifiedContent = currentContent ?? '';
 
   return (
-    <div className="h-full w-full flex flex-col" data-panel="diffs">
+    <div className="flex h-full min-h-0 w-full flex-col" data-panel="diffs">
       {/* Header */}
       <div className="flex items-center gap-2 px-2 py-1 border-b border-white/10 text-xs text-muted-foreground shrink-0">
         <GitCompare className="w-3 h-3 shrink-0" />
@@ -119,7 +119,7 @@ function DockviewDiffPanel() {
       </div>
 
       {/* Diff Editor */}
-      <div className="flex-1 min-h-0">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {effectivePreviewKind === 'binary' ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
             <FileWarning className="h-10 w-10 opacity-50" />
@@ -174,6 +174,7 @@ function DockviewDiffPanel() {
           </div>
         ) : (
           <DiffEditor
+            height="100%"
             original={originalContent}
             modified={modifiedContent}
             language={language}

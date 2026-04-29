@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
@@ -19,7 +22,7 @@ use executors::{
         coding_agent_initial::CodingAgentInitialRequest,
         review::{RepoReviewContext as ExecutorRepoReviewContext, ReviewRequest as ReviewAction},
     },
-    executors::build_review_prompt,
+    executors::{BaseAgentCapability, BaseCodingAgent, build_review_prompt},
     profile::{ExecutorConfig, ExecutorProfileId},
 };
 use serde::Serialize;
@@ -95,9 +98,18 @@ fn derive_session_continuity_mode(
         return SessionContinuityMode::NewSession;
     }
 
-    match executor {
-        Some("CODEX") | Some("OPENCODE") => SessionContinuityMode::ForkSnapshot,
-        _ => SessionContinuityMode::ResumeInPlace,
+    if executor
+        .and_then(|value| BaseCodingAgent::from_str(value).ok())
+        .map(|agent| {
+            agent
+                .capabilities()
+                .contains(&BaseAgentCapability::SessionFork)
+        })
+        .unwrap_or(false)
+    {
+        SessionContinuityMode::ForkSnapshot
+    } else {
+        SessionContinuityMode::ResumeInPlace
     }
 }
 
@@ -855,14 +867,9 @@ pub async fn follow_up(
 
     // Get latest session info after any reset has been applied.
     //
-    // Important executor-specific behavior:
-    // - Claude keeps one underlying session and needs reset_to_message_id to
-    //   truncate history inside that session.
-    // - Codex and OpenCode fork a new snapshot session on every follow-up.
-    //   After reset_session_to_process() drops the target process and later
-    //   turns, the "latest" remaining agent_session_id already represents the
-    //   exact context from before the retried message. In those executors the
-    //   session_id is the rollback mechanism; reset_to_message_id is not used.
+    // ACP-backed agents fork from the latest retained snapshot. After reset,
+    // the latest remaining agent_session_id already represents the context
+    // before the retried message.
     let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
 
     let container_ref = state

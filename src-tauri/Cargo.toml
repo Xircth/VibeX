@@ -23,6 +23,7 @@ reqwest = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
 uuid = { workspace = true }
 tracing = { workspace = true }
+rustls = { workspace = true }
 base64 = "0.22"
 futures = { workspace = true }
 trash = "5"

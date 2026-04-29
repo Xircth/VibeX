@@ -3,7 +3,7 @@
 //! This module provides a mock executor that:
 //! 1. Performs random file operations (create, delete, modify)
 //! 2. Streams 10 mock log entries over 10 seconds
-//! 3. Outputs logs in ClaudeJson format for compatibility with existing log normalization
+//! 3. Outputs logs in ACP event format for compatibility with ACP log normalization
 
 use std::{path::Path, process::Stdio, sync::Arc};
 
@@ -19,11 +19,8 @@ use crate::{
     env::ExecutionEnv,
     executors::{
         ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        claude::{
-            ClaudeContentItem, ClaudeJson, ClaudeMessage, ClaudeMessageContent, ClaudeToolData,
-        },
+        acp::{self, AcpEvent},
     },
-    logs::utils::EntryIndexProvider,
 };
 
 /// Mock executor for QA testing
@@ -88,14 +85,7 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
     }
 
     fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) {
-        // Reuse Claude's log processor since we output ClaudeJson format
-        let entry_index_provider = EntryIndexProvider::start_from(&msg_store);
-        crate::executors::claude::ClaudeLogProcessor::process_logs(
-            msg_store,
-            current_dir,
-            entry_index_provider,
-            crate::executors::claude::HistoryStrategy::Default,
-        );
+        acp::normalize_logs(msg_store, current_dir);
     }
 
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
@@ -180,188 +170,28 @@ async fn perform_file_operations(dir: &Path) {
     }
 }
 
-/// Generate 10 mock log entries in ClaudeJson format using strongly-typed structs
+/// Generate mock log entries in ACP event format using strongly-typed structs.
 fn generate_mock_logs(prompt: &str) -> Vec<String> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    let logs: Vec<ClaudeJson> = vec![
-        // 1. System init
-        ClaudeJson::System {
-            subtype: Some("init".to_string()),
-            session_id: Some(session_id.clone()),
-            cwd: None,
-            tools: None,
-            model: Some("qa-mock-executor".to_string()),
-            api_key_source: Some("unknown".to_string()),
-            status: None,
-            slash_commands: vec![],
-            plugins: vec![],
-        },
-        // 2. Assistant thinking
-        ClaudeJson::Assistant {
-            message: ClaudeMessage {
-                id: Some("msg-qa-1".to_string()),
-                message_type: Some("message".to_string()),
-                role: "assistant".to_string(),
-                model: Some("qa-mock".to_string()),
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::Thinking {
-                    thinking: "Analyzing the QA task and preparing mock execution...".to_string(),
-                }]),
-                stop_reason: None,
-            },
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-1".to_string()),
-        },
-        // 3. Read tool use
-        ClaudeJson::Assistant {
-            message: ClaudeMessage {
-                id: Some("msg-qa-2".to_string()),
-                message_type: Some("message".to_string()),
-                role: "assistant".to_string(),
-                model: Some("qa-mock".to_string()),
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::ToolUse {
-                    id: "qa-tool-1".to_string(),
-                    tool_data: ClaudeToolData::Read {
-                        file_path: "README.md".to_string(),
-                    },
-                }]),
-                stop_reason: None,
-            },
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-2".to_string()),
-        },
-        // 4. Read tool result
-        ClaudeJson::User {
-            message: ClaudeMessage {
-                id: Some("msg-qa-3".to_string()),
-                message_type: Some("message".to_string()),
-                role: "user".to_string(),
-                model: None,
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::ToolResult {
-                    tool_use_id: "qa-tool-1".to_string(),
-                    content: serde_json::json!(
-                        "# Project README\\n\\nThis is a QA test repository."
-                    ),
-                    is_error: Some(false),
-                }]),
-                stop_reason: None,
-            },
-            is_synthetic: false,
-            is_replay: false,
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-3".to_string()),
-        },
-        // 5. Write tool use
-        ClaudeJson::Assistant {
-            message: ClaudeMessage {
-                id: Some("msg-qa-4".to_string()),
-                message_type: Some("message".to_string()),
-                role: "assistant".to_string(),
-                model: Some("qa-mock".to_string()),
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::ToolUse {
-                    id: "qa-tool-2".to_string(),
-                    tool_data: ClaudeToolData::Write {
-                        file_path: "qa_output.txt".to_string(),
-                        content: "QA generated content".to_string(),
-                    },
-                }]),
-                stop_reason: None,
-            },
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-4".to_string()),
-        },
-        // 6. Write tool result
-        ClaudeJson::User {
-            message: ClaudeMessage {
-                id: Some("msg-qa-5".to_string()),
-                message_type: Some("message".to_string()),
-                role: "user".to_string(),
-                model: None,
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::ToolResult {
-                    tool_use_id: "qa-tool-2".to_string(),
-                    content: serde_json::json!("File written successfully"),
-                    is_error: Some(false),
-                }]),
-                stop_reason: None,
-            },
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-5".to_string()),
-            is_synthetic: false,
-            is_replay: false,
-        },
-        // 7. Bash tool use
-        ClaudeJson::Assistant {
-            message: ClaudeMessage {
-                id: Some("msg-qa-6".to_string()),
-                message_type: Some("message".to_string()),
-                role: "assistant".to_string(),
-                model: Some("qa-mock".to_string()),
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::ToolUse {
-                    id: "qa-tool-3".to_string(),
-                    tool_data: ClaudeToolData::Bash {
-                        command: "echo 'QA test complete'".to_string(),
-                        description: Some("Run QA test command".to_string()),
-                    },
-                }]),
-                stop_reason: None,
-            },
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-6".to_string()),
-        },
-        // 8. Bash tool result
-        ClaudeJson::User {
-            message: ClaudeMessage {
-                id: Some("msg-qa-7".to_string()),
-                message_type: Some("message".to_string()),
-                role: "user".to_string(),
-                model: None,
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::ToolResult {
-                    tool_use_id: "qa-tool-3".to_string(),
-                    content: serde_json::json!("QA test complete\\n"),
-                    is_error: Some(false),
-                }]),
-                stop_reason: None,
-            },
-            is_synthetic: false,
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-7".to_string()),
-            is_replay: false,
-        },
-        // 9. Assistant final message
-        ClaudeJson::Assistant {
-            message: ClaudeMessage {
-                id: Some("msg-qa-8".to_string()),
-                message_type: Some("message".to_string()),
-                role: "assistant".to_string(),
-                model: Some("qa-mock".to_string()),
-                content: ClaudeMessageContent::Array(vec![ClaudeContentItem::Text {
-                    text: format!(
-                        "QA mode execution completed successfully.\\n\\nI performed the following operations:\\n1. Read README.md\\n2. Created qa_output.txt\\n3. Ran a test command\\nOriginal prompt: {}",
-                        prompt
-                    ),
-                }]),
-                stop_reason: Some("end_turn".to_string()),
-            },
-            session_id: Some(session_id.clone()),
-            uuid: Some("uuid-qa-8".to_string()),
-        },
-        // 10. Result success
-        ClaudeJson::Result {
-            subtype: Some("success".to_string()),
-            is_error: Some(false),
-            duration_ms: Some(10000),
-            result: None,
-            error: None,
-            num_turns: Some(3),
-            session_id: Some(session_id),
-            model_usage: None,
-            usage: None,
-        },
+    let logs = vec![
+        AcpEvent::SessionStart(session_id),
+        AcpEvent::User(prompt.to_string()),
+        AcpEvent::Thought(agent_client_protocol::ContentBlock::Text(
+            agent_client_protocol::TextContent::new(
+                "Analyzing the QA task and preparing mock execution...",
+            ),
+        )),
+        AcpEvent::Message(agent_client_protocol::ContentBlock::Text(
+            agent_client_protocol::TextContent::new(format!(
+                "QA mode execution completed successfully.\n\nI performed mock file operations.\nOriginal prompt: {prompt}",
+            )),
+        )),
+        AcpEvent::Done("\"end_turn\"".to_string()),
     ];
 
-    // Serialize to JSON strings - this ensures proper escaping
     logs.into_iter()
-        .map(|log| serde_json::to_string(&log).expect("ClaudeJson should serialize"))
+        .map(|log| serde_json::to_string(&log).expect("AcpEvent should serialize"))
         .collect()
 }
 
@@ -372,7 +202,7 @@ mod tests {
     #[test]
     fn test_generate_mock_logs_count() {
         let logs = generate_mock_logs("test prompt");
-        assert_eq!(logs.len(), 10, "Should generate exactly 10 log entries");
+        assert_eq!(logs.len(), 5, "Should generate exactly 5 log entries");
     }
 
     #[test]
@@ -390,13 +220,13 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_mock_logs_deserializes_to_claudejson() {
+    fn test_generate_mock_logs_deserializes_to_acp_event() {
         let logs = generate_mock_logs("test prompt");
         for (i, log) in logs.iter().enumerate() {
-            let parsed: Result<ClaudeJson, _> = serde_json::from_str(log);
+            let parsed: Result<AcpEvent, _> = serde_json::from_str(log);
             assert!(
                 parsed.is_ok(),
-                "Log entry {} should deserialize to ClaudeJson: {} - error: {:?}",
+                "Log entry {} should deserialize to AcpEvent: {} - error: {:?}",
                 i,
                 log,
                 parsed.err()
@@ -407,22 +237,13 @@ mod tests {
     #[test]
     fn test_escape_special_characters() {
         let logs = generate_mock_logs("test with \"quotes\" and\nnewlines");
-        // The final assistant message (index 8) should contain the prompt
-        let final_log = &logs[8];
-        let parsed: ClaudeJson = serde_json::from_str(final_log).unwrap();
+        let final_log = &logs[3];
+        let parsed: AcpEvent = serde_json::from_str(final_log).unwrap();
 
-        if let ClaudeJson::Assistant { message, .. } = parsed {
-            if let ClaudeMessageContent::Array(items) = &message.content {
-                if let Some(ClaudeContentItem::Text { text }) = items.first() {
-                    assert!(text.contains("test with \"quotes\" and\nnewlines"));
-                } else {
-                    panic!("Expected Text content item");
-                }
-            } else {
-                panic!("Expected Array content");
-            }
+        if let AcpEvent::Message(agent_client_protocol::ContentBlock::Text(text)) = parsed {
+            assert!(text.text.contains("test with \"quotes\" and\nnewlines"));
         } else {
-            panic!("Expected Assistant variant");
+            panic!("Expected message text event");
         }
     }
 }

@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useMemo, type CSSProperties, type MouseEvent } from 'react';
 import { type FileChange } from 'shared/types';
 import {
   ArrowRight,
@@ -23,6 +23,7 @@ import { useExpandable } from '@/stores/useExpandableStore';
 import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
+import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import '@/styles/edit-diff-overrides.css';
@@ -127,7 +128,8 @@ function ProcessChangeFileRenderer({
   containerRef,
 }: Props) {
   const { config } = useUserSystem();
-  const { openFilePreview } = usePanelActionsContext();
+  const { openDiffPreview } = usePanelActionsContext();
+  const focusDiffPath = useGitDiffNavigationStore((state) => state.focusPath);
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
   const effectiveExpanded = forceExpanded || expanded;
 
@@ -177,6 +179,14 @@ function ProcessChangeFileRenderer({
     'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
     'hover:bg-muted/40'
   );
+  const handleOpenDiffFile = (
+    event: MouseEvent<HTMLElement>,
+    diffPath: string
+  ) => {
+    event.stopPropagation();
+    openDiffPreview();
+    focusDiffPath(diffPath);
+  };
 
   if (statusIcon) {
     return (
@@ -205,15 +215,7 @@ function ProcessChangeFileRenderer({
           <Edit className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span
             className="min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:text-primary hover:underline"
-            onClick={(event) => {
-              event.stopPropagation();
-              openFilePreview(resolveFilePath(path, containerRef), {
-                mode: 'diff',
-                diffViewMode: 'inline',
-                displayPath: path,
-                title: path,
-              });
-            }}
+            onClick={(event) => handleOpenDiffFile(event, path)}
           >
             {path}
           </span>
@@ -316,28 +318,7 @@ function ProcessChangeFileRenderer({
         {icon}
         <span
           className="min-w-0 flex-1 truncate font-mono text-xs text-foreground hover:text-primary hover:underline"
-          onClick={(event) => {
-            event.stopPropagation();
-            const resolvedTargetPath = resolveFilePath(
-              targetPath,
-              containerRef
-            );
-            const displayPath = targetPath;
-            if (isWrite(change) && previewKind === 'text') {
-              openFilePreview(resolvedTargetPath, {
-                mode: 'diff',
-                diffViewMode: 'inline',
-                modifiedContent: change.content,
-                displayPath,
-                title: displayPath,
-              });
-              return;
-            }
-            openFilePreview(resolvedTargetPath, {
-              displayPath,
-              title: displayPath,
-            });
-          }}
+          onClick={(event) => handleOpenDiffFile(event, targetPath)}
         >
           {titleText}
         </span>

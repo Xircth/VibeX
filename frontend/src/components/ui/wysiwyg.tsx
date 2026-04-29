@@ -114,6 +114,11 @@ import type { FileReferencePayload } from '@/utils/fileReferences';
 /** Markdown string representing the editor content */
 export type SerializedEditorState = string;
 export type WysiwygMarkdownPreset = 'default' | 'session-input-minimal';
+export const SESSION_INPUT_MARKDOWN_PRESET: WysiwygMarkdownPreset =
+  'session-input-minimal';
+export const SESSION_INPUT_TEXT_CLASS_NAME =
+  'break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]';
+export const SESSION_INPUT_EDITOR_CLASS_NAME = `min-h-[40px] ${SESSION_INPUT_TEXT_CLASS_NAME}`;
 
 type WysiwygProps = {
   placeholder?: string;

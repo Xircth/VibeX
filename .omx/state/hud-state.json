@@ -1,6 +1,6 @@
 {
-  "last_turn_at": "2026-04-14T07:39:22.661Z",
-  "turn_count": 9,
-  "last_progress_at": "2026-04-14T07:39:22.661Z",
-  "last_agent_output": "这 4 个点已经补上了，且验证已通过。\n\n`@` 现在会在空查询时主动读取当前 repo 根目录的第一层目录和文件，不再是空白，改在 [file-tag-typeahead-plugin.tsx](/"
+  "last_turn_at": "2026-04-29T04:30:02.124Z",
+  "turn_count": 15,
+  "last_progress_at": "2026-04-29T04:30:02.124Z",
+  "last_agent_output": "已修这个 Codex sandbox 回退问题。\n\n根因不是前端默认值，而是运行时：虽然应用里的默认 Codex 变体已经是 `danger-full-access`，但 `codex-acp` 不接"
 }

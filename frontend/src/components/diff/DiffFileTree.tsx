@@ -19,7 +19,8 @@ interface TreeNode {
 function buildTree(files: DiffFile[]): TreeNode {
   const root: TreeNode = { name: '', fullPath: '', children: {} };
   for (const file of files) {
-    const parts = file.path.split('/');
+    const normalizedPath = file.path.replace(/\\/g, '/');
+    const parts = normalizedPath.split('/');
     let node = root;
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
@@ -32,7 +33,7 @@ function buildTree(files: DiffFile[]): TreeNode {
       }
       node = node.children[part];
       if (i === parts.length - 1) {
-        node.file = file;
+        node.file = { ...file, path: normalizedPath };
       }
     }
   }

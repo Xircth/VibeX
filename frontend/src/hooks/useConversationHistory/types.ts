@@ -22,16 +22,27 @@ export type AggregatedPatchGroup = {
 };
 
 /**
- * A group of consecutive file_edit entries for the same file path.
- * Used to display multiple edits to the same file in a collapsed accordion style.
+ * A group of consecutive file_edit tool calls.
+ * Used to display multiple edit operations in a collapsed accordion style.
  */
-export type AggregatedDiffGroup = {
-  type: 'AGGREGATED_DIFF_GROUP';
-  /** The file path being edited */
-  filePath: string;
+export type AggregatedFileEditGroup = {
+  type: 'AGGREGATED_FILE_EDIT_GROUP';
   /** The individual file_edit entries in this group */
   entries: PatchTypeWithKey[];
   /** Unique key for the group */
+  patchKey: string;
+  executionProcessId: string;
+};
+
+/**
+ * A final summary of all file changes made by one completed execution process.
+ * Used for the per-turn "files changed" preview after the assistant output ends.
+ */
+export type ProcessChangeSummaryGroup = {
+  type: 'PROCESS_CHANGE_SUMMARY';
+  /** The file_edit entries collected across the entire process */
+  entries: PatchTypeWithKey[];
+  /** Unique key for the summary */
   patchKey: string;
   executionProcessId: string;
 };
@@ -52,7 +63,8 @@ export type AggregatedThinkingGroup = {
 export type DisplayEntry =
   | PatchTypeWithKey
   | AggregatedPatchGroup
-  | AggregatedDiffGroup
+  | AggregatedFileEditGroup
+  | ProcessChangeSummaryGroup
   | AggregatedThinkingGroup;
 
 export function isAggregatedGroup(
@@ -61,10 +73,16 @@ export function isAggregatedGroup(
   return entry.type === 'AGGREGATED_GROUP';
 }
 
-export function isAggregatedDiffGroup(
+export function isAggregatedFileEditGroup(
   entry: DisplayEntry
-): entry is AggregatedDiffGroup {
-  return entry.type === 'AGGREGATED_DIFF_GROUP';
+): entry is AggregatedFileEditGroup {
+  return entry.type === 'AGGREGATED_FILE_EDIT_GROUP';
+}
+
+export function isProcessChangeSummaryGroup(
+  entry: DisplayEntry
+): entry is ProcessChangeSummaryGroup {
+  return entry.type === 'PROCESS_CHANGE_SUMMARY';
 }
 
 export function isAggregatedThinkingGroup(

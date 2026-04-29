@@ -116,7 +116,7 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    const button = screen.getByRole('button', { name: '鏂板缓浼氳瘽' });
+    const button = screen.getByRole('button', { name: '新建会话' });
     expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
     expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
 
@@ -145,9 +145,9 @@ describe('KanbanSessionConversationView', () => {
           displayName: 'Existing Session',
           workspaceName: 'Workspace Empty',
           workspaceBranch: 'main',
-          statusLabel: '寰呭紑濮?,
+          statusLabel: 'Todo',
           continuityMode: 'new_session',
-          continuityLabel: '鏂颁細璇?,
+          continuityLabel: 'New session',
         },
       ],
       selectedSession: undefined,
@@ -194,7 +194,7 @@ describe('KanbanSessionConversationView', () => {
     );
     expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: '鏂板缓浼氳瘽' })
+      screen.queryByRole('button', { name: '新建会话' })
     ).not.toBeInTheDocument();
     expect(selectSession).not.toHaveBeenCalled();
     expect(startNewSession).not.toHaveBeenCalled();

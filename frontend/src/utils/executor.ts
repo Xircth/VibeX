@@ -30,11 +30,17 @@ const OPENCODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.OPENCODE;
 const CLAUDE_DEFAULT_MODEL = 'sonnet';
 const CODEX_DEFAULT_MODEL = 'gpt-5.3-codex';
 
-const CLAUDE_MODEL_OPTIONS: CodexModelOption[] = [
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'haiku', label: 'Haiku' },
-];
+const CLAUDE_MODEL_LABELS: Record<string, string> = {
+  sonnet: 'Sonnet',
+  opus: 'Opus',
+  haiku: 'Haiku',
+};
+
+const CLAUDE_MODEL_ENV_KEYS: Record<string, string> = {
+  sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+};
 
 const CODEX_MODEL_LABELS: Record<string, string> = {
   'gpt-5.5': 'GPT-5.5',
@@ -313,9 +319,50 @@ export function getClaudePermissionOptions(
 }
 
 export function getClaudeModelOptions(
-  _profiles: ExecutorConfigs['executors'] | null | undefined
+  profiles: ExecutorConfigs['executors'] | null | undefined,
+  claudeEnv: Record<string, string> | null | undefined = undefined
 ): CodexModelOption[] {
-  return CLAUDE_MODEL_OPTIONS;
+  const seen = new Set<string>();
+  const options: CodexModelOption[] = [];
+
+  for (const entry of getExecutorVariantRecords<ClaudeCode>(
+    profiles,
+    CLAUDE_CODE_EXECUTOR
+  )) {
+    const model = getClaudeVariantConfig(profiles, entry.variant).model;
+    const modelKey = model ?? CLAUDE_DEFAULT_MODEL;
+    if (seen.has(modelKey)) continue;
+    seen.add(modelKey);
+    options.push({
+      value: model,
+      label: formatClaudeModelLabel(model, claudeEnv),
+    });
+  }
+
+  if (!seen.has(CLAUDE_DEFAULT_MODEL)) {
+    options.unshift({
+      value: CLAUDE_DEFAULT_MODEL,
+      label: formatClaudeModelLabel(CLAUDE_DEFAULT_MODEL, claudeEnv),
+    });
+  }
+
+  return options;
+}
+
+export function formatClaudeModelLabel(
+  model: string | null,
+  claudeEnv: Record<string, string> | null | undefined = undefined
+): string {
+  const modelKey = model ?? CLAUDE_DEFAULT_MODEL;
+  const aliasLabel =
+    CLAUDE_MODEL_LABELS[modelKey] ?? formatSimpleLabel(modelKey);
+  const envModel = claudeEnv?.[CLAUDE_MODEL_ENV_KEYS[modelKey] ?? '']?.trim();
+
+  if (envModel && envModel !== modelKey) {
+    return `${aliasLabel}: ${envModel}`;
+  }
+
+  return aliasLabel;
 }
 
 export function getClaudeVariantFromSelection(

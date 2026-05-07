@@ -166,6 +166,15 @@ fn version_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'st
     }
 }
 
+fn npm_package_for_agent(agent_type: &str) -> Option<&'static str> {
+    match agent_type {
+        "claude_code" => Some("@agentclientprotocol/claude-agent-acp"),
+        "codex" => Some("@zed-industries/codex-acp"),
+        "open_code" => Some("opencode-ai"),
+        _ => None,
+    }
+}
+
 #[cfg(windows)]
 fn node_installer_program() -> &'static str {
     "npm.cmd"
@@ -227,12 +236,56 @@ async fn detect_agent_version_inner(
     })?;
 
     if output.status.success() {
-        Ok(Some(
-            String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        ))
-    } else {
-        Ok(None)
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            return Ok(Some(stdout));
+        }
     }
+
+    if let Some(version) = detect_global_npm_package_version(agent_type).await? {
+        return Ok(Some(version));
+    }
+
+    Ok(None)
+}
+
+async fn detect_global_npm_package_version(agent_type: &str) -> Result<Option<String>, AppError> {
+    let Some(package_name) = npm_package_for_agent(agent_type) else {
+        return Ok(None);
+    };
+
+    let npm = resolve_program_on_path(node_installer_program()).await?;
+    let mut command = utils::process::new_hidden_tokio_command(&npm, ["root", "-g"]);
+    let output = command.output().await.map_err(|e| {
+        AppError::Internal(format!(
+            "Failed to locate npm global root for {agent_type}: {e}"
+        ))
+    })?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if root.is_empty() {
+        return Ok(None);
+    }
+
+    let package_path = package_name
+        .split('/')
+        .fold(PathBuf::from(root), |path, segment| path.join(segment))
+        .join("package.json");
+    let content = match tokio::fs::read_to_string(&package_path).await {
+        Ok(content) => content,
+        Err(_) => return Ok(None),
+    };
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Internal(format!("Invalid package metadata: {e}")))?;
+
+    Ok(value
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(|version| version.to_string()))
 }
 
 #[tauri::command]
@@ -461,5 +514,18 @@ mod tests {
         assert!(err.to_string().contains("model_provider"));
         assert!(err.to_string().contains("supports_websockets"));
         assert!(err.to_string().contains("reasoning_effort"));
+    }
+
+    #[test]
+    fn maps_acp_agents_to_npm_package_names() {
+        assert_eq!(
+            npm_package_for_agent("claude_code"),
+            Some("@agentclientprotocol/claude-agent-acp")
+        );
+        assert_eq!(
+            npm_package_for_agent("codex"),
+            Some("@zed-industries/codex-acp")
+        );
+        assert_eq!(npm_package_for_agent("open_code"), Some("opencode-ai"));
     }
 }

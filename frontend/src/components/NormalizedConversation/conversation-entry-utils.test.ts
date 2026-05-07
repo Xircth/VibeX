@@ -296,7 +296,7 @@ describe('conversation meta notices', () => {
     expect(displayEntries[0]?.type).toBe('NORMALIZED_ENTRY');
   });
 
-  it('aggregates consecutive thinking entries when thinking grouping is enabled', () => {
+  it('filters thinking entries out of the conversation display', () => {
     const entries: PatchTypeWithKey[] = [
       {
         type: 'NORMALIZED_ENTRY',
@@ -324,10 +324,6 @@ describe('conversation meta notices', () => {
       aggregateThinking: true,
     });
 
-    expect(displayEntries).toHaveLength(1);
-    expect(displayEntries[0]).toMatchObject({
-      type: 'AGGREGATED_THINKING_GROUP',
-      executionProcessId: 'proc-1',
-    });
+    expect(displayEntries).toHaveLength(0);
   });
 });

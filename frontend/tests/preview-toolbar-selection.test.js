@@ -23,11 +23,11 @@ test('preview toolbar selection forwards target-mode messages into the iframe br
 
 test('preview panel requests proxied preview urls and supports upstream inspect protocol', () => {
   const source = readFrontendFile('src/components/panels/PreviewPanel.tsx');
-  const api = readFrontendFile('src/lib/api.ts');
+  const api = readFrontendFile('src/lib/api/misc.ts');
 
   assert.match(api, /getPreviewProxyUrl/);
   assert.match(source, /getPreviewProxyUrl/);
-  assert.match(source, /type:\s*'toggle-inspect'/);
+  assert.match(source, /createClickedElementPayload/);
   assert.match(source, /type !== 'component-detected'/);
 });
 
@@ -42,6 +42,14 @@ test('preview panel keeps selection state aligned with actual targeting state', 
   assert.doesNotMatch(source, /if \(!activeIframe\) \{\s*return;\s*\}/);
   assert.match(source, /requestedSelectModeRef\.current\s*=\s*nextEnabled/);
   assert.match(source, /setIsSelectModeEnabled\(nextEnabled\)/);
+});
+
+test('clicked element provider notifies after React commits new entries', () => {
+  const source = readFrontendFile('src/contexts/ClickedElementsProvider.tsx');
+
+  assert.match(source, /notifiedElementIdsRef/);
+  assert.match(source, /useEffect\(\(\) => \{\s*for \(const entry of elements\)/);
+  assert.doesNotMatch(source, /queueMicrotask\(\(\) => \{\s*onElementAddedCallbacksRef/);
 });
 
 test('ready preview toolbar exposes pressed state and passes iframe load back for bridge bootstrap', () => {

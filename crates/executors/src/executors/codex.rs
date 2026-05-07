@@ -217,18 +217,10 @@ impl Codex {
             Self::push_config_override(&mut params, "profile", profile);
         }
         if let Some(effort) = &self.model_reasoning_effort {
-            Self::push_config_override(
-                &mut params,
-                "model_reasoning_effort",
-                effort.as_ref().to_string(),
-            );
+            Self::push_config_override(&mut params, "model_reasoning_effort", effort.as_ref());
         }
         if let Some(summary) = &self.model_reasoning_summary {
-            Self::push_config_override(
-                &mut params,
-                "model_reasoning_summary",
-                summary.as_ref().to_string(),
-            );
+            Self::push_config_override(&mut params, "model_reasoning_summary", summary.as_ref());
         }
 
         cmd.additional_params = (!params.is_empty()).then_some(params);

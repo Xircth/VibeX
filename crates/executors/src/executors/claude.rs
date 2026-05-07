@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -49,6 +50,13 @@ pub struct ClaudeCode {
 }
 
 impl ClaudeCode {
+    fn model_for_acp(&self) -> Option<String> {
+        self.model
+            .as_deref()
+            .and_then(resolve_claude_model_alias)
+            .or_else(|| self.model.clone())
+    }
+
     fn acp_mode(&self) -> Option<String> {
         if self.plan.unwrap_or(false) {
             Some("plan".to_string())
@@ -64,7 +72,7 @@ impl ClaudeCode {
 
         Ok(AcpBackedExecutor::new(AcpProvider::ClaudeCode)
             .with_append_prompt(self.append_prompt.clone())
-            .with_model(self.model.clone())
+            .with_model(self.model_for_acp())
             .with_mode(self.acp_mode())
             .with_approvals_enabled(
                 self.approvals.unwrap_or(false)
@@ -92,6 +100,47 @@ impl ClaudeCode {
             )))
         }
     }
+}
+
+fn resolve_claude_model_alias(model: &str) -> Option<String> {
+    let env_key = match model.trim().to_ascii_lowercase().as_str() {
+        "sonnet" => "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "opus" => "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "haiku" => "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        _ => return None,
+    };
+
+    read_claude_model_env()
+        .get(env_key)
+        .cloned()
+        .or_else(|| normalize_non_empty(std::env::var(env_key).ok()))
+}
+
+fn normalize_non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn claude_settings_path() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(|home| PathBuf::from(home).join(".claude").join("settings.json"))
+}
+
+fn read_claude_model_env() -> HashMap<String, String> {
+    let Some(path) = claude_settings_path() else {
+        return HashMap::new();
+    };
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return HashMap::new();
+    };
+    root.get("env")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default()
 }
 
 #[async_trait]
@@ -199,6 +248,27 @@ mod tests {
         let executor = claude.acp_executor().expect("config should be supported");
         assert!(!executor.approvals_enabled);
         assert_eq!(executor.mode.as_deref(), Some("bypassPermissions"));
+    }
+
+    #[test]
+    fn claude_non_alias_model_is_passed_through() {
+        let claude = ClaudeCode {
+            append_prompt: AppendPrompt::default(),
+            claude_code_router: None,
+            plan: None,
+            approvals: None,
+            model: Some("claude-sonnet-4-5-20250929".to_string()),
+            dangerously_skip_permissions: None,
+            disable_api_key: None,
+            cmd: CmdOverrides::default(),
+            approvals_service: None,
+        };
+
+        let executor = claude.acp_executor().expect("config should be supported");
+        assert_eq!(
+            executor.model.as_deref(),
+            Some("claude-sonnet-4-5-20250929")
+        );
     }
 
     #[test]

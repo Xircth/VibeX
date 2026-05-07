@@ -120,15 +120,18 @@ describe('executor utilities', () => {
     );
   });
 
-  it('uses fixed Claude Code model choices without a Default option', () => {
+  it('derives Claude Code model choices from profiles and local settings', () => {
     expect(getClaudeVariantConfig(profiles, null).model).toBe('sonnet');
     expect(
       getClaudeVariantFromSelection(profiles, 'auto', 'sonnet')
     ).toBeNull();
-    expect(getClaudeModelOptions(profiles)).toEqual([
-      { value: 'sonnet', label: 'Sonnet' },
+    expect(
+      getClaudeModelOptions(profiles, {
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-4-5-20250929',
+      })
+    ).toEqual([
+      { value: 'sonnet', label: 'Sonnet: claude-sonnet-4-5-20250929' },
       { value: 'opus', label: 'Opus' },
-      { value: 'haiku', label: 'Haiku' },
     ]);
   });
 

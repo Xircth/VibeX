@@ -9,6 +9,7 @@ import { AgentSelector } from '@/components/tasks/AgentSelector';
 import { CodexModelSelector } from '@/components/tasks/CodexModelSelector';
 import { ConfigSelector } from '@/components/tasks/ConfigSelector';
 import { OptionSelector } from '@/components/tasks/OptionSelector';
+import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 import {
   CODEX_REASONING_EFFORT_OPTIONS,
   type ClaudePermissionMode,
@@ -64,6 +65,7 @@ export function TerminalProfileControls({
   const isClaude = isClaudeCodeExecutor(executor);
   const isCodex = executor === BaseCodingAgentEnum.CODEX;
   const isOpencode = executor === BaseCodingAgentEnum.OPENCODE;
+  const { settings: claudeSettings } = useClaudeSettings();
 
   const contentClassName = className || 'flex flex-col gap-2 w-full';
 
@@ -101,7 +103,7 @@ export function TerminalProfileControls({
       selectedProfile.variant ?? null
     );
     const permissionOptions = getClaudePermissionOptions(profiles);
-    const modelOptions = getClaudeModelOptions(profiles);
+    const modelOptions = getClaudeModelOptions(profiles, claudeSettings?.env);
     const hasRichControls =
       permissionOptions.length > 1 || modelOptions.length > 1;
 

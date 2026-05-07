@@ -418,20 +418,19 @@ export function ClickedElementsProvider({
   const onElementAddedCallbacksRef = useRef<Set<(entry: ClickedEntry) => void>>(
     new Set()
   );
+  const notifiedElementIdsRef = useRef<Set<string>>(new Set());
 
   const addElement = useCallback(
     (payload: OpenInEditorPayload) => {
       const sanitized = stripHeavyProps(payload);
       const dedupeKey = makeDedupeKey(sanitized, workspaceRoot || undefined);
 
-      let newEntry: ClickedEntry | null = null;
-
       setElements((prev) => {
         const last = prev[prev.length - 1];
         if (last && last.dedupeKey === dedupeKey) {
           return prev; // Skip consecutive duplicate
         }
-        newEntry = {
+        const newEntry = {
           id: genId(),
           payload: sanitized,
           timestamp: Date.now(),
@@ -442,24 +441,35 @@ export function ClickedElementsProvider({
           ? updated.slice(-MAX_ELEMENTS)
           : updated;
       });
-
-      // Notify registered callbacks after state update
-      // Use queueMicrotask to ensure state is committed first
-      if (newEntry) {
-        const entry = newEntry;
-        queueMicrotask(() => {
-          onElementAddedCallbacksRef.current.forEach((cb) => cb(entry));
-        });
-      }
     },
     [workspaceRoot]
   );
+
+  useEffect(() => {
+    for (const entry of elements) {
+      if (notifiedElementIdsRef.current.has(entry.id)) {
+        continue;
+      }
+      notifiedElementIdsRef.current.add(entry.id);
+      onElementAddedCallbacksRef.current.forEach((callback) => callback(entry));
+    }
+
+    if (notifiedElementIdsRef.current.size > MAX_ELEMENTS) {
+      const retainedIds = new Set(elements.map((entry) => entry.id));
+      notifiedElementIdsRef.current.forEach((id) => {
+        if (!retainedIds.has(id)) {
+          notifiedElementIdsRef.current.delete(id);
+        }
+      });
+    }
+  }, [elements]);
 
   const removeElement = useCallback((id: string) => {
     setElements((prev) => prev.filter((e) => e.id !== id));
   }, []);
 
   const clearElements = useCallback(() => {
+    notifiedElementIdsRef.current.clear();
     setElements([]);
   }, []);
 

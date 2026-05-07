@@ -97,31 +97,8 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     }
                     AcpEvent::Thought(content) => {
                         streaming.assistant_text = None;
-                        if let agent_client_protocol::ContentBlock::Text(text) = content {
-                            let is_new = streaming.thinking_text.is_none();
-                            if is_new {
-                                let idx = entry_index.next();
-                                streaming.thinking_text = Some(StreamingText {
-                                    index: idx,
-                                    content: String::new(),
-                                });
-                            }
-                            if let Some(ref mut s) = streaming.thinking_text {
-                                s.content.push_str(&text.text);
-                                let entry = NormalizedEntry {
-                                    timestamp: None,
-                                    entry_type: NormalizedEntryType::Thinking,
-                                    content: s.content.clone(),
-                                    metadata: None,
-                                };
-                                let patch = if is_new {
-                                    ConversationPatch::add_normalized_entry(s.index, entry)
-                                } else {
-                                    ConversationPatch::replace(s.index, entry)
-                                };
-                                msg_store.push_patch(patch);
-                            }
-                        }
+                        let _ = content;
+                        streaming.thinking_text = None;
                     }
                     AcpEvent::Plan(plan) => {
                         streaming.assistant_text = None;

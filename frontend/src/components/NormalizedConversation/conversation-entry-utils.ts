@@ -643,6 +643,10 @@ export function buildDisplayEntries(
   };
 
   for (const entry of entries) {
+    if (isThinkingEntry(entry)) {
+      continue;
+    }
+
     if (currentProcessId && currentProcessId !== entry.executionProcessId) {
       flushProcessScopedGroups();
       flushProcessChangeSummary(currentProcessId);

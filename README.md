@@ -1,61 +1,61 @@
 # VibeX
 
-> 鍩轰簬 [vibe-kanban](https://github.com/BloopAI/vibe-kanban) fork锛岄拡瀵规闈㈢浣撻獙娣卞害浼樺寲鐨?AI 缂栫▼ Agent 浠诲姟绠＄悊宸ュ叿銆?
+> 基于 [vibe-kanban](https://github.com/BloopAI/vibe-kanban) fork，针对桌面端体验深度优化的 AI 编程 Agent 任务管理工具。
 
 <p align="center">
 <img src="frontend/src/assets/vibex_logo.png" alt="VibeX Logo" width="200">
 </p>
 
 <p align="center">
-  璁?Claude Code銆丟emini CLI銆丆odex銆丄mp 绛?AI 缂栫▼ Agent 鐨勭敓浜у姏鎻愬崌 10 鍊?
+  让 Claude Code、Gemini CLI、Codex、Amp 等 AI 编程 Agent 的生产力提升 10 倍
 </p>
 
 ---
 
-## 绠€浠?
+## 简介
 
-VibeX 鏄竴涓笓涓?AI 杈呭姪缂栫▼宸ヤ綔娴佽璁＄殑妗岄潰浠诲姟绠＄悊搴旂敤锛屽熀浜?Tauri v2 鏋勫缓銆傚畠瑙ｅ喅浜嗗湪浣跨敤澶氫釜 AI 缂栫▼ Agent 鏃堕潰涓寸殑鍗忚皟銆佽拷韪拰瀹℃煡闂锛岃浣犱笓娉ㄤ簬瑙勫垝涓庡喅绛栵紝鑰岄潪绻佺悙鐨勪笂涓嬫枃鍒囨崲銆?
+VibeX 是一个专为 AI 辅助编程工作流设计的桌面任务管理应用，基于 Tauri v2 构建。它解决了在使用多个 AI 编程 Agent 时面临的协调、追踪和审查问题，让你专注于规划与决策，而非繁琐的上下文切换。
 
-### 鏍稿績鍔熻兘
+### 核心功能
 
-- **澶?Agent 骞惰璋冨害** 鈥?鍚屾椂杩愯澶氫釜 AI 缂栫▼ Agent锛屼覆琛屾垨骞惰鎵ц浠诲姟
-- \*_鐪嬫澘寮忎换鍔＄鐞?_ 鈥?鐩磋杩借釜姣忎釜 Agent 鐨勫伐浣滅姸鎬?
-- **鍐呯疆缁堢闆嗘垚** 鈥?鏃犻渶鍒囨崲绐楀彛锛岀洿鎺ュ湪搴旂敤鍐呮煡鐪?Agent 杈撳嚭
-- \*_浠ｇ爜棰勮涓庢鏌?_ 鈥?瀹炴椂棰勮 Agent 鐢熸垚鐨勪唬鐮侊紝鏀寔鍘熺敓 DevTools 璋冭瘯
-- **缁熶竴 MCP 閰嶇疆** 鈥?闆嗕腑绠＄悊鎵€鏈?Agent 鐨?MCP锛圡odel Context Protocol锛夐厤缃?
-- **Git Worktree 闅旂** 鈥?鑷姩涓烘瘡涓换鍔″垱寤虹嫭绔嬬殑 git worktree锛岄伩鍏嶅垎鏀啿绐?
+- **多 Agent 并行调度** — 同时运行多个 AI 编程 Agent，串行或并行执行任务
+- **看板式任务管理** — 直观追踪每个 Agent 的工作状态
+- **内置终端集成** — 无需切换窗口，直接在应用内查看 Agent 输出
+- **代码预览与检查** — 实时预览 Agent 生成的代码，支持原生 DevTools 调试
+- **统一 MCP 配置** — 集中管理所有 Agent 的 MCP（Model Context Protocol）配置
+- **Git Worktree 隔离** — 自动为每个任务创建独立的 git worktree，避免分支冲突
 
 ---
 
-## 蹇€熷紑濮?
+## 快速开始
 
-### 绯荤粺瑕佹眰
+### 系统要求
 
-- [Rust](https://rustup.rs/)锛堟渶鏂扮ǔ瀹氱増锛?
+- [Rust](https://rustup.rs/)（最新稳定版）
 - [Node.js](https://nodejs.org/) >= 18
 - [pnpm](https://pnpm.io/) >= 8
 
-### 瀹夎渚濊禆
+### 安装依赖
 
 ```bash
 pnpm install
 ```
 
-### 鍚姩寮€鍙戞ā寮?
+### 启动开发模式
 
 ```bash
 pnpm run dev
 ```
 
-绛変环鍛戒护锛?
+等价命令：
 
 ```bash
 pnpm run dev:desktop
 ```
 
-> 榛樿浠ユ闈㈡ā寮忓惎鍔ㄣ€傚紑鍙戞椂浼氬惎鍔?Vite dev server 骞堕€氳繃 Tauri `devUrl` 杩炴帴锛屾敮鎸?HMR锛孋PU 鍗犵敤涔熸槑鏄句綆浜?`vite build --watch` 妯″紡銆?
+> 默认以桌面模式启动。开发时会启动 Vite dev server 并通过 Tauri `devUrl` 连接，支持 HMR，CPU 占用也明显低于 `vite build --watch` 模式。
 
-### 浠呮瀯寤哄墠绔?
+### 仅构建前端
 
 ```bash
 cd frontend && pnpm build
@@ -63,7 +63,7 @@ cd frontend && pnpm build
 
 ---
 
-## 棰濆寮€鍙戝伐鍏?
+## 额外开发工具
 
 ```bash
 cargo install cargo-watch
@@ -72,8 +72,8 @@ cargo install sqlx-cli
 
 ---
 
-## 鍏充簬鏈」鐩?
+## 关于本项目
 
-VibeX 鏄?vibe-kanban 鐨勭嫭绔?fork锛屼笓娉ㄤ簬妗岄潰绔師鐢熶綋楠屼紭鍖栵紝鍘婚櫎浜嗕簯鍚屾銆丱Auth 绛夌涓夋柟渚濊禆锛屼繚鎸佽交閲忋€佺鏈夈€佸彲鑷墭绠°€?
+VibeX 是 vibe-kanban 的独立 fork，专注于桌面端原生体验优化，去除了云同步、OAuth 等第三方依赖，保持轻量、私有、可自托管。
 
-涓婃父椤圭洰锛歔BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban)
+上游项目：[BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban)

@@ -7,6 +7,10 @@ pub mod terminal;
 
 use std::{fmt::Display, str::FromStr};
 
+use agent_client_protocol::schema::{
+    AvailableCommand, ContentBlock, Plan, RequestPermissionRequest, SessionModeId,
+    SessionNotification, ToolCall, ToolCallUpdate,
+};
 pub use client::AcpClient;
 pub use harness::AcpAgentHarness;
 pub use normalize_logs::*;
@@ -21,18 +25,18 @@ use workspace_utils::approvals::ApprovalStatus;
 pub enum AcpEvent {
     User(String),
     SessionStart(String),
-    Message(agent_client_protocol::ContentBlock),
-    Thought(agent_client_protocol::ContentBlock),
-    ToolCall(agent_client_protocol::ToolCall),
-    ToolUpdate(agent_client_protocol::ToolCallUpdate),
-    Plan(agent_client_protocol::Plan),
-    AvailableCommands(Vec<agent_client_protocol::AvailableCommand>),
-    CurrentMode(agent_client_protocol::SessionModeId),
-    RequestPermission(agent_client_protocol::RequestPermissionRequest),
+    Message(ContentBlock),
+    Thought(ContentBlock),
+    ToolCall(ToolCall),
+    ToolUpdate(ToolCallUpdate),
+    Plan(Plan),
+    AvailableCommands(Vec<AvailableCommand>),
+    CurrentMode(SessionModeId),
+    RequestPermission(RequestPermissionRequest),
     ApprovalResponse(ApprovalResponse),
     Error(String),
     Done(String),
-    Other(agent_client_protocol::SessionNotification),
+    Other(SessionNotification),
 }
 
 impl Display for AcpEvent {

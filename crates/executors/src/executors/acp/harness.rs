@@ -1,12 +1,16 @@
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
-    rc::Rc,
     sync::Arc,
 };
 
 use agent_client_protocol as proto;
-use agent_client_protocol::Agent as _;
+use agent_client_protocol::schema::{
+    AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ContentBlock,
+    ErrorCode, ForkSessionRequest, Implementation, InitializeRequest, LoadSessionRequest,
+    NewSessionRequest, PromptRequest, ProtocolVersion, SessionId, SetSessionModeRequest,
+    SetSessionModelRequest, TextContent,
+};
 use command_group::AsyncGroupChild;
 use futures::StreamExt;
 use tokio::{io::AsyncWriteExt, process::Command, sync::mpsc};
@@ -308,223 +312,275 @@ impl AcpAgentHarness {
 
                         client.record_user_prompt_event(&prompt);
 
-                        // Set up connection
-                        let (conn, io_fut) =
-                            proto::ClientSideConnection::new(client, outgoing, incoming, |fut| {
-                                tokio::task::spawn_local(fut);
-                            });
-                        let conn = Rc::new(conn);
+                        let transport = proto::ByteStreams::new(outgoing, incoming);
+                        let request_client = client.clone();
+                        let notification_client = client.clone();
+                        let shutdown_on_error = shutdown_tx.clone();
 
-                        // Drive I/O
-                        let io_handle = tokio::task::spawn_local(async move {
-                            let _ = io_fut.await;
-                        });
+                        let connect_result = proto::Client
+                            .builder()
+                            .name("VibeX")
+                            .on_receive_request(
+                                async move |request: AgentRequest, responder, _cx| {
+                                    let response =
+                                        request_client.handle_agent_request(request).await?;
+                                    let response = serde_json::to_value(response)
+                                        .map_err(proto::Error::into_internal_error)?;
+                                    responder.respond(response)
+                                },
+                                proto::on_receive_request!(),
+                            )
+                            .on_receive_notification(
+                                async move |notification: AgentNotification, _cx| {
+                                    notification_client
+                                        .handle_agent_notification(notification)
+                                        .await
+                                },
+                                proto::on_receive_notification!(),
+                            )
+                            .connect_with(transport, async move |conn| {
+                                let initialize_response = conn
+                                    .send_request(
+                                        InitializeRequest::new(ProtocolVersion::LATEST)
+                                            .client_capabilities(
+                                                ClientCapabilities::new().terminal(true),
+                                            )
+                                            .client_info(Implementation::new(
+                                                "vibex",
+                                                env!("CARGO_PKG_VERSION"),
+                                            )),
+                                    )
+                                    .block_task()
+                                    .await?;
 
-                        // Initialize
-                        let _ = conn
-                            .initialize(proto::InitializeRequest::new(proto::ProtocolVersion::V1))
-                            .await;
+                                // Handle session creation/loading/forking
+                                let (acp_session_id, display_session_id, prompt_to_send) =
+                                    match existing_session {
+                                        Some(existing) => {
+                                            let agent_capabilities =
+                                                &initialize_response.agent_capabilities;
+                                            if agent_capabilities
+                                                .session_capabilities
+                                                .fork
+                                                .is_some()
+                                            {
+                                                let req = ForkSessionRequest::new(
+                                                    SessionId::new(existing.clone()),
+                                                    cwd.clone(),
+                                                );
 
-                        // Handle session creation/forking
-                        let (acp_session_id, display_session_id, prompt_to_send) =
-                            if let Some(existing) = existing_session {
-                                // Fork existing session
-                                let new_ui_id = uuid::Uuid::new_v4().to_string();
-                                let _ = session_manager.fork_session(&existing, &new_ui_id);
+                                                match conn.send_request(req).block_task().await {
+                                                    Ok(resp) => {
+                                                        let sid = resp.session_id.0.to_string();
+                                                        (sid.clone(), sid, prompt)
+                                                    }
+                                                    Err(err) => {
+                                                        error!("Failed to fork session: {}", err);
+                                                        return Err(err);
+                                                    }
+                                                }
+                                            } else if agent_capabilities.load_session {
+                                                let req = LoadSessionRequest::new(
+                                                    SessionId::new(existing.clone()),
+                                                    cwd.clone(),
+                                                );
 
-                                let history = session_manager.read_session_raw(&new_ui_id).ok();
-                                let meta =
-                                    history.map(|h| serde_json::json!({ "history_jsonl": h }));
+                                                match conn.send_request(req).block_task().await {
+                                                    Ok(_) => (existing.clone(), existing, prompt),
+                                                    Err(err) => {
+                                                        error!("Failed to load session: {}", err);
+                                                        return Err(err);
+                                                    }
+                                                }
+                                            } else {
+                                                return Err(proto::Error::method_not_found().data(
+                                                    "agent does not advertise session/fork or session/load",
+                                                ));
+                                            }
+                                        }
+                                        None => {
+                                            match conn
+                                                .send_request(NewSessionRequest::new(cwd.clone()))
+                                                .block_task()
+                                                .await
+                                            {
+                                                Ok(resp) => {
+                                                    let sid = resp.session_id.0.to_string();
+                                                    (sid.clone(), sid, prompt)
+                                                }
+                                                Err(err) => {
+                                                    error!("Failed to create session: {}", err);
+                                                    return Err(err);
+                                                }
+                                            }
+                                        }
+                                    };
 
-                                let mut req = proto::NewSessionRequest::new(cwd.clone());
-                                if let Some(m) = meta
-                                    && let Some(obj) = m.as_object()
-                                {
-                                    req = req.meta(obj.clone());
-                                }
-                                match conn.new_session(req).await {
-                                    Ok(resp) => {
-                                        let resume_prompt = session_manager
-                                            .generate_resume_prompt(&new_ui_id, &prompt)
-                                            .unwrap_or_else(|_| prompt.clone());
-                                        (resp.session_id.0.to_string(), new_ui_id, resume_prompt)
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to create session: {}", e);
-                                        return;
-                                    }
-                                }
-                            } else {
-                                // New session
-                                match conn
-                                    .new_session(proto::NewSessionRequest::new(cwd.clone()))
-                                    .await
-                                {
-                                    Ok(resp) => {
-                                        let sid = resp.session_id.0.to_string();
-                                        (sid.clone(), sid, prompt)
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to create session: {}", e);
-                                        return;
-                                    }
-                                }
-                            };
-
-                        // Emit session ID
-                        let _ = log_tx
-                            .send(AcpEvent::SessionStart(display_session_id.clone()).to_string());
-
-                        if let Some(model) = model.clone() {
-                            match conn
-                                .set_session_model(proto::SetSessionModelRequest::new(
-                                    proto::SessionId::new(acp_session_id.clone()),
-                                    model,
-                                ))
-                                .await
-                            {
-                                Ok(_) => {}
-                                Err(e) => error!("Failed to set session mode: {}", e),
-                            }
-                        }
-
-                        if let Some(mode) = mode.clone() {
-                            match conn
-                                .set_session_mode(proto::SetSessionModeRequest::new(
-                                    proto::SessionId::new(acp_session_id.clone()),
-                                    mode,
-                                ))
-                                .await
-                            {
-                                Ok(_) => {}
-                                Err(e) => error!("Failed to set session mode: {}", e),
-                            }
-                        }
-
-                        // Start raw event forwarder and persistence
-                        let app_tx_clone = log_tx.clone();
-                        let sess_id_for_writer = display_session_id.clone();
-                        let sm_for_writer = session_manager.clone();
-                        let conn_for_cancel = conn.clone();
-                        let acp_session_id_for_cancel = acp_session_id.clone();
-                        tokio::task::spawn_local(async move {
-                            while let Some(event) = event_rx.recv().await {
-                                if let AcpEvent::ApprovalResponse(resp) = &event
-                                    && let ApprovalStatus::Denied {
-                                        reason: Some(reason),
-                                    } = &resp.status
-                                    && !reason.trim().is_empty()
-                                {
-                                    let _ = conn_for_cancel
-                                        .cancel(proto::CancelNotification::new(
-                                            proto::SessionId::new(
-                                                acp_session_id_for_cancel.clone(),
-                                            ),
-                                        ))
-                                        .await;
-                                }
-
-                                let line = event.to_string();
-                                // Forward to stdout
-                                let _ = app_tx_clone.send(line.clone());
-                                // Persist to session file
-                                let _ = sm_for_writer.append_raw_line(&sess_id_for_writer, &line);
-                            }
-                        });
-
-                        // Save prompt to session
-                        let _ = session_manager.append_raw_line(
-                            &display_session_id,
-                            &serde_json::to_string(&serde_json::json!({ "user": prompt_to_send }))
-                                .unwrap_or_default(),
-                        );
-
-                        // Build prompt request
-                        let initial_req = proto::PromptRequest::new(
-                            proto::SessionId::new(acp_session_id.clone()),
-                            vec![proto::ContentBlock::Text(proto::TextContent::new(
-                                prompt_to_send,
-                            ))],
-                        );
-
-                        let mut current_req = Some(initial_req);
-
-                        while let Some(req) = current_req.take() {
-                            if cancel.is_cancelled() {
-                                tracing::debug!("ACP executor cancelled, stopping prompt loop");
-                                break;
-                            }
-
-                            tracing::trace!(?req, "sending ACP prompt request");
-                            // Send the prompt and await completion to obtain stop_reason
-                            let prompt_result = tokio::select! {
-                                _ = cancel.cancelled() => {
-                                    tracing::debug!("ACP executor cancelled during prompt");
-                                    break;
-                                }
-                                result = conn.prompt(req) => result,
-                            };
-
-                            match prompt_result {
-                                Ok(resp) => {
-                                    // Emit done with stop_reason
-                                    let stop_reason = serde_json::to_string(&resp.stop_reason)
-                                        .unwrap_or_default();
-                                    let _ = log_tx.send(AcpEvent::Done(stop_reason).to_string());
-                                }
-                                Err(e) => {
-                                    tracing::debug!("error {} {e} {:?}", e.code, e.data);
-                                    if e.code
-                                        == agent_client_protocol::ErrorCode::INTERNAL_ERROR.code
-                                        && e.data
-                                            .as_ref()
-                                            .is_some_and(|d| d == "server shut down unexpectedly")
-                                    {
-                                        tracing::debug!("ACP server killed");
-                                    } else {
-                                        let _ = log_tx
-                                            .send(AcpEvent::Error(format!("{e}")).to_string());
-                                    }
-                                }
-                            }
-
-                            // Flush any pending user feedback after finish
-                            let feedback = client_feedback_handle
-                                .drain_feedback()
-                                .await
-                                .join("\n")
-                                .trim()
-                                .to_string();
-                            if !feedback.is_empty() {
-                                tracing::trace!(?feedback, "sending ACP follow-up feedback");
-                                let session_id = proto::SessionId::new(acp_session_id.clone());
-                                let feedback_req = proto::PromptRequest::new(
-                                    session_id.clone(),
-                                    vec![proto::ContentBlock::Text(proto::TextContent::new(
-                                        feedback,
-                                    ))],
+                                // Emit session ID
+                                let _ = log_tx.send(
+                                    AcpEvent::SessionStart(display_session_id.clone()).to_string(),
                                 );
-                                current_req = Some(feedback_req);
-                            }
-                        }
 
-                        // Notify container of completion
-                        if let Some(tx) = exit_signal_tx.take() {
-                            let _ = tx.send(ExecutorExitResult::Success);
-                        }
+                                if let Some(model) = model.clone() {
+                                    match conn
+                                        .send_request(SetSessionModelRequest::new(
+                                            SessionId::new(acp_session_id.clone()),
+                                            model,
+                                        ))
+                                        .block_task()
+                                        .await
+                                    {
+                                        Ok(_) => {}
+                                        Err(e) => error!("Failed to set session model: {}", e),
+                                    }
+                                }
 
-                        // Cancel session work
-                        let _ = conn
-                            .cancel(proto::CancelNotification::new(proto::SessionId::new(
-                                acp_session_id,
-                            )))
+                                if let Some(mode) = mode.clone() {
+                                    match conn
+                                        .send_request(SetSessionModeRequest::new(
+                                            SessionId::new(acp_session_id.clone()),
+                                            mode,
+                                        ))
+                                        .block_task()
+                                        .await
+                                    {
+                                        Ok(_) => {}
+                                        Err(e) => error!("Failed to set session mode: {}", e),
+                                    }
+                                }
+
+                                // Start raw event forwarder and persistence
+                                let app_tx_clone = log_tx.clone();
+                                let sess_id_for_writer = display_session_id.clone();
+                                let sm_for_writer = session_manager.clone();
+                                let conn_for_cancel = conn.clone();
+                                let acp_session_id_for_cancel = acp_session_id.clone();
+                                tokio::task::spawn_local(async move {
+                                    while let Some(event) = event_rx.recv().await {
+                                        if let AcpEvent::ApprovalResponse(resp) = &event
+                                            && let ApprovalStatus::Denied {
+                                                reason: Some(reason),
+                                            } = &resp.status
+                                            && !reason.trim().is_empty()
+                                        {
+                                            let _ = conn_for_cancel.send_notification(
+                                                CancelNotification::new(SessionId::new(
+                                                    acp_session_id_for_cancel.clone(),
+                                                )),
+                                            );
+                                        }
+
+                                        let line = event.to_string();
+                                        // Forward to stdout
+                                        let _ = app_tx_clone.send(line.clone());
+                                        // Persist to session file
+                                        let _ = sm_for_writer
+                                            .append_raw_line(&sess_id_for_writer, &line);
+                                    }
+                                });
+
+                                // Save prompt to session
+                                let _ = session_manager.append_raw_line(
+                                    &display_session_id,
+                                    &serde_json::to_string(
+                                        &serde_json::json!({ "user": prompt_to_send }),
+                                    )
+                                    .unwrap_or_default(),
+                                );
+
+                                // Build prompt request
+                                let initial_req = PromptRequest::new(
+                                    SessionId::new(acp_session_id.clone()),
+                                    vec![ContentBlock::Text(TextContent::new(prompt_to_send))],
+                                );
+
+                                let mut current_req = Some(initial_req);
+
+                                while let Some(req) = current_req.take() {
+                                    if cancel.is_cancelled() {
+                                        tracing::debug!(
+                                            "ACP executor cancelled, stopping prompt loop"
+                                        );
+                                        break;
+                                    }
+
+                                    tracing::trace!(?req, "sending ACP prompt request");
+                                    // Send the prompt and await completion to obtain stop_reason
+                                    let prompt_result = tokio::select! {
+                                        _ = cancel.cancelled() => {
+                                            tracing::debug!("ACP executor cancelled during prompt");
+                                            break;
+                                        }
+                                        result = conn.send_request(req).block_task() => result,
+                                    };
+
+                                    match prompt_result {
+                                        Ok(resp) => {
+                                            // Emit done with stop_reason
+                                            let stop_reason =
+                                                serde_json::to_string(&resp.stop_reason)
+                                                    .unwrap_or_default();
+                                            let _ = log_tx
+                                                .send(AcpEvent::Done(stop_reason).to_string());
+                                        }
+                                        Err(e) => {
+                                            tracing::debug!("error {} {e} {:?}", e.code, e.data);
+                                            if e.code == ErrorCode::InternalError
+                                                && e.data.as_ref().is_some_and(|d| {
+                                                    d == "server shut down unexpectedly"
+                                                })
+                                            {
+                                                tracing::debug!("ACP server killed");
+                                            } else {
+                                                let _ = log_tx.send(
+                                                    AcpEvent::Error(format!("{e}")).to_string(),
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    // Flush any pending user feedback after finish
+                                    let feedback = client_feedback_handle
+                                        .drain_feedback()
+                                        .await
+                                        .join("\n")
+                                        .trim()
+                                        .to_string();
+                                    if !feedback.is_empty() {
+                                        tracing::trace!(
+                                            ?feedback,
+                                            "sending ACP follow-up feedback"
+                                        );
+                                        let session_id = SessionId::new(acp_session_id.clone());
+                                        let feedback_req = PromptRequest::new(
+                                            session_id.clone(),
+                                            vec![ContentBlock::Text(TextContent::new(feedback))],
+                                        );
+                                        current_req = Some(feedback_req);
+                                    }
+                                }
+
+                                // Notify container of completion
+                                if let Some(tx) = exit_signal_tx.take() {
+                                    let _ = tx.send(ExecutorExitResult::Success);
+                                }
+
+                                // Cancel session work
+                                let _ = conn.send_notification(CancelNotification::new(
+                                    SessionId::new(acp_session_id),
+                                ));
+
+                                // Cleanup
+                                let _ = shutdown_tx.send(true);
+                                drop(log_tx);
+                                Ok::<(), proto::Error>(())
+                            })
                             .await;
 
-                        // Cleanup
-                        drop(conn);
-                        let _ = shutdown_tx.send(true);
-                        let _ = io_handle.await;
-                        drop(log_tx);
+                        if let Err(err) = connect_result {
+                            error!("ACP connection failed: {err}");
+                            let _ = shutdown_on_error.send(true);
+                        }
                     })
                     .await;
             });

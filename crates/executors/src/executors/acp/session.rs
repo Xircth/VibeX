@@ -94,7 +94,7 @@ impl SessionManager {
                 return serde_json::to_string(&serde_json::json!({"user": prompt})).ok();
             }
             AcpEvent::Message(ref content) | AcpEvent::Thought(ref content) => {
-                if let agent_client_protocol::ContentBlock::Text(text) = content {
+                if let agent_client_protocol::schema::ContentBlock::Text(text) = content {
                     // Special simplification for pure text messages
                     let key = if let AcpEvent::Message(_) = event {
                         "assistant"
@@ -110,35 +110,6 @@ impl SessionManager {
         serde_json::to_string(&event).ok()
     }
 
-    /// Read the raw JSONL content of a session
-    pub fn read_session_raw(&self, session_id: &str) -> Result<String> {
-        let path = self.session_file_path(session_id);
-        if !path.exists() {
-            return Ok(String::new());
-        }
-
-        fs::read_to_string(path)
-    }
-
-    /// Fork a session to create a new one with the same history
-    pub fn fork_session(&self, old_id: &str, new_id: &str) -> Result<()> {
-        let old_path = self.session_file_path(old_id);
-        let new_path = self.session_file_path(new_id);
-
-        if old_path.exists() {
-            fs::copy(&old_path, &new_path)?;
-        } else {
-            // Create empty new file if old doesn't exist
-            OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&new_path)?;
-        }
-
-        Ok(())
-    }
-
     /// Delete a session
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         let path = self.session_file_path(session_id);
@@ -146,27 +117,6 @@ impl SessionManager {
             fs::remove_file(path)?;
         }
         Ok(())
-    }
-
-    /// Generate a resume prompt from session history
-    pub fn generate_resume_prompt(&self, session_id: &str, current_prompt: &str) -> Result<String> {
-        let session_context = self.read_session_raw(session_id)?;
-
-        Ok(format!(
-            concat!(
-                "RESUME CONTEXT FOR CONTINUING TASK\n\n",
-                "=== EXECUTION HISTORY ===\n",
-                "The following is the conversation history from this session:\n",
-                "{}\n\n",
-                "=== CURRENT REQUEST ===\n",
-                "{}\n\n",
-                "=== INSTRUCTIONS ===\n",
-                "You are continuing work on the above task. The execution history shows ",
-                "the previous conversation in this session. Please continue from where ",
-                "the previous execution left off, taking into account all the context provided above."
-            ),
-            session_context, current_prompt
-        ))
     }
 }
 

@@ -1,7 +1,13 @@
 use std::sync::Arc;
 
+use acp::schema::{
+    AgentNotification, AgentRequest, ClientResponse, CreateTerminalResponse, KillTerminalRequest,
+    KillTerminalResponse, PermissionOptionKind, ReleaseTerminalResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+    SessionNotification, SessionUpdate, TerminalId, TerminalOutputResponse,
+    WaitForTerminalExitResponse,
+};
 use agent_client_protocol::{self as acp};
-use async_trait::async_trait;
 use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
@@ -63,12 +69,84 @@ impl AcpClient {
     }
 }
 
-#[async_trait(?Send)]
-impl acp::Client for AcpClient {
+impl AcpClient {
+    fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
+        uuid::Uuid::parse_str(id.0.as_ref()).map_err(|_| acp::Error::invalid_params())
+    }
+
+    pub async fn handle_agent_request(
+        &self,
+        request: AgentRequest,
+    ) -> Result<ClientResponse, acp::Error> {
+        match request {
+            AgentRequest::RequestPermissionRequest(args) => Ok(
+                ClientResponse::RequestPermissionResponse(self.request_permission(args).await?),
+            ),
+            AgentRequest::WriteTextFileRequest(_) => Err(acp::Error::method_not_found()),
+            AgentRequest::ReadTextFileRequest(_) => Err(acp::Error::method_not_found()),
+            AgentRequest::CreateTerminalRequest(args) => Ok(
+                ClientResponse::CreateTerminalResponse(self.create_terminal(args).await?),
+            ),
+            AgentRequest::TerminalOutputRequest(args) => {
+                let terminal_id = Self::parse_terminal_id(&args.terminal_id)?;
+
+                let snapshot = acp_terminal_registry()
+                    .snapshot_output(terminal_id)
+                    .await
+                    .ok_or_else(acp::Error::invalid_params)?;
+
+                let mut response = TerminalOutputResponse::new(snapshot.output, snapshot.truncated);
+                if let Some(exit_status) = snapshot.exit_status {
+                    response = response.exit_status(exit_status);
+                }
+                Ok(ClientResponse::TerminalOutputResponse(response))
+            }
+            AgentRequest::ReleaseTerminalRequest(args) => {
+                let terminal_id = Self::parse_terminal_id(&args.terminal_id)?;
+
+                if !acp_terminal_registry().release_terminal(terminal_id).await {
+                    return Err(acp::Error::invalid_params());
+                }
+
+                Ok(ClientResponse::ReleaseTerminalResponse(
+                    ReleaseTerminalResponse::new(),
+                ))
+            }
+            AgentRequest::WaitForTerminalExitRequest(args) => {
+                let terminal_id = Self::parse_terminal_id(&args.terminal_id)?;
+
+                let exit_status = acp_terminal_registry()
+                    .wait_for_exit(terminal_id)
+                    .await
+                    .ok_or_else(acp::Error::invalid_params)?;
+
+                Ok(ClientResponse::WaitForTerminalExitResponse(
+                    WaitForTerminalExitResponse::new(exit_status),
+                ))
+            }
+            AgentRequest::KillTerminalRequest(args) => Ok(ClientResponse::KillTerminalResponse(
+                self.kill_terminal(args).await?,
+            )),
+            AgentRequest::ExtMethodRequest(_) => Err(acp::Error::method_not_found()),
+            _ => Err(acp::Error::method_not_found()),
+        }
+    }
+
+    pub async fn handle_agent_notification(
+        &self,
+        notification: AgentNotification,
+    ) -> Result<(), acp::Error> {
+        match notification {
+            AgentNotification::SessionNotification(args) => self.session_notification(args).await,
+            AgentNotification::ExtNotification(_) => Ok(()),
+            _ => Ok(()),
+        }
+    }
+
     async fn request_permission(
         &self,
-        args: acp::RequestPermissionRequest,
-    ) -> Result<acp::RequestPermissionResponse, acp::Error> {
+        args: RequestPermissionRequest,
+    ) -> Result<RequestPermissionResponse, acp::Error> {
         self.send_event(AcpEvent::RequestPermission(args.clone()));
 
         if self.approvals.is_none() {
@@ -76,25 +154,25 @@ impl acp::Client for AcpClient {
             let chosen_option = args
                 .options
                 .iter()
-                .find(|o| matches!(o.kind, acp::PermissionOptionKind::AllowAlways))
+                .find(|o| matches!(o.kind, PermissionOptionKind::AllowAlways))
                 .or_else(|| {
                     args.options
                         .iter()
-                        .find(|o| matches!(o.kind, acp::PermissionOptionKind::AllowOnce))
+                        .find(|o| matches!(o.kind, PermissionOptionKind::AllowOnce))
                 })
                 .or_else(|| args.options.first());
 
             let outcome = if let Some(opt) = chosen_option {
                 debug!("Auto-approving permission with option: {}", opt.option_id);
-                acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
+                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
                     opt.option_id.clone(),
                 ))
             } else {
                 warn!("No permission options available, cancelling");
-                acp::RequestPermissionOutcome::Cancelled
+                RequestPermissionOutcome::Cancelled
             };
 
-            return Ok(acp::RequestPermissionResponse::new(outcome));
+            return Ok(RequestPermissionResponse::new(outcome));
         }
 
         let tool_call_id = args.tool_call.tool_call_id.0.to_string();
@@ -116,8 +194,8 @@ impl acp::Client for AcpClient {
             Ok(s) => s,
             Err(ExecutorApprovalError::Cancelled) => {
                 debug!("ACP approval cancelled for tool_call_id={}", tool_call_id);
-                return Ok(acp::RequestPermissionResponse::new(
-                    acp::RequestPermissionOutcome::Cancelled,
+                return Ok(RequestPermissionResponse::new(
+                    RequestPermissionOutcome::Cancelled,
                 ));
             }
             Err(err) => {
@@ -135,9 +213,9 @@ impl acp::Client for AcpClient {
                 let chosen = args
                     .options
                     .iter()
-                    .find(|o| matches!(o.kind, acp::PermissionOptionKind::AllowOnce));
+                    .find(|o| matches!(o.kind, PermissionOptionKind::AllowOnce));
                 if let Some(opt) = chosen {
-                    acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
+                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
                         opt.option_id.clone(),
                     ))
                 } else {
@@ -153,24 +231,24 @@ impl acp::Client for AcpClient {
                 let chosen = args
                     .options
                     .iter()
-                    .find(|o| matches!(o.kind, acp::PermissionOptionKind::RejectOnce));
+                    .find(|o| matches!(o.kind, PermissionOptionKind::RejectOnce));
                 if let Some(opt) = chosen {
-                    acp::RequestPermissionOutcome::Selected(acp::SelectedPermissionOutcome::new(
+                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
                         opt.option_id.clone(),
                     ))
                 } else {
                     warn!("No permission options for denial, cancelling");
-                    acp::RequestPermissionOutcome::Cancelled
+                    RequestPermissionOutcome::Cancelled
                 }
             }
             ApprovalStatus::TimedOut => {
                 warn!("Approval timed out");
-                acp::RequestPermissionOutcome::Cancelled
+                RequestPermissionOutcome::Cancelled
             }
             ApprovalStatus::Pending => {
                 // This should not occur after waiter resolves
                 warn!("Approval resolved to Pending");
-                acp::RequestPermissionOutcome::Cancelled
+                RequestPermissionOutcome::Cancelled
             }
         };
 
@@ -179,17 +257,17 @@ impl acp::Client for AcpClient {
             status: status.clone(),
         }));
 
-        Ok(acp::RequestPermissionResponse::new(outcome))
+        Ok(RequestPermissionResponse::new(outcome))
     }
 
-    async fn session_notification(&self, args: acp::SessionNotification) -> Result<(), acp::Error> {
+    async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         // Convert to typed events
         let event = match args.update {
-            acp::SessionUpdate::AgentMessageChunk(chunk) => Some(AcpEvent::Message(chunk.content)),
-            acp::SessionUpdate::AgentThoughtChunk(chunk) => Some(AcpEvent::Thought(chunk.content)),
-            acp::SessionUpdate::ToolCall(tc) => Some(AcpEvent::ToolCall(tc)),
-            acp::SessionUpdate::ToolCallUpdate(update) => Some(AcpEvent::ToolUpdate(update)),
-            acp::SessionUpdate::Plan(plan) => Some(AcpEvent::Plan(plan)),
+            SessionUpdate::AgentMessageChunk(chunk) => Some(AcpEvent::Message(chunk.content)),
+            SessionUpdate::AgentThoughtChunk(chunk) => Some(AcpEvent::Thought(chunk.content)),
+            SessionUpdate::ToolCall(tc) => Some(AcpEvent::ToolCall(tc)),
+            SessionUpdate::ToolCallUpdate(update) => Some(AcpEvent::ToolUpdate(update)),
+            SessionUpdate::Plan(plan) => Some(AcpEvent::Plan(plan)),
             _ => Some(AcpEvent::Other(args)),
         };
 
@@ -200,26 +278,10 @@ impl acp::Client for AcpClient {
         Ok(())
     }
 
-    // File system operations - not implemented as we don't expose FS
-    async fn write_text_file(
-        &self,
-        _args: acp::WriteTextFileRequest,
-    ) -> Result<acp::WriteTextFileResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
-    }
-
-    async fn read_text_file(
-        &self,
-        _args: acp::ReadTextFileRequest,
-    ) -> Result<acp::ReadTextFileResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
-    }
-
-    // Terminal operations
     async fn create_terminal(
         &self,
-        args: acp::CreateTerminalRequest,
-    ) -> Result<acp::CreateTerminalResponse, acp::Error> {
+        args: acp::schema::CreateTerminalRequest,
+    ) -> Result<CreateTerminalResponse, acp::Error> {
         let terminal_id = acp_terminal_registry()
             .create_terminal(&args)
             .await
@@ -228,79 +290,21 @@ impl acp::Client for AcpClient {
                 acp::Error::internal_error()
             })?;
 
-        Ok(acp::CreateTerminalResponse::new(acp::TerminalId::new(
+        Ok(CreateTerminalResponse::new(TerminalId::new(
             terminal_id.to_string(),
         )))
     }
 
-    async fn terminal_output(
+    async fn kill_terminal(
         &self,
-        args: acp::TerminalOutputRequest,
-    ) -> Result<acp::TerminalOutputResponse, acp::Error> {
-        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
-            .map_err(|_| acp::Error::invalid_params())?;
-
-        let snapshot = acp_terminal_registry()
-            .snapshot_output(terminal_id)
-            .await
-            .ok_or_else(acp::Error::invalid_params)?;
-
-        let mut response = acp::TerminalOutputResponse::new(snapshot.output, snapshot.truncated);
-        if let Some(exit_status) = snapshot.exit_status {
-            response = response.exit_status(exit_status);
-        }
-        Ok(response)
-    }
-
-    async fn release_terminal(
-        &self,
-        args: acp::ReleaseTerminalRequest,
-    ) -> Result<acp::ReleaseTerminalResponse, acp::Error> {
-        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
-            .map_err(|_| acp::Error::invalid_params())?;
-
-        if !acp_terminal_registry().release_terminal(terminal_id).await {
-            return Err(acp::Error::invalid_params());
-        }
-
-        Ok(acp::ReleaseTerminalResponse::new())
-    }
-
-    async fn wait_for_terminal_exit(
-        &self,
-        args: acp::WaitForTerminalExitRequest,
-    ) -> Result<acp::WaitForTerminalExitResponse, acp::Error> {
-        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
-            .map_err(|_| acp::Error::invalid_params())?;
-
-        let exit_status = acp_terminal_registry()
-            .wait_for_exit(terminal_id)
-            .await
-            .ok_or_else(acp::Error::invalid_params)?;
-
-        Ok(acp::WaitForTerminalExitResponse::new(exit_status))
-    }
-
-    async fn kill_terminal_command(
-        &self,
-        args: acp::KillTerminalCommandRequest,
-    ) -> Result<acp::KillTerminalCommandResponse, acp::Error> {
-        let terminal_id = uuid::Uuid::parse_str(args.terminal_id.0.as_ref())
-            .map_err(|_| acp::Error::invalid_params())?;
+        args: KillTerminalRequest,
+    ) -> Result<KillTerminalResponse, acp::Error> {
+        let terminal_id = Self::parse_terminal_id(&args.terminal_id)?;
 
         if !acp_terminal_registry().kill_terminal(terminal_id).await {
             return Err(acp::Error::invalid_params());
         }
 
-        Ok(acp::KillTerminalCommandResponse::new())
-    }
-
-    // Extension methods
-    async fn ext_method(&self, _args: acp::ExtRequest) -> Result<acp::ExtResponse, acp::Error> {
-        Err(acp::Error::method_not_found())
-    }
-
-    async fn ext_notification(&self, _args: acp::ExtNotification) -> Result<(), acp::Error> {
-        Ok(())
+        Ok(KillTerminalResponse::new())
     }
 }

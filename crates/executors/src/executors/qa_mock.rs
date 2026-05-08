@@ -27,13 +27,12 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, TS, JsonSchema)]
 pub struct QaMockExecutor;
 
-#[async_trait]
-impl StandardCodingAgentExecutor for QaMockExecutor {
-    async fn spawn(
+impl QaMockExecutor {
+    async fn spawn_with_session(
         &self,
         current_dir: &Path,
         prompt: &str,
-        _env: &ExecutionEnv,
+        session_id: Option<&str>,
     ) -> Result<SpawnedChild, ExecutorError> {
         info!("QA Mock Executor: spawning mock execution");
 
@@ -41,7 +40,10 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
         perform_file_operations(current_dir).await;
 
         // 2. Generate mock logs and write to temp file to avoid shell escaping issues
-        let logs = generate_mock_logs(prompt);
+        let logs = match session_id {
+            Some(session_id) => generate_mock_logs_for_session(prompt, session_id.to_string()),
+            None => generate_mock_logs(prompt),
+        };
         let temp_dir = std::env::temp_dir();
         let log_file = temp_dir.join(format!("qa_mock_logs_{}.jsonl", uuid::Uuid::new_v4()));
 
@@ -70,18 +72,30 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
             workspace_utils::process::group_spawn_no_window(&mut cmd).map_err(ExecutorError::Io)?;
         Ok(SpawnedChild::from(child))
     }
+}
+
+#[async_trait]
+impl StandardCodingAgentExecutor for QaMockExecutor {
+    async fn spawn(
+        &self,
+        current_dir: &Path,
+        prompt: &str,
+        _env: &ExecutionEnv,
+    ) -> Result<SpawnedChild, ExecutorError> {
+        self.spawn_with_session(current_dir, prompt, None).await
+    }
 
     async fn spawn_follow_up(
         &self,
         current_dir: &Path,
         prompt: &str,
-        _session_id: &str,
+        session_id: &str,
         _reset_to_message_id: Option<&str>,
-        env: &ExecutionEnv,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        // QA mode doesn't support real sessions, just spawn fresh
-        info!("QA Mock Executor: follow-up request treated as new spawn");
-        self.spawn(current_dir, prompt, env).await
+        info!("QA Mock Executor: follow-up request preserving session id");
+        self.spawn_with_session(current_dir, prompt, Some(session_id))
+            .await
     }
 
     fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) {
@@ -172,18 +186,20 @@ async fn perform_file_operations(dir: &Path) {
 
 /// Generate mock log entries in ACP event format using strongly-typed structs.
 fn generate_mock_logs(prompt: &str) -> Vec<String> {
-    let session_id = uuid::Uuid::new_v4().to_string();
+    generate_mock_logs_for_session(prompt, uuid::Uuid::new_v4().to_string())
+}
 
+fn generate_mock_logs_for_session(prompt: &str, session_id: String) -> Vec<String> {
     let logs = vec![
         AcpEvent::SessionStart(session_id),
         AcpEvent::User(prompt.to_string()),
-        AcpEvent::Thought(agent_client_protocol::ContentBlock::Text(
-            agent_client_protocol::TextContent::new(
+        AcpEvent::Thought(agent_client_protocol::schema::ContentBlock::Text(
+            agent_client_protocol::schema::TextContent::new(
                 "Analyzing the QA task and preparing mock execution...",
             ),
         )),
-        AcpEvent::Message(agent_client_protocol::ContentBlock::Text(
-            agent_client_protocol::TextContent::new(format!(
+        AcpEvent::Message(agent_client_protocol::schema::ContentBlock::Text(
+            agent_client_protocol::schema::TextContent::new(format!(
                 "QA mode execution completed successfully.\n\nI performed mock file operations.\nOriginal prompt: {prompt}",
             )),
         )),
@@ -240,10 +256,21 @@ mod tests {
         let final_log = &logs[3];
         let parsed: AcpEvent = serde_json::from_str(final_log).unwrap();
 
-        if let AcpEvent::Message(agent_client_protocol::ContentBlock::Text(text)) = parsed {
+        if let AcpEvent::Message(agent_client_protocol::schema::ContentBlock::Text(text)) = parsed {
             assert!(text.text.contains("test with \"quotes\" and\nnewlines"));
         } else {
             panic!("Expected message text event");
+        }
+    }
+
+    #[test]
+    fn test_generate_mock_logs_can_preserve_follow_up_session_id() {
+        let logs = generate_mock_logs_for_session("follow up", "existing-session".to_string());
+        let parsed: AcpEvent = serde_json::from_str(&logs[0]).unwrap();
+
+        match parsed {
+            AcpEvent::SessionStart(session_id) => assert_eq!(session_id, "existing-session"),
+            _ => panic!("Expected session start event"),
         }
     }
 }

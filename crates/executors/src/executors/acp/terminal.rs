@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use agent_client_protocol as acp;
+use agent_client_protocol::schema::{CreateTerminalRequest, TerminalExitStatus};
 use tokio::{
     io::AsyncReadExt,
     process::{Child, Command},
@@ -33,7 +33,7 @@ pub enum AcpTerminalLifecycleEvent {
 pub struct AcpTerminalOutputSnapshot {
     pub output: String,
     pub truncated: bool,
-    pub exit_status: Option<acp::TerminalExitStatus>,
+    pub exit_status: Option<TerminalExitStatus>,
 }
 
 struct AcpTerminalSession {
@@ -43,7 +43,7 @@ struct AcpTerminalSession {
     args: Vec<String>,
     output_history: Arc<Mutex<Vec<u8>>>,
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Vec<u8>>>>>,
-    exit_status: Arc<RwLock<Option<acp::TerminalExitStatus>>>,
+    exit_status: Arc<RwLock<Option<TerminalExitStatus>>>,
     exit_notify: Arc<Notify>,
     truncated: Arc<RwLock<bool>>,
 }
@@ -65,7 +65,7 @@ impl AcpTerminalRegistry {
 
     pub async fn create_terminal(
         &self,
-        args: &acp::CreateTerminalRequest,
+        args: &CreateTerminalRequest,
     ) -> Result<Uuid, std::io::Error> {
         let terminal_id = Uuid::new_v4();
         let mut command = Command::new(&args.command);
@@ -175,7 +175,7 @@ impl AcpTerminalRegistry {
 
             let status = match wait_result {
                 Ok(exit_status) => {
-                    let mut terminal_exit = acp::TerminalExitStatus::new();
+                    let mut terminal_exit = TerminalExitStatus::new();
                     if let Some(code) = exit_status.code() {
                         terminal_exit = terminal_exit.exit_code(code as u32);
                     }
@@ -218,7 +218,7 @@ impl AcpTerminalRegistry {
         })
     }
 
-    pub async fn wait_for_exit(&self, session_id: Uuid) -> Option<acp::TerminalExitStatus> {
+    pub async fn wait_for_exit(&self, session_id: Uuid) -> Option<TerminalExitStatus> {
         let session = self.sessions.read().await.get(&session_id)?.clone();
         loop {
             if let Some(exit_status) = session.exit_status.read().await.clone() {

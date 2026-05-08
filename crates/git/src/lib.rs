@@ -2885,8 +2885,9 @@ impl GitService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn detailed_status_expands_untracked_directories_with_line_stats() {
@@ -2900,7 +2901,10 @@ mod tests {
         std::fs::create_dir_all(repo_path.join("backend").join("routes")).unwrap();
         std::fs::create_dir_all(repo_path.join("frontend-react").join("src")).unwrap();
         std::fs::write(
-            repo_path.join("backend").join("routes").join("contracts.js"),
+            repo_path
+                .join("backend")
+                .join("routes")
+                .join("contracts.js"),
             "one\ntwo\n",
         )
         .unwrap();
@@ -2922,9 +2926,6 @@ mod tests {
         assert!(paths.contains(&"frontend-react/src/App.jsx"));
         assert_eq!(status.total_additions, 3);
         assert_eq!(status.total_deletions, 0);
-        assert!(status
-            .unstaged_files
-            .iter()
-            .all(|file| file.status == "?"));
+        assert!(status.unstaged_files.iter().all(|file| file.status == "?"));
     }
 }

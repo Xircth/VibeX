@@ -111,7 +111,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     }
 
     const tabId = generateTerminalTabId();
-    addSession(workspaceId, tabId, defaultShell || undefined);
+    addSession(workspaceId, tabId, defaultShell);
   }, [workspaceId, addSession, defaultShell]);
 
   useEffect(() => {
@@ -120,7 +120,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     }
 
     const tabId = generateTerminalTabId();
-    addSession(workspaceId, tabId, defaultShell || undefined);
+    addSession(workspaceId, tabId, defaultShell);
   }, [addSession, defaultShell, isPanelVisible, sessions.length, workspaceId]);
 
   useEffect(() => {
@@ -168,9 +168,8 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const handleCreateTab = useCallback(() => {
     if (!workspaceId) return;
     const tabId = generateTerminalTabId();
-    addSession(workspaceId, tabId, selectedShell || undefined);
-    setActiveTab(workspaceId, tabId);
-  }, [addSession, selectedShell, setActiveTab, workspaceId]);
+    addSession(workspaceId, tabId, selectedShell);
+  }, [addSession, selectedShell, workspaceId]);
 
   if (!workspaceId) {
     return (
@@ -315,11 +314,12 @@ function TerminalTabContent({
   onSessionId: (tabId: string, sessionId: string) => void;
   onOpenUrl: (url: string) => void;
 }) {
-  const { containerRef, refit } = useTauriTerminal({
+  const shouldConnectTerminal = isActive && isPanelVisible;
+  const { containerRef, error, refit } = useTauriTerminal({
     workspaceId,
     tabId,
     sessionId,
-    enabled: true,
+    enabled: shouldConnectTerminal,
     shell,
     readOnly,
     onSessionId: (resolvedSessionId) => onSessionId(tabId, resolvedSessionId),
@@ -338,9 +338,21 @@ function TerminalTabContent({
       className={`absolute inset-0 px-2 pt-1 ${
         isActive ? 'visible' : 'invisible'
       }`}
+      aria-hidden={!isActive}
       data-terminal-tab={tabId}
     >
-      <div ref={containerRef} className="h-full w-full" />
+      {shouldConnectTerminal ? (
+        <>
+          <div ref={containerRef} className="h-full w-full" />
+          {error && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+              Terminal failed: {error}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="h-full w-full" />
+      )}
     </div>
   );
 }

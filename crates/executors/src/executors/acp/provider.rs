@@ -1,4 +1,8 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use workspace_utils::msg_store::MsgStore;
@@ -127,6 +131,374 @@ impl AcpProvider {
             }
         }
     }
+
+    fn builtin_slash_commands(self) -> Vec<SlashCommandDescription> {
+        match self {
+            Self::ClaudeCode => slash_commands(&[
+                ("add-dir", "Add additional working directories"),
+                ("agents", "Manage custom agents"),
+                ("bug", "Report bugs"),
+                ("clear", "Clear conversation history"),
+                ("compact", "Compact conversation with an optional focus"),
+                ("config", "Open configuration panel"),
+                ("context", "Show context usage"),
+                ("cost", "Show token usage and cost"),
+                ("doctor", "Check Claude Code installation health"),
+                ("export", "Export the current conversation"),
+                ("help", "Show Claude Code help"),
+                ("hooks", "Manage hook configuration"),
+                ("ide", "Manage IDE integrations"),
+                ("init", "Initialize a CLAUDE.md file"),
+                (
+                    "install-github-app",
+                    "Set up GitHub pull request integration",
+                ),
+                ("login", "Switch Anthropic accounts"),
+                ("logout", "Sign out of the current Anthropic account"),
+                ("mcp", "Manage MCP server connections"),
+                ("memory", "Edit CLAUDE.md memory files"),
+                (
+                    "migrate-installer",
+                    "Migrate to a local Claude Code installation",
+                ),
+                ("model", "Select or change the model"),
+                ("output-style", "Select or create an output style"),
+                ("permissions", "Manage tool permissions"),
+                ("pr-comments", "Fetch comments from a GitHub pull request"),
+                ("release-notes", "View release notes"),
+                ("resume", "Resume a conversation"),
+                ("review", "Review a pull request"),
+                ("security-review", "Review code for security issues"),
+                ("status", "Show account and system status"),
+                ("terminal-setup", "Install Shift+Enter terminal key binding"),
+                ("todos", "List current todos"),
+                ("upgrade", "Upgrade Claude Code"),
+                ("vim", "Toggle Vim mode"),
+            ]),
+            Self::Codex => slash_commands(&[
+                ("review", "Review code with optional instructions"),
+                ("review-branch", "Review a branch"),
+                ("review-commit", "Review a commit"),
+                (
+                    "init",
+                    "Create an AGENTS.md file with repository instructions",
+                ),
+                ("status", "Show session configuration and token usage"),
+                ("approvals", "Choose what Codex can do without approval"),
+                ("model", "Select model and reasoning effort"),
+                ("mcp", "List configured MCP servers and tools"),
+                ("compact", "Summarize conversation context"),
+                ("diff", "Show git diff, including untracked files"),
+                ("mention", "Attach a file to the conversation"),
+                ("prompts", "List example prompts"),
+                ("new", "Start a new conversation"),
+                ("help", "Show Codex command help"),
+                ("logout", "Sign out of Codex"),
+            ]),
+            Self::Opencode => slash_commands(&[
+                ("init", "Create or update AGENTS.md"),
+                ("undo", "Revert the last change"),
+                ("redo", "Reapply the last reverted change"),
+                ("model", "Switch model"),
+                ("models", "List available models"),
+                ("theme", "Change theme"),
+                ("share", "Share the current session"),
+                ("unshare", "Stop sharing the current session"),
+                ("compact", "Compact the current session"),
+                ("summarize", "Summarize the current session"),
+                ("status", "Show current status"),
+                ("help", "Show OpenCode help"),
+                ("exit", "Exit OpenCode"),
+                ("quit", "Exit OpenCode"),
+                ("sessions", "List sessions"),
+                ("session", "Manage or switch sessions"),
+                ("new", "Start a new session"),
+                ("messages", "Show message history"),
+                ("terminal", "Toggle terminal panel"),
+                ("mcp", "Show MCP server status"),
+                ("agents", "List or switch agents"),
+                ("commands", "Show available commands"),
+                ("editor", "Open editor"),
+                ("plan", "Switch to plan mode"),
+                ("build", "Switch to build mode"),
+                ("config", "Open configuration"),
+                ("project", "Open project information"),
+                ("thinking", "Toggle thinking display"),
+                ("login", "Sign in"),
+                ("logout", "Sign out"),
+                ("upgrade", "Upgrade OpenCode"),
+            ]),
+        }
+    }
+
+    fn slash_commands_for_workdir(self, workdir: &Path) -> Vec<SlashCommandDescription> {
+        let mut commands = self.builtin_slash_commands();
+        match self {
+            Self::ClaudeCode => {
+                discover_markdown_commands(
+                    &mut commands,
+                    &project_and_home_dirs(workdir, ".claude", "commands"),
+                    "Claude Code custom command",
+                );
+                discover_skill_commands(
+                    &mut commands,
+                    &project_and_home_dirs(workdir, ".claude", "skills"),
+                    "Claude Code skill",
+                );
+            }
+            Self::Codex => {
+                discover_markdown_commands(
+                    &mut commands,
+                    &project_and_home_dirs(workdir, ".codex", "prompts"),
+                    "Codex custom prompt",
+                );
+                discover_skill_commands(
+                    &mut commands,
+                    &project_and_home_dirs(workdir, ".codex", "skills"),
+                    "Codex skill",
+                );
+            }
+            Self::Opencode => {
+                discover_markdown_commands(
+                    &mut commands,
+                    &opencode_command_dirs(workdir),
+                    "OpenCode custom command",
+                );
+            }
+        }
+        commands
+    }
+}
+
+fn slash_commands(entries: &[(&str, &str)]) -> Vec<SlashCommandDescription> {
+    entries
+        .iter()
+        .map(|(name, description)| SlashCommandDescription {
+            name: (*name).to_string(),
+            description: Some((*description).to_string()),
+        })
+        .collect()
+}
+
+fn add_command_if_missing(
+    commands: &mut Vec<SlashCommandDescription>,
+    seen: &mut BTreeSet<String>,
+    name: String,
+    description: Option<String>,
+) {
+    let name = name
+        .trim()
+        .trim_start_matches('/')
+        .trim_start_matches('$')
+        .to_string();
+    if name.is_empty() || !seen.insert(name.clone()) {
+        return;
+    }
+    commands.push(SlashCommandDescription { name, description });
+}
+
+fn existing_command_names(commands: &[SlashCommandDescription]) -> BTreeSet<String> {
+    commands
+        .iter()
+        .map(|command| command.name.clone())
+        .collect()
+}
+
+fn project_and_home_dirs(workdir: &Path, root: &str, leaf: &str) -> Vec<PathBuf> {
+    let mut dirs = vec![workdir.join(root).join(leaf)];
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(root).join(leaf));
+    }
+    dirs
+}
+
+fn opencode_command_dirs(workdir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        workdir.join(".opencode").join("commands"),
+        workdir.join("opencode").join("commands"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".config").join("opencode").join("commands"));
+        dirs.push(home.join(".opencode").join("commands"));
+    }
+    if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME")
+        && !xdg_config_home.trim().is_empty()
+    {
+        dirs.push(
+            PathBuf::from(xdg_config_home)
+                .join("opencode")
+                .join("commands"),
+        );
+    }
+    dirs
+}
+
+fn discover_markdown_commands(
+    commands: &mut Vec<SlashCommandDescription>,
+    dirs: &[PathBuf],
+    fallback_description: &str,
+) {
+    let mut seen = existing_command_names(commands);
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+                continue;
+            }
+            let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let description =
+                read_markdown_description(&path).or_else(|| Some(fallback_description.to_string()));
+            add_command_if_missing(commands, &mut seen, name.to_string(), description);
+        }
+    }
+}
+
+fn discover_skill_commands(
+    commands: &mut Vec<SlashCommandDescription>,
+    dirs: &[PathBuf],
+    fallback_description: &str,
+) {
+    let mut seen = existing_command_names(commands);
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let skill_file = path.join("SKILL.md");
+            let description = read_markdown_description(&skill_file)
+                .or_else(|| Some(fallback_description.to_string()));
+            add_command_if_missing(commands, &mut seen, name.to_string(), description);
+        }
+    }
+}
+
+fn read_markdown_description(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    for line in content.lines().take(24) {
+        let line = line.trim();
+        let value = line
+            .strip_prefix("description:")
+            .or_else(|| line.strip_prefix("Description:"));
+        if let Some(value) = value {
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    content
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#') && *line != "---")
+        .map(|line| line.chars().take(160).collect())
+}
+
+fn is_slash_command_prompt(prompt: &str) -> bool {
+    let trimmed = prompt.trim_start();
+    let Some(without_slash) = trimmed.strip_prefix('/') else {
+        return false;
+    };
+    let name = without_slash
+        .split_once(char::is_whitespace)
+        .map(|(name, _)| name)
+        .unwrap_or(without_slash)
+        .trim();
+
+    !name.is_empty() && !name.contains('/')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command_names(provider: AcpProvider) -> BTreeSet<String> {
+        provider
+            .builtin_slash_commands()
+            .into_iter()
+            .map(|command| command.name)
+            .collect()
+    }
+
+    #[test]
+    fn codex_acp_exposes_more_than_adapter_fallback_commands() {
+        let names = command_names(AcpProvider::Codex);
+
+        assert!(names.contains("compact"));
+        assert!(names.contains("init"));
+        assert!(names.contains("review"));
+        assert!(names.contains("review-branch"));
+        assert!(names.contains("review-commit"));
+        assert!(names.contains("status"));
+        assert!(names.contains("mcp"));
+        assert!(names.contains("model"));
+        assert!(names.contains("logout"));
+        assert!(names.len() > 2);
+    }
+
+    #[test]
+    fn claude_acp_exposes_builtin_workflow_commands() {
+        let names = command_names(AcpProvider::ClaudeCode);
+
+        assert!(names.contains("review"));
+        assert!(names.contains("security-review"));
+        assert!(names.contains("context"));
+        assert!(names.contains("todos"));
+    }
+
+    #[test]
+    fn opencode_acp_exposes_builtin_session_commands() {
+        let names = command_names(AcpProvider::Opencode);
+
+        assert!(names.contains("commands"));
+        assert!(names.contains("sessions"));
+        assert!(names.contains("agents"));
+        assert!(names.contains("thinking"));
+    }
+
+    #[test]
+    fn slash_commands_bypass_append_prompt() {
+        let executor = AcpBackedExecutor::new(AcpProvider::Codex)
+            .with_append_prompt(AppendPrompt(Some("\nextra instruction".to_string())));
+
+        assert_eq!(
+            executor.prompt_for_agent("  /compact focus  "),
+            "/compact focus"
+        );
+    }
+
+    #[test]
+    fn normal_prompts_keep_append_prompt() {
+        let executor = AcpBackedExecutor::new(AcpProvider::Codex)
+            .with_append_prompt(AppendPrompt(Some("\nextra instruction".to_string())));
+
+        assert_eq!(
+            executor.prompt_for_agent("please inspect this"),
+            "please inspect this\nextra instruction"
+        );
+    }
+
+    #[test]
+    fn slash_prefixed_paths_are_not_agent_commands() {
+        let executor = AcpBackedExecutor::new(AcpProvider::Codex)
+            .with_append_prompt(AppendPrompt(Some("\nextra instruction".to_string())));
+
+        assert_eq!(
+            executor.prompt_for_agent("/src/main.rs"),
+            "/src/main.rs\nextra instruction"
+        );
+    }
 }
 
 fn availability_from_auth_file(path: Option<PathBuf>) -> AvailabilityInfo {
@@ -251,6 +623,14 @@ impl AcpBackedExecutor {
             None
         }
     }
+
+    fn prompt_for_agent(&self, prompt: &str) -> String {
+        if is_slash_command_prompt(prompt) {
+            prompt.trim().to_string()
+        } else {
+            self.append_prompt.combine_prompt(prompt)
+        }
+    }
 }
 
 #[async_trait]
@@ -287,20 +667,9 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
 
     async fn available_slash_commands(
         &self,
-        _workdir: &std::path::Path,
+        workdir: &std::path::Path,
     ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        let commands = vec![
-            SlashCommandDescription {
-                name: "help".to_string(),
-                description: Some("show available ACP adapter commands".to_string()),
-            },
-            SlashCommandDescription {
-                name: "compact".to_string(),
-                description: Some(
-                    "compact or summarize the current session when supported".to_string(),
-                ),
-            },
-        ];
+        let commands = self.provider.slash_commands_for_workdir(workdir);
         Ok(Box::pin(futures::stream::once(async move {
             patch::slash_commands(commands, false, None)
         })))
@@ -316,7 +685,7 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
         self.harness()
             .spawn_with_command(
                 current_dir,
-                self.append_prompt.combine_prompt(prompt),
+                self.prompt_for_agent(prompt),
                 command_parts,
                 env,
                 &self.cmd,
@@ -337,7 +706,7 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
         self.harness()
             .spawn_follow_up_with_command(
                 current_dir,
-                self.append_prompt.combine_prompt(prompt),
+                self.prompt_for_agent(prompt),
                 session_id,
                 command_parts,
                 env,

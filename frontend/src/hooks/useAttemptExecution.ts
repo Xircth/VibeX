@@ -1,13 +1,18 @@
 import { useMemo, useCallback, useEffect } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { attemptsApi, executionProcessesApi } from '@/lib/api';
-import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
+import {
+  useStopToastSuppression,
+  useTaskStopping,
+} from '@/stores/useTaskDetailsUiStore';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import type { AttemptData } from '@/lib/types';
 import type { ExecutionProcess } from 'shared/types';
 
 export function useAttemptExecution(attemptId?: string, taskId?: string) {
   const { isStopping, setIsStopping } = useTaskStopping(taskId || '');
+  const { markStopToastSuppressed, clearStopToastSuppression } =
+    useStopToastSuppression();
 
   const {
     executionProcessesVisible: executionProcesses,
@@ -57,13 +62,21 @@ export function useAttemptExecution(attemptId?: string, taskId?: string) {
 
     try {
       setIsStopping(true);
+      markStopToastSuppressed(attemptId);
       await attemptsApi.stop(attemptId);
     } catch (error) {
       setIsStopping(false);
+      clearStopToastSuppression(attemptId);
       console.error('Failed to stop executions:', error);
       throw error;
     }
-  }, [attemptId, isStopping, setIsStopping]);
+  }, [
+    attemptId,
+    clearStopToastSuppression,
+    isStopping,
+    markStopToastSuppressed,
+    setIsStopping,
+  ]);
 
   useEffect(() => {
     if (isStopping && !isAttemptRunning) {

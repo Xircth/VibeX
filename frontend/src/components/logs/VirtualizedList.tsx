@@ -4,7 +4,9 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from 'react';
+import { Loader2 } from 'lucide-react';
 import {
   BaseCodingAgent,
   ExecutionProcessStatus,
@@ -102,6 +104,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const { executionProcessesVisible } = useExecutionProcessesContext();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const [isLoadingEntries, setIsLoadingEntries] = useState(false);
 
     const handleEntriesUpdated = useCallback(
       (
@@ -109,6 +112,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         _addType: AddEntryType,
         _loading: boolean
       ) => {
+        setIsLoadingEntries(_loading);
         setEntries(newEntries);
       },
       [setEntries]
@@ -128,24 +132,24 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
       [entries]
     );
 
-    const displayEntries = useMemo<DisplayEntry[]>(
-      () => {
-        const completedExecutionProcessIds = new Set(
-          executionProcessesVisible
-            .filter(
-              (process) => process.status !== ExecutionProcessStatus.running
-            )
-            .map((process) => process.id)
-        );
+    const displayEntries = useMemo<DisplayEntry[]>(() => {
+      const completedExecutionProcessIds = new Set(
+        executionProcessesVisible
+          .filter(
+            (process) => process.status !== ExecutionProcessStatus.running
+          )
+          .map((process) => process.id)
+      );
 
-        return buildDisplayEntries(normalizedEntries, {
-          aggregateThinking:
-            attempt.session?.executor === BaseCodingAgent.CODEX,
-          completedExecutionProcessIds,
-        });
-      },
-      [attempt.session?.executor, executionProcessesVisible, normalizedEntries]
-    );
+      return buildDisplayEntries(normalizedEntries, {
+        aggregateThinking: attempt.session?.executor === BaseCodingAgent.CODEX,
+        completedExecutionProcessIds,
+      });
+    }, [
+      attempt.session?.executor,
+      executionProcessesVisible,
+      normalizedEntries,
+    ]);
 
     useImperativeHandle(
       ref,
@@ -191,58 +195,67 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         className="h-full overflow-y-auto px-2 py-3"
         data-panel="conversation-logs"
       >
-        <div className="mx-auto flex max-w-4xl flex-col gap-3">
-          {displayEntries.map((entry) => (
-            <div
-              key={entry.patchKey}
-              ref={(node) => {
-                if (
-                  node &&
-                  entry.type === 'NORMALIZED_ENTRY' &&
-                  isUserMessageEntry(entry)
-                ) {
-                  userMessageRefs.current.set(entry.patchKey, node);
-                } else {
-                  userMessageRefs.current.delete(entry.patchKey);
-                }
-              }}
-            >
-              {entry.type === 'AGGREGATED_GROUP' ? (
-                <AggregatedGroupCard
-                  entries={entry.entries}
-                  aggregationType={entry.aggregationType}
-                  attempt={attempt}
-                  task={task ?? undefined}
-                />
-              ) : entry.type === 'AGGREGATED_THINKING_GROUP' ? (
-                <AggregatedThinkingCard
-                  entries={entry.entries}
-                  expansionKey={entry.patchKey}
-                />
-              ) : entry.type === 'AGGREGATED_FILE_EDIT_GROUP' ? (
-                <AggregatedFileEditCard
-                  entries={entry.entries}
-                  attempt={attempt}
-                  task={task ?? undefined}
-                />
-              ) : entry.type === 'PROCESS_CHANGE_SUMMARY' ? (
-                <ProcessChangeSummaryCard
-                  executionProcessId={entry.executionProcessId}
-                  attempt={attempt}
-                  changes={buildProcessChangeItems(entry.entries)}
-                />
-              ) : entry.type === 'NORMALIZED_ENTRY' ? (
-                <DisplayConversationEntry
-                  entry={entry.content}
-                  expansionKey={entry.patchKey}
-                  executionProcessId={entry.executionProcessId}
-                  taskAttempt={attempt}
-                  task={task ?? undefined}
-                />
-              ) : null}
+        {isLoadingEntries && displayEntries.length === 0 ? (
+          <div className="flex h-full min-h-[160px] items-center justify-center text-muted-foreground">
+            <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Loading session...</span>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="mx-auto flex max-w-4xl flex-col gap-3">
+            {displayEntries.map((entry) => (
+              <div
+                key={entry.patchKey}
+                ref={(node) => {
+                  if (
+                    node &&
+                    entry.type === 'NORMALIZED_ENTRY' &&
+                    isUserMessageEntry(entry)
+                  ) {
+                    userMessageRefs.current.set(entry.patchKey, node);
+                  } else {
+                    userMessageRefs.current.delete(entry.patchKey);
+                  }
+                }}
+              >
+                {entry.type === 'AGGREGATED_GROUP' ? (
+                  <AggregatedGroupCard
+                    entries={entry.entries}
+                    aggregationType={entry.aggregationType}
+                    attempt={attempt}
+                    task={task ?? undefined}
+                  />
+                ) : entry.type === 'AGGREGATED_THINKING_GROUP' ? (
+                  <AggregatedThinkingCard
+                    entries={entry.entries}
+                    expansionKey={entry.patchKey}
+                  />
+                ) : entry.type === 'AGGREGATED_FILE_EDIT_GROUP' ? (
+                  <AggregatedFileEditCard
+                    entries={entry.entries}
+                    attempt={attempt}
+                    task={task ?? undefined}
+                  />
+                ) : entry.type === 'PROCESS_CHANGE_SUMMARY' ? (
+                  <ProcessChangeSummaryCard
+                    executionProcessId={entry.executionProcessId}
+                    attempt={attempt}
+                    changes={buildProcessChangeItems(entry.entries)}
+                  />
+                ) : entry.type === 'NORMALIZED_ENTRY' ? (
+                  <DisplayConversationEntry
+                    entry={entry.content}
+                    expansionKey={entry.patchKey}
+                    executionProcessId={entry.executionProcessId}
+                    taskAttempt={attempt}
+                    task={task ?? undefined}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

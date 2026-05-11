@@ -10,6 +10,7 @@ import {
   Monitor,
   Pause,
   RefreshCw,
+  RotateCcw,
   Smartphone,
   Tablet,
 } from 'lucide-react';
@@ -24,6 +25,7 @@ const viewSizes: Record<ViewMode, { width: string; height: string }> = {
 
 interface ReadyContentProps {
   url?: string;
+  displayUrl?: string;
   iframeKey: string;
   onIframeError: () => void;
   onIframeLoad?: (iframe: HTMLIFrameElement | null) => void;
@@ -35,10 +37,14 @@ interface ReadyContentProps {
   onToggleInspector?: () => void;
   isInspectorOpen?: boolean;
   inspectorPane?: ReactNode;
+  onUrlChange?: (url: string) => void;
+  hasUrlOverride?: boolean;
+  onClearUrlOverride?: () => void;
 }
 
 export function ReadyContent({
   url,
+  displayUrl,
   iframeKey,
   onIframeError,
   onIframeLoad,
@@ -50,8 +56,10 @@ export function ReadyContent({
   onToggleInspector,
   isInspectorOpen = false,
   inspectorPane,
+  onUrlChange,
+  hasUrlOverride = false,
+  onClearUrlOverride,
 }: ReadyContentProps) {
-  const [currentUrl, setCurrentUrl] = useState(url ?? '');
   const [urlInput, setUrlInput] = useState(url ?? '');
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
@@ -59,10 +67,10 @@ export function ReadyContent({
 
   const handleNavigate = () => {
     let target = urlInput.trim();
-    if (target && !target.startsWith('http')) {
+    if (target && !/^https?:\/\//i.test(target)) {
       target = 'http://' + target;
     }
-    setCurrentUrl(target);
+    onUrlChange?.(target);
     setLocalRefreshKey((key) => key + 1);
   };
 
@@ -71,11 +79,10 @@ export function ReadyContent({
   };
 
   useEffect(() => {
-    setCurrentUrl(url ?? '');
-    setUrlInput(url ?? '');
-  }, [url]);
+    setUrlInput(displayUrl ?? url ?? '');
+  }, [displayUrl, url]);
 
-  const effectiveSrc = currentUrl || url;
+  const effectiveSrc = url;
 
   return (
     <div className="flex h-full flex-col">
@@ -104,6 +111,17 @@ export function ReadyContent({
         />
 
         <div className="mx-0.5 h-4 border-l border-border" />
+
+        {hasUrlOverride && onClearUrlOverride && (
+          <button
+            onClick={onClearUrlOverride}
+            className="rounded p-1 hover:bg-accent"
+            title="Use detected URL"
+            aria-label="Use detected URL"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        )}
 
         {onCopyUrl && (
           <button

@@ -71,6 +71,8 @@
 
 .conv-assistant-msg {
   position: relative;
+  border-radius: 12px;
+  padding: 2px 0;
 }
 
 /* =========================================
@@ -210,16 +212,20 @@
  * ========================================= */
 
 .conv-system-card {
-  background: var(--conv-surface-control);
+  background: var(--conv-surface-card);
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .conv-system-card:hover {
-  background: var(--conv-surface-card);
+  border-color: var(--conv-border-strong);
+  background: var(--conv-surface-control-hover);
 }
 
 .conv-system-card .conv-system-text {
@@ -228,16 +234,19 @@
 }
 
 .conv-error-card {
-  background: var(--conv-surface-control);
+  background: var(--conv-surface-card);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: inset 3px 0 0 var(--conv-tool-error);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .conv-error-card:hover {
-  background: var(--conv-surface-card);
+  background: var(--conv-surface-control-hover);
 }
 
 .conv-error-card .conv-error-text {
@@ -285,14 +294,15 @@
   gap: 6px;
   padding: 6px 10px;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 10px;
-  background: var(--conv-surface-control);
+  border-radius: 12px;
+  background: var(--conv-surface-card);
   font-size: 13px;
   transition: background 0.15s;
 }
 
 .conv-file-card:hover {
-  background: var(--conv-surface-card);
+  border-color: var(--conv-border-strong);
+  background: var(--conv-surface-control-hover);
 }
 
 .conv-file-card .conv-file-name {

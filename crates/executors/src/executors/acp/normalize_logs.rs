@@ -79,7 +79,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                                 });
                             }
                             if let Some(ref mut s) = streaming.assistant_text {
-                                s.content.push_str(&text.text);
+                                merge_streaming_text(&mut s.content, &text.text);
                                 let entry = NormalizedEntry {
                                     timestamp: None,
                                     entry_type: NormalizedEntryType::AssistantMessage,
@@ -618,6 +618,29 @@ fn format_plan_markdown(plan: &agent_client_protocol::schema::Plan) -> String {
         .join("\n")
 }
 
+fn merge_streaming_text(current: &mut String, incoming: &str) {
+    if incoming.is_empty() {
+        return;
+    }
+
+    if current.is_empty() {
+        current.push_str(incoming);
+        return;
+    }
+
+    if incoming.starts_with(current.as_str()) {
+        current.clear();
+        current.push_str(incoming);
+        return;
+    }
+
+    if current.starts_with(incoming) {
+        return;
+    }
+
+    current.push_str(incoming);
+}
+
 fn heuristically_extract_task_create(tc: &PartialToolCallData) -> Option<ActionType> {
     let parsed_title_json = tc
         .title
@@ -785,14 +808,26 @@ fn normalize_task_name(name: &str) -> String {
 
 fn is_task_like_name(name: &str) -> bool {
     let normalized = normalize_task_name(name);
-    ["task", "task_create", "create_task", "subagent", "delegate"]
-        .iter()
-        .any(|candidate| {
-            normalized == *candidate
-                || normalized.starts_with(&format!("{candidate}_"))
-                || normalized.ends_with(&format!("_{candidate}"))
-                || normalized.contains(&format!("_{candidate}_"))
-        })
+    [
+        "task",
+        "task_create",
+        "create_task",
+        "subagent",
+        "sub_agent",
+        "create_subagent",
+        "spawn_agent",
+        "spawn",
+        "delegate",
+        "multi_agent",
+        "muti_agent",
+    ]
+    .iter()
+    .any(|candidate| {
+        normalized == *candidate
+            || normalized.starts_with(&format!("{candidate}_"))
+            || normalized.ends_with(&format!("_{candidate}"))
+            || normalized.contains(&format!("_{candidate}_"))
+    })
 }
 
 #[cfg(test)]
@@ -802,7 +837,10 @@ mod tests {
     };
     use serde_json::json;
 
-    use super::{PartialToolCallData, format_plan_markdown, heuristically_extract_task_create};
+    use super::{
+        PartialToolCallData, format_plan_markdown, heuristically_extract_task_create,
+        merge_streaming_text,
+    };
     use crate::logs::ActionType;
 
     #[test]
@@ -824,6 +862,27 @@ mod tests {
             format_plan_markdown(&plan),
             "1. [in_progress | high] Inspect the repository state\n2. [pending | medium] Update the renderer"
         );
+    }
+
+    #[test]
+    fn merge_streaming_text_replaces_cumulative_chunks() {
+        let mut content = String::new();
+
+        merge_streaming_text(&mut content, "已完成两部分");
+        merge_streaming_text(&mut content, "已完成两部分：文档");
+        merge_streaming_text(&mut content, "已完成两部分：文档\n\n- 改进方案");
+
+        assert_eq!(content, "已完成两部分：文档\n\n- 改进方案");
+    }
+
+    #[test]
+    fn merge_streaming_text_appends_delta_chunks() {
+        let mut content = String::new();
+
+        merge_streaming_text(&mut content, "已完成两部分");
+        merge_streaming_text(&mut content, "：文档");
+
+        assert_eq!(content, "已完成两部分：文档");
     }
 
     #[test]
@@ -853,6 +912,36 @@ mod tests {
 
         assert_eq!(description, "Audit renderer parity");
         assert_eq!(subagent_type.as_deref(), Some("reviewer"));
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn heuristically_extracts_task_create_from_spawn_agent_tool() {
+        let tool_call = PartialToolCallData {
+            id: ToolCallId::new("spawn_agent-1"),
+            kind: ToolKind::Other,
+            title: "spawn_agent".to_string(),
+            status: ToolCallStatus::Completed,
+            raw_input: Some(json!({
+                "message": "Inspect frontend rendering",
+                "agent_type": "architect"
+            })),
+            raw_output: Some(json!({ "agent_id": "agent-1" })),
+            ..Default::default()
+        };
+
+        let action = heuristically_extract_task_create(&tool_call).expect("task action");
+        let ActionType::TaskCreate {
+            description,
+            subagent_type,
+            result,
+        } = action
+        else {
+            panic!("expected task_create action");
+        };
+
+        assert_eq!(description, "Inspect frontend rendering");
+        assert_eq!(subagent_type.as_deref(), Some("architect"));
         assert!(result.is_some());
     }
 }

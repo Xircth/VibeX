@@ -2,7 +2,10 @@ import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type { CreateFollowUpAttempt, ExecutorProfileId } from 'shared/types';
-import { buildAgentPrompt } from '@/utils/promptMessage';
+import {
+  buildAgentPrompt,
+  isSessionScopedSlashCommand,
+} from '@/utils/promptMessage';
 
 type Args = {
   sessionId?: string;
@@ -62,6 +65,10 @@ export function useFollowUpSend({
         isNewSessionMode ||
         !targetSessionId ||
         (!!sessionExecutor && sessionExecutor !== executorProfileId.executor);
+
+      if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
+        throw new Error('该 / 命令需要在已有会话中执行，不能创建新会话触发。');
+      }
 
       if (shouldCreateNewSession) {
         if (!workspaceId) return;

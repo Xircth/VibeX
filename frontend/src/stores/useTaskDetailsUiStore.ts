@@ -14,9 +14,13 @@ interface UiStateMap {
 
 interface TaskDetailsUiStore {
   ui: UiStateMap;
+  stopToastSuppressedWorkspaceIds: Set<string>;
   getUiState: (taskId: string) => TaskUiState;
   setUiState: (taskId: string, partial: Partial<TaskUiState>) => void;
   clearUiState: (taskId: string) => void;
+  markStopToastSuppressed: (workspaceId: string) => void;
+  clearStopToastSuppression: (workspaceId: string) => void;
+  consumeStopToastSuppression: (workspaceId: string) => boolean;
 }
 
 const defaultUiState: TaskUiState = {
@@ -28,6 +32,7 @@ const defaultUiState: TaskUiState = {
 
 const useTaskDetailsUiStore = create<TaskDetailsUiStore>((set, get) => ({
   ui: {},
+  stopToastSuppressedWorkspaceIds: new Set(),
 
   getUiState: (taskId: string) => {
     return get().ui[taskId] ?? defaultUiState;
@@ -57,6 +62,36 @@ const useTaskDetailsUiStore = create<TaskDetailsUiStore>((set, get) => ({
       return { ui: newUi };
     });
   },
+
+  markStopToastSuppressed: (workspaceId: string) => {
+    set((state) => {
+      const next = new Set(state.stopToastSuppressedWorkspaceIds);
+      next.add(workspaceId);
+      return { stopToastSuppressedWorkspaceIds: next };
+    });
+  },
+
+  clearStopToastSuppression: (workspaceId: string) => {
+    set((state) => {
+      const next = new Set(state.stopToastSuppressedWorkspaceIds);
+      next.delete(workspaceId);
+      return { stopToastSuppressedWorkspaceIds: next };
+    });
+  },
+
+  consumeStopToastSuppression: (workspaceId: string) => {
+    const current = get().stopToastSuppressedWorkspaceIds;
+    if (!current.has(workspaceId)) {
+      return false;
+    }
+
+    set((state) => {
+      const next = new Set(state.stopToastSuppressedWorkspaceIds);
+      next.delete(workspaceId);
+      return { stopToastSuppressedWorkspaceIds: next };
+    });
+    return true;
+  },
 }));
 
 export const useTaskStopping = (taskId: string) => {
@@ -67,5 +102,23 @@ export const useTaskStopping = (taskId: string) => {
     isStopping,
     setIsStopping: (value: boolean) =>
       setUiState(taskId, { isStopping: value }),
+  };
+};
+
+export const useStopToastSuppression = () => {
+  const markStopToastSuppressed = useTaskDetailsUiStore(
+    (state) => state.markStopToastSuppressed
+  );
+  const clearStopToastSuppression = useTaskDetailsUiStore(
+    (state) => state.clearStopToastSuppression
+  );
+  const consumeStopToastSuppression = useTaskDetailsUiStore(
+    (state) => state.consumeStopToastSuppression
+  );
+
+  return {
+    markStopToastSuppressed,
+    clearStopToastSuppression,
+    consumeStopToastSuppression,
   };
 };

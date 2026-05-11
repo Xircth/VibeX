@@ -31,8 +31,11 @@ async fn health_check() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn get_preview_proxy_url(url: String) -> Result<String, String> {
-    preview_proxy::get_proxy_url(&url).ok_or_else(|| {
+async fn get_preview_proxy_url(
+    url: String,
+    bridge_token: Option<String>,
+) -> Result<String, String> {
+    preview_proxy::get_proxy_url(&url, bridge_token.as_deref()).ok_or_else(|| {
         format!(
             "Preview proxy is unavailable or unsupported for url: {}",
             url
@@ -279,6 +282,8 @@ pub fn run() {
             commands::tags::delete_tag,
             // Approval commands
             commands::approvals::respond_to_approval,
+            // Codex account commands
+            commands::codex_account::get_codex_account_rate_limits,
             // Execution process commands
             commands::execution_processes::get_execution_process,
             commands::execution_processes::stop_execution_process,

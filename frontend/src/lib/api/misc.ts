@@ -209,8 +209,14 @@ export const fileTreeApi = {
 };
 
 export const desktopApi = {
-  getPreviewProxyUrl: async (url: string): Promise<string> => {
-    return tauriInvoke<string>('get_preview_proxy_url', { url });
+  getPreviewProxyUrl: async (
+    url: string,
+    bridgeToken?: string | null
+  ): Promise<string> => {
+    return tauriInvoke<string>('get_preview_proxy_url', {
+      url,
+      bridgeToken: bridgeToken ?? null,
+    });
   },
   revealInFileManager: async (path: string): Promise<void> => {
     return tauriInvoke<void>('reveal_in_file_manager', { path });

@@ -108,6 +108,7 @@ interface SessionHubSidebarProps {
   displayedCount: number;
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
+  openingSessionId?: string | null;
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onCreatePopoverOpenChange: (open: boolean) => void;
   onCreateSession: () => void;
@@ -129,6 +130,9 @@ interface SessionHubSidebarProps {
     session: KanbanProjectSessionRecord,
     name: string | null
   ) => Promise<void>;
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
   onSessionStatusChange: (
     session: KanbanProjectSessionRecord,
     nextStatus: SessionStatus
@@ -241,10 +245,8 @@ function StatusDropZone({
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-lg border p-2 transition-colors',
-        isOver && enabled
-          ? 'border-primary bg-primary/5'
-          : 'border-border/70 bg-background/50'
+        'session-hub-drop-zone rounded-xl p-2 transition-colors',
+        isOver && enabled ? 'is-over' : ''
       )}
     >
       {children}
@@ -259,9 +261,11 @@ function DraggableSessionCard({
   isSelected,
   monitorPlacements,
   currentExecutionPlacement,
+  openingSessionId = null,
   onSessionClick,
   onToggleSessionSelection,
   onRenameSession,
+  onDeleteSession,
 }: {
   session: KanbanProjectSessionRecord;
   status: SessionStatus;
@@ -269,12 +273,16 @@ function DraggableSessionCard({
   isSelected: boolean;
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
+  openingSessionId: string | null;
   onSessionClick: (session: KanbanProjectSessionRecord) => void;
   onToggleSessionSelection: (sessionId: string) => void;
   onRenameSession: (
     session: KanbanProjectSessionRecord,
     name: string | null
   ) => Promise<void>;
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -309,7 +317,11 @@ function DraggableSessionCard({
         onClick={() => onSessionClick(session)}
         onToggleSelect={() => onToggleSessionSelection(session.id)}
         onRenameSession={(name) => onRenameSession(session, name)}
+        onDeleteSession={
+          onDeleteSession ? () => onDeleteSession(session) : undefined
+        }
         dragging={isDragging}
+        isOpening={openingSessionId === session.id}
       />
     </div>
   );
@@ -323,12 +335,16 @@ function renderSessionList(
   selectedSessionIdSet: Set<string>,
   monitorPlacements: Array<{ sessionId: string }>,
   currentExecutionPlacement: { sessionId: string } | null,
+  openingSessionId: string | null,
   onSessionClick: (session: KanbanProjectSessionRecord) => void,
   onToggleSessionSelection: (sessionId: string) => void,
   onRenameSession: (
     session: KanbanProjectSessionRecord,
     name: string | null
-  ) => Promise<void>
+  ) => Promise<void>,
+  onDeleteSession?: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>
 ) {
   return (
     <div className="w-full max-w-full min-w-0 space-y-1.5">
@@ -342,9 +358,11 @@ function renderSessionList(
             isSelected={selectedSessionIdSet.has(session.id)}
             monitorPlacements={monitorPlacements}
             currentExecutionPlacement={currentExecutionPlacement}
+            openingSessionId={openingSessionId}
             onSessionClick={onSessionClick}
             onToggleSessionSelection={onToggleSessionSelection}
             onRenameSession={onRenameSession}
+            onDeleteSession={onDeleteSession}
           />
         ) : (
           <SessionHubListItem
@@ -360,6 +378,10 @@ function renderSessionList(
             onClick={() => onSessionClick(session)}
             onToggleSelect={() => onToggleSessionSelection(session.id)}
             onRenameSession={(name) => onRenameSession(session, name)}
+            onDeleteSession={
+              onDeleteSession ? () => onDeleteSession(session) : undefined
+            }
+            isOpening={openingSessionId === session.id}
           />
         )
       )}
@@ -399,6 +421,7 @@ export function SessionHubSidebar({
   displayedCount,
   monitorPlacements,
   currentExecutionPlacement,
+  openingSessionId = null,
   onResizeMouseDown,
   onCreatePopoverOpenChange,
   onCreateSession,
@@ -417,6 +440,7 @@ export function SessionHubSidebar({
   onSessionClick,
   onToggleSessionSelection,
   onRenameSession,
+  onDeleteSession,
   onSessionStatusChange,
   onExpandedChange,
 }: SessionHubSidebarProps) {
@@ -463,7 +487,7 @@ export function SessionHubSidebar({
   return (
     <>
       <aside
-        className="flex h-full min-h-0 shrink-0 flex-col bg-muted/10"
+        className="session-hub-sidebar flex h-full min-h-0 shrink-0 flex-col"
         style={{ width: `${width}px` }}
       >
         <div className="space-y-2.5 px-3 py-2.5">
@@ -500,7 +524,7 @@ export function SessionHubSidebar({
                   align="end"
                   side="bottom"
                   sideOffset={8}
-                  className="w-[340px] space-y-4 p-4 relative"
+                  className="dialog-surface relative w-[340px] space-y-4 p-4"
                   onInteractOutside={(event) => {
                     if (isNestedOverlayTarget(event.target)) {
                       event.preventDefault();
@@ -734,26 +758,26 @@ export function SessionHubSidebar({
                 </TooltipContent>
               </Tooltip>
 
-              <div className="rounded-full border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground">
+              <div className="session-hub-count-chip rounded-full px-2 py-1 text-[11px]">
                 {displayedCount} / {sessions.length}
               </div>
             </div>
           </div>
 
           {isFlatListMode ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
+            <div className="session-hub-drop-zone flex flex-wrap items-center gap-2 rounded-xl px-2.5 py-2 text-[11px] text-muted-foreground">
               {sortField ? (
-                <span className="rounded-full bg-muted px-2 py-0.5">
+                <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
                   排序：{getSortLabel(sortField)}
                 </span>
               ) : null}
               {workspaceFilterIds.length > 0 ? (
-                <span className="rounded-full bg-muted px-2 py-0.5">
+                <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
                   工作区：{workspaceFilterIds.length}
                 </span>
               ) : null}
               {executorFilterValues.length > 0 ? (
-                <span className="rounded-full bg-muted px-2 py-0.5">
+                <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
                   代理：{executorFilterValues.length}
                 </span>
               ) : null}
@@ -828,11 +852,11 @@ export function SessionHubSidebar({
           >
             <div className="space-y-3 px-3 py-3 pr-4">
               {isLoading ? (
-                <div className="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+                <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                   正在加载会话...
                 </div>
               ) : sessions.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+                <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                   暂无会话，点击上方“新增”即可创建。
                 </div>
               ) : isFlatListMode ? (
@@ -845,12 +869,14 @@ export function SessionHubSidebar({
                     selectedSessionIdSet,
                     monitorPlacements,
                     currentExecutionPlacement,
+                    openingSessionId,
                     onSessionClick,
                     onToggleSessionSelection,
-                    onRenameSession
+                    onRenameSession,
+                    onDeleteSession
                   )
                 ) : (
-                  <div className="rounded-xl border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+                  <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                     没有符合当前筛选或排序条件的会话。
                   </div>
                 )
@@ -882,9 +908,11 @@ export function SessionHubSidebar({
                               selectedSessionIdSet,
                               monitorPlacements,
                               currentExecutionPlacement,
+                              openingSessionId,
                               onSessionClick,
                               onToggleSessionSelection,
-                              onRenameSession
+                              onRenameSession,
+                              onDeleteSession
                             )
                           : null}
                       </div>
@@ -900,7 +928,7 @@ export function SessionHubSidebar({
       <div
         role="separator"
         aria-orientation="vertical"
-        className="relative w-3 shrink-0 cursor-col-resize bg-transparent transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-all before:duration-150 hover:before:w-[3px] hover:before:bg-foreground/40"
+        className="session-hub-resizer relative w-3 shrink-0 cursor-col-resize transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:transition-all before:duration-150 hover:before:w-[3px]"
         onMouseDown={onResizeMouseDown}
       />
     </>

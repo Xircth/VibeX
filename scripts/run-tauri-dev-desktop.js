@@ -1,44 +1,30 @@
 #!/usr/bin/env node
 
-/**
- * Desktop-only Tauri dev launcher.
- *
- * Why this wrapper exists:
- * - `beforeDevCommand` runs in parallel with the Rust app build.
- * - Tauri needs `frontend/dist` to exist before `generate_context!()` runs.
- * - So we force one synchronous frontend build first, then start Tauri dev,
- *   which keeps `vite build --watch` alive through `beforeDevCommand`.
- */
-
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { getPorts } = require('./setup-dev-environment');
 
-function runCommandSync(command, args, options = {}) {
+const GENERATED_TAURI_DEV_CONFIG = 'src-tauri/tauri.dev.generated.conf.json';
+
+function runCommand(command, args, options = {}) {
   if (process.platform === 'win32') {
-    const result = spawnSync(
+    return spawn(
       process.env.ComSpec || 'cmd.exe',
       ['/d', '/s', '/c', command, ...args],
       options
     );
-    return result;
-  }
-
-  return spawnSync(command, args, options);
-}
-
-function runCommand(command, args, options = {}) {
-  if (process.platform === 'win32') {
-    return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command, ...args], options);
   }
 
   return spawn(command, args, options);
 }
 
-function createCargoLeanDevEnv() {
+function createCargoLeanDevEnv(ports) {
   return {
     ...process.env,
     CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL || '0',
+    FRONTEND_PORT: String(ports.frontend),
+    BACKEND_PORT: String(ports.backend),
   };
 }
 
@@ -47,12 +33,63 @@ function clearIncrementalCacheIfDisabled(env) {
     return;
   }
 
-  const incrementalPath = path.join(process.cwd(), 'target', 'debug', 'incremental');
+  const incrementalPath = path.join(
+    process.cwd(),
+    'target',
+    'debug',
+    'incremental'
+  );
   if (!fs.existsSync(incrementalPath)) {
     return;
   }
 
   fs.rmSync(incrementalPath, { recursive: true, force: true });
+}
+
+function clearRelocatedCargoBuildCache() {
+  const buildPath = path.join(process.cwd(), 'target', 'debug', 'build');
+  if (!fs.existsSync(buildPath)) {
+    return;
+  }
+
+  const workspaceRoot = [
+    path.resolve(process.cwd()).toLowerCase(),
+    path.sep,
+  ].join('');
+  const entries = fs.readdirSync(buildPath, { withFileTypes: true });
+
+  const hasRelocatedOutput = entries.some((entry) => {
+    if (!entry.isDirectory()) {
+      return false;
+    }
+
+    const rootOutputPath = path.join(buildPath, entry.name, 'root-output');
+    if (!fs.existsSync(rootOutputPath)) {
+      return false;
+    }
+
+    let outputPath;
+    try {
+      outputPath = fs.readFileSync(rootOutputPath, 'utf8').trim();
+    } catch {
+      return false;
+    }
+
+    if (!path.isAbsolute(outputPath)) {
+      return false;
+    }
+
+    return !path.resolve(outputPath).toLowerCase().startsWith(workspaceRoot);
+  });
+
+  if (!hasRelocatedOutput) {
+    return;
+  }
+
+  console.warn(
+    'Detected relocated Cargo build cache; removing target/debug/build.'
+  );
+  fs.rmSync(buildPath, { recursive: true, force: true });
 }
 
 function terminateStaleDesktopProcess() {
@@ -89,37 +126,45 @@ foreach ($process in $processes) {
   }
 }
 
-function runInitialFrontendBuild() {
-  const result = runCommandSync('pnpm', ['run', 'frontend:build'], {
-    env: process.env,
-    stdio: 'inherit',
-  });
+function writeGeneratedTauriDevConfig(ports) {
+  const baseConfigPath = path.join(process.cwd(), 'src-tauri', 'tauri.conf.json');
+  const generatedConfigPath = path.join(process.cwd(), GENERATED_TAURI_DEV_CONFIG);
+  const config = JSON.parse(fs.readFileSync(baseConfigPath, 'utf8'));
 
-  if (result.error) {
-    console.error('Failed to start frontend build:', result.error.message);
-    process.exit(1);
-  }
+  config.build = {
+    ...config.build,
+    beforeDevCommand: `pnpm --filter ./frontend dev --host 127.0.0.1 --port ${ports.frontend} --strictPort`,
+    devUrl: `http://127.0.0.1:${ports.frontend}`,
+    frontendDist: '../frontend/dist',
+  };
 
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
+  fs.writeFileSync(generatedConfigPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
-function runTauriDesktopDev() {
-  const env = createCargoLeanDevEnv();
-  const args = [
-    'exec',
-    'tauri',
-    'dev',
-    '-c',
-    'src-tauri/tauri.desktop.conf.json',
-    ...process.argv.slice(2),
-  ];
+async function runTauriDesktopDev() {
+  const ports = await getPorts();
+  writeGeneratedTauriDevConfig(ports);
 
-  const child = runCommand('pnpm', args, {
-    env,
-    stdio: 'inherit',
-  });
+  const env = createCargoLeanDevEnv(ports);
+  clearRelocatedCargoBuildCache();
+  clearIncrementalCacheIfDisabled(env);
+  terminateStaleDesktopProcess();
+
+  const child = runCommand(
+    'pnpm',
+    [
+      'exec',
+      'tauri',
+      'dev',
+      '-c',
+      GENERATED_TAURI_DEV_CONFIG.replace(/\\/g, '/'),
+      ...process.argv.slice(2),
+    ],
+    {
+      env,
+      stdio: 'inherit',
+    }
+  );
 
   child.on('error', (error) => {
     console.error('Failed to start Tauri dev:', error.message);
@@ -129,7 +174,7 @@ function runTauriDesktopDev() {
   child.on('exit', (code) => process.exit(code ?? 1));
 }
 
-runInitialFrontendBuild();
-terminateStaleDesktopProcess();
-clearIncrementalCacheIfDisabled(createCargoLeanDevEnv());
-runTauriDesktopDev();
+runTauriDesktopDev().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

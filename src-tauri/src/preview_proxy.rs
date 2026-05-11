@@ -14,6 +14,7 @@ static PROXY_PORT: OnceLock<u16> = OnceLock::new();
 
 const BIPPY_BUNDLE: &str = include_str!("preview_proxy/bippy_bundle.js");
 const CLICK_TO_COMPONENT_SCRIPT: &str = include_str!("preview_proxy/click_to_component_script.js");
+const BRIDGE_TOKEN_QUERY_PARAM: &str = "__vibex_bridge_token";
 
 pub async fn ensure_started() -> Result<(), String> {
     if PROXY_PORT.get().is_some() {
@@ -30,6 +31,7 @@ pub async fn ensure_started() -> Result<(), String> {
 
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
         .build()
         .map_err(|error| format!("Failed to build preview proxy client: {error}"))?;
 
@@ -51,7 +53,11 @@ pub async fn ensure_started() -> Result<(), String> {
     Ok(())
 }
 
-pub fn build_proxy_url(raw_url: &str, proxy_port: u16) -> Option<String> {
+pub fn build_proxy_url(
+    raw_url: &str,
+    proxy_port: u16,
+    bridge_token: Option<&str>,
+) -> Option<String> {
     let parsed = reqwest::Url::parse(raw_url).ok()?;
     if parsed.scheme() != "http" {
         return None;
@@ -80,11 +86,18 @@ pub fn build_proxy_url(raw_url: &str, proxy_port: u16) -> Option<String> {
         proxied.push_str(fragment);
     }
 
-    Some(proxied)
+    let mut proxied_url = reqwest::Url::parse(&proxied).ok()?;
+    if let Some(bridge_token) = bridge_token.filter(|token| !token.is_empty()) {
+        proxied_url
+            .query_pairs_mut()
+            .append_pair(BRIDGE_TOKEN_QUERY_PARAM, bridge_token);
+    }
+
+    Some(proxied_url.to_string())
 }
 
-pub fn get_proxy_url(raw_url: &str) -> Option<String> {
-    build_proxy_url(raw_url, PROXY_PORT.get().copied()?)
+pub fn get_proxy_url(raw_url: &str, bridge_token: Option<&str>) -> Option<String> {
+    build_proxy_url(raw_url, PROXY_PORT.get().copied()?, bridge_token)
 }
 
 pub fn parse_target_port_from_host(host: &str) -> Option<u16> {
@@ -117,7 +130,11 @@ async fn proxy_request(State(client): State<Client>, request: Request<Body>) -> 
         .path_and_query()
         .map(|value| value.as_str())
         .unwrap_or("/");
-    let upstream_url = format!("http://127.0.0.1:{}{}", target_port, path_and_query);
+    let upstream_path_and_query = strip_bridge_token_from_path_query(path_and_query);
+    let upstream_url = format!(
+        "http://127.0.0.1:{}{}",
+        target_port, upstream_path_and_query
+    );
 
     let request_headers = request.headers().clone();
     let request_method = request.method().clone();
@@ -143,6 +160,15 @@ async fn proxy_request(State(client): State<Client>, request: Request<Body>) -> 
 
     for (name, value) in &request_headers {
         if should_strip_request_header(name.as_str()) {
+            continue;
+        }
+        if name == header::REFERER {
+            if let Ok(referer) = value.to_str()
+                && let Some(rewritten) = strip_bridge_token_from_absolute_url(referer)
+                && let Ok(header_value) = HeaderValue::from_str(&rewritten)
+            {
+                upstream_request = upstream_request.header(name, header_value);
+            }
             continue;
         }
         upstream_request = upstream_request.header(name, value);
@@ -245,7 +271,59 @@ fn rewrite_location(location: &str, target_port: u16, proxy_port: u16) -> Option
         return None;
     }
 
-    build_proxy_url(location, proxy_port)
+    build_proxy_url(location, proxy_port, None)
+}
+
+fn strip_bridge_token_from_path_query(path_and_query: &str) -> String {
+    let Some((path, _query)) = path_and_query.split_once('?') else {
+        return path_and_query.to_string();
+    };
+
+    let Ok(mut parsed) = reqwest::Url::parse(&format!("http://preview.localhost{path_and_query}"))
+    else {
+        return path_and_query.to_string();
+    };
+
+    let filtered_pairs = parsed
+        .query_pairs()
+        .filter(|(key, _)| key != BRIDGE_TOKEN_QUERY_PARAM)
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+
+    parsed.set_query(None);
+    {
+        let mut pairs = parsed.query_pairs_mut();
+        for (key, value) in filtered_pairs {
+            pairs.append_pair(&key, &value);
+        }
+    }
+
+    let filtered_query = parsed.query().unwrap_or_default();
+
+    if filtered_query.is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}?{filtered_query}")
+    }
+}
+
+fn strip_bridge_token_from_absolute_url(raw_url: &str) -> Option<String> {
+    let mut parsed = reqwest::Url::parse(raw_url).ok()?;
+    let filtered_pairs = parsed
+        .query_pairs()
+        .filter(|(key, _)| key != BRIDGE_TOKEN_QUERY_PARAM)
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+
+    parsed.set_query(None);
+    {
+        let mut pairs = parsed.query_pairs_mut();
+        for (key, value) in filtered_pairs {
+            pairs.append_pair(&key, &value);
+        }
+    }
+
+    Some(parsed.to_string())
 }
 
 fn should_strip_request_header(header_name: &str) -> bool {
@@ -277,17 +355,30 @@ fn is_loopback_host(host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_proxy_url, parse_target_port_from_host};
+    use super::{
+        build_proxy_url, parse_target_port_from_host, strip_bridge_token_from_absolute_url,
+        strip_bridge_token_from_path_query,
+    };
 
     #[test]
     fn builds_proxy_url_from_loopback_dev_server() {
-        let proxied = build_proxy_url("http://localhost:3000/path?q=1", 43123).unwrap();
+        let proxied = build_proxy_url("http://localhost:3000/path?q=1", 43123, None).unwrap();
         assert_eq!(proxied, "http://3000.localhost:43123/path?q=1");
     }
 
     #[test]
+    fn adds_bridge_token_to_proxy_url() {
+        let proxied =
+            build_proxy_url("http://localhost:3000/path?q=1", 43123, Some("a&b=c#d")).unwrap();
+        assert_eq!(
+            proxied,
+            "http://3000.localhost:43123/path?q=1&__vibex_bridge_token=a%26b%3Dc%23d"
+        );
+    }
+
+    #[test]
     fn rejects_non_loopback_hosts() {
-        assert!(build_proxy_url("https://example.com/app", 43123).is_none());
+        assert!(build_proxy_url("https://example.com/app", 43123, None).is_none());
     }
 
     #[test]
@@ -302,7 +393,34 @@ mod tests {
 
     #[test]
     fn accepts_tauri_localhost_as_loopback_host() {
-        let proxied = build_proxy_url("http://tauri.localhost:3000/path", 43123).unwrap();
+        let proxied = build_proxy_url("http://tauri.localhost:3000/path", 43123, None).unwrap();
         assert_eq!(proxied, "http://3000.localhost:43123/path");
+    }
+
+    #[test]
+    fn strips_bridge_token_before_proxying_upstream() {
+        assert_eq!(
+            strip_bridge_token_from_path_query("/app?q=1&__vibex_bridge_token=abc&x=2"),
+            "/app?q=1&x=2"
+        );
+        assert_eq!(
+            strip_bridge_token_from_path_query("/app?__vibex_bridge_token=abc"),
+            "/app"
+        );
+        assert_eq!(
+            strip_bridge_token_from_path_query("/app?x=1&__vibex_bridge_token=a%26b%3Dc%23d"),
+            "/app?x=1"
+        );
+    }
+
+    #[test]
+    fn strips_bridge_token_from_referer_url() {
+        assert_eq!(
+            strip_bridge_token_from_absolute_url(
+                "http://3000.localhost:43123/app?q=1&__vibex_bridge_token=abc#section"
+            )
+            .as_deref(),
+            Some("http://3000.localhost:43123/app?q=1#section")
+        );
     }
 }

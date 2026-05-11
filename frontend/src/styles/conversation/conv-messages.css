@@ -9,15 +9,18 @@
  * ========================================= */
 
 .conv-user-bubble {
-  background: var(--conv-user-bg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent),
+    var(--conv-user-bg);
   color: #fff;
-  border-radius: var(--conv-user-bubble-radius);
+  border-radius: 14px 14px 4px 14px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   max-width: 85%;
   padding: 10px 14px;
   font-size: 14px;
   line-height: 1.5;
   word-break: break-word;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 .conv-user-bubble .wysiwyg,

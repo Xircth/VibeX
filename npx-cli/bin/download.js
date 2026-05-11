@@ -8,8 +8,8 @@ const R2_BASE_URL = "__R2_PUBLIC_URL__";
 const BINARY_TAG = "__BINARY_TAG__"; // e.g., v0.0.135-20251215122030
 const CACHE_DIR = path.join(require("os").homedir(), ".vibex", "bin");
 
-// Local development mode: use binaries from npx-cli/dist/ instead of R2
-// Only activate if dist/ exists (i.e., running from source after local-build.sh)
+// Local development mode: use binaries from npx-cli/dist/ instead of R2.
+// Release packaging populates this directory with platform zip files.
 const LOCAL_DIST_DIR = path.join(__dirname, "..", "dist");
 const LOCAL_DEV_MODE = fs.existsSync(LOCAL_DIST_DIR) || process.env.VIBEX_LOCAL === "1";
 
@@ -105,7 +105,7 @@ async function ensureBinary(platform, binaryName, onProgress) {
     }
     throw new Error(
       `Local binary not found: ${localZipPath}\n` +
-      `Run ./local-build.sh first to build the binaries.`
+      `Populate npx-cli/dist with platform zip files before using VIBEX_LOCAL=1.`
     );
   }
 

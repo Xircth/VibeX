@@ -193,6 +193,58 @@
     --syntax-tag: var(--_syntax-tag);
     --syntax-punctuation: var(--_syntax-punctuation);
     --syntax-deleted: var(--_syntax-deleted);
+
+    /* App shell surfaces inspired by cc-gui, scoped to legacy UI. */
+    --text-strong: hsl(222 30% 16%);
+    --text-primary: hsl(213 10% 30%);
+    --text-muted: hsl(213 8% 45%);
+    --text-subtle: hsl(214 7% 56%);
+    --text-faint: hsl(214 6% 66%);
+    --surface-shell: hsl(225 18% 94%);
+    --surface-topbar: hsl(0 0% 100% / 0.86);
+    --surface-sidebar: hsl(220 16% 96% / 0.88);
+    --surface-right-panel: hsl(0 0% 100% / 0.82);
+    --surface-composer: hsl(0 0% 100% / 0.92);
+    --surface-card: hsl(0 0% 100% / 0.72);
+    --surface-card-strong: hsl(0 0% 100% / 0.94);
+    --surface-control: hsl(220 20% 20% / 0.06);
+    --surface-control-hover: hsl(220 20% 20% / 0.1);
+    --surface-hover: hsl(220 20% 20% / 0.07);
+    --surface-active: hsl(215 75% 58% / 0.16);
+    --surface-page-solid: hsl(0 0% 94%);
+    --kanban-column-background: hsl(0 0% 100%);
+    --border-subtle: hsl(220 16% 28% / 0.09);
+    --border-strong: hsl(220 16% 28% / 0.18);
+    --shadow-shell: 0 18px 42px hsl(220 36% 8% / 0.16);
+    --shadow-popover: 0 18px 42px hsl(220 36% 8% / 0.2);
+  }
+}
+
+@layer base {
+  .legacy-design.dark,
+  .dark .legacy-design {
+    --text-strong: hsl(210 18% 92%);
+    --text-primary: hsl(215 16% 78%);
+    --text-muted: hsl(215 10% 63%);
+    --text-subtle: hsl(215 8% 52%);
+    --text-faint: hsl(215 8% 42%);
+    --surface-shell: hsl(222 24% 10%);
+    --surface-topbar: hsl(222 22% 13% / 0.9);
+    --surface-sidebar: hsl(222 20% 14% / 0.92);
+    --surface-right-panel: hsl(222 22% 12% / 0.9);
+    --surface-composer: hsl(222 20% 13% / 0.94);
+    --surface-card: hsl(220 18% 18% / 0.68);
+    --surface-card-strong: hsl(220 18% 20% / 0.92);
+    --surface-control: hsl(0 0% 100% / 0.07);
+    --surface-control-hover: hsl(0 0% 100% / 0.12);
+    --surface-hover: hsl(0 0% 100% / 0.08);
+    --surface-active: hsl(215 80% 64% / 0.18);
+    --surface-page-solid: hsl(0 0% 11%);
+    --kanban-column-background: hsl(222 20% 15%);
+    --border-subtle: hsl(0 0% 100% / 0.1);
+    --border-strong: hsl(0 0% 100% / 0.18);
+    --shadow-shell: 0 18px 42px hsl(220 48% 2% / 0.34);
+    --shadow-popover: 0 18px 42px hsl(220 48% 2% / 0.44);
   }
 }
 
@@ -331,8 +383,11 @@
   }
 
   .settings-page .settings-card {
-    background: hsl(var(--card) / 0.72);
-    border-color: hsl(var(--border) / 0.75);
+    background: var(--surface-card);
+    border-color: var(--border-subtle);
+    box-shadow:
+      0 10px 28px hsl(220 36% 8% / 0.08),
+      inset 0 1px 0 hsl(0 0% 100% / 0.06);
   }
 
   .settings-page .settings-card > :not([hidden]) {
@@ -340,7 +395,7 @@
   }
 
   .settings-page .settings-card > :not([hidden]) + :not([hidden]) {
-    border-top: 1px solid hsl(var(--border) / 0.55);
+    border-top: 1px solid var(--border-subtle);
   }
 
   .settings-page input:not([type='checkbox']):not([type='radio']),
@@ -348,9 +403,9 @@
   .settings-page button[role='combobox'],
   .settings-page .settings-card kbd {
     border-width: 1px;
-    border-color: hsl(var(--border) / 0.9);
-    background-color: hsl(var(--background));
-    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+    border-color: var(--border-subtle);
+    background-color: var(--surface-control);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.04);
   }
 
   .settings-page input:not([type='checkbox']):not([type='radio']),
@@ -374,10 +429,10 @@
   .settings-page button[role='combobox']:focus,
   .settings-page button[role='combobox']:focus-visible {
     outline: none !important;
-    border-color: hsl(var(--border));
+    border-color: var(--border-strong);
     --tw-ring-offset-shadow: 0 0 #0000 !important;
     --tw-ring-shadow: 0 0 #0000 !important;
-    box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08) !important;
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12) !important;
   }
 
   .settings-page button[role='switch'] {
@@ -418,16 +473,164 @@
 
 /* ANSI color classes for fancy-ansi */
 @layer components {
+  .workspace-shell {
+    background:
+      linear-gradient(180deg, var(--surface-shell), hsl(var(--background))),
+      hsl(var(--background));
+    color: var(--text-primary);
+  }
+
+  .workspace-topbar {
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-topbar);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
+  }
+
+  .workspace-toolbar-divider {
+    background: var(--border-subtle);
+  }
+
+  .workspace-toolbar-button {
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition:
+      background 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      transform 150ms ease;
+  }
+
+  .workspace-toolbar-button:hover {
+    color: var(--text-strong);
+    border-color: var(--border-subtle);
+    background: var(--surface-control-hover);
+  }
+
+  .workspace-toolbar-button[aria-pressed='true'],
+  .workspace-toolbar-button.is-active {
+    color: var(--text-strong);
+    border-color: hsl(var(--primary) / 0.3);
+    background: var(--surface-active);
+  }
+
+  .workspace-tab-switcher {
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-control);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  }
+
+  .workspace-tab-button {
+    color: var(--text-muted);
+    border: 1px solid transparent;
+  }
+
+  .workspace-tab-button:hover {
+    color: var(--text-strong);
+    background: var(--surface-hover);
+  }
+
+  .workspace-tab-button.is-active {
+    color: var(--text-strong);
+    border-color: var(--border-subtle);
+    background: var(--surface-card-strong);
+    box-shadow: 0 1px 5px hsl(220 36% 8% / 0.08);
+  }
+
+  .workspace-branch-status-badge {
+    color: var(--text-muted);
+    border-color: var(--border-subtle);
+    background: var(--surface-card);
+  }
+
+  .workspace-activity-rail {
+    background: var(--surface-sidebar);
+    border-right: 1px solid var(--border-subtle);
+    box-shadow: inset -1px 0 0 hsl(0 0% 100% / 0.04);
+  }
+
+  .workspace-activity-button {
+    color: var(--text-subtle);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    transition:
+      background 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .workspace-activity-button:hover {
+    color: var(--text-strong);
+    border-color: var(--border-subtle);
+    background: var(--surface-control-hover);
+  }
+
+  .workspace-activity-button.is-active {
+    color: var(--text-strong);
+    border-color: hsl(var(--primary) / 0.34);
+    background: var(--surface-active);
+  }
+
+  .workspace-right-panel {
+    background:
+      linear-gradient(
+        180deg,
+        var(--surface-right-panel),
+        hsl(var(--background))
+      ),
+      var(--surface-right-panel);
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .workspace-loading-state {
+    color: var(--text-muted);
+    background:
+      radial-gradient(
+        circle at 50% 36%,
+        hsl(var(--primary) / 0.12),
+        transparent 34%
+      ),
+      var(--surface-right-panel);
+  }
+
+  .workspace-loading-state > svg {
+    color: hsl(var(--primary));
+    filter: drop-shadow(0 6px 16px hsl(var(--primary) / 0.22));
+  }
+
+  .workspace-loading-panel {
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-shell);
+  }
+
+  .workspace-resize-handle {
+    background: var(--border-subtle);
+    transition:
+      background 150ms ease,
+      box-shadow 150ms ease,
+      width 150ms ease;
+  }
+
+  .workspace-resize-handle:hover {
+    background: hsl(var(--primary) / 0.42);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.12);
+  }
+
   .project-rail-shell {
     background: linear-gradient(
       180deg,
-      hsl(var(--background) / 0.42),
-      hsl(var(--secondary) / 0.3)
+      var(--surface-sidebar),
+      var(--surface-card)
     );
     backdrop-filter: blur(28px) saturate(160%);
     -webkit-backdrop-filter: blur(28px) saturate(160%);
+    border-color: var(--border-subtle);
     box-shadow:
-      0 18px 40px hsl(220 40% 2% / 0.2),
+      var(--shadow-shell),
       inset 0 1px 0 hsl(0 0% 100% / 0.08);
   }
 
@@ -447,11 +650,11 @@
   }
 
   .project-rail-action-button {
-    border: 1.5px solid hsl(var(--border) / 0.95);
+    border: 1px solid var(--border-subtle);
     background: linear-gradient(
       180deg,
-      hsl(var(--secondary) / 0.92),
-      hsl(var(--background) / 0.82)
+      var(--surface-card-strong),
+      var(--surface-control)
     );
     box-shadow:
       0 8px 18px hsl(220 40% 2% / 0.16),
@@ -465,9 +668,230 @@
   .project-rail-action-button:hover {
     transform: translateY(-1px);
     border-color: hsl(var(--primary) / 0.45);
+    background: var(--surface-control-hover);
     box-shadow:
       0 10px 22px hsl(220 40% 2% / 0.22),
       inset 0 1px 0 hsl(0 0% 100% / 0.08);
+  }
+
+  .project-rail-item-button {
+    color: var(--text-strong);
+    border-color: var(--border-subtle);
+    background: var(--surface-card);
+  }
+
+  .project-rail-item-button:hover {
+    border-color: hsl(var(--primary) / 0.38);
+    background: var(--surface-control-hover);
+  }
+
+  .project-rail-item-button.is-active {
+    color: hsl(var(--primary-foreground));
+    border-color: hsl(var(--primary) / 0.6);
+    background: hsl(var(--primary));
+    box-shadow: 0 8px 20px hsl(var(--primary) / 0.24);
+  }
+
+  .kanban-shell {
+    background: var(--surface-page-solid);
+  }
+
+  .kanban-nav-arrow {
+    color: var(--text-muted);
+    border-color: var(--border-subtle);
+    background: var(--surface-card-strong);
+    box-shadow: var(--shadow-shell);
+  }
+
+  .kanban-nav-arrow:hover {
+    color: var(--text-strong);
+    border-color: var(--border-strong);
+    background: var(--surface-control-hover);
+  }
+
+  .kanban-board-surface {
+    background: var(--surface-page-solid);
+  }
+
+  .kanban-column-surface {
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    background: var(--kanban-column-background);
+    background-color: var(--kanban-column-background);
+    overflow: hidden;
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  }
+
+  .kanban-column-surface.is-over {
+    border-color: hsl(var(--primary) / 0.42);
+    background: var(--surface-active);
+  }
+
+  .kanban-column-header {
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--kanban-column-background);
+    background-color: var(--kanban-column-background);
+  }
+
+  .kanban-count-pill,
+  .kanban-add-button {
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-control);
+    color: var(--text-muted);
+  }
+
+  .kanban-add-button:hover {
+    color: var(--text-strong);
+    border-color: var(--border-strong);
+    background: var(--surface-control-hover);
+  }
+
+  .session-hub-shell {
+    background: var(--surface-right-panel);
+  }
+
+  .session-hub-sidebar {
+    border-right: 1px solid var(--border-subtle);
+    background: var(--surface-sidebar);
+  }
+
+  .session-hub-action-button {
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .session-hub-action-button:hover {
+    color: var(--text-strong);
+    border-color: var(--border-subtle);
+    background: var(--surface-control-hover);
+  }
+
+  .session-hub-filter-chip,
+  .session-hub-count-chip {
+    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-control);
+  }
+
+  .session-hub-drop-zone {
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-card);
+  }
+
+  .session-hub-drop-zone.is-over {
+    border-color: hsl(var(--primary) / 0.42);
+    background: var(--surface-active);
+  }
+
+  .session-hub-card {
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-card-strong);
+    box-shadow: 0 1px 0 hsl(0 0% 100% / 0.05);
+  }
+
+  .session-hub-card:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-control-hover);
+    box-shadow: 0 8px 22px hsl(220 36% 8% / 0.1);
+  }
+
+  .session-hub-card.is-selected {
+    border-color: hsl(var(--primary) / 0.48);
+    background: var(--surface-active);
+  }
+
+  .session-hub-resizer {
+    background: transparent;
+  }
+
+  .session-hub-resizer::before {
+    background: var(--border-subtle);
+  }
+
+  .session-hub-resizer:hover::before {
+    background: hsl(var(--primary) / 0.48);
+  }
+
+  .composer-shell {
+    border: 1px solid var(--border-subtle);
+    background:
+      linear-gradient(180deg, var(--surface-composer), var(--surface-card)),
+      var(--surface-card);
+    box-shadow:
+      0 -10px 28px hsl(220 36% 8% / 0.08),
+      inset 0 1px 0 hsl(0 0% 100% / 0.08);
+  }
+
+  .composer-topbar {
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .composer-control {
+    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-control);
+  }
+
+  .composer-control:hover {
+    color: var(--text-strong);
+    border-color: var(--border-strong);
+    background: var(--surface-control-hover);
+  }
+
+  .composer-config-panel {
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-card);
+  }
+
+  .settings-shell {
+    background: var(--surface-page-solid);
+  }
+
+  .settings-titlebar {
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-topbar);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  }
+
+  .settings-sidebar {
+    border-right: 1px solid var(--border-subtle);
+    background: var(--surface-sidebar);
+  }
+
+  .settings-nav-button {
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    background: transparent;
+  }
+
+  .settings-nav-button:hover {
+    color: var(--text-strong);
+    border-color: var(--border-subtle);
+    background: var(--surface-control-hover);
+  }
+
+  .settings-nav-button.is-active {
+    color: var(--text-strong);
+    border-color: hsl(var(--primary) / 0.32);
+    background: var(--surface-active);
+  }
+
+  .dialog-backdrop {
+    background: hsl(220 42% 4% / 0.58);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  .dialog-surface {
+    border-color: var(--border-subtle);
+    background: var(--surface-card-strong);
+    box-shadow: var(--shadow-popover);
   }
 
   .ansi-red {

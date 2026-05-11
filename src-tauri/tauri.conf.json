@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.vibex.app",
   "build": {
-    "beforeDevCommand": "pnpm --filter ./frontend build --watch --emptyOutDir false",
-    "devUrl": null,
+    "beforeDevCommand": "pnpm --filter ./frontend dev --host 127.0.0.1 --strictPort",
+    "devUrl": "http://127.0.0.1:3000",
     "beforeBuildCommand": "pnpm --filter ./frontend build",
     "frontendDist": "../frontend/dist"
   },

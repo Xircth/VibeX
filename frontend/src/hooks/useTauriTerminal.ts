@@ -1,4 +1,10 @@
-import { useEffect, useRef, useCallback } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -81,7 +87,7 @@ interface UseTauriTerminalOptions {
   sessionId?: string | null;
   /** Whether the terminal should be active (connected) */
   enabled?: boolean;
-  /** Shell type override (e.g. 'powershell.exe', 'cmd.exe', 'bash') */
+  /** Shell type override (e.g. 'powershell.exe', 'cmd.exe') */
   shell?: string;
   /** Called whenever a PTY session id is attached or created */
   onSessionId?: (sessionId: string) => void;
@@ -94,12 +100,24 @@ interface UseTauriTerminalOptions {
 interface UseTauriTerminalResult {
   /** Ref to attach to the container div element */
   containerRef: React.RefCallback<HTMLDivElement>;
-  /** Whether the terminal is connected to the PTY */
-  isConnected: boolean;
   /** Error message if connection failed */
   error: string | null;
   /** Re-fit the terminal to its container (e.g. after tab becomes visible) */
   refit: () => void;
+}
+
+const MIN_TERMINAL_CONTAINER_SIZE = 16;
+
+function hasUsableTerminalContainer(element: HTMLElement): boolean {
+  if (!element.isConnected) {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  return (
+    rect.width >= MIN_TERMINAL_CONTAINER_SIZE &&
+    rect.height >= MIN_TERMINAL_CONTAINER_SIZE
+  );
 }
 
 export function useTauriTerminal({
@@ -120,16 +138,40 @@ export function useTauriTerminal({
   const themeObserverRef = useRef<MutationObserver | null>(null);
   const containerElRef = useRef<HTMLDivElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const isConnectedRef = useRef(false);
+  const onSessionIdRef = useRef(onSessionId);
+  const onLinkActivatedRef = useRef(onLinkActivated);
   const errorRef = useRef<string | null>(null);
+  const [errorState, setErrorState] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const terminalOpenedRef = useRef(false);
+  const initializeVersionRef = useRef(0);
+  const pendingInitObserverRef = useRef<ResizeObserver | null>(null);
+  const pendingInitFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onSessionIdRef.current = onSessionId;
+  }, [onSessionId]);
+
+  useEffect(() => {
+    onLinkActivatedRef.current = onLinkActivated;
+  }, [onLinkActivated]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId ?? null;
   }, [sessionId]);
 
   const disposeView = useCallback(() => {
+    initializeVersionRef.current += 1;
+
+    if (pendingInitObserverRef.current) {
+      pendingInitObserverRef.current.disconnect();
+      pendingInitObserverRef.current = null;
+    }
+    if (pendingInitFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingInitFrameRef.current);
+      pendingInitFrameRef.current = null;
+    }
+
     if (resizeObserverRef.current) {
       resizeObserverRef.current.disconnect();
       resizeObserverRef.current = null;
@@ -156,9 +198,17 @@ export function useTauriTerminal({
     }
 
     fitAddonRef.current = null;
-    isConnectedRef.current = false;
+    errorRef.current = null;
     terminalOpenedRef.current = false;
   }, []);
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      disposeView();
+    };
+  }, [disposeView]);
 
   const initialize = useCallback(
     async (container: HTMLDivElement) => {
@@ -167,6 +217,10 @@ export function useTauriTerminal({
       disposeView();
 
       if (!mountedRef.current) return;
+      errorRef.current = null;
+      setErrorState((current) => (current === null ? current : null));
+
+      initializeVersionRef.current += 1;
 
       const terminal = new Terminal({
         cursorBlink: !readOnly,
@@ -186,7 +240,7 @@ export function useTauriTerminal({
       terminal.loadAddon(
         new WebLinksAddon((event, uri) => {
           event.preventDefault();
-          onLinkActivated?.(uri);
+          onLinkActivatedRef.current?.(uri);
         })
       );
 
@@ -317,6 +371,7 @@ export function useTauriTerminal({
                 ? fallbackErr.message
                 : String(fallbackErr);
             errorRef.current = message;
+            setErrorState(message);
             terminal.writeln(
               `\r\n\x1b[31mFailed to create terminal for ${tabId}: ${message}\x1b[0m`
             );
@@ -325,6 +380,7 @@ export function useTauriTerminal({
         } else {
           const message = err instanceof Error ? err.message : String(err);
           errorRef.current = message;
+          setErrorState(message);
           terminal.writeln(
             `\r\n\x1b[31mFailed to attach terminal for ${tabId}: ${message}\x1b[0m`
           );
@@ -338,7 +394,7 @@ export function useTauriTerminal({
       }
 
       sessionIdRef.current = resolvedSessionId;
-      onSessionId?.(resolvedSessionId);
+      onSessionIdRef.current?.(resolvedSessionId);
 
       if (!readOnly) {
         terminal.onData((data) => {
@@ -376,8 +432,6 @@ export function useTauriTerminal({
       });
       resizeObserver.observe(container);
       resizeObserverRef.current = resizeObserver;
-
-      isConnectedRef.current = true;
       errorRef.current = null;
     },
     [
@@ -385,32 +439,82 @@ export function useTauriTerminal({
       enabled,
       shell,
       tabId,
-      onSessionId,
-      onLinkActivated,
       readOnly,
       disposeView,
     ]
   );
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      disposeView();
-    };
-  }, [disposeView]);
+  const initializeWhenReady = useCallback(
+    (container: HTMLDivElement) => {
+      if (!workspaceId || !enabled || !mountedRef.current) {
+        return;
+      }
+
+      if (hasUsableTerminalContainer(container)) {
+        void initialize(container);
+        return;
+      }
+
+      if (pendingInitObserverRef.current) {
+        pendingInitObserverRef.current.disconnect();
+        pendingInitObserverRef.current = null;
+      }
+      if (pendingInitFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingInitFrameRef.current);
+        pendingInitFrameRef.current = null;
+      }
+
+      const tryInitialize = () => {
+        pendingInitFrameRef.current = null;
+        if (
+          !mountedRef.current ||
+          !workspaceId ||
+          !enabled ||
+          containerElRef.current !== container
+        ) {
+          pendingInitObserverRef.current?.disconnect();
+          pendingInitObserverRef.current = null;
+          return;
+        }
+
+        if (hasUsableTerminalContainer(container)) {
+          pendingInitObserverRef.current?.disconnect();
+          pendingInitObserverRef.current = null;
+          void initialize(container);
+          return;
+        }
+
+        pendingInitFrameRef.current =
+          window.requestAnimationFrame(tryInitialize);
+      };
+
+      pendingInitObserverRef.current = new ResizeObserver(tryInitialize);
+      pendingInitObserverRef.current.observe(container);
+      pendingInitFrameRef.current = window.requestAnimationFrame(tryInitialize);
+    },
+    [enabled, initialize, workspaceId]
+  );
+
+  useLayoutEffect(() => {
+    const container = containerElRef.current;
+    if (!container || !workspaceId || !enabled) {
+      return;
+    }
+
+    initializeWhenReady(container);
+  }, [workspaceId, enabled, shell, readOnly, initializeWhenReady]);
 
   const containerRef = useCallback(
     (element: HTMLDivElement | null) => {
       if (element && element !== containerElRef.current) {
         containerElRef.current = element;
-        void initialize(element);
+        initializeWhenReady(element);
       } else if (!element && containerElRef.current) {
         containerElRef.current = null;
         disposeView();
       }
     },
-    [initialize, disposeView]
+    [disposeView, initializeWhenReady]
   );
 
   const refit = useCallback(() => {
@@ -425,8 +529,7 @@ export function useTauriTerminal({
 
   return {
     containerRef,
-    isConnected: isConnectedRef.current,
-    error: errorRef.current,
+    error: errorState,
     refit,
   };
 }

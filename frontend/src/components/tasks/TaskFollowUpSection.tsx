@@ -216,7 +216,7 @@ function TodoListButton({ todos }: { todos: TodoItem[] }) {
           title="任务列表"
           aria-label="任务列表"
           className={cn(
-            'flex items-center justify-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 transition-colors hover:text-foreground',
+            'composer-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors',
             todos.length === 0 && 'opacity-50'
           )}
         >
@@ -1096,12 +1096,12 @@ export function TaskFollowUpSection({
     <TooltipProvider delayDuration={200}>
       <div
         className={cn(
-          'flex flex-col min-h-0 overflow-hidden',
+          'flex min-h-0 flex-col overflow-hidden',
           isRetryActive && 'opacity-50'
         )}
       >
         {/* Scrollable content area */}
-        <div className="overflow-y-auto min-h-0 px-3">
+        <div className="min-h-0 overflow-y-auto px-3">
           <div className="space-y-2">
             {followUpError && (
               <div className="px-1 text-[11px] leading-4 text-muted-foreground">
@@ -1142,7 +1142,7 @@ export function TaskFollowUpSection({
 
         {/* Input area with buttons inside */}
         <div
-          className="flex flex-col gap-1 shrink-0 rounded-lg border border-border bg-background mx-3 mb-3 p-2 overflow-hidden"
+          className="composer-shell mx-3 mb-3 flex shrink-0 flex-col gap-1 overflow-hidden rounded-xl p-2"
           onFocus={() => setIsTextareaFocused(true)}
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget)) {
@@ -1154,7 +1154,7 @@ export function TaskFollowUpSection({
           {(tokenUsageInfo ||
             (showSessionSelector && sessions.length > 0) ||
             effectiveExecutorProfile?.executor) && (
-            <div className="flex items-center gap-2 px-1 pb-1 text-xs text-muted-foreground">
+            <div className="composer-topbar flex items-center gap-2 px-1 pb-2 text-xs">
               <DiffStatsBar
                 executorProfile={effectiveExecutorProfile}
                 sessionExecutor={session?.executor}
@@ -1162,7 +1162,7 @@ export function TaskFollowUpSection({
               {fileCount > 0 ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px]">
+                    <div className="composer-control inline-flex items-center rounded-md px-2 py-0.5 text-[11px]">
                       {`${fileCount} 个文件更改`}
                     </div>
                   </TooltipTrigger>
@@ -1190,7 +1190,7 @@ export function TaskFollowUpSection({
                   <button
                     type="button"
                     onClick={onJumpToPreviousUserMessage}
-                    className="flex items-center justify-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="composer-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={
                       '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f'
                     }
@@ -1227,7 +1227,7 @@ export function TaskFollowUpSection({
           )}
 
           {isNewSessionConfigVisible ? (
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-2">
+            <div className="composer-config-panel rounded-xl p-2">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="text-xs font-medium text-foreground">
                   {'\u65b0\u5efa\u4f1a\u8bdd\u914d\u7f6e'}
@@ -1235,7 +1235,7 @@ export function TaskFollowUpSection({
                 <button
                   type="button"
                   onClick={handleCancelNewSession}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                  className="composer-control inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors"
                   aria-label="取消新建会话"
                   title="取消新建会话"
                 >

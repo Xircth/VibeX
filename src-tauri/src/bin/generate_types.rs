@@ -153,7 +153,20 @@ fn replacement_declarations() -> BTreeMap<String, String> {
 fn insert_declaration<T: TS>(decls: &mut BTreeMap<String, String>) {
     let name = T::ident();
     let declaration = format!("export {}", T::decl().trim());
+    let declaration = if name == "Config" {
+        trim_trailing_line_whitespace(&declaration)
+    } else {
+        declaration
+    };
     decls.insert(name, declaration);
+}
+
+fn trim_trailing_line_whitespace(content: &str) -> String {
+    content
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn parse_declarations(content: &str) -> (String, Vec<Declaration>) {

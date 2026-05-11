@@ -19,10 +19,22 @@ test('preview proxy uses axum 0.8 wildcard route syntax', () => {
   assert.doesNotMatch(source, /route\("\/\*path"/);
 });
 
+test('preview proxy does not route local dev server traffic through system proxy', () => {
+  const source = readRepoFile('src-tauri/src/preview_proxy.rs');
+
+  assert.match(
+    source,
+    /Client::builder\(\)[\s\S]*\.no_proxy\(\)[\s\S]*\.build\(\)/
+  );
+});
+
 test('tauri setup manages AppState before async background tasks start', () => {
   const source = readRepoFile('src-tauri/src/lib.rs');
 
-  assert.match(source, /let state = tauri::async_runtime::block_on\(AppState::new\(\)\)/);
+  assert.match(
+    source,
+    /let state = tauri::async_runtime::block_on\(AppState::new\(\)\)/
+  );
   assert.match(source, /app\.manage\(state\);/);
   assert.doesNotMatch(
     source,

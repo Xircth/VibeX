@@ -26,6 +26,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { scratchApi, sessionsApi } from '@/lib/api';
+import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import { paths } from '@/lib/paths';
 import {
   buildWorkspaceBranchOptions,
@@ -187,6 +188,7 @@ export function KanbanSessionHub() {
     string | null
   >(null);
   const [isDeletingSessions, setIsDeletingSessions] = useState(false);
+  const [openingSessionId, setOpeningSessionId] = useState<string | null>(null);
   const [pendingCreatedSessionIds, setPendingCreatedSessionIds] = useState<
     string[]
   >([]);
@@ -323,6 +325,22 @@ export function KanbanSessionHub() {
       String(sessionListWidth)
     );
   }, [sessionListWidth]);
+
+  useEffect(() => {
+    if (!openingSessionId) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setOpeningSessionId((current) =>
+        current === openingSessionId ? null : current
+      );
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [openingSessionId]);
 
   useEffect(() => {
     if (isLoading) {
@@ -573,25 +591,7 @@ export function KanbanSessionHub() {
     return groups;
   }, [sessionsWithOptimisticStatus]);
 
-  const monitorRecords = useMemo(
-    () =>
-      monitorSessions
-        .filter(
-          (placement) => placement.sessionId !== activeAttempt?.session?.id
-        )
-        .map((placement) => sessionsById[placement.sessionId])
-        .filter((session): session is KanbanProjectSessionRecord =>
-          Boolean(session)
-        ),
-    [activeAttempt?.session?.id, monitorSessions, sessionsById]
-  );
-
-  const monitorPlacements = useMemo(
-    () => monitorRecords.map((session) => session.placement),
-    [monitorRecords]
-  );
-
-  const currentExecutionPlacement = useMemo(() => {
+  const activeWorkspacePlacement = useMemo(() => {
     if (activeWorktreeId && activeAttempt?.session?.id) {
       return {
         sessionId: activeAttempt.session.id,
@@ -599,8 +599,33 @@ export function KanbanSessionHub() {
       };
     }
 
-    return rightSession;
-  }, [activeAttempt?.session?.id, activeWorktreeId, rightSession]);
+    return null;
+  }, [activeAttempt?.session?.id, activeWorktreeId]);
+
+  const currentExecutionPlacement = useMemo(
+    () =>
+      resolveCurrentExecutionPlacement(rightSession, activeWorkspacePlacement),
+    [activeWorkspacePlacement, rightSession]
+  );
+
+  const monitorRecords = useMemo(
+    () =>
+      monitorSessions
+        .filter(
+          (placement) =>
+            placement.sessionId !== currentExecutionPlacement?.sessionId
+        )
+        .map((placement) => sessionsById[placement.sessionId])
+        .filter((session): session is KanbanProjectSessionRecord =>
+          Boolean(session)
+        ),
+    [currentExecutionPlacement?.sessionId, monitorSessions, sessionsById]
+  );
+
+  const monitorPlacements = useMemo(
+    () => monitorRecords.map((session) => session.placement),
+    [monitorRecords]
+  );
 
   const selectedSessionIdSet = useMemo(
     () => new Set(selectedSessionIds),
@@ -684,6 +709,14 @@ export function KanbanSessionHub() {
       return;
     }
 
+    const isAlreadyOpen =
+      currentExecutionPlacement?.sessionId === session.id ||
+      monitorPlacements.some((placement) => placement.sessionId === session.id);
+
+    if (!isAlreadyOpen) {
+      setOpeningSessionId(session.id);
+    }
+
     openSessionFromList(session.placement);
   };
 
@@ -717,6 +750,55 @@ export function KanbanSessionHub() {
       setDeleteErrorMessage(
         mapSessionErrorMessage(error, '更新会话状态失败，请稍后重试。')
       );
+    }
+  };
+
+  const handleDeleteSession = async (session: KanbanProjectSessionRecord) => {
+    if (isDeletingSessions) {
+      return;
+    }
+
+    const result = await ConfirmDialog.show({
+      title: '删除会话',
+      message: `确定删除会话“${session.fullName}”吗？正在执行中的会话不会被删除。`,
+      confirmText: '删除',
+      cancelText: '取消',
+      variant: 'destructive',
+    });
+
+    if (result !== 'confirmed') {
+      return;
+    }
+
+    setIsDeletingSessions(true);
+    setDeleteErrorMessage(null);
+    setDeleteSuccessMessage(null);
+
+    try {
+      await sessionsApi.delete(session.id);
+      await queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', session.workspace.id],
+      });
+      queryClient.removeQueries({
+        queryKey: ['session', session.id],
+      });
+
+      const remainingSessionIds = new Set(
+        sessions
+          .map((candidate) => candidate.id)
+          .filter((sessionId) => sessionId !== session.id)
+      );
+      pruneSessions(remainingSessionIds);
+      setSelectedSessionIds((current) =>
+        current.filter((sessionId) => sessionId !== session.id)
+      );
+      setDeleteSuccessMessage('已删除 1 个会话。');
+    } catch (error) {
+      setDeleteErrorMessage(
+        mapSessionErrorMessage(error, '删除失败，请稍后重试。')
+      );
+    } finally {
+      setIsDeletingSessions(false);
     }
   };
 
@@ -867,7 +949,7 @@ export function KanbanSessionHub() {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex h-full min-h-0 bg-background">
+      <div className="session-hub-shell flex h-full min-h-0">
         <SessionHubSidebar
           width={sessionListWidth}
           isLoading={isLoading}
@@ -900,6 +982,7 @@ export function KanbanSessionHub() {
           displayedCount={displayedCount}
           monitorPlacements={monitorPlacements}
           currentExecutionPlacement={currentExecutionPlacement}
+          openingSessionId={openingSessionId}
           onResizeMouseDown={handleSessionListResizeMouseDown}
           onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
           onCreateSession={() =>
@@ -924,6 +1007,7 @@ export function KanbanSessionHub() {
           onDeleteSelectedSessions={handleDeleteSelectedSessions}
           onSessionClick={handleSessionClick}
           onToggleSessionSelection={handleToggleSessionSelection}
+          onDeleteSession={handleDeleteSession}
           onRenameSession={async (session, name) => {
             await renameSessionMutation.mutateAsync({
               sessionId: session.id,

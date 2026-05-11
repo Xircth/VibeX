@@ -34,7 +34,6 @@ import {
   type Config,
 } from 'shared/types';
 import {
-  normalizeTerminalShell,
   TERMINAL_SHELL_OPTIONS,
   getDefaultTerminalShell,
 } from '@/lib/terminalPreferences';
@@ -43,9 +42,8 @@ import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 type EditorSettingsConfig = Config & {
   default_terminal_shell?: string | null;
   files_changed_default_collapsed?: boolean;
+  ai_message_default_collapsed?: boolean;
 };
-
-const SYSTEM_TERMINAL_SETTING_VALUE = '__system__';
 
 function SettingsSection({
   icon: Icon,
@@ -192,15 +190,10 @@ export function EditorSettings() {
               默认终端
             </Label>
             <Select
-              value={
-                getDefaultTerminalShell(draft) || SYSTEM_TERMINAL_SETTING_VALUE
-              }
+              value={getDefaultTerminalShell(draft)}
               onValueChange={(value) =>
                 updateDraft({
-                  default_terminal_shell:
-                    value === SYSTEM_TERMINAL_SETTING_VALUE
-                      ? null
-                      : normalizeTerminalShell(value),
+                  default_terminal_shell: value,
                 })
               }
             >
@@ -208,16 +201,11 @@ export function EditorSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
-                <SelectItem value={SYSTEM_TERMINAL_SETTING_VALUE}>
-                  系统默认
-                </SelectItem>
-                {TERMINAL_SHELL_OPTIONS.filter((opt) => opt.value).map(
-                  (opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  )
-                )}
+                {TERMINAL_SHELL_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -501,6 +489,22 @@ export function EditorSettings() {
               checked={draft.files_changed_default_collapsed ?? false}
               onCheckedChange={(checked) =>
                 updateDraft({ files_changed_default_collapsed: checked })
+              }
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 px-3 py-3">
+            <div className="space-y-1">
+              <div className="text-sm font-medium">AI消息默认折叠</div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                开启后，包含 `Command output:` 的 AI 最终消息默认只显示最终输出，前置命令输出可手动展开。
+              </p>
+            </div>
+            <Switch
+              className="settings-switch"
+              checked={draft.ai_message_default_collapsed ?? false}
+              onCheckedChange={(checked) =>
+                updateDraft({ ai_message_default_collapsed: checked })
               }
             />
           </div>

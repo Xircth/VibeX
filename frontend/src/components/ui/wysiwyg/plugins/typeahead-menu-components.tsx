@@ -70,11 +70,21 @@ function clampMenuHeight(height: number) {
   );
 }
 
+function isUsableRect(rect: DOMRect) {
+  return rect.width > 0 || rect.height > 0 || rect.top > 0 || rect.left > 0;
+}
+
 /**
- * Get the bounding rect of the current DOM selection cursor.
- * Falls back to the Lexical anchor element if no selection is available.
+ * Get the bounding rect for the Lexical typeahead anchor.
+ * Lexical already positions this anchor at the current trigger text; using the
+ * global selection first can point at stale editor positions in Dockview/WebView.
  */
 function getCursorRect(anchorEl: HTMLElement): DOMRect {
+  const anchorRect = anchorEl.getBoundingClientRect();
+  if (isUsableRect(anchorRect)) {
+    return anchorRect;
+  }
+
   try {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -83,15 +93,14 @@ function getCursorRect(anchorEl: HTMLElement): DOMRect {
       const rect =
         range.getClientRects().item(range.getClientRects().length - 1) ??
         range.getBoundingClientRect();
-      // A valid rect has non-zero dimensions or position
-      if (rect.width > 0 || rect.height > 0 || rect.top > 0 || rect.left > 0) {
+      if (isUsableRect(rect)) {
         return rect;
       }
     }
   } catch {
     // fall through
   }
-  return anchorEl.getBoundingClientRect();
+  return anchorRect;
 }
 
 function getPlacement(

@@ -94,6 +94,115 @@ export default schemas;
   };
 }
 
+function createManualChunks(id: string): string | undefined {
+  const normalizedId = id.replace(/\\/g, '/');
+
+  if (!normalizedId.includes('/node_modules/')) {
+    return undefined;
+  }
+
+  if (
+    normalizedId.includes('/node_modules/monaco-editor/') ||
+    normalizedId.includes('/node_modules/@monaco-editor/')
+  ) {
+    return 'vendor-monaco';
+  }
+
+  if (normalizedId.includes('/node_modules/@xterm/')) {
+    return 'vendor-terminal';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/@codemirror/') ||
+    normalizedId.includes('/node_modules/@uiw/react-codemirror/')
+  ) {
+    return 'vendor-codemirror';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/lexical/') ||
+    normalizedId.includes('/node_modules/@lexical/')
+  ) {
+    return 'vendor-lexical';
+  }
+
+  if (normalizedId.includes('/node_modules/highlight.js/es/languages/')) {
+    const language = path.basename(normalizedId, '.js');
+    if (
+      ['mathematica', 'isbl', 'gml', 'sqf', '1c', 'maxima', 'pgsql'].includes(
+        language
+      )
+    ) {
+      return 'vendor-highlight-special';
+    }
+
+    if (/^[a-f]/.test(language)) {
+      return 'vendor-highlight-a-f';
+    }
+
+    if (/^[g-m]/.test(language)) {
+      return 'vendor-highlight-g-m';
+    }
+
+    return 'vendor-highlight-n-z';
+  }
+
+  if (normalizedId.includes('/node_modules/highlight.js/')) {
+    return 'vendor-highlight';
+  }
+
+  if (normalizedId.includes('/node_modules/prismjs/')) {
+    return 'vendor-prism';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/react-markdown/') ||
+    normalizedId.includes('/node_modules/remark-') ||
+    normalizedId.includes('/node_modules/rehype-') ||
+    normalizedId.includes('/node_modules/micromark') ||
+    normalizedId.includes('/node_modules/mdast-') ||
+    normalizedId.includes('/node_modules/hast-') ||
+    normalizedId.includes('/node_modules/unified/') ||
+    normalizedId.includes('/node_modules/unist-') ||
+    normalizedId.includes('/node_modules/vfile')
+  ) {
+    return 'vendor-markdown';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/@git-diff-view/') ||
+    normalizedId.includes('/node_modules/@pierre/diffs/')
+  ) {
+    return 'vendor-diff';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/dockview') ||
+    normalizedId.includes('/node_modules/dockview-core/') ||
+    normalizedId.includes('/node_modules/dockview-react/')
+  ) {
+    return 'vendor-dockview';
+  }
+
+  if (normalizedId.includes('/node_modules/@radix-ui/')) {
+    return 'vendor-radix';
+  }
+
+  if (normalizedId.includes('/node_modules/@dnd-kit/')) {
+    return 'vendor-dnd';
+  }
+
+  if (normalizedId.includes('/node_modules/lucide-react/')) {
+    return 'vendor-icons';
+  }
+
+  if (normalizedId.includes('/node_modules/@tauri-apps/')) {
+    return 'vendor-tauri';
+  }
+
+  return 'vendor';
+}
+
 export default defineConfig({
   customLogger: createFilteredLogger(),
   define: {
@@ -102,6 +211,7 @@ export default defineConfig({
   plugins: [
     react({
       babel: {
+        compact: false,
         plugins: [
           [
             'babel-plugin-react-compiler',
@@ -142,7 +252,14 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    exclude: ['wa-sqlite'],
+    exclude: ['wa-sqlite', '@lexical/code'],
   },
-  build: { sourcemap: true },
+  build: {
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: createManualChunks,
+      },
+    },
+  },
 });

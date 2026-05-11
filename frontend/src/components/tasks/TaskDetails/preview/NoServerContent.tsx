@@ -27,6 +27,7 @@ interface NoServerContentProps {
   installWebCompanion: () => void;
   isInstallingCompanion?: boolean;
   startError?: string | null;
+  onPreviewUrlSubmit: (url: string) => void;
 }
 
 export function NoServerContent({
@@ -41,10 +42,12 @@ export function NoServerContent({
   installWebCompanion,
   isInstallingCompanion = false,
   startError = null,
+  onPreviewUrlSubmit,
 }: NoServerContentProps) {
   const queryClient = useQueryClient();
   const { data: projectRepos = [] } = useProjectRepos(project?.id);
   const [scriptInput, setScriptInput] = useState('');
+  const [previewUrlInput, setPreviewUrlInput] = useState('');
 
   const saveScriptMutation = useMutation({
     mutationFn: async (script: string) => {
@@ -79,6 +82,12 @@ export function NoServerContent({
     settingsWindowApi.open();
   };
 
+  const handleOpenPreviewUrl = () => {
+    const trimmed = previewUrlInput.trim();
+    if (!trimmed) return;
+    onPreviewUrlSubmit(trimmed);
+  };
+
   const isBusy = isStartingDevServer || saveScriptMutation.isPending;
 
   return (
@@ -107,6 +116,31 @@ export function NoServerContent({
             </p>
           </div>
 
+          <div className="space-y-3 text-left">
+            <label className="text-sm font-medium text-foreground">
+              预览 URL
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={previewUrlInput}
+                onChange={(event) => setPreviewUrlInput(event.target.value)}
+                onKeyDown={(event) =>
+                  event.key === 'Enter' && handleOpenPreviewUrl()
+                }
+                placeholder="http://localhost:3000"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm"
+              />
+              <Button
+                size="sm"
+                onClick={handleOpenPreviewUrl}
+                disabled={!previewUrlInput.trim()}
+              >
+                进入预览
+              </Button>
+            </div>
+          </div>
+
           {!projectHasDevScript && !runningDevServer ? (
             <div className="space-y-3 text-left">
               <label className="text-sm font-medium text-foreground">
@@ -128,6 +162,16 @@ export function NoServerContent({
                 >
                   <Play className="h-4 w-4" />
                   保存并启动
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleConfigureDevScript}
+                  disabled={isBusy}
+                  className="gap-1"
+                >
+                  <Settings className="h-4 w-4" />
+                  修改命令
                 </Button>
               </div>
             </div>

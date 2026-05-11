@@ -50,7 +50,7 @@ function TerminalHeaderActionsInner() {
   const handleCreateTab = useCallback(() => {
     if (!workspaceKey) return;
     const tabId = generateTerminalTabId();
-    addSession(workspaceKey, tabId, selectedShell || undefined);
+    addSession(workspaceKey, tabId, selectedShell);
   }, [workspaceKey, addSession, selectedShell]);
 
   return (

@@ -108,14 +108,15 @@ export const CollapsibleEntry: React.FC<{
 export const CompactNoticeEntry: React.FC<{
   content: string;
   variant: CollapsibleVariant;
-}> = ({ content, variant }) => {
+  title?: string;
+}> = ({ content, variant, title }) => {
   const className =
     variant === 'error'
       ? 'conv-compact-notice conv-compact-notice-error'
       : 'conv-compact-notice';
 
   return (
-    <div className={className} title={content}>
+    <div className={className} title={title ?? content}>
       {content}
     </div>
   );
@@ -125,8 +126,54 @@ export const PlainNoticeEntry: React.FC<{
   content: string;
   markdown: boolean;
   className?: string;
-}> = ({ content, markdown, className }) => (
-  <div className={`conv-plain-notice${className ? ` ${className}` : ''}`}>
+  title?: string;
+}> = ({ content, markdown, className, title }) => (
+  <div
+    className={`conv-plain-notice${className ? ` ${className}` : ''}`}
+    title={title}
+  >
     {markdown ? <Markdown value={content} /> : content}
   </div>
 );
+
+export const AssistantCommandOutputEntry: React.FC<{
+  prefix: string;
+  output: string;
+  expansionKey: string;
+}> = ({ prefix, output, expansionKey }) => {
+  const [expanded, toggle] = useExpandable(
+    `assistant-command-output:${expansionKey}`,
+    false
+  );
+  const hasPrefix = prefix.trim().length > 0;
+
+  return (
+    <div className="conv-assistant-command-output">
+      <div className="conv-assistant-command-output-header">
+        <button
+          type="button"
+          className="conv-assistant-command-output-toggle"
+          onClick={hasPrefix ? () => toggle() : undefined}
+          aria-expanded={hasPrefix ? expanded : undefined}
+        >
+          {hasPrefix ? (
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform text-zinc-700 dark:text-zinc-300 ${
+                expanded ? '' : '-rotate-90'
+              }`}
+            />
+          ) : null}
+          <span>Command output:</span>
+        </button>
+      </div>
+      {hasPrefix && expanded ? (
+        <div className="conv-assistant-command-output-prefix">
+          <Markdown value={prefix} />
+        </div>
+      ) : null}
+      <div className="conv-assistant-command-output-body">
+        <Markdown value={output} />
+      </div>
+    </div>
+  );
+};

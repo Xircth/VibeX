@@ -37,6 +37,10 @@ fn default_files_changed_default_collapsed() -> bool {
     false
 }
 
+fn default_ai_message_default_collapsed() -> bool {
+    false
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
     pub config_version: String,
@@ -82,6 +86,8 @@ pub struct Config {
     pub default_terminal_shell: Option<String>,
     #[serde(default = "default_files_changed_default_collapsed")]
     pub files_changed_default_collapsed: bool,
+    #[serde(default = "default_ai_message_default_collapsed")]
+    pub ai_message_default_collapsed: bool,
     /// Agents that have been disabled by the user in settings
     #[serde(default)]
     pub disabled_agents: Vec<BaseCodingAgent>,
@@ -120,6 +126,7 @@ impl Config {
             prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
+            ai_message_default_collapsed: default_ai_message_default_collapsed(),
             disabled_agents: Vec::new(),
             agent_order: None,
         }
@@ -182,6 +189,7 @@ impl Default for Config {
             prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
+            ai_message_default_collapsed: default_ai_message_default_collapsed(),
             disabled_agents: Vec::new(),
             agent_order: None,
         }

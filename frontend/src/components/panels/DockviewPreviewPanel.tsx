@@ -106,14 +106,6 @@ function getPathSegments(filePath: string): string[] {
     .filter((segment) => segment.length > 0);
 }
 
-function ContentLoadingFallback({ label }: { label: string }) {
-  return (
-    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-      {label}
-    </div>
-  );
-}
-
 function PreviewPlaceholder({
   icon,
   title,
@@ -132,6 +124,14 @@ function PreviewPlaceholder({
         <p className="text-sm font-medium text-foreground">{title}</p>
         <p className="text-xs">{description}</p>
       </div>
+    </div>
+  );
+}
+
+function ContentLoadingFallback({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+      {label}
     </div>
   );
 }
@@ -263,9 +263,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     assetUrl: fileAssetSrc,
     isLoading: isLoadingBinaryAsset,
     error: binaryAssetError,
-  } = useBinaryAssetPreview(
-    shouldFetchBinaryAsset ? resolvedFilePath : null
-  );
+  } = useBinaryAssetPreview(shouldFetchBinaryAsset ? resolvedFilePath : null);
   const binaryAssetErrorMessage = useMemo(() => {
     if (!binaryAssetError) {
       return null;

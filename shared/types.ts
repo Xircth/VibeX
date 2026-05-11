@@ -370,11 +370,11 @@ export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_pa
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, 
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
 /**
  * Agents that have been disabled by the user in settings
  */
-disabled_agents: Array<BaseCodingAgent>, 
+disabled_agents: Array<BaseCodingAgent>,
 /**
  * Custom agent display order (if user has reordered)
  */

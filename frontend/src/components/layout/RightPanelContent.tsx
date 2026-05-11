@@ -97,8 +97,8 @@ function CreateSessionOverlay({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/86 p-6 backdrop-blur-sm">
-      <div className="relative w-full max-w-[360px] rounded-xl border border-border bg-background p-4 shadow-xl">
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-md">
+      <div className="relative w-full max-w-[360px] rounded-xl border border-border/70 bg-background/95 p-4 shadow-xl">
         <button
           className="absolute right-2 top-2 z-10 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           onClick={onClose}
@@ -473,7 +473,7 @@ export function RightPanelContent() {
     <RightPanelSessionCreationProvider
       value={{ openCreateSessionOverlay }}
     >
-      <div className="h-full flex overflow-hidden bg-background">
+      <div className="h-full flex overflow-hidden bg-transparent">
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
           <BranchInfoHeader />
           <div className="relative flex-1 min-h-0 overflow-hidden">
@@ -502,9 +502,16 @@ export function RightPanelContent() {
                 />
               </div>
             ) : isRightSessionPending ? (
-              <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
+              <div className="workspace-loading-state flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-sm">
                 <Loader2 className="h-6 w-6 animate-spin" />
-                <p className="text-sm">Loading session...</p>
+                <div className="workspace-loading-panel flex flex-col items-center gap-1 px-5 py-4">
+                  <p className="font-medium text-foreground">
+                    Loading session
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Preparing the conversation panel...
+                  </p>
+                </div>
               </div>
             ) : (
               <RightPanelNewSessionPrompt

@@ -11,6 +11,23 @@
   var nameLabel = null;
   var lastHoveredElement = null;
   var bridgeToken = null;
+  var BRIDGE_TOKEN_QUERY_PARAM = '__vibex_bridge_token';
+
+  function consumeBridgeTokenFromUrl() {
+    try {
+      var url = new URL(window.location.href);
+      var token = url.searchParams.get(BRIDGE_TOKEN_QUERY_PARAM);
+      if (!token) return;
+
+      bridgeToken = token;
+      url.searchParams.delete(BRIDGE_TOKEN_QUERY_PARAM);
+      window.history.replaceState(
+        window.history.state,
+        document.title,
+        url.pathname + url.search + url.hash
+      );
+    } catch (e) {}
+  }
 
   // --- Helper: send message to parent ---
   function send(type, payload, version) {
@@ -964,6 +981,7 @@
   });
 
   // --- Notify parent that companion bridge is ready ---
+  consumeBridgeTokenFromUrl();
   installConsoleCapture();
   installNetworkCapture();
   send('ready', undefined, 1);

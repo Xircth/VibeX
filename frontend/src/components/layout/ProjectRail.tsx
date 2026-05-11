@@ -486,10 +486,8 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
                 onClick={() => handleProjectClick(project.id)}
                 title={`${project.name}: ${meta.label}`}
                 className={cn(
-                  'relative flex h-10 w-10 items-center justify-center rounded-2xl border text-[11px] font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.04] hover:shadow-lg',
-                  isActive
-                    ? 'border-primary bg-primary text-primary-foreground shadow-sm'
-                    : 'border-border/70 bg-secondary/60 text-foreground hover:border-primary/40 hover:bg-secondary'
+                  'project-rail-item-button relative flex h-10 w-10 items-center justify-center rounded-2xl border text-[11px] font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.04] hover:shadow-lg',
+                  isActive && 'is-active'
                 )}
               >
                 <span className="max-w-[30px] truncate text-[14px] font-bold uppercase leading-none">

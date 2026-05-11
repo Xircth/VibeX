@@ -1,5 +1,6 @@
 pub mod agent_settings;
 pub mod approvals;
+pub mod codex_account;
 pub mod config;
 pub mod desktop_toast;
 pub mod events;

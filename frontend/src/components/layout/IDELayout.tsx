@@ -893,20 +893,18 @@ export function IDELayout({
     <div className="workspace-shell flex h-full w-full flex-col">
       <SearchPalette />
       {toolbarContent && (
-        <div className="workspace-divider-bottom z-10 shrink-0 bg-background">
+        <div className="workspace-divider-bottom z-10 shrink-0">
           {toolbarContent}
         </div>
       )}
 
       <div className="flex min-h-0 flex-1">
         {effectiveActiveTab === 'workspace' ? (
-          <div className="workspace-divider-right flex w-10 shrink-0 flex-col items-center gap-0.5 bg-secondary pt-1">
+          <div className="workspace-activity-rail flex w-10 shrink-0 flex-col items-center gap-0.5 pt-1">
             <button
               onClick={toggleFileTree}
-              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
-                isPanelOpen(PANEL_IDS.FILE_TREE)
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+                isPanelOpen(PANEL_IDS.FILE_TREE) ? 'is-active' : ''
               }`}
               title="Files"
             >
@@ -914,10 +912,8 @@ export function IDELayout({
             </button>
             <button
               onClick={toggleGitPanel}
-              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
-                isPanelOpen(PANEL_IDS.GIT)
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+                isPanelOpen(PANEL_IDS.GIT) ? 'is-active' : ''
               }`}
               title="Git"
             >
@@ -925,10 +921,8 @@ export function IDELayout({
             </button>
             <button
               onClick={toggleSearchPanel}
-              className={`flex h-9 w-9 items-center justify-center rounded transition-colors ${
-                isPanelOpen(PANEL_IDS.SEARCH)
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+                isPanelOpen(PANEL_IDS.SEARCH) ? 'is-active' : ''
               }`}
               title="Search (Ctrl+Shift+F)"
             >
@@ -936,10 +930,8 @@ export function IDELayout({
             </button>
             <button
               onClick={toggleEditorArea}
-              className={`hidden h-9 w-9 items-center justify-center rounded transition-colors ${
-                isEditorAreaVisible
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              className={`workspace-activity-button hidden h-9 w-9 items-center justify-center transition-colors ${
+                isEditorAreaVisible ? 'is-active' : ''
               }`}
               title={
                 isEditorAreaVisible
@@ -978,8 +970,11 @@ export function IDELayout({
             <div className="absolute inset-0 z-10">
               <Suspense
                 fallback={
-                  <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-                    加载中...
+                  <div className="workspace-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                    <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <span>Loading Kanban...</span>
+                    </div>
                   </div>
                 }
               >
@@ -1024,8 +1019,8 @@ export function IDELayout({
             <div
               className={
                 isWorkspaceEditorAreaCollapsed
-                  ? 'z-20 min-w-0 flex-1 overflow-hidden bg-background'
-                  : 'z-20 shrink-0 overflow-hidden bg-background'
+                  ? 'workspace-right-panel z-20 min-w-0 flex-1 overflow-hidden'
+                  : 'workspace-right-panel z-20 shrink-0 overflow-hidden'
               }
               style={
                 isWorkspaceEditorAreaCollapsed

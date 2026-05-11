@@ -52,6 +52,14 @@ export interface ClickToComponentOpenInEditorMessage {
   bridgeToken?: string;
 }
 
+export interface ClickToComponentDetectedMessage {
+  source: 'click-to-component';
+  version: 2;
+  type: 'component-detected';
+  payload?: unknown;
+  bridgeToken?: string;
+}
+
 export interface ClickToComponentEnableMessage {
   source: 'click-to-component';
   version: 1;
@@ -115,6 +123,7 @@ export interface PreviewNetworkMessage {
 export type ClickToComponentMessage =
   | ClickToComponentReadyMessage
   | ClickToComponentOpenInEditorMessage
+  | ClickToComponentDetectedMessage
   | ClickToComponentToolbarBridgeReadyMessage
   | PreviewConsoleMessage
   | PreviewNetworkMessage;

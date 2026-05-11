@@ -42,7 +42,7 @@ export const RIGHT_PANEL_MARKER = {
 export const INFO_TEXT_CLASS = 'text-sky-600 dark:text-sky-300';
 export const UNASSIGNED_EXECUTOR = '__kanban_unassigned_executor__';
 export const SESSION_LIST_ACTION_BUTTON_CLASS =
-  'h-7 w-7 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground';
+  'session-hub-action-button h-7 w-7 p-0 shadow-none';
 export const SESSION_LIST_ACTION_ICON_CLASS = 'h-[11px] w-[11px]';
 export const SESSION_LIST_WIDTH_STORAGE_KEY =
   'vibex-kanban-session-list-width';

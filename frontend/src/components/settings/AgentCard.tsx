@@ -115,9 +115,7 @@ function createEmptyDraft(agent: AgentSettingInfo): AgentDraft {
     claudeDefaultOpusModel: envMap['ANTHROPIC_DEFAULT_OPUS_MODEL'] ?? '',
     // Codex
     codexModel: String(config['model'] ?? ''),
-    codexReasoningEffort: String(
-      config['model_reasoning_effort'] ?? 'medium'
-    ),
+    codexReasoningEffort: String(config['model_reasoning_effort'] ?? 'medium'),
     codexApiBaseUrl: envMap['OPENAI_BASE_URL'] ?? '',
     codexApiKey: envMap['OPENAI_API_KEY'] ?? '',
     codexConfigTomlText: String(config['_codex_config_toml'] ?? ''),
@@ -326,6 +324,7 @@ export function AgentCard({
   const [nativeConfigError, setNativeConfigError] = useState<string | null>(
     null
   );
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [claudeSettingsText, setClaudeSettingsText] = useState('');
   const [codexConfigTomlText, setCodexConfigTomlText] = useState('');
   const [codexAuthJsonText, setCodexAuthJsonText] = useState('');
@@ -428,6 +427,7 @@ export function AgentCard({
 
   const handleSave = useCallback(async () => {
     setIsSaving(true);
+    setSaveError(null);
     try {
       const envJson = buildEnvJson(agent.agent_type, draft);
       const configJson = buildConfigJson(agent.agent_type, draft);
@@ -440,7 +440,7 @@ export function AgentCard({
       onSave();
       onReload();
     } catch (err) {
-      // TODO: toast error
+      setSaveError(err instanceof Error ? err.message : '保存代理配置失败');
     } finally {
       setIsSaving(false);
     }
@@ -860,7 +860,12 @@ export function AgentCard({
           </div>
 
           {/* Save button */}
-          <div className="flex justify-end">
+          <div className="flex flex-col items-end gap-2">
+            {saveError && (
+              <div className="max-w-full text-right text-[11px] text-destructive">
+                {saveError}
+              </div>
+            )}
             <Button size="sm" onClick={handleSave} disabled={isSaving}>
               {isSaving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />

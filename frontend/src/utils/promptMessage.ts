@@ -1,13 +1,35 @@
 import { materializePromptTagReferences } from '@/lib/tagReferenceMarkers';
 
-function isSlashCommandPrompt(prompt: string): boolean {
+const SESSION_SCOPED_SLASH_COMMANDS = new Set([
+  'compact',
+  'context',
+  'cost',
+  'status',
+  'todos',
+  'undo',
+  'redo',
+  'messages',
+  'session',
+  'sessions',
+]);
+
+export function getSlashCommandName(prompt: string): string | null {
   const trimmed = prompt.trimStart();
-  if (!trimmed.startsWith('/')) return false;
+  if (!trimmed.startsWith('/')) return null;
 
   const match = /^\/([^\s/]+)(?:\s|$)/.exec(trimmed);
-  if (!match) return false;
+  if (!match) return null;
 
-  return true;
+  return match[1].toLowerCase();
+}
+
+function isSlashCommandPrompt(prompt: string): boolean {
+  return getSlashCommandName(prompt) !== null;
+}
+
+export function isSessionScopedSlashCommand(prompt: string): boolean {
+  const commandName = getSlashCommandName(prompt);
+  return commandName !== null && SESSION_SCOPED_SLASH_COMMANDS.has(commandName);
 }
 
 export function buildAgentPrompt(
@@ -16,7 +38,8 @@ export function buildAgentPrompt(
 ) {
   const trimmed = rawUserMessage.trim();
   const isSlashCommand = !!trimmed && isSlashCommandPrompt(trimmed);
-  const materializedUserMessage = materializePromptTagReferences(rawUserMessage);
+  const materializedUserMessage =
+    materializePromptTagReferences(rawUserMessage);
 
   const parts = isSlashCommand
     ? [trimmed]

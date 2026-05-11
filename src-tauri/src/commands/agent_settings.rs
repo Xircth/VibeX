@@ -175,6 +175,10 @@ fn npm_package_for_agent(agent_type: &str) -> Option<&'static str> {
     }
 }
 
+fn prefer_global_npm_package_version(agent_type: &str) -> bool {
+    matches!(agent_type, "claude_code" | "codex")
+}
+
 #[cfg(windows)]
 fn node_installer_program() -> &'static str {
     "npm.cmd"
@@ -224,6 +228,12 @@ async fn detect_agent_version_inner(
     agent_type: &str,
     executable: &PathBuf,
 ) -> Result<Option<String>, AppError> {
+    if prefer_global_npm_package_version(agent_type)
+        && let Some(version) = detect_global_npm_package_version(agent_type).await?
+    {
+        return Ok(Some(version));
+    }
+
     let (_, args) = version_command_for_agent(agent_type)
         .ok_or_else(|| AppError::Internal(format!("No ACP version command for {}", agent_type)))?;
     let arg_strings = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
@@ -527,5 +537,12 @@ mod tests {
             Some("@zed-industries/codex-acp")
         );
         assert_eq!(npm_package_for_agent("open_code"), Some("opencode-ai"));
+    }
+
+    #[test]
+    fn prefers_global_npm_metadata_for_adapters_without_reliable_version_flag() {
+        assert!(prefer_global_npm_package_version("claude_code"));
+        assert!(prefer_global_npm_package_version("codex"));
+        assert!(!prefer_global_npm_package_version("open_code"));
     }
 }

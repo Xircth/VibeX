@@ -53,7 +53,7 @@ import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 function ToolbarDivider() {
   return (
     <div
-      className="mx-1 h-6 w-px bg-border/60"
+      className="workspace-toolbar-divider mx-1 h-6 w-px"
       role="separator"
       aria-orientation="vertical"
     />
@@ -119,7 +119,7 @@ function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="flex h-7 items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 text-xs text-muted-foreground">
+        <div className="workspace-branch-status-badge flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs">
           <GitBranch className="h-3 w-3" />
           {targetBranch && (
             <span className="max-w-24 truncate">{targetBranch}</span>
@@ -269,7 +269,7 @@ function WorkspaceTabSwitcher() {
   );
 
   return (
-    <div className="flex items-center h-7 bg-muted/50 rounded-md p-0.5 gap-0.5">
+    <div className="workspace-tab-switcher flex h-7 items-center gap-0.5 rounded-md p-0.5">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = effectiveActiveTab === tab.key;
@@ -277,11 +277,10 @@ function WorkspaceTabSwitcher() {
           <button
             key={tab.key}
             onClick={() => handleTabSelect(tab.key)}
-            className={`flex items-center gap-1.5 px-2.5 h-6 rounded text-xs font-medium transition-all ${
-              isActive
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
+            className={cn(
+              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-all',
+              isActive && 'is-active'
+            )}
           >
             <Icon className="h-3 w-3" />
             {tab.label}
@@ -363,7 +362,7 @@ export function Toolbar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="w-full px-1.5 bg-secondary/50">
+      <div className="workspace-topbar w-full px-1.5">
         <div className="relative flex items-center h-9 gap-0.5">
           <div className="flex items-center shrink-0 min-w-0">
             <ProjectRailToggleButton />
@@ -391,7 +390,7 @@ export function Toolbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="workspace-toolbar-button h-7 w-7"
                     onClick={toggleFileTree}
                     aria-label="Toggle file tree"
                     tabIndex={isWorkspaceTab ? 0 : -1}
@@ -407,7 +406,7 @@ export function Toolbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="workspace-toolbar-button h-7 w-7"
                     onClick={toggleEditorArea}
                     aria-label={
                       isEditorAreaVisible
@@ -432,7 +431,7 @@ export function Toolbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="workspace-toolbar-button h-7 w-7"
                     onClick={openNewTerminal}
                     aria-label="Toggle terminal"
                     tabIndex={isWorkspaceTab ? 0 : -1}
@@ -448,7 +447,8 @@ export function Toolbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="workspace-toolbar-button h-7 w-7"
+                    aria-pressed={isRightPanelVisible}
                     onClick={toggleRightPanel}
                     aria-label="Toggle AI panel"
                     tabIndex={isWorkspaceTab ? 0 : -1}
@@ -468,7 +468,7 @@ export function Toolbar() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className="workspace-toolbar-button h-7 w-7"
                     onClick={resetLayout}
                     aria-label="Reset layout"
                     tabIndex={isWorkspaceTab ? 0 : -1}
@@ -489,7 +489,7 @@ export function Toolbar() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
+                      className="workspace-toolbar-button h-7 w-7"
                       onClick={handleCreateSession}
                       aria-label="Create new session"
                     >
@@ -501,7 +501,7 @@ export function Toolbar() {
                 {isSingleRepoProject && (
                   <OpenInIdeButton
                     onClick={handleOpenInIDE}
-                    className="h-7 w-7"
+                    className="workspace-toolbar-button h-7 w-7"
                   />
                 )}
                 <ToolbarDivider />
@@ -513,7 +513,7 @@ export function Toolbar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7"
+                  className="workspace-toolbar-button h-7 w-7"
                   onClick={handleOpenSettings}
                   aria-label="Settings"
                 >
@@ -527,7 +527,7 @@ export function Toolbar() {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="workspace-toolbar-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label="返回首页或打开最近项目"
                   title="返回首页或打开最近项目"
                 >

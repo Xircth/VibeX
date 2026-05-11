@@ -13,7 +13,7 @@ export interface TerminalSession {
   workspaceId: string;
   /** Display title for the terminal tab */
   title: string;
-  /** Shell type override (e.g. 'powershell.exe', 'cmd.exe', 'bash') */
+  /** Shell type override (e.g. 'powershell.exe', 'cmd.exe') */
   shell?: string;
   /** Session type: 'pty' for normal terminal, 'log-viewer' for dev server logs */
   type?: 'pty' | 'log-viewer';

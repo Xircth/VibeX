@@ -7,6 +7,7 @@ import {
   promoteMonitorSessionToRight,
   pruneUnavailableSessions,
   replaceRightSession,
+  resolveCurrentExecutionPlacement,
   type KanbanSessionPlacement,
 } from './kanbanSessionLayout';
 
@@ -117,5 +118,20 @@ describe('kanban session layout', () => {
       'a',
       'b',
     ]);
+  });
+
+  it('uses the right panel session as the execution placement when it differs from the active workspace', () => {
+    const next = resolveCurrentExecutionPlacement(
+      session('right'),
+      session('active')
+    );
+
+    expect(next?.sessionId).toBe('right');
+  });
+
+  it('falls back to the active workspace session when the right panel has not been seeded', () => {
+    const next = resolveCurrentExecutionPlacement(null, session('active'));
+
+    expect(next?.sessionId).toBe('active');
   });
 });

@@ -1,8 +1,0 @@
-{
-  "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/tauri.conf.json",
-  "build": {
-    "beforeDevCommand": "pnpm --filter ./frontend build --watch --emptyOutDir false",
-    "devUrl": null,
-    "frontendDist": "../frontend/dist"
-  }
-}

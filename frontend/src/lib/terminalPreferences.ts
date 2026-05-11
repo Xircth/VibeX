@@ -1,6 +1,6 @@
 import type { Config } from 'shared/types';
 
-export type TerminalShellValue = '' | 'powershell.exe' | 'cmd.exe' | 'bash';
+export type TerminalShellValue = 'powershell.exe' | 'cmd.exe';
 
 export interface TerminalShellOption {
   value: TerminalShellValue;
@@ -14,22 +14,19 @@ type ConfigWithTerminalPreferences = Config & {
 export const DEFAULT_TERMINAL_PANEL_HEIGHT = 200;
 
 export const TERMINAL_SHELL_OPTIONS: TerminalShellOption[] = [
-  { value: '', label: 'Default' },
   { value: 'powershell.exe', label: 'PowerShell' },
   { value: 'cmd.exe', label: 'CMD' },
-  { value: 'bash', label: 'Bash' },
 ];
 
 export function normalizeTerminalShell(
   value: string | null | undefined
 ): TerminalShellValue {
   switch (value) {
-    case 'powershell.exe':
     case 'cmd.exe':
-    case 'bash':
       return value;
+    case 'powershell.exe':
     default:
-      return '';
+      return 'powershell.exe';
   }
 }
 

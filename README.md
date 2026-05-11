@@ -15,7 +15,6 @@ AI 编程工具越来越强，但真实开发并不只是“发一条 prompt 等
 VibeX 更适合以下使用方式：
 
 - 同时维护多个项目、工作区或任务分支。
-- 经常在 Claude Code、OpenCode、Codex 之间切换。
 - 希望每个任务都有独立 worktree，避免不同 Agent 互相污染改动。
 - 需要在执行过程中实时查看终端输出、代码 diff、预览页面和会话上下文。
 - 需要本地优先、可自托管、可检查配置文件的桌面应用。
@@ -102,6 +101,8 @@ pnpm install
 pnpm run dev
 ```
 
+该命令会启动 Tauri 桌面端，并连接 Vite dev server 以保留 HMR 热更新。
+
 等价桌面开发命令：
 
 ```bash
@@ -178,10 +179,9 @@ cargo install sqlx-cli
 常用命令：
 
 ```bash
-pnpm run frontend:dev
 pnpm run backend:dev:watch
 pnpm run prepare-db
-pnpm run build:npx
+pnpm run frontend:build
 ```
 
 ---

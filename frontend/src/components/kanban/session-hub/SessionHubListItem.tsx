@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Bot, Check, GitBranch, Pencil, X } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  GitBranch,
+  Loader2,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -26,8 +34,10 @@ interface SessionHubListItemProps {
   onClick: () => void;
   onToggleSelect: () => void;
   onRenameSession?: (name: string | null) => void | Promise<void>;
+  onDeleteSession?: () => void | Promise<void>;
   displayMode?: 'default' | 'kanban-board';
   dragging?: boolean;
+  isOpening?: boolean;
 }
 
 export function SessionHubListItem({
@@ -38,8 +48,10 @@ export function SessionHubListItem({
   onClick,
   onToggleSelect,
   onRenameSession,
+  onDeleteSession,
   displayMode = 'default',
   dragging = false,
+  isOpening = false,
 }: SessionHubListItemProps) {
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const showRenameControls = !isDeleteMode && !isKanbanBoardMode;
@@ -89,6 +101,7 @@ export function SessionHubListItem({
     <div
       role="button"
       tabIndex={0}
+      aria-busy={isOpening || undefined}
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -99,9 +112,10 @@ export function SessionHubListItem({
         }
       }}
       className={cn(
-        'relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-lg border border-border bg-background px-3 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm',
-        isSelected && 'border-primary/50 bg-primary/5',
-        dragging && 'scale-[1.01] rotate-[0.75deg] shadow-xl ring-1 ring-primary/20'
+        'session-hub-card relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-xl px-3 py-2 text-left transition-all duration-200',
+        isSelected && 'is-selected',
+        dragging &&
+          'scale-[1.01] rotate-[0.75deg] shadow-xl ring-1 ring-primary/20'
       )}
     >
       <div
@@ -120,7 +134,12 @@ export function SessionHubListItem({
         </div>
       ) : null}
 
-      <div className={cn('min-w-0 w-0 flex-1 overflow-hidden', !isDeleteMode && 'pl-2')}>
+      <div
+        className={cn(
+          'min-w-0 w-0 flex-1 overflow-hidden',
+          !isDeleteMode && 'pl-2'
+        )}
+      >
         <div className="flex w-full min-w-0 items-start gap-2">
           <div className="min-w-0 w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-center gap-2">
@@ -140,7 +159,7 @@ export function SessionHubListItem({
                       cancelRename();
                     }
                   }}
-                  className="h-7 min-w-0 rounded-sm border-border/60 bg-background text-xs"
+                  className="h-7 min-w-0 rounded-md border-border/60 bg-background/80 text-xs"
                   autoFocus
                   disabled={isSubmitting}
                 />
@@ -185,14 +204,41 @@ export function SessionHubListItem({
             ) : null}
           </div>
 
-          {!isKanbanBoardMode ? (
+          {!isKanbanBoardMode || onDeleteSession ? (
             <div className="flex shrink-0 items-center gap-1">
+              {onDeleteSession && !isEditing ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        'composer-control rounded-md p-1 text-muted-foreground transition-opacity hover:text-foreground',
+                        isHovered ? 'opacity-100' : 'opacity-0'
+                      )}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onDeleteSession();
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>删除会话</TooltipContent>
+                </Tooltip>
+              ) : null}
+
               {showRenameControls ? (
                 isEditing ? (
                   <>
                     <button
                       type="button"
-                      className="text-muted-foreground hover:text-foreground"
+                      className="composer-control rounded-md p-1 transition-colors"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -203,7 +249,7 @@ export function SessionHubListItem({
                     </button>
                     <button
                       type="button"
-                      className="text-muted-foreground hover:text-foreground"
+                      className="composer-control rounded-md p-1 transition-colors"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -217,7 +263,7 @@ export function SessionHubListItem({
                   <button
                     type="button"
                     className={cn(
-                      'text-muted-foreground transition-opacity hover:text-foreground',
+                      'composer-control rounded-md p-1 transition-opacity',
                       isHovered ? 'opacity-100' : 'opacity-0'
                     )}
                     onClick={(event) => {
@@ -231,25 +277,31 @@ export function SessionHubListItem({
                 )
               ) : null}
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center justify-center text-muted-foreground">
-                    {session.executor ? (
-                      <AgentIcon
-                        agent={
-                          session.executor as ExecutorProfileId['executor']
-                        }
-                        className="h-4 w-4"
-                      />
-                    ) : (
-                      <Bot className="h-4 w-4" />
-                    )}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {getExecutorDisplayName(session.executor)}
-                </TooltipContent>
-              </Tooltip>
+              {isOpening ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              ) : null}
+
+              {!isKanbanBoardMode ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center justify-center text-muted-foreground">
+                      {session.executor ? (
+                        <AgentIcon
+                          agent={
+                            session.executor as ExecutorProfileId['executor']
+                          }
+                          className="h-4 w-4"
+                        />
+                      ) : (
+                        <Bot className="h-4 w-4" />
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {getExecutorDisplayName(session.executor)}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
           ) : null}
         </div>

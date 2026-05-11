@@ -44,6 +44,22 @@ const conversationHistoryCache = new Map<
   ConversationHistoryCacheEntry
 >();
 
+export function stripPreviouslyDisplayedAssistantPrefix(
+  content: string,
+  previousAssistantTranscript: string
+): string {
+  if (
+    previousAssistantTranscript.length < 20 ||
+    content.length <= previousAssistantTranscript.length ||
+    !content.startsWith(previousAssistantTranscript)
+  ) {
+    return content;
+  }
+
+  const stripped = content.slice(previousAssistantTranscript.length);
+  return stripped.trimStart() || content;
+}
+
 export const useConversationHistory = ({
   attempt,
   onEntriesUpdated,
@@ -269,6 +285,57 @@ export const useConversationHistory = ({
     };
   };
 
+  const getSnapshotComparisonKeys = useCallback(
+    (entries: PatchTypeWithKey[]): string[] => {
+      return entries
+        .map((entry) => {
+          if (entry.type !== 'NORMALIZED_ENTRY') {
+            return JSON.stringify({ type: entry.type, content: entry.content });
+          }
+
+          const entryType = entry.content.entry_type.type;
+          if (
+            entryType === 'user_message' ||
+            entryType === 'token_usage_info' ||
+            entryType === 'loading'
+          ) {
+            return null;
+          }
+
+          return JSON.stringify({
+            type: entry.type,
+            content: entry.content,
+          });
+        })
+        .filter((key): key is string => Boolean(key));
+    },
+    []
+  );
+
+  const isLikelyStaleRunningSnapshot = useCallback(
+    (executionProcessId: string, entries: PatchTypeWithKey[]): boolean => {
+      const nextKeys = getSnapshotComparisonKeys(entries);
+      if (nextKeys.length === 0) {
+        return false;
+      }
+
+      return Object.entries(displayedExecutionProcesses.current).some(
+        ([otherProcessId, state]) => {
+          if (otherProcessId === executionProcessId) {
+            return false;
+          }
+
+          const existingKeys = getSnapshotComparisonKeys(state.entries);
+          return (
+            existingKeys.length === nextKeys.length &&
+            existingKeys.every((key, index) => key === nextKeys[index])
+          );
+        }
+      );
+    },
+    [getSnapshotComparisonKeys]
+  );
+
   const getActiveAgentProcesses = (): ExecutionProcess[] => {
     return (
       executionProcesses?.current.filter(
@@ -289,6 +356,7 @@ export const useConversationHistory = ({
       let setupHelpText: string | undefined;
 
       // Create user messages + tool calls for setup/cleanup scripts
+      let previousAssistantTranscript = '';
       const allEntries = Object.values(executionProcessState)
         .sort(
           (a, b) =>
@@ -329,12 +397,37 @@ export const useConversationHistory = ({
             entries.push(userPatchTypeWithKey);
 
             // Remove user messages (replaced with custom one) and token usage info (displayed separately)
-            const filteredEntries = p.entries.filter(
-              (e) =>
-                e.type !== 'NORMALIZED_ENTRY' ||
-                (e.content.entry_type.type !== 'user_message' &&
-                  e.content.entry_type.type !== 'token_usage_info')
-            );
+            const filteredEntries = p.entries
+              .filter(
+                (e) =>
+                  e.type !== 'NORMALIZED_ENTRY' ||
+                  (e.content.entry_type.type !== 'user_message' &&
+                    e.content.entry_type.type !== 'token_usage_info')
+              )
+              .map((entry) => {
+                if (
+                  entry.type !== 'NORMALIZED_ENTRY' ||
+                  entry.content.entry_type.type !== 'assistant_message'
+                ) {
+                  return entry;
+                }
+
+                const strippedContent = stripPreviouslyDisplayedAssistantPrefix(
+                  entry.content.content,
+                  previousAssistantTranscript
+                );
+                if (strippedContent === entry.content.content) {
+                  return entry;
+                }
+
+                return {
+                  ...entry,
+                  content: {
+                    ...entry.content,
+                    content: strippedContent,
+                  },
+                };
+              });
 
             const hasPendingApprovalEntry = filteredEntries.some((entry) => {
               if (entry.type !== 'NORMALIZED_ENTRY') return false;
@@ -350,6 +443,15 @@ export const useConversationHistory = ({
             }
 
             entries.push(...filteredEntries);
+            for (const entry of filteredEntries) {
+              if (
+                entry.type === 'NORMALIZED_ENTRY' &&
+                entry.content.entry_type.type === 'assistant_message' &&
+                entry.content.content.trim().length > 0
+              ) {
+                previousAssistantTranscript += entry.content.content;
+              }
+            }
 
             const liveProcessStatus = getLiveExecutionProcess(
               p.executionProcess.id
@@ -622,10 +724,19 @@ export const useConversationHistory = ({
             },
             {
               onEntries(entries) {
-                receivedEntries = true;
                 const patchesWithKey = entries.map((entry, index) =>
                   patchWithKey(entry, executionProcess.id, index)
                 );
+                if (
+                  isLikelyStaleRunningSnapshot(
+                    executionProcess.id,
+                    patchesWithKey
+                  )
+                ) {
+                  return;
+                }
+
+                receivedEntries = true;
                 mergeIntoDisplayed((state) => {
                   state[executionProcess.id] = {
                     executionProcess,
@@ -699,7 +810,7 @@ export const useConversationHistory = ({
         startStream();
       });
     },
-    [emitEntries]
+    [emitEntries, isLikelyStaleRunningSnapshot]
   );
 
   const loadInitialEntries =

@@ -41,6 +41,26 @@ type CompanionInstallFeedback = {
 const MAX_PREVIEW_CONSOLE_ENTRIES = 200;
 const MAX_PREVIEW_NETWORK_ENTRIES = 200;
 
+function normalizePreviewUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `http://${trimmed}`;
+}
+
+function createBridgeToken(): string {
+  return (
+    window.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  );
+}
+
 type ProxyDetectedComponentPayload = {
   framework?: string;
   component?: string;
@@ -158,10 +178,13 @@ export function PreviewPanel() {
   const [networkEntries, setNetworkEntries] = useState<PreviewNetworkEntry[]>(
     []
   );
+  const [sessionPreviewUrl, setSessionPreviewUrl] = useState<string | null>(
+    null
+  );
   const listenerRef = useRef<ClickToComponentListener | null>(null);
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeBootstrapTimerRef = useRef<number | null>(null);
-  const bridgeTokenRef = useRef<string | null>(null);
+  const bridgeTokenRef = useRef<string | null>(createBridgeToken());
   const requestedSelectModeRef = useRef<boolean | null>(null);
   const companionReadyRef = useRef(false);
   const toolbarBridgeReadyRef = useRef(false);
@@ -170,7 +193,11 @@ export function PreviewPanel() {
 
   const attemptId = workspaceId;
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
-  const { overrideUrl: customUrl } = usePreviewSettings(attemptId);
+  const {
+    overrideUrl: customUrl,
+    setOverrideUrl,
+    clearOverride,
+  } = usePreviewSettings(attemptId);
   const { data: projectHasDevScript = false } =
     useHasDevServerScript(projectId);
   const { repos } = useAttemptRepo(attemptId);
@@ -204,13 +231,16 @@ export function PreviewPanel() {
     lastKnownUrl,
   });
 
-  const rawPreviewUrl = customUrl ?? previewState.url;
+  const rawPreviewUrl = sessionPreviewUrl ?? customUrl ?? previewState.url;
   const effectiveUrl = proxiedPreviewUrl ?? rawPreviewUrl;
   const supportsNativeInspect = Boolean(
     rawPreviewUrl && proxiedPreviewUrl && proxiedPreviewUrl !== rawPreviewUrl
   );
-  const { addElement, elements: clickedElements, workspaceRoot } =
-    useClickedElements();
+  const {
+    addElement,
+    elements: clickedElements,
+    workspaceRoot,
+  } = useClickedElements();
   const latestClickedElement = clickedElements[clickedElements.length - 1];
   const previewInspectorElement = useMemo(
     () =>
@@ -221,17 +251,15 @@ export function PreviewPanel() {
   );
 
   const appendConsoleEntry = useCallback((entry: PreviewConsoleEntry) => {
-    setConsoleEntries((previous) => [...previous, entry].slice(-MAX_PREVIEW_CONSOLE_ENTRIES));
+    setConsoleEntries((previous) =>
+      [...previous, entry].slice(-MAX_PREVIEW_CONSOLE_ENTRIES)
+    );
   }, []);
 
   const appendNetworkEntry = useCallback((entry: PreviewNetworkEntry) => {
-    setNetworkEntries((previous) => [...previous, entry].slice(-MAX_PREVIEW_NETWORK_ENTRIES));
-  }, []);
-
-  const resetBridgeToken = useCallback(() => {
-    bridgeTokenRef.current =
-      window.crypto?.randomUUID?.() ??
-      `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    setNetworkEntries((previous) =>
+      [...previous, entry].slice(-MAX_PREVIEW_NETWORK_ENTRIES)
+    );
   }, []);
 
   const handleCopyUrl = async () => {
@@ -241,6 +269,27 @@ export function PreviewPanel() {
     }
   };
 
+  const handlePreviewUrlChange = useCallback(
+    (url: string | null) => {
+      if (!url) {
+        setSessionPreviewUrl(null);
+        void clearOverride();
+        return;
+      }
+
+      const normalized = normalizePreviewUrl(url);
+      if (!normalized) return;
+
+      setSessionPreviewUrl(normalized);
+      void setOverrideUrl(normalized);
+    },
+    [clearOverride, setOverrideUrl]
+  );
+
+  useEffect(() => {
+    setSessionPreviewUrl(null);
+  }, [customUrl]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -249,10 +298,11 @@ export function PreviewPanel() {
       return;
     }
 
+    bridgeTokenRef.current = createBridgeToken();
     setProxiedPreviewUrl(null);
 
     desktopApi
-      .getPreviewProxyUrl(rawPreviewUrl)
+      .getPreviewProxyUrl(rawPreviewUrl, bridgeTokenRef.current)
       .then((url) => {
         if (!cancelled) {
           setProxiedPreviewUrl(url);
@@ -445,12 +495,7 @@ export function PreviewPanel() {
   }, [addElement]);
 
   useEffect(() => {
-    resetBridgeToken();
-  }, [resetBridgeToken]);
-
-  useEffect(() => {
     clearBridgeBootstrap();
-    resetBridgeToken();
     previewIframeRef.current = null;
     requestedSelectModeRef.current = null;
     companionReadyRef.current = false;
@@ -465,7 +510,7 @@ export function PreviewPanel() {
     setDevServerStartError(null);
     setConsoleEntries([]);
     setNetworkEntries([]);
-  }, [clearBridgeBootstrap, effectiveUrl, primaryDevServer?.id, resetBridgeToken]);
+  }, [clearBridgeBootstrap, effectiveUrl, primaryDevServer?.id]);
 
   useEffect(() => {
     // Sync select mode state via the companion bridge when it changes
@@ -572,9 +617,7 @@ export function PreviewPanel() {
     },
   });
 
-  const isPreviewReady =
-    (previewState.status === 'ready' && Boolean(previewState.url)) ||
-    customUrl !== null;
+  const isPreviewReady = Boolean(rawPreviewUrl);
   const isPreviewReadyWithoutError = isPreviewReady && !iframeError;
   const showCompanionHelp =
     hasRunningDevServer &&
@@ -702,16 +745,20 @@ export function PreviewPanel() {
         {mode === 'ready' ? (
           <ReadyContent
             url={effectiveUrl}
+            displayUrl={rawPreviewUrl}
             iframeKey={`${effectiveUrl}-${refreshKey}`}
             onIframeError={handleIframeError}
             onIframeLoad={handleIframeLoad}
             onCopyUrl={handleCopyUrl}
-            onStop={stopDevServer}
+            onStop={hasRunningDevServer ? stopDevServer : undefined}
             isStopping={isStoppingDevServer}
             onToggleSelectMode={handleToggleSelectMode}
             isSelectModeEnabled={isSelectModeEnabled}
             onToggleInspector={() => setIsInspectorOpen((open) => !open)}
             isInspectorOpen={isInspectorOpen}
+            onUrlChange={handlePreviewUrlChange}
+            hasUrlOverride={customUrl !== null}
+            onClearUrlOverride={() => handlePreviewUrlChange(null)}
             inspectorPane={
               <PreviewInspectorPane
                 clickedElement={previewInspectorElement}
@@ -744,6 +791,7 @@ export function PreviewPanel() {
             installWebCompanion={() => installCompanionMutation.mutate()}
             isInstallingCompanion={installCompanionMutation.isPending}
             startError={devServerStartError}
+            onPreviewUrlSubmit={handlePreviewUrlChange}
           />
         )}
 

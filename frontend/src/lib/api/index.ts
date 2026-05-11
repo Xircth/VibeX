@@ -93,3 +93,12 @@ export type {
   ProjectUsageStatistics,
   GetProjectUsageStatisticsParams,
 } from './localUsage';
+
+// Codex account quota
+export { codexAccountApi } from './codexAccount';
+export type {
+  CodexAccountRateLimitsResponse,
+  CodexCreditsSnapshot,
+  CodexRateLimitSnapshot,
+  CodexRateLimitWindow,
+} from './codexAccount';

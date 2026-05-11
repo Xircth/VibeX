@@ -19,6 +19,7 @@ import {
   X,
   Clock,
   Zap,
+  Package,
 } from 'lucide-react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
@@ -28,8 +29,9 @@ import {
   type ProjectUsageStatistics,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { CodexPlanDashboard } from '@/components/kanban/CodexPlanDashboard';
 
-type UsageTab = 'overview' | 'models' | 'sessions';
+type UsageTab = 'overview' | 'models' | 'sessions' | 'plan';
 type DateRange = '7d' | '30d' | 'all';
 
 const SESSIONS_PER_PAGE = 15;
@@ -107,14 +109,14 @@ export function KanbanUsageDashboard() {
     content: { date: '', cost: 0, sessions: 0 },
   });
   const availableTargets = useMemo(
-    () =>
-      projectId ? [preferredProjectTarget, 'global'] : ['global'],
+    () => (projectId ? [preferredProjectTarget, 'global'] : ['global']),
     [preferredProjectTarget, projectId]
   );
 
-  const statisticsQuery = useQuery(
-    getUsageStatisticsQueryOptions(selectedTarget, dateRange)
-  );
+  const statisticsQuery = useQuery({
+    ...getUsageStatisticsQueryOptions(selectedTarget, dateRange),
+    enabled: activeTab !== 'plan',
+  });
 
   const statistics = statisticsQuery.data ?? null;
   const loading = statisticsQuery.isLoading && !statistics;
@@ -143,9 +145,7 @@ export function KanbanUsageDashboard() {
 
     const prefetches = availableTargets.flatMap((target) =>
       DATE_RANGE_OPTIONS.map((range) =>
-        queryClient.prefetchQuery(
-          getUsageStatisticsQueryOptions(target, range)
-        )
+        queryClient.prefetchQuery(getUsageStatisticsQueryOptions(target, range))
       )
     );
 
@@ -283,6 +283,12 @@ export function KanbanUsageDashboard() {
       icon: List,
       activeColor: 'bg-green-500/20 text-green-500',
     },
+    {
+      key: 'plan' as UsageTab,
+      label: '套餐',
+      icon: Package,
+      activeColor: 'bg-orange-500/20 text-orange-500',
+    },
   ];
 
   const selectedProjectName =
@@ -301,7 +307,7 @@ export function KanbanUsageDashboard() {
           <h2 className="text-base font-semibold text-foreground">计量统计</h2>
         </div>
 
-        {noticeVisible ? (
+        {noticeVisible && activeTab !== 'plan' ? (
           <div className="flex items-center gap-1.5 rounded-md bg-yellow-500/10 px-2 py-1 text-xs text-yellow-600 dark:text-yellow-400">
             <span className="text-[10px] text-yellow-500">提示</span>
             <span>
@@ -320,63 +326,67 @@ export function KanbanUsageDashboard() {
 
         <div className="flex-1" />
 
-        <div className="relative">
-          <select
-            value={selectedTarget}
-            onChange={(event) => {
-              const nextTarget = event.target.value;
-              startTransition(() => {
-                setSelectedTarget(nextTarget);
-              });
-            }}
-            className="h-7 appearance-none rounded-lg border border-border bg-background px-3 pr-7 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="global">全局</option>
-            {projects.map((project) => (
-              <option key={project.id} value={`project:${project.id}`}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        </div>
+        {activeTab !== 'plan' ? (
+          <>
+            <div className="relative">
+              <select
+                value={selectedTarget}
+                onChange={(event) => {
+                  const nextTarget = event.target.value;
+                  startTransition(() => {
+                    setSelectedTarget(nextTarget);
+                  });
+                }}
+                className="h-7 appearance-none rounded-lg border border-border bg-background px-3 pr-7 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="global">全局</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={`project:${project.id}`}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            </div>
 
-        <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
-          {DATE_RANGE_OPTIONS.map((range) => (
+            <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
+              {DATE_RANGE_OPTIONS.map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  className={cn(
+                    'rounded-md px-2.5 py-0.5 text-xs font-medium transition-colors',
+                    dateRange === range
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => {
+                    startTransition(() => {
+                      setDateRange(range);
+                    });
+                  }}
+                >
+                  {range === '7d' ? '7天' : range === '30d' ? '30天' : '全部'}
+                </button>
+              ))}
+            </div>
+
             <button
-              key={range}
               type="button"
-              className={cn(
-                'rounded-md px-2.5 py-0.5 text-xs font-medium transition-colors',
-                dateRange === range
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-              onClick={() => {
-                startTransition(() => {
-                  setDateRange(range);
-                });
-              }}
+              onClick={() => void statisticsQuery.refetch()}
+              disabled={statisticsQuery.isFetching}
+              className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+              title="刷新"
             >
-              {range === '7d' ? '7天' : range === '30d' ? '30天' : '全部'}
+              <RefreshCw
+                className={cn(
+                  'h-4 w-4',
+                  statisticsQuery.isFetching && 'animate-spin'
+                )}
+              />
             </button>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void statisticsQuery.refetch()}
-          disabled={statisticsQuery.isFetching}
-          className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-          title="刷新"
-        >
-          <RefreshCw
-            className={cn(
-              'h-4 w-4',
-              statisticsQuery.isFetching && 'animate-spin'
-            )}
-          />
-        </button>
+          </>
+        ) : null}
       </div>
 
       <div className="relative flex min-h-0 flex-1">
@@ -402,49 +412,53 @@ export function KanbanUsageDashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 pl-24">
-          <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
-            <FolderOpen className="h-4 w-4" />
-            <span>{selectedProjectName}</span>
-            {statistics?.last_updated ? (
-              <>
-                <span className="text-border">•</span>
-                <span>
-                  最后更新：{formatRelativeTime(statistics.last_updated)}
-                </span>
-              </>
-            ) : null}
-            {statisticsQuery.isFetching && statistics ? (
-              <>
-                <span className="text-border">•</span>
-                <span className="flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                  更新中
-                </span>
-              </>
-            ) : null}
-          </div>
+          {activeTab === 'plan' ? <CodexPlanDashboard /> : null}
 
-          {failedProviders.length > 0 ? (
+          {activeTab !== 'plan' ? (
+            <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+              <FolderOpen className="h-4 w-4" />
+              <span>{selectedProjectName}</span>
+              {statistics?.last_updated ? (
+                <>
+                  <span className="text-border">•</span>
+                  <span>
+                    最后更新：{formatRelativeTime(statistics.last_updated)}
+                  </span>
+                </>
+              ) : null}
+              {statisticsQuery.isFetching && statistics ? (
+                <>
+                  <span className="text-border">•</span>
+                  <span className="flex items-center gap-1">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    更新中
+                  </span>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {activeTab !== 'plan' && failedProviders.length > 0 ? (
             <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2.5 text-sm text-red-500">
               部分数据源扫描失败：
               {failedProviders.map((p) => p.provider).join(', ')}
             </div>
           ) : null}
 
-          {error ? (
+          {activeTab !== 'plan' && error ? (
             <div className="mb-4 rounded-lg bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
               {error}
             </div>
           ) : null}
 
-          {loading ? (
+          {activeTab !== 'plan' && loading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
               <span className="text-base">加载中...</span>
             </div>
           ) : null}
 
-          {!loading && !statistics && !error ? (
+          {activeTab !== 'plan' && !loading && !statistics && !error ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <BarChart3 className="mb-3 h-10 w-10 opacity-50" />
               <p className="text-base">暂无数据</p>

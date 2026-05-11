@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import { Loader } from '@/components/ui/loader';
@@ -9,11 +9,20 @@ import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { GitOperationsProvider } from '@/contexts/GitOperationsContext';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { NewCard } from '@/components/ui/new-card';
-import { KanbanBoard } from '@/components/panels/DockviewKanbanPanel';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 
+const LazyKanbanBoard = lazy(() =>
+  import('@/components/panels/DockviewKanbanPanel').then((module) => ({
+    default: module.KanbanBoard,
+  }))
+);
+
 function ProjectSessionsHome() {
-  return <KanbanBoard />;
+  return (
+    <Suspense fallback={<Loader message="Loading task board..." />}>
+      <LazyKanbanBoard />
+    </Suspense>
+  );
 }
 
 function ProjectWorkspaceSessionRoute({
@@ -32,7 +41,7 @@ function ProjectWorkspaceSessionRoute({
   }, [attempt?.container_ref, attempt?.id, syncAttempt]);
 
   if (isLoadingAttempt || !attempt) {
-    return <Loader message="加载会话中..." size={32} className="py-8" />;
+    return <Loader message="Loading session..." size={32} className="py-8" />;
   }
 
   const matchedInitialSession =
@@ -90,7 +99,7 @@ export function ProjectTasks() {
         <Alert>
           <AlertTitle className="flex items-center gap-2">
             <AlertTriangle size="16" />
-            错误
+            Error
           </AlertTitle>
           <AlertDescription>
             {projectError.message || 'Failed to load project'}
@@ -101,7 +110,7 @@ export function ProjectTasks() {
   }
 
   if (projectLoading) {
-    return <Loader message="加载项目中..." size={32} className="py-8" />;
+    return <Loader message="Loading project..." size={32} className="py-8" />;
   }
 
   if (workspaceId) {

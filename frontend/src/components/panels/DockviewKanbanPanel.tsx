@@ -20,6 +20,8 @@ import {
 } from '@/hooks/useKanbanProjectSessions';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   shouldShowLeftArrow,
   shouldShowRightArrow,
@@ -103,7 +105,7 @@ export function KanbanBoard() {
 
   return (
     <div
-      className="group relative h-full w-full overflow-hidden bg-background"
+      className="kanban-shell group relative h-full w-full overflow-hidden"
       data-panel="kanban"
     >
       {/* Left arrow button */}
@@ -115,7 +117,7 @@ export function KanbanBoard() {
               onClick={handleLeftArrowClick}
               aria-label={getLeftArrowLabel()}
               className={cn(
-                'ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:text-foreground',
+                'kanban-nav-arrow ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border opacity-0 transition-all duration-200',
                 'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
               )}
             >
@@ -134,7 +136,7 @@ export function KanbanBoard() {
               onClick={handleRightArrowClick}
               aria-label={getRightArrowLabel()}
               className={cn(
-                'mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:text-foreground',
+                'kanban-nav-arrow mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border opacity-0 transition-all duration-200',
                 'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
               )}
             >
@@ -167,7 +169,7 @@ export function KanbanBoard() {
 function SessionKanbanBoard() {
   const { projectId } = useProject();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
-  const { replaceRightSession } = useKanbanSessionContext();
+  const { pruneSessions, replaceRightSession } = useKanbanSessionContext();
   const queryClient = useQueryClient();
 
   const [activeSession, setActiveSession] =
@@ -292,51 +294,90 @@ function SessionKanbanBoard() {
     [replaceRightSession]
   );
 
+  const handleDeleteSession = useCallback(
+    async (session: KanbanProjectSessionRecord) => {
+      const result = await ConfirmDialog.show({
+        title: '删除会话',
+        message: `确定删除会话“${session.fullName}”吗？正在执行中的会话不会被删除。`,
+        confirmText: '删除',
+        cancelText: '取消',
+        variant: 'destructive',
+      });
+
+      if (result !== 'confirmed') {
+        return;
+      }
+
+      try {
+        await sessionsApi.delete(session.id);
+        await queryClient.invalidateQueries({
+          queryKey: ['workspaceSessions', session.workspace.id],
+        });
+        queryClient.removeQueries({
+          queryKey: ['session', session.id],
+        });
+
+        const remainingSessionIds = new Set(
+          sessions
+            .map((candidate) => candidate.id)
+            .filter((sessionId) => sessionId !== session.id)
+        );
+        pruneSessions(remainingSessionIds);
+      } catch (error) {
+        console.error('Failed to delete session:', error);
+      }
+    },
+    [pruneSessions, queryClient, sessions]
+  );
+
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="workspace-loading-state flex h-full items-center justify-center p-6 text-sm">
         正在加载会话看板...
       </div>
     );
   }
 
   return (
-    <div className="h-full w-full overflow-auto bg-background p-3">
-      <DndContext
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        sensors={sensors}
-      >
-        <div className="flex h-full min-w-0 gap-3">
-          {KANBAN_COLUMNS.map((column) => (
-            <SessionKanbanColumn
-              key={column.key}
-              columnKey={column.key}
-              label={column.label}
-              dotColor={column.dotColor}
-              sessions={sessionsByStatus[column.key]}
-              onSessionClick={handleSessionClick}
-              onCreateTask={() => handleCreateSession(column.key)}
-            />
-          ))}
-        </div>
-        <DragOverlay dropAnimation={null}>
-          {activeSession ? (
-            <SessionHubListItem
-              session={activeSession}
-              marker={null}
-              isDeleteMode={false}
-              isSelected={false}
-              onClick={() => undefined}
-              onToggleSelect={() => undefined}
-              displayMode="kanban-board"
-              dragging
-            />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-    </div>
+    <TooltipProvider delayDuration={120}>
+      <div className="kanban-board-surface h-full w-full overflow-auto p-3">
+        <DndContext
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          sensors={sensors}
+        >
+          <div className="flex h-full min-w-0 gap-3">
+            {KANBAN_COLUMNS.map((column) => (
+              <SessionKanbanColumn
+                key={column.key}
+                columnKey={column.key}
+                label={column.label}
+                dotColor={column.dotColor}
+                sessions={sessionsByStatus[column.key]}
+                onSessionClick={handleSessionClick}
+                onDeleteSession={handleDeleteSession}
+                onCreateTask={() => handleCreateSession(column.key)}
+              />
+            ))}
+          </div>
+          <DragOverlay dropAnimation={null}>
+            {activeSession ? (
+              <SessionHubListItem
+                session={activeSession}
+                marker={null}
+                isDeleteMode={false}
+                isSelected={false}
+                onClick={() => undefined}
+                onToggleSelect={() => undefined}
+                displayMode="kanban-board"
+                dragging
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -346,6 +387,7 @@ function SessionKanbanColumn({
   dotColor,
   sessions,
   onSessionClick,
+  onDeleteSession,
   onCreateTask,
 }: {
   columnKey: SessionStatus;
@@ -353,6 +395,9 @@ function SessionKanbanColumn({
   dotColor: string;
   sessions: KanbanProjectSessionRecord[];
   onSessionClick: (session: KanbanProjectSessionRecord) => void;
+  onDeleteSession: (
+    session: KanbanProjectSessionRecord
+  ) => void | Promise<void>;
   onCreateTask: () => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: columnKey });
@@ -361,11 +406,11 @@ function SessionKanbanColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        'flex min-w-[180px] flex-1 flex-col rounded-lg border bg-muted/30 transition-colors',
-        isOver ? 'border-primary bg-primary/5' : 'border-border'
+        'kanban-column-surface flex min-w-[180px] flex-1 flex-col rounded-xl transition-colors',
+        isOver && 'is-over'
       )}
     >
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
+      <div className="kanban-column-header flex shrink-0 items-center gap-2 px-3 py-2.5">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: dotColor }}
@@ -373,13 +418,13 @@ function SessionKanbanColumn({
         <span className="text-xs font-semibold tracking-wide text-foreground">
           {label}
         </span>
-        <span className="ml-auto text-xs text-muted-foreground">
+        <span className="kanban-count-pill ml-auto rounded-full px-2 py-0.5 text-xs">
           {sessions.length}
         </span>
         <button
           type="button"
           onClick={onCreateTask}
-          className="text-muted-foreground transition-colors hover:text-foreground"
+          className="kanban-add-button flex h-6 w-6 items-center justify-center rounded-md transition-colors"
           title="新建会话"
         >
           <span className="text-sm leading-none">+</span>
@@ -393,6 +438,7 @@ function SessionKanbanColumn({
             index={index}
             columnKey={columnKey}
             onClick={() => onSessionClick(session)}
+            onDelete={() => onDeleteSession(session)}
           />
         ))}
       </div>
@@ -405,11 +451,13 @@ function DraggableSessionCard({
   index,
   columnKey,
   onClick,
+  onDelete,
 }: {
   session: KanbanProjectSessionRecord;
   index: number;
   columnKey: SessionStatus;
   onClick: () => void;
+  onDelete: () => void | Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
@@ -440,6 +488,7 @@ function DraggableSessionCard({
         isSelected={false}
         onClick={onClick}
         onToggleSelect={() => undefined}
+        onDeleteSession={onDelete}
         displayMode="kanban-board"
       />
     </div>

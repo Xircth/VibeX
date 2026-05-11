@@ -136,6 +136,215 @@ export const renderJson = (v: JsonValue) =>
     JSON.stringify(v, null, 2)
   );
 
+const ANSI_SEQUENCE_PATTERN = new RegExp(
+  `${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]|\\[(?:[0-9]{1,2};?)*m`,
+  'g'
+);
+const INTERNAL_TRACING_LOG_PATTERN =
+  /^(?:\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+)?(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)+(?:\s*:|:|\s)/;
+const TRANSPORT_FALLBACK_NOTICE_PREFIX_PATTERN =
+  /^\s*(Falling back from WebSockets to HTTPS transport\.\s*timeout waiting for child process to exit\.?)([\s\S]*)$/i;
+const VERBOSE_ERROR_PATTERNS = [
+  /\bWall time:\s*.+?\bOutput:/i,
+  /\bCategoryInfo\s*:/i,
+  /\bFullyQualifiedErrorId\s*:/i,
+  /\bCommandNotFoundException\b/i,
+  /\bSet-PSReadLineOption\b/i,
+  /\bERR_PNPM_/i,
+  /\bELIFECYCLE\b/i,
+  /\bCannot find module\b/i,
+  /\bfailed to load config\b/i,
+];
+const COMMAND_OUTPUT_MARKER_PATTERN = /\bCommand output:\s*/i;
+const SHELL_OUTPUT_ENVELOPE_PATTERN =
+  /^\s*(?:(?:Exit code|Wall time):[\s\S]*?)?\bOutput:\s*/i;
+
+export function sanitizeConversationContent(content: string): string {
+  return content.replace(ANSI_SEQUENCE_PATTERN, '').trim();
+}
+
+export function isInternalTracingLogContent(content: string): boolean {
+  const normalized = sanitizeConversationContent(content);
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    INTERNAL_TRACING_LOG_PATTERN.test(normalized) ||
+    normalized.includes(' codex_acp::') ||
+    normalized.includes(' codex_core::')
+  );
+}
+
+function compactWhitespace(content: string): string {
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function ellipsize(content: string, maxLength: number): string {
+  if (content.length <= maxLength) {
+    return content;
+  }
+
+  return `${content.slice(0, maxLength - 1).trimEnd()}\u2026`;
+}
+
+export function isNeutralTransportNotice(content: string): boolean {
+  const match = sanitizeConversationContent(content).match(
+    TRANSPORT_FALLBACK_NOTICE_PREFIX_PATTERN
+  );
+
+  return Boolean(match && !match[2]?.trim());
+}
+
+export function splitLeadingTransportNotice(
+  content: string
+): { notice: string; remainder: string } | null {
+  const match = sanitizeConversationContent(content).match(
+    TRANSPORT_FALLBACK_NOTICE_PREFIX_PATTERN
+  );
+  if (!match) {
+    return null;
+  }
+
+  const notice = match[1]?.trim();
+  const remainder = match[2]?.trimStart();
+  if (!notice || !remainder) {
+    return null;
+  }
+
+  return { notice, remainder };
+}
+
+function stripPowerShellProfileNoise(content: string): string {
+  if (!/Set-PSReadLineOption/i.test(content)) {
+    return content;
+  }
+
+  return content
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      return (
+        trimmed &&
+        !/^Set-PSReadLineOption\b/i.test(trimmed) &&
+        !/Microsoft\.PowerShell_profile\.ps1/i.test(trimmed) &&
+        !/^\+ Set-PSReadLineOption\b/i.test(trimmed) &&
+        !/^~{3,}/.test(trimmed) &&
+        !/\[Set-PSReadLineOption\]/i.test(trimmed) &&
+        !/Microsoft\.PowerShell\.SetPSReadLineOption/i.test(trimmed)
+      );
+    })
+    .join('\n');
+}
+
+export function getCompactVerboseErrorText(content: string): string | null {
+  const cleaned = sanitizeConversationContent(content);
+  const normalized = compactWhitespace(cleaned);
+  if (!normalized) {
+    return null;
+  }
+
+  const lineCount = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean).length;
+  const isVerbose =
+    lineCount >= 3 ||
+    normalized.length > 360 ||
+    VERBOSE_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
+
+  if (!isVerbose) {
+    return null;
+  }
+
+  const summarySource = stripPowerShellProfileNoise(cleaned);
+  const summaryNormalized = compactWhitespace(summarySource);
+  const normalizedForSummary = summaryNormalized || normalized;
+
+  if (
+    /\brg\b/i.test(normalizedForSummary) &&
+    (/CommandNotFoundException/i.test(normalizedForSummary) ||
+      /not recognized/i.test(normalizedForSummary) ||
+      /无法将/i.test(normalized))
+  ) {
+    return 'Command failed: rg is not recognized';
+  }
+
+  if (!summaryNormalized && /Set-PSReadLineOption/i.test(normalized)) {
+    return 'PowerShell profile warning: Set-PSReadLineOption failed';
+  }
+
+  const withoutShellEnvelope = normalizedForSummary.replace(
+    /^(?:Exit code:\s*[^.]+\.?\s*)?(?:Wall time:\s*.+?\s*)?Output:\s*/i,
+    ''
+  );
+  const firstMeaningfulLine =
+    withoutShellEnvelope
+      .split(
+        /\s+(?=(?:[A-Za-z]:\\|[A-Za-z][\w.-]*\s*:|Error:|Cannot|failed|ERR_))/
+      )
+      .map((line) => line.trim())
+      .find(
+        (line) =>
+          line &&
+          !/^Set-PSReadLineOption\b/i.test(line) &&
+          !/^CategoryInfo\b/i.test(line) &&
+          !/^FullyQualifiedErrorId\b/i.test(line)
+      ) ?? withoutShellEnvelope;
+
+  return ellipsize(`Command output: ${firstMeaningfulLine}`, 180);
+}
+
+export interface AssistantCommandOutputSplit {
+  prefix: string;
+  output: string;
+}
+
+function stripCommandOutputPrefixNoise(content: string): string {
+  const withoutProfileNoise = stripPowerShellProfileNoise(content);
+  return (withoutProfileNoise.trim() || content.trim()).trim();
+}
+
+export function splitAssistantCommandOutput(
+  content: string
+): AssistantCommandOutputSplit | null {
+  const cleaned = sanitizeConversationContent(content);
+  if (!cleaned) {
+    return null;
+  }
+
+  const markerMatch = cleaned.match(COMMAND_OUTPUT_MARKER_PATTERN);
+  if (markerMatch?.index != null) {
+    const markerEnd = markerMatch.index + markerMatch[0].length;
+    const output = stripCommandOutputPrefixNoise(cleaned.slice(markerEnd));
+    if (!output) {
+      return null;
+    }
+
+    return {
+      prefix: cleaned.slice(0, markerMatch.index).trim(),
+      output,
+    };
+  }
+
+  const shellEnvelopeMatch = cleaned.match(SHELL_OUTPUT_ENVELOPE_PATTERN);
+  if (!shellEnvelopeMatch) {
+    return null;
+  }
+
+  const output = stripCommandOutputPrefixNoise(
+    cleaned.slice(shellEnvelopeMatch[0].length)
+  );
+  if (!output) {
+    return null;
+  }
+
+  return {
+    prefix: shellEnvelopeMatch[0].trim(),
+    output,
+  };
+}
+
 export const getEntryIcon = (entryType: NormalizedEntryType) => {
   const iconSize = 'h-3 w-3';
   if (entryType.type === 'user_message' || entryType.type === 'user_feedback') {
@@ -328,6 +537,10 @@ export function getCompactMetaNoticeText(
     return null;
   }
 
+  if (isNeutralTransportNotice(content)) {
+    return normalized;
+  }
+
   if (
     (entryType.type === 'system_message' ||
       entryType.type === 'error_message' ||
@@ -439,7 +652,7 @@ export const getToolSummary = (
       return { label: '网页抓取', detail: at.url };
     case 'task_create':
       return {
-        label: '创建子任务',
+        label: 'Subagent',
         detail:
           at.description.length > 60
             ? at.description.slice(0, 57) + '\u2026'
@@ -456,7 +669,7 @@ export const getToolSummary = (
         detail: `${at.operation}${at.todos.length > 0 ? ` (${at.todos.length})` : ''}`,
       };
     case 'plan_presentation':
-      return { label: '计划', detail: '' };
+      return { label: 'Plan', detail: '' };
     default:
       return { label: entryType.tool_name || 'Tool', detail: content.trim() };
   }
@@ -509,11 +722,29 @@ function getAggregationKey(data: PatchTypeWithKey): string | null {
     return null;
   }
 
+  if (aggregationType === 'command_run') {
+    return [data.executionProcessId, aggregationType].join(':');
+  }
+
   return [
     data.executionProcessId,
     aggregationType,
     entry.entry_type.tool_name.trim().toLowerCase(),
   ].join(':');
+}
+
+function shouldHideDisplayEntry(data: PatchTypeWithKey): boolean {
+  if (data.type !== 'NORMALIZED_ENTRY') {
+    return false;
+  }
+
+  const entryType = data.content.entry_type;
+  return (
+    (entryType.type === 'system_message' ||
+      entryType.type === 'error_message' ||
+      entryType.type === 'assistant_message') &&
+    isInternalTracingLogContent(data.content.content)
+  );
 }
 
 function isProcessChangeEntry(data: PatchTypeWithKey): boolean {
@@ -557,6 +788,10 @@ export function buildDisplayEntries(
   const emittedFileEditGroups = new Set<string>();
 
   for (const entry of entries) {
+    if (shouldHideDisplayEntry(entry)) {
+      continue;
+    }
+
     if (!isProcessChangeEntry(entry)) {
       continue;
     }
@@ -643,6 +878,10 @@ export function buildDisplayEntries(
   };
 
   for (const entry of entries) {
+    if (shouldHideDisplayEntry(entry)) {
+      continue;
+    }
+
     if (isThinkingEntry(entry)) {
       continue;
     }

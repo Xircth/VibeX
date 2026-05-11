@@ -6,7 +6,10 @@ import type { WorkspaceWithSession } from '@/types/attempt';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
-import { useConversationHistory } from './useConversationHistory';
+import {
+  stripPreviouslyDisplayedAssistantPrefix,
+  useConversationHistory,
+} from './useConversationHistory';
 
 vi.mock('@tanstack/react-query', async () => {
   const actual = await vi.importActual('@tanstack/react-query');
@@ -35,6 +38,23 @@ describe('useConversationHistory', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('strips assistant transcript replay prefixes from later ACP turns', () => {
+    const firstReply =
+      'I checked the frontend startup path and found the dev server.';
+    const secondReply =
+      'I will now restart the backend and verify the frontend URL.';
+
+    expect(
+      stripPreviouslyDisplayedAssistantPrefix(
+        `${firstReply}\n\n${secondReply}`,
+        firstReply
+      )
+    ).toBe(secondReply);
+    expect(
+      stripPreviouslyDisplayedAssistantPrefix(secondReply, firstReply)
+    ).toBe(secondReply);
   });
 
   it('closes the active session stream on unmount', async () => {
@@ -549,12 +569,15 @@ describe('useConversationHistory', () => {
     rerender();
 
     await waitFor(() => {
-      expect(onEntriesUpdated.mock.calls.length).toBeGreaterThan(callsBeforeStop);
+      expect(onEntriesUpdated.mock.calls.length).toBeGreaterThan(
+        callsBeforeStop
+      );
     });
 
     const latestEntries =
-      onEntriesUpdated.mock.calls[onEntriesUpdated.mock.calls.length - 1]?.[0] ??
-      [];
+      onEntriesUpdated.mock.calls[
+        onEntriesUpdated.mock.calls.length - 1
+      ]?.[0] ?? [];
 
     expect(
       latestEntries.some(

@@ -5,6 +5,8 @@ import { useExpandable } from '@/stores/useExpandableStore';
 import {
   Check,
   ChevronDown,
+  Circle,
+  CircleDot,
   Copy,
   ExternalLink,
   FolderOpen,
@@ -17,7 +19,6 @@ import { Button } from '@/components/ui/button';
 import { ScriptFixerDialog } from '@/components/dialogs/scripts/ScriptFixerDialog';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
-import { ExpandChevron } from './MessageCard';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
 import {
@@ -26,7 +27,7 @@ import {
   getToolExitStatus,
   getToolSummary,
   getScriptType,
-  PLAN_APPEARANCE,
+  getCompactVerboseErrorText,
   type ToolStatusAppearance,
 } from './conversation-entry-utils';
 
@@ -76,6 +77,44 @@ function resolveLookupPath(detail: string, containerRef?: string | null) {
   const base = containerRef.replace(/[\\/]+$/, '');
   const normalized = usesWindows ? detail.replaceAll('/', '\\') : detail;
   return `${base}${separator}${normalized}`;
+}
+
+type ParsedPlanItem = {
+  status: string;
+  priority: string | null;
+  content: string;
+};
+
+const PLAN_ITEM_PATTERN =
+  /^\s*(?:\d+[.)]|[-*])\s+\[([^\]|]+)(?:\s*\|\s*([^\]]+))?\]\s+(.+?)\s*$/;
+
+function parsePlanItems(plan: string): ParsedPlanItem[] {
+  return plan
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(PLAN_ITEM_PATTERN);
+      if (!match?.[1] || !match?.[3]) {
+        return null;
+      }
+
+      return {
+        status: match[1].trim(),
+        priority: match[2]?.trim() || null,
+        content: match[3].trim(),
+      } satisfies ParsedPlanItem;
+    })
+    .filter((item): item is ParsedPlanItem => Boolean(item));
+}
+
+function getPlanStatusIcon(status: string) {
+  const normalized = status.toLowerCase().replace(/-/g, '_');
+  if (normalized === 'completed' || normalized === 'done') {
+    return <Check className="h-3.5 w-3.5 text-green-600" />;
+  }
+  if (normalized === 'in_progress' || normalized === 'inprogress') {
+    return <CircleDot className="h-3.5 w-3.5 text-blue-600" />;
+  }
+  return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
 export const LookupToolCallCard: React.FC<{
@@ -261,7 +300,16 @@ export const ToolCallCard: React.FC<{
       : undefined;
 
   const linkifyUrls = entryType?.tool_name === 'Tool Install Script';
-  const defaultExpanded = linkifyUrls;
+  const actionType = entryType?.action_type;
+  const isCommand = actionType?.action === 'command_run';
+  const isTool = actionType?.action === 'tool';
+  const isTaskCreate = actionType?.action === 'task_create';
+  const isTodoManagement = actionType?.action === 'todo_management';
+  const isSubagentCreate =
+    isTaskCreate && entryType?.tool_name
+      ? /spawn[_-]?agent|sub[_-]?agent|delegate|task/i.test(entryType.tool_name)
+      : isTaskCreate;
+  const defaultExpanded = linkifyUrls || isTaskCreate;
 
   const [expanded, toggle] = useExpandable(
     `tool-entry:${expansionKey}`,
@@ -269,17 +317,17 @@ export const ToolCallCard: React.FC<{
   );
   const effectiveExpanded = forceExpanded || expanded;
 
-  const actionType = entryType?.action_type;
-  const isCommand = actionType?.action === 'command_run';
-  const isTool = actionType?.action === 'tool';
-  const isTaskCreate = actionType?.action === 'task_create';
-  const isTodoManagement = actionType?.action === 'todo_management';
-
   const inlineText = isNormalizedEntry ? entry.content.trim() : '';
   const { label, detail } = getToolSummary(entryType, inlineText);
+  const displayLabel = isSubagentCreate ? 'Subagent' : label;
+  const displayDetail =
+    isSubagentCreate && isTaskCreate && actionType.subagent_type
+      ? `${actionType.subagent_type}: ${detail}`
+      : detail;
 
   const commandResult = isCommand ? actionType.result : null;
   const output = commandResult?.output ?? null;
+  const compactOutput = output ? getCompactVerboseErrorText(output) : null;
   const argsText = isCommand
     ? (
         (typeof actionType.command === 'string' ? actionType.command : '') ||
@@ -303,21 +351,36 @@ export const ToolCallCard: React.FC<{
         : hasArgs || hasResult;
 
   const exitStatus = entryType ? getToolExitStatus(entryType) : null;
+  const taskCreateStatus = isTaskCreate ? entryType?.status.status : null;
   const statusBorderClass =
-    !isCommand && exitStatus
-      ? exitStatus === 'success'
-        ? 'conv-tool-card-success'
-        : exitStatus === 'error'
-          ? 'conv-tool-card-error'
-          : 'conv-tool-card-pending'
-      : '';
+    taskCreateStatus === 'failed' ||
+    taskCreateStatus === 'denied' ||
+    taskCreateStatus === 'timed_out'
+      ? 'conv-tool-card-error'
+      : taskCreateStatus === 'created'
+        ? 'conv-tool-card-pending'
+        : !isCommand && exitStatus
+          ? exitStatus === 'success'
+            ? 'conv-tool-card-success'
+            : exitStatus === 'error'
+              ? 'conv-tool-card-error'
+              : 'conv-tool-card-pending'
+          : '';
   const statusDotClass = exitStatus
     ? exitStatus === 'success'
       ? 'conv-tool-dot conv-tool-dot-success'
       : exitStatus === 'error'
         ? 'conv-tool-dot conv-tool-dot-error'
         : 'conv-tool-dot conv-tool-dot-pending'
-    : '';
+    : taskCreateStatus === 'success'
+      ? 'conv-tool-dot conv-tool-dot-success'
+      : taskCreateStatus === 'failed' ||
+          taskCreateStatus === 'denied' ||
+          taskCreateStatus === 'timed_out'
+        ? 'conv-tool-dot conv-tool-dot-error'
+        : taskCreateStatus === 'created'
+          ? 'conv-tool-dot conv-tool-dot-pending'
+          : '';
 
   return (
     <div className="w-full">
@@ -339,10 +402,10 @@ export const ToolCallCard: React.FC<{
         <span className="shrink-0 conv-tool-icon">
           {entryType && getEntryIcon(entryType)}
         </span>
-        <span className="conv-tool-label shrink-0">{label}</span>
-        {detail && (
+        <span className="conv-tool-label shrink-0">{displayLabel}</span>
+        {displayDetail && (
           <span className="conv-tool-detail font-mono truncate min-w-0">
-            {detail}
+            {displayDetail}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2 shrink-0">
@@ -371,9 +434,23 @@ export const ToolCallCard: React.FC<{
               {output && (
                 <>
                   <div className="conv-tool-details-section-label">Output</div>
-                  <div className="conv-terminal-output">
-                    <RawLogText content={output} linkifyUrls={linkifyUrls} />
-                  </div>
+                  {compactOutput ? (
+                    <details className="conv-output-details">
+                      <summary className="conv-compact-output" title={output}>
+                        {compactOutput}
+                      </summary>
+                      <div className="conv-terminal-output">
+                        <RawLogText
+                          content={output}
+                          linkifyUrls={linkifyUrls}
+                        />
+                      </div>
+                    </details>
+                  ) : (
+                    <div className="conv-terminal-output">
+                      <RawLogText content={output} linkifyUrls={linkifyUrls} />
+                    </div>
+                  )}
                 </>
               )}
             </>
@@ -524,52 +601,60 @@ export const PlanPresentationCard: React.FC<{
   defaultExpanded?: boolean;
   statusAppearance?: ToolStatusAppearance;
   taskAttemptId?: string;
-}> = ({
-  plan,
-  expansionKey,
-  defaultExpanded = false,
-  statusAppearance = 'default',
-  taskAttemptId,
-}) => {
+}> = ({ plan, expansionKey, defaultExpanded = false, taskAttemptId }) => {
   const [expanded, toggle] = useExpandable(
     `plan-entry:${expansionKey}`,
     defaultExpanded
   );
-  const tone = PLAN_APPEARANCE[statusAppearance];
+  const planItems = parsePlanItems(plan);
 
   return (
-    <div className="inline-block w-full">
-      <div
-        className={cn('w-full overflow-hidden rounded-md border', tone.border)}
+    <div className="w-full">
+      <button
+        onClick={(event: React.MouseEvent) => {
+          event.preventDefault();
+          toggle();
+        }}
+        title={expanded ? 'Hide plan' : 'Show plan'}
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm conv-tool-card"
       >
-        <button
-          onClick={(event: React.MouseEvent) => {
-            event.preventDefault();
-            toggle();
-          }}
-          title={expanded ? 'Hide plan' : 'Show plan'}
-          className={cn(
-            'w-full px-2 py-1.5 flex items-center gap-1.5 text-left border-b',
-            tone.headerBg,
-            tone.headerText,
-            tone.border
-          )}
-        >
-          <span className="min-w-0 truncate">
-            <span className="font-semibold">{'Plan'}</span>
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <ExpandChevron
-              expanded={expanded}
-              onClick={toggle}
-              variant={statusAppearance === 'denied' ? 'error' : 'system'}
-            />
-          </div>
-        </button>
+        <span className="shrink-0 conv-tool-icon">
+          <CircleDot className="h-3 w-3" />
+        </span>
+        <span className="conv-tool-label shrink-0">Plan</span>
+        <span className="conv-tool-detail truncate min-w-0">
+          {planItems[0]?.content ?? 'Plan updated'}
+        </span>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <ChevronDown
+            className={cn(
+              'h-3.5 w-3.5 text-muted-foreground transition-transform',
+              expanded ? '' : '-rotate-90'
+            )}
+          />
+        </div>
+      </button>
 
-        {expanded && (
-          <div className={cn('px-3 py-2', tone.contentBg)}>
-            <div className={cn('text-sm', tone.contentText)}>
+      {expanded && (
+        <div className="conv-tool-details text-xs">
+          {planItems.length > 0 ? (
+            <ol className="space-y-1.5 font-sans">
+              {planItems.map((item, index) => (
+                <li
+                  key={`${item.status}:${item.content}:${index}`}
+                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm"
+                >
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+                    {getPlanStatusIcon(item.status)}
+                  </span>
+                  <span className="min-w-0 flex-1 break-words text-foreground">
+                    {item.content}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="conv-tool-details-content font-sans text-sm">
               <WYSIWYGEditor
                 value={plan}
                 disabled
@@ -577,9 +662,9 @@ export const PlanPresentationCard: React.FC<{
                 taskAttemptId={taskAttemptId}
               />
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

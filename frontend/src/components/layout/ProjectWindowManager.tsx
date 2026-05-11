@@ -21,6 +21,7 @@ import { tauriListen } from '@/lib/tauriApi';
 import { desktopApi } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
+import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
 
 function getSessionStatusLabel(session: KanbanProjectSessionRecord) {
   if (session.isRunning) {
@@ -95,6 +96,7 @@ function ProjectActivityTracker({
   >({});
   const hasInitializedWorkspaceRef = useRef(false);
   const previousSnapshotSignatureRef = useRef<string>('');
+  const { consumeStopToastSuppression } = useStopToastSuppression();
 
   const openProjectSession = useCallback(
     ({ projectId, workspaceId, sessionId }: ProjectSessionTarget) => {
@@ -337,6 +339,10 @@ function ProjectActivityTracker({
             description,
           });
 
+          if (consumeStopToastSuppression(workspace.id)) {
+            return;
+          }
+
           if (config?.notifications.sound_enabled) {
             void configApi
               .playNotificationSound(config.notifications.sound_file)
@@ -394,6 +400,7 @@ function ProjectActivityTracker({
     config?.notifications.push_enabled,
     config?.notifications.sound_enabled,
     config?.notifications.sound_file,
+    consumeStopToastSuppression,
     enableNotifications,
     isActive,
     projectId,

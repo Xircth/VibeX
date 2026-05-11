@@ -4,6 +4,8 @@ target/
 
 # ===== Node.js =====
 node_modules/
+/package-lock.json
+/package.json.bak*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -90,4 +92,6 @@ code-referance/
 logs/
 !frontend/src/components/logs/
 !frontend/src/components/logs/**
+!crates/executors/src/logs/
+!crates/executors/src/logs/**
 *.log

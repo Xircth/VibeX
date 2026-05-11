@@ -165,6 +165,13 @@ export function replaceRightSession(
   };
 }
 
+export function resolveCurrentExecutionPlacement(
+  rightSession: KanbanSessionPlacement | null,
+  activeWorkspaceSession: KanbanSessionPlacement | null
+): KanbanSessionPlacement | null {
+  return rightSession ?? activeWorkspaceSession;
+}
+
 export function pruneUnavailableSessions(
   state: KanbanSessionLayoutState,
   availableSessionIds: Set<string>

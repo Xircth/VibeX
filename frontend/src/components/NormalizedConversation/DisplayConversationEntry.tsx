@@ -15,6 +15,7 @@ import PendingApprovalEntry from './PendingApprovalEntry';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
+import { useUserSystem } from '@/components/ConfigProvider';
 
 // Re-exported from extracted modules
 export { getAggregatableAction } from './conversation-entry-utils';
@@ -27,10 +28,19 @@ import {
   isPendingApprovalStatus,
   SCRIPT_TOOL_NAMES,
   getCompactMetaNoticeText,
+  getCompactVerboseErrorText,
   shouldHideInitializationNotice,
+  isNeutralTransportNotice,
+  sanitizeConversationContent,
+  splitAssistantCommandOutput,
+  splitLeadingTransportNotice,
   type FileEditAction,
 } from './conversation-entry-utils';
-import { CompactNoticeEntry, PlainNoticeEntry } from './MessageCard';
+import {
+  AssistantCommandOutputEntry,
+  CompactNoticeEntry,
+  PlainNoticeEntry,
+} from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
 import {
   ToolCallCard,
@@ -74,6 +84,9 @@ function DisplayConversationEntry({
   const { isProcessGreyed } = useRetryUi();
   const greyed = isProcessGreyed(executionProcessId);
   const { isStopping } = useTaskStopping(taskAttempt?.task_id ?? '');
+  const { config } = useUserSystem();
+  const collapseAiMessagesByDefault =
+    config?.ai_message_default_collapsed ?? false;
 
   if (isProcessStart(entry)) {
     return (
@@ -96,7 +109,9 @@ function DisplayConversationEntry({
 
   // Handle NormalizedEntry
   const entryType = entry.entry_type;
-  const contentText = isNormalizedEntry(entry) ? entry.content : '';
+  const contentText = isNormalizedEntry(entry)
+    ? sanitizeConversationContent(entry.content)
+    : '';
   const isSystem = entryType.type === 'system_message';
   const isError = entryType.type === 'error_message';
   const isToolUse = entryType.type === 'tool_use';
@@ -286,8 +301,14 @@ function DisplayConversationEntry({
 
   if (isSystem || isError) {
     const compactNoticeText = getCompactMetaNoticeText(entryType, contentText);
+    const verboseErrorText = getCompactVerboseErrorText(contentText);
 
     if (compactNoticeText) {
+      const noticeVariant = isNeutralTransportNotice(contentText)
+        ? 'system'
+        : isSystem
+          ? 'system'
+          : 'error';
       return (
         <div
           className={cn(
@@ -297,7 +318,25 @@ function DisplayConversationEntry({
         >
           <CompactNoticeEntry
             content={compactNoticeText}
+            variant={noticeVariant}
+            title={contentText}
+          />
+        </div>
+      );
+    }
+
+    if (verboseErrorText) {
+      return (
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={verboseErrorText}
             variant={isSystem ? 'system' : 'error'}
+            title={contentText}
           />
         </div>
       );
@@ -311,9 +350,10 @@ function DisplayConversationEntry({
         )}
       >
         <PlainNoticeEntry
-          content={isNormalizedEntry(entry) ? entry.content : ''}
+          content={contentText}
           markdown={shouldRenderMarkdown(entryType)}
           className={getContentClassName(entryType)}
+          title={contentText}
         />
       </div>
     );
@@ -335,6 +375,53 @@ function DisplayConversationEntry({
   }
 
   // Phase 2: Assistant message with hover copy button
+  const leadingTransportNotice = splitLeadingTransportNotice(contentText);
+  if (leadingTransportNotice) {
+    const commandOutputSplit = collapseAiMessagesByDefault
+      ? splitAssistantCommandOutput(leadingTransportNotice.remainder)
+      : null;
+
+    return (
+      <>
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={leadingTransportNotice.notice}
+            variant="system"
+            title={leadingTransportNotice.notice}
+          />
+        </div>
+        <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+          <div className="relative">
+            <div className={getContentClassName(entryType)}>
+              {commandOutputSplit ? (
+                <AssistantCommandOutputEntry
+                  prefix={commandOutputSplit.prefix}
+                  output={commandOutputSplit.output}
+                  expansionKey={expansionKey}
+                />
+              ) : shouldRenderMarkdown(entryType) ? (
+                <Markdown value={leadingTransportNotice.remainder} />
+              ) : (
+                leadingTransportNotice.remainder
+              )}
+            </div>
+            {isNormalizedEntry(entry) &&
+              leadingTransportNotice.remainder.trim().length > 0 && (
+                <div className="absolute -right-1 top-0">
+                  <CopyButton text={leadingTransportNotice.remainder} />
+                </div>
+              )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   const compactNoticeText = getCompactMetaNoticeText(entryType, contentText);
 
   if (compactNoticeText) {
@@ -345,7 +432,41 @@ function DisplayConversationEntry({
           greyed && 'opacity-50 pointer-events-none'
         )}
       >
-        <CompactNoticeEntry content={compactNoticeText} variant="system" />
+        <CompactNoticeEntry
+          content={compactNoticeText}
+          variant="system"
+          title={contentText}
+        />
+      </div>
+    );
+  }
+
+  const commandOutputSplit = collapseAiMessagesByDefault
+    ? splitAssistantCommandOutput(contentText)
+    : null;
+
+  if (commandOutputSplit) {
+    return (
+      <div
+        className={cn(
+          'conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm',
+          greyed && 'opacity-50 pointer-events-none'
+        )}
+      >
+        <div className="relative">
+          <div className={getContentClassName(entryType)}>
+            <AssistantCommandOutputEntry
+              prefix={commandOutputSplit.prefix}
+              output={commandOutputSplit.output}
+              expansionKey={expansionKey}
+            />
+          </div>
+          {isNormalizedEntry(entry) && entry.content.trim().length > 0 && (
+            <div className="absolute -right-1 top-0">
+              <CopyButton text={entry.content} />
+            </div>
+          )}
+        </div>
       </div>
     );
   }

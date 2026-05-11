@@ -63,9 +63,9 @@ export function SettingsLayout() {
   }, []);
 
   return (
-    <div className="settings-page h-screen flex flex-col overflow-hidden bg-background text-foreground">
+    <div className="settings-page settings-shell flex h-screen flex-col overflow-hidden text-foreground">
       <div
-        className="relative h-10 shrink-0 border-b bg-muted/70 select-none"
+        className="settings-titlebar relative h-10 shrink-0 select-none"
         onMouseDown={isStandaloneWindow ? handleDragStart : undefined}
       >
         <div
@@ -108,7 +108,7 @@ export function SettingsLayout() {
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        <aside className="w-56 shrink-0 border-r p-3">
+        <aside className="settings-sidebar w-56 shrink-0 p-3">
           <div className="px-1 pb-2 text-[11px] font-medium text-muted-foreground">
             偏好设置
           </div>
@@ -122,9 +122,12 @@ export function SettingsLayout() {
               return (
                 <Button
                   key={item.path}
-                  variant={active ? 'secondary' : 'ghost'}
+                  variant="ghost"
                   size="sm"
-                  className={cn('w-full justify-start')}
+                  className={cn(
+                    'settings-nav-button w-full justify-start',
+                    active && 'is-active'
+                  )}
                   type="button"
                   onClick={() => navigateTo(item.path)}
                   aria-current={active ? 'page' : undefined}

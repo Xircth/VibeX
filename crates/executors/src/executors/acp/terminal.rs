@@ -11,7 +11,7 @@ use tokio::{
     sync::{Mutex, Notify, RwLock, broadcast, mpsc},
 };
 use uuid::Uuid;
-use workspace_utils::process::configure_tokio_command_no_window;
+use workspace_utils::{process::configure_tokio_command_no_window, shell::refresh_process_path};
 
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 512 * 1024;
 
@@ -67,6 +67,7 @@ impl AcpTerminalRegistry {
         &self,
         args: &CreateTerminalRequest,
     ) -> Result<Uuid, std::io::Error> {
+        let _ = refresh_process_path().await;
         let terminal_id = Uuid::new_v4();
         let mut command = Command::new(&args.command);
         configure_tokio_command_no_window(&mut command);
@@ -79,6 +80,15 @@ impl AcpTerminalRegistry {
 
         if let Some(cwd) = &args.cwd {
             command.current_dir(cwd);
+        }
+
+        if !args
+            .env
+            .iter()
+            .any(|env_var| env_var.name.eq_ignore_ascii_case("PATH"))
+            && let Some(path) = std::env::var_os("PATH")
+        {
+            command.env("PATH", path);
         }
 
         for env_var in &args.env {

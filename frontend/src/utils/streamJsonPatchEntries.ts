@@ -33,6 +33,8 @@ export interface TauriStreamParams {
   executionProcessId: string;
   /** Whether to use normalized logs (true) or raw logs (false). Defaults to true. */
   normalized?: boolean;
+  /** Unique frontend subscription id so reconnects receive an isolated history replay. */
+  streamId?: string;
 }
 
 /**
@@ -100,7 +102,9 @@ export function streamJsonPatchEntries<E = unknown>(
   };
 
   // Set up listener and invoke subscription
-  const channel = `conversation-stream:${params.executionProcessId}`;
+  const channel = params.streamId
+    ? `conversation-stream:${params.executionProcessId}:${params.streamId}`
+    : `conversation-stream:${params.executionProcessId}`;
 
   // 1. First listen for events, then invoke the subscription command
   tauriListen<unknown>(channel, handleMessage)
@@ -118,6 +122,7 @@ export function streamJsonPatchEntries<E = unknown>(
       return tauriInvoke('subscribe_conversation_stream', {
         executionProcessId: params.executionProcessId,
         normalized: params.normalized !== undefined ? params.normalized : true,
+        streamId: params.streamId,
       });
     })
     .catch((err) => {

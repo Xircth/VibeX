@@ -63,11 +63,18 @@ pub async fn subscribe_conversation_stream(
     state: tauri::State<'_, AppState>,
     execution_process_id: Uuid,
     normalized: Option<bool>,
+    stream_id: Option<String>,
 ) -> Result<(), AppError> {
-    let channel = format!("conversation-stream:{}", execution_process_id);
+    let channel = match stream_id.as_deref().filter(|id| !id.is_empty()) {
+        Some(stream_id) => format!("conversation-stream:{execution_process_id}:{stream_id}"),
+        None => format!("conversation-stream:{execution_process_id}"),
+    };
     let deployment = state.deployment.clone();
     let use_normalized = normalized.unwrap_or(true);
-    let stream_key = execution_process_id.to_string();
+    let stream_key = match stream_id.as_deref().filter(|id| !id.is_empty()) {
+        Some(stream_id) => format!("{execution_process_id}:{stream_id}"),
+        None => execution_process_id.to_string(),
+    };
 
     {
         let mut streams = state.conversation_streams.lock().await;

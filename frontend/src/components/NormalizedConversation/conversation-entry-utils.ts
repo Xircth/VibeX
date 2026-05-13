@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { createElement } from 'react';
 import type {
+  BaseDisplayEntry,
   DisplayEntry,
   PatchTypeWithKey,
 } from '@/hooks/useConversationHistory/types';
@@ -50,6 +51,7 @@ export type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 export type BuildDisplayEntriesOptions = {
   aggregateThinking?: boolean;
   completedExecutionProcessIds?: ReadonlySet<string>;
+  collapseAiMessagesByDefault?: boolean;
 };
 
 /***********************
@@ -144,6 +146,8 @@ const INTERNAL_TRACING_LOG_PATTERN =
   /^(?:\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s+)?(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+[a-zA-Z0-9_]+(?:::[a-zA-Z0-9_]+)+(?:\s*:|:|\s)/;
 const TRANSPORT_FALLBACK_NOTICE_PREFIX_PATTERN =
   /^\s*(Falling back from WebSockets to HTTPS transport\.\s*timeout waiting for child process to exit\.?)([\s\S]*)$/i;
+const IMPECCABLE_PREFLIGHT_NOTICE_PATTERN =
+  /^\s*(IMPECCABLE_PREFLIGHT:[^\r\n]*)(?:\r?\n([\s\S]*))?$/i;
 const VERBOSE_ERROR_PATTERNS = [
   /\bWall time:\s*.+?\bOutput:/i,
   /\bCategoryInfo\s*:/i,
@@ -155,7 +159,7 @@ const VERBOSE_ERROR_PATTERNS = [
   /\bCannot find module\b/i,
   /\bfailed to load config\b/i,
 ];
-const COMMAND_OUTPUT_MARKER_PATTERN = /\bCommand output:\s*/i;
+const COMMAND_OUTPUT_MARKER_PATTERN = /\bCommand output\s*[:：]\s*/i;
 const SHELL_OUTPUT_ENVELOPE_PATTERN =
   /^\s*(?:(?:Exit code|Wall time):[\s\S]*?)?\bOutput:\s*/i;
 
@@ -209,6 +213,25 @@ export function splitLeadingTransportNotice(
   const notice = match[1]?.trim();
   const remainder = match[2]?.trimStart();
   if (!notice || !remainder) {
+    return null;
+  }
+
+  return { notice, remainder };
+}
+
+export function splitLeadingImpeccablePreflightNotice(
+  content: string
+): { notice: string; remainder: string } | null {
+  const match = sanitizeConversationContent(content).match(
+    IMPECCABLE_PREFLIGHT_NOTICE_PATTERN
+  );
+  if (!match) {
+    return null;
+  }
+
+  const notice = match[1]?.trim();
+  const remainder = match[2]?.trimStart() ?? '';
+  if (!notice) {
     return null;
   }
 
@@ -300,6 +323,11 @@ export interface AssistantCommandOutputSplit {
   output: string;
 }
 
+export interface AssistantCollapsedMessageSplit {
+  prefix: string;
+  output: string;
+}
+
 function stripCommandOutputPrefixNoise(content: string): string {
   const withoutProfileNoise = stripPowerShellProfileNoise(content);
   return (withoutProfileNoise.trim() || content.trim()).trim();
@@ -343,6 +371,45 @@ export function splitAssistantCommandOutput(
     prefix: shellEnvelopeMatch[0].trim(),
     output,
   };
+}
+
+function splitContentBlocks(content: string): string[] {
+  return content
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+export function splitAssistantFinalMessage(
+  content: string
+): AssistantCollapsedMessageSplit | null {
+  const cleaned = sanitizeConversationContent(content);
+  if (!cleaned) {
+    return null;
+  }
+
+  const commandOutputSplit = splitAssistantCommandOutput(cleaned);
+  if (commandOutputSplit) {
+    return commandOutputSplit;
+  }
+
+  const blocks = splitContentBlocks(cleaned);
+  if (blocks.length < 2) {
+    return null;
+  }
+
+  const output = blocks[blocks.length - 1] ?? '';
+  const prefix = blocks.slice(0, -1).join('\n\n').trim();
+
+  if (!prefix || !output) {
+    return null;
+  }
+
+  if (prefix.length < 24 || output.length < 8) {
+    return null;
+  }
+
+  return { prefix, output };
 }
 
 export const getEntryIcon = (entryType: NormalizedEntryType) => {
@@ -535,6 +602,11 @@ export function getCompactMetaNoticeText(
 
   if (hasStructuredFormatting) {
     return null;
+  }
+
+  const impeccablePreflight = splitLeadingImpeccablePreflightNotice(content);
+  if (impeccablePreflight && !impeccablePreflight.remainder) {
+    return normalizeMetaNoticeText(impeccablePreflight.notice);
   }
 
   if (isNeutralTransportNotice(content)) {
@@ -739,6 +811,13 @@ function shouldHideDisplayEntry(data: PatchTypeWithKey): boolean {
   }
 
   const entryType = data.content.entry_type;
+  if (
+    entryType.type === 'tool_use' &&
+    entryType.action_type.action === 'web_fetch'
+  ) {
+    return true;
+  }
+
   return (
     (entryType.type === 'system_message' ||
       entryType.type === 'error_message' ||
@@ -767,6 +846,89 @@ function isThinkingEntry(data: PatchTypeWithKey): boolean {
   );
 }
 
+function isAssistantMessageDisplayEntry(
+  entry: BaseDisplayEntry
+): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } {
+  return (
+    entry.type === 'NORMALIZED_ENTRY' &&
+    entry.content.entry_type.type === 'assistant_message'
+  );
+}
+
+function shouldCollapseAssistantPreludeEntry(entry: BaseDisplayEntry): boolean {
+  if (entry.type !== 'NORMALIZED_ENTRY') {
+    return true;
+  }
+
+  const entryType = entry.content.entry_type.type;
+  return entryType !== 'user_message' && entryType !== 'user_feedback';
+}
+
+function collapseAssistantPreludeEntries(
+  displayEntries: BaseDisplayEntry[]
+): DisplayEntry[] {
+  const lastAssistantIndexByProcess = new Map<string, number>();
+
+  for (let index = 0; index < displayEntries.length; index += 1) {
+    const entry = displayEntries[index]!;
+    if (isAssistantMessageDisplayEntry(entry)) {
+      lastAssistantIndexByProcess.set(entry.executionProcessId, index);
+    }
+  }
+
+  const hiddenIndexes = new Set<number>();
+  const collapsedGroupByAssistantIndex = new Map<
+    number,
+    Extract<DisplayEntry, { type: 'COLLAPSED_ASSISTANT_MESSAGES' }>
+  >();
+
+  for (const [executionProcessId, assistantIndex] of lastAssistantIndexByProcess) {
+    const hiddenEntries: BaseDisplayEntry[] = [];
+
+    for (let index = 0; index < assistantIndex; index += 1) {
+      const entry = displayEntries[index]!;
+      if (
+        entry.executionProcessId === executionProcessId &&
+        shouldCollapseAssistantPreludeEntry(entry)
+      ) {
+        hiddenEntries.push(entry);
+        hiddenIndexes.add(index);
+      }
+    }
+
+    if (hiddenEntries.length === 0) {
+      continue;
+    }
+
+    const firstHiddenEntry = hiddenEntries[0]!;
+    const lastHiddenEntry = hiddenEntries[hiddenEntries.length - 1]!;
+    collapsedGroupByAssistantIndex.set(assistantIndex, {
+      type: 'COLLAPSED_ASSISTANT_MESSAGES',
+      entries: hiddenEntries,
+      hiddenCount: hiddenEntries.length,
+      patchKey: `collapsed-assistant:${executionProcessId}:${firstHiddenEntry.patchKey}:${lastHiddenEntry.patchKey}`,
+      executionProcessId,
+    });
+  }
+
+  const collapsedEntries: DisplayEntry[] = [];
+
+  for (let index = 0; index < displayEntries.length; index += 1) {
+    if (hiddenIndexes.has(index)) {
+      continue;
+    }
+
+    const collapsedGroup = collapsedGroupByAssistantIndex.get(index);
+    if (collapsedGroup) {
+      collapsedEntries.push(collapsedGroup);
+    }
+
+    collapsedEntries.push(displayEntries[index]!);
+  }
+
+  return collapsedEntries;
+}
+
 export function buildDisplayEntries(
   entries: PatchTypeWithKey[],
   options: BuildDisplayEntriesOptions = {}
@@ -775,9 +937,12 @@ export function buildDisplayEntries(
     return [];
   }
 
-  const { aggregateThinking = false } = options;
+  const {
+    aggregateThinking = false,
+    collapseAiMessagesByDefault = false,
+  } = options;
   const completedExecutionProcessIds = options.completedExecutionProcessIds;
-  const displayEntries: DisplayEntry[] = [];
+  const displayEntries: BaseDisplayEntry[] = [];
   let currentGroup: PatchTypeWithKey[] = [];
   let currentAggregationType: AggregationType | null = null;
   let currentAggregationKey: string | null = null;
@@ -963,7 +1128,9 @@ export function buildDisplayEntries(
   flushProcessScopedGroups();
   flushProcessChangeSummary(currentProcessId);
 
-  return displayEntries;
+  return collapseAiMessagesByDefault
+    ? collapseAssistantPreludeEntries(displayEntries)
+    : displayEntries;
 }
 
 export function getAggregatedEntryDetail(data: PatchTypeWithKey): string {

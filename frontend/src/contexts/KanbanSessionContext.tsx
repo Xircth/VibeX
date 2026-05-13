@@ -19,6 +19,7 @@ import {
   placeSessionFromList,
   promoteMonitorSessionToRight,
   pruneUnavailableSessions,
+  removeMonitorSession,
   replaceRightSession,
   type KanbanSessionLayoutState,
   type KanbanSessionPlacement,
@@ -48,6 +49,7 @@ interface KanbanSessionContextValue {
   placeCreatedSession: (session: KanbanSessionPlacement) => void;
   replaceRightSession: (session: KanbanSessionPlacement) => void;
   promoteMonitorSession: (sessionId: string) => void;
+  cancelMonitorSession: (sessionId: string) => void;
   pruneSessions: (availableSessionIds: Set<string>) => void;
 }
 
@@ -238,6 +240,10 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     [canUseRightPanelForSessions]
   );
 
+  const cancelMonitorSession = useCallback((sessionId: string) => {
+    setLayoutState((current) => removeMonitorSession(current, sessionId));
+  }, []);
+
   const pruneSessions = useCallback((availableSessionIds: Set<string>) => {
     setLayoutState((current) =>
       pruneUnavailableSessions(current, availableSessionIds)
@@ -271,6 +277,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       placeCreatedSession: placeCreatedSessionInLayout,
       replaceRightSession: replaceRightSessionInLayout,
       promoteMonitorSession,
+      cancelMonitorSession,
       pruneSessions,
     }),
     [
@@ -288,6 +295,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       placeCreatedSessionInLayout,
       replaceRightSessionInLayout,
       promoteMonitorSession,
+      cancelMonitorSession,
       pruneSessions,
       toggleSessionHub,
       visibleRightSession,

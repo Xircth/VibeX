@@ -9,6 +9,8 @@ import {
   sanitizeConversationContent,
   shouldHideInitializationNotice,
   splitAssistantCommandOutput,
+  splitAssistantFinalMessage,
+  splitLeadingImpeccablePreflightNotice,
   splitLeadingTransportNotice,
 } from './conversation-entry-utils';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
@@ -83,6 +85,33 @@ describe('conversation meta notices', () => {
     });
   });
 
+  it('compacts impeccable preflight notices as neutral metadata', () => {
+    const content =
+      'IMPECCABLE_PREFLIGHT: context=pass product=pass command_reference=pass shape=not_required image_gate=skipped:user gave explicit IA/layout and this is direct product-surface refactor mutation=open';
+
+    expect(
+      getCompactMetaNoticeText({ type: 'assistant_message' } as never, content)
+    ).toBe(content);
+    expect(splitLeadingImpeccablePreflightNotice(content)).toEqual({
+      notice: content,
+      remainder: '',
+    });
+  });
+
+  it('splits impeccable preflight notices from assistant output', () => {
+    const content =
+      'IMPECCABLE_PREFLIGHT: context=pass product=pass command_reference=pass\nI will update the layout.';
+
+    expect(
+      getCompactMetaNoticeText({ type: 'assistant_message' } as never, content)
+    ).toBeNull();
+    expect(splitLeadingImpeccablePreflightNotice(content)).toEqual({
+      notice:
+        'IMPECCABLE_PREFLIGHT: context=pass product=pass command_reference=pass',
+      remainder: 'I will update the layout.',
+    });
+  });
+
   it('summarizes verbose command errors for hover-only detail', () => {
     const content = [
       'Wall time: 1.7 seconds Output:',
@@ -104,6 +133,13 @@ describe('conversation meta notices', () => {
       prefix: 'log before',
       output: 'Final answer',
     });
+
+    expect(
+      splitAssistantCommandOutput('log before\nCommand output：Final answer')
+    ).toEqual({
+      prefix: 'log before',
+      output: 'Final answer',
+    });
   });
 
   it('splits shell output envelopes for assistant messages', () => {
@@ -114,6 +150,94 @@ describe('conversation meta notices', () => {
     ).toEqual({
       prefix: 'Exit code: 0\nWall time: 1.7 seconds\nOutput:',
       output: 'Final answer',
+    });
+  });
+
+  it('falls back to collapsing earlier assistant paragraphs into a final message block', () => {
+    expect(
+      splitAssistantFinalMessage(
+        '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。\n\n前端已恢复访问。'
+      )
+    ).toEqual({
+      prefix: '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。',
+      output: '前端已恢复访问。',
+    });
+  });
+
+  it('collapses prior AI-side entries and keeps the final assistant message visible', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:user',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'user_message' },
+          content: '请启动项目',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:tool',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'terminal',
+            action_type: {
+              action: 'command_run',
+              command: 'pnpm run dev',
+              result: null,
+            },
+            status: { status: 'success' },
+          },
+          content: 'pnpm run dev',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:assistant-1',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'assistant_message' },
+          content: '我先检查启动脚本。',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:assistant-2',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'assistant_message' },
+          content: '项目已启动完成。',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      collapseAiMessagesByDefault: true,
+    });
+
+    expect(displayEntries).toHaveLength(3);
+    expect(displayEntries[0]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: {
+        entry_type: { type: 'user_message' },
+      },
+    });
+    expect(displayEntries[1]).toMatchObject({
+      type: 'COLLAPSED_ASSISTANT_MESSAGES',
+      hiddenCount: 2,
+    });
+    expect(displayEntries[2]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: {
+        entry_type: { type: 'assistant_message' },
+        content: '项目已启动完成。',
+      },
     });
   });
 
@@ -266,6 +390,50 @@ describe('conversation meta notices', () => {
     expect(displayEntries).toHaveLength(2);
     expect(displayEntries[0]?.type).toBe('NORMALIZED_ENTRY');
     expect(displayEntries[1]?.type).toBe('NORMALIZED_ENTRY');
+  });
+
+  it('hides web fetch tool entries from the conversation display', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:web',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'fetch',
+            action_type: {
+              action: 'web_fetch',
+              url: 'https://example.com',
+            },
+            status: { status: 'success' },
+          },
+          content: 'https://example.com',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:assistant',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'assistant_message' },
+          content: 'Fetched the page.',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries);
+
+    expect(displayEntries).toHaveLength(1);
+    expect(displayEntries[0]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: {
+        entry_type: { type: 'assistant_message' },
+        content: 'Fetched the page.',
+      },
+    });
   });
 
   it('strips ansi and visible sgr fragments from conversation content', () => {

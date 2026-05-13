@@ -7,6 +7,12 @@ import type {
   CollapsibleVariant,
 } from './conversation-entry-utils';
 
+export type MarkdownRenderContext = {
+  taskAttemptId?: string;
+  taskId?: string;
+  workspacePath?: string | null;
+};
+
 /*********************
  * Unified card      *
  *********************/
@@ -73,20 +79,32 @@ export const CollapsibleEntry: React.FC<{
   variant: CollapsibleVariant;
   contentClassName: string;
   taskAttemptId?: string;
-}> = ({ content, markdown, expansionKey, variant, contentClassName }) => {
+  markdownContext?: MarkdownRenderContext;
+}> = ({
+  content,
+  markdown,
+  expansionKey,
+  variant,
+  contentClassName,
+  markdownContext,
+}) => {
   const multiline = content.includes('\n');
   const [expanded, toggle] = useExpandable(`entry:${expansionKey}`, false);
 
   const Inner = (
     <div className={contentClassName}>
-      {markdown ? <Markdown value={content} /> : content}
+      {markdown ? <Markdown value={content} {...markdownContext} /> : content}
     </div>
   );
 
   const firstLine = content.split('\n')[0];
   const PreviewInner = (
     <div className={contentClassName}>
-      {markdown ? <Markdown value={firstLine} /> : firstLine}
+      {markdown ? (
+        <Markdown value={firstLine} {...markdownContext} />
+      ) : (
+        firstLine
+      )}
     </div>
   );
 
@@ -122,17 +140,31 @@ export const CompactNoticeEntry: React.FC<{
   );
 };
 
+export const ContextCompactStatusEntry: React.FC<{
+  content: string;
+  status: 'running' | 'success' | 'failed';
+}> = ({ content, status }) => (
+  <div
+    className={`conv-context-compact-status conv-context-compact-status-${status}`}
+  >
+    <span className="conv-context-compact-status-line" aria-hidden="true" />
+    <span className="conv-context-compact-status-text">{content}</span>
+    <span className="conv-context-compact-status-line" aria-hidden="true" />
+  </div>
+);
+
 export const PlainNoticeEntry: React.FC<{
   content: string;
   markdown: boolean;
   className?: string;
   title?: string;
-}> = ({ content, markdown, className, title }) => (
+  markdownContext?: MarkdownRenderContext;
+}> = ({ content, markdown, className, title, markdownContext }) => (
   <div
     className={`conv-plain-notice${className ? ` ${className}` : ''}`}
     title={title}
   >
-    {markdown ? <Markdown value={content} /> : content}
+    {markdown ? <Markdown value={content} {...markdownContext} /> : content}
   </div>
 );
 
@@ -140,7 +172,13 @@ export const AssistantCommandOutputEntry: React.FC<{
   prefix: string;
   output: string;
   expansionKey: string;
-}> = ({ prefix, output, expansionKey }) => {
+  markdownContext?: MarkdownRenderContext;
+}> = ({
+  prefix,
+  output,
+  expansionKey,
+  markdownContext,
+}) => {
   const [expanded, toggle] = useExpandable(
     `assistant-command-output:${expansionKey}`,
     false
@@ -148,32 +186,28 @@ export const AssistantCommandOutputEntry: React.FC<{
   const hasPrefix = prefix.trim().length > 0;
 
   return (
-    <div className="conv-assistant-command-output">
-      <div className="conv-assistant-command-output-header">
+    <>
+      {hasPrefix ? (
         <button
           type="button"
-          className="conv-assistant-command-output-toggle"
-          onClick={hasPrefix ? () => toggle() : undefined}
-          aria-expanded={hasPrefix ? expanded : undefined}
+          className="mb-1 inline-flex h-4 w-4 items-center justify-center text-zinc-700 transition-transform dark:text-zinc-300"
+          onClick={() => toggle()}
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Collapse previous AI content' : 'Expand previous AI content'}
         >
-          {hasPrefix ? (
-            <ChevronDown
-              className={`h-3.5 w-3.5 transition-transform text-zinc-700 dark:text-zinc-300 ${
-                expanded ? '' : '-rotate-90'
-              }`}
-            />
-          ) : null}
-          <span>Command output:</span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${
+              expanded ? '' : '-rotate-90'
+            }`}
+          />
         </button>
-      </div>
+      ) : null}
       {hasPrefix && expanded ? (
-        <div className="conv-assistant-command-output-prefix">
-          <Markdown value={prefix} />
+        <div className="mb-2">
+          <Markdown value={prefix} {...markdownContext} />
         </div>
       ) : null}
-      <div className="conv-assistant-command-output-body">
-        <Markdown value={output} />
-      </div>
-    </div>
+      <Markdown value={output} {...markdownContext} />
+    </>
   );
 };

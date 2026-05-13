@@ -268,6 +268,10 @@ impl AcpClient {
             SessionUpdate::ToolCall(tc) => Some(AcpEvent::ToolCall(tc)),
             SessionUpdate::ToolCallUpdate(update) => Some(AcpEvent::ToolUpdate(update)),
             SessionUpdate::Plan(plan) => Some(AcpEvent::Plan(plan)),
+            SessionUpdate::UsageUpdate(update) => Some(AcpEvent::Usage {
+                used: update.used,
+                size: update.size,
+            }),
             _ => Some(AcpEvent::Other(args)),
         };
 

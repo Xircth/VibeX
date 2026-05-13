@@ -1,4 +1,5 @@
 import '@/styles/conversation.css';
+import { useMemo } from 'react';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import {
   ActionType,
@@ -15,7 +16,7 @@ import PendingApprovalEntry from './PendingApprovalEntry';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
-import { useUserSystem } from '@/components/ConfigProvider';
+import { getContextCompactStatusKind } from '@/lib/contextCompact';
 
 // Re-exported from extracted modules
 export { getAggregatableAction } from './conversation-entry-utils';
@@ -32,13 +33,13 @@ import {
   shouldHideInitializationNotice,
   isNeutralTransportNotice,
   sanitizeConversationContent,
-  splitAssistantCommandOutput,
+  splitLeadingImpeccablePreflightNotice,
   splitLeadingTransportNotice,
   type FileEditAction,
 } from './conversation-entry-utils';
 import {
-  AssistantCommandOutputEntry,
   CompactNoticeEntry,
+  ContextCompactStatusEntry,
   PlainNoticeEntry,
 } from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
@@ -72,6 +73,7 @@ function DisplayConversationEntry({
   expansionKey,
   executionProcessId,
   taskAttempt,
+  task,
 }: Props) {
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
@@ -84,9 +86,19 @@ function DisplayConversationEntry({
   const { isProcessGreyed } = useRetryUi();
   const greyed = isProcessGreyed(executionProcessId);
   const { isStopping } = useTaskStopping(taskAttempt?.task_id ?? '');
-  const { config } = useUserSystem();
-  const collapseAiMessagesByDefault =
-    config?.ai_message_default_collapsed ?? false;
+  const markdownContext = useMemo(
+    () => ({
+      taskAttemptId: taskAttempt?.id,
+      taskId: task?.id ?? taskAttempt?.task_id,
+      workspacePath: taskAttempt?.container_ref,
+    }),
+    [
+      task?.id,
+      taskAttempt?.container_ref,
+      taskAttempt?.id,
+      taskAttempt?.task_id,
+    ]
+  );
 
   if (isProcessStart(entry)) {
     return (
@@ -300,6 +312,23 @@ function DisplayConversationEntry({
   }
 
   if (isSystem || isError) {
+    const contextCompactStatus = getContextCompactStatusKind(contentText);
+    if (contextCompactStatus) {
+      return (
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-2',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <ContextCompactStatusEntry
+            content={contentText}
+            status={contextCompactStatus}
+          />
+        </div>
+      );
+    }
+
     const compactNoticeText = getCompactMetaNoticeText(entryType, contentText);
     const verboseErrorText = getCompactVerboseErrorText(contentText);
 
@@ -354,6 +383,7 @@ function DisplayConversationEntry({
           markdown={shouldRenderMarkdown(entryType)}
           className={getContentClassName(entryType)}
           title={contentText}
+          markdownContext={markdownContext}
         />
       </div>
     );
@@ -375,12 +405,65 @@ function DisplayConversationEntry({
   }
 
   // Phase 2: Assistant message with hover copy button
+  const leadingImpeccablePreflightNotice =
+    splitLeadingImpeccablePreflightNotice(contentText);
+  if (leadingImpeccablePreflightNotice) {
+    if (!leadingImpeccablePreflightNotice.remainder.trim()) {
+      return (
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={leadingImpeccablePreflightNotice.notice}
+            variant="system"
+            title={leadingImpeccablePreflightNotice.notice}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={leadingImpeccablePreflightNotice.notice}
+            variant="system"
+            title={leadingImpeccablePreflightNotice.notice}
+          />
+        </div>
+        <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+          <div className="relative">
+            <div className={getContentClassName(entryType)}>
+              {shouldRenderMarkdown(entryType) ? (
+                <Markdown
+                  value={leadingImpeccablePreflightNotice.remainder}
+                  {...markdownContext}
+                />
+              ) : (
+                leadingImpeccablePreflightNotice.remainder
+              )}
+            </div>
+            {isNormalizedEntry(entry) && (
+              <div className="absolute -right-1 top-0">
+                <CopyButton text={leadingImpeccablePreflightNotice.remainder} />
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   const leadingTransportNotice = splitLeadingTransportNotice(contentText);
   if (leadingTransportNotice) {
-    const commandOutputSplit = collapseAiMessagesByDefault
-      ? splitAssistantCommandOutput(leadingTransportNotice.remainder)
-      : null;
-
     return (
       <>
         <div
@@ -398,14 +481,11 @@ function DisplayConversationEntry({
         <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
           <div className="relative">
             <div className={getContentClassName(entryType)}>
-              {commandOutputSplit ? (
-                <AssistantCommandOutputEntry
-                  prefix={commandOutputSplit.prefix}
-                  output={commandOutputSplit.output}
-                  expansionKey={expansionKey}
+              {shouldRenderMarkdown(entryType) ? (
+                <Markdown
+                  value={leadingTransportNotice.remainder}
+                  {...markdownContext}
                 />
-              ) : shouldRenderMarkdown(entryType) ? (
-                <Markdown value={leadingTransportNotice.remainder} />
               ) : (
                 leadingTransportNotice.remainder
               )}
@@ -441,42 +521,12 @@ function DisplayConversationEntry({
     );
   }
 
-  const commandOutputSplit = collapseAiMessagesByDefault
-    ? splitAssistantCommandOutput(contentText)
-    : null;
-
-  if (commandOutputSplit) {
-    return (
-      <div
-        className={cn(
-          'conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm',
-          greyed && 'opacity-50 pointer-events-none'
-        )}
-      >
-        <div className="relative">
-          <div className={getContentClassName(entryType)}>
-            <AssistantCommandOutputEntry
-              prefix={commandOutputSplit.prefix}
-              output={commandOutputSplit.output}
-              expansionKey={expansionKey}
-            />
-          </div>
-          {isNormalizedEntry(entry) && entry.content.trim().length > 0 && (
-            <div className="absolute -right-1 top-0">
-              <CopyButton text={entry.content} />
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
       <div className="relative">
         <div className={getContentClassName(entryType)}>
           {shouldRenderMarkdown(entryType) ? (
-            <Markdown value={contentText} />
+            <Markdown value={contentText} {...markdownContext} />
           ) : (
             contentText
           )}

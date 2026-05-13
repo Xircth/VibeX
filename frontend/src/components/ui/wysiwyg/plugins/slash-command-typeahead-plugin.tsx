@@ -6,16 +6,34 @@ import {
   MenuOption,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import { $createTextNode } from 'lexical';
-import { Command as CommandIcon } from 'lucide-react';
+import {
+  Archive,
+  Boxes,
+  Command as CommandIcon,
+  FilePlus2,
+  SearchCheck,
+  Target,
+  type LucideIcon,
+} from 'lucide-react';
 import type { ExecutorProfileId, SlashCommandDescription } from 'shared/types';
 
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
+import { getSlashCommandPresentation } from '@/lib/slashCommandPresentation';
 import { useTaskAttemptId } from '@/components/ui/wysiwyg/context/task-attempt-context';
 import { useTypeaheadOpen } from '@/components/ui/wysiwyg/context/typeahead-open-context';
 
 import { $createSlashCommandNode } from '../nodes/slash-command-node';
 import { TypeaheadMenu } from './typeahead-menu-components';
+
+const SLASH_COMMAND_ICONS: Record<string, LucideIcon> = {
+  compact: Archive,
+  goal: Target,
+  review: SearchCheck,
+  init: FilePlus2,
+  mcp: Boxes,
+  command: CommandIcon,
+};
 
 class SlashCommandOption extends MenuOption {
   command: SlashCommandDescription | null;
@@ -35,17 +53,34 @@ class SlashCommandOption extends MenuOption {
 
 function filterSlashCommands(
   all: SlashCommandDescription[],
-  query: string
+  query: string,
+  executor: ExecutorProfileId['executor'] | null | undefined
 ): SlashCommandDescription[] {
   const q = query.trim().toLowerCase();
   if (!q) return all;
 
-  const startsWith = all.filter((command) =>
-    command.name.toLowerCase().startsWith(q)
-  );
+  const searchText = (command: SlashCommandDescription) => {
+    const presentation = getSlashCommandPresentation(command, executor);
+    return [
+      command.name,
+      presentation.label,
+      command.description ?? '',
+      presentation.description ?? '',
+    ]
+      .join(' ')
+      .toLowerCase();
+  };
+
+  const startsWith = all.filter((command) => {
+    const presentation = getSlashCommandPresentation(command, executor);
+    return (
+      command.name.toLowerCase().startsWith(q) ||
+      presentation.label.toLowerCase().startsWith(q)
+    );
+  });
   const includes = all.filter(
     (command) =>
-      !startsWith.includes(command) && command.name.toLowerCase().includes(q)
+      !startsWith.includes(command) && searchText(command).includes(q)
   );
   return [...startsWith, ...includes];
 }
@@ -63,6 +98,7 @@ export function SlashCommandTypeaheadPlugin({
   const { setIsOpen } = useTypeaheadOpen();
   const [options, setOptions] = useState<SlashCommandOption[]>([]);
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
+  const executor = executorProfile?.executor ?? null;
 
   const slashCommandsQuery = useSlashCommands(executorProfile, {
     workspaceId: taskAttemptId,
@@ -74,10 +110,11 @@ export function SlashCommandTypeaheadPlugin({
   );
   const isLoading =
     !slashCommandsQuery.isInitialized && !!executorProfile?.executor;
-  const isDiscovering = slashCommandsQuery.discovering;
+  const isDiscovering =
+    slashCommandsQuery.discovering && allCommands.length === 0;
 
   const menuOptions = useMemo(() => {
-    if (!executorProfile?.executor || activeQuery === null) {
+    if (!executor || activeQuery === null) {
       return [] as SlashCommandOption[];
     }
 
@@ -90,29 +127,37 @@ export function SlashCommandTypeaheadPlugin({
     }
 
     return options;
-  }, [activeQuery, executorProfile, isDiscovering, isLoading, options]);
+  }, [activeQuery, executor, isDiscovering, isLoading, options]);
 
   const updateOptions = useCallback(
     (query: string | null) => {
       setActiveQuery(query);
 
-      if (!executorProfile?.executor || query === null) {
+      if (!executor || query === null) {
         setOptions([]);
         return;
       }
 
-      const filtered = filterSlashCommands(allCommands, query).slice(0, 50);
-      setOptions(filtered.map((command) => new SlashCommandOption(command)));
+      const filtered = filterSlashCommands(allCommands, query, executor);
+      const ordered = [
+        ...filtered.filter(
+          (command) => !getSlashCommandPresentation(command, executor).isSkill
+        ),
+        ...filtered.filter(
+          (command) => getSlashCommandPresentation(command, executor).isSkill
+        ),
+      ].slice(0, 50);
+      setOptions(ordered.map((command) => new SlashCommandOption(command)));
     },
-    [executorProfile, allCommands]
+    [executor, allCommands]
   );
 
   const hasVisibleResults = useMemo(() => {
-    if (!executorProfile?.executor || activeQuery === null) return false;
+    if (!executor || activeQuery === null) return false;
     if (isLoading || isDiscovering) return true;
     if (!activeQuery.trim()) return true;
     return options.length > 0;
-  }, [executorProfile, activeQuery, isDiscovering, isLoading, options.length]);
+  }, [executor, activeQuery, isDiscovering, isLoading, options.length]);
 
   useEffect(() => {
     if (activeQuery === null) return;
@@ -157,6 +202,8 @@ export function SlashCommandTypeaheadPlugin({
           const commandNode = $createSlashCommandNode({
             commandName: selectedCommand.name,
             description: selectedCommand.description ?? undefined,
+            displayName: getSlashCommandPresentation(selectedCommand, executor)
+              .label,
           });
           nodeToReplace.replace(commandNode);
 
@@ -172,11 +219,19 @@ export function SlashCommandTypeaheadPlugin({
         { selectedIndex, selectOptionAndCleanUp, setHighlightedIndex }
       ) => {
         if (!anchorRef.current) return null;
-        if (!executorProfile?.executor) return null;
+        if (!executor) return null;
         if (!hasVisibleResults) return null;
 
         const commandOptions = menuOptions.flatMap((option) =>
           option.command ? [{ option, command: option.command }] : []
+        );
+        const primaryCommandOptions = commandOptions.filter(
+          ({ command }) =>
+            !getSlashCommandPresentation(command, executor).isSkill
+        );
+        const skillCommandOptions = commandOptions.filter(
+          ({ command }) =>
+            getSlashCommandPresentation(command, executor).isSkill
         );
         const metaState =
           menuOptions.find((option) => option.meta)?.meta ?? null;
@@ -184,20 +239,13 @@ export function SlashCommandTypeaheadPlugin({
           metaState === 'empty' ||
           (!isLoading && !isDiscovering && allCommands.length === 0);
         const showLoadingRow = isLoading || isDiscovering;
-        const loadingText = isLoading
-          ? 'Loading commands...'
-          : 'Discovering commands...';
+        const loadingText = isLoading ? '正在加载命令...' : '正在发现命令...';
 
         return createPortal(
           <TypeaheadMenu anchorEl={anchorRef.current}>
-            <TypeaheadMenu.Header>
-              <CommandIcon className="h-3.5 w-3.5" />
-              {'Commands'}
-            </TypeaheadMenu.Header>
-
             {isEmpty ? (
               <TypeaheadMenu.Empty>
-                {'No slash commands available for this profile.'}
+                {'当前配置没有可用命令。'}
               </TypeaheadMenu.Empty>
             ) : commandOptions.length === 0 && !showLoadingRow ? null : (
               <TypeaheadMenu.ScrollArea>
@@ -206,24 +254,33 @@ export function SlashCommandTypeaheadPlugin({
                     {loadingText}
                   </div>
                 )}
-                {commandOptions.map(({ option, command }, index) => (
-                  <TypeaheadMenu.Item
+                {primaryCommandOptions.map(({ option, command }, index) => (
+                  <SlashCommandMenuItem
                     key={option.key}
+                    command={command}
+                    executor={executor}
                     isSelected={index === selectedIndex}
                     index={index}
                     setHighlightedIndex={setHighlightedIndex}
                     onClick={() => selectOptionAndCleanUp(option)}
-                  >
-                    <div className="flex items-center gap-2 font-medium">
-                      <span className="font-mono">/{command.name}</span>
-                    </div>
-                    {command.description && (
-                      <div className="text-xs mt-0.5 truncate text-muted-foreground">
-                        {command.description}
-                      </div>
-                    )}
-                  </TypeaheadMenu.Item>
+                  />
                 ))}
+                {primaryCommandOptions.length > 0 &&
+                  skillCommandOptions.length > 0 && <div className="h-2" />}
+                {skillCommandOptions.map(({ option, command }, index) => {
+                  const optionIndex = primaryCommandOptions.length + index;
+                  return (
+                    <SlashCommandMenuItem
+                      key={option.key}
+                      command={command}
+                      executor={executor}
+                      isSelected={optionIndex === selectedIndex}
+                      index={optionIndex}
+                      setHighlightedIndex={setHighlightedIndex}
+                      onClick={() => selectOptionAndCleanUp(option)}
+                    />
+                  );
+                })}
               </TypeaheadMenu.ScrollArea>
             )}
           </TypeaheadMenu>,
@@ -231,5 +288,53 @@ export function SlashCommandTypeaheadPlugin({
         );
       }}
     />
+  );
+}
+
+function SlashCommandMenuItem({
+  command,
+  executor,
+  isSelected,
+  index,
+  setHighlightedIndex,
+  onClick,
+}: {
+  command: SlashCommandDescription;
+  executor: ExecutorProfileId['executor'];
+  isSelected: boolean;
+  index: number;
+  setHighlightedIndex: (index: number) => void;
+  onClick: () => void;
+}) {
+  const presentation = getSlashCommandPresentation(command, executor);
+  const Icon = presentation.iconKey
+    ? SLASH_COMMAND_ICONS[presentation.iconKey]
+    : null;
+
+  return (
+    <TypeaheadMenu.Item
+      isSelected={isSelected}
+      index={index}
+      setHighlightedIndex={setHighlightedIndex}
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2">
+        {Icon && !presentation.isSkill ? (
+          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : null}
+        <span className="font-medium text-foreground">
+          {presentation.label}
+        </span>
+      </div>
+      {presentation.description && (
+        <div
+          className={`mt-0.5 truncate text-xs text-muted-foreground ${
+            Icon && !presentation.isSkill ? 'pl-5' : ''
+          }`}
+        >
+          {presentation.description}
+        </div>
+      )}
+    </TypeaheadMenu.Item>
   );
 }

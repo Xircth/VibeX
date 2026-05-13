@@ -6,6 +6,7 @@ import {
   placeSessionFromList,
   promoteMonitorSessionToRight,
   pruneUnavailableSessions,
+  removeMonitorSession,
   replaceRightSession,
   resolveCurrentExecutionPlacement,
   type KanbanSessionPlacement,
@@ -118,6 +119,18 @@ describe('kanban session layout', () => {
       'a',
       'b',
     ]);
+  });
+
+  it('removes a session from monitor slots without changing the right panel', () => {
+    const state = {
+      rightSession: session('right'),
+      monitorSessions: [session('a'), session('b')],
+    };
+
+    const next = removeMonitorSession(state, 'a');
+
+    expect(next.rightSession?.sessionId).toBe('right');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual(['b']);
   });
 
   it('uses the right panel session as the execution placement when it differs from the active workspace', () => {

@@ -28,6 +28,22 @@ test('preview proxy does not route local dev server traffic through system proxy
   );
 });
 
+test('preview proxy streams non-html responses instead of buffering all assets', () => {
+  const source = readRepoFile('src-tauri/src/preview_proxy.rs');
+
+  assert.match(source, /Body::from_stream\(/);
+  assert.match(source, /\.bytes_stream\(\)/);
+  assert.match(source, /if !is_html \{/);
+});
+
+test('preview proxy uses a short local connect timeout before retrying host variants', () => {
+  const source = readRepoFile('src-tauri/src/preview_proxy.rs');
+
+  assert.match(source, /\.connect_timeout\(Duration::from_millis\(250\)\)/);
+  assert.match(source, /build_upstream_url_candidates/);
+  assert.match(source, /remember_successful_upstream_host/);
+});
+
 test('tauri setup manages AppState before async background tasks start', () => {
   const source = readRepoFile('src-tauri/src/lib.rs');
 

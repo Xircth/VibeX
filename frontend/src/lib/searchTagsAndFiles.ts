@@ -27,6 +27,15 @@ const BUILTIN_DEV_SERVER_TAG: Tag = {
   created_at: '',
   updated_at: '',
 };
+const BUILTIN_REVIEW_CHANGES_TAG: Tag = {
+  id: 'builtin:review-changes',
+  tag_name: '审查变更',
+  content:
+    '请审查当前工作区的所有未提交代码变更。优先指出可能的 Bug、行为回归、可维护性问题、性能问题和测试缺口；按严重程度排序，尽量附上文件和行号。若没有发现问题，请明确说明未发现高风险问题，并列出仍未验证的风险。',
+  created_at: '',
+  updated_at: '',
+};
+const BUILTIN_TAGS = [BUILTIN_DEV_SERVER_TAG, BUILTIN_REVIEW_CHANGES_TAG];
 
 let cachedTags: Tag[] | null = null;
 let cachedTagsAt = 0;
@@ -46,10 +55,9 @@ async function loadCachedTags(): Promise<Tag[]> {
     .list()
     .then((tags) => {
       const mergedTags = new Map<string, Tag>();
-      mergedTags.set(
-        BUILTIN_DEV_SERVER_TAG.tag_name.toLowerCase(),
-        BUILTIN_DEV_SERVER_TAG
-      );
+      for (const tag of BUILTIN_TAGS) {
+        mergedTags.set(tag.tag_name.toLowerCase(), tag);
+      }
       for (const tag of tags) {
         mergedTags.set(tag.tag_name.toLowerCase(), tag);
       }

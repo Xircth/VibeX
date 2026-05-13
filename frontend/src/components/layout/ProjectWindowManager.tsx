@@ -358,7 +358,7 @@ function ProjectActivityTracker({
             return;
           }
 
-          if (!windowFocused) {
+          if (kind === 'error' || !windowFocused) {
             void showDesktopToast({
               projectId,
               workspaceId: workspace.id,
@@ -369,7 +369,7 @@ function ProjectActivityTracker({
               durationMs: 15000,
             }).catch((error) => {
               console.error(
-                'Failed to show detached desktop toast window for completed session:',
+                'Failed to show detached desktop toast window for session notification:',
                 error
               );
             });
@@ -418,7 +418,11 @@ export function ProjectWindowManager() {
   const location = useLocation();
   const navigate = useNavigate();
   const { projectId } = useProject();
-  const { projects, projectsById, isLoading: isProjectsLoading } = useProjects();
+  const {
+    projects,
+    projectsById,
+    isLoading: isProjectsLoading,
+  } = useProjects();
   const ensureProjectOpen = useWindowProjectsStore(
     (state) => state.ensureProjectOpen
   );
@@ -496,9 +500,7 @@ export function ProjectWindowManager() {
 
     return Array.from(
       new Set([...(projectId ? [projectId] : []), ...openProjectIds])
-    ).filter((trackedProjectId) =>
-      Boolean(projectsById[trackedProjectId])
-    );
+    ).filter((trackedProjectId) => Boolean(projectsById[trackedProjectId]));
   }, [
     isProjectRailWindow,
     openProjectIds,

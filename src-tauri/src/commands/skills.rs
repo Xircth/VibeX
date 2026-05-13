@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use executors::executors::codex::codex_home;
 use serde::Serialize;
@@ -23,10 +26,19 @@ fn normalize_agent_type(agent_type: &str) -> &str {
     }
 }
 
-fn resolve_skills_dir(agent_type: &str) -> Option<PathBuf> {
+fn resolve_skills_dirs(agent_type: &str) -> Vec<PathBuf> {
     match normalize_agent_type(agent_type) {
-        "codex" => codex_home().map(|home| home.join("skills")),
-        _ => None,
+        "codex" => {
+            let mut dirs = Vec::new();
+            if let Some(home) = codex_home() {
+                dirs.push(home.join("skills"));
+            }
+            if let Some(home) = dirs::home_dir() {
+                dirs.push(home.join(".agents").join("skills"));
+            }
+            dirs
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -99,47 +111,56 @@ async fn read_skill_description(skill_dir: &Path) -> Result<Option<String>, AppE
 
 #[tauri::command]
 pub async fn list_local_agent_skills(agent_type: String) -> Result<Vec<AgentLocalSkill>, AppError> {
-    let Some(skills_dir) = resolve_skills_dir(&agent_type) else {
+    let skills_dirs = resolve_skills_dirs(&agent_type);
+    if skills_dirs.is_empty() {
         return Ok(Vec::new());
     };
 
-    if !skills_dir.exists() {
-        return Ok(Vec::new());
-    }
-
     let invocation_prefix = resolve_invocation_prefix(&agent_type);
-    let mut entries = fs::read_dir(&skills_dir).await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to read skills directory {}: {}",
-            skills_dir.display(),
-            error
-        ))
-    })?;
-
     let mut skills = Vec::new();
-    while let Some(entry) = entries.next_entry().await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to enumerate skills directory {}: {}",
-            skills_dir.display(),
-            error
-        ))
-    })? {
-        let path = entry.path();
-        if !path.is_dir() || is_hidden_skill_dir(&path) {
+    let mut seen_names = HashSet::new();
+
+    for skills_dir in skills_dirs {
+        if !skills_dir.exists() {
             continue;
         }
 
-        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-            continue;
-        };
+        let mut entries = fs::read_dir(&skills_dir).await.map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to read skills directory {}: {}",
+                skills_dir.display(),
+                error
+            ))
+        })?;
 
-        let description = read_skill_description(&path).await?;
-        skills.push(AgentLocalSkill {
-            name: name.to_string(),
-            description,
-            path: path.to_string_lossy().to_string(),
-            invocation: format!("{invocation_prefix}{name}"),
-        });
+        while let Some(entry) = entries.next_entry().await.map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to enumerate skills directory {}: {}",
+                skills_dir.display(),
+                error
+            ))
+        })? {
+            let path = entry.path();
+            if !path.is_dir() || is_hidden_skill_dir(&path) {
+                continue;
+            }
+
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                continue;
+            };
+
+            if !seen_names.insert(name.to_string()) {
+                continue;
+            }
+
+            let description = read_skill_description(&path).await?;
+            skills.push(AgentLocalSkill {
+                name: name.to_string(),
+                description,
+                path: path.to_string_lossy().to_string(),
+                invocation: format!("{invocation_prefix}{name}"),
+            });
+        }
     }
 
     skills.sort_by(|left, right| left.name.cmp(&right.name));

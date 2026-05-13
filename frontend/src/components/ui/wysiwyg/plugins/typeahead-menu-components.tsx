@@ -17,57 +17,31 @@ interface TypeaheadPlacement {
   side: VerticalSide;
   maxHeight: number;
   left: number;
-  top: number;
+  bottom: number;
+  width: number;
 }
 
 const VIEWPORT_PADDING = 16;
-const MENU_SIDE_OFFSET = 8;
+const MENU_SIDE_OFFSET = 6;
 const MAX_MENU_HEIGHT = 360;
-const MIN_RENDERED_MENU_HEIGHT = 96;
-const FLIP_HYSTERESIS_PX = 72;
+const MIN_MENU_HEIGHT = 48;
+const MIN_MENU_WIDTH = 320;
+const MAX_MENU_WIDTH = 520;
 
 function getViewportHeight() {
-  return window.visualViewport?.height ?? window.innerHeight;
+  return window.innerHeight;
 }
 
-function getAvailableVerticalSpace(anchorRect: DOMRect) {
+function getAvailableSpaceAbove(anchorRect: DOMRect) {
   const viewportHeight = getViewportHeight();
-  return {
-    above: anchorRect.top - VIEWPORT_PADDING - MENU_SIDE_OFFSET,
-    below:
-      viewportHeight - anchorRect.bottom - VIEWPORT_PADDING - MENU_SIDE_OFFSET,
-  };
-}
-
-function chooseInitialSide(above: number, below: number): VerticalSide {
-  return below >= above ? 'bottom' : 'top';
-}
-
-function chooseStableSide(
-  previousSide: VerticalSide | undefined,
-  above: number,
-  below: number
-): VerticalSide {
-  if (!previousSide) {
-    return chooseInitialSide(above, below);
-  }
-
-  if (previousSide === 'bottom') {
-    const shouldFlipToTop =
-      below < MIN_RENDERED_MENU_HEIGHT && above > below + FLIP_HYSTERESIS_PX;
-    return shouldFlipToTop ? 'top' : 'bottom';
-  }
-
-  const shouldFlipToBottom =
-    above < MIN_RENDERED_MENU_HEIGHT && below > above + FLIP_HYSTERESIS_PX;
-  return shouldFlipToBottom ? 'bottom' : 'top';
+  return Math.min(
+    viewportHeight - VIEWPORT_PADDING - MENU_SIDE_OFFSET,
+    anchorRect.top - VIEWPORT_PADDING - MENU_SIDE_OFFSET
+  );
 }
 
 function clampMenuHeight(height: number) {
-  return Math.min(
-    MAX_MENU_HEIGHT,
-    Math.max(MIN_RENDERED_MENU_HEIGHT, Math.floor(height))
-  );
+  return Math.min(MAX_MENU_HEIGHT, Math.max(MIN_MENU_HEIGHT, Math.floor(height)));
 }
 
 function isUsableRect(rect: DOMRect) {
@@ -103,23 +77,81 @@ function getCursorRect(anchorEl: HTMLElement): DOMRect {
   return anchorRect;
 }
 
-function getPlacement(
-  anchorEl: HTMLElement,
-  previousSide?: VerticalSide
-): TypeaheadPlacement {
-  const anchorRect = getCursorRect(anchorEl);
-  const { above, below } = getAvailableVerticalSpace(anchorRect);
-  const side = chooseStableSide(previousSide, above, below);
-  const rawHeight = side === 'bottom' ? below : above;
+function getTypeaheadSurfaceRect(anchorEl: HTMLElement): DOMRect {
+  const activeEditorSurface = document.activeElement?.closest(
+    '[data-typeahead-surface="editor"]'
+  );
+  if (activeEditorSurface instanceof HTMLElement) {
+    const activeEditorSurfaceRect = activeEditorSurface.getBoundingClientRect();
+    if (isUsableRect(activeEditorSurfaceRect)) {
+      return activeEditorSurfaceRect;
+    }
+  }
+
+  const selectionEditorSurface = window
+    .getSelection()
+    ?.anchorNode?.parentElement?.closest('[data-typeahead-surface="editor"]');
+  if (selectionEditorSurface instanceof HTMLElement) {
+    const selectionEditorSurfaceRect =
+      selectionEditorSurface.getBoundingClientRect();
+    if (isUsableRect(selectionEditorSurfaceRect)) {
+      return selectionEditorSurfaceRect;
+    }
+  }
+
+  const activeComposerSurface = document.activeElement?.closest(
+    '[data-typeahead-surface="composer"]'
+  );
+  if (activeComposerSurface instanceof HTMLElement) {
+    const activeSurfaceRect = activeComposerSurface.getBoundingClientRect();
+    if (isUsableRect(activeSurfaceRect)) {
+      return activeSurfaceRect;
+    }
+  }
+
+  const activeSurface = document.activeElement?.closest('[data-typeahead-surface]');
+  if (activeSurface instanceof HTMLElement) {
+    const activeSurfaceRect = activeSurface.getBoundingClientRect();
+    if (isUsableRect(activeSurfaceRect)) {
+      return activeSurfaceRect;
+    }
+  }
+
+  const selectionSurface = window
+    .getSelection()
+    ?.anchorNode?.parentElement?.closest('[data-typeahead-surface]');
+  if (selectionSurface instanceof HTMLElement) {
+    const selectionSurfaceRect = selectionSurface.getBoundingClientRect();
+    if (isUsableRect(selectionSurfaceRect)) {
+      return selectionSurfaceRect;
+    }
+  }
+
+  const surface = anchorEl.closest('[data-typeahead-surface]');
+  if (surface instanceof HTMLElement) {
+    const surfaceRect = surface.getBoundingClientRect();
+    if (isUsableRect(surfaceRect)) {
+      return surfaceRect;
+    }
+  }
+
+  return getCursorRect(anchorEl);
+}
+
+function getPlacement(anchorEl: HTMLElement): TypeaheadPlacement {
+  const surfaceRect = getTypeaheadSurfaceRect(anchorEl);
+  const side: VerticalSide = 'top';
+  const width = Math.max(
+    MIN_MENU_WIDTH,
+    Math.min(MAX_MENU_WIDTH, Math.floor(surfaceRect.width))
+  );
 
   return {
     side,
-    maxHeight: clampMenuHeight(rawHeight),
-    left: anchorRect.left,
-    top:
-      side === 'bottom'
-        ? anchorRect.bottom + MENU_SIDE_OFFSET
-        : anchorRect.top - MENU_SIDE_OFFSET,
+    maxHeight: clampMenuHeight(getAvailableSpaceAbove(surfaceRect)),
+    left: surfaceRect.left,
+    bottom: getViewportHeight() - surfaceRect.top + MENU_SIDE_OFFSET,
+    width,
   };
 }
 
@@ -135,12 +167,13 @@ function TypeaheadMenuRoot({ anchorEl, children }: TypeaheadMenuProps) {
 
   const syncPlacement = useCallback(() => {
     setPlacement((previous) => {
-      const next = getPlacement(anchorEl, previous.side);
+      const next = getPlacement(anchorEl);
       if (
         next.side === previous.side &&
         next.maxHeight === previous.maxHeight &&
         next.left === previous.left &&
-        next.top === previous.top
+        next.bottom === previous.bottom &&
+        next.width === previous.width
       ) {
         return previous;
       }
@@ -178,18 +211,16 @@ function TypeaheadMenuRoot({ anchorEl, children }: TypeaheadMenuProps) {
         '--typeahead-menu-max-height': `${placement.maxHeight}px`,
         position: 'fixed',
         left: `${placement.left}px`,
-        top:
-          placement.side === 'bottom'
-            ? `${placement.top}px`
-            : `calc(${placement.top}px - var(--typeahead-menu-max-height))`,
+        width: `${placement.width}px`,
+        bottom: `${placement.bottom}px`,
         zIndex: 20000,
       }) as CSSProperties,
-    [placement.left, placement.maxHeight, placement.side, placement.top]
+    [placement.bottom, placement.left, placement.maxHeight, placement.width]
   );
 
   return (
     <div style={contentStyle}>
-      <div className="w-auto min-w-80 max-w-[370px] rounded-md border bg-background p-0 shadow-md overflow-hidden">
+      <div className="w-full overflow-hidden rounded-md border bg-background p-0 shadow-md">
         {children}
       </div>
     </div>

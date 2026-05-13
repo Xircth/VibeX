@@ -30,6 +30,7 @@ pub enum AcpEvent {
     ToolCall(ToolCall),
     ToolUpdate(ToolCallUpdate),
     Plan(Plan),
+    Usage { used: u64, size: u64 },
     AvailableCommands(Vec<AvailableCommand>),
     CurrentMode(SessionModeId),
     RequestPermission(RequestPermissionRequest),

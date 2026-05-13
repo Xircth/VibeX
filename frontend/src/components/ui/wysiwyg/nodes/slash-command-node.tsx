@@ -17,12 +17,14 @@ import { Command as CommandIcon, X } from 'lucide-react';
 export interface SlashCommandData {
   commandName: string;
   description?: string;
+  displayName?: string;
 }
 
 type SerializedSlashCommandNode = Spread<
   {
     commandName: string;
     description?: string;
+    displayName?: string;
   },
   SerializedLexicalNode
 >;
@@ -32,6 +34,7 @@ type SerializedSlashCommandNode = Spread<
 export class SlashCommandNode extends DecoratorNode<JSX.Element> {
   __commandName: string;
   __description: string;
+  __displayName: string;
 
   static getType(): string {
     return 'slash-command';
@@ -41,14 +44,21 @@ export class SlashCommandNode extends DecoratorNode<JSX.Element> {
     return new SlashCommandNode(
       node.__commandName,
       node.__description,
+      node.__displayName,
       node.__key
     );
   }
 
-  constructor(commandName: string, description?: string, key?: NodeKey) {
+  constructor(
+    commandName: string,
+    description?: string,
+    displayName?: string,
+    key?: NodeKey
+  ) {
     super(key);
     this.__commandName = commandName;
     this.__description = description ?? '';
+    this.__displayName = displayName ?? '';
   }
 
   createDOM(): HTMLElement {
@@ -62,7 +72,11 @@ export class SlashCommandNode extends DecoratorNode<JSX.Element> {
   }
 
   static importJSON(json: SerializedSlashCommandNode): SlashCommandNode {
-    return new SlashCommandNode(json.commandName, json.description);
+    return new SlashCommandNode(
+      json.commandName,
+      json.description,
+      json.displayName
+    );
   }
 
   exportJSON(): SerializedSlashCommandNode {
@@ -71,6 +85,10 @@ export class SlashCommandNode extends DecoratorNode<JSX.Element> {
       version: 1,
       commandName: this.__commandName,
       description: this.__description || undefined,
+      displayName:
+        this.__displayName && this.__displayName !== this.__commandName
+          ? this.__displayName
+          : undefined,
     };
   }
 
@@ -87,6 +105,7 @@ export class SlashCommandNode extends DecoratorNode<JSX.Element> {
       <SlashCommandChip
         commandName={this.__commandName}
         description={this.__description}
+        displayName={this.__displayName}
         nodeKey={this.__key}
       />
     );
@@ -98,7 +117,11 @@ export class SlashCommandNode extends DecoratorNode<JSX.Element> {
 export function $createSlashCommandNode(
   data: SlashCommandData
 ): SlashCommandNode {
-  return new SlashCommandNode(data.commandName, data.description);
+  return new SlashCommandNode(
+    data.commandName,
+    data.description,
+    data.displayName
+  );
 }
 
 export function $isSlashCommandNode(
@@ -130,10 +153,12 @@ export const SLASH_COMMAND_TRANSFORMER: TextMatchTransformer = {
 function SlashCommandChip({
   commandName,
   description,
+  displayName,
   nodeKey,
 }: {
   commandName: string;
   description: string;
+  displayName: string;
   nodeKey: NodeKey;
 }) {
   const [editor] = useLexicalComposerContext();
@@ -181,7 +206,7 @@ function SlashCommandChip({
       onDoubleClick={handleDoubleClick}
     >
       <CommandIcon className="h-3 w-3 shrink-0" />
-      <span className="font-mono font-medium">/{commandName}</span>
+      <span className="font-medium">{displayName || `/${commandName}`}</span>
       {isEditable && (
         <button
           type="button"

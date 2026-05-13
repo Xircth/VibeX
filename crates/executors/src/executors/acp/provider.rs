@@ -14,7 +14,7 @@ use crate::{
     env::ExecutionEnv,
     executors::{
         AppendPrompt, AvailabilityInfo, BaseAgentCapability, ExecutorError,
-        SlashCommandDescription, SpawnedChild, StandardCodingAgentExecutor,
+        SlashCommandDescription, SlashCommandKind, SpawnedChild, StandardCodingAgentExecutor,
         acp::{AcpAgentHarness, normalize_logs},
     },
     logs::utils::patch,
@@ -176,24 +176,17 @@ impl AcpProvider {
                 ("vim", "Toggle Vim mode"),
             ]),
             Self::Codex => slash_commands(&[
+                ("compact", "Compact conversation with an optional focus"),
+                (
+                    "goal",
+                    "Set, inspect, pause, resume, or clear a long-running goal",
+                ),
                 ("review", "Review code with optional instructions"),
-                ("review-branch", "Review a branch"),
-                ("review-commit", "Review a commit"),
                 (
                     "init",
                     "Create an AGENTS.md file with repository instructions",
                 ),
-                ("status", "Show session configuration and token usage"),
-                ("approvals", "Choose what Codex can do without approval"),
-                ("model", "Select model and reasoning effort"),
                 ("mcp", "List configured MCP servers and tools"),
-                ("compact", "Summarize conversation context"),
-                ("diff", "Show git diff, including untracked files"),
-                ("mention", "Attach a file to the conversation"),
-                ("prompts", "List example prompts"),
-                ("new", "Start a new conversation"),
-                ("help", "Show Codex command help"),
-                ("logout", "Sign out of Codex"),
             ]),
             Self::Opencode => slash_commands(&[
                 ("init", "Create or update AGENTS.md"),
@@ -252,11 +245,7 @@ impl AcpProvider {
                     &project_and_home_dirs(workdir, ".codex", "prompts"),
                     "Codex custom prompt",
                 );
-                discover_skill_commands(
-                    &mut commands,
-                    &project_and_home_dirs(workdir, ".codex", "skills"),
-                    "Codex skill",
-                );
+                discover_skill_commands(&mut commands, &codex_skill_dirs(workdir), "Codex skill");
             }
             Self::Opencode => {
                 discover_markdown_commands(
@@ -276,6 +265,7 @@ fn slash_commands(entries: &[(&str, &str)]) -> Vec<SlashCommandDescription> {
         .map(|(name, description)| SlashCommandDescription {
             name: (*name).to_string(),
             description: Some((*description).to_string()),
+            kind: Some(SlashCommandKind::Command),
         })
         .collect()
 }
@@ -285,6 +275,7 @@ fn add_command_if_missing(
     seen: &mut BTreeSet<String>,
     name: String,
     description: Option<String>,
+    kind: SlashCommandKind,
 ) {
     let name = name
         .trim()
@@ -294,7 +285,11 @@ fn add_command_if_missing(
     if name.is_empty() || !seen.insert(name.clone()) {
         return;
     }
-    commands.push(SlashCommandDescription { name, description });
+    commands.push(SlashCommandDescription {
+        name,
+        description,
+        kind: Some(kind),
+    });
 }
 
 fn existing_command_names(commands: &[SlashCommandDescription]) -> BTreeSet<String> {
@@ -308,6 +303,14 @@ fn project_and_home_dirs(workdir: &Path, root: &str, leaf: &str) -> Vec<PathBuf>
     let mut dirs = vec![workdir.join(root).join(leaf)];
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join(root).join(leaf));
+    }
+    dirs
+}
+
+fn codex_skill_dirs(workdir: &Path) -> Vec<PathBuf> {
+    let mut dirs = project_and_home_dirs(workdir, ".codex", "skills");
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".agents").join("skills"));
     }
     dirs
 }
@@ -353,7 +356,13 @@ fn discover_markdown_commands(
             };
             let description =
                 read_markdown_description(&path).or_else(|| Some(fallback_description.to_string()));
-            add_command_if_missing(commands, &mut seen, name.to_string(), description);
+            add_command_if_missing(
+                commands,
+                &mut seen,
+                name.to_string(),
+                description,
+                SlashCommandKind::Command,
+            );
         }
     }
 }
@@ -379,7 +388,13 @@ fn discover_skill_commands(
             let skill_file = path.join("SKILL.md");
             let description = read_markdown_description(&skill_file)
                 .or_else(|| Some(fallback_description.to_string()));
-            add_command_if_missing(commands, &mut seen, name.to_string(), description);
+            add_command_if_missing(
+                commands,
+                &mut seen,
+                name.to_string(),
+                description,
+                SlashCommandKind::Skill,
+            );
         }
     }
 }
@@ -435,16 +450,12 @@ mod tests {
     fn codex_acp_exposes_more_than_adapter_fallback_commands() {
         let names = command_names(AcpProvider::Codex);
 
+        assert_eq!(names.len(), 5);
         assert!(names.contains("compact"));
+        assert!(names.contains("goal"));
         assert!(names.contains("init"));
         assert!(names.contains("review"));
-        assert!(names.contains("review-branch"));
-        assert!(names.contains("review-commit"));
-        assert!(names.contains("status"));
         assert!(names.contains("mcp"));
-        assert!(names.contains("model"));
-        assert!(names.contains("logout"));
-        assert!(names.len() > 2);
     }
 
     #[test]

@@ -6,6 +6,7 @@ use db::models::{
     workspace::{Workspace, WorkspaceWithStatus},
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
+use executors::executors::{SlashCommandDescription, SlashCommandKind};
 use git::GitBranch;
 use services::services::config::Config;
 use ts_rs::TS;
@@ -134,6 +135,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SessionContinuityMode>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
+    insert_declaration::<SlashCommandKind>(&mut decls);
+    insert_declaration::<SlashCommandDescription>(&mut decls);
 
     insert_declaration::<TaskStatus>(&mut decls);
     insert_declaration::<Task>(&mut decls);

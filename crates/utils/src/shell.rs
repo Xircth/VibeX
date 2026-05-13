@@ -110,6 +110,15 @@ async fn refresh_path() -> bool {
     true
 }
 
+/// Refresh the current process PATH from the user's shell or system environment.
+///
+/// Desktop apps can be launched with a stale or reduced PATH. Calling this
+/// before spawning agent processes lets child commands inherit the same tools
+/// a user expects in their normal terminal.
+pub async fn refresh_process_path() -> bool {
+    refresh_path().await
+}
+
 async fn which(executable: &str) -> Option<PathBuf> {
     let executable = executable.to_string();
     tokio::task::spawn_blocking(move || which::which(executable))

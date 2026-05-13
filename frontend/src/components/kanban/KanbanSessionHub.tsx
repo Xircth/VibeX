@@ -90,6 +90,7 @@ export function KanbanSessionHub() {
     openSessionFromList,
     placeCreatedSession,
     promoteMonitorSession,
+    cancelMonitorSession,
     pruneSessions,
   } = useKanbanSessionContext();
   const { data: activeAttempt } = useTaskAttemptWithSession(
@@ -912,6 +913,10 @@ export function KanbanSessionHub() {
     navigate(paths.projectSession(projectId, session.workspace.id, session.id));
   };
 
+  const handleCancelMonitor = (session: KanbanProjectSessionRecord) => {
+    cancelMonitorSession(session.id);
+  };
+
   const handleSessionListResizeMouseDown = (
     event: ReactMouseEvent<HTMLDivElement>
   ) => {
@@ -1030,6 +1035,7 @@ export function KanbanSessionHub() {
           monitorRecords={monitorRecords}
           canUseRightPanelForSessions={canUseRightPanelForSessions}
           onOpenInExecutionArea={handleOpenInExecutionArea}
+          onCancelMonitor={handleCancelMonitor}
         />
       </div>
     </TooltipProvider>

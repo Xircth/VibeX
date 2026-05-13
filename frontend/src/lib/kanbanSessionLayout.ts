@@ -143,6 +143,22 @@ export function promoteMonitorSessionToRight(
   };
 }
 
+export function removeMonitorSession(
+  state: KanbanSessionLayoutState,
+  sessionId: string
+): KanbanSessionLayoutState {
+  const monitorSessions = withoutSession(state.monitorSessions, sessionId);
+
+  if (monitorSessions.length === state.monitorSessions.length) {
+    return state;
+  }
+
+  return {
+    ...state,
+    monitorSessions,
+  };
+}
+
 export function replaceRightSession(
   state: KanbanSessionLayoutState,
   nextSession: KanbanSessionPlacement,

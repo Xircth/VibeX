@@ -16,7 +16,7 @@ use crate::{
     approvals::ToolCallMetadata,
     logs::{
         ActionType, FileChange, NormalizedEntry, NormalizedEntryError, NormalizedEntryType,
-        ToolResult, ToolResultValueType, ToolStatus as LogToolStatus,
+        TokenUsageInfo, ToolResult, ToolResultValueType, ToolStatus as LogToolStatus,
         stderr_processor::normalize_stderr_logs,
         utils::{ConversationPatch, EntryIndexProvider},
     },
@@ -66,38 +66,67 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                     }
                     AcpEvent::Message(content) => {
                         streaming.thinking_text = None;
-                        if let agent_client_protocol::schema::ContentBlock::Text(text) = content {
-                            let is_new = streaming.assistant_text.is_none();
-                            if is_new {
-                                if text.text == "\n" {
-                                    continue;
+                        match content {
+                            agent_client_protocol::schema::ContentBlock::Text(text) => {
+                                let is_new = streaming.assistant_text.is_none();
+                                if is_new {
+                                    if text.text == "\n" {
+                                        continue;
+                                    }
+                                    let idx = entry_index.next();
+                                    streaming.assistant_text = Some(StreamingText {
+                                        index: idx,
+                                        content: String::new(),
+                                    });
                                 }
-                                let idx = entry_index.next();
-                                streaming.assistant_text = Some(StreamingText {
-                                    index: idx,
-                                    content: String::new(),
-                                });
+                                if let Some(ref mut s) = streaming.assistant_text {
+                                    merge_streaming_text(&mut s.content, &text.text);
+                                    let entry = NormalizedEntry {
+                                        timestamp: None,
+                                        entry_type: NormalizedEntryType::AssistantMessage,
+                                        content: s.content.clone(),
+                                        metadata: None,
+                                    };
+                                    let patch = if is_new {
+                                        ConversationPatch::add_normalized_entry(s.index, entry)
+                                    } else {
+                                        ConversationPatch::replace(s.index, entry)
+                                    };
+                                    msg_store.push_patch(patch);
+                                }
                             }
-                            if let Some(ref mut s) = streaming.assistant_text {
-                                merge_streaming_text(&mut s.content, &text.text);
-                                let entry = NormalizedEntry {
-                                    timestamp: None,
-                                    entry_type: NormalizedEntryType::AssistantMessage,
-                                    content: s.content.clone(),
-                                    metadata: None,
-                                };
-                                let patch = if is_new {
-                                    ConversationPatch::add_normalized_entry(s.index, entry)
-                                } else {
-                                    ConversationPatch::replace(s.index, entry)
-                                };
-                                msg_store.push_patch(patch);
+                            other => {
+                                streaming.assistant_text = None;
+                                if let Some(content) = content_block_to_markdown(&other) {
+                                    let idx = entry_index.next();
+                                    let entry = NormalizedEntry {
+                                        timestamp: None,
+                                        entry_type: NormalizedEntryType::AssistantMessage,
+                                        content,
+                                        metadata: None,
+                                    };
+                                    msg_store.push_patch(ConversationPatch::add_normalized_entry(
+                                        idx, entry,
+                                    ));
+                                }
                             }
                         }
                     }
                     AcpEvent::Thought(content) => {
                         streaming.assistant_text = None;
-                        let _ = content;
+                        if let Some(content) = content_block_to_markdown(&content)
+                            && !content.trim().is_empty()
+                        {
+                            let idx = entry_index.next();
+                            let entry = NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::Thinking,
+                                content,
+                                metadata: None,
+                            };
+                            msg_store
+                                .push_patch(ConversationPatch::add_normalized_entry(idx, entry));
+                        }
                         streaming.thinking_text = None;
                     }
                     AcpEvent::Plan(plan) => {
@@ -114,6 +143,19 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                                 status: LogToolStatus::Success,
                             },
                             content: "Plan updated".to_string(),
+                            metadata: None,
+                        };
+                        msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
+                    }
+                    AcpEvent::Usage { used, size } => {
+                        let idx = entry_index.next();
+                        let entry = NormalizedEntry {
+                            timestamp: None,
+                            entry_type: NormalizedEntryType::TokenUsageInfo(TokenUsageInfo {
+                                total_tokens: used.min(u32::MAX as u64) as u32,
+                                model_context_window: size.min(u32::MAX as u64) as u32,
+                            }),
+                            content: String::new(),
                             metadata: None,
                         };
                         msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
@@ -618,6 +660,102 @@ fn format_plan_markdown(plan: &agent_client_protocol::schema::Plan) -> String {
         .join("\n")
 }
 
+fn content_block_to_markdown(
+    content: &agent_client_protocol::schema::ContentBlock,
+) -> Option<String> {
+    match content {
+        agent_client_protocol::schema::ContentBlock::Text(text) => Some(text.text.clone()),
+        agent_client_protocol::schema::ContentBlock::Image(image) => {
+            let src = image
+                .uri
+                .as_deref()
+                .filter(|uri| !uri.trim().is_empty())
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| format!("data:{};base64,{}", image.mime_type, image.data));
+            Some(format!("![Image]({})", markdown_url(&src)))
+        }
+        agent_client_protocol::schema::ContentBlock::ResourceLink(link) => {
+            let label = markdown_label(
+                link.title
+                    .as_deref()
+                    .or(Some(link.name.as_str()))
+                    .unwrap_or("Resource"),
+            );
+            if link
+                .mime_type
+                .as_deref()
+                .is_some_and(|mime| mime.starts_with("image/"))
+                || looks_like_image_uri(&link.uri)
+            {
+                Some(format!("![{}]({})", label, markdown_url(&link.uri)))
+            } else {
+                Some(format!("[{}]({})", label, markdown_url(&link.uri)))
+            }
+        }
+        agent_client_protocol::schema::ContentBlock::Resource(resource) => {
+            match &resource.resource {
+                agent_client_protocol::schema::EmbeddedResourceResource::TextResourceContents(
+                    text,
+                ) => Some(text.text.clone()),
+                agent_client_protocol::schema::EmbeddedResourceResource::BlobResourceContents(
+                    blob,
+                ) => {
+                    let mime_type = blob
+                        .mime_type
+                        .as_deref()
+                        .unwrap_or("application/octet-stream");
+                    if mime_type.starts_with("image/") {
+                        Some(format!(
+                            "![{}](data:{};base64,{})",
+                            markdown_label(&blob.uri),
+                            mime_type,
+                            blob.blob
+                        ))
+                    } else {
+                        Some(format!(
+                            "[{}]({})",
+                            markdown_label(&blob.uri),
+                            markdown_url(&blob.uri)
+                        ))
+                    }
+                }
+                _ => None,
+            }
+        }
+        agent_client_protocol::schema::ContentBlock::Audio(audio) => Some(format!(
+            "[Audio: {}](data:{};base64,{})",
+            markdown_label(&audio.mime_type),
+            audio.mime_type,
+            audio.data
+        )),
+        _ => None,
+    }
+}
+
+fn markdown_label(label: &str) -> String {
+    label.replace('[', "\\[").replace(']', "\\]")
+}
+
+fn markdown_url(url: &str) -> String {
+    if url.starts_with("data:") || (!url.contains(char::is_whitespace) && !url.contains(')')) {
+        url.to_string()
+    } else {
+        format!("<{}>", url.replace('>', "%3E"))
+    }
+}
+
+fn looks_like_image_uri(uri: &str) -> bool {
+    let lower = uri
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(uri)
+        .to_ascii_lowercase();
+    matches!(
+        lower.rsplit('.').next(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif")
+    )
+}
+
 fn merge_streaming_text(current: &mut String, incoming: &str) {
     if incoming.is_empty() {
         return;
@@ -833,13 +971,14 @@ fn is_task_like_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use agent_client_protocol::schema::{
-        Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, ToolCallId, ToolCallStatus, ToolKind,
+        ContentBlock, ImageContent, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
+        ResourceLink, ToolCallId, ToolCallStatus, ToolKind,
     };
     use serde_json::json;
 
     use super::{
-        PartialToolCallData, format_plan_markdown, heuristically_extract_task_create,
-        merge_streaming_text,
+        PartialToolCallData, content_block_to_markdown, format_plan_markdown,
+        heuristically_extract_task_create, merge_streaming_text,
     };
     use crate::logs::ActionType;
 
@@ -883,6 +1022,27 @@ mod tests {
         merge_streaming_text(&mut content, "：文档");
 
         assert_eq!(content, "已完成两部分：文档");
+    }
+
+    #[test]
+    fn converts_acp_image_blocks_to_markdown_images() {
+        let markdown = content_block_to_markdown(&ContentBlock::Image(ImageContent::new(
+            "abc123",
+            "image/png",
+        )))
+        .expect("image markdown");
+
+        assert_eq!(markdown, "![Image](data:image/png;base64,abc123)");
+    }
+
+    #[test]
+    fn converts_image_resource_links_to_markdown_images() {
+        let markdown = content_block_to_markdown(&ContentBlock::ResourceLink(
+            ResourceLink::new("mockup.png", "file:///C:/tmp/mockup.png").mime_type("image/png"),
+        ))
+        .expect("resource link markdown");
+
+        assert_eq!(markdown, "![mockup.png](file:///C:/tmp/mockup.png)");
     }
 
     #[test]
@@ -1068,6 +1228,10 @@ impl TryFrom<SessionNotification> for AcpEvent {
                 AcpEvent::ToolUpdate(update)
             }
             agent_client_protocol::schema::SessionUpdate::Plan(plan) => AcpEvent::Plan(plan),
+            agent_client_protocol::schema::SessionUpdate::UsageUpdate(update) => AcpEvent::Usage {
+                used: update.used,
+                size: update.size,
+            },
             agent_client_protocol::schema::SessionUpdate::AvailableCommandsUpdate(update) => {
                 AcpEvent::AvailableCommands(update.available_commands)
             }

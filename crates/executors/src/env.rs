@@ -127,6 +127,11 @@ impl ExecutionEnv {
     /// Apply all environment variables to a Command
     pub fn apply_to_command(&self, command: &mut Command) {
         configure_tokio_command_no_window(command);
+        if !self.contains_path_key()
+            && let Some(path) = std::env::var_os("PATH")
+        {
+            command.env("PATH", path);
+        }
         for (key, value) in &self.vars {
             command.env(key, value);
         }
@@ -138,6 +143,10 @@ impl ExecutionEnv {
 
     pub fn get(&self, key: &str) -> Option<&String> {
         self.vars.get(key)
+    }
+
+    fn contains_path_key(&self) -> bool {
+        self.vars.keys().any(|key| key.eq_ignore_ascii_case("PATH"))
     }
 }
 

@@ -540,6 +540,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
             'text-[13px] leading-5 tracking-[0.005em] antialiased [text-rendering:optimizeLegibility]'
         )}
         data-file-reference-drop-zone
+        data-typeahead-surface
       >
         <TaskAttemptContext.Provider value={taskAttemptId}>
           <TaskContext.Provider value={taskId}>
@@ -558,6 +559,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   <RichTextPlugin
                     contentEditable={
                       <ContentEditable
+                        data-typeahead-surface="editor"
                         className={cn('outline-none', className)}
                         aria-label={
                           disabled ? 'Markdown content' : 'Markdown editor'

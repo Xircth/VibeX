@@ -44,6 +44,44 @@ impl Default for AcpAgentHarness {
     }
 }
 
+fn drain_pre_prompt_events(event_rx: &mut mpsc::UnboundedReceiver<AcpEvent>) {
+    let mut skipped = 0usize;
+
+    while let Ok(event) = event_rx.try_recv() {
+        match event {
+            AcpEvent::SessionStart(_) => {}
+            _ => skipped += 1,
+        }
+    }
+
+    if skipped > 0 {
+        tracing::debug!(
+            skipped,
+            "discarded ACP session replay events before sending prompt"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use agent_client_protocol::schema::{ContentBlock, TextContent};
+
+    use super::*;
+
+    #[test]
+    fn drain_pre_prompt_events_discards_session_replay_messages() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tx.send(AcpEvent::Message(ContentBlock::Text(TextContent::new(
+            "previous answer",
+        ))))
+        .unwrap();
+
+        drain_pre_prompt_events(&mut rx);
+
+        assert!(rx.try_recv().is_err());
+    }
+}
+
 impl AcpAgentHarness {
     /// Create a harness with the default Gemini namespace
     pub fn new() -> Self {
@@ -82,6 +120,7 @@ impl AcpAgentHarness {
         cmd_overrides: &CmdOverrides,
         approvals: Option<std::sync::Arc<dyn ExecutorApprovalService>>,
     ) -> Result<SpawnedChild, ExecutorError> {
+        let _ = workspace_utils::shell::refresh_process_path().await;
         let (program_path, args) = command_parts.into_resolved().await?;
         let mut command = Command::new(program_path);
         workspace_utils::process::configure_tokio_command_no_window(&mut command);
@@ -115,6 +154,7 @@ impl AcpAgentHarness {
             self.mode.clone(),
             approvals,
             cancel.clone(),
+            env.clone(),
         )
         .await?;
 
@@ -136,6 +176,7 @@ impl AcpAgentHarness {
         cmd_overrides: &CmdOverrides,
         approvals: Option<std::sync::Arc<dyn ExecutorApprovalService>>,
     ) -> Result<SpawnedChild, ExecutorError> {
+        let _ = workspace_utils::shell::refresh_process_path().await;
         let (program_path, args) = command_parts.into_resolved().await?;
         let mut command = Command::new(program_path);
         workspace_utils::process::configure_tokio_command_no_window(&mut command);
@@ -169,6 +210,7 @@ impl AcpAgentHarness {
             self.mode.clone(),
             approvals,
             cancel.clone(),
+            env.clone(),
         )
         .await?;
 
@@ -191,6 +233,7 @@ impl AcpAgentHarness {
         mode: Option<String>,
         approvals: Option<std::sync::Arc<dyn ExecutorApprovalService>>,
         cancel: CancellationToken,
+        execution_env: ExecutionEnv,
     ) -> Result<(), ExecutorError> {
         // Take child's stdio for ACP wiring
         let orig_stdout = child.inner().stdout.take().ok_or_else(|| {
@@ -309,6 +352,7 @@ impl AcpAgentHarness {
                         let client =
                             AcpClient::new(event_tx.clone(), approvals.clone(), cancel.clone());
                         let client_feedback_handle = client.clone();
+                        let client_commit_reminder_handle = client.clone();
 
                         client.record_user_prompt_event(&prompt);
 
@@ -359,7 +403,20 @@ impl AcpAgentHarness {
                                         Some(existing) => {
                                             let agent_capabilities =
                                                 &initialize_response.agent_capabilities;
-                                            if agent_capabilities
+                                            if agent_capabilities.load_session {
+                                                let req = LoadSessionRequest::new(
+                                                    SessionId::new(existing.clone()),
+                                                    cwd.clone(),
+                                                );
+
+                                                match conn.send_request(req).block_task().await {
+                                                    Ok(_) => (existing.clone(), existing, prompt),
+                                                    Err(err) => {
+                                                        error!("Failed to load session: {}", err);
+                                                        return Err(err);
+                                                    }
+                                                }
+                                            } else if agent_capabilities
                                                 .session_capabilities
                                                 .fork
                                                 .is_some()
@@ -376,19 +433,6 @@ impl AcpAgentHarness {
                                                     }
                                                     Err(err) => {
                                                         error!("Failed to fork session: {}", err);
-                                                        return Err(err);
-                                                    }
-                                                }
-                                            } else if agent_capabilities.load_session {
-                                                let req = LoadSessionRequest::new(
-                                                    SessionId::new(existing.clone()),
-                                                    cwd.clone(),
-                                                );
-
-                                                match conn.send_request(req).block_task().await {
-                                                    Ok(_) => (existing.clone(), existing, prompt),
-                                                    Err(err) => {
-                                                        error!("Failed to load session: {}", err);
                                                         return Err(err);
                                                     }
                                                 }
@@ -449,7 +493,20 @@ impl AcpAgentHarness {
                                     }
                                 }
 
-                                // Start raw event forwarder and persistence
+                                // Save prompt to session
+                                let _ = session_manager.append_raw_line(
+                                    &display_session_id,
+                                    &serde_json::to_string(
+                                        &serde_json::json!({ "user": prompt_to_send }),
+                                    )
+                                    .unwrap_or_default(),
+                                );
+
+                                drain_pre_prompt_events(&mut event_rx);
+
+                                // Start raw event forwarder and persistence after discarding
+                                // load-session replay. Only events produced by this prompt belong
+                                // to the new execution process log.
                                 let app_tx_clone = log_tx.clone();
                                 let sess_id_for_writer = display_session_id.clone();
                                 let sm_for_writer = session_manager.clone();
@@ -478,15 +535,6 @@ impl AcpAgentHarness {
                                             .append_raw_line(&sess_id_for_writer, &line);
                                     }
                                 });
-
-                                // Save prompt to session
-                                let _ = session_manager.append_raw_line(
-                                    &display_session_id,
-                                    &serde_json::to_string(
-                                        &serde_json::json!({ "user": prompt_to_send }),
-                                    )
-                                    .unwrap_or_default(),
-                                );
 
                                 // Build prompt request
                                 let initial_req = PromptRequest::new(
@@ -557,6 +605,53 @@ impl AcpAgentHarness {
                                             vec![ContentBlock::Text(TextContent::new(feedback))],
                                         );
                                         current_req = Some(feedback_req);
+                                    }
+                                }
+
+                                if execution_env.commit_reminder && !cancel.is_cancelled() {
+                                    let uncommitted_changes =
+                                        execution_env.repo_context.check_uncommitted_changes().await;
+                                    if !uncommitted_changes.trim().is_empty() {
+                                        let reminder = format!(
+                                            "{}\n\nUncommitted changes detected:\n```text\n{}\n```",
+                                            execution_env.commit_reminder_prompt.trim(),
+                                            uncommitted_changes.trim()
+                                        );
+                                        client_commit_reminder_handle
+                                            .record_user_prompt_event(&reminder);
+                                        let session_id = SessionId::new(acp_session_id.clone());
+                                        let reminder_req = PromptRequest::new(
+                                            session_id,
+                                            vec![ContentBlock::Text(TextContent::new(reminder))],
+                                        );
+                                        let reminder_result = tokio::select! {
+                                            _ = cancel.cancelled() => {
+                                                tracing::debug!(
+                                                    "ACP executor cancelled during commit reminder"
+                                                );
+                                                None
+                                            }
+                                            result = conn.send_request(reminder_req).block_task() => Some(result),
+                                        };
+
+                                        match reminder_result {
+                                            Some(Ok(resp)) => {
+                                                let stop_reason =
+                                                    serde_json::to_string(&resp.stop_reason)
+                                                        .unwrap_or_default();
+                                                let _ = log_tx
+                                                    .send(AcpEvent::Done(stop_reason).to_string());
+                                            }
+                                            Some(Err(e)) => {
+                                                tracing::debug!(
+                                                    "commit reminder prompt failed {} {e} {:?}",
+                                                    e.code,
+                                                    e.data
+                                                );
+                                                let _ = log_tx.send(AcpEvent::Error(format!("{e}")).to_string());
+                                            }
+                                            None => {}
+                                        }
                                     }
                                 }
 

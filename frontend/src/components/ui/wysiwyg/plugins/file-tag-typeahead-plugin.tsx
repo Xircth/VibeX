@@ -7,7 +7,6 @@ import {
   MenuOption,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import { $createTextNode } from 'lexical';
-import { Tag as TagIcon, FileText, Cog } from 'lucide-react';
 import type { Repo } from 'shared/types';
 
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
@@ -565,15 +564,6 @@ export function FileTagTypeaheadPlugin({
 
         return createPortal(
           <TypeaheadMenu anchorEl={anchorRef.current}>
-            <TypeaheadMenu.Header>
-              {isTagTrigger ? (
-                <TagIcon className="h-3.5 w-3.5" />
-              ) : (
-                <FileText className="h-3.5 w-3.5" />
-              )}
-              {isTagTrigger ? 'Tags' : 'Files'}
-            </TypeaheadMenu.Header>
-
             {showLoadingState ? (
               <TypeaheadMenu.Empty>
                 {isTagTrigger ? 'Searching tags...' : 'Searching files...'}
@@ -595,8 +585,7 @@ export function FileTagTypeaheadPlugin({
                       setHighlightedIndex={setHighlightedIndex}
                       onClick={() => selectOptionAndCleanUp(option)}
                     >
-                      <div className="flex items-center gap-2 font-medium">
-                        <TagIcon className="h-3.5 w-3.5 text-blue-600" />
+                      <div className="font-medium">
                         <span>#{tag.tag_name}</span>
                       </div>
                       {tag.content && (
@@ -622,8 +611,7 @@ export function FileTagTypeaheadPlugin({
                         }}
                         disabled={isChoosingRepo}
                       >
-                        <span className="flex items-center gap-2">
-                          <Cog className="h-3.5 w-3.5" />
+                        <span>
                           <span>{repoCtaLabel}</span>
                         </span>
                       </TypeaheadMenu.Action>
@@ -636,8 +624,7 @@ export function FileTagTypeaheadPlugin({
                         setHighlightedIndex={setHighlightedIndex}
                         onClick={() => selectOptionAndCleanUp(option)}
                       >
-                        <div className="flex items-center gap-2 truncate font-medium">
-                          <FileText className="h-3.5 w-3.5 flex-shrink-0" />
+                        <div className="truncate font-medium">
                           <span>{file.name}</span>
                         </div>
                         <div className="truncate text-xs">{file.path}</div>

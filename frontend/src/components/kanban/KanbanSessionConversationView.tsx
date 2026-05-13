@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
@@ -117,6 +117,7 @@ function KanbanSessionConversationContent({
   }) => void;
 }) {
   const logsRef = useRef<VirtualizedListRef | null>(null);
+  const [isAtConversationBottom, setIsAtConversationBottom] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const rightPanelSessionCreation = useRightPanelSessionCreation();
   const sessionState = useWorkspaceSessions(attempt.id, {
@@ -188,9 +189,25 @@ function KanbanSessionConversationContent({
                   ref={logsRef}
                   attempt={activeAttempt}
                   task={null}
+                  onAtBottomChange={setIsAtConversationBottom}
                 />
               </div>
             )}
+            {interactive &&
+            !shouldShowNewSessionPrompt &&
+            !isAtConversationBottom ? (
+              <div className="pointer-events-none relative z-20 h-0">
+                <button
+                  type="button"
+                  className="pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full border border-border/70 bg-background/65 text-foreground/80 shadow-lg shadow-black/10 backdrop-blur-md transition hover:bg-background/85 hover:text-foreground"
+                  aria-label="回到消息底部"
+                  title="回到消息底部"
+                  onClick={() => logsRef.current?.scrollToBottom()}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
             {interactive && !shouldShowNewSessionPrompt ? (
               <TaskFollowUpSection
                 taskId={taskId}

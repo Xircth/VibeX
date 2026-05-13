@@ -445,7 +445,7 @@ export type SlashCommandDescription = {
 /**
  * Command name without the leading slash, e.g. `help` for `/help`.
  */
-name: string, description?: string | null, };
+name: string, description?: string | null, kind?: SlashCommandKind | null, };
 
 export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
@@ -672,3 +672,5 @@ export type SessionStatus = "todo" | "inprogress" | "inreview" | "done";
 export type SessionContinuityMode = "new_session" | "resume_in_place" | "fork_snapshot";
 
 export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, };
+
+export type SlashCommandKind = "COMMAND" | "SKILL";

@@ -1,16 +1,22 @@
-use std::sync::OnceLock;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::Duration,
+};
 
 use axum::{
     Router,
     body::{Body, to_bytes},
     extract::{Request, State},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::any,
 };
-use reqwest::Client;
+use futures::TryStreamExt;
+use reqwest::{Client, Response as UpstreamResponse};
 
 static PROXY_PORT: OnceLock<u16> = OnceLock::new();
+static PREFERRED_LOOPBACK_HOSTS: OnceLock<Mutex<HashMap<u16, String>>> = OnceLock::new();
 
 const BIPPY_BUNDLE: &str = include_str!("preview_proxy/bippy_bundle.js");
 const CLICK_TO_COMPONENT_SCRIPT: &str = include_str!("preview_proxy/click_to_component_script.js");
@@ -31,6 +37,7 @@ pub async fn ensure_started() -> Result<(), String> {
 
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_millis(250))
         .no_proxy()
         .build()
         .map_err(|error| format!("Failed to build preview proxy client: {error}"))?;
@@ -131,10 +138,7 @@ async fn proxy_request(State(client): State<Client>, request: Request<Body>) -> 
         .map(|value| value.as_str())
         .unwrap_or("/");
     let upstream_path_and_query = strip_bridge_token_from_path_query(path_and_query);
-    let upstream_url = format!(
-        "http://127.0.0.1:{}{}",
-        target_port, upstream_path_and_query
-    );
+    let upstream_urls = build_upstream_url_candidates(target_port, &upstream_path_and_query);
 
     let request_headers = request.headers().clone();
     let request_method = request.method().clone();
@@ -149,16 +153,178 @@ async fn proxy_request(State(client): State<Client>, request: Request<Body>) -> 
         }
     };
 
+    let upstream_response = match send_upstream_request(
+        &client,
+        target_port,
+        &request_method,
+        &request_headers,
+        request_body.to_vec(),
+        &upstream_urls,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(errors) => {
+            if should_fallback_to_raw_preview(&request_method, &request_headers)
+                && let Some(raw_url) = upstream_urls.first()
+                && let Ok(location) = HeaderValue::from_str(raw_url)
+            {
+                let mut response = Response::new(Body::empty());
+                *response.status_mut() = StatusCode::TEMPORARY_REDIRECT;
+                response.headers_mut().insert(header::LOCATION, location);
+                return response;
+            }
+
+            return (
+                StatusCode::BAD_GATEWAY,
+                format!("Failed to reach preview server: {}", errors.join("; ")),
+            )
+                .into_response();
+        }
+    };
+
+    let status = upstream_response.status();
+    let response_headers = upstream_response.headers().clone();
+    let is_html = response_headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase().contains("text/html"))
+        .unwrap_or(false);
+
+    if !is_html {
+        let mut response = Response::new(Body::from_stream(
+            upstream_response
+                .bytes_stream()
+                .map_err(|error| std::io::Error::other(error.to_string())),
+        ));
+        *response.status_mut() = status;
+
+        copy_response_headers(
+            response.headers_mut(),
+            &response_headers,
+            target_port,
+            PROXY_PORT.get().copied(),
+        );
+
+        return response;
+    }
+
+    let response_body = match upstream_response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                format!("Failed to read preview response: {error}"),
+            )
+                .into_response();
+        }
+    };
+
+    let html = String::from_utf8_lossy(&response_body).to_string();
+    let body = Body::from(inject_preview_scripts(&html));
+
+    let mut response = Response::new(body);
+    *response.status_mut() = status;
+
+    copy_response_headers(
+        response.headers_mut(),
+        &response_headers,
+        target_port,
+        PROXY_PORT.get().copied(),
+    );
+
+    response
+}
+
+fn build_upstream_url_candidates(target_port: u16, path_and_query: &str) -> Vec<String> {
+    build_upstream_host_candidates(target_port)
+        .into_iter()
+        .map(|host| format!("http://{host}:{target_port}{path_and_query}"))
+        .collect()
+}
+
+fn build_upstream_host_candidates(target_port: u16) -> Vec<String> {
+    let preferred = preferred_loopback_hosts()
+        .lock()
+        .ok()
+        .and_then(|hosts| hosts.get(&target_port).cloned());
+    let mut candidates = Vec::with_capacity(2);
+
+    if let Some(preferred) = preferred {
+        candidates.push(preferred);
+    }
+
+    for host in ["127.0.0.1", "localhost"] {
+        if !candidates.iter().any(|candidate| candidate == host) {
+            candidates.push(host.to_string());
+        }
+    }
+
+    candidates
+}
+
+fn preferred_loopback_hosts() -> &'static Mutex<HashMap<u16, String>> {
+    PREFERRED_LOOPBACK_HOSTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn remember_successful_upstream_host(target_port: u16, url: &str) {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return;
+    };
+    let Some(host) = parsed.host_str() else {
+        return;
+    };
+    if !matches!(host, "127.0.0.1" | "localhost") {
+        return;
+    }
+
+    if let Ok(mut hosts) = preferred_loopback_hosts().lock() {
+        hosts.insert(target_port, host.to_string());
+    }
+}
+
+async fn send_upstream_request(
+    client: &Client,
+    target_port: u16,
+    method: &Method,
+    headers: &HeaderMap,
+    body: Vec<u8>,
+    urls: &[String],
+) -> Result<UpstreamResponse, Vec<String>> {
+    let mut errors = Vec::new();
+
+    for url in urls {
+        match build_upstream_request(client, method, headers, body.clone(), url)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                remember_successful_upstream_host(target_port, url);
+                return Ok(response);
+            }
+            Err(error) => errors.push(format!("{url}: {error}")),
+        }
+    }
+
+    Err(errors)
+}
+
+fn build_upstream_request(
+    client: &Client,
+    method: &Method,
+    headers: &HeaderMap,
+    body: Vec<u8>,
+    url: &str,
+) -> reqwest::RequestBuilder {
     let mut upstream_request = client
         .request(
-            reqwest::Method::from_bytes(request_method.as_str().as_bytes())
-                .unwrap_or(reqwest::Method::GET),
-            &upstream_url,
+            reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET),
+            url,
         )
-        .body(request_body.to_vec())
+        .body(body)
         .header(reqwest::header::ACCEPT_ENCODING, "identity");
 
-    for (name, value) in &request_headers {
+    for (name, value) in headers {
         if should_strip_request_header(name.as_str()) {
             continue;
         }
@@ -174,54 +340,16 @@ async fn proxy_request(State(client): State<Client>, request: Request<Body>) -> 
         upstream_request = upstream_request.header(name, value);
     }
 
-    let upstream_response = match upstream_request.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                format!("Failed to reach preview server: {error}"),
-            )
-                .into_response();
-        }
-    };
+    upstream_request
+}
 
-    let status = upstream_response.status();
-    let response_headers = upstream_response.headers().clone();
-    let is_html = response_headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_ascii_lowercase().contains("text/html"))
-        .unwrap_or(false);
-
-    let response_body = match upstream_response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                format!("Failed to read preview response: {error}"),
-            )
-                .into_response();
-        }
-    };
-
-    let body = if is_html {
-        let html = String::from_utf8_lossy(&response_body).to_string();
-        Body::from(inject_preview_scripts(&html))
-    } else {
-        Body::from(response_body.to_vec())
-    };
-
-    let mut response = Response::new(body);
-    *response.status_mut() = status;
-
-    copy_response_headers(
-        response.headers_mut(),
-        &response_headers,
-        target_port,
-        PROXY_PORT.get().copied(),
-    );
-
-    response
+fn should_fallback_to_raw_preview(method: &Method, headers: &HeaderMap) -> bool {
+    (*method == Method::GET || *method == Method::HEAD)
+        && headers
+            .get(header::ACCEPT)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_ascii_lowercase().contains("text/html"))
+            .unwrap_or(false)
 }
 
 fn inject_preview_scripts(html: &str) -> String {
@@ -355,9 +483,12 @@ fn is_loopback_host(host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use axum::http::{HeaderMap, Method, header};
+
     use super::{
-        build_proxy_url, parse_target_port_from_host, strip_bridge_token_from_absolute_url,
-        strip_bridge_token_from_path_query,
+        build_proxy_url, build_upstream_url_candidates, parse_target_port_from_host,
+        remember_successful_upstream_host, should_fallback_to_raw_preview,
+        strip_bridge_token_from_absolute_url, strip_bridge_token_from_path_query,
     };
 
     #[test]
@@ -422,5 +553,42 @@ mod tests {
             .as_deref(),
             Some("http://3000.localhost:43123/app?q=1#section")
         );
+    }
+
+    #[test]
+    fn tries_multiple_loopback_hosts_for_preview_requests() {
+        assert_eq!(
+            build_upstream_url_candidates(5173, "/app?q=1"),
+            vec![
+                "http://127.0.0.1:5173/app?q=1".to_string(),
+                "http://localhost:5173/app?q=1".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn prefers_the_last_successful_loopback_host_for_a_port() {
+        remember_successful_upstream_host(61234, "http://localhost:61234/app");
+
+        assert_eq!(
+            build_upstream_url_candidates(61234, "/chunk.js")[0],
+            "http://localhost:61234/chunk.js"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_raw_url_only_for_html_navigation_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            "text/html,application/xhtml+xml".parse().unwrap(),
+        );
+
+        assert!(should_fallback_to_raw_preview(&Method::GET, &headers));
+        assert!(should_fallback_to_raw_preview(&Method::HEAD, &headers));
+        assert!(!should_fallback_to_raw_preview(&Method::POST, &headers));
+
+        headers.insert(header::ACCEPT, "text/css,*/*".parse().unwrap());
+        assert!(!should_fallback_to_raw_preview(&Method::GET, &headers));
     }
 }

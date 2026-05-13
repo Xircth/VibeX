@@ -266,6 +266,40 @@
   color: var(--conv-text-tertiary);
 }
 
+.conv-context-compact-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  color: var(--conv-text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.conv-context-compact-status-line {
+  flex: 1 1 0%;
+  min-width: 24px;
+  height: 1px;
+  background: color-mix(in srgb, var(--conv-border-subtle) 88%, transparent);
+}
+
+.conv-context-compact-status-text {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.conv-context-compact-status-running .conv-context-compact-status-text {
+  color: var(--conv-text-tertiary);
+}
+
+.conv-context-compact-status-success .conv-context-compact-status-text {
+  color: var(--conv-text-secondary);
+}
+
+.conv-context-compact-status-failed .conv-context-compact-status-text {
+  color: var(--conv-tool-error);
+}
+
 .conv-plain-notice {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

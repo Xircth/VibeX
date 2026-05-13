@@ -2,6 +2,7 @@ import { materializePromptTagReferences } from '@/lib/tagReferenceMarkers';
 
 const SESSION_SCOPED_SLASH_COMMANDS = new Set([
   'compact',
+  'goal',
   'context',
   'cost',
   'status',

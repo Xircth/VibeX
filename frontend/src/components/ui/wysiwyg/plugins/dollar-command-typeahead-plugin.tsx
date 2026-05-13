@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
@@ -6,10 +6,11 @@ import {
   MenuOption,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
 import { $createTextNode } from 'lexical';
-import { Command as CommandIcon } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 
 import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useTypeaheadOpen } from '@/components/ui/wysiwyg/context/typeahead-open-context';
+import { skillsApi, type AgentLocalSkill } from '@/lib/api';
 
 import { $createDollarCommandNode } from '../nodes/dollar-command-node';
 import { TypeaheadMenu } from './typeahead-menu-components';
@@ -62,6 +63,32 @@ export const DOLLAR_COMMANDS: DollarCommandDescription[] = [
   { name: 'plugin-creator', description: 'Create a local Codex plugin' },
 ];
 
+function skillsToDollarCommands(
+  skills: AgentLocalSkill[]
+): DollarCommandDescription[] {
+  return skills.map((skill) => ({
+    name: skill.name,
+    description: skill.description ?? `Local Codex skill: ${skill.path}`,
+  }));
+}
+
+function mergeDollarCommands(
+  staticCommands: DollarCommandDescription[],
+  skillCommands: DollarCommandDescription[]
+): DollarCommandDescription[] {
+  const seen = new Set<string>();
+  const commands: DollarCommandDescription[] = [];
+
+  for (const command of [...staticCommands, ...skillCommands]) {
+    const name = command.name.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    commands.push({ ...command, name });
+  }
+
+  return commands.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 class DollarCommandOption extends MenuOption {
   command: DollarCommandDescription;
 
@@ -92,19 +119,42 @@ export function DollarCommandTypeaheadPlugin() {
   const [editor] = useLexicalComposerContext();
   const portalContainer = usePortalContainer();
   const { setIsOpen } = useTypeaheadOpen();
+  const { data: localSkills = [], refetch: refetchLocalSkills } = useQuery({
+    queryKey: ['local-agent-skills', 'CODEX'],
+    queryFn: () => skillsApi.listLocal('CODEX'),
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+  const allCommands = useMemo(
+    () =>
+      mergeDollarCommands(DOLLAR_COMMANDS, skillsToDollarCommands(localSkills)),
+    [localSkills]
+  );
   const [options, setOptions] = useState<DollarCommandOption[]>(
-    DOLLAR_COMMANDS.map((command) => new DollarCommandOption(command))
+    allCommands.map((command) => new DollarCommandOption(command))
+  );
+  const [activeQuery, setActiveQuery] = useState<string | null>(null);
+
+  const updateOptions = useCallback(
+    (query: string | null) => {
+      setActiveQuery(query);
+
+      if (query === null) {
+        setOptions([]);
+        return;
+      }
+
+      const filtered = filterDollarCommands(allCommands, query).slice(0, 50);
+      setOptions(filtered.map((command) => new DollarCommandOption(command)));
+    },
+    [allCommands]
   );
 
-  const updateOptions = useCallback((query: string | null) => {
-    if (query === null) {
-      setOptions([]);
-      return;
-    }
-
-    const filtered = filterDollarCommands(DOLLAR_COMMANDS, query).slice(0, 50);
-    setOptions(filtered.map((command) => new DollarCommandOption(command)));
-  }, []);
+  useEffect(() => {
+    if (activeQuery === null) return;
+    updateOptions(activeQuery);
+  }, [activeQuery, updateOptions]);
 
   const hasVisibleResults = useMemo(() => options.length > 0, [options.length]);
 
@@ -127,12 +177,14 @@ export function DollarCommandTypeaheadPlugin() {
       onQueryChange={updateOptions}
       onOpen={() => {
         setIsOpen(true);
+        void refetchLocalSkills();
         updateOptions('');
       }}
       onClose={() => {
         setIsOpen(false);
+        setActiveQuery(null);
         setOptions(
-          DOLLAR_COMMANDS.map((command) => new DollarCommandOption(command))
+          allCommands.map((command) => new DollarCommandOption(command))
         );
       }}
       onSelectOption={(option, nodeToReplace, closeMenu) => {
@@ -160,10 +212,6 @@ export function DollarCommandTypeaheadPlugin() {
 
         return createPortal(
           <TypeaheadMenu anchorEl={anchorRef.current}>
-            <TypeaheadMenu.Header>
-              <CommandIcon className="h-3.5 w-3.5" />
-              {'Workflow Commands'}
-            </TypeaheadMenu.Header>
             <TypeaheadMenu.ScrollArea>
               {options.map((option, index) => (
                 <TypeaheadMenu.Item
@@ -173,7 +221,7 @@ export function DollarCommandTypeaheadPlugin() {
                   setHighlightedIndex={setHighlightedIndex}
                   onClick={() => selectOptionAndCleanUp(option)}
                 >
-                  <div className="flex items-center gap-2 font-medium">
+                  <div className="font-medium">
                     <span className="font-mono">${option.command.name}</span>
                   </div>
                   {option.command.description && (

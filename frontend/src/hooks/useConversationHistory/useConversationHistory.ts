@@ -15,6 +15,10 @@ import { useEntries } from '@/contexts/EntriesContext';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useSessionConversationStore } from '@/stores/useSessionConversationStore';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
+import {
+  getContextCompactStatusText,
+  isContextCompactPrompt,
+} from '@/lib/contextCompact';
 import type {
   AddEntryType,
   ExecutionProcessStateStore,
@@ -43,6 +47,19 @@ const conversationHistoryCache = new Map<
   string,
   ConversationHistoryCacheEntry
 >();
+let conversationStreamSubscriptionCounter = 0;
+
+function createConversationStreamId(executionProcessId: string): string {
+  conversationStreamSubscriptionCounter += 1;
+  return `${executionProcessId}:${Date.now()}:${conversationStreamSubscriptionCounter}`;
+}
+
+function stripDisplayEntryMetadata(entry: PatchTypeWithKey): PatchType {
+  return {
+    type: entry.type,
+    content: entry.content,
+  } as PatchType;
+}
 
 export function stripPreviouslyDisplayedAssistantPrefix(
   content: string,
@@ -276,7 +293,7 @@ export const useConversationHistory = ({
   const patchWithKey = (
     patch: PatchType,
     executionProcessId: string,
-    index: number | 'user'
+    index: number | string
   ) => {
     return {
       ...patch,
@@ -376,8 +393,59 @@ export const useConversationHistory = ({
               'CodingAgentFollowUpRequest' ||
             p.executionProcess.executor_action.typ.type === 'ReviewRequest'
           ) {
-            // New user message
             const actionType = p.executionProcess.executor_action.typ;
+            const compactProcessStatus = getLiveExecutionProcess(
+              p.executionProcess.id
+            )?.status;
+            const isContextCompact = isContextCompactPrompt(actionType.prompt);
+
+            if (isContextCompact) {
+              const compactStatusEntryType =
+                compactProcessStatus === ExecutionProcessStatus.failed ||
+                compactProcessStatus === ExecutionProcessStatus.killed
+                  ? ({
+                      type: 'error_message',
+                      error_type: {
+                        type: 'other',
+                      },
+                    } as const)
+                  : ({
+                      type: 'system_message',
+                    } as const);
+
+              const compactStatusEntry: NormalizedEntry = {
+                entry_type: compactStatusEntryType,
+                content: getContextCompactStatusText(compactProcessStatus),
+                timestamp: null,
+              };
+
+              entries.push(
+                patchWithKey(
+                  {
+                    type: 'NORMALIZED_ENTRY',
+                    content: compactStatusEntry,
+                  },
+                  p.executionProcess.id,
+                  'context-compact'
+                )
+              );
+
+              if (compactProcessStatus === ExecutionProcessStatus.running) {
+                hasRunningProcess = true;
+              }
+
+              if (
+                (compactProcessStatus === ExecutionProcessStatus.failed ||
+                  compactProcessStatus === ExecutionProcessStatus.killed) &&
+                index === Object.keys(executionProcessState).length - 1
+              ) {
+                lastProcessFailedOrKilled = true;
+              }
+
+              return entries;
+            }
+
+            // New user message
             const userNormalizedEntry: NormalizedEntry = {
               entry_type: {
                 type: 'user_message',
@@ -721,8 +789,15 @@ export const useConversationHistory = ({
             {
               executionProcessId: executionProcess.id,
               normalized,
+              streamId: createConversationStreamId(executionProcess.id),
             },
             {
+              initial: {
+                entries:
+                  displayedExecutionProcesses.current[
+                    executionProcess.id
+                  ]?.entries.map(stripDisplayEntryMetadata) ?? [],
+              },
               onEntries(entries) {
                 const patchesWithKey = entries.map((entry, index) =>
                   patchWithKey(entry, executionProcess.id, index)
@@ -946,6 +1021,66 @@ export const useConversationHistory = ({
     [executionProcessesRaw]
   );
 
+  // Reset state when the active workspace/session conversation changes.
+  // This must run before initial history loading and running stream subscription
+  // effects so reconnects do not start from an empty process snapshot.
+  useEffect(() => {
+    if (prevConversationKeyRef.current === conversationKey) return;
+    saveConversationCache(prevConversationKeyRef.current);
+    prevConversationKeyRef.current = conversationKey;
+
+    closeAllRunningStreams();
+    const cachedConversation = conversationHistoryCache.get(conversationKey);
+
+    if (cachedConversation) {
+      displayedExecutionProcesses.current = structuredClone(
+        cachedConversation.displayedExecutionProcesses
+      );
+      previousStatusMapRef.current = new Map(
+        cachedConversation.previousStatusMap
+      );
+      // Always refresh from latest process list after switching conversations.
+      loadedInitialEntries.current = false;
+
+      const hasCachedEntries = Object.values(
+        displayedExecutionProcesses.current
+      ).some((processState) => processState.entries.length > 0);
+      const hasNoHistory =
+        !executionProcessesLoading && executionProcessesRaw.length === 0;
+      emitEntries(
+        displayedExecutionProcesses.current,
+        'initial',
+        !hasCachedEntries && !hasNoHistory
+      );
+      return;
+    }
+
+    displayedExecutionProcesses.current = {};
+    loadedInitialEntries.current = false;
+    loadingHistoricProcessIdsRef.current.clear();
+    previousStatusMapRef.current.clear();
+    const cachedRendered = useSessionConversationStore
+      .getState()
+      .getSnapshot(conversationKey);
+    if (cachedRendered?.entries.length) {
+      setTokenUsageInfo(cachedRendered.tokenUsageInfo);
+      onEntriesUpdatedRef.current?.(cachedRendered.entries, 'initial', false);
+      return;
+    }
+    const hasNoHistory =
+      !executionProcessesLoading && executionProcessesRaw.length === 0;
+    emitEntries(displayedExecutionProcesses.current, 'initial', !hasNoHistory);
+  }, [
+    conversationKey,
+    idListKey,
+    emitEntries,
+    executionProcessesLoading,
+    executionProcessesRaw.length,
+    closeAllRunningStreams,
+    saveConversationCache,
+    setTokenUsageInfo,
+  ]);
+
   // Initial load when attempt changes
   useEffect(() => {
     let cancelled = false;
@@ -1064,9 +1199,14 @@ export const useConversationHistory = ({
       ) {
         shouldEmitStoppedState = true;
 
-        if (!activeStreamControllersRef.current.has(process.id)) {
-          processesToReload.push(process);
+        const activeStreamController =
+          activeStreamControllersRef.current.get(process.id);
+        if (activeStreamController) {
+          activeStreamController.close();
+          activeStreamControllersRef.current.delete(process.id);
+          streamingProcessIdsRef.current.delete(process.id);
         }
+        processesToReload.push(process);
       }
 
       if (
@@ -1136,65 +1276,6 @@ export const useConversationHistory = ({
       });
     }
   }, [conversationKey, idListKey, executionProcessesRaw]);
-
-  // Reset state when the active workspace/session conversation changes.
-  // Using a ref guard prevents resets when unrelated execution processes update.
-  useEffect(() => {
-    if (prevConversationKeyRef.current === conversationKey) return;
-    saveConversationCache(prevConversationKeyRef.current);
-    prevConversationKeyRef.current = conversationKey;
-
-    closeAllRunningStreams();
-    const cachedConversation = conversationHistoryCache.get(conversationKey);
-
-    if (cachedConversation) {
-      displayedExecutionProcesses.current = structuredClone(
-        cachedConversation.displayedExecutionProcesses
-      );
-      previousStatusMapRef.current = new Map(
-        cachedConversation.previousStatusMap
-      );
-      // Always refresh from latest process list after switching conversations.
-      loadedInitialEntries.current = false;
-
-      const hasCachedEntries = Object.values(
-        displayedExecutionProcesses.current
-      ).some((processState) => processState.entries.length > 0);
-      const hasNoHistory =
-        !executionProcessesLoading && executionProcessesRaw.length === 0;
-      emitEntries(
-        displayedExecutionProcesses.current,
-        'initial',
-        !hasCachedEntries && !hasNoHistory
-      );
-      return;
-    }
-
-    displayedExecutionProcesses.current = {};
-    loadedInitialEntries.current = false;
-    loadingHistoricProcessIdsRef.current.clear();
-    previousStatusMapRef.current.clear();
-    const cachedRendered = useSessionConversationStore
-      .getState()
-      .getSnapshot(conversationKey);
-    if (cachedRendered?.entries.length) {
-      setTokenUsageInfo(cachedRendered.tokenUsageInfo);
-      onEntriesUpdatedRef.current?.(cachedRendered.entries, 'initial', false);
-      return;
-    }
-    const hasNoHistory =
-      !executionProcessesLoading && executionProcessesRaw.length === 0;
-    emitEntries(displayedExecutionProcesses.current, 'initial', !hasNoHistory);
-  }, [
-    conversationKey,
-    idListKey,
-    emitEntries,
-    executionProcessesLoading,
-    executionProcessesRaw.length,
-    closeAllRunningStreams,
-    saveConversationCache,
-    setTokenUsageInfo,
-  ]);
 
   useEffect(() => {
     if (!executionProcessesLoading) {

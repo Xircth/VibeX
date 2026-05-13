@@ -1,15 +1,15 @@
 import {
+  Archive,
+  CheckSquare,
+  Clock,
+  Lightbulb,
   Loader2,
+  Paperclip,
   Send,
   StopCircle,
   X,
-  Paperclip,
-  CheckSquare,
-  FileSearch,
-  Clock,
-  Lightbulb,
 } from 'lucide-react';
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -35,6 +35,8 @@ interface ActionBarProps {
   isAttemptRunning: boolean;
   isQueued: boolean;
   isQueueLoading: boolean;
+  canCompactContext: boolean;
+  isCompactingContext: boolean;
   isStopping: boolean;
   isSendingFollowUp: boolean;
   canSendFollowUp: boolean;
@@ -47,13 +49,13 @@ interface ActionBarProps {
   reviewMarkdown: string | null;
   todos: TodoItem[];
   comments: unknown[];
+  onCompactContext: () => void;
   onQueueMessage: () => void;
   onCancelQueue: () => void;
   onStopExecution: () => void;
   onSendFollowUp: () => void;
   onEnhancePrompt: () => void;
   onClearComments: () => void;
-  onReviewChanges: () => void;
   onPasteFiles: (files: File[]) => void;
 }
 
@@ -67,6 +69,8 @@ export function ActionBar({
   isAttemptRunning,
   isQueued,
   isQueueLoading,
+  canCompactContext,
+  isCompactingContext,
   isStopping,
   isSendingFollowUp,
   canSendFollowUp,
@@ -79,13 +83,13 @@ export function ActionBar({
   reviewMarkdown,
   todos,
   comments,
+  onCompactContext,
   onQueueMessage,
   onCancelQueue,
   onStopExecution,
   onSendFollowUp,
   onEnhancePrompt,
   onClearComments,
-  onReviewChanges,
   onPasteFiles,
 }: ActionBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,14 +99,14 @@ export function ActionBar({
   }, []);
 
   const handleFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []).filter((f) =>
-        f.type.startsWith('image/')
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []).filter((file) =>
+        file.type.startsWith('image/')
       );
       if (files.length > 0) {
         onPasteFiles(files);
       }
-      e.target.value = '';
+      event.target.value = '';
     },
     [onPasteFiles]
   );
@@ -111,7 +115,7 @@ export function ActionBar({
     localMessage.trim() || conflictResolutionInstructions || reviewMarkdown;
 
   return (
-    <div className="flex flex-wrap gap-1 items-center pt-1 border-t border-border/50">
+    <div className="flex flex-wrap items-center gap-1 border-t border-border/50 pt-1">
       {showProfileControls ? (
         <TerminalProfileControls
           profiles={profiles}
@@ -121,7 +125,7 @@ export function ActionBar({
           lockExecutor={true}
           iconOnly={true}
           dropdownSide="top"
-          className="flex flex-wrap gap-1 items-center"
+          className="flex flex-wrap items-center gap-1"
         />
       ) : null}
 
@@ -140,22 +144,26 @@ export function ActionBar({
         size="sm"
         variant="ghost"
         className="h-7 w-7 p-0"
-        title="Attach image"
-        aria-label="Attach image"
+        title={'\u9644\u52a0\u56fe\u7247'}
+        aria-label={'\u9644\u52a0\u56fe\u7247'}
       >
         <Paperclip className="h-3.5 w-3.5" />
       </Button>
 
       <Button
-        onClick={onReviewChanges}
-        disabled={!isEditable || !sessionId}
+        onClick={onCompactContext}
+        disabled={!canCompactContext || isCompactingContext}
         size="sm"
         variant="ghost"
         className="h-7 w-7 p-0"
-        title="Review Changes"
-        aria-label="Review Changes"
+        title={'压缩上下文'}
+        aria-label={'压缩上下文'}
       >
-        <FileSearch className="h-3.5 w-3.5" />
+        {isCompactingContext ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Archive className="h-3.5 w-3.5" />
+        )}
       </Button>
 
       {promptEnhancementEnabled ? (
@@ -165,8 +173,8 @@ export function ActionBar({
           size="sm"
           variant="ghost"
           className="h-7 w-7 p-0"
-          title="提示词优化"
-          aria-label="提示词优化"
+          title={'\u63d0\u793a\u8bcd\u4f18\u5316'}
+          aria-label={'\u63d0\u793a\u8bcd\u4f18\u5316'}
         >
           {isEnhancingPrompt ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -182,44 +190,48 @@ export function ActionBar({
             <Button
               size="sm"
               variant="ghost"
-              title="查看待办事项"
+              title={'\u67e5\u770b\u5f85\u529e\u4e8b\u9879'}
               className={cn('h-7 w-7 p-0', todos.length === 0 && 'opacity-50')}
             >
               <CheckSquare className="h-3.5 w-3.5" />
-              {todos.length > 0 && (
+              {todos.length > 0 ? (
                 <span className="ml-0.5 text-[10px]">{todos.length}</span>
-              )}
+              ) : null}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-72 p-2">
             {todos.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-2 text-center">
-                暂无待办事项
+              <div className="py-2 text-center text-xs text-muted-foreground">
+                {'\u6682\u65e0\u5f85\u529e\u4e8b\u9879'}
               </div>
             ) : (
               <>
-                <div className="text-xs font-medium mb-1.5">
-                  待办事项 ({todos.length})
+                <div className="mb-1.5 text-xs font-medium">
+                  {'\u5f85\u529e\u4e8b\u9879'} ({todos.length})
                 </div>
-                <ul className="space-y-1 max-h-48 overflow-auto">
-                  {todos.map((todo, i) => (
-                    <li key={i} className="flex items-start gap-1.5 text-xs">
+                <ul className="max-h-48 space-y-1 overflow-auto">
+                  {todos.map((todo, index) => (
+                    <li
+                      key={index}
+                      className="flex items-start gap-1.5 text-xs"
+                    >
                       <span
-                        className={`shrink-0 mt-0.5 ${
+                        className={cn(
+                          'mt-0.5 shrink-0',
                           todo.status === 'completed'
                             ? 'text-green-500'
                             : todo.status === 'in_progress' ||
                                 todo.status === 'in-progress'
                               ? 'text-blue-500'
                               : 'text-muted-foreground'
-                        }`}
+                        )}
                       >
                         {todo.status === 'completed'
                           ? '\u2713'
                           : todo.status === 'in_progress' ||
                               todo.status === 'in-progress'
-                            ? '\u25CF'
-                            : '\u25CB'}
+                            ? '\u25cf'
+                            : '\u25cb'}
                       </span>
                       <span
                         className={
@@ -243,41 +255,47 @@ export function ActionBar({
 
       {isAttemptRunning ? (
         <div className="flex items-center gap-1">
-          {isQueued ? (
-            <Button
-              onClick={onCancelQueue}
-              disabled={isQueueLoading || !sessionId}
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-            >
-              {isQueueLoading ? (
-                <Loader2 className="animate-spin h-3.5 w-3.5" />
-              ) : (
-                <>
-                  <X className="h-3.5 w-3.5 mr-1" />
-                  {'取消队列'}
-                </>
-              )}
-            </Button>
-          ) : (
-            <Button
-              onClick={onQueueMessage}
-              disabled={isQueueLoading || !sessionId || !hasQueueableContent}
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2 text-xs"
-            >
-              {isQueueLoading ? (
-                <Loader2 className="animate-spin h-3.5 w-3.5" />
-              ) : (
-                <>
-                  <Clock className="h-3.5 w-3.5 mr-1" />
-                  {'队列'}
-                </>
-              )}
-            </Button>
-          )}
+          {!isCompactingContext
+            ? isQueued
+              ? (
+                  <Button
+                    onClick={onCancelQueue}
+                    disabled={isQueueLoading || !sessionId}
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                  >
+                    {isQueueLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <X className="mr-1 h-3.5 w-3.5" />
+                        {'\u53d6\u6d88\u961f\u5217'}
+                      </>
+                    )}
+                  </Button>
+                )
+              : (
+                  <Button
+                    onClick={onQueueMessage}
+                    disabled={
+                      isQueueLoading || !sessionId || !hasQueueableContent
+                    }
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                  >
+                    {isQueueLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Clock className="mr-1 h-3.5 w-3.5" />
+                        {'\u961f\u5217'}
+                      </>
+                    )}
+                  </Button>
+                )
+            : null}
           <Button
             onClick={onStopExecution}
             disabled={isStopping}
@@ -286,18 +304,18 @@ export function ActionBar({
             className="h-7 px-2 text-xs"
           >
             {isStopping ? (
-              <Loader2 className="animate-spin h-3.5 w-3.5" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <>
-                <StopCircle className="h-3.5 w-3.5 mr-1" />
-                {'停止'}
+                <StopCircle className="mr-1 h-3.5 w-3.5" />
+                {'\u505c\u6b62'}
               </>
             )}
           </Button>
         </div>
       ) : (
         <div className="flex items-center gap-1">
-          {comments.length > 0 && (
+          {comments.length > 0 ? (
             <Button
               onClick={onClearComments}
               size="sm"
@@ -305,9 +323,9 @@ export function ActionBar({
               disabled={!isEditable}
               className="h-7 px-2 text-xs"
             >
-              {'清除审查'}
+              {'\u6e05\u9664\u5ba1\u67e5'}
             </Button>
-          )}
+          ) : null}
           <Button
             onClick={onSendFollowUp}
             disabled={
@@ -316,14 +334,16 @@ export function ActionBar({
               isAwaitingNewSessionConfirmation
             }
             size="sm"
-            className="h-7 px-2 text-xs rounded-lg"
+            className="h-7 rounded-lg px-2 text-xs"
           >
             {isSendingFollowUp ? (
-              <Loader2 className="animate-spin h-3.5 w-3.5" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <>
-                <Send className="h-3.5 w-3.5 mr-1" />
-                {conflictResolutionInstructions ? '解决冲突' : '发送'}
+                <Send className="mr-1 h-3.5 w-3.5" />
+                {conflictResolutionInstructions
+                  ? '\u89e3\u51b3\u51b2\u7a81'
+                  : '\u53d1\u9001'}
               </>
             )}
           </Button>

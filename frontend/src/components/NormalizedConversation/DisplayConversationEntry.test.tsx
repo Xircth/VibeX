@@ -54,13 +54,14 @@ vi.mock('./ToolCallCard', () => ({
 
 vi.mock('./MessageCard', () => ({
   AssistantCommandOutputEntry: ({
+    prefix,
     output,
   }: {
     prefix: string;
     output: string;
   }) => (
     <div>
-      <div>Command output:</div>
+      {prefix ? <div data-testid="collapsed-prefix-toggle" /> : null}
       <div>{output}</div>
     </div>
   ),
@@ -115,7 +116,7 @@ describe('DisplayConversationEntry', () => {
     expect(screen.queryByText('Command output:')).not.toBeInTheDocument();
   });
 
-  it('renders only final command output when AI message collapse is enabled', () => {
+  it('keeps command-style assistant output fully visible when default collapse is enabled', () => {
     useUserSystemMock.mockReturnValue({
       config: { ai_message_default_collapsed: true },
     });
@@ -132,8 +133,53 @@ describe('DisplayConversationEntry', () => {
       />
     );
 
-    expect(screen.getByText('Command output:')).toBeInTheDocument();
-    expect(screen.getByText('Final answer')).toBeInTheDocument();
-    expect(screen.queryByText(/Wall time/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Wall time: 1\.7 seconds[\s\S]*Final answer/)
+    ).toBeInTheDocument();
+  });
+
+  it('keeps a normal assistant message fully visible when default collapse is enabled', () => {
+    useUserSystemMock.mockReturnValue({
+      config: { ai_message_default_collapsed: true },
+    });
+
+    render(
+      <DisplayConversationEntry
+        entry={
+          {
+            entry_type: { type: 'assistant_message' },
+            content:
+              'First inspect the frontend entry and environment.\n\nThen verify the dev server port and proxy.\n\nFrontend is reachable again.',
+          } as never
+        }
+        expansionKey="assistant-entry-final-block"
+      />
+    );
+
+    expect(
+      screen.getByText(
+        /First inspect the frontend entry and environment\.[\s\S]*Frontend is reachable again\./
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('renders impeccable preflight as compact metadata before assistant text', () => {
+    render(
+      <DisplayConversationEntry
+        entry={
+          {
+            entry_type: { type: 'assistant_message' },
+            content:
+              'IMPECCABLE_PREFLIGHT: context=pass product=pass\nI will update the layout.',
+          } as never
+        }
+        expansionKey="assistant-entry"
+      />
+    );
+
+    expect(
+      screen.getByText('IMPECCABLE_PREFLIGHT: context=pass product=pass')
+    ).toBeInTheDocument();
+    expect(screen.getByText('I will update the layout.')).toBeInTheDocument();
   });
 });

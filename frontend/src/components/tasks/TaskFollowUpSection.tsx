@@ -11,7 +11,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ScratchType } from 'shared/types';
+import { BaseCodingAgent, ScratchType } from 'shared/types';
 import {
   useBranchStatus,
   useProjectRepos,
@@ -43,7 +43,7 @@ import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { useGitStatus } from '@/hooks/git';
 
 import type {
-  BaseCodingAgent,
+  CreateFollowUpAttempt,
   DraftFollowUpData,
   ExecutorProfileId,
   QueueStatus,
@@ -68,6 +68,7 @@ import { useRightPanelSessionCreation } from '@/contexts/RightPanelSessionCreati
 import { useParams } from 'react-router-dom';
 
 import { DiffStatsBar } from './follow-up/DiffStatsBar';
+import { CodexGoalIndicator } from './follow-up/CodexGoalIndicator';
 import { TokenUsageIndicator } from './follow-up/TokenUsageIndicator';
 import { SessionSelector } from './follow-up/SessionSelector';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
@@ -85,6 +86,11 @@ import {
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
+import {
+  codexGoalEntriesFromConversation,
+  deriveCodexGoalState,
+} from '@/lib/codexGoalState';
+import { isContextCompactProcess } from '@/lib/contextCompact';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -499,10 +505,17 @@ export function TaskFollowUpSection({
     () => getLatestProfileFromProcesses(processes),
     [processes]
   );
+  const createdSessionProfilesRef = useRef<Record<string, ExecutorProfileId>>(
+    {}
+  );
 
   const defaultExecutorProfile = useMemo(() => {
     if (scratchExecutorProfile) return scratchExecutorProfile;
     if (latestProfileId) return latestProfileId;
+    const createdSessionProfile = session?.id
+      ? createdSessionProfilesRef.current[session.id]
+      : null;
+    if (createdSessionProfile) return createdSessionProfile;
     if (session?.executor) {
       return { executor: session.executor as BaseCodingAgent, variant: null };
     }
@@ -511,6 +524,7 @@ export function TaskFollowUpSection({
   }, [
     scratchExecutorProfile,
     latestProfileId,
+    session?.id,
     session?.executor,
     config?.executor_profile,
     profiles,
@@ -524,6 +538,16 @@ export function TaskFollowUpSection({
     const scratchChanged = previousScratchIdRef.current !== scratchIdValue;
     previousScratchIdRef.current = scratchIdValue;
     if (scratchChanged || !selectedExecutorProfile) {
+      if (
+        scratchChanged &&
+        selectedExecutorProfile &&
+        defaultExecutorProfile &&
+        selectedExecutorProfile.executor === defaultExecutorProfile.executor &&
+        selectedExecutorProfile.variant &&
+        !defaultExecutorProfile.variant
+      ) {
+        return;
+      }
       setSelectedExecutorProfile(defaultExecutorProfile);
     }
   }, [defaultExecutorProfile, selectedExecutorProfile, scratchIdValue]);
@@ -701,8 +725,32 @@ export function TaskFollowUpSection({
     },
     [onSessionSelected, selectSession, workspaceId]
   );
+  const rememberCreatedSessionProfile = useCallback(
+    (sessionId: string, profile: ExecutorProfileId | null) => {
+      if (!profile?.executor) return;
+      createdSessionProfilesRef.current[sessionId] = profile;
+    },
+    []
+  );
+  const handleFollowUpSessionCreated = useCallback(
+    (createdSession: { sessionId: string; workspaceId: string }) => {
+      rememberCreatedSessionProfile(
+        createdSession.sessionId,
+        effectiveExecutorProfile
+      );
+      onSessionCreated?.(createdSession);
+    },
+    [effectiveExecutorProfile, onSessionCreated, rememberCreatedSessionProfile]
+  );
 
   const { entries } = useEntries();
+  const codexGoalState = useMemo(() => {
+    if (effectiveExecutorProfile?.executor !== BaseCodingAgent.CODEX) {
+      return null;
+    }
+
+    return deriveCodexGoalState(codexGoalEntriesFromConversation(entries));
+  }, [effectiveExecutorProfile?.executor, entries]);
   const promptEnhancementContext = useMemo(
     () => buildPromptEnhancementContext(entries),
     [entries]
@@ -727,7 +775,7 @@ export function TaskFollowUpSection({
       isNewSessionMode,
       newSessionName,
       onSelectSession: handleSelectSession,
-      onSessionCreated,
+      onSessionCreated: handleFollowUpSessionCreated,
       message: localMessage,
       conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,
@@ -743,13 +791,52 @@ export function TaskFollowUpSection({
         }
       },
     });
+  const [pendingCompactProcessId, setPendingCompactProcessId] = useState<
+    string | null
+  >(null);
+  const isCompactProcessRunning = useMemo(
+    () =>
+      processes.some(
+        (process) =>
+          process.status === 'running' && isContextCompactProcess(process)
+      ),
+    [processes]
+  );
+  useEffect(() => {
+    if (!pendingCompactProcessId) return;
+    if (processes.some((process) => process.id === pendingCompactProcessId)) {
+      setPendingCompactProcessId(null);
+    }
+  }, [pendingCompactProcessId, processes]);
+  useEffect(() => {
+    if (!pendingCompactProcessId) return;
+
+    const timeout = window.setTimeout(() => {
+      setPendingCompactProcessId((current) =>
+        current === pendingCompactProcessId ? null : current
+      );
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [pendingCompactProcessId]);
+  const isCompactingContext =
+    pendingCompactProcessId !== null || isCompactProcessRunning;
 
   const canTypeFollowUp = useMemo(() => {
     if (!workspaceId || isSendingFollowUp) return false;
     if (isRetryActive) return false;
     if (hasPendingApproval) return false;
+    if (isCompactingContext) return false;
     return true;
-  }, [workspaceId, isSendingFollowUp, isRetryActive, hasPendingApproval]);
+  }, [
+    workspaceId,
+    isSendingFollowUp,
+    isRetryActive,
+    hasPendingApproval,
+    isCompactingContext,
+  ]);
 
   const canSendFollowUp = useMemo(() => {
     if (!canTypeFollowUp || !effectiveExecutorProfile?.executor) return false;
@@ -770,7 +857,21 @@ export function TaskFollowUpSection({
     () => Boolean(canTypeFollowUp && localMessage.trim()),
     [canTypeFollowUp, localMessage]
   );
-  const isEditable = !isRetryActive && !hasPendingApproval;
+  const isEditable =
+    !isRetryActive && !hasPendingApproval && !isCompactingContext;
+  const canCompactContext = useMemo(() => {
+    if (!sessionId || !effectiveExecutorProfile?.executor) return false;
+    if (!canTypeFollowUp || isAttemptRunning) return false;
+    if (isAwaitingNewSessionConfirmation || isNewSessionMode) return false;
+    return true;
+  }, [
+    sessionId,
+    effectiveExecutorProfile?.executor,
+    canTypeFollowUp,
+    isAttemptRunning,
+    isAwaitingNewSessionConfirmation,
+    isNewSessionMode,
+  ]);
 
   const handleQueueMessage = useCallback(async () => {
     if (
@@ -796,6 +897,34 @@ export function TaskFollowUpSection({
     queueMessage,
     cancelDebouncedSave,
     saveToScratch,
+  ]);
+
+  const handleCompactContext = useCallback(async () => {
+    if (!sessionId || !effectiveExecutorProfile || !canCompactContext) return;
+
+    try {
+      setFollowUpError(null);
+
+      const body: CreateFollowUpAttempt = {
+        prompt: '/compact',
+        executor_profile_id: effectiveExecutorProfile,
+        retry_process_id: null,
+        force_when_dirty: null,
+        perform_git_reset: null,
+      };
+
+      const process = await sessionsApi.followUp(sessionId, body);
+      setPendingCompactProcessId(process.id);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '未知错误';
+      setFollowUpError(`启动上下文压缩失败：${message}`);
+    }
+  }, [
+    canCompactContext,
+    effectiveExecutorProfile,
+    sessionId,
+    setFollowUpError,
   ]);
 
   const handleSubmitShortcut = useCallback(
@@ -867,22 +996,6 @@ export function TaskFollowUpSection({
     },
     [workspaceId, getQueueState, cancelMutation]
   );
-
-  const handleReviewChanges = useCallback(async () => {
-    if (!sessionId || !effectiveExecutorProfile) return;
-    try {
-      await sessionsApi.startReview(sessionId, {
-        executor_profile_id: effectiveExecutorProfile,
-        additional_prompt: reviewMarkdown.trim() || null,
-        use_all_workspace_commits: true,
-      });
-      if (reviewMarkdown.trim()) {
-        clearComments();
-      }
-    } catch (error) {
-      console.error('Failed to start review:', error);
-    }
-  }, [sessionId, effectiveExecutorProfile, reviewMarkdown, clearComments]);
 
   const handleEditorChange = useCallback(
     (value: string) => {
@@ -1071,6 +1184,8 @@ export function TaskFollowUpSection({
           queryKey: ['repoBranches', primaryRepo.id],
         });
       }
+      rememberCreatedSessionProfile(newSession.id, effectiveExecutorProfile);
+      setSelectedExecutorProfile(effectiveExecutorProfile);
       onSessionCreated?.({
         sessionId: newSession.id,
         workspaceId: newSession.workspace_id,
@@ -1143,6 +1258,7 @@ export function TaskFollowUpSection({
         {/* Input area with buttons inside */}
         <div
           className="composer-shell mx-3 mb-3 flex shrink-0 flex-col gap-1 overflow-hidden rounded-xl p-2"
+          data-typeahead-surface="composer"
           onFocus={() => setIsTextareaFocused(true)}
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget)) {
@@ -1152,6 +1268,7 @@ export function TaskFollowUpSection({
         >
           {/* Top bar */}
           {(tokenUsageInfo ||
+            codexGoalState ||
             (showSessionSelector && sessions.length > 0) ||
             effectiveExecutorProfile?.executor) && (
             <div className="composer-topbar flex items-center gap-2 px-1 pb-2 text-xs">
@@ -1180,6 +1297,8 @@ export function TaskFollowUpSection({
               ) : null}
 
               <div className="flex-1" />
+
+              <CodexGoalIndicator goalState={codexGoalState} />
 
               <TokenUsageIndicator tokenUsageInfo={tokenUsageInfo} />
 
@@ -1301,6 +1420,8 @@ export function TaskFollowUpSection({
             isAttemptRunning={isAttemptRunning}
             isQueued={hasVisibleQueuedMessage}
             isQueueLoading={isQueueLoading}
+            canCompactContext={canCompactContext}
+            isCompactingContext={isCompactingContext}
             isStopping={isStopping}
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}
@@ -1316,13 +1437,13 @@ export function TaskFollowUpSection({
             reviewMarkdown={reviewMarkdown}
             todos={todos}
             comments={comments}
+            onCompactContext={handleCompactContext}
             onQueueMessage={handleQueueMessage}
             onCancelQueue={cancelQueue}
             onStopExecution={stopExecution}
             onSendFollowUp={onSendFollowUp}
             onEnhancePrompt={handleEnhancePrompt}
             onClearComments={clearComments}
-            onReviewChanges={handleReviewChanges}
             onPasteFiles={handlePasteFiles}
           />
         </div>

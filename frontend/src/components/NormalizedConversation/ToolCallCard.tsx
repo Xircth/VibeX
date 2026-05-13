@@ -137,12 +137,12 @@ export const LookupToolCallCard: React.FC<{
     actionType?.action === 'file_read' ||
     actionType?.action === 'search' ||
     actionType?.action === 'web_fetch';
+  const isWebFetch = actionType?.action === 'web_fetch';
   const { label } = getToolSummary(toolEntry, entry.content.trim());
   const detail = isLookupAction ? getLookupDetail(actionType) : '';
   const normalizedDetail = detail.trim();
   const canOpenInBrowser =
-    actionType?.action === 'web_fetch' &&
-    /^https?:\/\//i.test(normalizedDetail);
+    isWebFetch && /^https?:\/\//i.test(normalizedDetail);
   const canOpenPreview =
     actionType?.action === 'file_read' && normalizedDetail.length > 0;
   const [copied, triggerCopied] = useTemporaryFlag(1500);
@@ -218,15 +218,17 @@ export const LookupToolCallCard: React.FC<{
           {getEntryIcon(entry.entry_type)}
         </span>
         <span className="conv-tool-label shrink-0">{label}</span>
-        <span className="conv-tool-detail font-mono truncate min-w-0">
-          {normalizedDetail || entry.content}
-        </span>
+        {!isWebFetch && (
+          <span className="conv-tool-detail font-mono truncate min-w-0">
+            {normalizedDetail || entry.content}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1 shrink-0">
           {canOpenPreview && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0"
+              className="h-5 w-5 p-0"
               title="Open preview"
               onClick={handleOpenPreview}
             >
@@ -237,7 +239,7 @@ export const LookupToolCallCard: React.FC<{
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0"
+              className="h-5 w-5 p-0"
               title="Open link"
               onClick={handleOpenInBrowser}
             >
@@ -247,7 +249,7 @@ export const LookupToolCallCard: React.FC<{
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0"
+            className="h-5 w-5 p-0"
             title={copied ? 'Copied' : 'Copy'}
             onClick={handleCopy}
           >
@@ -268,9 +270,18 @@ export const LookupToolCallCard: React.FC<{
 
       {effectiveExpanded && (
         <div className="conv-tool-details text-xs font-mono">
-          <div className="conv-tool-details-content">
-            {detail || entry.content}
-          </div>
+          {isWebFetch ? (
+            <>
+              <div className="conv-tool-details-section-label">URL</div>
+              <div className="conv-tool-details-content">
+                {detail || entry.content}
+              </div>
+            </>
+          ) : (
+            <div className="conv-tool-details-content">
+              {detail || entry.content}
+            </div>
+          )}
           {toolEntry.tool_name &&
             toolEntry.tool_name !== label &&
             toolEntry.tool_name !== 'web_search' && (

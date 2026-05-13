@@ -60,12 +60,22 @@ export type AggregatedThinkingGroup = {
   executionProcessId: string;
 };
 
-export type DisplayEntry =
+export type BaseDisplayEntry =
   | PatchTypeWithKey
   | AggregatedPatchGroup
   | AggregatedFileEditGroup
   | ProcessChangeSummaryGroup
   | AggregatedThinkingGroup;
+
+export type CollapsedAssistantMessagesGroup = {
+  type: 'COLLAPSED_ASSISTANT_MESSAGES';
+  entries: BaseDisplayEntry[];
+  patchKey: string;
+  executionProcessId: string;
+  hiddenCount: number;
+};
+
+export type DisplayEntry = BaseDisplayEntry | CollapsedAssistantMessagesGroup;
 
 export function isAggregatedGroup(
   entry: DisplayEntry
@@ -89,6 +99,12 @@ export function isAggregatedThinkingGroup(
   entry: DisplayEntry
 ): entry is AggregatedThinkingGroup {
   return entry.type === 'AGGREGATED_THINKING_GROUP';
+}
+
+export function isCollapsedAssistantMessagesGroup(
+  entry: DisplayEntry
+): entry is CollapsedAssistantMessagesGroup {
+  return entry.type === 'COLLAPSED_ASSISTANT_MESSAGES';
 }
 
 export type AddEntryType = 'initial' | 'running' | 'historic' | 'plan';

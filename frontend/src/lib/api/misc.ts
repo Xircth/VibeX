@@ -69,6 +69,7 @@ export interface DirectoryChildrenResponse {
   directories: string[];
   gitignored_files: string[];
   gitignored_directories: string[];
+  truncated: boolean;
 }
 
 export interface ReadFileResponse {

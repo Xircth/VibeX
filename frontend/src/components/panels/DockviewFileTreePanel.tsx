@@ -72,6 +72,8 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   >(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [rootScanTruncated, setRootScanTruncated] = useState(false);
+  const loadRequestIdRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
 
   const normalizeWatchedPath = useCallback((path: string) => {
@@ -148,6 +150,8 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     setDirectories([]);
     setGitignoredFiles(new Set());
     setGitignoredDirectories(new Set());
+    setRootScanTruncated(false);
+    loadRequestIdRef.current += 1;
   }, [projectId, setDiffFilePath, setRootPath, setSelectedFilePath]);
 
   useEffect(() => {
@@ -183,6 +187,8 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
   // Load root directory children
   const loadRootChildren = useCallback(async () => {
     if (!rootPath) return;
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setIsLoading(true);
 
     const candidatePaths = Array.from(
@@ -222,6 +228,10 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         throw new Error('Failed to load workspace files');
       }
 
+      if (requestId !== loadRequestIdRef.current) {
+        return;
+      }
+
       if (resolvedRootPath !== rootPath) {
         setRootPath(resolvedRootPath);
       }
@@ -232,13 +242,20 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       setGitignoredDirectories(
         new Set(resolvedResponse.gitignored_directories)
       );
+      setRootScanTruncated(resolvedResponse.truncated);
     } catch {
+      if (requestId !== loadRequestIdRef.current) {
+        return;
+      }
       setFiles([]);
       setDirectories([]);
       setGitignoredFiles(new Set());
       setGitignoredDirectories(new Set());
+      setRootScanTruncated(false);
     } finally {
-      setIsLoading(false);
+      if (requestId === loadRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [rootPath, setRootPath, workspaceRootCandidates]);
 
@@ -396,6 +413,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         gitignoredDirectories={gitignoredDirectories}
         onRefreshFiles={refreshFileTree}
         refreshToken={refreshToken}
+        lazyLoadAllDirectories={rootScanTruncated}
       />
     </div>
   );

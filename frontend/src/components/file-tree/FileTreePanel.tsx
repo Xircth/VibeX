@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { FilePlus, FolderPlus, Plus, RefreshCw, SquareMinus } from 'lucide-react';
+import {
+  FilePlus,
+  FolderPlus,
+  Plus,
+  RefreshCw,
+  SquareMinus,
+} from 'lucide-react';
 import FileIcon from '../FileIcon';
 import { desktopApi, fileTreeApi } from '../../lib/api';
 import type { DirectoryChildrenResponse } from '../../lib/api';
@@ -41,6 +47,7 @@ export type FileTreePanelProps = {
   gitignoredDirectories?: Set<string>;
   onRefreshFiles?: () => void;
   refreshToken?: number;
+  lazyLoadAllDirectories?: boolean;
 };
 
 const FILE_TREE_LABELS = {
@@ -85,6 +92,7 @@ export function FileTreePanel({
   gitignoredDirectories,
   onRefreshFiles,
   refreshToken = 0,
+  lazyLoadAllDirectories = false,
 }: FileTreePanelProps) {
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
@@ -199,12 +207,12 @@ export function FileTreePanel({
   const seededLazyLoadableDirectories = useMemo(() => {
     const result = new Set<string>();
     mergedDirectories.forEach((path) => {
-      if (isSpecialDirectoryPath(path)) {
+      if (lazyLoadAllDirectories || isSpecialDirectoryPath(path)) {
         result.add(path);
       }
     });
     return result;
-  }, [mergedDirectories]);
+  }, [lazyLoadAllDirectories, mergedDirectories]);
   const effectiveLazyLoadableDirectories = useMemo(() => {
     const result = new Set(seededLazyLoadableDirectories);
     lazyLoadableDirectories.forEach((path) => result.add(path));
@@ -619,9 +627,9 @@ export function FileTreePanel({
     previewKind === 'image' ? isLoadingPreviewImage : previewLoading;
   const effectivePreviewError =
     previewKind === 'image'
-      ? (previewImageError instanceof Error
-          ? previewImageError.message
-          : (previewImageError ?? null))
+      ? previewImageError instanceof Error
+        ? previewImageError.message
+        : (previewImageError ?? null)
       : previewError;
 
   const selectRangeFromAnchor = useCallback((anchor: number, index: number) => {

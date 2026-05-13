@@ -831,6 +831,7 @@ pub struct DirectoryChildrenResponse {
     pub directories: Vec<String>,
     pub gitignored_files: Vec<String>,
     pub gitignored_directories: Vec<String>,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -1355,6 +1356,7 @@ pub async fn list_directory_children(
             directories: Vec::new(),
             gitignored_files: Vec::new(),
             gitignored_directories: Vec::new(),
+            truncated: false,
         });
     }
 
@@ -1407,6 +1409,14 @@ fn scan_tree_recursive(
     let mut directories = Vec::new();
     let mut gitignored_files = Vec::new();
     let mut gitignored_directories = Vec::new();
+    let mut truncated = false;
+
+    let root_children = scan_single_directory(root, root, repo)?;
+    files.extend(root_children.files);
+    directories.extend(root_children.directories);
+    gitignored_files.extend(root_children.gitignored_files);
+    gitignored_directories.extend(root_children.gitignored_directories);
+    truncated |= root_children.truncated;
 
     let root_clone = root.to_path_buf();
     let walker = WalkBuilder::new(root)
@@ -1438,6 +1448,7 @@ fn scan_tree_recursive(
 
     for (scanned, result) in walker.enumerate() {
         if scan_budget_reached(started_at, scanned) {
+            truncated = true;
             break;
         }
 
@@ -1471,6 +1482,7 @@ fn scan_tree_recursive(
 
         if is_dir {
             if directories.len() >= max_directories {
+                truncated = true;
                 continue;
             }
             directories.push(normalized.clone());
@@ -1482,6 +1494,7 @@ fn scan_tree_recursive(
                 continue;
             }
             if files.len() >= max_files {
+                truncated = true;
                 break;
             }
             files.push(normalized.clone());
@@ -1532,6 +1545,7 @@ fn scan_tree_recursive(
         directories,
         gitignored_files,
         gitignored_directories,
+        truncated,
     })
 }
 
@@ -1543,7 +1557,7 @@ fn scan_single_directory(
     repo: &Option<git2::Repository>,
 ) -> Result<DirectoryChildrenResponse, AppError> {
     let started_at = Instant::now();
-    let mut scanned = 0usize;
+    let mut truncated = false;
 
     let mut files = Vec::new();
     let mut directories = Vec::new();
@@ -1553,15 +1567,16 @@ fn scan_single_directory(
     let read_dir = std::fs::read_dir(target_dir)
         .map_err(|e| AppError::Internal(format!("Failed to read directory: {}", e)))?;
 
-    let mut dir_entries: Vec<std::fs::DirEntry> = read_dir
-        .filter_map(|e| {
-            if scan_budget_reached(started_at, scanned) {
-                return None;
-            }
-            scanned += 1;
-            e.ok()
-        })
-        .collect();
+    let mut dir_entries = Vec::new();
+    for (scanned, entry) in read_dir.enumerate() {
+        if scan_budget_reached(started_at, scanned) {
+            truncated = true;
+            break;
+        }
+        if let Ok(entry) = entry {
+            dir_entries.push(entry);
+        }
+    }
 
     dir_entries.sort_by_key(|a| a.file_name());
 
@@ -1608,6 +1623,7 @@ fn scan_single_directory(
         directories,
         gitignored_files,
         gitignored_directories,
+        truncated,
     })
 }
 

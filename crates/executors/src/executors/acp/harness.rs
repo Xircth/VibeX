@@ -62,26 +62,6 @@ fn drain_pre_prompt_events(event_rx: &mut mpsc::UnboundedReceiver<AcpEvent>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use agent_client_protocol::schema::{ContentBlock, TextContent};
-
-    use super::*;
-
-    #[test]
-    fn drain_pre_prompt_events_discards_session_replay_messages() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        tx.send(AcpEvent::Message(ContentBlock::Text(TextContent::new(
-            "previous answer",
-        ))))
-        .unwrap();
-
-        drain_pre_prompt_events(&mut rx);
-
-        assert!(rx.try_recv().is_err());
-    }
-}
-
 impl AcpAgentHarness {
     /// Create a harness with the default Gemini namespace
     pub fn new() -> Self {
@@ -682,5 +662,23 @@ impl AcpAgentHarness {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drain_pre_prompt_events_discards_session_replay_messages() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tx.send(AcpEvent::Message(ContentBlock::Text(TextContent::new(
+            "previous answer",
+        ))))
+        .unwrap();
+
+        drain_pre_prompt_events(&mut rx);
+
+        assert!(rx.try_recv().is_err());
     }
 }

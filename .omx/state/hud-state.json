@@ -1,6 +1,0 @@
-{
-  "last_turn_at": "2026-04-29T04:30:02.124Z",
-  "turn_count": 15,
-  "last_progress_at": "2026-04-29T04:30:02.124Z",
-  "last_agent_output": "已修这个 Codex sandbox 回退问题。\n\n根因不是前端默认值，而是运行时：虽然应用里的默认 Codex 变体已经是 `danger-full-access`，但 `codex-acp` 不接"
-}

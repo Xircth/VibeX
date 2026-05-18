@@ -74,6 +74,30 @@ pub fn new_hidden_tokio_command(
     command
 }
 
+/// Build a std command that stays hidden on Windows, including `.cmd`/`.bat`
+/// wrappers such as npm-installed CLIs.
+pub fn new_hidden_std_command(
+    program: impl AsRef<Path>,
+    args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+) -> std::process::Command {
+    let program = program.as_ref();
+
+    #[cfg(windows)]
+    {
+        if is_windows_batch_script(program) {
+            let mut command = std::process::Command::new("cmd.exe");
+            configure_std_command_no_window(&mut command);
+            command.arg("/d").arg("/c").arg(program).args(args);
+            return command;
+        }
+    }
+
+    let mut command = std::process::Command::new(program);
+    configure_std_command_no_window(&mut command);
+    command.args(args);
+    command
+}
+
 /// Spawn a tokio Command as a process group with CREATE_NO_WINDOW on Windows.
 ///
 /// `command_group`'s `group_spawn()` overwrites any `creation_flags` previously
@@ -129,7 +153,7 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use super::new_hidden_tokio_command;
+    use super::{new_hidden_std_command, new_hidden_tokio_command};
 
     #[tokio::test]
     async fn batch_script_with_spaces_runs_successfully() {
@@ -150,6 +174,39 @@ mod tests {
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let output = command.output().await.expect("run batch script");
+
+        let _ = fs::remove_file(&script_path);
+        let _ = fs::remove_dir(&temp_dir);
+
+        assert!(
+            output.status.success(),
+            "expected success, got status {:?}, stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok arg");
+    }
+
+    #[test]
+    fn std_batch_script_with_spaces_runs_successfully() {
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "vibex-process-std-{unique_suffix}-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_dir).expect("create temp test dir");
+
+        let script_path = temp_dir.join("hello world.cmd");
+        fs::write(&script_path, "@echo off\r\necho ok %1\r\n").expect("write batch script");
+
+        let output = new_hidden_std_command(&script_path, ["arg"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("run batch script");
 
         let _ = fs::remove_file(&script_path);
         let _ = fs::remove_dir(&temp_dir);

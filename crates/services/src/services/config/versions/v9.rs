@@ -41,6 +41,14 @@ fn default_ai_message_default_collapsed() -> bool {
     false
 }
 
+fn default_auto_update_enabled() -> bool {
+    true
+}
+
+fn default_auto_install_local_dependencies() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
     pub config_version: String,
@@ -94,6 +102,12 @@ pub struct Config {
     /// Custom agent display order (if user has reordered)
     #[serde(default)]
     pub agent_order: Option<Vec<BaseCodingAgent>>,
+    /// Automatically check for app releases and tool updates on startup.
+    #[serde(default = "default_auto_update_enabled")]
+    pub auto_update_enabled: bool,
+    /// Automatically install or update local dependencies on startup.
+    #[serde(default = "default_auto_install_local_dependencies")]
+    pub auto_install_local_dependencies: bool,
 }
 
 impl Config {
@@ -129,6 +143,8 @@ impl Config {
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
             disabled_agents: Vec::new(),
             agent_order: None,
+            auto_update_enabled: default_auto_update_enabled(),
+            auto_install_local_dependencies: default_auto_install_local_dependencies(),
         }
     }
 
@@ -192,6 +208,8 @@ impl Default for Config {
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
             disabled_agents: Vec::new(),
             agent_order: None,
+            auto_update_enabled: default_auto_update_enabled(),
+            auto_install_local_dependencies: default_auto_install_local_dependencies(),
         }
     }
 }

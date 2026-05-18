@@ -378,7 +378,15 @@ disabled_agents: Array<BaseCodingAgent>,
 /**
  * Custom agent display order (if user has reordered)
  */
-agent_order: Array<BaseCodingAgent> | null, };
+agent_order: Array<BaseCodingAgent> | null,
+/**
+ * Automatically check for app releases and tool updates on startup.
+ */
+auto_update_enabled: boolean,
+/**
+ * Automatically install or update local dependencies on startup.
+ */
+auto_install_local_dependencies: boolean, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 

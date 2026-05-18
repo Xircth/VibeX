@@ -13,7 +13,7 @@ use agent_client_protocol::schema::{
 };
 use command_group::AsyncGroupChild;
 use futures::StreamExt;
-use tokio::{io::AsyncWriteExt, process::Command, sync::mpsc};
+use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_util::{
     compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt},
     io::ReaderStream,
@@ -102,8 +102,7 @@ impl AcpAgentHarness {
     ) -> Result<SpawnedChild, ExecutorError> {
         let _ = workspace_utils::shell::refresh_process_path().await;
         let (program_path, args) = command_parts.into_resolved().await?;
-        let mut command = Command::new(program_path);
-        workspace_utils::process::configure_tokio_command_no_window(&mut command);
+        let mut command = workspace_utils::process::new_hidden_tokio_command(&program_path, &args);
         command
             .kill_on_drop(true)
             .stdin(Stdio::piped())
@@ -111,8 +110,7 @@ impl AcpAgentHarness {
             .stderr(Stdio::piped())
             .current_dir(current_dir)
             .env("NPM_CONFIG_LOGLEVEL", "error")
-            .env("NODE_NO_WARNINGS", "1")
-            .args(&args);
+            .env("NODE_NO_WARNINGS", "1");
 
         env.clone()
             .with_profile(cmd_overrides)
@@ -158,8 +156,7 @@ impl AcpAgentHarness {
     ) -> Result<SpawnedChild, ExecutorError> {
         let _ = workspace_utils::shell::refresh_process_path().await;
         let (program_path, args) = command_parts.into_resolved().await?;
-        let mut command = Command::new(program_path);
-        workspace_utils::process::configure_tokio_command_no_window(&mut command);
+        let mut command = workspace_utils::process::new_hidden_tokio_command(&program_path, &args);
         command
             .kill_on_drop(true)
             .stdin(Stdio::piped())
@@ -167,8 +164,7 @@ impl AcpAgentHarness {
             .stderr(Stdio::piped())
             .current_dir(current_dir)
             .env("NPM_CONFIG_LOGLEVEL", "error")
-            .env("NODE_NO_WARNINGS", "1")
-            .args(&args);
+            .env("NODE_NO_WARNINGS", "1");
 
         env.clone()
             .with_profile(cmd_overrides)

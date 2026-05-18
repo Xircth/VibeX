@@ -5,12 +5,12 @@ use std::{
 };
 
 use async_trait::async_trait;
-use workspace_utils::msg_store::MsgStore;
+use workspace_utils::{msg_store::MsgStore, shell::resolve_executable_path};
 
 use crate::{
     actions::{ExecutorAction, script::ScriptRequest},
     approvals::ExecutorApprovalService,
-    command::{CmdOverrides, CommandBuildError, CommandBuilder, apply_overrides},
+    command::{CmdOverrides, CommandBuildError, CommandBuilder, CommandParts, apply_overrides},
     env::ExecutionEnv,
     executors::{
         AppendPrompt, AvailabilityInfo, BaseAgentCapability, ExecutorError,
@@ -55,6 +55,17 @@ impl AcpProvider {
             Self::ClaudeCode => "npx -y @agentclientprotocol/claude-agent-acp",
             Self::Codex => "npx -y @zed-industries/codex-acp",
             Self::Opencode => "opencode acp",
+        }
+    }
+
+    fn local_base_command(self) -> (&'static str, &'static str) {
+        match self {
+            Self::ClaudeCode => (
+                local_claude_agent_acp_command(),
+                local_claude_agent_acp_command(),
+            ),
+            Self::Codex => (local_codex_acp_command(), local_codex_acp_command()),
+            Self::Opencode => (local_opencode_command(), local_opencode_acp_command()),
         }
     }
 
@@ -510,6 +521,39 @@ mod tests {
             "/src/main.rs\nextra instruction"
         );
     }
+
+    #[test]
+    fn providers_have_local_acp_command_candidates() {
+        assert_eq!(
+            AcpProvider::ClaudeCode.local_base_command(),
+            (
+                local_claude_agent_acp_command(),
+                local_claude_agent_acp_command()
+            )
+        );
+        assert_eq!(
+            AcpProvider::Codex.local_base_command(),
+            (local_codex_acp_command(), local_codex_acp_command())
+        );
+        assert_eq!(
+            AcpProvider::Opencode.local_base_command(),
+            (local_opencode_command(), local_opencode_acp_command())
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_base_command_bypasses_local_acp_command_selection() {
+        let executor = AcpBackedExecutor::new(AcpProvider::ClaudeCode).with_cmd(CmdOverrides {
+            base_command_override: Some("custom-acp --serve".to_string()),
+            additional_params: None,
+            env: None,
+        });
+
+        let parts = executor.build_command_parts().await.unwrap();
+
+        assert_eq!(parts.program(), "custom-acp");
+        assert_eq!(parts.args(), &["--serve".to_string()]);
+    }
 }
 
 fn availability_from_auth_file(path: Option<PathBuf>) -> AvailabilityInfo {
@@ -608,11 +652,17 @@ impl AcpBackedExecutor {
         self
     }
 
-    fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
-        apply_overrides(
-            CommandBuilder::new(self.provider.default_base_command()),
-            &self.cmd,
-        )
+    async fn build_command_parts(&self) -> Result<CommandParts, CommandBuildError> {
+        let (local_executable, local_base_command) = self.provider.local_base_command();
+        let builder = if self.cmd.base_command_override.is_none()
+            && resolve_executable_path(local_executable).await.is_some()
+        {
+            CommandBuilder::new(local_base_command)
+        } else {
+            CommandBuilder::new(self.provider.default_base_command())
+        };
+
+        apply_overrides(builder, &self.cmd)?.build_initial()
     }
 
     fn harness(&self) -> AcpAgentHarness {
@@ -692,7 +742,7 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
         prompt: &str,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let command_parts = self.build_command_builder()?.build_initial()?;
+        let command_parts = self.build_command_parts().await?;
         self.harness()
             .spawn_with_command(
                 current_dir,
@@ -713,7 +763,7 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
         _reset_to_message_id: Option<&str>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let command_parts = self.build_command_builder()?.build_initial()?;
+        let command_parts = self.build_command_parts().await?;
         self.harness()
             .spawn_follow_up_with_command(
                 current_dir,
@@ -755,5 +805,37 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
             crate::actions::ExecutorActionType::ScriptRequest(login_request),
             None,
         ))
+    }
+}
+
+fn local_claude_agent_acp_command() -> &'static str {
+    if cfg!(windows) {
+        "claude-agent-acp.cmd"
+    } else {
+        "claude-agent-acp"
+    }
+}
+
+fn local_codex_acp_command() -> &'static str {
+    if cfg!(windows) {
+        "codex-acp.cmd"
+    } else {
+        "codex-acp"
+    }
+}
+
+fn local_opencode_command() -> &'static str {
+    if cfg!(windows) {
+        "opencode.cmd"
+    } else {
+        "opencode"
+    }
+}
+
+fn local_opencode_acp_command() -> &'static str {
+    if cfg!(windows) {
+        "opencode.cmd acp"
+    } else {
+        "opencode acp"
     }
 }

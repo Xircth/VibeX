@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bell,
+  Download,
+  ExternalLink,
   Lightbulb,
   Loader2,
+  PackageCheck,
   RefreshCw,
   Save,
   Tag,
@@ -25,7 +28,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { configApi } from '@/lib/api';
+import { configApi, type SystemMaintenanceStatus } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toPrettyCase } from '@/utils/string';
 
@@ -186,6 +189,11 @@ export function SystemSettings() {
   const [opencodeModels, setOpencodeModels] = useState<string[]>([]);
   const [opencodeModelsLoading, setOpencodeModelsLoading] = useState(false);
   const [isClearingLocalData, setIsClearingLocalData] = useState(false);
+  const [maintenanceStatus, setMaintenanceStatus] =
+    useState<SystemMaintenanceStatus | null>(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [dependencyInstallRunning, setDependencyInstallRunning] =
+    useState(false);
 
   useEffect(() => {
     if (!config || dirty) {
@@ -210,6 +218,60 @@ export function SystemSettings() {
       setOpencodeModelsLoading(false);
     }
   }, []);
+
+  const refreshMaintenanceStatus = useCallback(async () => {
+    setMaintenanceLoading(true);
+    try {
+      const status = await configApi.getSystemMaintenanceStatus();
+      setMaintenanceStatus(status);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : '本地环境检查失败'
+      );
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMaintenanceStatus();
+  }, [refreshMaintenanceStatus]);
+
+  const installDependencies = useCallback(
+    async (forceUpdate: boolean) => {
+      setDependencyInstallRunning(true);
+      const toastId = toast.loading(
+        forceUpdate
+          ? '正在更新本地依赖...'
+          : '正在安装缺失的本地依赖...'
+      );
+
+      try {
+        const result =
+          await configApi.installSystemDependencies(forceUpdate);
+        setMaintenanceStatus(result.status);
+        const count = result.installed_or_updated.length;
+        toast.success(
+          count > 0
+            ? `已更新 ${count} 个本地依赖包。`
+            : '本地依赖已是最新状态。',
+          { id: toastId }
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : '本地依赖安装失败',
+          { id: toastId }
+        );
+      } finally {
+        setDependencyInstallRunning(false);
+      }
+    },
+    []
+  );
 
   const hasUnsavedChanges = useMemo(() => {
     if (!draft || !config) {
@@ -242,9 +304,14 @@ export function SystemSettings() {
         return aIsFree ? -1 : 1;
       }
 
-      return a.localeCompare(b);
+    return a.localeCompare(b);
     });
   }, [draft?.prompt_enhancement_model, opencodeModels]);
+
+  const visibleMaintenanceTools = useMemo(
+    () => (maintenanceStatus?.tools ?? []).filter((tool) => tool.user_visible),
+    [maintenanceStatus?.tools]
+  );
 
   const updateDraft = useCallback(
     (patch: Partial<SystemSettingsConfig>) => {
@@ -382,6 +449,220 @@ export function SystemSettings() {
       </div>
 
       <div className="space-y-7">
+        <SettingsSection
+          icon={PackageCheck}
+          title="本地环境"
+          description="检查应用更新，并维护代理运行所需的本地依赖。"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label
+                  htmlFor="auto-update-enabled"
+                  className="cursor-pointer text-xs"
+                >
+                  自动检查应用更新
+                </Label>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  VibeX 启动时检查当前远程仓库是否有新版本。
+                </p>
+              </div>
+              <Switch
+                id="auto-update-enabled"
+                className="settings-switch"
+                checked={draft.auto_update_enabled ?? true}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ auto_update_enabled: checked })
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label
+                  htmlFor="auto-install-local-dependencies"
+                  className="cursor-pointer text-xs"
+                >
+                  自动维护本地依赖
+                </Label>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  启动时检查并按需安装或更新受支持的本地依赖。
+                </p>
+              </div>
+              <Switch
+                id="auto-install-local-dependencies"
+                className="settings-switch"
+                checked={draft.auto_install_local_dependencies ?? true}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ auto_install_local_dependencies: checked })
+                }
+              />
+            </div>
+
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold">应用版本</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    当前版本：{' '}
+                    {maintenanceStatus?.app.current_version ?? 'unknown'}
+                    {maintenanceStatus?.app.latest_version
+                      ? ` / 最新版本：${maintenanceStatus.app.latest_version}`
+                      : ''}
+                  </div>
+                  {maintenanceStatus?.app.update_available ? (
+                    <div className="mt-1 text-[11px] font-medium text-amber-600">
+                      检测到新版本。请打开 Release 页面更新应用安装包。
+                    </div>
+                  ) : maintenanceStatus?.app.checked ? (
+                    <div className="mt-1 text-[11px] text-emerald-600">
+                      应用已是最新版本。
+                    </div>
+                  ) : maintenanceStatus?.app.error ? (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {maintenanceStatus.app.error}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  {maintenanceStatus?.app.release_url ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() =>
+                        window.open(
+                          maintenanceStatus.app.release_url!,
+                          '_blank',
+                          'noopener,noreferrer'
+                        )
+                      }
+                    >
+                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                      Release
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => void refreshMaintenanceStatus()}
+                    disabled={maintenanceLoading}
+                  >
+                    <RefreshCw
+                      className={`mr-1 h-3.5 w-3.5 ${
+                        maintenanceLoading ? 'animate-spin' : ''
+                      }`}
+                    />
+                    检查
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold">本地依赖</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    npm:{' '}
+                    {maintenanceStatus?.npm.available
+                      ? maintenanceStatus.npm.path
+                      : maintenanceStatus?.npm.message ?? '未检查'}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => void installDependencies(false)}
+                    disabled={
+                      dependencyInstallRunning ||
+                      maintenanceLoading ||
+                      maintenanceStatus?.npm.available === false
+                    }
+                  >
+                    {dependencyInstallRunning ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    安装缺失
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => void installDependencies(true)}
+                    disabled={
+                      dependencyInstallRunning ||
+                      maintenanceLoading ||
+                      maintenanceStatus?.npm.available === false
+                    }
+                  >
+                    <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                    全部更新
+                  </Button>
+                </div>
+              </div>
+
+              <div className="divide-y rounded-lg border">
+                {visibleMaintenanceTools.map((tool) => (
+                  <div
+                    key={tool.id}
+                    className="flex items-center justify-between gap-3 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium">
+                        {tool.label}
+                      </div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        当前版本：{tool.installed_version ?? '未安装'}
+                        {tool.minimum_supported_version
+                          ? ` / 最低支持：${tool.minimum_supported_version}`
+                          : ''}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right text-[11px]">
+                      <div
+                        className={
+                          !tool.supported
+                            ? 'font-medium text-destructive'
+                            : tool.update_available
+                            ? 'font-medium text-amber-600'
+                            : tool.installed
+                              ? 'text-emerald-600'
+                              : 'text-muted-foreground'
+                        }
+                      >
+                        {!tool.installed
+                          ? '缺失'
+                          : !tool.supported
+                            ? '版本不符合要求'
+                            : tool.update_available
+                              ? '可更新'
+                              : '已安装'}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {tool.latest_version
+                          ? `最新版本：${tool.latest_version}`
+                          : tool.installed
+                            ? '已检测'
+                            : '等待安装'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {!maintenanceStatus && !maintenanceLoading ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    尚未检查本地环境。
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </SettingsSection>
+
         <SettingsSection
           icon={Lightbulb}
           title="提示词优化"

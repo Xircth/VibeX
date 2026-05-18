@@ -15,6 +15,7 @@ pub mod scratch;
 pub mod sessions;
 pub mod settings_window;
 pub mod skills;
+pub mod system_maintenance;
 pub mod tags;
 pub mod tasks;
 pub mod terminal;

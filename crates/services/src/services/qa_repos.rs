@@ -3,7 +3,7 @@
 //! This module provides two hardcoded QA repositories that are cloned
 //! to a persistent temp directory and returned as the only "recent" repos.
 
-use std::{path::PathBuf, process::Command, sync::LazyLock};
+use std::{ffi::OsString, path::PathBuf, sync::LazyLock};
 
 use tracing::{info, warn};
 
@@ -76,11 +76,17 @@ fn clone_qa_repos_if_needed(base_dir: &std::path::Path) {
         info!("Cloning QA repo {} from {} to {:?}", name, url, repo_path);
 
         // Use git CLI for reliable TLS support (git2 has TLS issues)
-        let mut cmd = Command::new("git");
-        utils::process::configure_std_command_no_window(&mut cmd);
-        let output = cmd
-            .args(["clone", "--depth", "1", url, &repo_path.to_string_lossy()])
-            .output();
+        let output = utils::process::new_hidden_std_command(
+            "git",
+            [
+                OsString::from("clone"),
+                OsString::from("--depth"),
+                OsString::from("1"),
+                OsString::from(url),
+                repo_path.as_os_str().to_os_string(),
+            ],
+        )
+        .output();
 
         match output {
             Ok(result) if result.status.success() => {

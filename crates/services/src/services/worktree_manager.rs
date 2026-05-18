@@ -14,7 +14,7 @@ use git2::{BranchType, Error as GitError, Repository};
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use utils::{
-    path::normalize_macos_private_alias, process::configure_tokio_command_no_window,
+    path::normalize_macos_private_alias, process::new_hidden_tokio_command,
     shell::resolve_executable_path,
 };
 
@@ -762,14 +762,8 @@ impl WorktreeManager {
 
         let git_path = resolve_executable_path("git").await?;
 
-        let mut cmd = tokio::process::Command::new(git_path);
-        configure_tokio_command_no_window(&mut cmd);
-        let output = cmd
-            .args(["rev-parse", "--git-common-dir"])
-            .current_dir(&worktree_path_owned)
-            .output()
-            .await
-            .ok()?;
+        let mut cmd = new_hidden_tokio_command(git_path, ["rev-parse", "--git-common-dir"]);
+        let output = cmd.current_dir(&worktree_path_owned).output().await.ok()?;
 
         if output.status.success() {
             let git_common_dir = String::from_utf8(output.stdout).ok()?.trim().to_string();

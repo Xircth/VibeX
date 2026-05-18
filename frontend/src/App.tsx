@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   BrowserRouter,
   Navigate,
@@ -29,6 +29,7 @@ import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster } from '@/components/ui/sonner';
+import { toast } from 'sonner';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
 import { ProjectRail } from '@/components/layout/ProjectRail';
@@ -42,6 +43,7 @@ import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
 import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
+import { configApi, type LocalToolStatus } from '@/lib/api';
 
 // Design scope components
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
@@ -56,6 +58,7 @@ function MainAppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
   const location = useLocation();
+  const maintenanceStartedRef = useRef(false);
 
   // Track previous path for back navigation
   usePreviousPath();
@@ -117,6 +120,154 @@ function MainAppContent() {
       cancelled = true;
     };
   }, [config, location.pathname, navigate, updateAndSaveConfig]);
+
+  useEffect(() => {
+    if (!config || maintenanceStartedRef.current) return;
+    if (!config.disclaimer_acknowledged) {
+      return;
+    }
+    if (
+      config.auto_update_enabled === false &&
+      config.auto_install_local_dependencies === false
+    ) {
+      return;
+    }
+
+    maintenanceStartedRef.current = true;
+    let cancelled = false;
+
+    const runMaintenance = async () => {
+      const localEnvironmentToastId =
+        config.auto_install_local_dependencies !== false
+          ? toast.loading('正在检查本地环境...')
+          : null;
+
+      try {
+        const status = await configApi.getSystemMaintenanceStatus();
+        if (cancelled) {
+          if (localEnvironmentToastId) {
+            toast.dismiss(localEnvironmentToastId);
+          }
+          return;
+        }
+
+        if (
+          config.auto_update_enabled !== false &&
+          status.app.update_available
+        ) {
+          toast.warning(
+            `VibeX ${status.app.latest_version} is available.`,
+            {
+              action: status.app.release_url
+                ? {
+                    label: 'Open release',
+                    onClick: () =>
+                      window.open(
+                        status.app.release_url!,
+                        '_blank',
+                        'noopener,noreferrer'
+                      ),
+                  }
+                : undefined,
+            }
+          );
+        }
+
+        if (config.auto_install_local_dependencies !== false) {
+          const visibleTools = status.tools.filter((tool) => tool.user_visible);
+          const groupsNeedingMaintenance = new Set(
+            status.tools
+              .filter(
+                (tool) =>
+                  !tool.installed || !tool.supported || tool.update_available
+              )
+              .map((tool) => tool.group_id)
+          );
+          const toolsNeedingDecision = visibleTools.filter((tool) =>
+            groupsNeedingMaintenance.has(tool.group_id)
+          );
+
+          if (toolsNeedingDecision.length === 0) {
+            toast.success('本地环境检查完成。', {
+              id: localEnvironmentToastId ?? undefined,
+              duration: 3000,
+            });
+          } else {
+            if (localEnvironmentToastId) {
+              toast.dismiss(localEnvironmentToastId);
+            }
+          }
+
+          const installLocalDependencyGroup = async (tool: LocalToolStatus) => {
+            const toastId = toast.loading(`正在更新 ${tool.label} 本地依赖...`);
+            try {
+              await configApi.installSystemDependencies(false, [tool.id]);
+              if (!cancelled) {
+                toast.success(`${tool.label} 本地依赖已更新。`, {
+                  id: toastId,
+                });
+              }
+            } catch (error) {
+              if (!cancelled) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : `${tool.label} 本地依赖更新失败。`,
+                  { id: toastId }
+                );
+              }
+            }
+          };
+
+          for (const tool of toolsNeedingDecision) {
+            const currentVersion = tool.installed_version ?? '未安装';
+            const minimumVersion =
+              tool.minimum_supported_version ??
+              tool.latest_version ??
+              '未知';
+            const unsupportedCli = !tool.installed || !tool.supported;
+            const message = unsupportedCli
+              ? `${tool.label} 版本不符合要求`
+              : `${tool.label} 本地依赖需要更新`;
+            const description = unsupportedCli
+              ? `当前版本：${currentVersion}，最低支持版本：${minimumVersion}，请确认是否更新？`
+              : `当前版本：${currentVersion}，建议更新本地依赖以保持可用。`;
+
+            const toastId = toast.warning(message, {
+              description,
+              duration: 15000,
+              action: {
+                label: '确认',
+                onClick: () => {
+                  toast.dismiss(toastId);
+                  void installLocalDependencyGroup(tool);
+                },
+              },
+              cancel: {
+                label: '取消',
+                onClick: () => toast.dismiss(toastId),
+              },
+            });
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          if (localEnvironmentToastId) {
+            toast.error('本地环境检查失败。', {
+              id: localEnvironmentToastId,
+            });
+          }
+          console.warn('System maintenance check failed:', error);
+        }
+      }
+    };
+
+    void runMaintenance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>

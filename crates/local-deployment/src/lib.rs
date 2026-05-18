@@ -25,7 +25,7 @@ use services::services::{
     worktree_manager::WorktreeManager,
 };
 use tokio::sync::RwLock;
-use utils::{assets::config_path, msg_store::MsgStore, process::configure_std_command_no_window};
+use utils::{assets::config_path, msg_store::MsgStore, process::new_hidden_std_command};
 
 use crate::{container::LocalContainerService, pty::PtyService};
 mod command;
@@ -251,15 +251,15 @@ fn generate_user_id() -> String {
 
     #[cfg(target_os = "windows")]
     {
-        let mut command = std::process::Command::new("powershell");
-        configure_std_command_no_window(&mut command);
-        if let Ok(output) = command
-            .args([
+        if let Ok(output) = new_hidden_std_command(
+            "powershell",
+            [
                 "-NoProfile",
                 "-Command",
                 "(Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography').MachineGuid",
-            ])
-            .output()
+            ],
+        )
+        .output()
             && output.status.success()
         {
             output.stdout.hash(&mut hasher);

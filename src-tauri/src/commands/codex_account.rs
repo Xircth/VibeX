@@ -62,20 +62,7 @@ fn resolve_codex_command_path() -> Result<PathBuf, String> {
 }
 
 fn command_for_codex_app_server(codex_path: &Path) -> Command {
-    let extension = codex_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(str::to_ascii_lowercase);
-
-    if matches!(extension.as_deref(), Some("cmd" | "bat")) {
-        let mut command = Command::new("cmd");
-        command.arg("/C").arg(codex_path).arg("app-server");
-        return command;
-    }
-
-    let mut command = Command::new(codex_path);
-    command.arg("app-server");
-    command
+    utils::process::new_hidden_tokio_command(codex_path, ["app-server"])
 }
 
 async fn write_app_server_message(

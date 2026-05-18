@@ -1,16 +1,14 @@
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use serde::Deserialize;
 use tracing::debug;
-use utils::process::configure_std_command_no_window;
+use utils::process::new_hidden_std_command;
 
 use crate::error::ReviewError;
 
 /// Create a new Command with CREATE_NO_WINDOW configured on Windows.
-fn new_command(program: &str) -> Command {
-    let mut cmd = Command::new(program);
-    configure_std_command_no_window(&mut cmd);
-    cmd
+fn new_command(program: &str) -> std::process::Command {
+    new_hidden_std_command(program, std::iter::empty::<&str>())
 }
 
 /// Information about a pull request

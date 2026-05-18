@@ -7,7 +7,6 @@ use std::{
     ffi::{OsStr, OsString},
     io::Write,
     path::Path,
-    process::Command,
 };
 
 use chrono::{DateTime, Utc};
@@ -16,7 +15,7 @@ use serde::Deserialize;
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use url::Url;
-use utils::{process::configure_std_command_no_window, shell::resolve_executable_path_blocking};
+use utils::{process::new_hidden_std_command, shell::resolve_executable_path_blocking};
 
 use crate::services::git_host::types::{
     CreatePrRequest, GitHubIssueAuthor, GitHubIssueInfo, GitHubLabel, OpenPrInfo, PrComment,
@@ -155,8 +154,7 @@ impl GhCli {
     {
         self.ensure_available()?;
         let gh = resolve_executable_path_blocking("gh").ok_or(GhCliError::NotAvailable)?;
-        let mut cmd = Command::new(&gh);
-        configure_std_command_no_window(&mut cmd);
+        let mut cmd = new_hidden_std_command(&gh, std::iter::empty::<&OsStr>());
         if let Some(d) = dir {
             cmd.current_dir(d);
         }

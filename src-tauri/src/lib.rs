@@ -273,6 +273,9 @@ pub fn run() {
             commands::agent_settings::agent_preflight,
             commands::agent_settings::detect_agent_local_version,
             commands::agent_settings::run_agent_fix,
+            commands::system_maintenance::get_system_maintenance_status,
+            commands::system_maintenance::check_app_release,
+            commands::system_maintenance::install_system_dependencies,
             // Settings window commands
             commands::settings_window::open_settings_window,
             // Tag commands

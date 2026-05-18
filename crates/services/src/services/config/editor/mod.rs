@@ -235,9 +235,8 @@ impl EditorConfig {
     pub async fn spawn_local(&self, path: &Path) -> Result<(), EditorOpenError> {
         let (executable, args) = self.resolve_command().await?;
 
-        let mut cmd = std::process::Command::new(&executable);
-        cmd.args(&args).arg(path);
-        utils::process::configure_std_command_no_window(&mut cmd);
+        let mut cmd = utils::process::new_hidden_std_command(&executable, &args);
+        cmd.arg(path);
         cmd.spawn().map_err(|e| EditorOpenError::LaunchFailed {
             executable: executable.to_string_lossy().into_owned(),
             details: e.to_string(),

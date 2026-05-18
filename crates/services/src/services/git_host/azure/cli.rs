@@ -6,14 +6,13 @@
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
-    process::Command,
 };
 
 use chrono::{DateTime, Utc};
 use db::models::merge::{MergeStatus, PullRequestInfo};
 use serde::Deserialize;
 use thiserror::Error;
-use utils::{process::configure_std_command_no_window, shell::resolve_executable_path_blocking};
+use utils::{process::new_hidden_std_command, shell::resolve_executable_path_blocking};
 
 use crate::services::git_host::types::{CreatePrRequest, UnifiedPrComment};
 
@@ -138,8 +137,7 @@ impl AzCli {
     {
         self.ensure_available()?;
         let az = resolve_executable_path_blocking("az").ok_or(AzCliError::NotAvailable)?;
-        let mut cmd = Command::new(&az);
-        configure_std_command_no_window(&mut cmd);
+        let mut cmd = new_hidden_std_command(&az, std::iter::empty::<&OsStr>());
 
         if let Some(d) = dir {
             cmd.current_dir(d);

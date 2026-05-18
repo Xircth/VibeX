@@ -41,6 +41,9 @@ pub struct PtyService {
 }
 
 impl PtyService {
+    const MAX_HISTORY_BYTES: usize = 512 * 1024;
+    const MAX_LINE_BOUNDARY_SEARCH: usize = 8 * 1024;
+
     fn normalize_working_dir_for_shell(working_dir: PathBuf) -> PathBuf {
         #[cfg(windows)]
         {
@@ -54,6 +57,34 @@ impl PtyService {
         }
 
         working_dir
+    }
+
+    fn trim_output_history(history: &mut Vec<u8>) {
+        if history.len() <= Self::MAX_HISTORY_BYTES {
+            return;
+        }
+
+        let overflow = history.len() - Self::MAX_HISTORY_BYTES;
+        let boundary_search_end = (overflow + Self::MAX_LINE_BOUNDARY_SEARCH).min(history.len());
+        let trim_to = history[overflow..boundary_search_end]
+            .iter()
+            .position(|byte| matches!(byte, b'\n' | b'\r'))
+            .map(|offset| overflow + offset + 1)
+            .unwrap_or_else(|| Self::first_utf8_boundary_at_or_after(history, overflow));
+
+        history.drain(..trim_to);
+    }
+
+    fn first_utf8_boundary_at_or_after(bytes: &[u8], index: usize) -> usize {
+        let mut index = index.min(bytes.len());
+        while index < bytes.len() && !Self::is_utf8_boundary_byte(bytes[index]) {
+            index += 1;
+        }
+        index
+    }
+
+    fn is_utf8_boundary_byte(byte: u8) -> bool {
+        byte & 0b1100_0000 != 0b1000_0000
     }
 
     pub fn new() -> Self {
@@ -154,11 +185,7 @@ impl PtyService {
 
                             if let Ok(mut history) = history_for_thread.lock() {
                                 history.extend_from_slice(&chunk);
-                                const MAX_HISTORY_BYTES: usize = 512 * 1024;
-                                if history.len() > MAX_HISTORY_BYTES {
-                                    let overflow = history.len() - MAX_HISTORY_BYTES;
-                                    history.drain(..overflow);
-                                }
+                                PtyService::trim_output_history(&mut history);
                             }
 
                             if let Ok(mut subscribers) = subscribers_for_thread.lock() {
@@ -337,5 +364,32 @@ mod tests {
             r"\\?\UNC\server\share\workspace",
         ));
         assert_eq!(normalized, PathBuf::from(r"\\server\share\workspace"));
+    }
+
+    #[test]
+    fn trim_output_history_prefers_line_boundary_after_overflow() {
+        let mut history = vec![b'a'; PtyService::MAX_HISTORY_BYTES + 10];
+        history[12] = b'\n';
+
+        PtyService::trim_output_history(&mut history);
+
+        assert_eq!(history.len(), PtyService::MAX_HISTORY_BYTES + 10 - 13);
+        assert_eq!(history[0], b'a');
+    }
+
+    #[test]
+    fn trim_output_history_does_not_start_with_utf8_continuation_byte() {
+        let mut history = vec![b'a'; PtyService::MAX_HISTORY_BYTES + 4];
+        let emoji = [0xe5, 0xa5, 0xbd];
+        let start = 2;
+        history[start..start + emoji.len()].copy_from_slice(&emoji);
+
+        PtyService::trim_output_history(&mut history);
+
+        assert!(
+            history
+                .first()
+                .is_none_or(|byte| PtyService::is_utf8_boundary_byte(*byte))
+        );
     }
 }

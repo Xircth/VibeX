@@ -7,13 +7,14 @@ use std::{
 use agent_client_protocol::schema::{CreateTerminalRequest, TerminalExitStatus};
 use tokio::{
     io::AsyncReadExt,
-    process::{Child, Command},
+    process::Child,
     sync::{Mutex, Notify, RwLock, broadcast, mpsc},
 };
 use uuid::Uuid;
-use workspace_utils::{process::configure_tokio_command_no_window, shell::refresh_process_path};
+use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
 
 const DEFAULT_OUTPUT_BYTE_LIMIT: usize = 512 * 1024;
+const MAX_LINE_BOUNDARY_SEARCH: usize = 8 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct AcpTerminalCreateEvent {
@@ -69,10 +70,8 @@ impl AcpTerminalRegistry {
     ) -> Result<Uuid, std::io::Error> {
         let _ = refresh_process_path().await;
         let terminal_id = Uuid::new_v4();
-        let mut command = Command::new(&args.command);
-        configure_tokio_command_no_window(&mut command);
+        let mut command = new_hidden_tokio_command(PathBuf::from(&args.command), &args.args);
         command
-            .args(&args.args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -157,9 +156,7 @@ impl AcpTerminalRegistry {
                         {
                             let mut history = session.output_history.lock().await;
                             history.extend_from_slice(&chunk);
-                            if history.len() > limit {
-                                let overflow = history.len() - limit;
-                                history.drain(..overflow);
+                            if trim_output_history(&mut history, limit) {
                                 was_truncated = true;
                             }
                         }
@@ -286,6 +283,35 @@ impl AcpTerminalRegistry {
     }
 }
 
+fn trim_output_history(history: &mut Vec<u8>, limit: usize) -> bool {
+    if history.len() <= limit {
+        return false;
+    }
+
+    let overflow = history.len() - limit;
+    let boundary_search_end = (overflow + MAX_LINE_BOUNDARY_SEARCH).min(history.len());
+    let trim_to = history[overflow..boundary_search_end]
+        .iter()
+        .position(|byte| matches!(byte, b'\n' | b'\r'))
+        .map(|offset| overflow + offset + 1)
+        .unwrap_or_else(|| first_utf8_boundary_at_or_after(history, overflow));
+
+    history.drain(..trim_to);
+    true
+}
+
+fn first_utf8_boundary_at_or_after(bytes: &[u8], index: usize) -> usize {
+    let mut index = index.min(bytes.len());
+    while index < bytes.len() && !is_utf8_boundary_byte(bytes[index]) {
+        index += 1;
+    }
+    index
+}
+
+fn is_utf8_boundary_byte(byte: u8) -> bool {
+    byte & 0b1100_0000 != 0b1000_0000
+}
+
 impl Default for AcpTerminalRegistry {
     fn default() -> Self {
         Self::new()
@@ -297,4 +323,35 @@ static ACP_TERMINAL_REGISTRY: LazyLock<AcpTerminalRegistry> =
 
 pub fn acp_terminal_registry() -> &'static AcpTerminalRegistry {
     &ACP_TERMINAL_REGISTRY
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_OUTPUT_BYTE_LIMIT, is_utf8_boundary_byte, trim_output_history};
+
+    #[test]
+    fn trim_output_history_prefers_line_boundary_after_overflow() {
+        let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 10];
+        history[12] = b'\n';
+
+        assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
+
+        assert_eq!(history.len(), DEFAULT_OUTPUT_BYTE_LIMIT + 10 - 13);
+        assert_eq!(history[0], b'a');
+    }
+
+    #[test]
+    fn trim_output_history_does_not_start_with_utf8_continuation_byte() {
+        let mut history = vec![b'a'; DEFAULT_OUTPUT_BYTE_LIMIT + 4];
+        let bytes = [0xe5, 0xa5, 0xbd];
+        history[2..2 + bytes.len()].copy_from_slice(&bytes);
+
+        assert!(trim_output_history(&mut history, DEFAULT_OUTPUT_BYTE_LIMIT));
+
+        assert!(
+            history
+                .first()
+                .is_none_or(|byte| is_utf8_boundary_byte(*byte))
+        );
+    }
 }

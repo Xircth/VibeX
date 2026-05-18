@@ -19,14 +19,14 @@ use std::{
     ffi::{OsStr, OsString},
     io::Write as _,
     path::Path,
-    process::{Command, Stdio},
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
 use utils::{
-    path::ALWAYS_SKIP_DIRS, process::configure_std_command_no_window,
+    path::ALWAYS_SKIP_DIRS, process::new_hidden_std_command,
     shell::resolve_executable_path_blocking,
 };
 
@@ -658,9 +658,8 @@ impl GitCli {
     /// Return true if there are staged changes (index differs from HEAD)
     pub fn has_staged_changes(&self, repo_path: &Path) -> Result<bool, GitCliError> {
         // `git diff --cached --quiet` returns exit code 1 if there are differences
-        let mut cmd =
-            Command::new(resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?);
-        configure_std_command_no_window(&mut cmd);
+        let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
+        let mut cmd = new_hidden_std_command(&git, std::iter::empty::<&OsStr>());
         let out = cmd
             .arg("-C")
             .arg(repo_path)
@@ -1114,10 +1113,7 @@ impl GitCli {
     /// Ensure `git` is available on PATH
     fn ensure_available(&self) -> Result<(), GitCliError> {
         let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
-        let mut cmd = Command::new(&git);
-        configure_std_command_no_window(&mut cmd);
-        let out = cmd
-            .arg("--version")
+        let out = new_hidden_std_command(&git, ["--version"])
             .output()
             .map_err(|_| GitCliError::NotAvailable)?;
         if out.status.success() {
@@ -1153,8 +1149,7 @@ impl GitCli {
     {
         self.ensure_available()?;
         let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
-        let mut cmd = Command::new(&git);
-        configure_std_command_no_window(&mut cmd);
+        let mut cmd = new_hidden_std_command(&git, std::iter::empty::<&OsStr>());
         cmd.arg("-c")
             .arg(format!("safe.directory={}", repo_path.display()));
         cmd.arg("-C").arg(repo_path);

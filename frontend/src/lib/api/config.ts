@@ -42,6 +42,53 @@ export interface ClearLocalDataResponse {
   requires_reload: boolean;
 }
 
+export interface AppReleaseStatus {
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+  release_url: string | null;
+  repository: string | null;
+  checked: boolean;
+  error: string | null;
+}
+
+export interface RuntimeStatus {
+  name: string;
+  available: boolean;
+  path: string | null;
+  message: string;
+}
+
+export interface LocalToolStatus {
+  id: string;
+  label: string;
+  kind: string;
+  group_id: string;
+  user_visible: boolean;
+  executable: string;
+  npm_package: string;
+  installed: boolean;
+  executable_path: string | null;
+  installed_version: string | null;
+  latest_version: string | null;
+  minimum_supported_version: string | null;
+  supported: boolean;
+  update_available: boolean;
+  error: string | null;
+}
+
+export interface SystemMaintenanceStatus {
+  app: AppReleaseStatus;
+  npm: RuntimeStatus;
+  tools: LocalToolStatus[];
+}
+
+export interface InstallSystemDependenciesResult {
+  installed_or_updated: string[];
+  skipped: string[];
+  status: SystemMaintenanceStatus;
+}
+
 // Config APIs
 export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
@@ -82,6 +129,23 @@ export const configApi = {
   },
   clearLocalData: async (): Promise<ClearLocalDataResponse> => {
     return tauriInvoke<ClearLocalDataResponse>('clear_local_app_data');
+  },
+  getSystemMaintenanceStatus: async (): Promise<SystemMaintenanceStatus> => {
+    return tauriInvoke<SystemMaintenanceStatus>(
+      'get_system_maintenance_status'
+    );
+  },
+  checkAppRelease: async (): Promise<AppReleaseStatus> => {
+    return tauriInvoke<AppReleaseStatus>('check_app_release');
+  },
+  installSystemDependencies: async (
+    forceUpdate = false,
+    toolIds?: string[]
+  ): Promise<InstallSystemDependenciesResult> => {
+    return tauriInvoke<InstallSystemDependenciesResult>(
+      'install_system_dependencies',
+      { forceUpdate, toolIds: toolIds ?? null }
+    );
   },
 };
 

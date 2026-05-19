@@ -380,13 +380,11 @@ export function PreviewPanel({
           bridgeTokenRef.current ?? undefined
         );
 
-        if (requestedSelectModeRef.current !== null) {
-          listener.setTargetingEnabled(
-            activeIframe,
-            requestedSelectModeRef.current,
-            bridgeTokenRef.current ?? undefined
-          );
-        }
+        listener.setTargetingEnabled(
+          activeIframe,
+          requestedSelectModeRef.current ?? false,
+          bridgeTokenRef.current ?? undefined
+        );
 
         attempts += 1;
         if (
@@ -512,6 +510,16 @@ export function PreviewPanel({
   }, [addElement]);
 
   useEffect(() => {
+    const listener = listenerRef.current;
+    const iframe = previewIframeRef.current;
+    if (listener && iframe) {
+      listener.setTargetingEnabled(
+        iframe,
+        false,
+        bridgeTokenRef.current ?? undefined
+      );
+    }
+
     clearBridgeBootstrap();
     previewIframeRef.current = null;
     requestedSelectModeRef.current = null;

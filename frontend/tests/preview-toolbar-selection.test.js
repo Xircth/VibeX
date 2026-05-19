@@ -44,6 +44,16 @@ test('preview panel keeps selection state aligned with actual targeting state', 
   assert.match(source, /setIsSelectModeEnabled\(nextEnabled\)/);
 });
 
+test('preview panel always clears iframe targeting during bridge bootstrap and resets', () => {
+  const source = readFrontendFile('src/components/panels/PreviewPanel.tsx');
+
+  assert.match(source, /requestedSelectModeRef\.current\s*\?\?\s*false/);
+  assert.match(
+    source,
+    /listener\.setTargetingEnabled\(\s*iframe,\s*false,\s*bridgeTokenRef\.current\s*\?\?\s*undefined\s*\)/
+  );
+});
+
 test('clicked element provider notifies after React commits new entries', () => {
   const source = readFrontendFile('src/contexts/ClickedElementsProvider.tsx');
 
@@ -61,8 +71,8 @@ test('ready preview toolbar exposes pressed state and passes iframe load back fo
   assert.match(source, /onLoad=\{\(\) => onIframeLoad\?\.\(iframeRef\.current\)\}/);
   assert.match(source, /aria-pressed=\{isSelectModeEnabled\}/);
   assert.match(source, /useEffect\(\(\) => \{/);
-  assert.match(source, /setCurrentUrl\(url \?\? ''\)/);
-  assert.match(source, /setUrlInput\(url \?\? ''\)/);
+  assert.match(source, /setUrlInput\(displayUrl \?\? url \?\? ''\)/);
+  assert.match(source, /\}, \[displayUrl, url\]\)/);
 });
 
 test('web companion installer injects the toolbar bridge for parent-triggered selection', () => {

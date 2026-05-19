@@ -287,6 +287,16 @@ pub fn run() {
             commands::approvals::respond_to_approval,
             // Codex account commands
             commands::codex_account::get_codex_account_rate_limits,
+            // Provider runtime facade commands
+            commands::provider_runtime::provider_runtime_get_capabilities,
+            commands::provider_runtime::provider_runtime_get_status,
+            commands::provider_runtime::provider_runtime_get_commands,
+            commands::provider_runtime::provider_runtime_list_models,
+            commands::provider_runtime::provider_runtime_send_turn,
+            commands::provider_runtime::provider_runtime_interrupt,
+            commands::provider_runtime::provider_runtime_list_sessions,
+            commands::provider_runtime::provider_runtime_load_history,
+            commands::provider_runtime::provider_runtime_respond_to_request,
             // Execution process commands
             commands::execution_processes::get_execution_process,
             commands::execution_processes::stop_execution_process,

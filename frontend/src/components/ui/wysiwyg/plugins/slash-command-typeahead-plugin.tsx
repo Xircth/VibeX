@@ -25,6 +25,7 @@ import { useTypeaheadOpen } from '@/components/ui/wysiwyg/context/typeahead-open
 
 import { $createSlashCommandNode } from '../nodes/slash-command-node';
 import { TypeaheadMenu } from './typeahead-menu-components';
+import { matchSlashCommandTrigger } from './typeahead-triggers';
 
 const SLASH_COMMAND_ICONS: Record<string, LucideIcon> = {
   compact: Archive,
@@ -166,19 +167,7 @@ export function SlashCommandTypeaheadPlugin({
 
   return (
     <LexicalTypeaheadMenuPlugin<SlashCommandOption>
-      triggerFn={(text) => {
-        const match = /(?:^|\s)\/([^\s/]*)$/.exec(text);
-        if (!match) return null;
-
-        const fullMatch = match[0];
-        const slashOffset =
-          text.length - fullMatch.length + fullMatch.indexOf('/');
-        return {
-          leadOffset: slashOffset,
-          matchingString: match[1],
-          replaceableString: fullMatch.slice(fullMatch.indexOf('/')),
-        };
-      }}
+      triggerFn={matchSlashCommandTrigger}
       options={menuOptions}
       onQueryChange={updateOptions}
       onOpen={() => {

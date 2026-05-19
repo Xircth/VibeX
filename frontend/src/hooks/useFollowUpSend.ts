@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
-import type { CreateFollowUpAttempt, ExecutorProfileId } from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
+import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
 import {
   buildAgentPrompt,
   isSessionScopedSlashCommand,
@@ -61,6 +62,7 @@ export function useFollowUpSend({
       setFollowUpError(null);
 
       let targetSessionId = sessionId;
+      let targetWorkspaceId = workspaceId;
       const shouldCreateNewSession =
         isNewSessionMode ||
         !targetSessionId ||
@@ -81,6 +83,7 @@ export function useFollowUpSend({
         });
 
         targetSessionId = session.id;
+        targetWorkspaceId = session.workspace_id;
         onSelectSession?.(session.id);
         onSessionCreated?.({
           sessionId: session.id,
@@ -92,17 +95,18 @@ export function useFollowUpSend({
         });
       }
 
-      const body: CreateFollowUpAttempt = {
-        prompt,
-        executor_profile_id: executorProfileId,
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
-      };
       if (!targetSessionId) {
         throw new Error('No target session available for follow-up');
       }
-      await sessionsApi.followUp(targetSessionId, body);
+      if (!targetWorkspaceId) {
+        throw new Error('No workspace available for provider runtime turn');
+      }
+      await sendProviderRuntimeTurn({
+        workspaceId: targetWorkspaceId,
+        sessionId: targetSessionId,
+        executorProfileId,
+        text: prompt,
+      });
       if (!isSlashCommand) {
         clearComments();
       }

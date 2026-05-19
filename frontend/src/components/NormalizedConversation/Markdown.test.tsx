@@ -63,12 +63,36 @@ describe('Markdown', () => {
     );
   });
 
+  it('renders bare image paths inline', () => {
+    renderMarkdown('outputs/mockup.png');
+
+    const image = screen.getByRole('img', { name: 'mockup.png' });
+    expect(image).toHaveAttribute(
+      'src',
+      'asset://C:/workspace/project/outputs/mockup.png'
+    );
+  });
+
   it('opens file-looking links in the workspace editor instead of navigating project routes', () => {
     renderMarkdown(
       '[frontend/src/App.tsx](http://127.0.0.1:3002/local-projects/project-1/sessions)'
     );
 
     fireEvent.click(screen.getByRole('link', { name: 'frontend/src/App.tsx' }));
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/frontend/src/App.tsx',
+      {
+        displayPath: 'frontend/src/App.tsx',
+        title: 'frontend/src/App.tsx',
+      }
+    );
+  });
+
+  it('opens inline code file paths in the workspace editor', () => {
+    renderMarkdown('Open `frontend/src/App.tsx`');
+
+    fireEvent.click(screen.getByRole('button', { name: 'frontend/src/App.tsx' }));
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
       'C:/workspace/project/frontend/src/App.tsx',

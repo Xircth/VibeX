@@ -239,7 +239,8 @@ export function useCreateModeState({
   const isValidProfile = useCallback(
     (profile: ExecutorProfileId | null): boolean => {
       if (!profile || !profiles) return false;
-      const { executor, variant } = profile;
+      const executor = profile.executor;
+      const variant = profile.variant ?? null;
       if (!(executor in profiles)) return false;
       if (variant === null) return true;
       return getVariantOptions(executor, profiles).includes(variant);

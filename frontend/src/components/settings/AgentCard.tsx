@@ -27,7 +27,9 @@ import {
 import { cn } from '@/lib/utils';
 import type { AgentSettingInfo, PreflightCheck } from '@/lib/api';
 import { agentSettingsApi, claudeSettingsApi } from '@/lib/api';
-import type { BaseCodingAgent } from 'shared/types';
+import type { BaseCodingAgent, ProviderModel } from 'shared/types';
+import { ProviderRuntimePanel } from '@/components/settings/ProviderRuntimePanel';
+import { providerRuntimeApi } from '@/lib/providerRuntime';
 
 // Agent display info
 const AGENT_META: Record<
@@ -38,7 +40,7 @@ const AGENT_META: Record<
     name: 'Claude Code',
     description: 'Anthropic Claude Code - AI 编码助手',
     icon: 'CC',
-    installSource: 'npm -g @agentclientprotocol/claude-agent-acp',
+    installSource: 'npm -g @anthropic-ai/claude-code',
   },
   codex: {
     name: 'Codex',
@@ -740,6 +742,8 @@ export function AgentCard({
             })}
           </div>
 
+          <ProviderRuntimePanel agentType={agent.agent_type} />
+
           {/* Agent-specific config form */}
           <div className="space-y-3">
             {agent.agent_type === 'claude_code' && (
@@ -1133,15 +1137,53 @@ function OpenCodeFields({
   draft: AgentDraft;
   onChange: (patch: Partial<AgentDraft>) => void;
 }) {
+  const [modelOptions, setModelOptions] = useState<ProviderModel[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingModels(true);
+    setModelsError(null);
+
+    providerRuntimeApi
+      .listModels('opencode')
+      .then((models) => {
+        if (cancelled) return;
+        setModelOptions(models);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message =
+          error instanceof Error ? error.message : 'Unable to load models';
+        setModelsError(message);
+        setModelOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingModels(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const modelListId = 'opencode-sdk-model-options';
+  const placeholder =
+    modelOptions.length > 0
+      ? 'Select or type provider/model'
+      : 'google/gemini-3-pro';
+
   return (
     <div className="space-y-3">
       <div className="grid gap-3 grid-cols-2">
         <div className="space-y-1.5">
           <Label className="text-[11px] text-muted-foreground">Model</Label>
           <Input
+            list={modelListId}
             value={draft.openCodeModel}
             onChange={(e) => onChange({ openCodeModel: e.target.value })}
-            placeholder="google/gemini-3-pro"
+            placeholder={placeholder}
             className="h-8 text-xs"
           />
         </div>
@@ -1150,13 +1192,30 @@ function OpenCodeFields({
             Small Model
           </Label>
           <Input
+            list={modelListId}
             value={draft.openCodeSmallModel}
             onChange={(e) => onChange({ openCodeSmallModel: e.target.value })}
-            placeholder="google/gemini-3-flash"
+            placeholder={
+              modelOptions.length > 0
+                ? 'Select or type provider/model'
+                : 'google/gemini-3-flash'
+            }
             className="h-8 text-xs"
           />
         </div>
       </div>
+      <datalist id={modelListId}>
+        {modelOptions.map((model) => (
+          <option key={model.id} value={model.id} label={model.label} />
+        ))}
+      </datalist>
+      {isLoadingModels || modelsError ? (
+        <div className="text-[11px] text-muted-foreground">
+          {isLoadingModels
+            ? 'Loading OpenCode SDK models...'
+            : `OpenCode SDK models unavailable: ${modelsError}`}
+        </div>
+      ) : null}
 
       <div className="space-y-1.5">
         <Label className="text-[11px] text-muted-foreground">

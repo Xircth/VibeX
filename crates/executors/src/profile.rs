@@ -66,8 +66,11 @@ pub struct ExecutorProfileId {
     // Backwards compatibility with ProfileVariantIds, esp stored in DB under ExecutorAction
     pub executor: BaseCodingAgent,
     /// Optional variant name (e.g., "PLAN", "ROUTER")
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
+    /// Optional model override carried by UI/runtime selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 // Convert legacy profile/executor names from kebab-case to SCREAMING_SNAKE_CASE, can be deleted 14 days from 3/9/25
@@ -88,6 +91,7 @@ impl ExecutorProfileId {
         Self {
             executor,
             variant: None,
+            model: None,
         }
     }
 
@@ -96,6 +100,7 @@ impl ExecutorProfileId {
         Self {
             executor,
             variant: Some(variant),
+            model: None,
         }
     }
 
@@ -161,6 +166,7 @@ impl ExecutorConfig {
         ExecutorProfileId {
             executor: self.executor,
             variant: self.variant.clone(),
+            model: self.model_id.clone(),
         }
     }
 
@@ -178,7 +184,7 @@ impl From<ExecutorProfileId> for ExecutorConfig {
         Self {
             executor: id.executor,
             variant: id.variant,
-            model_id: None,
+            model_id: id.model,
             agent_id: None,
             reasoning_id: None,
             permission_policy: None,
@@ -584,6 +590,7 @@ pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
     ExecutorProfileId {
         executor: id.executor,
         variant: None,
+        model: id.model.clone(),
     }
 }
 

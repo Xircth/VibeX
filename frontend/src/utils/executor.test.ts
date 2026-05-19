@@ -127,11 +127,11 @@ describe('executor utilities', () => {
     ).toBeNull();
     expect(
       getClaudeModelOptions(profiles, {
-        ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-sonnet-4-5-20250929',
+        ANTHROPIC_MODEL: 'deepseek-v4-pro',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
       })
     ).toEqual([
-      { value: 'sonnet', label: 'Sonnet: claude-sonnet-4-5-20250929' },
-      { value: 'opus', label: 'Opus' },
+      { value: 'sonnet', label: 'deepseek-v4-pro' },
     ]);
   });
 

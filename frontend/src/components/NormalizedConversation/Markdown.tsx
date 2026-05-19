@@ -179,6 +179,11 @@ function isRenderableRemoteImage(src: string): boolean {
   );
 }
 
+function isMarkdownImagePath(value: string): boolean {
+  const candidate = trimFilePathCandidate(value);
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i.test(candidate);
+}
+
 function resolveLocalMarkdownImageSrc(
   src: string,
   workspacePath?: string | null
@@ -270,6 +275,27 @@ function resolveMarkdownFileLinkCandidate(
   return null;
 }
 
+function normalizeBareImageReferences(value: string): string {
+  return value
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (
+        !trimmed ||
+        trimmed.startsWith('![') ||
+        trimmed.startsWith('[') ||
+        /\s/.test(trimmed) ||
+        !isMarkdownImagePath(trimmed)
+      ) {
+        return line;
+      }
+
+      const label = trimmed.split(/[\\/]/).pop() ?? 'Image';
+      return `${line.slice(0, line.indexOf(trimmed))}![${label}](${trimmed})`;
+    })
+    .join('\n');
+}
+
 function MarkdownImage({
   src,
   alt,
@@ -358,8 +384,10 @@ export const Markdown = memo(function Markdown({
   const panelActions = useOptionalPanelActionsContext();
   const normalizedValue = useMemo(
     () =>
-      replaceTagReferenceMarkersWithMarkdownLinks(
-        stripTagReferenceAppendix(value)
+      normalizeBareImageReferences(
+        replaceTagReferenceMarkersWithMarkdownLinks(
+          stripTagReferenceAppendix(value)
+        )
       ),
     [value]
   );
@@ -371,6 +399,35 @@ export const Markdown = memo(function Markdown({
       ),
       code: ({ className: codeClass, children }) => {
         const text = flattenNodeText(children).trim();
+        const fileLink = resolveMarkdownFileLinkCandidate(
+          undefined,
+          text,
+          workspacePath
+        );
+
+        if (fileLink) {
+          const handleClick = (event: MouseEvent<HTMLElement>) => {
+            event.preventDefault();
+            event.stopPropagation();
+            panelActions?.openFilePreview(fileLink.filePath, {
+              displayPath: fileLink.displayPath,
+              title: fileLink.displayPath,
+            });
+          };
+
+          return (
+            <code
+              className={codeClass ?? undefined}
+              onClick={handleClick}
+              role="button"
+              tabIndex={0}
+              title={fileLink.displayPath}
+            >
+              {text || children}
+            </code>
+          );
+        }
+
         return (
           <code className={codeClass ?? undefined}>{text || children}</code>
         );
@@ -386,6 +443,24 @@ export const Markdown = memo(function Markdown({
           );
         }
 
+        const childrenText = flattenNodeText(children);
+        const imageHref =
+          href && isMarkdownImagePath(href) && !parseTagReferenceHref(href)
+            ? href
+            : null;
+
+        if (imageHref) {
+          return (
+            <MarkdownImage
+              src={imageHref}
+              alt={childrenText || undefined}
+              taskAttemptId={taskAttemptId}
+              taskId={taskId}
+              workspacePath={workspacePath}
+            />
+          );
+        }
+
         const isExternal =
           (href?.startsWith('http://') || href?.startsWith('https://')) ??
           false;
@@ -393,16 +468,15 @@ export const Markdown = memo(function Markdown({
         const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
           if (!href) return;
 
-          const childrenText = flattenNodeText(children);
           const fileLink = resolveMarkdownFileLinkCandidate(
             href,
             childrenText,
             workspacePath
           );
 
-          if (fileLink && panelActions) {
+          if (fileLink) {
             event.preventDefault();
-            panelActions.openFilePreview(fileLink.filePath, {
+            panelActions?.openFilePreview(fileLink.filePath, {
               displayPath: fileLink.displayPath,
               title: fileLink.displayPath,
             });

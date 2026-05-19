@@ -14,6 +14,7 @@ import { skillsApi, type AgentLocalSkill } from '@/lib/api';
 
 import { $createDollarCommandNode } from '../nodes/dollar-command-node';
 import { TypeaheadMenu } from './typeahead-menu-components';
+import { matchDollarCommandTrigger } from './typeahead-triggers';
 
 export type DollarCommandDescription = {
   name: string;
@@ -160,19 +161,7 @@ export function DollarCommandTypeaheadPlugin() {
 
   return (
     <LexicalTypeaheadMenuPlugin<DollarCommandOption>
-      triggerFn={(text) => {
-        const match = /(?:^|\s)\$([^\s$]*)$/.exec(text);
-        if (!match) return null;
-
-        const fullMatch = match[0];
-        const dollarOffset =
-          text.length - fullMatch.length + fullMatch.indexOf('$');
-        return {
-          leadOffset: dollarOffset,
-          matchingString: match[1],
-          replaceableString: fullMatch.slice(fullMatch.indexOf('$')),
-        };
-      }}
+      triggerFn={matchDollarCommandTrigger}
       options={options}
       onQueryChange={updateOptions}
       onOpen={() => {

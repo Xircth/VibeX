@@ -17,6 +17,8 @@ const RESERVED_KEYS = new Set(['recently_used_models']);
 type RuntimeExecutorConfigLike = {
   executor: BaseCodingAgent;
   variant?: string | null;
+  model?: string | null;
+  model_id?: string | null;
 };
 
 type ExecutorVariantRecord<T extends Record<string, unknown>> = {
@@ -41,6 +43,8 @@ const CLAUDE_MODEL_ENV_KEYS: Record<string, string> = {
   opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
   haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 };
+
+const CLAUDE_PRIMARY_MODEL_ENV_KEY = 'ANTHROPIC_MODEL';
 
 const CODEX_MODEL_LABELS: Record<string, string> = {
   'gpt-5.5': 'GPT-5.5',
@@ -92,6 +96,31 @@ export type CodexModelOption = {
   value: string | null;
   label: string;
 };
+
+export function mergeModelOptions(
+  baseOptions: CodexModelOption[],
+  extraOptions: CodexModelOption[],
+  currentModel: string | null = null
+): CodexModelOption[] {
+  const seen = new Set<string>();
+  const merged: CodexModelOption[] = [];
+
+  for (const option of [...baseOptions, ...extraOptions]) {
+    const key = option.value ?? 'DEFAULT';
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(option);
+  }
+
+  if (currentModel && !seen.has(currentModel)) {
+    merged.push({
+      value: currentModel,
+      label: formatSimpleLabel(currentModel),
+    });
+  }
+
+  return merged;
+}
 
 export type ClaudeVariantConfig = {
   model: string | null;
@@ -258,7 +287,9 @@ export function areProfilesEqual(
 
   const variantA = a.variant ?? 'DEFAULT';
   const variantB = b.variant ?? 'DEFAULT';
-  return variantA === variantB;
+  const modelA = a.model ?? 'DEFAULT';
+  const modelB = b.model ?? 'DEFAULT';
+  return variantA === variantB && modelA === modelB;
 }
 
 /**
@@ -324,6 +355,11 @@ export function getClaudeModelOptions(
 ): CodexModelOption[] {
   const seen = new Set<string>();
   const options: CodexModelOption[] = [];
+  const hasLocalModelConfig =
+    !!claudeEnv?.[CLAUDE_PRIMARY_MODEL_ENV_KEY]?.trim() ||
+    Object.values(CLAUDE_MODEL_ENV_KEYS).some((key) =>
+      Boolean(claudeEnv?.[key]?.trim())
+    );
 
   for (const entry of getExecutorVariantRecords<ClaudeCode>(
     profiles,
@@ -331,6 +367,8 @@ export function getClaudeModelOptions(
   )) {
     const model = getClaudeVariantConfig(profiles, entry.variant).model;
     const modelKey = model ?? CLAUDE_DEFAULT_MODEL;
+    const resolvedModel = resolveClaudeModelFromEnv(model, claudeEnv);
+    if (hasLocalModelConfig && !resolvedModel) continue;
     if (seen.has(modelKey)) continue;
     seen.add(modelKey);
     options.push({
@@ -339,7 +377,7 @@ export function getClaudeModelOptions(
     });
   }
 
-  if (!seen.has(CLAUDE_DEFAULT_MODEL)) {
+  if (options.length === 0 || (!hasLocalModelConfig && !seen.has(CLAUDE_DEFAULT_MODEL))) {
     options.unshift({
       value: CLAUDE_DEFAULT_MODEL,
       label: formatClaudeModelLabel(CLAUDE_DEFAULT_MODEL, claudeEnv),
@@ -349,20 +387,36 @@ export function getClaudeModelOptions(
   return options;
 }
 
+function resolveClaudeModelFromEnv(
+  model: string | null,
+  claudeEnv: Record<string, string> | null | undefined = undefined
+): string | null {
+  const modelKey = model ?? CLAUDE_DEFAULT_MODEL;
+  const aliasEnvKey = CLAUDE_MODEL_ENV_KEYS[modelKey];
+  const aliasModel = aliasEnvKey ? claudeEnv?.[aliasEnvKey]?.trim() : null;
+  if (aliasModel) return aliasModel;
+
+  if (modelKey === CLAUDE_DEFAULT_MODEL) {
+    const primaryModel = claudeEnv?.[CLAUDE_PRIMARY_MODEL_ENV_KEY]?.trim();
+    if (primaryModel) return primaryModel;
+  }
+
+  if (!CLAUDE_MODEL_LABELS[modelKey]) return modelKey;
+  return null;
+}
+
 export function formatClaudeModelLabel(
   model: string | null,
   claudeEnv: Record<string, string> | null | undefined = undefined
 ): string {
   const modelKey = model ?? CLAUDE_DEFAULT_MODEL;
-  const aliasLabel =
-    CLAUDE_MODEL_LABELS[modelKey] ?? formatSimpleLabel(modelKey);
-  const envModel = claudeEnv?.[CLAUDE_MODEL_ENV_KEYS[modelKey] ?? '']?.trim();
+  const resolvedModel = resolveClaudeModelFromEnv(model, claudeEnv);
 
-  if (envModel && envModel !== modelKey) {
-    return `${aliasLabel}: ${envModel}`;
+  if (resolvedModel && resolvedModel !== modelKey) {
+    return resolvedModel;
   }
 
-  return aliasLabel;
+  return CLAUDE_MODEL_LABELS[modelKey] ?? formatSimpleLabel(modelKey);
 }
 
 export function getClaudeVariantFromSelection(
@@ -777,10 +831,12 @@ function toProfileId(
   value: RuntimeExecutorConfigLike | ExecutorProfileId | null | undefined
 ): ExecutorProfileId | null {
   if (!value?.executor) return null;
+  const modelId = 'model_id' in value ? value.model_id : null;
 
   return {
     executor: value.executor,
     variant: value.variant ?? null,
+    model: value.model ?? modelId ?? null,
   };
 }
 

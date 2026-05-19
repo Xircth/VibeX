@@ -21,6 +21,10 @@ import { useUiPreferencesStore } from '@/stores/useUiPreferencesStore';
 import { $createFileReferenceNode } from '../nodes/file-reference-node';
 import { $createTagReferenceNode } from '../nodes/tag-reference-node';
 import { TypeaheadMenu } from './typeahead-menu-components';
+import {
+  matchFileReferenceTrigger,
+  matchTagReferenceTrigger,
+} from './typeahead-triggers';
 
 type Trigger = '#' | '@';
 
@@ -451,19 +455,9 @@ export function FileTagTypeaheadPlugin({
 
   return (
     <LexicalTypeaheadMenuPlugin<FileTagOption>
-      triggerFn={(text) => {
-        const pattern =
-          trigger === '#' ? /(?:^|\s)#([^\s#@]*)$/ : /(?:^|\s)@([^\s#@]*)$/;
-        const match = pattern.exec(text);
-        if (!match) return null;
-        const offset =
-          text.length - match[0].length + match[0].indexOf(trigger);
-        return {
-          leadOffset: offset,
-          matchingString: match[1],
-          replaceableString: match[0].slice(match[0].indexOf(trigger)),
-        };
-      }}
+      triggerFn={
+        trigger === '#' ? matchTagReferenceTrigger : matchFileReferenceTrigger
+      }
       options={menuOptions}
       onQueryChange={onQueryChange}
       onOpen={() => {

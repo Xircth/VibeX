@@ -10,6 +10,7 @@ pub mod filesystem;
 pub mod local_usage;
 pub mod project_rail_window;
 pub mod projects;
+pub mod provider_runtime;
 pub mod repos;
 pub mod scratch;
 pub mod sessions;

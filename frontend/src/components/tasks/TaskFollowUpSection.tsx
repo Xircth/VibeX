@@ -439,16 +439,26 @@ export function TaskFollowUpSection({
           executor_config?: {
             executor: BaseCodingAgent;
             variant?: string | null;
+            model?: string | null;
+            model_id?: string | null;
           };
         })
       | undefined;
 
     const raw = data?.executor_config ?? data?.executor_profile_id;
     if (!raw?.executor) return null;
+    const rawModel = raw as { model?: unknown; model_id?: unknown };
+    const model =
+      typeof rawModel.model === 'string'
+        ? rawModel.model
+        : typeof rawModel.model_id === 'string'
+          ? rawModel.model_id
+          : null;
 
     return {
       executor: raw.executor,
       variant: raw.variant ?? null,
+      model,
     } satisfies ExecutorProfileId;
   }, [scratchData]);
 
@@ -570,7 +580,12 @@ export function TaskFollowUpSection({
   const saveToScratch = useCallback(
     async (message: string, executorProfileId: ExecutorProfileId | null) => {
       if (!workspaceId || !executorProfileId?.executor) return;
-      if (!message.trim() && !executorProfileId.variant && !scratchRef.current)
+      if (
+        !message.trim() &&
+        !executorProfileId.variant &&
+        !executorProfileId.model &&
+        !scratchRef.current
+      )
         return;
       try {
         await updateScratch({
@@ -601,7 +616,7 @@ export function TaskFollowUpSection({
 
   useEffect(() => {
     const profileKey = effectiveExecutorProfile
-      ? `${effectiveExecutorProfile.executor}:${effectiveExecutorProfile.variant ?? 'DEFAULT'}`
+      ? `${effectiveExecutorProfile.executor}:${effectiveExecutorProfile.variant ?? 'DEFAULT'}:${effectiveExecutorProfile.model ?? 'DEFAULT'}`
       : null;
     if (previousExecutorProfileKeyRef.current === profileKey) return;
     previousExecutorProfileKeyRef.current = profileKey;

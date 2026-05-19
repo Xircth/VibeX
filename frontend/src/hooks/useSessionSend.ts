@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { BaseCodingAgent } from 'shared/types';
-import { sessionsApi } from '@/lib/api';
+import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
 import { useCreateSession } from './useCreateSession';
 
 interface UseSessionSendOptions {
@@ -79,15 +79,14 @@ export function useSessionSend({
         }
       } else {
         // Existing session flow
-        if (!sessionId || !effectiveExecutor) return false;
+        if (!sessionId || !workspaceId || !effectiveExecutor) return false;
         setIsSendingFollowUp(true);
         try {
-          await sessionsApi.followUp(sessionId, {
-            prompt: trimmed,
-            executor_profile_id: { executor: effectiveExecutor, variant },
-            retry_process_id: null,
-            force_when_dirty: null,
-            perform_git_reset: null,
+          await sendProviderRuntimeTurn({
+            workspaceId,
+            sessionId,
+            executorProfileId: { executor: effectiveExecutor, variant },
+            text: trimmed,
           });
           return true;
         } catch (e: unknown) {

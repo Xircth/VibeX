@@ -23,6 +23,14 @@ use crate::{
 };
 
 pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
+    normalize_logs_with_context_window_override(msg_store, worktree_path, None);
+}
+
+pub fn normalize_logs_with_context_window_override(
+    msg_store: Arc<MsgStore>,
+    worktree_path: &Path,
+    context_window_override: Option<u32>,
+) {
     // stderr normalization
     let entry_index = EntryIndexProvider::start_from(&msg_store);
     normalize_stderr_logs(msg_store.clone(), entry_index.clone());
@@ -148,12 +156,14 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
                         msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                     }
                     AcpEvent::Usage { used, size } => {
+                        let model_context_window = context_window_override
+                            .unwrap_or_else(|| size.min(u32::MAX as u64) as u32);
                         let idx = entry_index.next();
                         let entry = NormalizedEntry {
                             timestamp: None,
                             entry_type: NormalizedEntryType::TokenUsageInfo(TokenUsageInfo {
                                 total_tokens: used.min(u32::MAX as u64) as u32,
-                                model_context_window: size.min(u32::MAX as u64) as u32,
+                                model_context_window,
                             }),
                             content: String::new(),
                             metadata: None,

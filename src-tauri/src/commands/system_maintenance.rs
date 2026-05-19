@@ -1,4 +1,8 @@
-use std::{ffi::OsString, path::PathBuf, time::Duration};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +71,7 @@ struct ToolSpec {
     npm_package: &'static str,
     version_args: &'static [&'static str],
     use_package_metadata_version: bool,
+    use_project_package_metadata: bool,
     minimum_supported_version: Option<&'static str>,
 }
 
@@ -81,7 +86,21 @@ const TOOL_SPECS: &[ToolSpec] = &[
         npm_package: "@anthropic-ai/claude-code",
         version_args: &["--version"],
         use_package_metadata_version: false,
+        use_project_package_metadata: false,
         minimum_supported_version: Some("2.1.143"),
+    },
+    ToolSpec {
+        id: "claude_agent_sdk",
+        label: "Claude Agent SDK",
+        kind: "sdk",
+        group_id: "claude",
+        user_visible: false,
+        executable: "",
+        npm_package: "@anthropic-ai/claude-agent-sdk",
+        version_args: &[],
+        use_package_metadata_version: false,
+        use_project_package_metadata: true,
+        minimum_supported_version: Some("0.3.143"),
     },
     ToolSpec {
         id: "claude_acp",
@@ -93,6 +112,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         npm_package: "@agentclientprotocol/claude-agent-acp",
         version_args: &["--version"],
         use_package_metadata_version: true,
+        use_project_package_metadata: false,
         minimum_supported_version: None,
     },
     ToolSpec {
@@ -105,6 +125,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         npm_package: "@openai/codex",
         version_args: &["--version"],
         use_package_metadata_version: false,
+        use_project_package_metadata: false,
         minimum_supported_version: Some("0.130.0"),
     },
     ToolSpec {
@@ -117,6 +138,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         npm_package: "@zed-industries/codex-acp",
         version_args: &["--version"],
         use_package_metadata_version: true,
+        use_project_package_metadata: false,
         minimum_supported_version: None,
     },
     ToolSpec {
@@ -129,6 +151,20 @@ const TOOL_SPECS: &[ToolSpec] = &[
         npm_package: "opencode-ai",
         version_args: &["--version"],
         use_package_metadata_version: false,
+        use_project_package_metadata: false,
+        minimum_supported_version: Some("1.15.4"),
+    },
+    ToolSpec {
+        id: "opencode_sdk",
+        label: "OpenCode SDK",
+        kind: "sdk",
+        group_id: "opencode",
+        user_visible: false,
+        executable: "",
+        npm_package: "@opencode-ai/sdk",
+        version_args: &[],
+        use_package_metadata_version: false,
+        use_project_package_metadata: true,
         minimum_supported_version: Some("1.15.4"),
     },
 ];
@@ -276,14 +312,29 @@ async fn runtime_status(name: &str) -> RuntimeStatus {
 }
 
 async fn check_tool_status(spec: ToolSpec) -> LocalToolStatus {
-    let executable_path = resolve_program(spec.executable).await.ok();
-    let latest_version = npm_package_latest_version(spec.npm_package)
-        .await
-        .ok()
-        .flatten();
-    let installed_version = match executable_path.as_ref() {
-        Some(path) => detect_tool_version(spec, path).await.ok().flatten(),
-        None => None,
+    let executable_path = if spec.executable.is_empty() {
+        None
+    } else {
+        resolve_program(spec.executable).await.ok()
+    };
+    let latest_version = if spec.use_project_package_metadata {
+        None
+    } else {
+        npm_package_latest_version(spec.npm_package)
+            .await
+            .ok()
+            .flatten()
+    };
+    let installed_version = if spec.use_project_package_metadata {
+        project_npm_package_version(spec.npm_package)
+            .await
+            .ok()
+            .flatten()
+    } else {
+        match executable_path.as_ref() {
+            Some(path) => detect_tool_version(spec, path).await.ok().flatten(),
+            None => None,
+        }
     };
 
     let update_available = match (&installed_version, &latest_version) {
@@ -293,7 +344,10 @@ async fn check_tool_status(spec: ToolSpec) -> LocalToolStatus {
     let supported = match (&installed_version, spec.minimum_supported_version) {
         (Some(current), Some(minimum)) => !version_is_newer(minimum, current),
         (None, Some(_)) => false,
-        _ => executable_path.is_some(),
+        _ => {
+            executable_path.is_some()
+                || spec.use_project_package_metadata && installed_version.is_some()
+        }
     };
 
     LocalToolStatus {
@@ -344,6 +398,34 @@ async fn detect_tool_version(
     }
 
     global_npm_package_version(spec.npm_package).await
+}
+
+fn repo_root_path() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or(manifest_dir)
+}
+
+async fn project_npm_package_version(package_name: &str) -> Result<Option<String>, AppError> {
+    let package_json = package_name
+        .split('/')
+        .fold(repo_root_path().join("node_modules"), |path, segment| {
+            path.join(segment)
+        })
+        .join("package.json");
+    let content = match tokio::fs::read_to_string(package_json).await {
+        Ok(content) => content,
+        Err(_) => return Ok(None),
+    };
+    let value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|error| AppError::Internal(format!("Invalid npm package metadata: {error}")))?;
+
+    Ok(value
+        .get("version")
+        .and_then(|value| value.as_str())
+        .map(|version| version.to_string()))
 }
 
 async fn resolve_program(program: &str) -> Result<PathBuf, AppError> {
@@ -655,5 +737,33 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["codex".to_string()]
         );
+    }
+
+    #[test]
+    fn claude_sdk_is_checked_as_hidden_project_dependency() {
+        let sdk = TOOL_SPECS
+            .iter()
+            .find(|spec| spec.id == "claude_agent_sdk")
+            .expect("Claude Agent SDK spec should exist");
+
+        assert_eq!(sdk.group_id, "claude");
+        assert!(!sdk.user_visible);
+        assert!(sdk.use_project_package_metadata);
+        assert_eq!(sdk.npm_package, "@anthropic-ai/claude-agent-sdk");
+        assert_eq!(sdk.minimum_supported_version, Some("0.3.143"));
+    }
+
+    #[test]
+    fn opencode_sdk_is_checked_as_hidden_project_dependency() {
+        let sdk = TOOL_SPECS
+            .iter()
+            .find(|spec| spec.id == "opencode_sdk")
+            .expect("OpenCode SDK spec should exist");
+
+        assert_eq!(sdk.group_id, "opencode");
+        assert!(!sdk.user_visible);
+        assert!(sdk.use_project_package_metadata);
+        assert_eq!(sdk.npm_package, "@opencode-ai/sdk");
+        assert_eq!(sdk.minimum_supported_version, Some("1.15.4"));
     }
 }

@@ -100,7 +100,8 @@ pub async fn reorder_agents(
 
 fn runtime_launcher_for_agent(agent_type: &str) -> Option<&'static str> {
     match agent_type {
-        "claude_code" | "codex" => Some(node_runner_program()),
+        "claude_code" => Some("claude"),
+        "codex" => Some(node_runner_program()),
         "open_code" => Some("opencode"),
         _ => None,
     }
@@ -108,7 +109,7 @@ fn runtime_launcher_for_agent(agent_type: &str) -> Option<&'static str> {
 
 fn install_source_label(agent_type: &str) -> Option<&'static str> {
     match agent_type {
-        "claude_code" => Some("npm -g (@agentclientprotocol/claude-agent-acp)"),
+        "claude_code" => Some("npm -g (@anthropic-ai/claude-code)"),
         "codex" => Some("npm -g (@zed-industries/codex-acp)"),
         "open_code" => Some("npm -g (opencode-ai)"),
         _ => None,
@@ -119,7 +120,7 @@ fn install_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'st
     match agent_type {
         "claude_code" => Some((
             node_installer_program(),
-            vec!["install", "-g", "@agentclientprotocol/claude-agent-acp"],
+            vec!["install", "-g", "@anthropic-ai/claude-code"],
         )),
         "codex" => Some((
             node_installer_program(),
@@ -137,7 +138,7 @@ fn uninstall_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'
     match agent_type {
         "claude_code" => Some((
             node_installer_program(),
-            vec!["uninstall", "-g", "@agentclientprotocol/claude-agent-acp"],
+            vec!["uninstall", "-g", "@anthropic-ai/claude-code"],
         )),
         "codex" => Some((
             node_installer_program(),
@@ -153,10 +154,7 @@ fn uninstall_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'
 
 fn version_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
     match agent_type {
-        "claude_code" => Some((
-            node_runner_program(),
-            vec!["-y", "@agentclientprotocol/claude-agent-acp", "--version"],
-        )),
+        "claude_code" => Some(("claude", vec!["--version"])),
         "codex" => Some((
             node_runner_program(),
             vec!["-y", "@zed-industries/codex-acp", "--version"],
@@ -168,7 +166,7 @@ fn version_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'st
 
 fn npm_package_for_agent(agent_type: &str) -> Option<&'static str> {
     match agent_type {
-        "claude_code" => Some("@agentclientprotocol/claude-agent-acp"),
+        "claude_code" => Some("@anthropic-ai/claude-code"),
         "codex" => Some("@zed-industries/codex-acp"),
         "open_code" => Some("opencode-ai"),
         _ => None,
@@ -176,7 +174,7 @@ fn npm_package_for_agent(agent_type: &str) -> Option<&'static str> {
 }
 
 fn prefer_global_npm_package_version(agent_type: &str) -> bool {
-    matches!(agent_type, "claude_code" | "codex")
+    matches!(agent_type, "codex")
 }
 
 #[cfg(windows)]
@@ -530,7 +528,7 @@ mod tests {
     fn maps_acp_agents_to_npm_package_names() {
         assert_eq!(
             npm_package_for_agent("claude_code"),
-            Some("@agentclientprotocol/claude-agent-acp")
+            Some("@anthropic-ai/claude-code")
         );
         assert_eq!(
             npm_package_for_agent("codex"),
@@ -541,8 +539,21 @@ mod tests {
 
     #[test]
     fn prefers_global_npm_metadata_for_adapters_without_reliable_version_flag() {
-        assert!(prefer_global_npm_package_version("claude_code"));
+        assert!(!prefer_global_npm_package_version("claude_code"));
         assert!(prefer_global_npm_package_version("codex"));
         assert!(!prefer_global_npm_package_version("open_code"));
+    }
+
+    #[test]
+    fn claude_settings_version_detection_targets_cli_not_acp_or_sdk() {
+        assert_eq!(runtime_launcher_for_agent("claude_code"), Some("claude"));
+        assert_eq!(
+            install_source_label("claude_code"),
+            Some("npm -g (@anthropic-ai/claude-code)")
+        );
+        assert_eq!(
+            version_command_for_agent("claude_code"),
+            Some(("claude", vec!["--version"]))
+        );
     }
 }

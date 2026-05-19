@@ -9,46 +9,12 @@ import {
   isCoreSlashCommand,
   isSlashCommandSkill,
 } from '@/lib/slashCommandPresentation';
+import { getProviderFrontendAdapterByExecutor } from '@/features/provider-runtime/providerFrontendAdapters';
 
 type SlashCommandsStreamState = {
   commands: SlashCommandDescription[];
   discovering: boolean;
   error: string | null;
-};
-
-const BUILTIN_SLASH_COMMANDS: Partial<
-  Record<BaseCodingAgent, SlashCommandDescription[]>
-> = {
-  [BaseCodingAgent.CLAUDE_CODE]: [
-    ['compact', 'Compact conversation with an optional focus'],
-    ['init', 'Initialize a CLAUDE.md file'],
-    ['mcp', 'Manage MCP server connections'],
-    ['review', 'Review a pull request'],
-  ].map(([name, description]) => ({
-    name,
-    description,
-    kind: 'COMMAND' as const,
-  })),
-  [BaseCodingAgent.CODEX]: [
-    ['compact', 'Compact conversation with an optional focus'],
-    ['goal', 'Set, inspect, pause, resume, or clear a long-running goal'],
-    ['review', 'Review code with optional instructions'],
-    ['init', 'Create an AGENTS.md file with repository instructions'],
-    ['mcp', 'List configured MCP servers and tools'],
-  ].map(([name, description]) => ({
-    name,
-    description,
-    kind: 'COMMAND' as const,
-  })),
-  [BaseCodingAgent.OPENCODE]: [
-    ['init', 'Create or update AGENTS.md'],
-    ['compact', 'Compact the current session'],
-    ['mcp', 'Show MCP server status'],
-  ].map(([name, description]) => ({
-    name,
-    description,
-    kind: 'COMMAND' as const,
-  })),
 };
 
 function mergeSlashCommands(
@@ -144,9 +110,9 @@ export function useSlashCommands(
 
   const error = data?.error ?? streamError;
   const streamedCommands = data?.commands ?? [];
-  const fallbackCommands = executor
-    ? (BUILTIN_SLASH_COMMANDS[executor] ?? [])
-    : [];
+  const fallbackCommands =
+    getProviderFrontendAdapterByExecutor(executor)?.getFallbackSlashCommands() ??
+    [];
   const commands = mergeSlashCommands(
     executor ?? null,
     fallbackCommands,

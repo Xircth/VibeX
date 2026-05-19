@@ -15,7 +15,7 @@ use crate::{
     executors::{
         AppendPrompt, AvailabilityInfo, BaseAgentCapability, ExecutorError,
         SlashCommandDescription, SlashCommandKind, SpawnedChild, StandardCodingAgentExecutor,
-        acp::{AcpAgentHarness, normalize_logs},
+        acp::{AcpAgentHarness, normalize_logs, normalize_logs_with_context_window_override},
     },
     logs::utils::patch,
     profile::ExecutorConfig,
@@ -151,7 +151,6 @@ impl AcpProvider {
                 ("bug", "Report bugs"),
                 ("clear", "Clear conversation history"),
                 ("compact", "Compact conversation with an optional focus"),
-                ("config", "Open configuration panel"),
                 ("context", "Show context usage"),
                 ("cost", "Show token usage and cost"),
                 ("doctor", "Check Claude Code installation health"),
@@ -166,15 +165,12 @@ impl AcpProvider {
                 ),
                 ("login", "Switch Anthropic accounts"),
                 ("logout", "Sign out of the current Anthropic account"),
-                ("mcp", "Manage MCP server connections"),
                 ("memory", "Edit CLAUDE.md memory files"),
                 (
                     "migrate-installer",
                     "Migrate to a local Claude Code installation",
                 ),
-                ("model", "Select or change the model"),
                 ("output-style", "Select or create an output style"),
-                ("permissions", "Manage tool permissions"),
                 ("pr-comments", "Fetch comments from a GitHub pull request"),
                 ("release-notes", "View release notes"),
                 ("resume", "Resume a conversation"),
@@ -197,15 +193,12 @@ impl AcpProvider {
                     "init",
                     "Create an AGENTS.md file with repository instructions",
                 ),
-                ("mcp", "List configured MCP servers and tools"),
             ]),
             Self::Opencode => slash_commands(&[
                 ("init", "Create or update AGENTS.md"),
                 ("undo", "Revert the last change"),
                 ("redo", "Reapply the last reverted change"),
-                ("model", "Switch model"),
                 ("models", "List available models"),
-                ("theme", "Change theme"),
                 ("share", "Share the current session"),
                 ("unshare", "Stop sharing the current session"),
                 ("compact", "Compact the current session"),
@@ -219,13 +212,10 @@ impl AcpProvider {
                 ("new", "Start a new session"),
                 ("messages", "Show message history"),
                 ("terminal", "Toggle terminal panel"),
-                ("mcp", "Show MCP server status"),
                 ("agents", "List or switch agents"),
                 ("commands", "Show available commands"),
-                ("editor", "Open editor"),
                 ("plan", "Switch to plan mode"),
                 ("build", "Switch to build mode"),
-                ("config", "Open configuration"),
                 ("project", "Open project information"),
                 ("thinking", "Toggle thinking display"),
                 ("login", "Sign in"),
@@ -458,15 +448,15 @@ mod tests {
     }
 
     #[test]
-    fn codex_acp_exposes_more_than_adapter_fallback_commands() {
+    fn codex_acp_exposes_chat_visible_commands() {
         let names = command_names(AcpProvider::Codex);
 
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 4);
         assert!(names.contains("compact"));
         assert!(names.contains("goal"));
         assert!(names.contains("init"));
         assert!(names.contains("review"));
-        assert!(names.contains("mcp"));
+        assert!(!names.contains("mcp"));
     }
 
     #[test]
@@ -541,6 +531,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parses_codex_model_context_window_from_config_toml() {
+        assert_eq!(
+            parse_codex_model_context_window(
+                r#"
+model = "gpt-5.5"
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+"#
+            ),
+            Some(1_000_000)
+        );
+        assert_eq!(
+            parse_codex_model_context_window("model_context_window = 0"),
+            None
+        );
+        assert_eq!(
+            parse_codex_model_context_window("model_context_window = -1"),
+            None
+        );
+    }
+
     #[tokio::test]
     async fn custom_base_command_bypasses_local_acp_command_selection() {
         let executor = AcpBackedExecutor::new(AcpProvider::ClaudeCode).with_cmd(CmdOverrides {
@@ -578,6 +590,21 @@ pub fn codex_home() -> Option<PathBuf> {
         return Some(PathBuf::from(codex_home));
     }
     dirs::home_dir().map(|home| home.join(".codex"))
+}
+
+fn codex_config_model_context_window() -> Option<u32> {
+    let path = codex_home()?.join("config.toml");
+    let content = std::fs::read_to_string(path).ok()?;
+    parse_codex_model_context_window(&content)
+}
+
+fn parse_codex_model_context_window(content: &str) -> Option<u32> {
+    let value = content.parse::<toml::Value>().ok()?;
+    value
+        .get("model_context_window")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
 }
 
 fn opencode_config_path() -> Option<PathBuf> {
@@ -778,7 +805,15 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
     }
 
     fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &std::path::Path) {
-        normalize_logs(msg_store, worktree_path);
+        if self.provider == AcpProvider::Codex {
+            normalize_logs_with_context_window_override(
+                msg_store,
+                worktree_path,
+                codex_config_model_context_window(),
+            );
+        } else {
+            normalize_logs(msg_store, worktree_path);
+        }
     }
 
     fn default_mcp_config_path(&self) -> Option<PathBuf> {

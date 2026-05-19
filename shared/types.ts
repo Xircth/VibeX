@@ -449,7 +449,7 @@ export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", AMP = "AMP", GEMINI =
 
 export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid } | { "AUGGIE": Auggie };
 
-export type SlashCommandDescription = { 
+export type SlashCommandDescription = {
 /**
  * Command name without the leading slash, e.g. `help` for `/help`.
  */
@@ -467,15 +467,19 @@ base: string,
  */
 params: Array<string> | null, };
 
-export type ExecutorProfileId = { 
+export type ExecutorProfileId = {
 /**
  * The executor type (e.g., "CLAUDE_CODE", "AMP")
  */
-executor: BaseCodingAgent, 
+executor: BaseCodingAgent,
 /**
  * Optional variant name (e.g., "PLAN", "ROUTER")
  */
-variant: string | null, };
+variant?: string | null,
+/**
+ * Optional model override carried by UI/runtime selection.
+ */
+model?: string | null, };
 
 export type ExecutorConfig = { [key in string]?: { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid } | { "AUGGIE": Auggie } };
 
@@ -682,3 +686,33 @@ export type SessionContinuityMode = "new_session" | "resume_in_place" | "fork_sn
 export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, };
 
 export type SlashCommandKind = "COMMAND" | "SKILL";
+
+export type CapabilitySource = "native" | "sdk" | "app_server" | "cli_json" | "acp_fallback" | "config";
+
+export type CapabilityState = "available" | "unavailable" | "partial" | "unknown";
+
+export type CapabilityStatus = { state: CapabilityState, source: CapabilitySource, detail?: string | null, };
+
+export type ProviderCapabilityState = { slash_commands: CapabilityStatus, images: CapabilityStatus, session_resume: CapabilityStatus, session_fork: CapabilityStatus, approvals: CapabilityStatus, user_input_requests: CapabilityStatus, reasoning_control: CapabilityStatus, collaboration_mode: CapabilityStatus, mcp: CapabilityStatus, provider_control_panel: CapabilityStatus, };
+
+export type ProviderCommand = { provider: ProviderId, name: string, description: string, kind: SlashCommandKind, source: CapabilitySource, };
+
+export type ProviderHistorySnapshot = { provider: ProviderId, session_id: string, events?: Array<ProviderRuntimeEvent>, raw?: JsonValue | null, };
+
+export type ProviderId = "claude" | "codex" | "opencode";
+
+export type ProviderModel = { provider: ProviderId, id: string, label: string, source: CapabilitySource, };
+
+export type ProviderRuntimeEvent = { provider: ProviderId, workspace_id: string, thread_id?: string | null, turn_id?: string | null, event: JsonValue, };
+
+export type ProviderSessionSummary = { provider: ProviderId, session_id: string, title?: string | null, };
+
+export type ProviderTurnRequest = { provider: ProviderId, workspace_id: string, executor_profile_id?: ExecutorProfileId | null, thread_id?: string | null, session_id?: string | null, text: string, model?: string | null, images?: Array<string>, provider_options?: { [key in string]?: JsonValue }, };
+
+export type ProviderRuntimeStatus = { provider: ProviderId, contract: ProviderRuntimeContract, native: CapabilityStatus, fallback: CapabilityStatus, };
+
+export type ProviderRuntimeContract = { provider: ProviderId, primary_runtime: ProviderRuntimeKind, primary_source: CapabilitySource, primary_label: string, dependencies: Array<ProviderRuntimeDependency>, fallback_source: CapabilitySource, fallback_enabled_by_default: boolean, fallback_env: string, global_fallback_env: string, force_fallback_option: string, command_visibility_policy: string, event_history_policy: string, };
+
+export type ProviderRuntimeDependency = { id: string, label: string, source: CapabilitySource, required: boolean, user_visible: boolean, detail: string, };
+
+export type ProviderRuntimeKind = "claude_agent_sdk" | "codex_app_server" | "opencode_sdk";

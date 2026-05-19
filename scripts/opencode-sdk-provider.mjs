@@ -1,9 +1,10 @@
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { createOpencode } from '@opencode-ai/sdk';
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { createOpencodeClient } from "@opencode-ai/sdk";
 
-const PROBE_OK = 'opencode-sdk-provider:ok';
+const PROBE_OK = "opencode-sdk-provider:ok";
 
 function writeEvent(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -14,26 +15,26 @@ async function writeEventAsync(event) {
 }
 
 async function readInputJson(inputPath) {
-  const raw = await readFile(inputPath, 'utf8');
-  return JSON.parse(raw.replace(/^\uFEFF/, ''));
+  const raw = await readFile(inputPath, "utf8");
+  return JSON.parse(raw.replace(/^\uFEFF/, ""));
 }
 
 function objectOrEmpty(value) {
-  return value && typeof value === 'object' && !Array.isArray(value)
+  return value && typeof value === "object" && !Array.isArray(value)
     ? value
     : {};
 }
 
 function applyInputEnv(input) {
   for (const [key, value] of Object.entries(objectOrEmpty(input.env))) {
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       process.env[key] = value;
     }
   }
 }
 
 function parseJsonObject(value) {
-  if (typeof value !== 'string' || !value.trim()) {
+  if (typeof value !== "string" || !value.trim()) {
     return {};
   }
   try {
@@ -58,18 +59,18 @@ function buildConfig(input) {
   }
 
   if (input.autoApprove === true || input.dangerouslySkipPermissions === true) {
-    config.permission ??= 'allow';
+    config.permission ??= "allow";
   }
 
   return config;
 }
 
 function parseModel(model) {
-  if (typeof model !== 'string') {
+  if (typeof model !== "string") {
     return undefined;
   }
   const trimmed = model.trim();
-  const slash = trimmed.indexOf('/');
+  const slash = trimmed.indexOf("/");
   if (!trimmed || slash <= 0 || slash === trimmed.length - 1) {
     return undefined;
   }
@@ -79,21 +80,165 @@ function parseModel(model) {
   };
 }
 
+function windowsShellSafeArg(value) {
+  const text = String(value);
+  if (!/^[A-Za-z0-9._:/=@-]+$/.test(text)) {
+    throw new Error(
+      `Unsafe Windows shell argument for OpenCode server: ${text}`,
+    );
+  }
+  return text;
+}
+
+function spawnHiddenOpencode(args, env) {
+  if (process.platform !== "win32") {
+    return spawn("opencode", args, {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
+
+  const commandLine = ["opencode", ...args.map(windowsShellSafeArg)].join(" ");
+  return spawn(process.env.ComSpec || "cmd.exe", ["/d", "/c", commandLine], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+}
+
+function stopHiddenOpencode(proc) {
+  if (proc.exitCode !== null || proc.signalCode !== null) {
+    return;
+  }
+  if (process.platform === "win32" && proc.pid) {
+    const out = spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], {
+      windowsHide: true,
+    });
+    if (!out.error && out.status === 0) {
+      return;
+    }
+  }
+  proc.kill();
+}
+
+function bindAbort(proc, signal, onAbort) {
+  if (!signal) {
+    return () => {};
+  }
+  const abort = () => {
+    clear();
+    stopHiddenOpencode(proc);
+    onAbort?.();
+  };
+  const clear = () => {
+    signal.removeEventListener("abort", abort);
+    proc.off("exit", clear);
+    proc.off("error", clear);
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  proc.on("exit", clear);
+  proc.on("error", clear);
+  if (signal.aborted) {
+    abort();
+  }
+  return clear;
+}
+
+async function createHiddenOpencodeServer(options = {}) {
+  const hostname = options.hostname ?? "127.0.0.1";
+  const port = options.port ?? 0;
+  const timeout = options.timeout ?? 15000;
+  const args = ["serve", `--hostname=${hostname}`, `--port=${port}`];
+  if (options.config?.logLevel) {
+    args.push(`--log-level=${options.config.logLevel}`);
+  }
+
+  const proc = spawnHiddenOpencode(args, {
+    ...process.env,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(options.config ?? {}),
+  });
+
+  let clear = () => {};
+  const url = await new Promise((resolve, reject) => {
+    const id = setTimeout(() => {
+      clear();
+      stopHiddenOpencode(proc);
+      reject(
+        new Error(`Timeout waiting for server to start after ${timeout}ms`),
+      );
+    }, timeout);
+    let output = "";
+    let resolved = false;
+
+    proc.stdout?.on("data", (chunk) => {
+      if (resolved) {
+        return;
+      }
+      output += chunk.toString();
+      for (const line of output.split("\n")) {
+        if (line.startsWith("opencode server listening")) {
+          const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
+          if (!match) {
+            clear();
+            stopHiddenOpencode(proc);
+            clearTimeout(id);
+            reject(
+              new Error(`Failed to parse server url from output: ${line}`),
+            );
+            return;
+          }
+          clearTimeout(id);
+          resolved = true;
+          resolve(match[1]);
+          return;
+        }
+      }
+    });
+    proc.stderr?.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    proc.on("exit", (code) => {
+      clearTimeout(id);
+      let message = `Server exited with code ${code}`;
+      if (output.trim()) {
+        message += `\nServer output: ${output}`;
+      }
+      reject(new Error(message));
+    });
+    proc.on("error", (error) => {
+      clearTimeout(id);
+      reject(error);
+    });
+    clear = bindAbort(proc, options.signal, () => {
+      clearTimeout(id);
+      reject(options.signal?.reason);
+    });
+  });
+
+  return {
+    url,
+    close() {
+      clear();
+      stopHiddenOpencode(proc);
+    },
+  };
+}
+
 function buildFilePart(image) {
-  const path = typeof image === 'string' ? image : image?.path;
-  if (!path || typeof path !== 'string') {
+  const path = typeof image === "string" ? image : image?.path;
+  if (!path || typeof path !== "string") {
     return undefined;
   }
   const mime =
-    typeof image === 'object' && typeof image.mime === 'string'
+    typeof image === "object" && typeof image.mime === "string"
       ? image.mime
-      : 'application/octet-stream';
+      : "application/octet-stream";
   const url =
-    typeof image === 'object' && typeof image.url === 'string'
+    typeof image === "object" && typeof image.url === "string"
       ? image.url
       : pathToFileURL(path).href;
   return {
-    type: 'file',
+    type: "file",
     mime,
     filename: basename(path),
     url,
@@ -103,8 +248,8 @@ function buildFilePart(image) {
 function buildParts(input) {
   const parts = [
     {
-      type: 'text',
-      text: String(input.text ?? ''),
+      type: "text",
+      text: String(input.text ?? ""),
     },
   ];
   for (const image of Array.isArray(input.images) ? input.images : []) {
@@ -120,14 +265,14 @@ function slashCommand(input) {
   if (Array.isArray(input.images) && input.images.length > 0) {
     return undefined;
   }
-  const text = String(input.text ?? '');
+  const text = String(input.text ?? "");
   const match = text.match(/^\s*\/([A-Za-z0-9:_-]+)(?:\s+([\s\S]*))?\s*$/);
   if (!match) {
     return undefined;
   }
   return {
     command: match[1],
-    arguments: match[2] ?? '',
+    arguments: match[2] ?? "",
   };
 }
 
@@ -140,11 +285,15 @@ async function unwrap(result, label) {
 
 async function createRuntime(input) {
   applyInputEnv(input);
-  return createOpencode({
+  const server = await createHiddenOpencodeServer({
     port: 0,
     timeout: input.timeoutMs ?? 15000,
     config: buildConfig(input),
   });
+  return {
+    client: createOpencodeClient({ baseUrl: server.url }),
+    server,
+  };
 }
 
 async function startEventPump(client, directory, signal) {
@@ -157,14 +306,14 @@ async function startEventPump(client, directory, signal) {
     try {
       for await (const event of subscription.stream) {
         await writeEventAsync({
-          type: 'opencode_sdk_event',
+          type: "opencode_sdk_event",
           event,
         });
       }
     } catch (error) {
       if (!signal.aborted) {
         await writeEventAsync({
-          type: 'opencode_sdk_error',
+          type: "opencode_sdk_error",
           message: error?.message ?? String(error),
           stack: error?.stack,
         });
@@ -181,7 +330,7 @@ async function resolveSession(client, input, directory) {
         query: { directory },
         body: input.messageId ? { messageID: input.messageId } : {},
       }),
-      'session.fork'
+      "session.fork",
     );
     return forked.id;
   }
@@ -193,7 +342,7 @@ async function resolveSession(client, input, directory) {
       query: { directory },
       body: input.sessionTitle ? { title: input.sessionTitle } : {},
     }),
-    'session.create'
+    "session.create",
   );
   return created.id;
 }
@@ -207,7 +356,7 @@ async function writeTurn(inputPath) {
   try {
     const sessionID = await resolveSession(runtime.client, input, directory);
     await writeEventAsync({
-      type: 'opencode_sdk_session',
+      type: "opencode_sdk_session",
       sessionID,
     });
 
@@ -224,7 +373,7 @@ async function writeTurn(inputPath) {
               model: input.model,
             },
           }),
-          'session.command'
+          "session.command",
         )
       : await unwrap(
           await runtime.client.session.prompt({
@@ -236,11 +385,11 @@ async function writeTurn(inputPath) {
               parts: buildParts(input),
             },
           }),
-          'session.prompt'
+          "session.prompt",
         );
 
     await writeEventAsync({
-      type: 'opencode_sdk_response',
+      type: "opencode_sdk_response",
       sessionID,
       response,
     });
@@ -265,7 +414,7 @@ function flattenModels(providerList) {
         modelID,
         provider: provider.name ?? provider.id,
         name: model?.name ?? modelID,
-        source: 'sdk',
+        source: "sdk",
       });
     }
   }
@@ -290,20 +439,20 @@ async function writeMetadata(inputPath) {
   const runtime = await createRuntime(input);
   try {
     const [commands, agents, configProviders] = await Promise.all([
-      safeCall('command.list', () =>
-        runtime.client.command.list({ query: { directory } })
+      safeCall("command.list", () =>
+        runtime.client.command.list({ query: { directory } }),
       ),
-      safeCall('app.agents', () =>
-        runtime.client.app.agents({ query: { directory } })
+      safeCall("app.agents", () =>
+        runtime.client.app.agents({ query: { directory } }),
       ),
-      safeCall('config.providers', () =>
-        runtime.client.config.providers({ query: { directory } })
+      safeCall("config.providers", () =>
+        runtime.client.config.providers({ query: { directory } }),
       ),
     ]);
     const providerData = configProviders.data;
 
     await writeEventAsync({
-      type: 'opencode_sdk_metadata',
+      type: "opencode_sdk_metadata",
       commands: commands.data ?? [],
       agents: (agents.data ?? []).map((agent) => ({
         name: agent.name,
@@ -334,26 +483,26 @@ async function probe() {
 
 async function main() {
   const [arg, inputPath] = process.argv.slice(2);
-  if (arg === '--probe') {
+  if (arg === "--probe") {
     await probe();
     return;
   }
-  if (arg === '--metadata') {
+  if (arg === "--metadata") {
     if (!inputPath) {
-      throw new Error('Missing OpenCode SDK metadata input path.');
+      throw new Error("Missing OpenCode SDK metadata input path.");
     }
     await writeMetadata(inputPath);
     return;
   }
   if (!arg) {
-    throw new Error('Missing OpenCode SDK bridge input path.');
+    throw new Error("Missing OpenCode SDK bridge input path.");
   }
   await writeTurn(arg);
 }
 
 main().catch((error) => {
   writeEvent({
-    type: 'opencode_sdk_error',
+    type: "opencode_sdk_error",
     message: error?.message ?? String(error),
     stack: error?.stack,
   });

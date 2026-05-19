@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -28,7 +28,6 @@ import { cn } from '@/lib/utils';
 import type { AgentSettingInfo, PreflightCheck } from '@/lib/api';
 import { agentSettingsApi, claudeSettingsApi } from '@/lib/api';
 import type { BaseCodingAgent, ProviderModel } from 'shared/types';
-import { ProviderRuntimePanel } from '@/components/settings/ProviderRuntimePanel';
 import { providerRuntimeApi } from '@/lib/providerRuntime';
 
 // Agent display info
@@ -256,6 +255,25 @@ function summarizeChecks(
   return 'pass';
 }
 
+function isVisibleAgentCheck(check: PreflightCheck): boolean {
+  if (
+    check.check_id === 'runtime_launcher' ||
+    check.check_id === 'adapter_version'
+  ) {
+    return false;
+  }
+
+  const searchable = [
+    check.label,
+    check.message,
+    ...check.fixes.flatMap((fix) => [fix.action, fix.label]),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return !/\b(acp|sdk)\b|provider runtime/.test(searchable);
+}
+
 function getUpgradeAction(agentType: string): string | null {
   switch (agentType) {
     case 'claude_code':
@@ -278,7 +296,7 @@ interface AgentCardProps {
   selected: boolean;
   onSelect: () => void;
   onSave: () => void;
-  onReload: () => void;
+  onReload: () => void | Promise<void>;
 }
 
 function toBaseCodingAgent(agentType: string): BaseCodingAgent | null {
@@ -334,7 +352,11 @@ export function AgentCard({
   const [opencodeAuthJsonText, setOpencodeAuthJsonText] = useState('');
   const [nativeConfigPath, setNativeConfigPath] = useState<string | null>(null);
 
-  const summary = summarizeChecks(checks);
+  const visibleChecks = useMemo(
+    () => checks.filter(isVisibleAgentCheck),
+    [checks]
+  );
+  const summary = summarizeChecks(visibleChecks);
 
   const updateDraft = useCallback((patch: Partial<AgentDraft>) => {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -371,7 +393,7 @@ export function AgentCard({
           ? `已检测到当前版本：${version}`
           : '当前应用环境的 PATH 中未找到该 CLI'
       );
-      onReload();
+      await onReload();
     } catch (error) {
       setVersionMessage(
         error instanceof Error ? error.message : '检测版本失败'
@@ -610,6 +632,7 @@ export function AgentCard({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
                     className="h-7 text-xs"
@@ -625,6 +648,7 @@ export function AgentCard({
                   </Button>
                   {upgradeAction && (
                     <Button
+                      type="button"
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs"
@@ -650,9 +674,10 @@ export function AgentCard({
             <div className="flex items-center justify-between">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
-                预检查 ({checks.length} 项)
+                预检查 ({visibleChecks.length} 项)
               </div>
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 className="h-6 text-xs"
@@ -667,7 +692,7 @@ export function AgentCard({
                 检查
               </Button>
             </div>
-            {checks.map((check) => {
+            {visibleChecks.map((check) => {
               const key = `${agent.agent_type}:${check.check_id}`;
               const expanded = expandedChecks[key] ?? false;
               return (
@@ -719,6 +744,7 @@ export function AgentCard({
                               runningFixActions[fixKey] === true;
                             return (
                               <Button
+                                type="button"
                                 key={fixKey}
                                 size="sm"
                                 variant="outline"
@@ -741,8 +767,6 @@ export function AgentCard({
               );
             })}
           </div>
-
-          <ProviderRuntimePanel agentType={agent.agent_type} />
 
           {/* Agent-specific config form */}
           <div className="space-y-3">
@@ -789,6 +813,7 @@ export function AgentCard({
                 </div>
               </div>
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 onClick={handleSaveNativeConfig}
@@ -870,7 +895,12 @@ export function AgentCard({
                 {saveError}
               </div>
             )}
-            <Button size="sm" onClick={handleSave} disabled={isSaving}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSave}
+              disabled={isSaving}
+            >
               {isSaving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
               ) : (
@@ -923,6 +953,7 @@ function ClaudeCodeFields({
             className="h-8 text-xs"
           />
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-8 w-8 p-0"
@@ -1061,6 +1092,7 @@ function CodexFields({
             className="h-8 text-xs"
           />
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-8 w-8 p-0"

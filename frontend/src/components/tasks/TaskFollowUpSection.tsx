@@ -43,9 +43,9 @@ import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { useGitStatus } from '@/hooks/git';
 
 import type {
-  CreateFollowUpAttempt,
   DraftFollowUpData,
   ExecutorProfileId,
+  ProviderRuntimeEvent,
   QueueStatus,
   Session,
 } from 'shared/types';
@@ -91,6 +91,7 @@ import {
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
 import { isContextCompactProcess } from '@/lib/contextCompact';
+import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -140,6 +141,14 @@ function truncateSessionLabel(label: string, maxUnits = 8): string {
   }
 
   return compact || label;
+}
+
+function getProviderRuntimeExecutionProcessId(
+  event: ProviderRuntimeEvent
+): string | null {
+  if (!event.event || typeof event.event !== 'object') return null;
+  const value = (event.event as Record<string, unknown>).execution_process_id;
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -875,12 +884,14 @@ export function TaskFollowUpSection({
   const isEditable =
     !isRetryActive && !hasPendingApproval && !isCompactingContext;
   const canCompactContext = useMemo(() => {
-    if (!sessionId || !effectiveExecutorProfile?.executor) return false;
+    if (!sessionId || !workspaceIdValue || !effectiveExecutorProfile?.executor)
+      return false;
     if (!canTypeFollowUp || isAttemptRunning) return false;
     if (isAwaitingNewSessionConfirmation || isNewSessionMode) return false;
     return true;
   }, [
     sessionId,
+    workspaceIdValue,
     effectiveExecutorProfile?.executor,
     canTypeFollowUp,
     isAttemptRunning,
@@ -915,24 +926,26 @@ export function TaskFollowUpSection({
   ]);
 
   const handleCompactContext = useCallback(async () => {
-    if (!sessionId || !effectiveExecutorProfile || !canCompactContext) return;
+    if (
+      !sessionId ||
+      !workspaceIdValue ||
+      !effectiveExecutorProfile ||
+      !canCompactContext
+    )
+      return;
 
     try {
       setFollowUpError(null);
 
-      const body: CreateFollowUpAttempt = {
-        prompt: '/compact',
-        executor_profile_id: effectiveExecutorProfile,
-        retry_process_id: null,
-        force_when_dirty: null,
-        perform_git_reset: null,
-      };
-
-      const process = await sessionsApi.followUp(sessionId, body);
-      setPendingCompactProcessId(process.id);
+      const event = await sendProviderRuntimeTurn({
+        workspaceId: workspaceIdValue,
+        sessionId,
+        executorProfileId: effectiveExecutorProfile,
+        text: '/compact',
+      });
+      setPendingCompactProcessId(getProviderRuntimeExecutionProcessId(event));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '未知错误';
+      const message = error instanceof Error ? error.message : '未知错误';
       setFollowUpError(`启动上下文压缩失败：${message}`);
     }
   }, [
@@ -940,6 +953,7 @@ export function TaskFollowUpSection({
     effectiveExecutorProfile,
     sessionId,
     setFollowUpError,
+    workspaceIdValue,
   ]);
 
   const handleSubmitShortcut = useCallback(

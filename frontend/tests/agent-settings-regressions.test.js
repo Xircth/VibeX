@@ -87,3 +87,31 @@ test('agent settings model backfills default rows before listing or lookup', () 
   assert.match(source, /list_all_backfills_missing_default_agent_rows/);
   assert.match(source, /find_by_type_backfills_defaults_before_lookup/);
 });
+
+test('agent settings hides runtime-only ACP and SDK diagnostics from the card UI', () => {
+  const source = readFrontendFile('src/components/settings/AgentCard.tsx');
+
+  assert.match(source, /function isVisibleAgentCheck\(check: PreflightCheck\)/);
+  assert.match(source, /check\.check_id === 'runtime_launcher'/);
+  assert.match(source, /check\.check_id === 'adapter_version'/);
+  assert.match(source, /visibleChecks\.map\(\(check\) =>/);
+  assert.match(source, /visibleChecks\.length/);
+  assert.doesNotMatch(source, /ProviderRuntimePanel/);
+});
+
+test('agent settings version and update actions do not trigger full page refreshes', () => {
+  const cardSource = readFrontendFile('src/components/settings/AgentCard.tsx');
+  const pageSource = readFrontendFile('src/pages/settings/AgentSettings.tsx');
+
+  assert.match(pageSource, /showLoading: false/);
+  assert.match(pageSource, /await loadAgents\(\{\s*showLoading: false\s*\}\);/);
+  assert.match(
+    cardSource,
+    /type="button"[\s\S]*onClick=\{handleDetectVersion\}/
+  );
+  assert.match(
+    cardSource,
+    /type="button"[\s\S]*onClick=\{\(\) => void handleRunFix\(upgradeAction\)\}/
+  );
+  assert.match(cardSource, /await onReload\(\);/);
+});

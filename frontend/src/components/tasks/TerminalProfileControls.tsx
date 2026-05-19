@@ -201,7 +201,12 @@ export function TerminalProfileControls({
       selectedProfile.variant ?? null
     );
     const sandboxOptions = getCodexSandboxOptions(profiles);
-    const modelOptions = getCodexModelOptions(profiles);
+    const currentModel = selectedProfile.model ?? currentConfig.model;
+    const modelOptions = mergeModelOptions(
+      getCodexModelOptions(profiles),
+      [],
+      currentModel
+    );
     const reasoningOptions = CODEX_REASONING_EFFORT_OPTIONS;
 
     const hasRichControls =
@@ -219,19 +224,30 @@ export function TerminalProfileControls({
       approvalPolicy?: typeof currentConfig.approvalPolicy;
       reasoningEffort?: CodexReasoningEffort;
     }) => {
+      const selectedModel =
+        next.model === undefined ? currentModel : (next.model ?? currentConfig.model);
+      const selectedSandbox =
+        next.sandbox === undefined ? currentConfig.sandbox : next.sandbox;
+      const selectedApprovalPolicy =
+        next.approvalPolicy === undefined
+          ? currentConfig.approvalPolicy
+          : next.approvalPolicy;
+      const selectedReasoningEffort =
+        next.reasoningEffort ?? currentConfig.reasoningEffort;
+      const variant = getCodexVariantFromConfigSelection(profiles, {
+        model: selectedModel,
+        sandbox: selectedSandbox,
+        approvalPolicy: selectedApprovalPolicy,
+        reasoningEffort: selectedReasoningEffort,
+      });
+      const variantConfig = getCodexVariantConfig(profiles, variant);
+      const modelOverride =
+        selectedModel === variantConfig.model ? null : selectedModel;
+
       onChange({
         executor,
-        variant: getCodexVariantFromConfigSelection(profiles, {
-          model: next.model === undefined ? currentConfig.model : next.model,
-          sandbox:
-            next.sandbox === undefined ? currentConfig.sandbox : next.sandbox,
-          approvalPolicy:
-            next.approvalPolicy === undefined
-              ? currentConfig.approvalPolicy
-              : next.approvalPolicy,
-          reasoningEffort:
-            next.reasoningEffort ?? currentConfig.reasoningEffort,
-        }),
+        variant,
+        model: modelOverride,
       });
     };
 
@@ -255,7 +271,7 @@ export function TerminalProfileControls({
 
         {modelOptions.length > 1 ? (
           <CodexModelSelector
-            value={currentConfig.model}
+            value={currentModel}
             options={modelOptions}
             onChange={(model) => updateVariant({ model })}
             disabled={disabled}

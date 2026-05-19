@@ -182,4 +182,27 @@ describe('DisplayConversationEntry', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('I will update the layout.')).toBeInTheDocument();
   });
+
+  it('renders Codex unstable feature warning as metadata before assistant text', () => {
+    const warning =
+      'Under-development features enabled: child_agents_md. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set suppress_unstable_features_warning = true in C:\\Users\\Administrator\\.codex\\config.toml.';
+
+    render(
+      <DisplayConversationEntry
+        entry={
+          {
+            entry_type: { type: 'assistant_message' },
+            content: `${warning} 我是 Codex，一个基于 GPT 5 的编码代理。`,
+          } as never
+        }
+        expansionKey="assistant-entry"
+      />
+    );
+
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(
+      screen.getByText('我是 Codex，一个基于 GPT 5 的编码代理。')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(`${warning} 我是 Codex`)).not.toBeInTheDocument();
+  });
 });

@@ -6,10 +6,12 @@ import {
   isInternalTracingLogContent,
   isNeutralTransportNotice,
   normalizeMetaNoticeText,
+  repairTokenizedStreamContent,
   sanitizeConversationContent,
   shouldHideInitializationNotice,
   splitAssistantCommandOutput,
   splitAssistantFinalMessage,
+  splitLeadingCodexUnstableFeatureNotice,
   splitLeadingImpeccablePreflightNotice,
   splitLeadingTransportNotice,
 } from './conversation-entry-utils';
@@ -112,6 +114,38 @@ describe('conversation meta notices', () => {
     });
   });
 
+  it('splits Codex unstable feature warnings from assistant output', () => {
+    const warning =
+      'Under-development features enabled: child_agents_md. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set suppress_unstable_features_warning = true in C:\\Users\\Administrator\\.codex\\config.toml.';
+    const content = `${warning} 我是 Codex，一个基于 GPT 5 的编码代理。`;
+
+    expect(
+      getCompactMetaNoticeText({ type: 'assistant_message' } as never, content)
+    ).toBeNull();
+    expect(splitLeadingCodexUnstableFeatureNotice(content)).toEqual({
+      notice: warning,
+      remainder: '我是 Codex，一个基于 GPT 5 的编码代理。',
+    });
+    expect(
+      getCompactMetaNoticeText({ type: 'assistant_message' } as never, warning)
+    ).toBe(warning);
+  });
+
+  it('splits Codex unstable feature warnings when config flag is inline code', () => {
+    const expectedNotice =
+      'Under-development features enabled: child_agents_md. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set suppress_unstable_features_warning = true in C:\\Users\\Administrator\\.codex\\config.toml.';
+    const content =
+      'Under-development features enabled: child_agents_md. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in C:\\Users\\Administrator\\.codex\\config.toml. I am Codex.';
+
+    expect(splitLeadingCodexUnstableFeatureNotice(content)).toEqual({
+      notice: expectedNotice,
+      remainder: 'I am Codex.',
+    });
+    expect(
+      getCompactMetaNoticeText({ type: 'assistant_message' } as never, content)
+    ).toBeNull();
+  });
+
   it('summarizes verbose command errors for hover-only detail', () => {
     const content = [
       'Wall time: 1.7 seconds Output:',
@@ -124,6 +158,30 @@ describe('conversation meta notices', () => {
     expect(getCompactVerboseErrorText(content)).toBe(
       'Command failed: rg is not recognized'
     );
+  });
+
+  it('repairs persisted assistant messages that were split per stream token', () => {
+    const content = [
+      '我是基于 **GPT',
+      '-5** 的 Codex',
+      ' 编码代理。',
+      '具体型号是 `gpt',
+      '-5.5`。',
+    ].join('\n');
+
+    expect(repairTokenizedStreamContent(content)).toBe(
+      '我是基于 **GPT-5** 的 Codex 编码代理。具体型号是 `gpt-5.5`。'
+    );
+  });
+
+  it('does not flatten normal multiline assistant prose', () => {
+    const content = [
+      '第一段内容比较完整，不像是 token delta。',
+      '',
+      '第二段内容也比较完整，需要保留换行。',
+    ].join('\n');
+
+    expect(repairTokenizedStreamContent(content)).toBe(content);
   });
 
   it('splits literal command output assistant messages', () => {

@@ -52,24 +52,82 @@ test('tab context menu uses the current Chinese label and keeps the panel split 
   assert.match(panelActions, /referencePanel:\s*panel,/);
 });
 
+test('dev preview resolves workspace outside route params', () => {
+  const previewPanel = readFrontendFile(
+    'src/components/panels/PreviewPanel.tsx'
+  );
+  const dockviewDevPreviewPanel = readFrontendFile(
+    'src/components/panels/DockviewDevPreviewPanel.tsx'
+  );
+
+  assert.match(previewPanel, /useOptionalKanbanSessionContext/);
+  assert.match(previewPanel, /useWorktree/);
+  assert.match(previewPanel, /panelWorkspaceId \?\?/);
+  assert.match(previewPanel, /routeWorkspaceId \?\?/);
+  assert.match(previewPanel, /visibleRightSession\?\.workspaceId \?\?/);
+  assert.match(previewPanel, /activeWorktreeId \?\?/);
+  assert.doesNotMatch(previewPanel, /const attemptId = workspaceId;/);
+
+  assert.match(dockviewDevPreviewPanel, /visibleRightSession\?\.workspaceId/);
+  assert.match(
+    dockviewDevPreviewPanel,
+    /<PreviewPanel workspaceId=\{workspaceId\} \/>/
+  );
+});
+
 test('windows hidden cli helper wraps batch-based agent commands', () => {
   const processUtils = readRepoFile('crates/utils/src/process.rs');
-  const claude = readRepoFile('crates/executors/src/executors/claude.rs');
-  const codex = readRepoFile('crates/executors/src/executors/codex.rs');
-  const slashCommands = readRepoFile(
-    'crates/executors/src/executors/claude/slash_commands.rs'
+  const acpTerminal = readRepoFile(
+    'crates/executors/src/executors/acp/terminal.rs'
   );
+  const acpHarness = readRepoFile(
+    'crates/executors/src/executors/acp/harness.rs'
+  );
+  const codexAccount = readRepoFile('src-tauri/src/commands/codex_account.rs');
   const agentSettings = readRepoFile(
     'src-tauri/src/commands/agent_settings.rs'
   );
   const workspaces = readRepoFile('src-tauri/src/commands/workspaces.rs');
+  const providerRuntime = readRepoFile(
+    'src-tauri/src/commands/provider_runtime.rs'
+  );
+  const opencodeBridge = readRepoFile('scripts/opencode-sdk-provider.mjs');
 
   assert.match(processUtils, /new_hidden_tokio_command/);
   assert.match(processUtils, /is_windows_batch_script/);
   assert.match(processUtils, /cmd\.exe/);
-  assert.match(claude, /new_hidden_tokio_command/);
-  assert.match(codex, /new_hidden_tokio_command/);
-  assert.match(slashCommands, /new_hidden_tokio_command/);
+  assert.match(acpTerminal, /new_hidden_tokio_command/);
+  assert.match(acpHarness, /new_hidden_tokio_command/);
+  assert.match(codexAccount, /new_hidden_tokio_command/);
   assert.match(agentSettings, /new_hidden_tokio_command/);
   assert.match(workspaces, /new_hidden_tokio_command/);
+  assert.match(providerRuntime, /new_provider_hidden_command/);
+  assert.doesNotMatch(providerRuntime, /Command::new\(/);
+  assert.match(opencodeBridge, /windowsHide:\s*true/);
+  assert.match(opencodeBridge, /taskkill/);
+});
+
+test('codex profile controls preserve explicit model overrides', () => {
+  const terminalProfileControls = readFrontendFile(
+    'src/components/tasks/TerminalProfileControls.tsx'
+  );
+  const providerRuntime = readRepoFile(
+    'src-tauri/src/commands/provider_runtime.rs'
+  );
+
+  assert.match(
+    terminalProfileControls,
+    /const currentModel = selectedProfile\.model \?\? currentConfig\.model;/
+  );
+  assert.match(
+    terminalProfileControls,
+    /const modelOverride =\s*selectedModel === variantConfig\.model \? null : selectedModel;/
+  );
+  assert.match(terminalProfileControls, /value=\{currentModel\}/);
+  assert.match(terminalProfileControls, /model: modelOverride/);
+
+  assert.match(providerRuntime, /"method": "turn\/queued"/);
+  assert.match(providerRuntime, /CODEX_NATIVE_THREAD_SINKS/);
+  assert.match(providerRuntime, /result\.get\("turn"\)/);
+  assert.match(providerRuntime, /params\.get\("turn"\)/);
 });

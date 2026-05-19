@@ -324,7 +324,11 @@ function mapProviderRuntimeEvent(
   }
 
   const method = eventMethod(event);
-  if (method === 'execution_started' || method === 'turn/started') {
+  if (
+    method === 'execution_started' ||
+    method === 'turn/queued' ||
+    method === 'turn/started'
+  ) {
     return [
       {
         type: 'set_status',

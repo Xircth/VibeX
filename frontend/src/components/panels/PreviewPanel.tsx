@@ -9,7 +9,9 @@ import {
   buildClickedElementData,
   useClickedElements,
 } from '@/contexts/ClickedElementsProvider';
+import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useProject } from '@/contexts/ProjectContext';
+import { useWorktree } from '@/contexts/WorktreeContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useDevServer } from '@/hooks/useDevServer';
@@ -151,7 +153,13 @@ function createClickedElementPayload(
   };
 }
 
-export function PreviewPanel() {
+interface PreviewPanelProps {
+  workspaceId?: string;
+}
+
+export function PreviewPanel({
+  workspaceId: panelWorkspaceId,
+}: PreviewPanelProps = {}) {
   const [iframeError, setIframeError] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [companionReady, setCompanionReady] = useState(false);
@@ -189,9 +197,18 @@ export function PreviewPanel() {
   const companionReadyRef = useRef(false);
   const toolbarBridgeReadyRef = useRef(false);
   const { project, projectId } = useProject();
-  const { workspaceId } = useParams<{ workspaceId?: string }>();
+  const { workspaceId: routeWorkspaceId } = useParams<{
+    workspaceId?: string;
+  }>();
+  const { activeWorktreeId } = useWorktree();
+  const kanbanSessionContext = useOptionalKanbanSessionContext();
 
-  const attemptId = workspaceId;
+  const attemptId =
+    panelWorkspaceId ??
+    routeWorkspaceId ??
+    kanbanSessionContext?.visibleRightSession?.workspaceId ??
+    activeWorktreeId ??
+    undefined;
   const { data: attempt } = useTaskAttemptWithSession(attemptId);
   const {
     overrideUrl: customUrl,

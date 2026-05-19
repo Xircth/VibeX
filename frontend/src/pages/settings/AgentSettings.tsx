@@ -30,33 +30,39 @@ export function AgentSettings() {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const { reloadSystem } = useUserSystem();
 
-  const loadAgents = useCallback(async () => {
-    setIsLoading(true);
-    setLoadError(null);
+  const loadAgents = useCallback(
+    async (options?: { showLoading?: boolean }) => {
+      const showLoading = options?.showLoading !== false;
+      if (showLoading) {
+        setIsLoading(true);
+      }
+      setLoadError(null);
 
-    try {
-      const list = await agentSettingsApi.list();
-      setAgents(list);
-      setSelectedType((prev) =>
-        list.some((agent) => agent.agent_type === prev)
-          ? prev
-          : null
-      );
-    } catch (error) {
-      setAgents([]);
-      setSelectedType(null);
-      setLoadError(getLoadErrorMessage(error));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+      try {
+        const list = await agentSettingsApi.list();
+        setAgents(list);
+        setSelectedType((prev) =>
+          list.some((agent) => agent.agent_type === prev) ? prev : null
+        );
+      } catch (error) {
+        setAgents([]);
+        setSelectedType(null);
+        setLoadError(getLoadErrorMessage(error));
+      } finally {
+        if (showLoading) {
+          setIsLoading(false);
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     void loadAgents();
   }, [loadAgents]);
 
   const reloadAgentSettingsAndRuntime = useCallback(async () => {
-    await loadAgents();
+    await loadAgents({ showLoading: false });
     await reloadSystem();
   }, [loadAgents, reloadSystem]);
 
@@ -82,9 +88,7 @@ export function AgentSettings() {
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-4 w-4 text-destructive" />
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium">
-                无法加载编码代理设置
-              </div>
+              <div className="text-sm font-medium">无法加载编码代理设置</div>
               <p className="mt-1 break-all text-xs text-muted-foreground">
                 {loadError}
               </p>
@@ -101,9 +105,7 @@ export function AgentSettings() {
         </div>
       ) : agents.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-center">
-          <div className="text-sm font-medium">
-            当前没有可用的编码代理
-          </div>
+          <div className="text-sm font-medium">当前没有可用的编码代理</div>
           <p className="mt-1 text-xs text-muted-foreground">
             默认代理条目会自动补齐。请重试刷新当前页面。
           </p>

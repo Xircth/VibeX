@@ -32,7 +32,9 @@ import {
   getCompactVerboseErrorText,
   shouldHideInitializationNotice,
   isNeutralTransportNotice,
+  repairTokenizedStreamContent,
   sanitizeConversationContent,
+  splitLeadingCodexUnstableFeatureNotice,
   splitLeadingImpeccablePreflightNotice,
   splitLeadingTransportNotice,
   type FileEditAction,
@@ -121,9 +123,13 @@ function DisplayConversationEntry({
 
   // Handle NormalizedEntry
   const entryType = entry.entry_type;
-  const contentText = isNormalizedEntry(entry)
+  const rawContentText = isNormalizedEntry(entry)
     ? sanitizeConversationContent(entry.content)
     : '';
+  const contentText =
+    entryType.type === 'assistant_message'
+      ? repairTokenizedStreamContent(rawContentText)
+      : rawContentText;
   const isSystem = entryType.type === 'system_message';
   const isError = entryType.type === 'error_message';
   const isToolUse = entryType.type === 'tool_use';
@@ -494,6 +500,66 @@ function DisplayConversationEntry({
               leadingTransportNotice.remainder.trim().length > 0 && (
                 <div className="absolute -right-1 top-0">
                   <CopyButton text={leadingTransportNotice.remainder} />
+                </div>
+              )}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const leadingCodexUnstableFeatureNotice =
+    splitLeadingCodexUnstableFeatureNotice(contentText);
+  if (leadingCodexUnstableFeatureNotice) {
+    if (!leadingCodexUnstableFeatureNotice.remainder.trim()) {
+      return (
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={leadingCodexUnstableFeatureNotice.notice}
+            variant="system"
+            title={leadingCodexUnstableFeatureNotice.notice}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div
+          className={cn(
+            'conv-entry-item px-4 py-1',
+            greyed && 'opacity-50 pointer-events-none'
+          )}
+        >
+          <CompactNoticeEntry
+            content={leadingCodexUnstableFeatureNotice.notice}
+            variant="system"
+            title={leadingCodexUnstableFeatureNotice.notice}
+          />
+        </div>
+        <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+          <div className="relative">
+            <div className={getContentClassName(entryType)}>
+              {shouldRenderMarkdown(entryType) ? (
+                <Markdown
+                  value={leadingCodexUnstableFeatureNotice.remainder}
+                  {...markdownContext}
+                />
+              ) : (
+                leadingCodexUnstableFeatureNotice.remainder
+              )}
+            </div>
+            {isNormalizedEntry(entry) &&
+              leadingCodexUnstableFeatureNotice.remainder.trim().length > 0 && (
+                <div className="absolute -right-1 top-0">
+                  <CopyButton
+                    text={leadingCodexUnstableFeatureNotice.remainder}
+                  />
                 </div>
               )}
           </div>

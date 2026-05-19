@@ -30,19 +30,24 @@ use executors::{
         BaseCodingAgent, CodingAgent, SlashCommandKind,
         codex::{AskForApproval, ReasoningEffort, SandboxMode},
     },
+    logs::{
+        NormalizedEntry, NormalizedEntryError, NormalizedEntryType, TokenUsageInfo,
+        utils::ConversationPatch,
+    },
     profile::{ExecutorConfig, ExecutorConfigs, ExecutorProfileId},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use services::services::container::ContainerService;
+use sqlx::SqlitePool;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command},
+    process::{Child, ChildStdin},
     sync::{Mutex, oneshot},
     time::Duration,
 };
 use ts_rs::TS;
-use utils::log_msg::LogMsg;
+use utils::{log_msg::LogMsg, msg_store::MsgStore};
 use uuid::Uuid;
 
 use crate::{
@@ -64,6 +69,10 @@ static CODEX_APP_SERVERS: LazyLock<Mutex<HashMap<String, Arc<CodexAppServer>>>> 
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static NATIVE_ACTIVE_TURNS: LazyLock<Mutex<HashMap<String, NativeProcessHandle>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static CODEX_NATIVE_TURN_SINKS: LazyLock<Mutex<HashMap<String, NativeConversationSink>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static CODEX_NATIVE_THREAD_SINKS: LazyLock<Mutex<HashMap<String, NativeConversationSink>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 static PROVIDER_EVENT_HISTORY: LazyLock<Mutex<HashMap<String, Vec<ProviderRuntimeEvent>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -71,6 +80,22 @@ static PROVIDER_EVENT_HISTORY: LazyLock<Mutex<HashMap<String, Vec<ProviderRuntim
 struct NativeProcessHandle {
     provider: ProviderId,
     child: Arc<Mutex<Child>>,
+}
+
+#[derive(Clone)]
+struct NativeConversationSink {
+    pool: SqlitePool,
+    process_id: Uuid,
+    session_id: Uuid,
+    msg_store: Arc<MsgStore>,
+    state: Arc<Mutex<NativeConversationState>>,
+}
+
+#[derive(Default)]
+struct NativeConversationState {
+    assistant_content: String,
+    assistant_written: bool,
+    next_entry_index: usize,
 }
 
 struct CodexAppServer {
@@ -872,6 +897,13 @@ fn acp_fallback_config(provider: ProviderId) -> AcpFallbackConfig {
     }
 }
 
+async fn new_provider_hidden_command(program: &str, args: Vec<String>) -> tokio::process::Command {
+    let executable = utils::shell::resolve_executable_path(program)
+        .await
+        .unwrap_or_else(|| PathBuf::from(program));
+    utils::process::new_hidden_tokio_command(executable, args)
+}
+
 fn claude_settings_path() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
@@ -1102,9 +1134,9 @@ async fn load_claude_sdk_metadata(workspace_dir: &Path) -> Result<Value, AppErro
     });
     let input_path = write_claude_sdk_bridge_input_file(&input)?;
     let output = tokio::time::timeout(Duration::from_secs(20), async {
-        let mut command = Command::new("node");
+        let mut command =
+            new_provider_hidden_command("node", build_claude_sdk_metadata_args(&input_path)).await;
         command
-            .args(build_claude_sdk_metadata_args(&input_path))
             .current_dir(workspace_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -1353,9 +1385,10 @@ async fn load_opencode_sdk_metadata(workspace_dir: &Path) -> Result<Value, AppEr
     });
     let input_path = write_opencode_sdk_bridge_input_file(&input)?;
     let output = tokio::time::timeout(Duration::from_secs(30), async {
-        let mut command = Command::new("node");
+        let mut command =
+            new_provider_hidden_command("node", build_opencode_sdk_metadata_args(&input_path))
+                .await;
         command
-            .args(build_opencode_sdk_metadata_args(&input_path))
             .current_dir(workspace_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -1499,6 +1532,12 @@ fn extract_thread_id(value: &Value) -> Option<String> {
                 .get("params")
                 .and_then(|params| params.get("threadId"))
         })
+        .or_else(|| {
+            value
+                .get("params")
+                .and_then(|params| params.get("thread"))
+                .and_then(|thread| thread.get("id"))
+        })
         .or_else(|| value.get("sessionID"))
         .or_else(|| {
             value
@@ -1525,6 +1564,13 @@ fn extract_thread_id(value: &Value) -> Option<String> {
                 .and_then(|result| result.get("thread"))
                 .and_then(|thread| thread.get("id"))
         })
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|response| response.get("result"))
+                .and_then(|result| result.get("thread"))
+                .and_then(|thread| thread.get("id"))
+        })
         .and_then(Value::as_str)
         .map(ToString::to_string)
 }
@@ -1533,10 +1579,36 @@ fn extract_turn_id(value: &Value) -> Option<String> {
     value
         .get("result")
         .and_then(|result| result.get("turnId"))
+        .or_else(|| {
+            value
+                .get("result")
+                .and_then(|result| result.get("turn"))
+                .and_then(|turn| turn.get("id"))
+        })
         .or_else(|| value.get("turnId"))
         .or_else(|| value.get("uuid"))
         .or_else(|| value.get("params").and_then(|params| params.get("turnId")))
+        .or_else(|| {
+            value
+                .get("params")
+                .and_then(|params| params.get("turn"))
+                .and_then(|turn| turn.get("id"))
+        })
+        .or_else(|| value.get("turn").and_then(|turn| turn.get("id")))
         .or_else(|| value.get("event").and_then(|event| event.get("uuid")))
+        .or_else(|| {
+            value
+                .get("event")
+                .and_then(|event| event.get("turn"))
+                .and_then(|turn| turn.get("id"))
+        })
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(|response| response.get("result"))
+                .and_then(|result| result.get("turn"))
+                .and_then(|turn| turn.get("id"))
+        })
         .and_then(Value::as_str)
         .map(ToString::to_string)
 }
@@ -1553,6 +1625,449 @@ async fn push_provider_event(session_id: &str, event: ProviderRuntimeEvent) {
         .entry(key)
         .or_default()
         .push(event);
+}
+
+async fn register_native_conversation_sink(
+    state: &tauri::State<'_, AppState>,
+    process_id: Uuid,
+    session_id: Uuid,
+) -> NativeConversationSink {
+    let msg_store = Arc::new(MsgStore::new());
+    state
+        .deployment
+        .container()
+        .msg_stores()
+        .write()
+        .await
+        .insert(process_id, msg_store.clone());
+
+    NativeConversationSink {
+        pool: state.deployment.db().pool.clone(),
+        process_id,
+        session_id,
+        msg_store,
+        state: Arc::new(Mutex::new(NativeConversationState::default())),
+    }
+}
+
+async fn persist_native_log_msg(pool: &SqlitePool, process_id: Uuid, msg: &LogMsg) {
+    match serde_json::to_string(msg) {
+        Ok(json_line) => {
+            if let Err(error) =
+                ExecutionProcessLogs::append_log_line(pool, process_id, &format!("{json_line}\n"))
+                    .await
+            {
+                tracing::error!(
+                    "Failed to persist native provider log for process {}: {}",
+                    process_id,
+                    error
+                );
+            }
+        }
+        Err(error) => {
+            tracing::error!(
+                "Failed to serialize native provider log for process {}: {}",
+                process_id,
+                error
+            );
+        }
+    }
+}
+
+async fn push_native_log_msg(sink: &NativeConversationSink, msg: LogMsg) {
+    sink.msg_store.push(msg.clone());
+    persist_native_log_msg(&sink.pool, sink.process_id, &msg).await;
+}
+
+fn native_normalized_entry(
+    entry_type: NormalizedEntryType,
+    content: impl Into<String>,
+    metadata: Option<Value>,
+) -> NormalizedEntry {
+    NormalizedEntry {
+        timestamp: None,
+        entry_type,
+        content: content.into(),
+        metadata,
+    }
+}
+
+fn provider_event_is_user_echo(value: &Value) -> bool {
+    value
+        .get("event")
+        .and_then(|event| event.get("message"))
+        .and_then(|message| message.get("role"))
+        .or_else(|| value.get("message").and_then(|message| message.get("role")))
+        .or_else(|| value.get("role"))
+        .and_then(Value::as_str)
+        .is_some_and(|role| role.eq_ignore_ascii_case("user"))
+}
+
+fn extract_provider_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Array(items) => {
+            let text = items
+                .iter()
+                .filter_map(extract_provider_text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(text)
+            }
+        }
+        Value::Object(record) => {
+            for key in ["text", "delta", "content"] {
+                if let Some(text) = record.get(key).and_then(extract_provider_text)
+                    && !text.trim().is_empty()
+                {
+                    return Some(text);
+                }
+            }
+            for key in [
+                "message", "parts", "params", "event", "response", "data", "result",
+            ] {
+                if let Some(text) = record.get(key).and_then(extract_provider_text)
+                    && !text.trim().is_empty()
+                {
+                    return Some(text);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn extract_provider_stream_text(value: &Value) -> Option<String> {
+    let record = value.as_object()?;
+    let method = record.get("method").and_then(Value::as_str);
+    if method == Some("item/agentMessage/delta") {
+        return record
+            .get("params")
+            .and_then(|params| params.get("delta"))
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(ToString::to_string);
+    }
+
+    let event_type = record.get("type").and_then(Value::as_str);
+    if event_type == Some("text_delta") {
+        return record
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(ToString::to_string);
+    }
+
+    None
+}
+
+fn append_provider_assistant_text(content: &mut String, text: &str, is_stream_delta: bool) {
+    if content.is_empty() {
+        content.push_str(text);
+        return;
+    }
+
+    if !is_stream_delta {
+        content.push('\n');
+    }
+    content.push_str(text);
+}
+
+fn json_u32(value: Option<&Value>) -> Option<u32> {
+    value
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn token_usage_info(
+    total_tokens: Option<u32>,
+    context_window: Option<u32>,
+) -> Option<TokenUsageInfo> {
+    let total_tokens = total_tokens?;
+    let model_context_window = context_window?;
+    if model_context_window == 0 {
+        return None;
+    }
+    Some(TokenUsageInfo {
+        total_tokens,
+        model_context_window,
+    })
+}
+
+fn sum_u32(values: impl IntoIterator<Item = Option<u32>>) -> Option<u32> {
+    let mut total = 0u32;
+    let mut has_value = false;
+    for value in values.into_iter().flatten() {
+        total = total.saturating_add(value);
+        has_value = true;
+    }
+    has_value.then_some(total)
+}
+
+fn extract_codex_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
+    if value.get("method").and_then(Value::as_str) != Some("thread/tokenUsage/updated") {
+        return None;
+    }
+    let usage = value.get("params")?.get("tokenUsage")?;
+    token_usage_info(
+        json_u32(
+            usage
+                .get("total")
+                .and_then(|total| total.get("totalTokens")),
+        ),
+        json_u32(usage.get("modelContextWindow")),
+    )
+}
+
+fn extract_claude_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
+    if value.get("type").and_then(Value::as_str) != Some("result") {
+        return None;
+    }
+    let usage = value.get("usage")?;
+    let total_tokens = json_u32(usage.get("total_tokens")).or_else(|| {
+        sum_u32([
+            json_u32(usage.get("input_tokens")),
+            json_u32(usage.get("output_tokens")),
+            json_u32(usage.get("cache_creation_input_tokens")),
+            json_u32(usage.get("cache_read_input_tokens")),
+        ])
+    });
+    let context_window = value
+        .get("modelUsage")
+        .and_then(Value::as_object)
+        .and_then(|models| {
+            models
+                .values()
+                .filter_map(|model| json_u32(model.get("contextWindow")))
+                .max()
+        });
+
+    token_usage_info(total_tokens, context_window)
+}
+
+fn extract_opencode_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
+    let tokens = value.get("tokens")?;
+    let total_tokens = sum_u32([
+        json_u32(tokens.get("input")),
+        json_u32(tokens.get("output")),
+        json_u32(tokens.get("reasoning")),
+        json_u32(tokens.get("cache").and_then(|cache| cache.get("read"))),
+        json_u32(tokens.get("cache").and_then(|cache| cache.get("write"))),
+    ]);
+    let context_window = json_u32(
+        value
+            .get("model")
+            .and_then(|model| model.get("limit"))
+            .and_then(|limit| limit.get("context")),
+    )
+    .or_else(|| json_u32(value.get("limit").and_then(|limit| limit.get("context"))))
+    .or_else(|| json_u32(value.get("modelContextWindow")));
+
+    token_usage_info(total_tokens, context_window)
+}
+
+fn extract_provider_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
+    extract_codex_token_usage_info(value)
+        .or_else(|| extract_claude_token_usage_info(value))
+        .or_else(|| extract_opencode_token_usage_info(value))
+        .or_else(|| {
+            value
+                .get("event")
+                .and_then(extract_provider_token_usage_info)
+        })
+        .or_else(|| {
+            value
+                .get("response")
+                .and_then(extract_provider_token_usage_info)
+        })
+}
+
+fn extract_provider_error(value: &Value) -> Option<String> {
+    let record = value.as_object()?;
+    let event_type = record
+        .get("type")
+        .or_else(|| record.get("method"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let looks_like_error = event_type.contains("error") || event_type.contains("stderr");
+    if !looks_like_error {
+        return None;
+    }
+
+    record
+        .get("message")
+        .or_else(|| record.get("error"))
+        .or_else(|| {
+            record
+                .get("params")
+                .and_then(|params| params.get("message"))
+        })
+        .or_else(|| record.get("params").and_then(|params| params.get("error")))
+        .and_then(extract_provider_text)
+        .or_else(|| Some(value.to_string()))
+}
+
+async fn push_native_provider_event_to_conversation(sink: &NativeConversationSink, event: &Value) {
+    if let Some(token_usage) = extract_provider_token_usage_info(event) {
+        let mut state = sink.state.lock().await;
+        let index = state.next_entry_index;
+        state.next_entry_index += 1;
+        drop(state);
+
+        let entry = native_normalized_entry(
+            NormalizedEntryType::TokenUsageInfo(token_usage),
+            "",
+            Some(event.clone()),
+        );
+        push_native_log_msg(
+            sink,
+            LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
+        )
+        .await;
+        return;
+    }
+
+    if let Some(error) = extract_provider_error(event) {
+        let mut state = sink.state.lock().await;
+        let index = state.next_entry_index;
+        state.next_entry_index += 1;
+        drop(state);
+
+        let entry = native_normalized_entry(
+            NormalizedEntryType::ErrorMessage {
+                error_type: NormalizedEntryError::Other,
+            },
+            error,
+            Some(event.clone()),
+        );
+        push_native_log_msg(
+            sink,
+            LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
+        )
+        .await;
+        return;
+    }
+
+    if provider_event_is_user_echo(event) {
+        return;
+    }
+
+    let (text, is_stream_delta) = if let Some(text) = extract_provider_stream_text(event) {
+        (text, true)
+    } else if let Some(text) = extract_provider_text(event) {
+        (text, false)
+    } else {
+        return;
+    };
+
+    let mut state = sink.state.lock().await;
+    append_provider_assistant_text(&mut state.assistant_content, &text, is_stream_delta);
+
+    let index = if state.assistant_written {
+        0
+    } else {
+        state.assistant_written = true;
+        state.next_entry_index = state.next_entry_index.max(1);
+        0
+    };
+    let entry = native_normalized_entry(
+        NormalizedEntryType::AssistantMessage,
+        state.assistant_content.clone(),
+        Some(event.clone()),
+    );
+    let patch = if state.assistant_written && state.assistant_content != text {
+        ConversationPatch::replace(index, entry)
+    } else {
+        ConversationPatch::add_normalized_entry(index, entry)
+    };
+    drop(state);
+
+    push_native_log_msg(sink, LogMsg::JsonPatch(patch)).await;
+}
+
+async fn complete_native_conversation_sink(
+    sink: NativeConversationSink,
+    status: ExecutionProcessStatus,
+    exit_code: Option<i64>,
+) {
+    if let Err(error) =
+        ExecutionProcess::update_completion(&sink.pool, sink.process_id, status, exit_code).await
+    {
+        tracing::error!(
+            "Failed to mark native provider process {} complete: {}",
+            sink.process_id,
+            error
+        );
+    }
+    if let Err(error) =
+        Session::update_status(&sink.pool, sink.session_id, SessionStatus::InReview).await
+    {
+        tracing::error!(
+            "Failed to mark native provider session {} in review: {}",
+            sink.session_id,
+            error
+        );
+    }
+    sink.msg_store.push_finished();
+}
+
+async fn route_codex_event_to_native_conversation(value: &Value) {
+    let turn_id = extract_turn_id(value);
+    let thread_id = extract_thread_id(value);
+    let mut sink = None;
+    if let Some(turn_id) = turn_id.as_deref() {
+        sink = CODEX_NATIVE_TURN_SINKS.lock().await.get(turn_id).cloned();
+    }
+    if sink.is_none()
+        && let Some(thread_id) = thread_id.as_deref()
+    {
+        sink = CODEX_NATIVE_THREAD_SINKS
+            .lock()
+            .await
+            .get(thread_id)
+            .cloned();
+    }
+    let Some(sink) = sink else {
+        return;
+    };
+
+    push_native_provider_event_to_conversation(&sink, value).await;
+
+    let method = value
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if method == "turn/completed" || method == "turn/error" || method == "error" {
+        if let Some(turn_id) = turn_id.as_deref() {
+            CODEX_NATIVE_TURN_SINKS.lock().await.remove(turn_id);
+        }
+        if let Some(thread_id) = thread_id.as_deref() {
+            CODEX_NATIVE_THREAD_SINKS.lock().await.remove(thread_id);
+        }
+        let status = if method == "turn/completed" {
+            ExecutionProcessStatus::Completed
+        } else {
+            ExecutionProcessStatus::Failed
+        };
+        let exit_code = if status == ExecutionProcessStatus::Completed {
+            Some(0)
+        } else {
+            None
+        };
+        complete_native_conversation_sink(sink, status, exit_code).await;
+    }
 }
 
 fn app_error_from_native(provider: ProviderId, error: impl Into<String>) -> AppError {
@@ -1625,10 +2140,12 @@ async fn probe_native_runtime(provider: ProviderId) -> CapabilityStatus {
         ),
     };
 
-    let output = tokio::time::timeout(
-        Duration::from_secs(4),
-        Command::new(program).args(args).output(),
-    )
+    let output = tokio::time::timeout(Duration::from_secs(4), async move {
+        new_provider_hidden_command(program, args)
+            .await
+            .output()
+            .await
+    })
     .await;
 
     match output {
@@ -1806,12 +2323,8 @@ async fn create_native_execution_process(
         workspace_root.to_string_lossy().as_ref(),
         &repositories,
     );
-    let resume_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
     let executor_config = provider_executor_config(request);
-    let action_type = if let Some(agent_session_id) = resume_info
-        .map(|info| info.session_id)
-        .or_else(|| request.thread_id.clone())
-    {
+    let action_type = if let Some(agent_session_id) = agent_session_id.clone() {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
             prompt: request.text.clone(),
             session_id: agent_session_id,
@@ -1858,6 +2371,34 @@ async fn create_native_execution_process(
     Session::update_status(pool, session.id, SessionStatus::InProgress).await?;
 
     Ok(process)
+}
+
+fn provider_request_with_resolved_thread_id(
+    mut request: ProviderTurnRequest,
+    latest_session_id: Option<String>,
+) -> ProviderTurnRequest {
+    if request.thread_id.is_none() {
+        request.thread_id = latest_session_id;
+    }
+    request
+}
+
+async fn resolve_native_provider_request(
+    pool: &SqlitePool,
+    session: &Session,
+    request: ProviderTurnRequest,
+) -> Result<ProviderTurnRequest, AppError> {
+    if request.thread_id.is_some() {
+        return Ok(request);
+    }
+
+    let latest_session_id = CodingAgentTurn::find_latest_session_info(pool, session.id)
+        .await?
+        .map(|info| info.session_id);
+    Ok(provider_request_with_resolved_thread_id(
+        request,
+        latest_session_id,
+    ))
 }
 
 async fn send_codex_request(
@@ -2001,10 +2542,11 @@ fn spawn_codex_app_server_readers(
                         workspace_id: stdout_server.workspace_id.clone(),
                         thread_id: extract_thread_id(&value),
                         turn_id: extract_turn_id(&value),
-                        event: value,
+                        event: value.clone(),
                     },
                 )
                 .await;
+                route_codex_event_to_native_conversation(&value).await;
             }
         }
     });
@@ -2059,16 +2601,18 @@ async fn ensure_codex_app_server(
         CODEX_APP_SERVERS.lock().await.remove(&key);
     }
 
-    let mut command = Command::new("codex");
+    let mut command_args = vec!["app-server".to_string()];
+    if let Some(listen) = provider_option_string(&request.provider_options, "listen") {
+        command_args.push("--listen".to_string());
+        command_args.push(listen.to_string());
+    }
+
+    let mut command = new_provider_hidden_command("codex", command_args).await;
     command
-        .arg("app-server")
         .current_dir(workspace_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(listen) = provider_option_string(&request.provider_options, "listen") {
-        command.arg("--listen").arg(listen);
-    }
 
     let mut child = command.spawn().map_err(|error| error.to_string())?;
     let stdin = child.stdin.take().ok_or("missing codex app-server stdin")?;
@@ -2124,186 +2668,336 @@ async fn start_codex_native_turn(
     workspace_dir: PathBuf,
     session: &Session,
 ) -> Result<ProviderRuntimeEvent, AppError> {
+    let request =
+        resolve_native_provider_request(&state.deployment.db().pool, session, request).await?;
     let workspace_id = workspace.id;
-    let codex_options = resolve_codex_runtime_options(&request, &workspace_dir);
-    let server = ensure_codex_app_server(
-        &request,
-        workspace_id,
-        &workspace_dir,
-        &session.id.to_string(),
-    )
-    .await
-    .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
-
-    let thread_id = match request.thread_id.clone() {
-        Some(thread_id) if provider_option_bool(&request.provider_options, "fork") => {
-            let mut fork_params = serde_json::Map::new();
-            fork_params.insert("threadId".to_string(), json!(thread_id));
-            if let Some(message_id) =
-                provider_option_string(&request.provider_options, "message_id")
-            {
-                fork_params.insert("messageId".to_string(), json!(message_id));
-            }
-            let response = send_codex_request(
-                &server,
-                "thread/fork",
-                Value::Object(fork_params),
-                Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
-            )
-            .await
-            .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
-            if let Some(error) = response.get("error") {
-                return Err(app_error_from_native(
-                    ProviderId::Codex,
-                    format!("thread/fork failed: {error}"),
-                ));
-            }
-            extract_thread_id(&response).ok_or_else(|| {
-                app_error_from_native(
-                    ProviderId::Codex,
-                    format!("thread/fork did not return a thread id: {response}"),
-                )
-            })?
-        }
-        Some(thread_id) => {
-            let response = send_codex_request(
-                &server,
-                "thread/resume",
-                json!({ "threadId": thread_id }),
-                Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
-            )
-            .await
-            .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
-            if let Some(error) = response.get("error") {
-                return Err(app_error_from_native(
-                    ProviderId::Codex,
-                    format!("thread/resume failed: {error}"),
-                ));
-            }
-            extract_thread_id(&response).unwrap_or(thread_id)
-        }
-        None => {
-            let mut params = serde_json::Map::new();
-            params.insert("cwd".to_string(), json!(workspace_dir.to_string_lossy()));
-            params.insert(
-                "approvalPolicy".to_string(),
-                json!(codex_options.approval_policy.as_str()),
-            );
-            params.insert(
-                "sandboxPolicy".to_string(),
-                codex_options.sandbox_policy.clone(),
-            );
-            if let Some(model) = codex_options.model.as_deref() {
-                params.insert("model".to_string(), json!(model));
-            }
-            let response = send_codex_request(
-                &server,
-                "thread/start",
-                Value::Object(params),
-                Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
-            )
-            .await
-            .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
-            if let Some(error) = response.get("error") {
-                return Err(app_error_from_native(
-                    ProviderId::Codex,
-                    format!("thread/start failed: {error}"),
-                ));
-            }
-            extract_thread_id(&response).ok_or_else(|| {
-                app_error_from_native(
-                    ProviderId::Codex,
-                    format!("thread/start did not return a thread id: {response}"),
-                )
-            })?
-        }
-    };
-
-    let mut params = serde_json::Map::new();
-    params.insert("threadId".to_string(), json!(thread_id));
-    params.insert(
-        "cwd".to_string(),
-        json!(server.workspace_dir.to_string_lossy()),
-    );
-    params.insert(
-        "approvalPolicy".to_string(),
-        json!(codex_options.approval_policy.as_str()),
-    );
-    params.insert(
-        "sandboxPolicy".to_string(),
-        codex_options.sandbox_policy.clone(),
-    );
-    if let Some(model) = codex_options.model.as_deref() {
-        params.insert("model".to_string(), json!(model));
-    }
-    if let Some(effort) = codex_options.effort.as_deref() {
-        params.insert("effort".to_string(), json!(effort));
-    }
-    if let Some(collaboration_mode) =
-        provider_option_string(&request.provider_options, "collaboration_mode")
-    {
-        params.insert(
-            "collaborationMode".to_string(),
-            json!({ "id": collaboration_mode }),
-        );
-    }
-    params.insert(
-        "input".to_string(),
-        Value::Array(codex_input_items(&request)),
-    );
-
-    let response = send_codex_request(
-        &server,
-        "turn/start",
-        Value::Object(params),
-        Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
-    )
-    .await
-    .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
-    if let Some(error) = response.get("error") {
-        return Err(app_error_from_native(
-            ProviderId::Codex,
-            format!("turn/start failed: {error}"),
-        ));
-    }
-    let turn_id = extract_turn_id(&response).unwrap_or_else(|| Uuid::new_v4().to_string());
+    let queued_turn_id = Uuid::new_v4().to_string();
     let process = create_native_execution_process(
         state,
         workspace,
         session,
         &request,
-        Some(thread_id.clone()),
-        Some(turn_id.clone()),
+        request.thread_id.clone(),
+        Some(queued_turn_id.clone()),
     )
     .await?;
-    ExecutionProcess::update_completion(
-        &state.deployment.db().pool,
-        process.id,
-        ExecutionProcessStatus::Completed,
-        Some(0),
-    )
-    .await?;
-    Session::update_status(
-        &state.deployment.db().pool,
-        session.id,
-        SessionStatus::InReview,
-    )
-    .await?;
+    let conversation_sink = register_native_conversation_sink(state, process.id, session.id).await;
+    CODEX_NATIVE_TURN_SINKS
+        .lock()
+        .await
+        .insert(queued_turn_id.clone(), conversation_sink.clone());
 
     let event = ProviderRuntimeEvent {
         provider: ProviderId::Codex,
         workspace_id: workspace_id.to_string(),
-        thread_id: Some(thread_id),
-        turn_id: Some(turn_id),
+        thread_id: request.thread_id.clone(),
+        turn_id: Some(queued_turn_id.clone()),
         event: json!({
-            "method": "turn/started",
+            "method": "turn/queued",
             "runtime_source": "native_app_server",
             "execution_process_id": process.id,
             "session_id": session.id,
-            "response": response,
         }),
     };
     push_provider_event(&session.id.to_string(), event.clone()).await;
+
+    let pool = state.deployment.db().pool.clone();
+    let session_id = session.id;
+    let session_id_string = session.id.to_string();
+    let workspace_id_string = workspace_id.to_string();
+    let process_id = process.id;
+    tokio::spawn(async move {
+        let codex_options = resolve_codex_runtime_options(&request, &workspace_dir);
+        let failure_event = |message: String| {
+            json!({
+                "method": "turn/error",
+                "runtime_source": "native_app_server",
+                "error": message,
+            })
+        };
+        let mut final_thread_id = request.thread_id.clone();
+        let mut final_turn_id = queued_turn_id.clone();
+
+        let server = match ensure_codex_app_server(
+            &request,
+            workspace_id,
+            &workspace_dir,
+            &session_id_string,
+        )
+        .await
+        {
+            Ok(server) => server,
+            Err(error) => {
+                let event = failure_event(error);
+                push_provider_event(
+                    &session_id_string,
+                    ProviderRuntimeEvent {
+                        provider: ProviderId::Codex,
+                        workspace_id: workspace_id_string.clone(),
+                        thread_id: final_thread_id.clone(),
+                        turn_id: Some(final_turn_id.clone()),
+                        event: event.clone(),
+                    },
+                )
+                .await;
+                push_native_provider_event_to_conversation(&conversation_sink, &event).await;
+                CODEX_NATIVE_TURN_SINKS.lock().await.remove(&final_turn_id);
+                complete_native_conversation_sink(
+                    conversation_sink,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
+                return;
+            }
+        };
+
+        let thread_result: Result<String, String> = match request.thread_id.clone() {
+            Some(thread_id) if provider_option_bool(&request.provider_options, "fork") => {
+                let mut fork_params = serde_json::Map::new();
+                fork_params.insert("threadId".to_string(), json!(thread_id));
+                if let Some(message_id) =
+                    provider_option_string(&request.provider_options, "message_id")
+                {
+                    fork_params.insert("messageId".to_string(), json!(message_id));
+                }
+                match send_codex_request(
+                    &server,
+                    "thread/fork",
+                    Value::Object(fork_params),
+                    Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+                )
+                .await
+                {
+                    Ok(response) if response.get("error").is_some() => {
+                        Err(format!("thread/fork failed: {}", response["error"]))
+                    }
+                    Ok(response) => extract_thread_id(&response).ok_or_else(|| {
+                        format!("thread/fork did not return a thread id: {response}")
+                    }),
+                    Err(error) => Err(error),
+                }
+            }
+            Some(thread_id) => {
+                match send_codex_request(
+                    &server,
+                    "thread/resume",
+                    json!({ "threadId": thread_id }),
+                    Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+                )
+                .await
+                {
+                    Ok(response) if response.get("error").is_some() => {
+                        Err(format!("thread/resume failed: {}", response["error"]))
+                    }
+                    Ok(response) => Ok(extract_thread_id(&response).unwrap_or(thread_id)),
+                    Err(error) => Err(error),
+                }
+            }
+            None => {
+                let mut params = serde_json::Map::new();
+                params.insert("cwd".to_string(), json!(workspace_dir.to_string_lossy()));
+                params.insert(
+                    "approvalPolicy".to_string(),
+                    json!(codex_options.approval_policy.as_str()),
+                );
+                params.insert(
+                    "sandboxPolicy".to_string(),
+                    codex_options.sandbox_policy.clone(),
+                );
+                if let Some(model) = codex_options.model.as_deref() {
+                    params.insert("model".to_string(), json!(model));
+                }
+                match send_codex_request(
+                    &server,
+                    "thread/start",
+                    Value::Object(params),
+                    Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+                )
+                .await
+                {
+                    Ok(response) if response.get("error").is_some() => {
+                        Err(format!("thread/start failed: {}", response["error"]))
+                    }
+                    Ok(response) => extract_thread_id(&response).ok_or_else(|| {
+                        format!("thread/start did not return a thread id: {response}")
+                    }),
+                    Err(error) => Err(error),
+                }
+            }
+        };
+
+        let thread_id = match thread_result {
+            Ok(thread_id) => thread_id,
+            Err(error) => {
+                let event = failure_event(error);
+                push_provider_event(
+                    &session_id_string,
+                    ProviderRuntimeEvent {
+                        provider: ProviderId::Codex,
+                        workspace_id: workspace_id_string.clone(),
+                        thread_id: final_thread_id.clone(),
+                        turn_id: Some(final_turn_id.clone()),
+                        event: event.clone(),
+                    },
+                )
+                .await;
+                push_native_provider_event_to_conversation(&conversation_sink, &event).await;
+                CODEX_NATIVE_TURN_SINKS.lock().await.remove(&final_turn_id);
+                complete_native_conversation_sink(
+                    conversation_sink,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
+                return;
+            }
+        };
+        final_thread_id = Some(thread_id.clone());
+        CODEX_NATIVE_THREAD_SINKS
+            .lock()
+            .await
+            .insert(thread_id.clone(), conversation_sink.clone());
+        if let Err(error) =
+            CodingAgentTurn::update_agent_session_id(&pool, process_id, &thread_id).await
+        {
+            tracing::error!(
+                "Failed to persist Codex app-server thread id for process {}: {}",
+                process_id,
+                error
+            );
+        }
+
+        let mut params = serde_json::Map::new();
+        params.insert("threadId".to_string(), json!(thread_id));
+        params.insert(
+            "cwd".to_string(),
+            json!(server.workspace_dir.to_string_lossy()),
+        );
+        params.insert(
+            "approvalPolicy".to_string(),
+            json!(codex_options.approval_policy.as_str()),
+        );
+        params.insert(
+            "sandboxPolicy".to_string(),
+            codex_options.sandbox_policy.clone(),
+        );
+        if let Some(model) = codex_options.model.as_deref() {
+            params.insert("model".to_string(), json!(model));
+        }
+        if let Some(effort) = codex_options.effort.as_deref() {
+            params.insert("effort".to_string(), json!(effort));
+        }
+        if let Some(collaboration_mode) =
+            provider_option_string(&request.provider_options, "collaboration_mode")
+        {
+            params.insert(
+                "collaborationMode".to_string(),
+                json!({ "id": collaboration_mode }),
+            );
+        }
+        params.insert(
+            "input".to_string(),
+            Value::Array(codex_input_items(&request)),
+        );
+
+        let response = match send_codex_request(
+            &server,
+            "turn/start",
+            Value::Object(params),
+            Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+        )
+        .await
+        {
+            Ok(response) if response.get("error").is_some() => {
+                let event = failure_event(format!("turn/start failed: {}", response["error"]));
+                push_provider_event(
+                    &session_id_string,
+                    ProviderRuntimeEvent {
+                        provider: ProviderId::Codex,
+                        workspace_id: workspace_id_string.clone(),
+                        thread_id: final_thread_id.clone(),
+                        turn_id: Some(final_turn_id.clone()),
+                        event: event.clone(),
+                    },
+                )
+                .await;
+                push_native_provider_event_to_conversation(&conversation_sink, &event).await;
+                CODEX_NATIVE_TURN_SINKS.lock().await.remove(&final_turn_id);
+                if let Some(thread_id) = final_thread_id.as_deref() {
+                    CODEX_NATIVE_THREAD_SINKS.lock().await.remove(thread_id);
+                }
+                complete_native_conversation_sink(
+                    conversation_sink,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
+                return;
+            }
+            Ok(response) => response,
+            Err(error) => {
+                let event = failure_event(error);
+                push_provider_event(
+                    &session_id_string,
+                    ProviderRuntimeEvent {
+                        provider: ProviderId::Codex,
+                        workspace_id: workspace_id_string.clone(),
+                        thread_id: final_thread_id.clone(),
+                        turn_id: Some(final_turn_id.clone()),
+                        event: event.clone(),
+                    },
+                )
+                .await;
+                push_native_provider_event_to_conversation(&conversation_sink, &event).await;
+                CODEX_NATIVE_TURN_SINKS.lock().await.remove(&final_turn_id);
+                if let Some(thread_id) = final_thread_id.as_deref() {
+                    CODEX_NATIVE_THREAD_SINKS.lock().await.remove(thread_id);
+                }
+                complete_native_conversation_sink(
+                    conversation_sink,
+                    ExecutionProcessStatus::Failed,
+                    None,
+                )
+                .await;
+                return;
+            }
+        };
+
+        if let Some(turn_id) = extract_turn_id(&response) {
+            final_turn_id = turn_id;
+            CODEX_NATIVE_TURN_SINKS.lock().await.remove(&queued_turn_id);
+            CODEX_NATIVE_TURN_SINKS
+                .lock()
+                .await
+                .insert(final_turn_id.clone(), conversation_sink.clone());
+            if let Err(error) =
+                CodingAgentTurn::update_agent_message_id(&pool, process_id, &final_turn_id).await
+            {
+                tracing::error!(
+                    "Failed to persist Codex app-server turn id for process {}: {}",
+                    process_id,
+                    error
+                );
+            }
+        }
+
+        let event = ProviderRuntimeEvent {
+            provider: ProviderId::Codex,
+            workspace_id: workspace_id.to_string(),
+            thread_id: final_thread_id.clone(),
+            turn_id: Some(final_turn_id),
+            event: json!({
+                "method": "turn/started",
+                "runtime_source": "native_app_server",
+                "execution_process_id": process_id,
+                "session_id": session_id,
+                "response": response,
+            }),
+        };
+        push_provider_event(&session_id_string, event).await;
+    });
+
     Ok(event)
 }
 
@@ -2314,6 +3008,8 @@ async fn start_claude_sdk_native_turn(
     workspace_dir: PathBuf,
     session: &Session,
 ) -> Result<ProviderRuntimeEvent, AppError> {
+    let request =
+        resolve_native_provider_request(&state.deployment.db().pool, session, request).await?;
     let provider = ProviderId::Claude;
     let workspace_id = workspace.id;
     let turn_id = Uuid::new_v4().to_string();
@@ -2323,9 +3019,8 @@ async fn start_claude_sdk_native_turn(
     let args = build_claude_sdk_bridge_args(&bridge_input_path);
     let runtime_source = "native_claude_agent_sdk";
 
-    let mut command = Command::new(program);
+    let mut command = new_provider_hidden_command(program, args.clone()).await;
     command
-        .args(&args)
         .current_dir(&workspace_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2352,6 +3047,7 @@ async fn start_claude_sdk_native_turn(
         Some(turn_id.clone()),
     )
     .await?;
+    let conversation_sink = register_native_conversation_sink(state, process.id, session.id).await;
 
     NATIVE_ACTIVE_TURNS.lock().await.insert(
         turn_id.clone(),
@@ -2383,6 +3079,7 @@ async fn start_claude_sdk_native_turn(
     let stdout_turn_id = turn_id.clone();
     let stdout_pool = state.deployment.db().pool.clone();
     let stdout_process_id = process.id;
+    let stdout_sink = conversation_sink.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -2416,16 +3113,18 @@ async fn start_claude_sdk_native_turn(
                     workspace_id: stdout_workspace_id.clone(),
                     thread_id: extract_thread_id(&parsed).or_else(|| stdout_thread_id.clone()),
                     turn_id: extract_turn_id(&parsed).or_else(|| Some(stdout_turn_id.clone())),
-                    event: parsed,
+                    event: parsed.clone(),
                 },
             )
             .await;
+            push_native_provider_event_to_conversation(&stdout_sink, &parsed).await;
         }
     });
 
     let stderr_session_id = session.id.to_string();
     let stderr_workspace_id = workspace_id.to_string();
     let stderr_turn_id = turn_id.clone();
+    let stderr_sink = conversation_sink.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -2446,6 +3145,14 @@ async fn start_claude_sdk_native_turn(
                 },
             )
             .await;
+            push_native_provider_event_to_conversation(
+                &stderr_sink,
+                &json!({
+                    "type": "stderr",
+                    "message": line,
+                }),
+            )
+            .await;
         }
     });
 
@@ -2455,6 +3162,7 @@ async fn start_claude_sdk_native_turn(
     let wait_pool = state.deployment.db().pool.clone();
     let wait_process_id = process.id;
     let wait_session_uuid = session.id;
+    let wait_msg_stores = state.deployment.container().msg_stores().clone();
     tokio::spawn(async move {
         let status = child.lock().await.wait().await;
         let _ = std::fs::remove_file(&bridge_input_path);
@@ -2522,6 +3230,9 @@ async fn start_claude_sdk_native_turn(
             },
         )
         .await;
+        if let Some(msg_store) = wait_msg_stores.write().await.remove(&wait_process_id) {
+            msg_store.push_finished();
+        }
     });
 
     Ok(event)
@@ -2534,6 +3245,8 @@ async fn start_opencode_sdk_native_turn(
     workspace_dir: PathBuf,
     session: &Session,
 ) -> Result<ProviderRuntimeEvent, AppError> {
+    let request =
+        resolve_native_provider_request(&state.deployment.db().pool, session, request).await?;
     let provider = ProviderId::Opencode;
     let workspace_id = workspace.id;
     let turn_id = Uuid::new_v4().to_string();
@@ -2543,9 +3256,8 @@ async fn start_opencode_sdk_native_turn(
     let args = build_opencode_sdk_bridge_args(&bridge_input_path);
     let runtime_source = "native_opencode_sdk";
 
-    let mut command = Command::new(program);
+    let mut command = new_provider_hidden_command(program, args.clone()).await;
     command
-        .args(&args)
         .current_dir(&workspace_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2572,6 +3284,7 @@ async fn start_opencode_sdk_native_turn(
         Some(turn_id.clone()),
     )
     .await?;
+    let conversation_sink = register_native_conversation_sink(state, process.id, session.id).await;
 
     NATIVE_ACTIVE_TURNS.lock().await.insert(
         turn_id.clone(),
@@ -2603,6 +3316,7 @@ async fn start_opencode_sdk_native_turn(
     let stdout_turn_id = turn_id.clone();
     let stdout_pool = state.deployment.db().pool.clone();
     let stdout_process_id = process.id;
+    let stdout_sink = conversation_sink.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -2636,16 +3350,18 @@ async fn start_opencode_sdk_native_turn(
                     workspace_id: stdout_workspace_id.clone(),
                     thread_id: extract_thread_id(&parsed).or_else(|| stdout_thread_id.clone()),
                     turn_id: extract_turn_id(&parsed).or_else(|| Some(stdout_turn_id.clone())),
-                    event: parsed,
+                    event: parsed.clone(),
                 },
             )
             .await;
+            push_native_provider_event_to_conversation(&stdout_sink, &parsed).await;
         }
     });
 
     let stderr_session_id = session.id.to_string();
     let stderr_workspace_id = workspace_id.to_string();
     let stderr_turn_id = turn_id.clone();
+    let stderr_sink = conversation_sink.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -2666,6 +3382,14 @@ async fn start_opencode_sdk_native_turn(
                 },
             )
             .await;
+            push_native_provider_event_to_conversation(
+                &stderr_sink,
+                &json!({
+                    "type": "stderr",
+                    "message": line,
+                }),
+            )
+            .await;
         }
     });
 
@@ -2675,6 +3399,7 @@ async fn start_opencode_sdk_native_turn(
     let wait_pool = state.deployment.db().pool.clone();
     let wait_process_id = process.id;
     let wait_session_uuid = session.id;
+    let wait_msg_stores = state.deployment.container().msg_stores().clone();
     tokio::spawn(async move {
         let status = child.lock().await.wait().await;
         let _ = std::fs::remove_file(&bridge_input_path);
@@ -2742,6 +3467,9 @@ async fn start_opencode_sdk_native_turn(
             },
         )
         .await;
+        if let Some(msg_store) = wait_msg_stores.write().await.remove(&wait_process_id) {
+            msg_store.push_finished();
+        }
     });
 
     Ok(event)
@@ -3279,6 +4007,265 @@ mod tests {
             Some("OPENCODE"),
             ProviderId::Claude
         ));
+    }
+
+    #[test]
+    fn native_provider_events_extract_display_text_without_user_echoes() {
+        let claude_event = json!({
+            "type": "sdk_event",
+            "text": "assistant reply",
+            "event": {
+                "message": {
+                    "role": "assistant",
+                    "content": [{ "type": "text", "text": "assistant reply" }]
+                }
+            }
+        });
+        let user_event = json!({
+            "type": "sdk_event",
+            "text": "user prompt",
+            "event": {
+                "message": {
+                    "role": "user",
+                    "content": [{ "type": "text", "text": "user prompt" }]
+                }
+            }
+        });
+        let opencode_event = json!({
+            "type": "opencode_sdk_event",
+            "event": {
+                "message": {
+                    "role": "assistant",
+                    "parts": [{ "type": "text", "text": "opencode reply" }]
+                }
+            }
+        });
+        let stderr_event = json!({
+            "type": "stderr",
+            "message": "provider failed"
+        });
+
+        assert_eq!(
+            extract_provider_text(&claude_event),
+            Some("assistant reply".to_string())
+        );
+        assert!(provider_event_is_user_echo(&user_event));
+        assert_eq!(
+            extract_provider_text(&opencode_event),
+            Some("opencode reply".to_string())
+        );
+        assert_eq!(
+            extract_provider_error(&stderr_event),
+            Some("provider failed".to_string())
+        );
+    }
+
+    #[test]
+    fn codex_app_server_events_extract_current_protocol_ids_and_text() {
+        let turn_start_response = json!({
+            "id": 12,
+            "result": {
+                "turn": {
+                    "id": "turn-123",
+                    "status": "running",
+                    "items": []
+                }
+            }
+        });
+        let turn_completed_notification = json!({
+            "method": "turn/completed",
+            "params": {
+                "threadId": "thread-123",
+                "turn": {
+                    "id": "turn-123",
+                    "status": "completed",
+                    "items": []
+                }
+            }
+        });
+        let agent_delta_notification = json!({
+            "method": "item/agentMessage/delta",
+            "params": {
+                "threadId": "thread-123",
+                "turnId": "turn-123",
+                "itemId": "item-123",
+                "delta": "hello"
+            }
+        });
+
+        assert_eq!(
+            extract_turn_id(&turn_start_response),
+            Some("turn-123".to_string())
+        );
+        assert_eq!(
+            extract_turn_id(&turn_completed_notification),
+            Some("turn-123".to_string())
+        );
+        assert_eq!(
+            extract_thread_id(&turn_completed_notification),
+            Some("thread-123".to_string())
+        );
+        assert_eq!(
+            extract_provider_text(&agent_delta_notification),
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            extract_provider_stream_text(&json!({
+                "method": "item/agentMessage/delta",
+                "params": {
+                    "delta": " **GPT"
+                }
+            })),
+            Some(" **GPT".to_string())
+        );
+        assert_eq!(
+            extract_provider_stream_text(&json!({
+                "type": "text_delta",
+                "text": " 5.5"
+            })),
+            Some(" 5.5".to_string())
+        );
+    }
+
+    #[test]
+    fn native_provider_requests_reuse_persisted_threads_when_frontend_omits_thread_id() {
+        let mut request = turn_request(ProviderId::Codex);
+        request.thread_id = None;
+
+        let resolved =
+            provider_request_with_resolved_thread_id(request, Some("persisted-thread".to_string()));
+        assert_eq!(resolved.thread_id.as_deref(), Some("persisted-thread"));
+
+        let mut explicit = turn_request(ProviderId::Codex);
+        explicit.thread_id = Some("explicit-thread".to_string());
+        let explicit = provider_request_with_resolved_thread_id(
+            explicit,
+            Some("persisted-thread".to_string()),
+        );
+        assert_eq!(explicit.thread_id.as_deref(), Some("explicit-thread"));
+    }
+
+    #[test]
+    fn sdk_bridge_inputs_receive_resolved_thread_ids() {
+        let mut claude_request = turn_request(ProviderId::Claude);
+        claude_request = provider_request_with_resolved_thread_id(
+            claude_request,
+            Some("claude-persisted-thread".to_string()),
+        );
+        let claude_input =
+            build_claude_sdk_bridge_input(&claude_request, &PathBuf::from("C:\\workspace"))
+                .unwrap();
+        assert_eq!(
+            claude_input.get("threadId").and_then(Value::as_str),
+            Some("claude-persisted-thread")
+        );
+
+        let mut opencode_request = turn_request(ProviderId::Opencode);
+        opencode_request = provider_request_with_resolved_thread_id(
+            opencode_request,
+            Some("opencode-persisted-thread".to_string()),
+        );
+        let opencode_input =
+            build_opencode_sdk_bridge_input(&opencode_request, &PathBuf::from("C:\\workspace"))
+                .unwrap();
+        assert_eq!(
+            opencode_input.get("threadId").and_then(Value::as_str),
+            Some("opencode-persisted-thread")
+        );
+    }
+
+    #[test]
+    fn native_provider_events_extract_token_usage_info() {
+        let codex_event = json!({
+            "method": "thread/tokenUsage/updated",
+            "params": {
+                "threadId": "thread-123",
+                "turnId": "turn-123",
+                "tokenUsage": {
+                    "total": {
+                        "totalTokens": 1200,
+                        "inputTokens": 900,
+                        "cachedInputTokens": 100,
+                        "outputTokens": 200,
+                        "reasoningOutputTokens": 0
+                    },
+                    "last": {
+                        "totalTokens": 300,
+                        "inputTokens": 200,
+                        "cachedInputTokens": 50,
+                        "outputTokens": 50,
+                        "reasoningOutputTokens": 0
+                    },
+                    "modelContextWindow": 128000
+                }
+            }
+        });
+        let claude_event = json!({
+            "type": "sdk_event",
+            "event": {
+                "type": "result",
+                "subtype": "success",
+                "usage": {
+                    "input_tokens": 1000,
+                    "output_tokens": 200,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25
+                },
+                "modelUsage": {
+                    "claude-sonnet": {
+                        "contextWindow": 200000
+                    }
+                }
+            }
+        });
+        let opencode_event = json!({
+            "type": "opencode_sdk_response",
+            "response": {
+                "type": "assistant",
+                "tokens": {
+                    "input": 700,
+                    "output": 100,
+                    "reasoning": 25,
+                    "cache": {
+                        "read": 10,
+                        "write": 5
+                    }
+                },
+                "modelContextWindow": 128000
+            }
+        });
+
+        assert_eq!(
+            extract_provider_token_usage_info(&codex_event)
+                .map(|info| { (info.total_tokens, info.model_context_window) }),
+            Some((1200, 128000))
+        );
+        assert_eq!(
+            extract_provider_token_usage_info(&claude_event)
+                .map(|info| { (info.total_tokens, info.model_context_window) }),
+            Some((1275, 200000))
+        );
+        assert_eq!(
+            extract_provider_token_usage_info(&opencode_event)
+                .map(|info| { (info.total_tokens, info.model_context_window) }),
+            Some((840, 128000))
+        );
+    }
+
+    #[test]
+    fn native_provider_stream_deltas_preserve_markdown_boundaries() {
+        let mut content = String::new();
+        append_provider_assistant_text(&mut content, "我是基于 **GPT", true);
+        append_provider_assistant_text(&mut content, "-5** 的 Codex", true);
+        append_provider_assistant_text(&mut content, " 编码代理。", true);
+
+        assert_eq!(content, "我是基于 **GPT-5** 的 Codex 编码代理。");
+
+        append_provider_assistant_text(&mut content, "完整块消息", false);
+        assert_eq!(
+            content,
+            "我是基于 **GPT-5** 的 Codex 编码代理。\n完整块消息"
+        );
     }
 
     #[test]

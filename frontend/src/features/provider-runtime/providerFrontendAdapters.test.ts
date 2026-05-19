@@ -183,6 +183,20 @@ describe('provider frontend adapters', () => {
 
     expect(
       codex.mapRuntimeEvent({
+        provider: 'codex',
+        workspace_id: 'workspace-1',
+        turn_id: 'queued-turn-1',
+        event: { method: 'turn/queued' },
+      })[0]
+    ).toMatchObject({
+      type: 'set_status',
+      provider: 'codex',
+      turnId: 'queued-turn-1',
+      status: 'started',
+    });
+
+    expect(
+      codex.mapRuntimeEvent({
         provider: 'claude',
         workspace_id: 'workspace-1',
         event: { text: 'wrong boundary' },

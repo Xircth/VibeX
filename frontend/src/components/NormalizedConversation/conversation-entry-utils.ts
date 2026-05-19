@@ -148,6 +148,8 @@ const TRANSPORT_FALLBACK_NOTICE_PREFIX_PATTERN =
   /^\s*(Falling back from WebSockets to HTTPS transport\.\s*timeout waiting for child process to exit\.?)([\s\S]*)$/i;
 const IMPECCABLE_PREFLIGHT_NOTICE_PATTERN =
   /^\s*(IMPECCABLE_PREFLIGHT:[^\r\n]*)(?:\r?\n([\s\S]*))?$/i;
+const CODEX_UNSTABLE_FEATURE_NOTICE_PATTERN =
+  /^\s*(Under-development features enabled:[\s\S]*?\bsuppress_unstable_features_warning\b\s*=\s*true`?\s+in\s+[\s\S]*?config\.toml\.?)([\s\S]*)$/i;
 const VERBOSE_ERROR_PATTERNS = [
   /\bWall time:\s*.+?\bOutput:/i,
   /\bCategoryInfo\s*:/i,
@@ -165,6 +167,30 @@ const SHELL_OUTPUT_ENVELOPE_PATTERN =
 
 export function sanitizeConversationContent(content: string): string {
   return content.replace(ANSI_SEQUENCE_PATTERN, '').trim();
+}
+
+export function repairTokenizedStreamContent(content: string): string {
+  const sanitized = sanitizeConversationContent(content);
+  const lines = sanitized
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+
+  if (lines.length < 4) {
+    return sanitized;
+  }
+
+  const shortLineCount = lines.filter((line) => line.trim().length <= 12).length;
+  const averageLineLength =
+    lines.reduce((total, line) => total + line.trim().length, 0) / lines.length;
+  const looksTokenized =
+    shortLineCount / lines.length >= 0.55 || averageLineLength <= 14;
+
+  if (!looksTokenized) {
+    return sanitized;
+  }
+
+  return lines.join('');
 }
 
 export function isInternalTracingLogContent(content: string): boolean {
@@ -210,7 +236,7 @@ export function splitLeadingTransportNotice(
     return null;
   }
 
-  const notice = match[1]?.trim();
+  const notice = normalizeMetaNoticeText(match[1]?.trim() ?? '');
   const remainder = match[2]?.trimStart();
   if (!notice || !remainder) {
     return null;
@@ -229,7 +255,26 @@ export function splitLeadingImpeccablePreflightNotice(
     return null;
   }
 
-  const notice = match[1]?.trim();
+  const notice = normalizeMetaNoticeText(match[1]?.trim() ?? '');
+  const remainder = match[2]?.trimStart() ?? '';
+  if (!notice) {
+    return null;
+  }
+
+  return { notice, remainder };
+}
+
+export function splitLeadingCodexUnstableFeatureNotice(
+  content: string
+): { notice: string; remainder: string } | null {
+  const match = sanitizeConversationContent(content).match(
+    CODEX_UNSTABLE_FEATURE_NOTICE_PATTERN
+  );
+  if (!match) {
+    return null;
+  }
+
+  const notice = normalizeMetaNoticeText(match[1]?.trim() ?? '');
   const remainder = match[2]?.trimStart() ?? '';
   if (!notice) {
     return null;
@@ -607,6 +652,15 @@ export function getCompactMetaNoticeText(
   const impeccablePreflight = splitLeadingImpeccablePreflightNotice(content);
   if (impeccablePreflight && !impeccablePreflight.remainder) {
     return normalizeMetaNoticeText(impeccablePreflight.notice);
+  }
+
+  const unstableFeatureNotice =
+    splitLeadingCodexUnstableFeatureNotice(content);
+  if (unstableFeatureNotice) {
+    if (!unstableFeatureNotice.remainder) {
+      return normalizeMetaNoticeText(unstableFeatureNotice.notice);
+    }
+    return null;
   }
 
   if (isNeutralTransportNotice(content)) {

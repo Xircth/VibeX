@@ -34,11 +34,17 @@ test('preview panel requests proxied preview urls and supports upstream inspect 
 test('preview panel keeps selection state aligned with actual targeting state', () => {
   const source = readFrontendFile('src/components/panels/PreviewPanel.tsx');
 
-  assert.match(source, /const\s*\[isSelectModeEnabled,\s*setIsSelectModeEnabled\]\s*=\s*useState\(false\)/);
+  assert.match(
+    source,
+    /const\s*\[isSelectModeEnabled,\s*setIsSelectModeEnabled\]\s*=\s*useState\(false\)/
+  );
   assert.match(source, /isToolbarBridgeReady/);
   assert.match(source, /setIsSelectModeEnabled\(false\)/);
   assert.match(source, /bootstrapPreviewBridge|schedulePreviewBridgeBootstrap/);
-  assert.doesNotMatch(source, /if \(previewState\.status !== 'ready' \|\| !previewState\.url \|\| !addElement\) \{\s*return;/);
+  assert.doesNotMatch(
+    source,
+    /if \(previewState\.status !== 'ready' \|\| !previewState\.url \|\| !addElement\) \{\s*return;/
+  );
   assert.doesNotMatch(source, /if \(!activeIframe\) \{\s*return;\s*\}/);
   assert.match(source, /requestedSelectModeRef\.current\s*=\s*nextEnabled/);
   assert.match(source, /setIsSelectModeEnabled\(nextEnabled\)/);
@@ -58,21 +64,62 @@ test('clicked element provider notifies after React commits new entries', () => 
   const source = readFrontendFile('src/contexts/ClickedElementsProvider.tsx');
 
   assert.match(source, /notifiedElementIdsRef/);
-  assert.match(source, /useEffect\(\(\) => \{\s*for \(const entry of elements\)/);
-  assert.doesNotMatch(source, /queueMicrotask\(\(\) => \{\s*onElementAddedCallbacksRef/);
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{\s*for \(const entry of elements\)/
+  );
+  assert.doesNotMatch(
+    source,
+    /queueMicrotask\(\(\) => \{\s*onElementAddedCallbacksRef/
+  );
 });
 
 test('ready preview toolbar exposes pressed state and passes iframe load back for bridge bootstrap', () => {
-  const source = readFrontendFile('src/components/tasks/TaskDetails/preview/ReadyContent.tsx');
+  const source = readFrontendFile(
+    'src/components/tasks/TaskDetails/preview/ReadyContent.tsx'
+  );
 
-  assert.match(source, /onToggleSelectMode\?:\s*\(iframe:\s*HTMLIFrameElement\s*\|\s*null\)\s*=>\s*void/);
-  assert.match(source, /onClick=\{\(\) => onToggleSelectMode\?\.\(iframeRef\.current\)\}/);
-  assert.match(source, /onIframeLoad\?:\s*\(iframe:\s*HTMLIFrameElement\s*\|\s*null\)\s*=>\s*void/);
-  assert.match(source, /onLoad=\{\(\) => onIframeLoad\?\.\(iframeRef\.current\)\}/);
+  assert.match(
+    source,
+    /onToggleSelectMode\?:\s*\(iframe:\s*HTMLIFrameElement\s*\|\s*null\)\s*=>\s*void/
+  );
+  assert.match(
+    source,
+    /onClick=\{\(\) => onToggleSelectMode\?\.\(iframeRef\.current\)\}/
+  );
+  assert.match(
+    source,
+    /onIframeLoad\?:\s*\(iframe:\s*HTMLIFrameElement\s*\|\s*null\)\s*=>\s*void/
+  );
+  assert.match(
+    source,
+    /onLoad=\{\(\) => onIframeLoad\?\.\(iframeRef\.current\)\}/
+  );
   assert.match(source, /aria-pressed=\{isSelectModeEnabled\}/);
   assert.match(source, /useEffect\(\(\) => \{/);
   assert.match(source, /setUrlInput\(displayUrl \?\? url \?\? ''\)/);
   assert.match(source, /\}, \[displayUrl, url\]\)/);
+});
+
+test('ready preview device viewports use fixed defaults and expose manual resizing', () => {
+  const source = readFrontendFile(
+    'src/components/tasks/TaskDetails/preview/ReadyContent.tsx'
+  );
+
+  assert.match(source, /tablet:\s*\{\s*width:\s*768,\s*height:\s*1024\s*\}/);
+  assert.match(source, /mobile:\s*\{\s*width:\s*430,\s*height:\s*932\s*\}/);
+  assert.match(
+    source,
+    /minViewportSize:\s*ViewportSize\s*=\s*\{\s*width:\s*240,\s*height:\s*320\s*\}/
+  );
+  assert.match(source, /handleResizePointerDown/);
+  assert.match(source, /handleResizePointerMove/);
+  assert.match(source, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(source, /releasePointerCapture\(event\.pointerId\)/);
+  assert.match(source, /aria-label="Resize preview viewport"/);
+  assert.match(source, /<Grip className="h-3\.5 w-3\.5" \/>/);
+  assert.doesNotMatch(source, /mobile:\s*\{\s*width:\s*'375px'/);
+  assert.doesNotMatch(source, /const\s+viewSizes/);
 });
 
 test('web companion installer injects the toolbar bridge for parent-triggered selection', () => {

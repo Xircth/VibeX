@@ -22,16 +22,16 @@ test('blurred main window uses detached desktop toast instead of inline toast fa
     'src/components/layout/ProjectWindowManager.tsx'
   );
   const blurredWindowBranch = source.match(
-    /if \(!windowFocused\) \{([\s\S]*?)\n          }\n\n          showInlineToast/
+    /if \(kind === 'error' \|\| !windowFocused\) \{([\s\S]*?)\n          }\n\n          showInlineToast/
   );
 
-  assert.match(source, /if \(!windowFocused\) \{/);
+  assert.match(source, /if \(kind === 'error' \|\| !windowFocused\) \{/);
   assert.match(source, /showDesktopToast\(\{/);
   assert.ok(blurredWindowBranch);
   assert.doesNotMatch(blurredWindowBranch[1], /showInlineToast\(\{/);
   assert.match(
     source,
-    /Failed to show detached desktop toast window for completed session/
+    /Failed to show detached desktop toast window for session notification/
   );
 });
 
@@ -76,6 +76,10 @@ test('desktop toast window keeps a dedicated route, window, and ready handshake'
 
   assert.match(appSource, /if \(location\.pathname === '\/desktop-toast'\)/);
   assert.match(appSource, /<DesktopToastAppContent \/>/);
+  assert.match(
+    appSource,
+    /<LegacyDesignScope className="!bg-transparent">\s*<DesktopToastWindow \/>/
+  );
   assert.match(
     desktopToastSource,
     /tauriInvoke<DesktopToastPayload\[\]>\(\s*'desktop_toast_window_ready'/

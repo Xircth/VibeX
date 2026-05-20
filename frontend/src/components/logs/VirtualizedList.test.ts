@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
 import {
   buildProcessChangeItems,
+  collapsedAssistantMessagesLabel,
   findPreviousUserMessageKey,
 } from './VirtualizedList';
 import { buildProcessChangeFileGroups } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
@@ -150,5 +151,11 @@ describe('buildProcessChangeItems', () => {
       { path: 'src/App.tsx', count: 2 },
       { path: 'src/main.tsx', count: 1 },
     ]);
+  });
+});
+
+describe('collapsedAssistantMessagesLabel', () => {
+  it('shows the hidden process-message count', () => {
+    expect(collapsedAssistantMessagesLabel(3)).toBe('已折叠 3 条过程消息');
   });
 });

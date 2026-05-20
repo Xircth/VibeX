@@ -98,6 +98,30 @@
   color: #fff !important;
 }
 
+.conv-user-retry-panel {
+  width: min(720px, 85vw);
+  max-width: 85%;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px 12px 4px 12px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow: 0 10px 30px hsl(var(--foreground) / 0.08);
+}
+
+.retry-editor-inline {
+  color: hsl(var(--foreground));
+}
+
+.retry-editor-input {
+  min-height: 88px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 10px 12px;
+}
+
 /* Collapsible user message */
 .conv-user-collapsible {
   position: relative;

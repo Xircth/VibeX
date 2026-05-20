@@ -22,6 +22,7 @@ import { desktopApi } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
+import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 
 function getSessionStatusLabel(session: KanbanProjectSessionRecord) {
   if (session.isRunning) {
@@ -51,6 +52,10 @@ type ProjectSessionTarget = {
 type ProjectRailNavigationTarget = {
   projectId: string;
   route: string;
+};
+
+type ProjectRailProjectDialogRequest = {
+  mode: 'create' | 'open';
 };
 
 function ProjectActivityTracker({
@@ -561,4 +566,38 @@ export function ProjectWindowManager() {
       ))}
     </>
   );
+}
+
+export function ProjectRailProjectDialogBridge() {
+  const navigate = useNavigate();
+  const ensureProjectOpen = useWindowProjectsStore(
+    (state) => state.ensureProjectOpen
+  );
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    tauriListen<ProjectRailProjectDialogRequest>(
+      'project-rail-project-dialog-requested',
+      async (payload) => {
+        const result = await ProjectFormDialog.show({
+          autoOpenFolderPicker: payload.mode === 'open',
+        });
+        if (result?.status !== 'saved' || !result.project) {
+          return;
+        }
+
+        ensureProjectOpen(result.project.id);
+        navigate(paths.projectSessions(result.project.id));
+      }
+    ).then((dispose) => {
+      unlisten = dispose;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [ensureProjectOpen, navigate]);
+
+  return null;
 }

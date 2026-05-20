@@ -3,6 +3,7 @@ use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, window
 
 const PROJECT_RAIL_WINDOW_LABEL: &str = "project-rail";
 const PROJECT_RAIL_ACTIVATED_EVENT: &str = "project-rail-activated";
+const PROJECT_RAIL_PROJECT_DIALOG_REQUEST_EVENT: &str = "project-rail-project-dialog-requested";
 const PROJECT_RAIL_VISIBILITY_EVENT: &str = "project-rail-visibility";
 const PROJECT_RAIL_WIDTH: i32 = 82;
 const PROJECT_RAIL_MIN_VISIBLE_ITEMS: usize = 4;
@@ -64,6 +65,12 @@ struct ProjectRailContext {
 pub struct ProjectRailTargetPayload {
     pub project_id: String,
     pub route: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRailProjectDialogRequest {
+    pub mode: String,
 }
 
 pub fn ensure_project_rail_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
@@ -373,6 +380,24 @@ pub async fn activate_project_rail_target(
     main_window.set_focus().map_err(|error| error.to_string())?;
     main_window
         .emit(PROJECT_RAIL_ACTIVATED_EVENT, payload)
+        .map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn request_project_rail_project_dialog(
+    app: tauri::AppHandle,
+    payload: ProjectRailProjectDialogRequest,
+) -> Result<(), String> {
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    main_window.show().map_err(|error| error.to_string())?;
+    main_window.set_focus().map_err(|error| error.to_string())?;
+    main_window
+        .emit(PROJECT_RAIL_PROJECT_DIALOG_REQUEST_EVENT, payload)
         .map_err(|error| error.to_string())?;
 
     Ok(())

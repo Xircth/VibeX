@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -6,6 +13,7 @@ import {
   Copy,
   Crosshair,
   ExternalLink,
+  Grip,
   Loader2,
   Monitor,
   Pause,
@@ -16,12 +24,15 @@ import {
 } from 'lucide-react';
 
 type ViewMode = 'desktop' | 'tablet' | 'mobile';
+type DeviceViewMode = Exclude<ViewMode, 'desktop'>;
+type ViewportSize = { width: number; height: number };
 
-const viewSizes: Record<ViewMode, { width: string; height: string }> = {
-  desktop: { width: '100%', height: '100%' },
-  tablet: { width: '768px', height: '100%' },
-  mobile: { width: '375px', height: '100%' },
+const defaultViewportSizes: Record<DeviceViewMode, ViewportSize> = {
+  tablet: { width: 768, height: 1024 },
+  mobile: { width: 430, height: 932 },
 };
+
+const minViewportSize: ViewportSize = { width: 240, height: 320 };
 
 interface ReadyContentProps {
   url?: string;
@@ -62,8 +73,17 @@ export function ReadyContent({
 }: ReadyContentProps) {
   const [urlInput, setUrlInput] = useState(url ?? '');
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const resizeDragRef = useRef<{
+    mode: DeviceViewMode;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('desktop');
+  const [viewportSizes, setViewportSizes] = useState(defaultViewportSizes);
 
   const handleNavigate = () => {
     let target = urlInput.trim();
@@ -78,11 +98,77 @@ export function ReadyContent({
     setLocalRefreshKey((key) => key + 1);
   };
 
+  const handleResizePointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => {
+    if (viewMode === 'desktop') return;
+
+    const size = viewportSizes[viewMode];
+    resizeDragRef.current = {
+      mode: viewMode,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: size.width,
+      startHeight: size.height,
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handleResizePointerMove = (
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => {
+    const drag = resizeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const nextWidth = Math.max(
+      minViewportSize.width,
+      Math.round(drag.startWidth + event.clientX - drag.startX)
+    );
+    const nextHeight = Math.max(
+      minViewportSize.height,
+      Math.round(drag.startHeight + event.clientY - drag.startY)
+    );
+
+    setViewportSizes((previous) => ({
+      ...previous,
+      [drag.mode]: {
+        width: nextWidth,
+        height: nextHeight,
+      },
+    }));
+  };
+
+  const handleResizePointerEnd = (
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => {
+    if (resizeDragRef.current?.pointerId === event.pointerId) {
+      resizeDragRef.current = null;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   useEffect(() => {
     setUrlInput(displayUrl ?? url ?? '');
   }, [displayUrl, url]);
 
   const effectiveSrc = url;
+  const deviceViewportSize =
+    viewMode === 'desktop' ? null : viewportSizes[viewMode];
+  const previewViewportStyle: CSSProperties = deviceViewportSize
+    ? {
+        width: `${deviceViewportSize.width}px`,
+        height: `${deviceViewportSize.height}px`,
+      }
+    : {
+        width: '100%',
+        height: '100%',
+      };
 
   return (
     <div className="flex h-full flex-col">
@@ -230,22 +316,38 @@ export function ReadyContent({
 
       <div className="flex min-h-0 flex-1 overflow-hidden bg-muted/20">
         <div className="flex min-w-0 flex-1 items-start justify-center overflow-auto">
-          <iframe
-            key={`${iframeKey}-${localRefreshKey}`}
-            ref={iframeRef}
-            src={effectiveSrc}
-            title="开发服务器预览"
-            style={
-              viewMode === 'desktop'
-                ? { width: '100%', height: '100%' }
-                : viewSizes[viewMode]
-            }
-            className="border-0 bg-white"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-            referrerPolicy="no-referrer"
-            onLoad={() => onIframeLoad?.(iframeRef.current)}
-            onError={onIframeError}
-          />
+          <div
+            className={`relative shrink-0 bg-white ${
+              viewMode === 'desktop' ? 'h-full w-full' : 'shadow-sm'
+            }`}
+            style={previewViewportStyle}
+          >
+            <iframe
+              key={`${iframeKey}-${localRefreshKey}`}
+              ref={iframeRef}
+              src={effectiveSrc}
+              title="开发服务器预览"
+              className="h-full w-full border-0 bg-white"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+              referrerPolicy="no-referrer"
+              onLoad={() => onIframeLoad?.(iframeRef.current)}
+              onError={onIframeError}
+            />
+            {deviceViewportSize && (
+              <button
+                type="button"
+                aria-label="Resize preview viewport"
+                title={`${deviceViewportSize.width}x${deviceViewportSize.height}`}
+                onPointerDown={handleResizePointerDown}
+                onPointerMove={handleResizePointerMove}
+                onPointerUp={handleResizePointerEnd}
+                onPointerCancel={handleResizePointerEnd}
+                className="absolute bottom-1 right-1 z-10 flex h-6 w-6 cursor-nwse-resize items-center justify-center rounded border border-border/70 bg-background/85 text-muted-foreground shadow-sm hover:text-foreground"
+              >
+                <Grip className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
         {isInspectorOpen ? inspectorPane : null}
       </div>

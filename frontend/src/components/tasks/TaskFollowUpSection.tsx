@@ -58,7 +58,7 @@ import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { queueApi, imagesApi, sessionsApi, configApi } from '@/lib/api';
+import { queueApi, imagesApi, sessionsApi, configApi, scratchApi } from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
 import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
@@ -756,6 +756,27 @@ export function TaskFollowUpSection({
     },
     []
   );
+  const persistCreatedSessionProfile = useCallback(
+    async (sessionId: string, profile: ExecutorProfileId | null) => {
+      if (!profile?.executor) return;
+      rememberCreatedSessionProfile(sessionId, profile);
+      try {
+        await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, sessionId, {
+          payload: {
+            type: 'DRAFT_FOLLOW_UP',
+            data: {
+              message: '',
+              executor_profile_id: profile,
+              queued: false,
+            } as DraftFollowUpData,
+          },
+        });
+      } catch (error) {
+        console.warn('Failed to persist created session profile', error);
+      }
+    },
+    [rememberCreatedSessionProfile]
+  );
   const handleFollowUpSessionCreated = useCallback(
     (createdSession: { sessionId: string; workspaceId: string }) => {
       rememberCreatedSessionProfile(
@@ -1213,7 +1234,10 @@ export function TaskFollowUpSection({
           queryKey: ['repoBranches', primaryRepo.id],
         });
       }
-      rememberCreatedSessionProfile(newSession.id, effectiveExecutorProfile);
+      await persistCreatedSessionProfile(
+        newSession.id,
+        effectiveExecutorProfile
+      );
       setSelectedExecutorProfile(effectiveExecutorProfile);
       onSessionCreated?.({
         sessionId: newSession.id,

@@ -592,7 +592,7 @@ pub fn codex_home() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".codex"))
 }
 
-fn codex_config_model_context_window() -> Option<u32> {
+pub fn codex_config_model_context_window() -> Option<u32> {
     let path = codex_home()?.join("config.toml");
     let content = std::fs::read_to_string(path).ok()?;
     parse_codex_model_context_window(&content)

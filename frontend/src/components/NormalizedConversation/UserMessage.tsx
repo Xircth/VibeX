@@ -19,6 +19,7 @@ import {
   getContinuityActionCopy,
   getExecutorContinuityMode,
 } from '@/utils/sessionContinuity';
+import { stripTagReferenceAppendix } from '@/lib/tagReferenceMarkers';
 
 const COLLAPSED_MAX_HEIGHT = 120;
 const EXPANDED_BOTTOM_SAFE_SPACE = 28;
@@ -48,6 +49,7 @@ const UserMessage = ({
   const continuityCopy = getContinuityActionCopy(
     getExecutorContinuityMode(taskAttempt?.session?.executor ?? null)
   );
+  const displayContent = stripTagReferenceAppendix(content);
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -69,7 +71,7 @@ const UserMessage = ({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [content]);
+  }, [displayContent]);
 
   const canFork = !!(
     taskAttempt?.session?.executor &&
@@ -99,18 +101,18 @@ const UserMessage = ({
     !showRetryEditor;
 
   const canRetry = !!executionProcessId && canFork && !isAttemptRunning;
-  const showActionRail = content.trim().length > 0 || canRetry;
+  const showActionRail = displayContent.trim().length > 0 || canRetry;
 
   const handleCopy = useCallback(async () => {
-    if (!content) return;
+    if (!displayContent) return;
 
     try {
-      await writeClipboardViaBridge(content.replace(/\\_/g, '_'));
+      await writeClipboardViaBridge(displayContent.replace(/\\_/g, '_'));
       triggerCopied();
     } catch {
       // Ignore clipboard failures in embedded environments.
     }
-  }, [content, triggerCopied]);
+  }, [displayContent, triggerCopied]);
 
   const handleRollback = useCallback(async () => {
     if (!executionProcessId || !taskAttempt?.session?.id) return;
@@ -147,11 +149,11 @@ const UserMessage = ({
     return (
       <div className="py-2 px-3">
         <div className="flex justify-end">
-          <div className="conv-user-bubble max-w-[85%]">
+          <div className="conv-user-retry-panel">
             <RetryEditorInline
               attempt={taskAttempt}
               executionProcessId={executionProcessId}
-              initialContent={content}
+              initialContent={displayContent}
               onCancelled={onCancelled}
             />
           </div>
@@ -181,7 +183,7 @@ const UserMessage = ({
             }}
           >
             <WYSIWYGEditor
-              value={content}
+              value={displayContent}
               disabled
               className={SESSION_INPUT_TEXT_CLASS_NAME}
               markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}

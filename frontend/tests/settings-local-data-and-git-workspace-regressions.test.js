@@ -17,6 +17,23 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readWorkspaceCommandSource() {
+  return [
+    'src-tauri/src/commands/workspaces.rs',
+    'src-tauri/src/commands/workspaces/types.rs',
+    'src-tauri/src/commands/workspaces/workspace_sync.rs',
+    'src-tauri/src/commands/workspaces/workspace_crud.rs',
+    'src-tauri/src/commands/workspaces/git_operations.rs',
+    'src-tauri/src/commands/workspaces/workspace_scripts.rs',
+    'src-tauri/src/commands/workspaces/workspace_queries.rs',
+    'src-tauri/src/commands/workspaces/pull_requests.rs',
+    'src-tauri/src/commands/workspaces/pr_import.rs',
+    'src-tauri/src/commands/workspaces/commit_commands.rs',
+  ]
+    .map(readRepoFile)
+    .join('\n');
+}
+
 test('system settings exposes local data clear action and calls the config api', () => {
   const source = readFrontendFile('src/pages/settings/SystemSettings.tsx');
   const apiSource = readFrontendFile('src/lib/api/config.ts');
@@ -109,9 +126,7 @@ test('repo registration and worktree cleanup protect user project directories', 
     /WorkspaceManager::is_app_owned_workspace_dir\(workspace_root\)/
   );
   assert.match(containerSource, /External worktree path does not exist/);
-  const workspaceCommandSource = readRepoFile(
-    'src-tauri/src/commands/workspaces.rs'
-  );
+  const workspaceCommandSource = readWorkspaceCommandSource();
   assert.match(workspaceCommandSource, /recover_workspace_container_ref/);
   assert.match(workspaceCommandSource, /path_overlaps_repo/);
   assert.match(workspaceCommandSource, /Workspace::update_storage_mode/);
@@ -173,9 +188,7 @@ test('git settings flow into workspace creation and worktree storage at runtime'
   const sessionCommandSource = readRepoFile(
     'src-tauri/src/commands/sessions.rs'
   );
-  const workspaceCommandSource = readRepoFile(
-    'src-tauri/src/commands/workspaces.rs'
-  );
+  const workspaceCommandSource = readWorkspaceCommandSource();
 
   assert.match(
     configCommandSource,

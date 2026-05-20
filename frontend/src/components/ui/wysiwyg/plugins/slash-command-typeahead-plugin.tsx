@@ -251,6 +251,7 @@ export function SlashCommandTypeaheadPlugin({
                     isSelected={index === selectedIndex}
                     index={index}
                     setHighlightedIndex={setHighlightedIndex}
+                    setRefElement={option.setRefElement}
                     onClick={() => selectOptionAndCleanUp(option)}
                   />
                 ))}
@@ -266,6 +267,7 @@ export function SlashCommandTypeaheadPlugin({
                       isSelected={optionIndex === selectedIndex}
                       index={optionIndex}
                       setHighlightedIndex={setHighlightedIndex}
+                      setRefElement={option.setRefElement}
                       onClick={() => selectOptionAndCleanUp(option)}
                     />
                   );
@@ -286,6 +288,7 @@ function SlashCommandMenuItem({
   isSelected,
   index,
   setHighlightedIndex,
+  setRefElement,
   onClick,
 }: {
   command: SlashCommandDescription;
@@ -293,6 +296,7 @@ function SlashCommandMenuItem({
   isSelected: boolean;
   index: number;
   setHighlightedIndex: (index: number) => void;
+  setRefElement?: (element: HTMLElement | null) => void;
   onClick: () => void;
 }) {
   const presentation = getSlashCommandPresentation(command, executor);
@@ -305,6 +309,7 @@ function SlashCommandMenuItem({
       isSelected={isSelected}
       index={index}
       setHighlightedIndex={setHighlightedIndex}
+      setRefElement={setRefElement}
       onClick={onClick}
     >
       <div className="flex items-center gap-2">

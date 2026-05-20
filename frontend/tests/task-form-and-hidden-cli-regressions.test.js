@@ -17,6 +17,43 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readWorkspaceCommandSource() {
+  return [
+    'src-tauri/src/commands/workspaces.rs',
+    'src-tauri/src/commands/workspaces/types.rs',
+    'src-tauri/src/commands/workspaces/workspace_sync.rs',
+    'src-tauri/src/commands/workspaces/workspace_crud.rs',
+    'src-tauri/src/commands/workspaces/git_operations.rs',
+    'src-tauri/src/commands/workspaces/workspace_scripts.rs',
+    'src-tauri/src/commands/workspaces/workspace_queries.rs',
+    'src-tauri/src/commands/workspaces/pull_requests.rs',
+    'src-tauri/src/commands/workspaces/pr_import.rs',
+    'src-tauri/src/commands/workspaces/commit_commands.rs',
+  ]
+    .map(readRepoFile)
+    .join('\n');
+}
+
+function readProviderRuntimeSource() {
+  return [
+    'src-tauri/src/commands/provider_runtime/mod.rs',
+    'src-tauri/src/commands/provider_runtime/contract.rs',
+    'src-tauri/src/commands/provider_runtime/runtime_config.rs',
+    'src-tauri/src/commands/provider_runtime/claude_sdk.rs',
+    'src-tauri/src/commands/provider_runtime/opencode_sdk.rs',
+    'src-tauri/src/commands/provider_runtime/provider_text.rs',
+    'src-tauri/src/commands/provider_runtime/provider_tools.rs',
+    'src-tauri/src/commands/provider_runtime/token_usage.rs',
+    'src-tauri/src/commands/provider_runtime/native_conversation.rs',
+    'src-tauri/src/commands/provider_runtime/runtime_core.rs',
+    'src-tauri/src/commands/provider_runtime/codex_app_server.rs',
+    'src-tauri/src/commands/provider_runtime/provider_turns.rs',
+    'src-tauri/src/commands/provider_runtime/history_commands.rs',
+  ]
+    .map(readRepoFile)
+    .join('\n');
+}
+
 test('session creation form copy stays Chinese and keeps branch warning wiring', () => {
   const sessionCreationForm = readFrontendFile(
     'src/components/sessions/SessionCreationForm.tsx'
@@ -87,10 +124,8 @@ test('windows hidden cli helper wraps batch-based agent commands', () => {
   const agentSettings = readRepoFile(
     'src-tauri/src/commands/agent_settings.rs'
   );
-  const workspaces = readRepoFile('src-tauri/src/commands/workspaces.rs');
-  const providerRuntime = readRepoFile(
-    'src-tauri/src/commands/provider_runtime.rs'
-  );
+  const workspaces = readWorkspaceCommandSource();
+  const providerRuntime = readProviderRuntimeSource();
   const opencodeBridge = readRepoFile('scripts/opencode-sdk-provider.mjs');
 
   assert.match(processUtils, /new_hidden_tokio_command/);
@@ -111,9 +146,7 @@ test('codex profile controls preserve explicit model overrides', () => {
   const terminalProfileControls = readFrontendFile(
     'src/components/tasks/TerminalProfileControls.tsx'
   );
-  const providerRuntime = readRepoFile(
-    'src-tauri/src/commands/provider_runtime.rs'
-  );
+  const providerRuntime = readProviderRuntimeSource();
 
   assert.match(
     terminalProfileControls,
@@ -130,4 +163,63 @@ test('codex profile controls preserve explicit model overrides', () => {
   assert.match(providerRuntime, /CODEX_NATIVE_THREAD_SINKS/);
   assert.match(providerRuntime, /result\.get\("turn"\)/);
   assert.match(providerRuntime, /params\.get\("turn"\)/);
+});
+
+test('sent user message bubbles preserve mention and command chip styling', () => {
+  const userMessage = readFrontendFile(
+    'src/components/NormalizedConversation/UserMessage.tsx'
+  );
+  const wysiwyg = readFrontendFile('src/components/ui/wysiwyg.tsx');
+  const fileReferenceNode = readFrontendFile(
+    'src/components/ui/wysiwyg/nodes/file-reference-node.tsx'
+  );
+  const slashCommandNode = readFrontendFile(
+    'src/components/ui/wysiwyg/nodes/slash-command-node.tsx'
+  );
+  const dollarCommandNode = readFrontendFile(
+    'src/components/ui/wysiwyg/nodes/dollar-command-node.tsx'
+  );
+
+  assert.match(userMessage, /stripTagReferenceAppendix/);
+  assert.match(userMessage, /const displayContent =/);
+  assert.match(userMessage, /value=\{displayContent\}/);
+  assert.match(userMessage, /initialContent=\{displayContent\}/);
+
+  assert.match(wysiwyg, /SLASH_COMMAND_DISPLAY_TRANSFORMER/);
+  assert.match(slashCommandNode, /SLASH_COMMAND_DISPLAY_TRANSFORMER/);
+  assert.match(slashCommandNode, /\/\(\[A-Za-z\]\[A-Za-z0-9:_-\]\*\)/);
+  assert.match(dollarCommandNode, /\\\$\(\[A-Za-z\]\[A-Za-z0-9:_-\]\*\)/);
+  assert.match(fileReferenceNode, /return `@\$\{node\.__relativePath\}`;/);
+  assert.match(fileReferenceNode, /@\(\[\^\\s#@\]\+\)/);
+});
+
+test('typeahead command menu commits mouse selections before focus cleanup', () => {
+  const typeaheadMenu = readFrontendFile(
+    'src/components/ui/wysiwyg/plugins/typeahead-menu-components.tsx'
+  );
+  const dollarCommandTypeahead = readFrontendFile(
+    'src/components/ui/wysiwyg/plugins/dollar-command-typeahead-plugin.tsx'
+  );
+  const slashCommandTypeahead = readFrontendFile(
+    'src/components/ui/wysiwyg/plugins/slash-command-typeahead-plugin.tsx'
+  );
+  const fileTagTypeahead = readFrontendFile(
+    'src/components/ui/wysiwyg/plugins/file-tag-typeahead-plugin.tsx'
+  );
+
+  assert.match(typeaheadMenu, /const handleMouseDown = useCallback/);
+  assert.match(typeaheadMenu, /event\.preventDefault\(\);/);
+  assert.match(typeaheadMenu, /mouseSelectionRef\.current = true;/);
+  assert.match(typeaheadMenu, /role="option"/);
+  assert.doesNotMatch(typeaheadMenu, /border-l-2/);
+
+  assert.match(
+    dollarCommandTypeahead,
+    /setRefElement=\{option\.setRefElement\}/
+  );
+  assert.match(
+    slashCommandTypeahead,
+    /setRefElement=\{option\.setRefElement\}/
+  );
+  assert.match(fileTagTypeahead, /setRefElement=\{option\.setRefElement\}/);
 });

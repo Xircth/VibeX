@@ -17,6 +17,23 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readWorkspaceCommandSource() {
+  return [
+    'src-tauri/src/commands/workspaces.rs',
+    'src-tauri/src/commands/workspaces/types.rs',
+    'src-tauri/src/commands/workspaces/workspace_sync.rs',
+    'src-tauri/src/commands/workspaces/workspace_crud.rs',
+    'src-tauri/src/commands/workspaces/git_operations.rs',
+    'src-tauri/src/commands/workspaces/workspace_scripts.rs',
+    'src-tauri/src/commands/workspaces/workspace_queries.rs',
+    'src-tauri/src/commands/workspaces/pull_requests.rs',
+    'src-tauri/src/commands/workspaces/pr_import.rs',
+    'src-tauri/src/commands/workspaces/commit_commands.rs',
+  ]
+    .map(readRepoFile)
+    .join('\n');
+}
+
 test('棰勮鎴愬姛鐘舵€佷笌 Companion 灏辩华鐘舵€佸垎绂?, () => {
   const source = readFrontendFile('src/components/panels/PreviewPanel.tsx');
   const readyContent = readFrontendFile('src/components/tasks/TaskDetails/preview/ReadyContent.tsx');
@@ -43,7 +60,7 @@ test('Companion 瀹夎鍏ュ彛鏀逛负鏈湴瀹夎涓庤嚜鍔ㄦ帴�
   const noServerContent = readFrontendFile('src/components/tasks/TaskDetails/preview/NoServerContent.tsx');
   const helper = readFrontendFile('src/utils/installWebCompanion.ts');
   const api = readFrontendFile('src/lib/api.ts');
-  const backend = readRepoFile('src-tauri/src/commands/workspaces.rs');
+  const backend = readWorkspaceCommandSource();
   const tauri = readRepoFile('src-tauri/src/lib.rs');
 
   assert.doesNotMatch(noServerContent, /createAndStart\.mutate/);

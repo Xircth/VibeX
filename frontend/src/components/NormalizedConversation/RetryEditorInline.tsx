@@ -1,26 +1,17 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import WYSIWYGEditor, {
   SESSION_INPUT_EDITOR_CLASS_NAME,
   SESSION_INPUT_MARKDOWN_PRESET,
 } from '@/components/ui/wysiwyg';
-import { useProject } from '@/contexts/ProjectContext';
-import { useUserSystem } from '@/components/ConfigProvider';
 import { cn } from '@/lib/utils';
-import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Loader2, Paperclip, Send, X } from 'lucide-react';
-import { imagesApi } from '@/lib/api';
+import { AlertCircle, Loader2, Send, X } from 'lucide-react';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useBranchStatus } from '@/hooks/useBranchStatus';
 import { useRetryProcess } from '@/hooks/useRetryProcess';
 import { extractProfileFromAction } from '@/utils/executor';
-import {
-  getContinuityActionCopy,
-  getExecutorContinuityMode,
-} from '@/utils/sessionContinuity';
-import { toVibeImagePath } from '@/utils/images';
 
 export function RetryEditorInline({
   attempt,
@@ -36,16 +27,11 @@ export function RetryEditorInline({
   const attemptId = attempt.id;
   const { isAttemptRunning, attemptData } = useAttemptExecution(attemptId);
   const { data: branchStatus } = useBranchStatus(attemptId);
-  const { projectId } = useProject();
-  const { profiles } = useUserSystem();
 
   const [message, setMessage] = useState(initialContent);
   const [sendError, setSendError] = useState<string | null>(null);
-
-  // Get sessionId from attempt's session
   const sessionId = attempt.session?.id;
 
-  // Extract executor and variant from the process being retried
   const processProfile = useMemo(() => {
     const process = attemptData.processes?.find(
       (p) => p.id === executionProcessId
@@ -53,14 +39,6 @@ export function RetryEditorInline({
     if (!process?.executor_action) return null;
     return extractProfileFromAction(process.executor_action);
   }, [attemptData.processes, executionProcessId]);
-
-  const [selectedExecutorProfile, setSelectedExecutorProfile] =
-    useState(processProfile);
-
-  const effectiveProfile = selectedExecutorProfile ?? processProfile;
-  const continuityCopy = getContinuityActionCopy(
-    getExecutorContinuityMode(effectiveProfile?.executor ?? null)
-  );
 
   const retryMutation = useRetryProcess(
     sessionId ?? '',
@@ -70,19 +48,19 @@ export function RetryEditorInline({
 
   const isSending = retryMutation.isPending;
   const canSend =
-    !isAttemptRunning && !!message.trim() && !!sessionId && !!effectiveProfile;
+    !isAttemptRunning && !!message.trim() && !!sessionId && !!processProfile;
 
   const onCancel = () => {
     onCancelled?.();
   };
 
   const onSend = useCallback(() => {
-    if (!canSend || !effectiveProfile) return;
+    if (!canSend || !processProfile) return;
     setSendError(null);
     retryMutation.mutate({
       message,
-      executor: effectiveProfile.executor,
-      variant: effectiveProfile.variant ?? null,
+      executor: processProfile.executor,
+      variant: processProfile.variant ?? null,
       executionProcessId,
       branchStatus,
       processes: attemptData.processes,
@@ -91,7 +69,7 @@ export function RetryEditorInline({
     canSend,
     retryMutation,
     message,
-    effectiveProfile,
+    processProfile,
     executionProcessId,
     branchStatus,
     attemptData.processes,
@@ -103,107 +81,51 @@ export function RetryEditorInline({
     }
   }, [canSend, isSending, onSend]);
 
-  // Handle image paste - upload to container and insert markdown
-  const handlePasteFiles = useCallback(
-    async (files: File[]) => {
-      for (const file of files) {
-        try {
-          const response = await imagesApi.uploadForAttempt(attemptId, file);
-          const imageMarkdown = `![${response.original_name}](${toVibeImagePath(response.file_path)})`;
-          setMessage((prev) =>
-            prev ? `${prev}\n\n${imageMarkdown}` : imageMarkdown
-          );
-        } catch (error) {
-          console.error('Failed to upload image:', error);
-        }
-      }
-    },
-    [attemptId]
-  );
-
-  // Attachment button handlers
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const handleAttachClick = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-  const handleFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []).filter((f) =>
-        f.type.startsWith('image/')
-      );
-      if (files.length > 0) {
-        handlePasteFiles(files);
-      }
-      e.target.value = '';
-    },
-    [handlePasteFiles]
-  );
-
   return (
-    <div className="space-y-2">
+    <div className="retry-editor-inline space-y-3">
       <div className="relative">
         <WYSIWYGEditor
-          placeholder="Edit and resend your message..."
+          placeholder="编辑后重新发送..."
           value={message}
           onChange={setMessage}
           disabled={isSending}
           onCmdEnter={handleCmdEnter}
-          onPasteFiles={handlePasteFiles}
-          className={cn(SESSION_INPUT_EDITOR_CLASS_NAME, 'bg-background')}
+          className={cn(
+            SESSION_INPUT_EDITOR_CLASS_NAME,
+            'retry-editor-input'
+          )}
           markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
-          projectId={projectId}
-          executorProfile={effectiveProfile}
           taskAttemptId={attemptId}
         />
         {isSending && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/60">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/60">
             <Loader2 className="h-4 w-4 animate-spin" />
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <TerminalProfileControls
-          profiles={profiles}
-          selectedProfile={effectiveProfile}
-          onChange={setSelectedExecutorProfile}
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
           disabled={isSending}
-          lockExecutor={true}
-          className="flex items-center gap-2"
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={handleFileInputChange}
-        />
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {continuityCopy.retryDescription}
-          </span>
-          <Button
-            variant="outline"
-            onClick={handleAttachClick}
-            disabled={isSending}
-            title="Attach image"
-            aria-label="Attach image"
-          >
-            <Paperclip className="h-3 w-3" />
-          </Button>
-          <Button variant="outline" onClick={onCancel} disabled={isSending}>
-            <X className="h-3 w-3 mr-1" /> {'取消'}
-          </Button>
-          <Button
-            onClick={onSend}
-            disabled={!canSend || isSending}
-            title={continuityCopy.retryLabel}
-            aria-label={continuityCopy.retryLabel}
-          >
-            <Send className="h-3 w-3 mr-1" /> {'发送'}
-          </Button>
-        </div>
+          className="h-9 min-w-20 gap-1.5"
+        >
+          <X className="h-3.5 w-3.5" />
+          取消
+        </Button>
+        <Button
+          type="button"
+          onClick={onSend}
+          disabled={!canSend || isSending}
+          title="快照重试"
+          aria-label="快照重试"
+          className="h-9 min-w-20 gap-1.5"
+        >
+          <Send className="h-3.5 w-3.5" />
+          发送
+        </Button>
       </div>
 
       {sendError && (

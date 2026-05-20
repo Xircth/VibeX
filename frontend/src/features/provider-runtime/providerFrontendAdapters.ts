@@ -296,11 +296,90 @@ function eventMethod(event: ProviderRuntimeEvent): string | null {
 function eventText(event: ProviderRuntimeEvent): string | null {
   if (!event.event || typeof event.event !== 'object') return null;
   const record = event.event as Record<string, unknown>;
-  for (const key of ['text', 'delta', 'content', 'message']) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value;
+
+  if (record.method === 'item/agentMessage/delta') {
+    const params = record.params;
+    if (params && typeof params === 'object' && 'delta' in params) {
+      const delta = (params as { delta?: unknown }).delta;
+      return typeof delta === 'string' && delta ? delta : null;
+    }
   }
-  return null;
+
+  if (record.type === 'text_delta') {
+    const text = record.text;
+    return typeof text === 'string' && text ? text : null;
+  }
+
+  if (record.type === 'sdk_event') {
+    if (isUserEchoEvent(record)) return null;
+    return assistantPayloadText(record.event);
+  }
+
+  if (record.type === 'opencode_sdk_event') {
+    return assistantPayloadText(record.event);
+  }
+
+  if (record.type === 'opencode_sdk_response') {
+    return assistantPayloadText(record.response);
+  }
+
+  return assistantPayloadText(record);
+}
+
+function textBlockContent(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() ? value : null;
+
+  if (Array.isArray(value)) {
+    const text = value
+      .map(textBlockContent)
+      .filter((part): part is string => !!part)
+      .join('');
+    return text.trim() ? text : null;
+  }
+
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const blockType = typeof record.type === 'string' ? record.type : null;
+  if (blockType && blockType !== 'text') return null;
+
+  if (typeof record.text === 'string' && record.text.trim()) {
+    return record.text;
+  }
+  return textBlockContent(record.content) ?? textBlockContent(record.parts);
+}
+
+function assistantPayloadText(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const role = typeof record.role === 'string' ? record.role : null;
+  if (role?.toLowerCase() === 'user') return null;
+
+  const eventType = typeof record.type === 'string' ? record.type : null;
+  const isAssistant =
+    role?.toLowerCase() === 'assistant' ||
+    eventType?.toLowerCase() === 'assistant';
+  if (isAssistant) {
+    if (typeof record.text === 'string' && record.text.trim()) {
+      return record.text;
+    }
+    return textBlockContent(record.content) ?? textBlockContent(record.parts);
+  }
+
+  return (
+    assistantPayloadText(record.message) ??
+    assistantPayloadText(record.event) ??
+    assistantPayloadText(record.response)
+  );
+}
+
+function isUserEchoEvent(record: Record<string, unknown>): boolean {
+  const event = record.event;
+  if (!event || typeof event !== 'object') return false;
+  const eventRecord = event as Record<string, unknown>;
+  const message = eventRecord.message;
+  if (!message || typeof message !== 'object') return false;
+  const role = (message as { role?: unknown }).role;
+  return typeof role === 'string' && role.toLowerCase() === 'user';
 }
 
 function mapProviderRuntimeEvent(

@@ -282,38 +282,28 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
   }, []);
 
   const handleCreateProject = async () => {
+    if (standalone) {
+      await desktopApi.requestProjectRailProjectDialog({ mode: 'create' });
+      return;
+    }
+
     const result = await ProjectFormDialog.show({});
     if (result?.status === 'saved' && result.project) {
       ensureProjectOpen(result.project.id);
-      if (standalone) {
-        await desktopApi.activateProjectRailTarget({
-          projectId: result.project.id,
-          route: paths.projectSessions(result.project.id),
-        });
-      } else {
-        switchProject(
-          result.project.id,
-          paths.projectSessions(result.project.id)
-        );
-      }
+      switchProject(result.project.id, paths.projectSessions(result.project.id));
     }
   };
 
   const handleOpenProject = async () => {
+    if (standalone) {
+      await desktopApi.requestProjectRailProjectDialog({ mode: 'open' });
+      return;
+    }
+
     const result = await ProjectFormDialog.show({ autoOpenFolderPicker: true });
     if (result?.status === 'saved' && result.project) {
       ensureProjectOpen(result.project.id);
-      if (standalone) {
-        await desktopApi.activateProjectRailTarget({
-          projectId: result.project.id,
-          route: paths.projectSessions(result.project.id),
-        });
-      } else {
-        switchProject(
-          result.project.id,
-          paths.projectSessions(result.project.id)
-        );
-      }
+      switchProject(result.project.id, paths.projectSessions(result.project.id));
     }
   };
 

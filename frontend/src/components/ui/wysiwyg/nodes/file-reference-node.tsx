@@ -118,14 +118,33 @@ export const FILE_REFERENCE_TRANSFORMER: TextMatchTransformer = {
   dependencies: [FileReferenceNode],
   export: (node) => {
     if ($isFileReferenceNode(node)) {
-      return node.__relativePath;
+      return `@${node.__relativePath}`;
     }
 
     return null;
   },
-  importRegExp: /(?!)/,
-  regExp: /(?!)$/,
-  replace: () => {},
+  importRegExp: /(^|[\s(])@([^\s#@]+)/,
+  regExp: /(^|[\s(])@([^\s#@]+)$/,
+  replace: (textNode, match) => {
+    const prefix = match[1] ?? '';
+    const relativePath = match[2];
+    if (!relativePath) return;
+
+    const fileName =
+      relativePath.split(/[\\/]/).filter(Boolean).pop() ?? relativePath;
+    const node = $createFileReferenceNode({
+      fileName,
+      relativePath,
+      kind:
+        relativePath.endsWith('/') || relativePath.endsWith('\\')
+          ? 'directory'
+          : 'file',
+    });
+    textNode.replace(node);
+    if (prefix) {
+      node.insertBefore($createTextNode(prefix));
+    }
+  },
   trigger: '',
   type: 'text-match',
 };

@@ -41,7 +41,10 @@ function getAvailableSpaceAbove(anchorRect: DOMRect) {
 }
 
 function clampMenuHeight(height: number) {
-  return Math.min(MAX_MENU_HEIGHT, Math.max(MIN_MENU_HEIGHT, Math.floor(height)));
+  return Math.min(
+    MAX_MENU_HEIGHT,
+    Math.max(MIN_MENU_HEIGHT, Math.floor(height))
+  );
 }
 
 function isUsableRect(rect: DOMRect) {
@@ -109,7 +112,9 @@ function getTypeaheadSurfaceRect(anchorEl: HTMLElement): DOMRect {
     }
   }
 
-  const activeSurface = document.activeElement?.closest('[data-typeahead-surface]');
+  const activeSurface = document.activeElement?.closest(
+    '[data-typeahead-surface]'
+  );
   if (activeSurface instanceof HTMLElement) {
     const activeSurfaceRect = activeSurface.getBoundingClientRect();
     if (isUsableRect(activeSurfaceRect)) {
@@ -220,7 +225,7 @@ function TypeaheadMenuRoot({ anchorEl, children }: TypeaheadMenuProps) {
 
   return (
     <div style={contentStyle}>
-      <div className="w-full overflow-hidden rounded-md border bg-background p-0 shadow-md">
+      <div className="w-full overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 text-popover-foreground shadow-xl backdrop-blur-md">
         {children}
       </div>
     </div>
@@ -229,8 +234,8 @@ function TypeaheadMenuRoot({ anchorEl, children }: TypeaheadMenuProps) {
 
 function TypeaheadMenuHeader({ children }: { children: ReactNode }) {
   return (
-    <div className="px-3 py-2 border-b bg-muted/30">
-      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+    <div className="border-b border-border/60 px-2.5 py-2">
+      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
         {children}
       </div>
     </div>
@@ -240,7 +245,7 @@ function TypeaheadMenuHeader({ children }: { children: ReactNode }) {
 function TypeaheadMenuScrollArea({ children }: { children: ReactNode }) {
   return (
     <div
-      className="py-1 overflow-auto"
+      className="overflow-auto py-0.5"
       style={{ maxHeight: 'var(--typeahead-menu-max-height, 40vh)' }}
     >
       {children}
@@ -250,19 +255,19 @@ function TypeaheadMenuScrollArea({ children }: { children: ReactNode }) {
 
 function TypeaheadMenuSectionHeader({ children }: { children: ReactNode }) {
   return (
-    <div className="px-3 py-1 text-xs font-semibold text-muted-foreground uppercase">
+    <div className="px-2.5 pb-1.5 pt-2 text-[11px] font-medium text-muted-foreground">
       {children}
     </div>
   );
 }
 
 function TypeaheadMenuDivider() {
-  return <div className="border-t my-1" />;
+  return <div className="mx-1 my-1 border-t border-border/60" />;
 }
 
 function TypeaheadMenuEmpty({ children }: { children: ReactNode }) {
   return (
-    <div className="px-3 py-2 text-sm text-muted-foreground">{children}</div>
+    <div className="px-2.5 py-2 text-sm text-muted-foreground">{children}</div>
   );
 }
 
@@ -277,12 +282,42 @@ function TypeaheadMenuAction({
   disabled = false,
   children,
 }: TypeaheadMenuActionProps) {
+  const mouseSelectionRef = useRef(false);
+
+  const commitSelection = useCallback(() => {
+    if (!disabled) {
+      onClick();
+    }
+  }, [disabled, onClick]);
+
+  const handleMouseDown = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      if (event.button !== 0 || disabled) return;
+      mouseSelectionRef.current = true;
+      commitSelection();
+    },
+    [commitSelection, disabled]
+  );
+
+  const handleClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      if (mouseSelectionRef.current) {
+        mouseSelectionRef.current = false;
+        return;
+      }
+      commitSelection();
+    },
+    [commitSelection]
+  );
+
   return (
     <button
       type="button"
-      className="w-full px-3 py-2 text-left text-sm border-l-2 border-l-transparent text-muted-foreground hover:bg-muted hover:text-high disabled:opacity-50 disabled:cursor-not-allowed"
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={onClick}
+      className="w-full rounded-md px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
       disabled={disabled}
     >
       {children}
@@ -296,6 +331,7 @@ interface TypeaheadMenuItemProps {
   setHighlightedIndex: (index: number) => void;
   onClick: () => void;
   children: ReactNode;
+  setRefElement?: (element: HTMLElement | null) => void;
 }
 
 function TypeaheadMenuItemComponent({
@@ -304,9 +340,19 @@ function TypeaheadMenuItemComponent({
   setHighlightedIndex,
   onClick,
   children,
+  setRefElement,
 }: TypeaheadMenuItemProps) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLButtonElement | null>(null);
   const lastMousePositionRef = useRef<{ x: number; y: number } | null>(null);
+  const mouseSelectionRef = useRef(false);
+
+  const assignRef = useCallback(
+    (element: HTMLButtonElement | null) => {
+      ref.current = element;
+      setRefElement?.(element);
+    },
+    [setRefElement]
+  );
 
   useEffect(() => {
     if (isSelected && ref.current) {
@@ -314,7 +360,7 @@ function TypeaheadMenuItemComponent({
     }
   }, [isSelected]);
 
-  const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (event: MouseEvent<HTMLButtonElement>) => {
     const pos = { x: event.clientX, y: event.clientY };
     const last = lastMousePositionRef.current;
     if (!last || last.x !== pos.x || last.y !== pos.y) {
@@ -323,20 +369,45 @@ function TypeaheadMenuItemComponent({
     }
   };
 
+  const handleMouseDown = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      if (event.button !== 0) return;
+      mouseSelectionRef.current = true;
+      onClick();
+    },
+    [onClick]
+  );
+
+  const handleClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      if (mouseSelectionRef.current) {
+        mouseSelectionRef.current = false;
+        return;
+      }
+      onClick();
+    },
+    [onClick]
+  );
+
   return (
-    <div
-      ref={ref}
-      className={`px-3 py-2 cursor-pointer text-sm border-l-2 ${
+    <button
+      ref={assignRef}
+      type="button"
+      role="option"
+      aria-selected={isSelected}
+      className={`w-full rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
         isSelected
-          ? 'bg-secondary border-l-brand text-high'
-          : 'hover:bg-muted border-l-transparent text-muted-foreground'
+          ? 'bg-accent text-accent-foreground shadow-sm'
+          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
       }`}
-      onMouseDown={(event) => event.preventDefault()}
       onMouseMove={handleMouseMove}
-      onClick={onClick}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
     >
       {children}
-    </div>
+    </button>
   );
 }
 

@@ -19,7 +19,7 @@ import {
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useProject } from '@/contexts/ProjectContext';
-import { sessionsApi } from '@/lib/api';
+import { scratchApi, sessionsApi } from '@/lib/api';
 import {
   buildWorkspaceBranchOptions,
   findWorkspaceBranchOption,
@@ -32,7 +32,7 @@ import {
   SessionCreationForm,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
-import type { ExecutorProfileId, Workspace } from 'shared/types';
+import { ScratchType, type ExecutorProfileId, type Workspace } from 'shared/types';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { paths } from '@/lib/paths';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
@@ -392,6 +392,21 @@ export function RightPanelContent() {
       });
     },
     onSuccess: async (newSession) => {
+      if (selectedExecutorProfile?.executor) {
+        try {
+          await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, newSession.id, {
+            payload: {
+              type: 'DRAFT_FOLLOW_UP',
+              data: {
+                message: '',
+                executor_profile_id: selectedExecutorProfile,
+              },
+            },
+          });
+        } catch (error) {
+          console.warn('Failed to persist created session profile', error);
+        }
+      }
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', newSession.workspace_id],
       });

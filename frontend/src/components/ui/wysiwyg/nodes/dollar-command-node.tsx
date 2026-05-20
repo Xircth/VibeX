@@ -109,9 +109,19 @@ export const DOLLAR_COMMAND_TRANSFORMER: TextMatchTransformer = {
     }
     return null;
   },
-  importRegExp: /(?!)/,
-  regExp: /(?!)$/,
-  replace: () => {},
+  importRegExp: /(^|[\s(])\$([A-Za-z][A-Za-z0-9:_-]*)/,
+  regExp: /(^|[\s(])\$([A-Za-z][A-Za-z0-9:_-]*)$/,
+  replace: (textNode, match) => {
+    const prefix = match[1] ?? '';
+    const commandName = match[2];
+    if (!commandName) return;
+
+    const commandNode = $createDollarCommandNode({ commandName });
+    textNode.replace(commandNode);
+    if (prefix) {
+      commandNode.insertBefore($createTextNode(prefix));
+    }
+  },
   trigger: '',
   type: 'text-match',
 };

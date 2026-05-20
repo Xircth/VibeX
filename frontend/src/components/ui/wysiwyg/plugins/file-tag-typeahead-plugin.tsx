@@ -577,6 +577,7 @@ export function FileTagTypeaheadPlugin({
                       isSelected={index === selectedIndex}
                       index={index}
                       setHighlightedIndex={setHighlightedIndex}
+                      setRefElement={option.setRefElement}
                       onClick={() => selectOptionAndCleanUp(option)}
                     >
                       <div className="font-medium">
@@ -616,6 +617,7 @@ export function FileTagTypeaheadPlugin({
                         isSelected={index === selectedIndex}
                         index={index}
                         setHighlightedIndex={setHighlightedIndex}
+                        setRefElement={option.setRefElement}
                         onClick={() => selectOptionAndCleanUp(option)}
                       >
                         <div className="truncate font-medium">

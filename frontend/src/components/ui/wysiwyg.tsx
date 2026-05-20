@@ -35,7 +35,7 @@ import {
 } from './wysiwyg/nodes/tag-reference-node';
 import {
   SlashCommandNode,
-  SLASH_COMMAND_TRANSFORMER,
+  SLASH_COMMAND_DISPLAY_TRANSFORMER,
 } from './wysiwyg/nodes/slash-command-node';
 import {
   DollarCommandNode,
@@ -383,7 +383,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         PR_COMMENT_EXPORT_TRANSFORMER, // Export transformer for DecoratorNode (must be before import transformer)
         PR_COMMENT_TRANSFORMER, // Import transformer for fenced code block
         TAG_REFERENCE_TRANSFORMER, // Export-only transformer for tag reference chips
-        SLASH_COMMAND_TRANSFORMER, // Export-only transformer for slash command chips
+        SLASH_COMMAND_DISPLAY_TRANSFORMER, // Import/export slash command chips
         DOLLAR_COMMAND_TRANSFORMER, // Export-only transformer for $ workflow command chips
         FILE_REFERENCE_TRANSFORMER, // Export-only transformer for dragged file reference chips
         CLICKED_ELEMENT_TRANSFORMER, // Export-only transformer for clicked element chips
@@ -397,7 +397,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       () => [
         IMAGE_TRANSFORMER,
         TAG_REFERENCE_TRANSFORMER,
-        SLASH_COMMAND_TRANSFORMER,
+        SLASH_COMMAND_DISPLAY_TRANSFORMER,
         DOLLAR_COMMAND_TRANSFORMER,
         FILE_REFERENCE_TRANSFORMER,
         CLICKED_ELEMENT_TRANSFORMER,

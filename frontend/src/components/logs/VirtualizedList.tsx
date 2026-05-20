@@ -121,6 +121,10 @@ export function buildProcessChangeItems(
   });
 }
 
+export function collapsedAssistantMessagesLabel(hiddenCount: number): string {
+  return `已折叠 ${hiddenCount} 条过程消息`;
+}
+
 const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
 function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
     const { entries, setEntries } = useEntries();
@@ -413,7 +417,7 @@ function CollapsedAssistantMessagesBlock({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>{`已折叠${hiddenCount}条消息`}</span>
+        <span>{collapsedAssistantMessagesLabel(hiddenCount)}</span>
       </button>
       {expanded
         ? entries.map((entry) => (

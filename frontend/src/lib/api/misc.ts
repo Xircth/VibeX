@@ -242,6 +242,13 @@ export const desktopApi = {
   }): Promise<void> => {
     return tauriInvoke<void>('activate_project_rail_target', { payload });
   },
+  requestProjectRailProjectDialog: async (payload: {
+    mode: 'create' | 'open';
+  }): Promise<void> => {
+    return tauriInvoke<void>('request_project_rail_project_dialog', {
+      payload,
+    });
+  },
 };
 
 // File System APIs

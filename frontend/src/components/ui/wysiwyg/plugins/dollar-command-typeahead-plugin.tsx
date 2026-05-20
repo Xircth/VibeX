@@ -208,6 +208,7 @@ export function DollarCommandTypeaheadPlugin() {
                   isSelected={index === selectedIndex}
                   index={index}
                   setHighlightedIndex={setHighlightedIndex}
+                  setRefElement={option.setRefElement}
                   onClick={() => selectOptionAndCleanUp(option)}
                 >
                   <div className="font-medium">

@@ -207,4 +207,65 @@ describe('provider frontend adapters', () => {
       raw: { reason: 'cross_provider_event_ignored' },
     });
   });
+
+  it('does not map native provider tool output or stderr noise into assistant text', () => {
+    const codex = getProviderFrontendAdapter('codex');
+    const claude = getProviderFrontendAdapter('claude');
+
+    expect(
+      codex.mapRuntimeEvent({
+        provider: 'codex',
+        workspace_id: 'workspace-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        event: {
+          method: 'item/command/output',
+          params: {
+            output:
+              'Set-PSReadLineOption : The predictive suggestion feature cannot be enabled',
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'raw_diagnostic',
+    });
+
+    expect(
+      claude.mapRuntimeEvent({
+        provider: 'claude',
+        workspace_id: 'workspace-1',
+        event: {
+          type: 'sdk_event',
+          text: 'tool stdout should not render',
+          event: {
+            type: 'tool_result',
+            content: [
+              {
+                type: 'text',
+                text: 'tool stdout should not render',
+              },
+            ],
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'raw_diagnostic',
+    });
+
+    expect(
+      codex.mapRuntimeEvent({
+        provider: 'codex',
+        workspace_id: 'workspace-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        event: {
+          method: 'item/agentMessage/delta',
+          params: { delta: 'assistant text' },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'append_text',
+      text: 'assistant text',
+    });
+  });
 });

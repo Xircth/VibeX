@@ -142,10 +142,25 @@ export const SLASH_COMMAND_TRANSFORMER: TextMatchTransformer = {
     return null;
   },
   importRegExp: /(?!)/, // Never match — commands are created via typeahead only
-  regExp: /(?!)$/, // Never match
-  replace: () => {},
+  regExp: /(^|[\s(])\/([A-Za-z][A-Za-z0-9:_-]*)$/,
+  replace: (textNode, match) => {
+    const prefix = match[1] ?? '';
+    const commandName = match[2];
+    if (!commandName) return;
+
+    const commandNode = $createSlashCommandNode({ commandName });
+    textNode.replace(commandNode);
+    if (prefix) {
+      commandNode.insertBefore($createTextNode(prefix));
+    }
+  },
   trigger: '',
   type: 'text-match',
+};
+
+export const SLASH_COMMAND_DISPLAY_TRANSFORMER: TextMatchTransformer = {
+  ...SLASH_COMMAND_TRANSFORMER,
+  importRegExp: /(^|[\s(])\/([A-Za-z][A-Za-z0-9:_-]*)/,
 };
 
 // ====== React Component ======

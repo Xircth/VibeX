@@ -12,6 +12,23 @@ function readFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readWorkspaceCommandSource() {
+  return [
+    'src-tauri/src/commands/workspaces.rs',
+    'src-tauri/src/commands/workspaces/types.rs',
+    'src-tauri/src/commands/workspaces/workspace_sync.rs',
+    'src-tauri/src/commands/workspaces/workspace_crud.rs',
+    'src-tauri/src/commands/workspaces/git_operations.rs',
+    'src-tauri/src/commands/workspaces/workspace_scripts.rs',
+    'src-tauri/src/commands/workspaces/workspace_queries.rs',
+    'src-tauri/src/commands/workspaces/pull_requests.rs',
+    'src-tauri/src/commands/workspaces/pr_import.rs',
+    'src-tauri/src/commands/workspaces/commit_commands.rs',
+  ]
+    .map(readFile)
+    .join('\n');
+}
+
 test('终端目录跟随 workspace container_ref 和 agent_working_dir', () => {
   const source = readFile('src-tauri/src/commands/terminal.rs');
 
@@ -22,7 +39,7 @@ test('终端目录跟随 workspace container_ref 和 agent_working_dir', () => {
 });
 
 test('workspace repo 列表返回当前 workspace 下的实际 repo 路径', () => {
-  const source = readFile('src-tauri/src/commands/workspaces.rs');
+  const source = readWorkspaceCommandSource();
 
   assert.match(source, /pub async fn get_workspace_repos/);
   assert.match(source, /ensure_container_exists\(&workspace\)/);

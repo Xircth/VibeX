@@ -11,7 +11,7 @@ use strum_macros::AsRefStr;
 use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
-pub use crate::executors::acp::codex_home;
+pub use crate::executors::acp::{codex_config_model_context_window, codex_home};
 use crate::{
     approvals::ExecutorApprovalService,
     command::CmdOverrides,

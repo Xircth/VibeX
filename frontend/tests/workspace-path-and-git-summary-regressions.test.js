@@ -17,9 +17,26 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function readWorkspaceCommandSource() {
+  return [
+    'src-tauri/src/commands/workspaces.rs',
+    'src-tauri/src/commands/workspaces/types.rs',
+    'src-tauri/src/commands/workspaces/workspace_sync.rs',
+    'src-tauri/src/commands/workspaces/workspace_crud.rs',
+    'src-tauri/src/commands/workspaces/git_operations.rs',
+    'src-tauri/src/commands/workspaces/workspace_scripts.rs',
+    'src-tauri/src/commands/workspaces/workspace_queries.rs',
+    'src-tauri/src/commands/workspaces/pull_requests.rs',
+    'src-tauri/src/commands/workspaces/pr_import.rs',
+    'src-tauri/src/commands/workspaces/commit_commands.rs',
+  ]
+    .map(readRepoFile)
+    .join('\n');
+}
+
 test('workspace path resolution is centralized for editor, terminal, and agent working directories', () => {
   const helperSource = readRepoFile('src-tauri/src/workspace_paths.rs');
-  const workspacesSource = readRepoFile('src-tauri/src/commands/workspaces.rs');
+  const workspacesSource = readWorkspaceCommandSource();
   const sessionsSource = readRepoFile('src-tauri/src/commands/sessions.rs');
   const terminalSource = readRepoFile('src-tauri/src/commands/terminal.rs');
 

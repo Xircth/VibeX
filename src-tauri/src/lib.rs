@@ -266,6 +266,7 @@ pub fn run() {
             commands::project_rail_window::set_project_rail_window_visible,
             commands::project_rail_window::sync_project_rail_window_bounds,
             commands::project_rail_window::activate_project_rail_target,
+            commands::project_rail_window::request_project_rail_project_dialog,
             // Agent settings commands
             commands::agent_settings::list_agents,
             commands::agent_settings::update_agent_preferences,

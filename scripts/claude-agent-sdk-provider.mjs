@@ -150,16 +150,59 @@ async function* promptFromInput(input) {
   };
 }
 
+function slashCommand(input) {
+  if (Array.isArray(input.images) && input.images.length > 0) {
+    return undefined;
+  }
+  const text = String(input.text ?? '');
+  const match = text.match(/^\s*\/([A-Za-z0-9:_-]+)(?:\s+([\s\S]*))?\s*$/);
+  if (!match) {
+    return undefined;
+  }
+  return {
+    command: match[1],
+    arguments: match[2] ?? '',
+    raw: text.trim(),
+  };
+}
+
+function promptForInput(input, command) {
+  return command ? command.raw : promptFromInput(input);
+}
+
+function isCompactCommand(command) {
+  return command?.command?.toLowerCase() === 'compact';
+}
+
 async function readInputJson(inputPath) {
   return JSON.parse((await readFile(inputPath, 'utf8')).replace(/^\uFEFF/, ''));
+}
+
+async function emitContextUsage(agent, input) {
+  try {
+    const contextUsage = await agent.getContextUsage();
+    await writeEventAsync({
+      type: 'sdk_context_usage',
+      session_id: input.threadId ?? input.sessionId,
+      contextUsage,
+    });
+  } catch (error) {
+    await writeEventAsync({
+      type: 'sdk_context_usage_error',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+  }
 }
 
 async function run(inputPath) {
   const input = await readInputJson(inputPath);
   const options = buildOptions(input);
-  const prompt = promptFromInput(input);
+  const command = slashCommand(input);
+  const prompt = promptForInput(input, command);
+  const agent = query({ prompt, options });
 
-  for await (const message of query({ prompt, options })) {
+  for await (const message of agent) {
     const text = extractText(message);
     writeEvent({
       type: 'sdk_event',
@@ -168,6 +211,10 @@ async function run(inputPath) {
       uuid: message?.uuid,
       event: message,
     });
+  }
+
+  if (isCompactCommand(command)) {
+    await emitContextUsage(agent, input);
   }
 }
 

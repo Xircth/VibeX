@@ -142,39 +142,11 @@ pub async fn provider_runtime_get_commands(
 pub async fn provider_runtime_list_models(
     provider: ProviderId,
 ) -> Result<Vec<ProviderModel>, AppError> {
-    if provider == ProviderId::Claude {
-        return load_claude_sdk_models(&repo_root_path()).await;
+    match provider {
+        ProviderId::Claude => load_claude_sdk_models(&repo_root_path()).await,
+        ProviderId::Codex => load_codex_app_server_models().await,
+        ProviderId::Opencode => load_opencode_sdk_models(&repo_root_path()).await,
     }
-    if provider == ProviderId::Opencode {
-        return load_opencode_sdk_models(&repo_root_path()).await;
-    }
-
-    let models: Vec<(String, String)> = match provider {
-        ProviderId::Claude => unreachable!("Claude models are loaded from Agent SDK metadata"),
-        ProviderId::Codex => vec![
-            ("gpt-5.5".to_string(), "GPT-5.5".to_string()),
-            ("gpt-5.4".to_string(), "GPT-5.4".to_string()),
-        ],
-        ProviderId::Opencode => unreachable!("OpenCode models are loaded from SDK metadata"),
-    };
-
-    Ok(models
-        .iter()
-        .map(|(id, label)| ProviderModel {
-            provider,
-            id: id.to_string(),
-            label: label.to_string(),
-            source: match provider {
-                ProviderId::Codex => CapabilitySource::AppServer,
-                ProviderId::Claude => {
-                    unreachable!("Claude models are loaded from Agent SDK metadata")
-                }
-                ProviderId::Opencode => {
-                    unreachable!("OpenCode models are loaded from SDK metadata")
-                }
-            },
-        })
-        .collect())
 }
 
 #[tauri::command]
@@ -194,6 +166,17 @@ pub async fn provider_runtime_send_turn(
         &request.text,
     )
     .await?;
+    if request.provider == ProviderId::Codex
+        && let Some(event) = try_steer_active_codex_turn(
+            &state.deployment.db().pool,
+            &request,
+            workspace_id,
+            &session,
+        )
+        .await?
+    {
+        return Ok(event);
+    }
     match try_native_provider_turn(&state, request.clone(), workspace_id, &session).await {
         Ok(event) => Ok(event),
         Err(native_error) => {
@@ -219,20 +202,10 @@ pub async fn provider_runtime_interrupt(
     if provider == ProviderId::Codex
         && let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref())
     {
-        let servers: Vec<Arc<CodexAppServer>> =
-            CODEX_APP_SERVERS.lock().await.values().cloned().collect();
-        for server in servers {
-            let response = send_codex_request(
-                &server,
-                "turn/interrupt",
-                json!({ "threadId": thread_id, "turnId": turn_id }),
-                Duration::from_secs(5),
-            )
-            .await;
-            if response.is_ok() {
-                return Ok(());
-            }
-        }
+        send_codex_turn_interrupt(thread_id, turn_id)
+            .await
+            .map_err(AppError::Internal)?;
+        return Ok(());
     }
 
     let Some(turn_id) = turn_id else {
@@ -336,5 +309,127 @@ pub async fn provider_runtime_respond_to_request(
             provider.label()
         ))),
     }
+}
+
+#[tauri::command]
+pub async fn provider_runtime_codex_list_skills(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    force_reload: Option<bool>,
+) -> Result<Value, AppError> {
+    let server =
+        ensure_codex_app_server_for_workspace(&state, workspace_id, "codex-skills-list").await?;
+    let response = send_codex_request(
+        &server,
+        "skills/list",
+        json!({
+            "cwds": [codex_workspace_cwd_param(&server)],
+            "forceReload": force_reload.unwrap_or(false),
+        }),
+        Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+    )
+    .await
+    .and_then(|response| {
+        codex_response_success("skills/list", &response)?;
+        Ok(response)
+    })
+    .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
+    Ok(response.get("result").cloned().unwrap_or(response))
+}
+
+#[tauri::command]
+pub async fn provider_runtime_codex_configure_skill(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    path: Option<String>,
+    name: Option<String>,
+    enabled: bool,
+) -> Result<Value, AppError> {
+    send_codex_app_server_workspace_request(
+        &state,
+        workspace_id,
+        "skills/config/write",
+        json!({
+            "path": path,
+            "name": name,
+            "enabled": enabled,
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn provider_runtime_codex_list_hooks(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+) -> Result<Value, AppError> {
+    let server =
+        ensure_codex_app_server_for_workspace(&state, workspace_id, "codex-hooks-list").await?;
+    let response = send_codex_request(
+        &server,
+        "hooks/list",
+        json!({
+            "cwds": [codex_workspace_cwd_param(&server)],
+        }),
+        Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+    )
+    .await
+    .and_then(|response| {
+        codex_response_success("hooks/list", &response)?;
+        Ok(response)
+    })
+    .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
+    Ok(response.get("result").cloned().unwrap_or(response))
+}
+
+#[tauri::command]
+pub async fn provider_runtime_codex_set_hook_enabled(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    hook_key: String,
+    enabled: bool,
+) -> Result<Value, AppError> {
+    let mut hook_state = serde_json::Map::new();
+    hook_state.insert(hook_key, json!({ "enabled": enabled }));
+    send_codex_app_server_workspace_request(
+        &state,
+        workspace_id,
+        "config/batchWrite",
+        json!({
+            "edits": [{
+                "keyPath": "hooks.state",
+                "value": Value::Object(hook_state),
+                "mergeStrategy": "upsert",
+            }],
+            "reloadUserConfig": true,
+        }),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn provider_runtime_codex_list_apps(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    thread_id: Option<String>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+    force_refetch: Option<bool>,
+) -> Result<Value, AppError> {
+    let mut params = serde_json::Map::new();
+    params.insert("cursor".to_string(), cursor.map_or(Value::Null, Value::from));
+    params.insert("limit".to_string(), json!(limit.unwrap_or(50)));
+    params.insert("forceRefetch".to_string(), json!(force_refetch.unwrap_or(false)));
+    if let Some(thread_id) = thread_id.filter(|value| !value.trim().is_empty()) {
+        params.insert("threadId".to_string(), json!(thread_id));
+    }
+
+    send_codex_app_server_workspace_request(
+        &state,
+        workspace_id,
+        "app/list",
+        Value::Object(params),
+    )
+    .await
 }
 

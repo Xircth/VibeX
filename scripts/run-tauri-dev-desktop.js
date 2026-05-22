@@ -12,7 +12,7 @@ function runCommand(command, args, options = {}) {
     return spawn(
       process.env.ComSpec || 'cmd.exe',
       ['/d', '/s', '/c', command, ...args],
-      options
+      { ...options, windowsHide: true }
     );
   }
 
@@ -105,21 +105,41 @@ function terminateStaleDesktopProcess() {
   );
 
   const powershellScript = `
-$target = [System.IO.Path]::GetFullPath('${executablePath.replace(/\\/g, '\\\\')}')
-$processes = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and ([System.IO.Path]::GetFullPath($_.ExecutablePath) -ieq $target) }
-foreach ($process in $processes) {
-  Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+$target = [System.IO.Path]::GetFullPath($env:VIBEX_STALE_EXE_PATH)
+$processes = Get-Process -Name 'vibex' -ErrorAction SilentlyContinue | Where-Object {
+  try {
+    $_.Path -and ([System.IO.Path]::GetFullPath($_.Path) -ieq $target)
+  } catch {
+    $false
+  }
 }
+foreach ($process in $processes) {
+  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+}
+exit 0
 `;
 
   const result = spawnSync(
     'powershell.exe',
     ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', powershellScript],
     {
-      env: process.env,
+      env: {
+        ...process.env,
+        VIBEX_STALE_EXE_PATH: executablePath,
+      },
       stdio: 'inherit',
+      timeout: 10000,
+      windowsHide: true,
     }
   );
+
+  if (result.error) {
+    console.error(
+      'Failed to terminate stale desktop process:',
+      result.error.message
+    );
+    process.exit(1);
+  }
 
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
@@ -139,6 +159,19 @@ function writeGeneratedTauriDevConfig(ports) {
   };
 
   fs.writeFileSync(generatedConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function describeTauriDevExit(code, signal, ports) {
+  if (code === 0) {
+    return;
+  }
+
+  const status = signal ? `signal ${signal}` : `exit code ${code ?? 'unknown'}`;
+  console.error(`Tauri dev exited with ${status}.`);
+  console.error(
+    `Dev ports: frontend=${ports.frontend}, backend=${ports.backend}.`
+  );
+  console.error(`Generated config: ${GENERATED_TAURI_DEV_CONFIG}.`);
 }
 
 async function runTauriDesktopDev() {
@@ -171,7 +204,10 @@ async function runTauriDesktopDev() {
     process.exit(1);
   });
 
-  child.on('exit', (code) => process.exit(code ?? 1));
+  child.on('exit', (code, signal) => {
+    describeTauriDevExit(code, signal, ports);
+    process.exit(code ?? 1);
+  });
 }
 
 runTauriDesktopDev().catch((error) => {

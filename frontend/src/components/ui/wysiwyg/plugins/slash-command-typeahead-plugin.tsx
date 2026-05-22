@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
@@ -97,7 +97,7 @@ export function SlashCommandTypeaheadPlugin({
   const portalContainer = usePortalContainer();
   const taskAttemptId = useTaskAttemptId();
   const { setIsOpen } = useTypeaheadOpen();
-  const [options, setOptions] = useState<SlashCommandOption[]>([]);
+  const isThisMenuOpenRef = useRef(false);
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
   const executor = executorProfile?.executor ?? null;
 
@@ -114,8 +114,29 @@ export function SlashCommandTypeaheadPlugin({
   const isDiscovering =
     slashCommandsQuery.discovering && allCommands.length === 0;
 
+  const commandOptions = useMemo(() => {
+    if (!executor) {
+      return [] as SlashCommandOption[];
+    }
+
+    const filtered = filterSlashCommands(
+      allCommands,
+      activeQuery ?? '',
+      executor
+    );
+    const ordered = [
+      ...filtered.filter(
+        (command) => !getSlashCommandPresentation(command, executor).isSkill
+      ),
+      ...filtered.filter((command) =>
+        getSlashCommandPresentation(command, executor).isSkill
+      ),
+    ].slice(0, 50);
+    return ordered.map((command) => new SlashCommandOption(command));
+  }, [activeQuery, allCommands, executor]);
+
   const menuOptions = useMemo(() => {
-    if (!executor || activeQuery === null) {
+    if (!executor) {
       return [] as SlashCommandOption[];
     }
 
@@ -123,47 +144,26 @@ export function SlashCommandTypeaheadPlugin({
       return [new SlashCommandOption(null, 'loading')];
     }
 
-    if (options.length === 0) {
+    if (commandOptions.length === 0) {
       return [new SlashCommandOption(null, 'empty')];
     }
 
-    return options;
-  }, [activeQuery, executor, isDiscovering, isLoading, options]);
+    return commandOptions;
+  }, [commandOptions, executor, isDiscovering, isLoading]);
 
   const updateOptions = useCallback(
     (query: string | null) => {
       setActiveQuery(query);
-
-      if (!executor || query === null) {
-        setOptions([]);
-        return;
-      }
-
-      const filtered = filterSlashCommands(allCommands, query, executor);
-      const ordered = [
-        ...filtered.filter(
-          (command) => !getSlashCommandPresentation(command, executor).isSkill
-        ),
-        ...filtered.filter(
-          (command) => getSlashCommandPresentation(command, executor).isSkill
-        ),
-      ].slice(0, 50);
-      setOptions(ordered.map((command) => new SlashCommandOption(command)));
     },
-    [executor, allCommands]
+    []
   );
 
   const hasVisibleResults = useMemo(() => {
-    if (!executor || activeQuery === null) return false;
+    if (!executor) return false;
     if (isLoading || isDiscovering) return true;
-    if (!activeQuery.trim()) return true;
-    return options.length > 0;
-  }, [executor, activeQuery, isDiscovering, isLoading, options.length]);
-
-  useEffect(() => {
-    if (activeQuery === null) return;
-    updateOptions(activeQuery);
-  }, [activeQuery, updateOptions]);
+    if (!(activeQuery ?? '').trim()) return true;
+    return commandOptions.length > 0;
+  }, [executor, activeQuery, commandOptions.length, isDiscovering, isLoading]);
 
   return (
     <LexicalTypeaheadMenuPlugin<SlashCommandOption>
@@ -171,13 +171,16 @@ export function SlashCommandTypeaheadPlugin({
       options={menuOptions}
       onQueryChange={updateOptions}
       onOpen={() => {
+        isThisMenuOpenRef.current = true;
         setIsOpen(true);
         updateOptions('');
       }}
       onClose={() => {
-        setIsOpen(false);
+        if (isThisMenuOpenRef.current) {
+          isThisMenuOpenRef.current = false;
+          setIsOpen(false);
+        }
         setActiveQuery(null);
-        setOptions([]);
       }}
       onSelectOption={(option, nodeToReplace, closeMenu) => {
         const selectedCommand = option.command;

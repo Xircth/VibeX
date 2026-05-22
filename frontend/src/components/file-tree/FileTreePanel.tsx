@@ -1201,15 +1201,7 @@ export function FileTreePanel({
           action: async () => {
             const absolutePath = resolvePath(relativePath);
             try {
-              const { Command } = await import("@tauri-apps/plugin-shell");
-              const isWindows = absolutePath.includes("\\");
-              if (isWindows) {
-                const normalized = absolutePath.replaceAll("/", "\\");
-                await Command.create("cmd", ["/c", "explorer", "/select,", normalized]).execute();
-              } else {
-                const parent = absolutePath.substring(0, absolutePath.lastIndexOf("/"));
-                await Command.create("open", [parent]).execute();
-              }
+              await desktopApi.revealInFileManager(absolutePath);
             } catch {
               // shell command failed, not critical
             }

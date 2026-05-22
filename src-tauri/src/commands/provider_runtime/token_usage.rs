@@ -1,4 +1,4 @@
-﻿fn json_u32(value: Option<&Value>) -> Option<u32> {
+fn json_u32(value: Option<&Value>) -> Option<u32> {
     value
         .and_then(Value::as_u64)
         .and_then(|value| u32::try_from(value).ok())
@@ -19,17 +19,6 @@ fn token_usage_info(
     })
 }
 
-fn context_compacted_token_usage_info(
-    value: &Value,
-    context_window: Option<u32>,
-) -> Option<TokenUsageInfo> {
-    if value.get("method").and_then(Value::as_str) != Some("thread/compacted") {
-        return None;
-    }
-
-    token_usage_info(Some(0), context_window)
-}
-
 fn sum_u32(values: impl IntoIterator<Item = Option<u32>>) -> Option<u32> {
     let mut total = 0u32;
     let mut has_value = false;
@@ -40,22 +29,59 @@ fn sum_u32(values: impl IntoIterator<Item = Option<u32>>) -> Option<u32> {
     has_value.then_some(total)
 }
 
+fn positive_u32(value: Option<u32>) -> Option<u32> {
+    value.filter(|value| *value > 0)
+}
+
+fn positive_sum_u32(values: impl IntoIterator<Item = Option<u32>>) -> Option<u32> {
+    positive_u32(sum_u32(values))
+}
+
+fn codex_context_tokens(usage: &Value) -> Option<u32> {
+    if let Some(last) = usage.get("last") {
+        return positive_sum_u32([
+            json_u32(last.get("inputTokens")),
+            json_u32(last.get("cachedInputTokens")),
+        ])
+        .or_else(|| positive_u32(json_u32(last.get("totalTokens"))));
+    }
+
+    usage
+        .get("total")
+        .and_then(|total| {
+            positive_sum_u32([
+                json_u32(total.get("inputTokens")),
+                json_u32(total.get("cachedInputTokens")),
+            ])
+        })
+        .or_else(|| {
+            usage
+                .get("total")
+                .and_then(|total| positive_u32(json_u32(total.get("totalTokens"))))
+        })
+}
+
+fn codex_token_usage_info_from_usage(
+    usage: &Value,
+    context_window_fallback: Option<u32>,
+) -> Option<TokenUsageInfo> {
+    token_usage_info(
+        codex_context_tokens(usage),
+        json_u32(usage.get("modelContextWindow"))
+            .filter(|value| *value > 0)
+            .or(context_window_fallback),
+    )
+}
+
 fn extract_codex_token_usage_info(
     value: &Value,
-    context_window_override: Option<u32>,
+    context_window_fallback: Option<u32>,
 ) -> Option<TokenUsageInfo> {
     if value.get("method").and_then(Value::as_str) != Some("thread/tokenUsage/updated") {
         return None;
     }
     let usage = value.get("params")?.get("tokenUsage")?;
-    token_usage_info(
-        json_u32(
-            usage
-                .get("total")
-                .and_then(|total| total.get("totalTokens")),
-        ),
-        context_window_override.or_else(|| json_u32(usage.get("modelContextWindow"))),
-    )
+    codex_token_usage_info_from_usage(usage, context_window_fallback)
 }
 
 fn extract_claude_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
@@ -71,14 +97,12 @@ fn extract_claude_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
         return None;
     }
     let usage = value.get("usage")?;
-    let total_tokens = json_u32(usage.get("total_tokens")).or_else(|| {
-        sum_u32([
-            json_u32(usage.get("input_tokens")),
-            json_u32(usage.get("output_tokens")),
-            json_u32(usage.get("cache_creation_input_tokens")),
-            json_u32(usage.get("cache_read_input_tokens")),
-        ])
-    });
+    let total_tokens = sum_u32([
+        json_u32(usage.get("input_tokens")),
+        json_u32(usage.get("cache_creation_input_tokens")),
+        json_u32(usage.get("cache_read_input_tokens")),
+    ])
+    .or_else(|| json_u32(usage.get("total_tokens")));
     let context_window = value
         .get("modelUsage")
         .and_then(Value::as_object)
@@ -120,17 +144,16 @@ fn extract_provider_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
 
 fn extract_provider_token_usage_info_with_codex_context_window(
     value: &Value,
-    codex_context_window: Option<u32>,
+    codex_context_window_fallback: Option<u32>,
 ) -> Option<TokenUsageInfo> {
-    extract_codex_token_usage_info(value, codex_context_window)
-        .or_else(|| context_compacted_token_usage_info(value, codex_context_window))
+    extract_codex_token_usage_info(value, codex_context_window_fallback)
         .or_else(|| extract_claude_token_usage_info(value))
         .or_else(|| extract_opencode_token_usage_info(value))
         .or_else(|| {
             value.get("event").and_then(|event| {
                 extract_provider_token_usage_info_with_codex_context_window(
                     event,
-                    codex_context_window,
+                    codex_context_window_fallback,
                 )
             })
         })
@@ -138,7 +161,7 @@ fn extract_provider_token_usage_info_with_codex_context_window(
             value.get("response").and_then(|response| {
                 extract_provider_token_usage_info_with_codex_context_window(
                     response,
-                    codex_context_window,
+                    codex_context_window_fallback,
                 )
             })
         })
@@ -169,4 +192,3 @@ fn extract_provider_error(value: &Value) -> Option<String> {
         .and_then(extract_provider_diagnostic_text)
         .or_else(|| Some(value.to_string()))
 }
-

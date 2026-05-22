@@ -45,7 +45,8 @@ export type AggregationType =
   | 'file_read'
   | 'search'
   | 'web_fetch'
-  | 'command_run';
+  | 'command_run'
+  | 'task_create';
 
 export type FileEditAction = Extract<ActionType, { action: 'file_edit' }>;
 export type BuildDisplayEntriesOptions = {
@@ -53,6 +54,24 @@ export type BuildDisplayEntriesOptions = {
   completedExecutionProcessIds?: ReadonlySet<string>;
   collapseAiMessagesByDefault?: boolean;
 };
+
+type AgentLaunch = {
+  name: string | null;
+  description: string;
+};
+
+type AssistantAgentLaunchExtraction = {
+  launches: AgentLaunch[];
+  remainingContent: string;
+};
+
+const SUBAGENT_STATUS_TOOL_NAMES = new Set([
+  'wait',
+  'waitagent',
+  'sendinput',
+  'resumeagent',
+  'closeagent',
+]);
 
 /***********************
  * Constants            *
@@ -70,6 +89,7 @@ export const AGGREGATABLE_ACTIONS = new Set([
   'search',
   'web_fetch',
   'command_run',
+  'task_create',
 ]);
 
 export const AGGREGATION_LABELS: Record<
@@ -91,6 +111,10 @@ export const AGGREGATION_LABELS: Record<
   command_run: {
     icon: createElement(TerminalSquare, { className: 'h-3 w-3' }),
     label: '终端',
+  },
+  task_create: {
+    icon: createElement(Bot, { className: 'h-3 w-3' }),
+    label: '正在生成智能体',
   },
 };
 
@@ -164,6 +188,11 @@ const VERBOSE_ERROR_PATTERNS = [
 const COMMAND_OUTPUT_MARKER_PATTERN = /\bCommand output\s*[:：]\s*/i;
 const SHELL_OUTPUT_ENVELOPE_PATTERN =
   /^\s*(?:(?:Exit code|Wall time):[\s\S]*?)?\bOutput:\s*/i;
+const AGENT_LAUNCH_SENTENCE_PATTERN =
+  /(?:^|\n)\s*(?:[一二三四五六七八九十两\d]+\s*个)?(?:子代理|智能体|agent|Agent)\s*(?:已启动|启动|已创建|创建完成|created|started)\s*[：:]\s*([^\n。.!！？]+)[。.!！？]?/i;
+const AGENT_LAUNCH_SPLIT_PATTERN = /[，,；;、]+/;
+const AGENT_LAUNCH_NAME_PATTERN =
+  /^\s*([A-Za-z][A-Za-z0-9_-]{1,40}|agent-[0-9a-f-]{6,})\s*(.*)$/i;
 
 export function sanitizeConversationContent(content: string): string {
   return content.replace(ANSI_SEQUENCE_PATTERN, '').trim();
@@ -785,6 +814,22 @@ export const getToolSummary = (
             : at.description,
       };
     case 'tool':
+      if (
+        SUBAGENT_STATUS_TOOL_NAMES.has(
+          (at.tool_name || entryType.tool_name || '')
+            .replace(/[\s_-]/g, '')
+            .toLowerCase()
+        )
+      ) {
+        const firstLine = content.trim().split(/\r?\n/)[0] ?? '';
+        return {
+          label: 'Subagent status',
+          detail:
+            firstLine.length > 80
+              ? firstLine.slice(0, 77) + '\u2026'
+              : firstLine,
+        };
+      }
       return {
         label: at.tool_name || entryType.tool_name || 'Tool',
         detail: '',
@@ -852,6 +897,10 @@ function getAggregationKey(data: PatchTypeWithKey): string | null {
     return [data.executionProcessId, aggregationType].join(':');
   }
 
+  if (aggregationType === 'task_create') {
+    return [data.executionProcessId, aggregationType].join(':');
+  }
+
   return [
     data.executionProcessId,
     aggregationType,
@@ -900,6 +949,128 @@ function isThinkingEntry(data: PatchTypeWithKey): boolean {
   );
 }
 
+function parseAgentLaunchChunk(chunk: string): AgentLaunch | null {
+  const trimmed = chunk.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const match = trimmed.match(AGENT_LAUNCH_NAME_PATTERN);
+  if (!match) {
+    return {
+      name: null,
+      description: trimmed,
+    };
+  }
+
+  const name = match[1] ?? null;
+  const description = (match[2] ?? '').trim() || trimmed;
+  return {
+    name,
+    description,
+  };
+}
+
+function extractAssistantAgentLaunches(
+  content: string
+): AssistantAgentLaunchExtraction | null {
+  const match = content.match(AGENT_LAUNCH_SENTENCE_PATTERN);
+  if (!match || typeof match.index !== 'number') {
+    return null;
+  }
+
+  const launchText = match[1] ?? '';
+  const launches = launchText
+    .split(AGENT_LAUNCH_SPLIT_PATTERN)
+    .map(parseAgentLaunchChunk)
+    .filter((launch): launch is AgentLaunch => Boolean(launch));
+
+  if (launches.length === 0) {
+    return null;
+  }
+
+  const before = content.slice(0, match.index).trimEnd();
+  const after = content.slice(match.index + match[0].length).trimStart();
+  const remainingContent = [before, after]
+    .filter((part) => part.trim().length > 0)
+    .join('\n\n');
+
+  return {
+    launches,
+    remainingContent,
+  };
+}
+
+function hasRealAgentCreateEntry(entries: PatchTypeWithKey[]): boolean {
+  return entries.some(
+    (entry) =>
+      entry.type === 'NORMALIZED_ENTRY' &&
+      entry.content.entry_type.type === 'tool_use' &&
+      entry.content.entry_type.action_type.action === 'task_create'
+  );
+}
+
+function expandAssistantAgentLaunchEntries(
+  entries: PatchTypeWithKey[]
+): PatchTypeWithKey[] {
+  if (hasRealAgentCreateEntry(entries)) {
+    return entries;
+  }
+
+  const expanded: PatchTypeWithKey[] = [];
+
+  for (const entry of entries) {
+    if (
+      entry.type !== 'NORMALIZED_ENTRY' ||
+      entry.content.entry_type.type !== 'assistant_message'
+    ) {
+      expanded.push(entry);
+      continue;
+    }
+
+    const extraction = extractAssistantAgentLaunches(entry.content.content);
+    if (!extraction) {
+      expanded.push(entry);
+      continue;
+    }
+
+    extraction.launches.forEach((launch, index) => {
+      expanded.push({
+        ...entry,
+        patchKey: `${entry.patchKey}:agent-launch:${index}`,
+        content: {
+          ...entry.content,
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'subagent_launch',
+            action_type: {
+              action: 'task_create',
+              description: launch.description,
+              subagent_type: launch.name,
+              result: null,
+            },
+            status: { status: 'created' },
+          },
+          content: launch.description,
+        },
+      });
+    });
+
+    if (extraction.remainingContent.trim()) {
+      expanded.push({
+        ...entry,
+        patchKey: `${entry.patchKey}:assistant-remaining`,
+        content: {
+          ...entry.content,
+          content: extraction.remainingContent,
+        },
+      });
+    }
+  }
+
+  return expanded;
+}
+
 function isAssistantMessageDisplayEntry(
   entry: BaseDisplayEntry
 ): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } {
@@ -910,6 +1081,21 @@ function isAssistantMessageDisplayEntry(
 }
 
 function shouldCollapseAssistantPreludeEntry(entry: BaseDisplayEntry): boolean {
+  if (
+    entry.type === 'AGGREGATED_GROUP' &&
+    entry.aggregationType === 'task_create'
+  ) {
+    return false;
+  }
+
+  if (
+    entry.type === 'NORMALIZED_ENTRY' &&
+    entry.content.entry_type.type === 'tool_use' &&
+    entry.content.entry_type.action_type.action === 'task_create'
+  ) {
+    return false;
+  }
+
   if (entry.type !== 'NORMALIZED_ENTRY') {
     return true;
   }
@@ -995,6 +1181,7 @@ export function buildDisplayEntries(
     aggregateThinking = false,
     collapseAiMessagesByDefault = false,
   } = options;
+  const sourceEntries = expandAssistantAgentLaunchEntries(entries);
   const completedExecutionProcessIds = options.completedExecutionProcessIds;
   const displayEntries: BaseDisplayEntry[] = [];
   let currentGroup: PatchTypeWithKey[] = [];
@@ -1006,7 +1193,7 @@ export function buildDisplayEntries(
   const processFileEdits = new Map<string, PatchTypeWithKey[]>();
   const emittedFileEditGroups = new Set<string>();
 
-  for (const entry of entries) {
+  for (const entry of sourceEntries) {
     if (shouldHideDisplayEntry(entry)) {
       continue;
     }
@@ -1096,7 +1283,7 @@ export function buildDisplayEntries(
     flushCurrentThinkingGroup();
   };
 
-  for (const entry of entries) {
+  for (const entry of sourceEntries) {
     if (shouldHideDisplayEntry(entry)) {
       continue;
     }
@@ -1199,5 +1386,6 @@ export function getAggregatedEntryDetail(data: PatchTypeWithKey): string {
     const firstLine = at.command.split(/\r?\n/)[0]?.trim() ?? '';
     return firstLine;
   }
+  if (at.action === 'task_create') return at.description;
   return '';
 }

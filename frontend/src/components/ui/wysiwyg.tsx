@@ -18,8 +18,6 @@ import {
   TRANSFORMERS,
   CODE,
   HEADING,
-  ORDERED_LIST,
-  UNORDERED_LIST,
   type Transformer,
 } from '@lexical/markdown';
 import { ImageNode, IMAGE_TRANSFORMER } from './wysiwyg/nodes/image-node';
@@ -93,7 +91,6 @@ import {
 } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { cn } from '@/lib/utils';
-import { extractImageFilesFromClipboardData } from '@/utils/clipboard';
 import {
   FILE_REFERENCE_DRAG_MIME,
   parseFileReferencePayload,
@@ -118,7 +115,7 @@ export const SESSION_INPUT_MARKDOWN_PRESET: WysiwygMarkdownPreset =
   'session-input-minimal';
 export const SESSION_INPUT_TEXT_CLASS_NAME =
   'break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]';
-export const SESSION_INPUT_EDITOR_CLASS_NAME = `min-h-[40px] ${SESSION_INPUT_TEXT_CLASS_NAME}`;
+export const SESSION_INPUT_EDITOR_CLASS_NAME = `min-h-[40px] max-h-[100px] overflow-y-auto ${SESSION_INPUT_TEXT_CLASS_NAME}`;
 
 type WysiwygProps = {
   placeholder?: string;
@@ -127,7 +124,6 @@ type WysiwygProps = {
   onChange?: (state: SerializedEditorState) => void;
   onEditorStateChange?: (s: EditorState) => void;
   disabled?: boolean;
-  onPasteFiles?: (files: File[]) => void;
   className?: string;
   /** Repo IDs for file search in typeahead (preferred over projectId) */
   repoIds?: string[];
@@ -200,7 +196,6 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       onChange,
       onEditorStateChange,
       disabled = false,
-      onPasteFiles,
       className,
       repoIds,
       projectId,
@@ -401,9 +396,6 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         DOLLAR_COMMAND_TRANSFORMER,
         FILE_REFERENCE_TRANSFORMER,
         CLICKED_ELEMENT_TRANSFORMER,
-        HEADING,
-        UNORDERED_LIST,
-        ORDERED_LIST,
       ],
       []
     );
@@ -420,29 +412,14 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
       ]
     );
 
-    // Default mode keeps # for tag references; the session-input minimal preset
-    // re-enables heading shortcuts because #<space> does not collide with #tag.
+    // Default mode keeps # for tag references; the session-input preset keeps
+    // only structured chips and avoids Markdown text formatting.
     const shortcutTransformers: Transformer[] = useMemo(
       () =>
         isSessionInputMinimalPreset
-          ? activeTransformers
+          ? []
           : activeTransformers.filter((t) => t !== HEADING),
       [activeTransformers, isSessionInputMinimalPreset]
-    );
-
-    // Memoized handlers for ContentEditable to prevent re-renders
-    const handlePaste = useCallback(
-      (event: React.ClipboardEvent) => {
-        if (!onPasteFiles || disabled) return;
-
-        const files = extractImageFilesFromClipboardData(event.clipboardData);
-
-        if (files.length > 0) {
-          event.preventDefault();
-          onPasteFiles(files);
-        }
-      },
-      [onPasteFiles, disabled]
     );
 
     const handleDragOver = useCallback(
@@ -564,7 +541,6 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                         aria-label={
                           disabled ? 'Markdown content' : 'Markdown editor'
                         }
-                        onPaste={handlePaste}
                         onDragStartCapture={(event) => event.stopPropagation()}
                         onDragEnterCapture={(event) => event.stopPropagation()}
                         onDragOverCapture={(event) => event.stopPropagation()}
@@ -591,13 +567,16 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   <>
                     {autoFocus && <AutoFocusPlugin />}
                     <HistoryPlugin />
-                    <MarkdownShortcutPlugin
-                      transformers={shortcutTransformers}
-                    />
-                    <PasteMarkdownPlugin
-                      transformers={activeTransformers}
-                      allowRichHtmlPaste={!isSessionInputMinimalPreset}
-                    />
+                    {!isSessionInputMinimalPreset && (
+                      <>
+                        <MarkdownShortcutPlugin
+                          transformers={shortcutTransformers}
+                        />
+                        <PasteMarkdownPlugin
+                          transformers={activeTransformers}
+                        />
+                      </>
+                    )}
                     <TypeaheadOpenProvider>
                       <FileTagTypeaheadPlugin
                         trigger="#"

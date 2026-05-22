@@ -12,8 +12,8 @@ import { useQuery } from '@tanstack/react-query';
 import { queueApi } from '@/lib/api';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useSessionConversationStore } from '@/stores/useSessionConversationStore';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
 import {
   getContextCompactStatusText,
@@ -35,19 +35,45 @@ import {
 } from './constants';
 
 const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
-const MAX_CONVERSATION_HISTORY_CACHE = 20;
+const MAX_CONVERSATION_RUNTIME_ENTRIES = 20;
 
-type ConversationHistoryCacheEntry = {
+type ConversationRuntimeState = {
   displayedExecutionProcesses: ExecutionProcessStateStore;
   processIdsKey: string;
   previousStatusMap: Array<[string, ExecutionProcessStatus]>;
 };
 
-const conversationHistoryCache = new Map<
-  string,
-  ConversationHistoryCacheEntry
->();
+const conversationRuntimeByKey = new Map<string, ConversationRuntimeState>();
 let conversationStreamSubscriptionCounter = 0;
+
+export function clearConversationRuntimeForTests() {
+  conversationRuntimeByKey.clear();
+}
+
+function rememberConversationHistoryState(
+  key: string | null,
+  displayedExecutionProcesses: ExecutionProcessStateStore,
+  processIdsKey: string,
+  previousStatusMap: Map<string, ExecutionProcessStatus>,
+  options: { clone: boolean }
+) {
+  if (!key) return;
+
+  conversationRuntimeByKey.delete(key);
+  conversationRuntimeByKey.set(key, {
+    displayedExecutionProcesses: options.clone
+      ? structuredClone(displayedExecutionProcesses)
+      : displayedExecutionProcesses,
+    processIdsKey,
+    previousStatusMap: Array.from(previousStatusMap.entries()),
+  });
+
+  while (conversationRuntimeByKey.size > MAX_CONVERSATION_RUNTIME_ENTRIES) {
+    const oldestKey = conversationRuntimeByKey.keys().next().value;
+    if (!oldestKey) break;
+    conversationRuntimeByKey.delete(oldestKey);
+  }
+}
 
 function createConversationStreamId(executionProcessId: string): string {
   conversationStreamSubscriptionCounter += 1;
@@ -83,15 +109,17 @@ export const useConversationHistory = ({
 }: UseConversationHistoryParams): UseConversationHistoryResult => {
   const HISTORIC_PROCESS_CONCURRENCY = 4;
   const sessionId = attempt.session?.id;
-  const conversationKey = `${attempt.id}:${sessionId ?? 'no-session'}`;
+  const conversationKey = buildSessionConversationKey(attempt.id, sessionId);
   const {
     executionProcessesVisible: executionProcessesRaw,
     isLoading: executionProcessesLoading,
+    error: executionProcessesError,
   } = useExecutionProcessesContext();
   const { setTokenUsageInfo } = useEntries();
   const executionProcesses = useRef<ExecutionProcess[]>(executionProcessesRaw);
   const displayedExecutionProcesses = useRef<ExecutionProcessStateStore>({});
   const loadedInitialEntries = useRef(false);
+  const [initialLoadVersion, setInitialLoadVersion] = useState(0);
   const streamingProcessIdsRef = useRef<Set<string>>(new Set());
   const activeStreamControllersRef = useRef<Map<string, { close: () => void }>>(
     new Map()
@@ -102,71 +130,17 @@ export const useConversationHistory = ({
   );
   const loadingHistoricProcessIdsRef = useRef<Set<string>>(new Set());
   const prevConversationKeyRef = useRef<string | null>(null);
-  const renderedSnapshotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-  const pendingRenderedSnapshotRef = useRef<{
-    key: string;
-    entries: PatchTypeWithKey[];
-    tokenUsageInfo: TokenUsageInfo | null;
-  } | null>(null);
-  const flushRenderedConversationCache = useCallback(() => {
-    if (renderedSnapshotTimerRef.current) {
-      clearTimeout(renderedSnapshotTimerRef.current);
-      renderedSnapshotTimerRef.current = null;
-    }
-
-    const pending = pendingRenderedSnapshotRef.current;
-    if (!pending) {
-      return;
-    }
-
-    pendingRenderedSnapshotRef.current = null;
-    useSessionConversationStore.getState().saveSnapshot(pending.key, {
-      entries: pending.entries,
-      tokenUsageInfo: pending.tokenUsageInfo,
-    });
-  }, []);
-  const scheduleRenderedConversationCacheSave = useCallback(
-    (
-      key: string,
-      entries: PatchTypeWithKey[],
-      tokenUsageInfo: TokenUsageInfo | null
-    ) => {
-      pendingRenderedSnapshotRef.current = {
-        key,
-        entries,
-        tokenUsageInfo,
-      };
-
-      if (renderedSnapshotTimerRef.current) {
-        return;
-      }
-
-      renderedSnapshotTimerRef.current = setTimeout(() => {
-        flushRenderedConversationCache();
-      }, 400);
-    },
-    [flushRenderedConversationCache]
-  );
-  const saveConversationCache = useCallback((key: string | null) => {
+  const saveConversationRuntime = useCallback((key: string | null) => {
     if (!key) return;
 
     const processIdsKey = executionProcesses.current.map((p) => p.id).join(',');
-
-    conversationHistoryCache.set(key, {
-      displayedExecutionProcesses: structuredClone(
-        displayedExecutionProcesses.current
-      ),
+    rememberConversationHistoryState(
+      key,
+      displayedExecutionProcesses.current,
       processIdsKey,
-      previousStatusMap: Array.from(previousStatusMapRef.current.entries()),
-    });
-
-    while (conversationHistoryCache.size > MAX_CONVERSATION_HISTORY_CACHE) {
-      const oldestKey = conversationHistoryCache.keys().next().value;
-      if (!oldestKey) break;
-      conversationHistoryCache.delete(oldestKey);
-    }
+      previousStatusMapRef.current,
+      { clone: true }
+    );
   }, []);
   const { data: queueStatus } = useQuery({
     queryKey: ['queue-status', sessionId],
@@ -212,8 +186,10 @@ export const useConversationHistory = ({
   ) => {
     const normalized =
       executionProcess.executor_action.typ.type !== 'ScriptRequest';
-    const HISTORIC_STREAM_IDLE_TIMEOUT_MS = 200;
-    const HISTORIC_STREAM_MAX_WAIT_MS = 8000;
+    const isRunningSnapshot =
+      executionProcess.status === ExecutionProcessStatus.running;
+    const HISTORIC_STREAM_IDLE_TIMEOUT_MS = isRunningSnapshot ? 50 : 200;
+    const HISTORIC_STREAM_MAX_WAIT_MS = isRunningSnapshot ? 100 : 8000;
 
     return new Promise<PatchType[]>((resolve) => {
       let settled = false;
@@ -726,10 +702,12 @@ export const useConversationHistory = ({
       }
 
       setTokenUsageInfo(latestTokenUsageInfo);
-      scheduleRenderedConversationCacheSave(
+      rememberConversationHistoryState(
         conversationKey,
-        entries,
-        latestTokenUsageInfo
+        executionProcessState,
+        executionProcesses.current.map((process) => process.id).join(','),
+        previousStatusMapRef.current,
+        { clone: false }
       );
       let modifiedAddEntryType = addEntryType;
 
@@ -747,12 +725,7 @@ export const useConversationHistory = ({
 
       onEntriesUpdatedRef.current?.(entries, modifiedAddEntryType, loading);
     },
-    [
-      conversationKey,
-      flattenEntriesForEmit,
-      scheduleRenderedConversationCacheSave,
-      setTokenUsageInfo,
-    ]
+    [conversationKey, flattenEntriesForEmit, setTokenUsageInfo]
   );
 
   // This emits its own events as they are streamed via Tauri Events
@@ -894,12 +867,7 @@ export const useConversationHistory = ({
 
       if (!executionProcesses?.current) return localDisplayedExecutionProcesses;
 
-      const historicProcesses = [...executionProcesses.current]
-        .reverse()
-        .filter(
-          (executionProcess) =>
-            executionProcess.status !== ExecutionProcessStatus.running
-        );
+      const historicProcesses = [...executionProcesses.current].reverse();
 
       for (
         let index = 0;
@@ -1026,23 +994,22 @@ export const useConversationHistory = ({
   // effects so reconnects do not start from an empty process snapshot.
   useEffect(() => {
     if (prevConversationKeyRef.current === conversationKey) return;
-    saveConversationCache(prevConversationKeyRef.current);
+    saveConversationRuntime(prevConversationKeyRef.current);
     prevConversationKeyRef.current = conversationKey;
 
     closeAllRunningStreams();
-    const cachedConversation = conversationHistoryCache.get(conversationKey);
+    const existingRuntime = conversationRuntimeByKey.get(conversationKey);
 
-    if (cachedConversation) {
+    if (existingRuntime) {
       displayedExecutionProcesses.current = structuredClone(
-        cachedConversation.displayedExecutionProcesses
+        existingRuntime.displayedExecutionProcesses
       );
-      previousStatusMapRef.current = new Map(
-        cachedConversation.previousStatusMap
-      );
+      previousStatusMapRef.current = new Map(existingRuntime.previousStatusMap);
       // Always refresh from latest process list after switching conversations.
       loadedInitialEntries.current = false;
+      setInitialLoadVersion((version) => version + 1);
 
-      const hasCachedEntries = Object.values(
+      const hasRuntimeEntries = Object.values(
         displayedExecutionProcesses.current
       ).some((processState) => processState.entries.length > 0);
       const hasNoHistory =
@@ -1050,23 +1017,16 @@ export const useConversationHistory = ({
       emitEntries(
         displayedExecutionProcesses.current,
         'initial',
-        !hasCachedEntries && !hasNoHistory
+        !hasRuntimeEntries && !hasNoHistory
       );
       return;
     }
 
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
+    setInitialLoadVersion((version) => version + 1);
     loadingHistoricProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
-    const cachedRendered = useSessionConversationStore
-      .getState()
-      .getSnapshot(conversationKey);
-    if (cachedRendered?.entries.length) {
-      setTokenUsageInfo(cachedRendered.tokenUsageInfo);
-      onEntriesUpdatedRef.current?.(cachedRendered.entries, 'initial', false);
-      return;
-    }
     const hasNoHistory =
       !executionProcessesLoading && executionProcessesRaw.length === 0;
     emitEntries(displayedExecutionProcesses.current, 'initial', !hasNoHistory);
@@ -1077,7 +1037,7 @@ export const useConversationHistory = ({
     executionProcessesLoading,
     executionProcessesRaw.length,
     closeAllRunningStreams,
-    saveConversationCache,
+    saveConversationRuntime,
     setTokenUsageInfo,
   ]);
 
@@ -1094,19 +1054,8 @@ export const useConversationHistory = ({
 
       if (executionProcessesRaw.length === 0) {
         loadedInitialEntries.current = true;
-        const cachedRendered = useSessionConversationStore
-          .getState()
-          .getSnapshot(conversationKey);
-        if (cachedRendered?.entries.length) {
-          setTokenUsageInfo(cachedRendered.tokenUsageInfo);
-          onEntriesUpdatedRef.current?.(
-            cachedRendered.entries,
-            'initial',
-            false
-          );
-        } else {
-          emitEntries(displayedExecutionProcesses.current, 'initial', false);
-        }
+        setInitialLoadVersion((version) => version + 1);
+        emitEntries(displayedExecutionProcesses.current, 'initial', false);
         return;
       }
 
@@ -1118,6 +1067,7 @@ export const useConversationHistory = ({
       });
       emitEntries(displayedExecutionProcesses.current, 'initial', false);
       loadedInitialEntries.current = true;
+      setInitialLoadVersion((version) => version + 1);
 
       // Then load the remaining in batches
       while (
@@ -1144,6 +1094,10 @@ export const useConversationHistory = ({
   ]);
 
   useEffect(() => {
+    if (!loadedInitialEntries.current && executionProcessesRaw.length > 0) {
+      return;
+    }
+
     const activeProcesses = getActiveAgentProcesses();
     if (activeProcesses.length === 0) return;
 
@@ -1174,6 +1128,8 @@ export const useConversationHistory = ({
   }, [
     attempt.id,
     idStatusKey,
+    initialLoadVersion,
+    executionProcessesRaw.length,
     emitEntries,
     ensureProcessVisible,
     loadRunningAndEmit,
@@ -1199,8 +1155,9 @@ export const useConversationHistory = ({
       ) {
         shouldEmitStoppedState = true;
 
-        const activeStreamController =
-          activeStreamControllersRef.current.get(process.id);
+        const activeStreamController = activeStreamControllersRef.current.get(
+          process.id
+        );
         if (activeStreamController) {
           activeStreamController.close();
           activeStreamControllersRef.current.delete(process.id);
@@ -1263,6 +1220,7 @@ export const useConversationHistory = ({
   // If an execution process is removed, remove it from the state
   useEffect(() => {
     if (!executionProcessesRaw) return;
+    if (executionProcessesLoading || executionProcessesError) return;
 
     const removedProcessIds = Object.keys(
       displayedExecutionProcesses.current
@@ -1272,10 +1230,23 @@ export const useConversationHistory = ({
       mergeIntoDisplayed((state) => {
         removedProcessIds.forEach((id) => {
           delete state[id];
+          previousStatusMapRef.current.delete(id);
+          loadingHistoricProcessIdsRef.current.delete(id);
+          streamingProcessIdsRef.current.delete(id);
+          activeStreamControllersRef.current.get(id)?.close();
+          activeStreamControllersRef.current.delete(id);
         });
       });
+      emitEntries(displayedExecutionProcesses.current, 'historic', false);
     }
-  }, [conversationKey, idListKey, executionProcessesRaw]);
+  }, [
+    conversationKey,
+    emitEntries,
+    idListKey,
+    executionProcessesRaw,
+    executionProcessesLoading,
+    executionProcessesError,
+  ]);
 
   useEffect(() => {
     if (!executionProcessesLoading) {
@@ -1295,17 +1266,13 @@ export const useConversationHistory = ({
 
   useEffect(
     () => () => {
-      flushRenderedConversationCache();
-      saveConversationCache(prevConversationKeyRef.current ?? conversationKey);
+      saveConversationRuntime(
+        prevConversationKeyRef.current ?? conversationKey
+      );
       loadingHistoricProcessIdsRef.current.clear();
       closeAllRunningStreams();
     },
-    [
-      closeAllRunningStreams,
-      conversationKey,
-      flushRenderedConversationCache,
-      saveConversationCache,
-    ]
+    [closeAllRunningStreams, conversationKey, saveConversationRuntime]
   );
 
   return {};

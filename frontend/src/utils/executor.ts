@@ -56,6 +56,50 @@ const CODEX_MODEL_LABELS: Record<string, string> = {
   'gpt-5.3-codex': 'GPT-5.3 Codex',
 };
 
+const OPENCODE_ZEN_FALLBACK_MODELS = [
+  'opencode/kimi-k2.5',
+  'opencode/qwen3.5-plus',
+  'opencode/claude-haiku-4-5',
+  'opencode/glm-5.1',
+  'opencode/gemini-3.5-flash',
+  'opencode/gpt-5.2',
+  'opencode/gpt-5.4-nano',
+  'opencode/gpt-5.5-pro',
+  'opencode/gpt-5.1-codex-mini',
+  'opencode/claude-sonnet-4-5',
+  'opencode/gpt-5.3-codex-spark',
+  'opencode/grok-build-0.1',
+  'opencode/deepseek-v4-flash-free',
+  'opencode/gpt-5-codex',
+  'opencode/minimax-m2.5',
+  'opencode/claude-sonnet-4-6',
+  'opencode/qwen3.6-plus-free',
+  'opencode/minimax-m2.7',
+  'opencode/claude-opus-4-1',
+  'opencode/qwen3.6-plus',
+  'opencode/gpt-5.1',
+  'opencode/gpt-5-nano',
+  'opencode/gpt-5.4-mini',
+  'opencode/claude-opus-4-7',
+  'opencode/gemini-3-flash',
+  'opencode/gpt-5.1-codex-max',
+  'opencode/gpt-5.4-pro',
+  'opencode/big-pickle',
+  'opencode/claude-sonnet-4',
+  'opencode/gpt-5.1-codex',
+  'opencode/gpt-5.2-codex',
+  'opencode/gpt-5.3-codex',
+  'opencode/nemotron-3-super-free',
+  'opencode/glm-5',
+  'opencode/gemini-3.1-pro',
+  'opencode/kimi-k2.6',
+  'opencode/claude-opus-4-5',
+  'opencode/gpt-5',
+  'opencode/gpt-5.4',
+  'opencode/gpt-5.5',
+  'opencode/claude-opus-4-6',
+];
+
 export type ClaudePermissionMode = 'auto' | 'ask' | 'plan';
 export type CodexPermissionMode = 'auto' | 'ask';
 export type OpenCodePermissionMode = 'auto' | 'ask';
@@ -377,7 +421,10 @@ export function getClaudeModelOptions(
     });
   }
 
-  if (options.length === 0 || (!hasLocalModelConfig && !seen.has(CLAUDE_DEFAULT_MODEL))) {
+  if (
+    options.length === 0 ||
+    (!hasLocalModelConfig && !seen.has(CLAUDE_DEFAULT_MODEL))
+  ) {
     options.unshift({
       value: CLAUDE_DEFAULT_MODEL,
       label: formatClaudeModelLabel(CLAUDE_DEFAULT_MODEL, claudeEnv),
@@ -727,22 +774,29 @@ export function getOpenCodeModelOptions(
 ): CodexModelOption[] {
   const seen = new Set<string>();
   const options: CodexModelOption[] = [];
-
-  for (const entry of getExecutorVariantRecords<Opencode>(
-    profiles,
-    OPENCODE_EXECUTOR
-  )) {
-    const model = getOpenCodeVariantConfig(profiles, entry.variant).model;
+  const pushOption = (model: string | null) => {
+    if (!model) return;
     const modelKey = model ?? 'DEFAULT';
-    if (seen.has(modelKey)) continue;
+    if (seen.has(modelKey)) return;
     seen.add(modelKey);
     options.push({
       value: model,
       label: formatSimpleLabel(model),
     });
+  };
+
+  for (const entry of getExecutorVariantRecords<Opencode>(
+    profiles,
+    OPENCODE_EXECUTOR
+  )) {
+    pushOption(getOpenCodeVariantConfig(profiles, entry.variant).model);
   }
 
-  return options.length > 0 ? options : [{ value: null, label: 'Default' }];
+  for (const model of OPENCODE_ZEN_FALLBACK_MODELS) {
+    pushOption(model);
+  }
+
+  return options;
 }
 
 export function getOpenCodeVariantFromSelection(

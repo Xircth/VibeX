@@ -254,6 +254,11 @@ impl AcpProvider {
                     &opencode_command_dirs(workdir),
                     "OpenCode custom command",
                 );
+                discover_skill_commands(
+                    &mut commands,
+                    &opencode_skill_dirs(workdir),
+                    "OpenCode skill",
+                );
             }
         }
         commands
@@ -333,6 +338,33 @@ fn opencode_command_dirs(workdir: &Path) -> Vec<PathBuf> {
                 .join("opencode")
                 .join("commands"),
         );
+    }
+    dirs
+}
+
+fn opencode_skill_dirs(workdir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![
+        workdir.join(".opencode").join("skills"),
+        workdir.join(".opencode").join("skill"),
+        workdir.join("opencode").join("skills"),
+        workdir.join("opencode").join("skill"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        dirs.extend([
+            home.join(".config").join("opencode").join("skills"),
+            home.join(".config").join("opencode").join("skill"),
+            home.join(".opencode").join("skills"),
+            home.join(".opencode").join("skill"),
+            home.join(".claude").join("skills"),
+            home.join(".agents").join("skills"),
+        ]);
+    }
+    if let Ok(xdg_config_home) = std::env::var("XDG_CONFIG_HOME")
+        && !xdg_config_home.trim().is_empty()
+    {
+        let opencode_dir = PathBuf::from(xdg_config_home).join("opencode");
+        dirs.push(opencode_dir.join("skills"));
+        dirs.push(opencode_dir.join("skill"));
     }
     dirs
 }
@@ -477,6 +509,30 @@ mod tests {
         assert!(names.contains("sessions"));
         assert!(names.contains("agents"));
         assert!(names.contains("thinking"));
+    }
+
+    #[test]
+    fn opencode_acp_discovers_project_skills_as_menu_skills() {
+        let workdir =
+            std::env::temp_dir().join(format!("vibex-opencode-skills-{}", uuid::Uuid::new_v4()));
+        let skill_dir = workdir.join(".opencode").join("skills").join("reviewer");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ndescription: Review local changes\n---\n\n# Reviewer\n",
+        )
+        .unwrap();
+
+        let commands = AcpProvider::Opencode.slash_commands_for_workdir(&workdir);
+        let skill = commands
+            .iter()
+            .find(|command| command.name == "reviewer")
+            .unwrap();
+
+        assert_eq!(skill.kind, Some(SlashCommandKind::Skill));
+        assert_eq!(skill.description.as_deref(), Some("Review local changes"));
+
+        let _ = std::fs::remove_dir_all(workdir);
     }
 
     #[test]

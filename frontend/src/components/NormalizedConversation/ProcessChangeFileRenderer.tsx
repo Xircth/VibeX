@@ -10,7 +10,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
-  DiffLineType,
   DiffModeEnum,
   DiffView,
   parseInstance,
@@ -24,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
+import { parseDiffStats } from '@/utils/diffStatsParser';
 import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import '@/styles/edit-diff-overrides.css';
@@ -92,17 +92,10 @@ function resolveFilePath(
 function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
   const hideNums = !hasLineNumbers;
   let isValidDiff;
-  let additions = 0;
-  let deletions = 0;
+  const { additions, deletions } = parseDiffStats(unifiedDiff);
 
   try {
     const parsed = parseInstance.parse(unifiedDiff);
-    for (const hunk of parsed.hunks) {
-      for (const line of hunk.lines) {
-        if (line.type === DiffLineType.Add) additions++;
-        else if (line.type === DiffLineType.Delete) deletions++;
-      }
-    }
     isValidDiff = parsed.hunks.length > 0;
   } catch (error) {
     console.error('Failed to parse diff hunks:', error);

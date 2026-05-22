@@ -9,6 +9,7 @@ import {
   getCodexVariantFromConfigSelection,
   getOpenCodeVariantConfig,
   getOpenCodeVariantFromSelection,
+  getOpenCodeModelOptions,
 } from './executor';
 
 const profiles = {
@@ -130,9 +131,7 @@ describe('executor utilities', () => {
         ANTHROPIC_MODEL: 'deepseek-v4-pro',
         ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
       })
-    ).toEqual([
-      { value: 'sonnet', label: 'deepseek-v4-pro' },
-    ]);
+    ).toEqual([{ value: 'sonnet', label: 'deepseek-v4-pro' }]);
   });
 
   it('derives Codex config from the selected variant', () => {
@@ -182,6 +181,17 @@ describe('executor utilities', () => {
       agentMode: 'plan',
       permissionMode: 'auto',
     });
+  });
+
+  it('keeps OpenCode model choices available before SDK metadata loads', () => {
+    const options = getOpenCodeModelOptions(profiles);
+
+    expect(options.some((option) => option.value === null)).toBe(false);
+    expect(options.some((option) => option.label === 'Default')).toBe(false);
+    expect(
+      options.some((option) => option.value === 'opencode/gemini-3-flash')
+    ).toBe(true);
+    expect(options.length).toBeGreaterThan(1);
   });
 
   it('maps OpenCode mode and permission back to real variants', () => {

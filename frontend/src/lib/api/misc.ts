@@ -33,6 +33,13 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+async function imageUploadPayload(file: File) {
+  return {
+    file_name: file.name,
+    data_base64: await fileToBase64(file),
+  };
+}
+
 // Execution Process APIs
 export const executionProcessesApi = {
   getDetails: async (processId: string): Promise<ExecutionProcess> => {
@@ -249,6 +256,12 @@ export const desktopApi = {
       payload,
     });
   },
+  isMainWindowFocused: async (): Promise<boolean> => {
+    return tauriInvoke<boolean>('is_main_window_focused');
+  },
+  exitApp: async (): Promise<void> => {
+    return tauriInvoke<void>('exit_app');
+  },
 };
 
 // File System APIs
@@ -291,20 +304,14 @@ export const tagsApi = {
 export const imagesApi = {
   upload: async (file: File): Promise<ImageResponse> => {
     return tauriInvoke<ImageResponse>('upload_image', {
-      payload: {
-        fileName: file.name,
-        dataBase64: await fileToBase64(file),
-      },
+      payload: await imageUploadPayload(file),
     });
   },
 
   uploadForTask: async (taskId: string, file: File): Promise<ImageResponse> => {
     return tauriInvoke<ImageResponse>('upload_image_for_task', {
       taskId,
-      payload: {
-        fileName: file.name,
-        dataBase64: await fileToBase64(file),
-      },
+      payload: await imageUploadPayload(file),
     });
   },
 
@@ -318,10 +325,7 @@ export const imagesApi = {
   ): Promise<ImageResponse> => {
     return tauriInvoke<ImageResponse>('upload_image_for_workspace', {
       workspaceId: attemptId,
-      payload: {
-        fileName: file.name,
-        dataBase64: await fileToBase64(file),
-      },
+      payload: await imageUploadPayload(file),
     });
   },
 

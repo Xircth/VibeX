@@ -134,6 +134,7 @@ fn to_task_status(status: SessionStatus) -> TaskStatus {
         SessionStatus::InProgress => TaskStatus::InProgress,
         SessionStatus::InReview => TaskStatus::InReview,
         SessionStatus::Done => TaskStatus::Done,
+        SessionStatus::Archived => TaskStatus::Done,
     }
 }
 
@@ -754,7 +755,9 @@ pub async fn update_session_status(
 
     Session::update_status(pool, session.id, status.clone()).await?;
 
-    if let Some(task_id) = session.task_id {
+    if status != SessionStatus::Archived
+        && let Some(task_id) = session.task_id
+    {
         Task::update_status(pool, task_id, to_task_status(status)).await?;
     }
 
@@ -1067,6 +1070,7 @@ pub async fn queue_message(
     state: tauri::State<'_, AppState>,
     session_id: Uuid,
     message: String,
+    images: Option<Vec<String>>,
     executor_profile_id: ExecutorProfileId,
 ) -> Result<QueueStatus, AppError> {
     // Look up session (validate it exists)
@@ -1077,6 +1081,7 @@ pub async fn queue_message(
 
     let data = DraftFollowUpData {
         message,
+        images: images.unwrap_or_default(),
         executor_config: ExecutorConfig::from(executor_profile_id),
         queued: true,
     };

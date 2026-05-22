@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
-import { X } from 'lucide-react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
 import {
@@ -193,73 +191,6 @@ function ProjectActivityTracker({
     };
   }, [openProjectSession, projectId]);
 
-  const showInlineToast = useCallback(
-    ({
-      kind,
-      title,
-      description,
-      workspaceId,
-      sessionId,
-    }: {
-      kind: 'success' | 'error';
-      title: string;
-      description: string;
-      workspaceId: string;
-      sessionId: string;
-    }) => {
-      toast.custom(
-        (toastId) => (
-          <div className="relative overflow-hidden rounded-2xl">
-            <button
-              type="button"
-              className="flex w-full flex-col gap-2 px-4 py-3 pr-10 text-left"
-              onClick={() => {
-                openProjectSession({
-                  projectId,
-                  workspaceId,
-                  sessionId,
-                });
-                toast.dismiss(toastId);
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={
-                    kind === 'error'
-                      ? 'h-2.5 w-2.5 rounded-full bg-red-500'
-                      : 'h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse'
-                  }
-                />
-                <span className="text-sm font-semibold">{title}</span>
-              </div>
-              <span className="line-clamp-2 text-xs text-muted-foreground">
-                {description}
-              </span>
-              <span className="text-[11px] font-medium text-primary">
-                Click to open the related session
-              </span>
-            </button>
-            <button
-              type="button"
-              className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="Close notification"
-              onClick={(event) => {
-                event.stopPropagation();
-                toast.dismiss(toastId);
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ),
-        {
-          duration: 15000,
-        }
-      );
-    },
-    [openProjectSession, projectId]
-  );
-
   const resolveSummaryDisplayName = useCallback((summary: SessionSummary) => {
     const manualName = summary.name?.trim();
     if (manualName) {
@@ -272,6 +203,18 @@ function ProjectActivityTracker({
     }
 
     return summary.display_name?.trim() || '会话';
+  }, []);
+
+  const isMainWindowCurrentlyFocused = useCallback(async () => {
+    try {
+      return await desktopApi.isMainWindowFocused();
+    } catch {
+      return (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'visible' &&
+        document.hasFocus()
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -305,7 +248,7 @@ function ProjectActivityTracker({
 
       void sessionsApi
         .getSummariesByWorkspace(workspace.id)
-        .then((summaries) => {
+        .then(async (summaries) => {
           if (cancelled || summaries.length === 0) {
             return;
           }
@@ -326,10 +269,10 @@ function ProjectActivityTracker({
           const workspaceName =
             latestSummary.workspace_name ?? workspace.name ?? workspace.branch;
           const description = `${sessionName} · ${workspaceName}`;
-          const windowFocused =
-            typeof document !== 'undefined' &&
-            document.visibilityState === 'visible' &&
-            document.hasFocus();
+          const windowFocused = await isMainWindowCurrentlyFocused();
+          if (cancelled) {
+            return;
+          }
           const unread = !isActive || !windowFocused;
 
           setProjectAlert({
@@ -348,6 +291,11 @@ function ProjectActivityTracker({
             return;
           }
 
+          const shouldNotify = kind === 'error' || !windowFocused;
+          if (!shouldNotify) {
+            return;
+          }
+
           if (config?.notifications.sound_enabled) {
             void configApi
               .playNotificationSound(config.notifications.sound_file)
@@ -363,30 +311,19 @@ function ProjectActivityTracker({
             return;
           }
 
-          if (kind === 'error' || !windowFocused) {
-            void showDesktopToast({
-              projectId,
-              workspaceId: workspace.id,
-              sessionId: latestSummary.id,
-              title,
-              description,
-              kind,
-              durationMs: 15000,
-            }).catch((error) => {
-              console.error(
-                'Failed to show detached desktop toast window for session notification:',
-                error
-              );
-            });
-            return;
-          }
-
-          showInlineToast({
-            kind,
-            title,
-            description,
+          void showDesktopToast({
+            projectId,
             workspaceId: workspace.id,
             sessionId: latestSummary.id,
+            title,
+            description,
+            kind,
+            durationMs: 15000,
+          }).catch((error) => {
+            console.error(
+              'Failed to show detached desktop toast window for session notification:',
+              error
+            );
           });
         })
         .catch((error) => {
@@ -407,12 +344,12 @@ function ProjectActivityTracker({
     config?.notifications.sound_file,
     consumeStopToastSuppression,
     enableNotifications,
+    isMainWindowCurrentlyFocused,
     isActive,
     projectId,
     projectsById,
     resolveSummaryDisplayName,
     setProjectAlert,
-    showInlineToast,
     workspacesWithStatus,
   ]);
 

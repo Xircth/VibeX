@@ -21,8 +21,13 @@ export const AggregatedGroupCard: React.FC<{
   attempt: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
 }> = ({ entries, aggregationType, attempt, task }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(aggregationType === 'task_create');
   const { icon, label } = AGGREGATION_LABELS[aggregationType];
+  const displayLabel =
+    aggregationType === 'task_create'
+      ? `正在生成 ${entries.length} 个智能体`
+      : label;
+  const showCountBadge = aggregationType !== 'task_create';
 
   return (
     <div className="px-4 py-1 conv-entry-item">
@@ -31,8 +36,10 @@ export const AggregatedGroupCard: React.FC<{
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm conv-tool-card cursor-pointer"
       >
         <span className="shrink-0 conv-tool-icon">{icon}</span>
-        <span className="conv-tool-label shrink-0">{label}</span>
-        <span className="conv-count-badge">{entries.length}</span>
+        <span className="conv-tool-label shrink-0">{displayLabel}</span>
+        {showCountBadge ? (
+          <span className="conv-count-badge">{entries.length}</span>
+        ) : null}
         <ChevronRight
           className={cn(
             'h-3.5 w-3.5 shrink-0 ml-auto text-muted-foreground transition-transform',

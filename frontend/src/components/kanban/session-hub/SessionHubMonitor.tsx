@@ -33,7 +33,7 @@ export function SessionHubMonitor({
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-background">
-      <div className="flex min-h-0 flex-1 flex-col p-4 pt-3">
+      <div className="session-hub-monitor-inner flex min-h-0 flex-1 flex-col">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
           <Rows2 className="h-4 w-4" />
           <span>会话监控区</span>

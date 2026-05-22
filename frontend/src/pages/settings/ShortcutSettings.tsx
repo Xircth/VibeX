@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { type Config, type SendMessageShortcut } from 'shared/types';
+import { IMPLEMENTED_SHORTCUTS } from '@/keyboard/appShortcuts';
 
 const SEND_MESSAGE_SHORTCUT_OPTIONS: Array<{
   value: SendMessageShortcut;
@@ -27,39 +28,6 @@ const SEND_MESSAGE_SHORTCUT_OPTIONS: Array<{
     helper: '使用 Enter 直接发送消息，Shift + Enter 换行。',
   },
 ];
-
-const SHORTCUT_ITEMS = [
-  {
-    name: 'Markdown 文件预览/编辑切换',
-    keys: '鼠标中键',
-    description: '在文件预览标签页中切换 Markdown 预览与源码编辑。',
-  },
-  {
-    name: '打开终端栏',
-    keys: 'Ctrl + ~',
-    description: '在当前工作区中打开终端栏。',
-  },
-  {
-    name: '打开左侧文件管理器',
-    keys: 'Ctrl + P',
-    description: '切换左侧文件管理器面板。',
-  },
-  {
-    name: '打开全局搜索',
-    keys: 'Ctrl + Shift + F',
-    description: '打开工作区全局搜索面板。',
-  },
-  {
-    name: '打开设置',
-    keys: 'Ctrl + ,',
-    description: '打开设置窗口。',
-  },
-  {
-    name: '保存文件',
-    keys: 'Ctrl + S',
-    description: '在文件预览标签页保存当前文件。',
-  },
-] as const;
 
 export function ShortcutSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
@@ -129,7 +97,7 @@ export function ShortcutSettings() {
       <div className="mb-4">
         <h2 className="text-base font-semibold">交互</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          配置输入行为，并查看当前默认快捷键。
+          配置输入行为，并查看已经接入真实处理逻辑的快捷键。
         </p>
       </div>
 
@@ -171,23 +139,35 @@ export function ShortcutSettings() {
         <section className="settings-section space-y-3">
           <div className="flex items-center gap-2">
             <Keyboard className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">快捷键参考</h3>
+            <h3 className="text-sm font-semibold">快捷键</h3>
           </div>
           <div className="settings-card divide-y divide-border/70 overflow-hidden rounded-xl border">
-            {SHORTCUT_ITEMS.map((item) => (
+            {IMPLEMENTED_SHORTCUTS.map((item) => (
               <div
-                key={item.name}
+                key={item.id}
                 className="settings-row flex items-center justify-between gap-4"
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-medium">{item.name}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{item.name}</span>
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {item.scope}
+                    </span>
+                  </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {item.description}
                   </p>
                 </div>
-                <kbd className="shrink-0 rounded-md border bg-muted px-2 py-1 text-[11px] font-mono text-muted-foreground">
-                  {item.keys}
-                </kbd>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {item.keys.map((key) => (
+                    <kbd
+                      key={key}
+                      className="rounded-md border bg-muted px-2 py-1 text-[11px] font-mono text-muted-foreground"
+                    >
+                      {key}
+                    </kbd>
+                  ))}
+                </div>
               </div>
             ))}
           </div>

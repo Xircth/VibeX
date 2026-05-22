@@ -27,13 +27,19 @@ test('welcome page recent projects use a context menu and shared centered confir
 
 test('sonner theme classes cover default, success, and error toast variants', () => {
   const source = readFile('src/components/ui/sonner.tsx');
+  const cssSource = readFile('src/styles/legacy/index.css');
 
   assert.match(source, /title:/);
   assert.match(source, /success:/);
   assert.match(source, /error:/);
-  assert.match(source, /group-\[\.toaster\]:bg-background\/98/);
-  assert.match(source, /group-\[\.toaster\]:text-foreground/);
-  assert.match(source, /group-\[\.toaster\]:border-border/);
+  assert.match(source, /position="top-right"/);
+  assert.match(source, /vu-sonner-toast/);
+  assert.match(source, /vu-sonner-toast-success/);
+  assert.match(source, /vu-sonner-toast-error/);
+  assert.match(cssSource, /backdrop-filter:\s*blur\(24px\) saturate\(1\.55\)/);
+  assert.match(cssSource, /oklch\(1 0 0 \/ 0\.76\)/);
+  assert.match(cssSource, /border-radius:\s*18px !important/);
+  assert.match(cssSource, /--width:\s*356px !important/);
 });
 
 test('app wires the toaster to the resolved theme instead of relying on sonner defaults', () => {

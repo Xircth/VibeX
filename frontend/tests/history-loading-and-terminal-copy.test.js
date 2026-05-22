@@ -19,6 +19,16 @@ test('历史消息流兼容 LogMsg::Finished 字符串完成事件', () => {
   assert.match(source, /opts\.onFinished\?\.\(snapshot\.entries\)/);
 });
 
+test('terminal fit and writes are guarded by the live xterm instance', () => {
+  const source = readFile('src/hooks/useTauriTerminal.ts');
+
+  assert.match(source, /function fitTerminalIfReady/);
+  assert.match(source, /hasUsableTerminalContainer\(container\)/);
+  assert.match(source, /hasLiveTerminalElement\(terminal, container\)/);
+  assert.match(source, /isCurrentInitialization\(\)/);
+  assert.match(source, /terminal\.write\(bytes\)/);
+});
+
 test('终端在有选区时拦截 Ctrl\/Cmd\+C 做复制', () => {
   const source = readFile('src/hooks/useTauriTerminal.ts');
 

@@ -45,6 +45,7 @@ interface ActionBarProps {
   canEnhancePrompt: boolean;
   sessionId?: string;
   localMessage: string;
+  attachmentCount?: number;
   conflictResolutionInstructions: string | null;
   reviewMarkdown: string | null;
   todos: TodoItem[];
@@ -56,7 +57,7 @@ interface ActionBarProps {
   onSendFollowUp: () => void;
   onEnhancePrompt: () => void;
   onClearComments: () => void;
-  onPasteFiles: (files: File[]) => void;
+  onAttachImages: (files: File[]) => void;
 }
 
 export function ActionBar({
@@ -79,6 +80,7 @@ export function ActionBar({
   canEnhancePrompt,
   sessionId,
   localMessage,
+  attachmentCount = 0,
   conflictResolutionInstructions,
   reviewMarkdown,
   todos,
@@ -90,7 +92,7 @@ export function ActionBar({
   onSendFollowUp,
   onEnhancePrompt,
   onClearComments,
-  onPasteFiles,
+  onAttachImages,
 }: ActionBarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,18 +106,21 @@ export function ActionBar({
         file.type.startsWith('image/')
       );
       if (files.length > 0) {
-        onPasteFiles(files);
+        onAttachImages(files);
       }
       event.target.value = '';
     },
-    [onPasteFiles]
+    [onAttachImages]
   );
 
   const hasQueueableContent =
-    localMessage.trim() || conflictResolutionInstructions || reviewMarkdown;
+    localMessage.trim() ||
+    conflictResolutionInstructions ||
+    reviewMarkdown ||
+    attachmentCount > 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-t border-border/50 pt-1">
+    <div className="flex flex-wrap items-center gap-1 pt-1">
       {showProfileControls ? (
         <TerminalProfileControls
           profiles={profiles}

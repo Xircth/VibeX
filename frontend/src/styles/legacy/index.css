@@ -213,6 +213,9 @@
     --surface-active: hsl(215 75% 58% / 0.16);
     --surface-page-solid: hsl(0 0% 94%);
     --kanban-column-background: hsl(0 0% 100%);
+    --composer-token-usage-ring: hsl(222 47% 11%);
+    --composer-token-usage-track: hsl(var(--muted));
+    --composer-token-usage-core: hsl(0 0% 100%);
     --border-subtle: hsl(220 16% 28% / 0.09);
     --border-strong: hsl(220 16% 28% / 0.18);
     --shadow-shell: 0 18px 42px hsl(220 36% 8% / 0.16);
@@ -241,6 +244,9 @@
     --surface-active: hsl(215 80% 64% / 0.18);
     --surface-page-solid: hsl(0 0% 11%);
     --kanban-column-background: hsl(222 20% 15%);
+    --composer-token-usage-ring: hsl(0 0% 100% / 0.96);
+    --composer-token-usage-track: hsl(0 0% 100% / 0.2);
+    --composer-token-usage-core: hsl(0 0% 100% / 0.96);
     --border-subtle: hsl(0 0% 100% / 0.1);
     --border-strong: hsl(0 0% 100% / 0.18);
     --shadow-shell: 0 18px 42px hsl(220 48% 2% / 0.34);
@@ -317,6 +323,125 @@
   :where(.legacy-design) button:has(svg.lucide-x):focus-visible {
     outline: none !important;
     box-shadow: none !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toaster].vu-sonner-toaster {
+    --normal-bg: transparent !important;
+    --normal-border: transparent !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast {
+    --width: 356px !important;
+    width: min(356px, calc(100vw - 28px)) !important;
+    min-width: min(356px, calc(100vw - 28px)) !important;
+    min-height: 74px !important;
+    padding: 14px 42px 14px 16px !important;
+    gap: 12px !important;
+    overflow: hidden !important;
+    border: 1px solid oklch(1 0 0 / 0.52) !important;
+    border-radius: 18px !important;
+    background:
+      linear-gradient(
+        135deg,
+        oklch(1 0 0 / 0.76),
+        oklch(0.96 0.006 250 / 0.62)
+      ) !important;
+    color: oklch(0.18 0.012 255) !important;
+    box-shadow:
+      0 18px 55px oklch(0.2 0.02 255 / 0.18),
+      0 3px 14px oklch(0.2 0.02 255 / 0.1),
+      inset 0 1px 0 oklch(1 0 0 / 0.66) !important;
+    backdrop-filter: blur(24px) saturate(1.55) !important;
+    -webkit-backdrop-filter: blur(24px) saturate(1.55) !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      oklch(1 0 0 / 0.36),
+      oklch(1 0 0 / 0)
+    );
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-icon] {
+    margin-top: 2px !important;
+    color: oklch(0.46 0.04 255) !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-content] {
+    min-width: 0 !important;
+    gap: 2px !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-title] {
+    letter-spacing: 0 !important;
+  }
+
+  :where(.legacy-design)
+    [data-sonner-toast].vu-sonner-toast
+    [data-description] {
+    opacity: 0.78 !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-button] {
+    box-shadow: none !important;
+  }
+
+  :where(.legacy-design)
+    [data-sonner-toast].vu-sonner-toast
+    [data-close-button] {
+    left: auto !important;
+    right: 10px !important;
+    top: 10px !important;
+    transform: none !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-success {
+    border-color: oklch(0.86 0.06 150 / 0.46) !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-info,
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-loading {
+    border-color: oklch(0.82 0.06 245 / 0.44) !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-warning {
+    border-color: oklch(0.86 0.09 80 / 0.5) !important;
+  }
+
+  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-error {
+    border-color: oklch(0.78 0.13 25 / 0.5) !important;
+  }
+
+  .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast {
+    border-color: oklch(1 0 0 / 0.13) !important;
+    background:
+      linear-gradient(
+        135deg,
+        oklch(0.25 0.018 255 / 0.82),
+        oklch(0.18 0.012 255 / 0.68)
+      ) !important;
+    color: oklch(0.96 0.006 250) !important;
+    box-shadow:
+      0 18px 55px oklch(0 0 0 / 0.36),
+      0 3px 14px oklch(0 0 0 / 0.24),
+      inset 0 1px 0 oklch(1 0 0 / 0.1) !important;
+  }
+
+  .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast::before {
+    background: linear-gradient(
+      180deg,
+      oklch(1 0 0 / 0.08),
+      oklch(1 0 0 / 0)
+    );
+  }
+
+  .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-icon] {
+    color: oklch(0.78 0.045 255) !important;
   }
 
   :where(.legacy-design) [data-sonner-toast].vu-project-delete-toast {
@@ -752,7 +877,7 @@
 
   .session-hub-sidebar {
     border-right: 1px solid var(--border-subtle);
-    background: var(--surface-sidebar);
+    background: hsl(var(--background));
   }
 
   .session-hub-action-button {
@@ -781,6 +906,13 @@
     background: var(--surface-card);
   }
 
+  .session-hub-status-zone {
+    border-width: 2.2px;
+    box-shadow:
+      0 4px 10px hsl(220 36% 8% / 0.045),
+      inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  }
+
   .session-hub-drop-zone.is-over {
     border-color: hsl(var(--primary) / 0.42);
     background: var(--surface-active);
@@ -788,15 +920,24 @@
 
   .session-hub-card {
     color: var(--text-primary);
-    border: 1px solid var(--border-subtle);
+    border: 1.5px solid var(--border-subtle);
     background: var(--surface-card-strong);
-    box-shadow: 0 1px 0 hsl(0 0% 100% / 0.05);
+    box-shadow:
+      0 2px 7px hsl(220 36% 8% / 0.075),
+      0 1px 0 hsl(0 0% 100% / 0.05);
   }
 
   .session-hub-card:hover {
-    border-color: var(--border-strong);
-    background: var(--surface-control-hover);
-    box-shadow: 0 8px 22px hsl(220 36% 8% / 0.1);
+    border: 1.5px solid var(--border-subtle);
+    background: var(--surface-card-strong);
+    background: color-mix(
+      in srgb,
+      var(--surface-card-strong) 58%,
+      var(--surface-control-hover)
+    );
+    box-shadow:
+      0 4px 12px hsl(220 36% 8% / 0.06),
+      0 1px 0 hsl(0 0% 100% / 0.05);
   }
 
   .session-hub-card.is-selected {
@@ -816,19 +957,24 @@
     background: hsl(var(--primary) / 0.48);
   }
 
+  .session-hub-monitor-inner {
+    padding: 0.75rem 1rem 1rem 0.5rem;
+  }
+
   .composer-shell {
     border: 1px solid var(--border-subtle);
     background:
       linear-gradient(180deg, var(--surface-composer), var(--surface-card)),
       var(--surface-card);
     box-shadow:
-      0 -10px 28px hsl(220 36% 8% / 0.08),
+      0 -4px 12px hsl(220 36% 8% / 0.045),
+      0 5px 14px hsl(220 36% 8% / 0.06),
+      0 0 0 1px hsl(220 36% 8% / 0.025),
       inset 0 1px 0 hsl(0 0% 100% / 0.08);
   }
 
   .composer-topbar {
     color: var(--text-muted);
-    border-bottom: 1px solid var(--border-subtle);
   }
 
   .composer-control {

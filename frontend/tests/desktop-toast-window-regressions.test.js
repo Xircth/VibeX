@@ -17,18 +17,17 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('blurred main window uses detached desktop toast instead of inline toast fallback', () => {
+test('session completion notifications use the detached desktop toast when main window is unfocused', () => {
   const source = readFrontendFile(
     'src/components/layout/ProjectWindowManager.tsx'
   );
-  const blurredWindowBranch = source.match(
-    /if \(kind === 'error' \|\| !windowFocused\) \{([\s\S]*?)\n          }\n\n          showInlineToast/
-  );
 
-  assert.match(source, /if \(kind === 'error' \|\| !windowFocused\) \{/);
+  assert.match(source, /desktopApi\.isMainWindowFocused\(\)/);
+  assert.match(source, /const shouldNotify = kind === 'error' \|\| !windowFocused/);
+  assert.match(source, /if \(!shouldNotify\) \{\s*return;\s*}/);
   assert.match(source, /showDesktopToast\(\{/);
-  assert.ok(blurredWindowBranch);
-  assert.doesNotMatch(blurredWindowBranch[1], /showInlineToast\(\{/);
+  assert.doesNotMatch(source, /showInlineToast/);
+  assert.doesNotMatch(source, /toast\.custom/);
   assert.match(
     source,
     /Failed to show detached desktop toast window for session notification/
@@ -102,6 +101,8 @@ test('desktop toast window keeps a dedicated route, window, and ready handshake'
     /DESKTOP_TOAST_WINDOW_LABEL: &str = "desktop-toast"/
   );
   assert.match(rustSource, /pub async fn desktop_toast_window_ready\(/);
+  assert.match(rustSource, /pub async fn is_main_window_focused\(/);
+  assert.match(rustSource, /main_window\.is_focused\(\)/);
   assert.match(rustSource, /WebviewUrl::App\("\/desktop-toast"\.into\(\)\)/);
   assert.match(rustSource, /\.background_color\(Color\(0, 0, 0, 0\)\)/);
   assert.match(

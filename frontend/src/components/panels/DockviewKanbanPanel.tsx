@@ -31,33 +31,37 @@ import type { SessionStatus } from '@/lib/api';
 import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
 import { KanbanUsageDashboard } from '@/components/kanban/KanbanUsageDashboard';
 import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
-import { SESSION_STATUS_LIGHT_COLORS } from '@/components/kanban/session-hub/utils';
+import {
+  ARCHIVED_SESSION_STATUS,
+  SESSION_STATUS_LIGHT_COLORS,
+  type ActiveSessionStatus,
+} from '@/components/kanban/session-hub/utils';
 
 const KANBAN_COLUMNS = [
   {
-    key: 'todo' as SessionStatus,
+    key: 'todo' as ActiveSessionStatus,
     label: 'TODO',
     dotColor: SESSION_STATUS_LIGHT_COLORS.todo,
   },
   {
-    key: 'inprogress' as SessionStatus,
+    key: 'inprogress' as ActiveSessionStatus,
     label: 'IN PROGRESS',
     dotColor: SESSION_STATUS_LIGHT_COLORS.inprogress,
   },
   {
-    key: 'inreview' as SessionStatus,
+    key: 'inreview' as ActiveSessionStatus,
     label: 'IN REVIEW',
     dotColor: SESSION_STATUS_LIGHT_COLORS.inreview,
   },
   {
-    key: 'done' as SessionStatus,
+    key: 'done' as ActiveSessionStatus,
     label: 'DONE',
     dotColor: SESSION_STATUS_LIGHT_COLORS.done,
   },
 ] as const;
 
 function createEmptyStatusBuckets(): Record<
-  SessionStatus,
+  ActiveSessionStatus,
   KanbanProjectSessionRecord[]
 > {
   return {
@@ -183,7 +187,12 @@ function SessionKanbanBoard() {
     sessions.forEach((session) => {
       const effectiveStatus =
         optimisticStatusBySessionId[session.id] ?? session.status;
-      buckets[effectiveStatus].push({
+
+      if (effectiveStatus === ARCHIVED_SESSION_STATUS) {
+        return;
+      }
+
+      buckets[effectiveStatus as ActiveSessionStatus].push({
         ...session,
         status: effectiveStatus,
         isCompleted: effectiveStatus === 'done',
@@ -229,7 +238,7 @@ function SessionKanbanBoard() {
     (event: DragStartEvent) => {
       const sessionId = event.active.id as string;
       const status = event.active.data.current?.parent as
-        | SessionStatus
+        | ActiveSessionStatus
         | undefined;
       if (!status) return;
       const found = sessionsByStatus[status].find(
@@ -248,9 +257,9 @@ function SessionKanbanBoard() {
 
       const sessionId = active.id as string;
       const sourceStatus = active.data.current?.parent as
-        | SessionStatus
+        | ActiveSessionStatus
         | undefined;
-      const targetStatus = over.id as SessionStatus;
+      const targetStatus = over.id as ActiveSessionStatus;
 
       if (!sourceStatus || sourceStatus === targetStatus) return;
 
@@ -390,7 +399,7 @@ function SessionKanbanColumn({
   onDeleteSession,
   onCreateTask,
 }: {
-  columnKey: SessionStatus;
+  columnKey: ActiveSessionStatus;
   label: string;
   dotColor: string;
   sessions: KanbanProjectSessionRecord[];

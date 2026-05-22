@@ -20,6 +20,7 @@ type Args = {
     workspaceId: string;
   }) => void;
   message: string;
+  images?: string[];
   conflictMarkdown: string | null;
   reviewMarkdown: string;
   executorProfileId: ExecutorProfileId | null;
@@ -36,6 +37,7 @@ export function useFollowUpSend({
   onSelectSession,
   onSessionCreated,
   message,
+  images = [],
   conflictMarkdown,
   reviewMarkdown,
   executorProfileId,
@@ -55,7 +57,7 @@ export function useFollowUpSend({
       reviewMarkdown?.trim(),
     ]);
 
-    if (!prompt) return;
+    if (!prompt && images.length === 0) return;
 
     try {
       setIsSendingFollowUp(true);
@@ -106,6 +108,7 @@ export function useFollowUpSend({
         sessionId: targetSessionId,
         executorProfileId,
         text: prompt,
+        images,
       });
       if (!isSlashCommand) {
         clearComments();
@@ -127,6 +130,7 @@ export function useFollowUpSend({
     onSelectSession,
     onSessionCreated,
     message,
+    images,
     conflictMarkdown,
     reviewMarkdown,
     executorProfileId,

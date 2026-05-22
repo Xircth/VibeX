@@ -7,13 +7,14 @@ const net = require("net");
 const PORTS_FILE = path.join(__dirname, "..", ".dev-ports.json");
 const DEV_ASSETS_SEED = path.join(__dirname, "..", "dev_assets_seed");
 const DEV_ASSETS = path.join(__dirname, "..", "dev_assets");
+const DEV_HOST = "127.0.0.1";
 
 /**
  * Check if a port is available
  */
 function isPortAvailable(port) {
   return new Promise((resolve) => {
-    const sock = net.createConnection({ port, host: "localhost" });
+    const sock = net.createConnection({ port, host: DEV_HOST });
     sock.on("connect", () => {
       sock.destroy();
       resolve(false);

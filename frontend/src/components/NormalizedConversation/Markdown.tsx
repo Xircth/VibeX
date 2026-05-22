@@ -230,6 +230,49 @@ function isInternalProjectRouteHref(href: string): boolean {
   );
 }
 
+function isSameAppOriginUrl(url: URL): boolean {
+  return (
+    url.origin === window.location.origin ||
+    (url.protocol === window.location.protocol && isLoopbackHost(url.hostname))
+  );
+}
+
+function filePathFromFileUrl(url: URL): string {
+  const pathname = decodeURIComponent(url.pathname);
+  return pathname.replace(/^\/([a-zA-Z]:[\\/])/, '$1');
+}
+
+function hrefToWorkspaceFileCandidate(
+  href: string | undefined,
+  workspacePath?: string | null
+): string | null {
+  if (!href) return null;
+  const raw = trimFilePathCandidate(href);
+  if (!raw || raw.startsWith('#')) return null;
+
+  const parsed = parseHref(raw);
+  if (parsed?.protocol === 'file:') {
+    return filePathFromFileUrl(parsed);
+  }
+
+  if (parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
+    if (!isSameAppOriginUrl(parsed)) {
+      return null;
+    }
+    if (parsed.pathname.startsWith('/local-projects')) {
+      return null;
+    }
+
+    return decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+  }
+
+  if (raw.startsWith('/') && workspacePath && /^[a-zA-Z]:[\\/]/.test(workspacePath)) {
+    return raw.replace(/^\/+/, '');
+  }
+
+  return raw;
+}
+
 function trimFilePathCandidate(value: string): string {
   return value
     .trim()
@@ -259,7 +302,11 @@ function resolveMarkdownFileLinkCandidate(
   childrenText: string,
   workspacePath?: string | null
 ): { filePath: string; displayPath: string } | null {
-  const candidates = [childrenText, href ?? '']
+  const candidates = [
+    childrenText,
+    hrefToWorkspaceFileCandidate(href, workspacePath) ?? '',
+    href ?? '',
+  ]
     .map(trimFilePathCandidate)
     .filter(Boolean);
 
@@ -461,21 +508,28 @@ export const Markdown = memo(function Markdown({
           );
         }
 
+        const fileLink = resolveMarkdownFileLinkCandidate(
+          href,
+          childrenText,
+          workspacePath
+        );
         const isExternal =
           (href?.startsWith('http://') || href?.startsWith('https://')) ??
           false;
+        const isInternalProjectRoute = href
+          ? isInternalProjectRouteHref(href)
+          : false;
+        const renderedHref =
+          href && isExternal && !fileLink && !isInternalProjectRoute
+            ? href
+            : undefined;
 
         const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
           if (!href) return;
 
-          const fileLink = resolveMarkdownFileLinkCandidate(
-            href,
-            childrenText,
-            workspacePath
-          );
-
           if (fileLink) {
             event.preventDefault();
+            event.stopPropagation();
             panelActions?.openFilePreview(fileLink.filePath, {
               displayPath: fileLink.displayPath,
               title: fileLink.displayPath,
@@ -483,12 +537,18 @@ export const Markdown = memo(function Markdown({
             return;
           }
 
-          if (isInternalProjectRouteHref(href)) {
+          if (isInternalProjectRoute) {
             event.preventDefault();
+            event.stopPropagation();
             return;
           }
 
-          if (!isExternal) return;
+          if (!isExternal) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+
           event.preventDefault();
 
           try {
@@ -500,7 +560,14 @@ export const Markdown = memo(function Markdown({
         };
 
         return (
-          <a href={href} onClick={handleClick} rel="noopener noreferrer">
+          <a
+            href={renderedHref}
+            onClick={handleClick}
+            rel="noopener noreferrer"
+            role={renderedHref ? undefined : 'link'}
+            tabIndex={renderedHref ? undefined : 0}
+            title={href}
+          >
             {children}
           </a>
         );

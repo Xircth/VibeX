@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
@@ -120,6 +120,7 @@ export function DollarCommandTypeaheadPlugin() {
   const [editor] = useLexicalComposerContext();
   const portalContainer = usePortalContainer();
   const { setIsOpen } = useTypeaheadOpen();
+  const isThisMenuOpenRef = useRef(false);
   const { data: localSkills = [], refetch: refetchLocalSkills } = useQuery({
     queryKey: ['local-agent-skills', 'CODEX'],
     queryFn: () => skillsApi.listLocal('CODEX'),
@@ -165,12 +166,16 @@ export function DollarCommandTypeaheadPlugin() {
       options={options}
       onQueryChange={updateOptions}
       onOpen={() => {
+        isThisMenuOpenRef.current = true;
         setIsOpen(true);
         void refetchLocalSkills();
         updateOptions('');
       }}
       onClose={() => {
-        setIsOpen(false);
+        if (isThisMenuOpenRef.current) {
+          isThisMenuOpenRef.current = false;
+          setIsOpen(false);
+        }
         setActiveQuery(null);
         setOptions(
           allCommands.map((command) => new DollarCommandOption(command))

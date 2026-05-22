@@ -230,6 +230,10 @@ impl LocalContainerService {
             notification_service,
         };
 
+        if let Err(error) = container.cleanup_orphan_executions().await {
+            tracing::error!("Failed to clean up orphaned execution processes: {error}");
+        }
+
         container.spawn_workspace_cleanup();
 
         container
@@ -1084,9 +1088,11 @@ impl LocalContainerService {
             .filter(|dir| !dir.is_empty())
             .cloned();
 
+        let prompt = prompt_with_queued_images(&queued_data.message, &queued_data.images);
+
         let action_type = if let Some(info) = latest_session_info {
             ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-                prompt: queued_data.message.clone(),
+                prompt: prompt.clone(),
                 session_id: info.session_id,
                 reset_to_message_id: None,
                 executor_config: executor_config.clone(),
@@ -1094,7 +1100,7 @@ impl LocalContainerService {
             })
         } else {
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: queued_data.message.clone(),
+                prompt,
                 executor_config: executor_config.clone(),
                 working_dir,
             })
@@ -1109,6 +1115,29 @@ impl LocalContainerService {
             &ExecutionProcessRunReason::CodingAgent,
         )
         .await
+    }
+}
+
+fn prompt_with_queued_images(message: &str, images: &[String]) -> String {
+    if images.is_empty() {
+        return message.to_string();
+    }
+
+    let image_markdown = images
+        .iter()
+        .filter(|image| !image.trim().is_empty())
+        .map(|image| format!("![]({})", image.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if image_markdown.is_empty() {
+        return message.to_string();
+    }
+
+    if message.trim().is_empty() {
+        image_markdown
+    } else {
+        format!("{message}\n\n{image_markdown}")
     }
 }
 
@@ -1766,6 +1795,95 @@ impl ContainerService for LocalContainerService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use db::DBService;
+    use git::GitService;
+    use services::services::{
+        approvals::Approvals, config::Config, image::ImageService,
+        queued_message::QueuedMessageService,
+    };
+    use sqlx::SqlitePool;
+    use tokio::sync::RwLock;
+    use utils::msg_store::MsgStore;
+    use uuid::Uuid;
+
+    use super::LocalContainerService;
+
+    async fn execution_process_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"
+            CREATE TABLE execution_processes (
+                id BLOB PRIMARY KEY NOT NULL,
+                session_id BLOB NOT NULL,
+                run_reason TEXT NOT NULL,
+                executor_action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                exit_code INTEGER,
+                dropped INTEGER NOT NULL DEFAULT 0,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn new_marks_orphaned_running_executions_failed() {
+        let pool = execution_process_test_pool().await;
+        let process_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"
+            INSERT INTO execution_processes (
+                id, session_id, run_reason, executor_action, status,
+                exit_code, dropped, started_at, completed_at, created_at, updated_at
+            ) VALUES (?, ?, 'codingagent', '{}', 'running', NULL, 0,
+                '2026-05-20T00:00:00Z', NULL,
+                '2026-05-20T00:00:00Z', '2026-05-20T00:00:00Z'
+            )
+            "#,
+        )
+        .bind(process_id)
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
+        let _container = LocalContainerService::new(
+            DBService { pool: pool.clone() },
+            msg_stores.clone(),
+            Arc::new(RwLock::new(Config::default())),
+            GitService::new(),
+            ImageService::new(pool.clone()).unwrap(),
+            Approvals::new(msg_stores),
+            QueuedMessageService::new(),
+        )
+        .await;
+
+        let (status, completed_at): (String, Option<String>) =
+            sqlx::query_as("SELECT status, completed_at FROM execution_processes WHERE id = ?")
+                .bind(process_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(status, "failed");
+        assert!(completed_at.is_some());
     }
 }
 fn success_exit_status() -> std::process::ExitStatus {

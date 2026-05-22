@@ -29,9 +29,8 @@ import { useWorktree } from '@/contexts/WorktreeContext';
 import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import { SearchPalette } from '@/components/search/SearchPalette';
-import { useGlobalSearchShortcut } from '@/hooks/useGlobalSearchShortcut';
+import { useWorkspaceShortcuts } from '@/hooks/useWorkspaceShortcuts';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
-import { settingsWindowApi } from '@/lib/api';
 
 const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.FILE_TREE,
@@ -334,7 +333,6 @@ export function IDELayout({
 
   const {
     setDockviewApi,
-    openOrFocusPanel,
     toggleFileTree,
     toggleGitPanel,
     toggleSearchPanel,
@@ -855,39 +853,7 @@ export function IDELayout({
     [rightPanelWidth, setRightPanelWidth]
   );
 
-  useGlobalSearchShortcut();
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat) return;
-
-      const isMod = event.metaKey || event.ctrlKey;
-      if (!isMod || event.altKey) return;
-
-      if (!event.shiftKey && event.key.toLowerCase() === 'p') {
-        event.preventDefault();
-        toggleFileTree();
-        return;
-      }
-
-      if (
-        !event.shiftKey &&
-        (event.key === '`' || event.code === 'Backquote')
-      ) {
-        event.preventDefault();
-        openOrFocusPanel(PANEL_IDS.TERMINAL, 'Terminal');
-        return;
-      }
-
-      if (!event.shiftKey && event.key === ',') {
-        event.preventDefault();
-        void settingsWindowApi.open();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [openOrFocusPanel, toggleFileTree]);
+  useWorkspaceShortcuts();
 
   return (
     <div className="workspace-shell flex h-full w-full flex-col">

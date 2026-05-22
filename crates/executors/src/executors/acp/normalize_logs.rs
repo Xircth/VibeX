@@ -29,7 +29,7 @@ pub fn normalize_logs(msg_store: Arc<MsgStore>, worktree_path: &Path) {
 pub fn normalize_logs_with_context_window_override(
     msg_store: Arc<MsgStore>,
     worktree_path: &Path,
-    context_window_override: Option<u32>,
+    context_window_fallback: Option<u32>,
 ) {
     // stderr normalization
     let entry_index = EntryIndexProvider::start_from(&msg_store);
@@ -156,8 +156,11 @@ pub fn normalize_logs_with_context_window_override(
                         msg_store.push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                     }
                     AcpEvent::Usage { used, size } => {
-                        let model_context_window = context_window_override
-                            .unwrap_or_else(|| size.min(u32::MAX as u64) as u32);
+                        let Some(model_context_window) =
+                            acp_context_window_or_fallback(size, context_window_fallback)
+                        else {
+                            continue;
+                        };
                         let idx = entry_index.next();
                         let entry = NormalizedEntry {
                             timestamp: None,
@@ -882,6 +885,14 @@ fn collect_text_content_blocks(
     }
 }
 
+fn acp_context_window_or_fallback(size: u64, fallback: Option<u32>) -> Option<u32> {
+    if size > 0 {
+        Some(size.min(u32::MAX as u64) as u32)
+    } else {
+        fallback.filter(|value| *value > 0)
+    }
+}
+
 fn extract_task_description_from_title(title: &str, tool_name: &str) -> Option<String> {
     let trimmed = title.trim();
     if trimmed.is_empty() {
@@ -987,8 +998,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        PartialToolCallData, content_block_to_markdown, format_plan_markdown,
-        heuristically_extract_task_create, merge_streaming_text,
+        PartialToolCallData, acp_context_window_or_fallback, content_block_to_markdown,
+        format_plan_markdown, heuristically_extract_task_create, merge_streaming_text,
     };
     use crate::logs::ActionType;
 
@@ -1011,6 +1022,19 @@ mod tests {
             format_plan_markdown(&plan),
             "1. [in_progress | high] Inspect the repository state\n2. [pending | medium] Update the renderer"
         );
+    }
+
+    #[test]
+    fn acp_usage_prefers_protocol_context_window_over_fallback() {
+        assert_eq!(
+            acp_context_window_or_fallback(128_000, Some(1_000_000)),
+            Some(128_000)
+        );
+        assert_eq!(
+            acp_context_window_or_fallback(0, Some(1_000_000)),
+            Some(1_000_000)
+        );
+        assert_eq!(acp_context_window_or_fallback(0, None), None);
     }
 
     #[test]

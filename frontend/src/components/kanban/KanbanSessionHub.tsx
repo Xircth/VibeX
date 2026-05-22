@@ -25,9 +25,10 @@ import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { scratchApi, sessionsApi } from '@/lib/api';
+import { scratchApi, sessionsApi, type SessionStatus } from '@/lib/api';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import { paths } from '@/lib/paths';
+import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import {
   buildWorkspaceBranchOptions,
   findWorkspaceBranchOption,
@@ -41,6 +42,7 @@ import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
 import {
   DEFAULT_SESSION_LIST_WIDTH,
+  ARCHIVED_SESSION_STATUS,
   MAX_SESSION_LIST_WIDTH,
   MIN_SESSION_LIST_WIDTH,
   SESSION_LIST_WIDTH_STORAGE_KEY,
@@ -50,10 +52,11 @@ import {
   mapSessionErrorMessage,
   sortSessions,
   toggleStringValue,
+  type ActiveSessionStatus,
   type SortField,
 } from './session-hub/utils';
 
-type SessionStatusKey = 'todo' | 'inprogress' | 'inreview' | 'done';
+type SessionStatusKey = ActiveSessionStatus;
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
 
 function isMainlineBranch(branch: string) {
@@ -70,6 +73,31 @@ function matchesBranch(branch: string, expectedBranch: string) {
   return (
     normalized === expectedBranch || normalized.endsWith(`/${expectedBranch}`)
   );
+}
+
+function resolveRestoredSessionName(
+  session: KanbanProjectSessionRecord,
+  activeSessions: KanbanProjectSessionRecord[]
+) {
+  const baseName = session.fullName.trim() || session.name?.trim() || 'session';
+  const activeNames = new Set(
+    activeSessions
+      .map((candidate) => candidate.fullName.trim())
+      .filter((name) => name.length > 0)
+  );
+
+  if (!activeNames.has(baseName)) {
+    return null;
+  }
+
+  let suffix = 1;
+  let candidateName = `${baseName}_${suffix}`;
+  while (activeNames.has(candidateName)) {
+    suffix += 1;
+    candidateName = `${baseName}_${suffix}`;
+  }
+
+  return candidateName;
 }
 
 export function KanbanSessionHub() {
@@ -189,12 +217,13 @@ export function KanbanSessionHub() {
     string | null
   >(null);
   const [isDeletingSessions, setIsDeletingSessions] = useState(false);
+  const [isArchiveView, setIsArchiveView] = useState(false);
   const [openingSessionId, setOpeningSessionId] = useState<string | null>(null);
   const [pendingCreatedSessionIds, setPendingCreatedSessionIds] = useState<
     string[]
   >([]);
   const [optimisticStatusBySessionId, setOptimisticStatusBySessionId] =
-    useState<Record<string, SessionStatusKey>>({});
+    useState<Record<string, SessionStatus>>({});
   const [expandedSections, setExpandedSections] = useState<
     Record<SessionStatusKey, boolean>
   >({
@@ -443,7 +472,9 @@ export function KanbanSessionHub() {
             type: 'DRAFT_FOLLOW_UP',
             data: {
               message: '',
-              executor_profile_id: executorProfile,
+              images: [],
+              executor_config: executorProfile,
+              queued: false,
             },
           },
         });
@@ -518,6 +549,22 @@ export function KanbanSessionHub() {
     [optimisticStatusBySessionId, sessions]
   );
 
+  const activeSessionsWithOptimisticStatus = useMemo(
+    () =>
+      sessionsWithOptimisticStatus.filter(
+        (session) => session.status !== ARCHIVED_SESSION_STATUS
+      ),
+    [sessionsWithOptimisticStatus]
+  );
+
+  const archivedSessionsWithOptimisticStatus = useMemo(
+    () =>
+      sessionsWithOptimisticStatus.filter(
+        (session) => session.status === ARCHIVED_SESSION_STATUS
+      ),
+    [sessionsWithOptimisticStatus]
+  );
+
   const sessionsById = useMemo(
     () =>
       sessionsWithOptimisticStatus.reduce<
@@ -532,7 +579,7 @@ export function KanbanSessionHub() {
   const executorFilterOptions = useMemo(() => {
     const values = Array.from(
       new Set(
-        sessionsWithOptimisticStatus.map((session) =>
+        activeSessionsWithOptimisticStatus.map((session) =>
           getExecutorFilterValue(session.executor)
         )
       )
@@ -546,11 +593,11 @@ export function KanbanSessionHub() {
         ),
       }))
       .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
-  }, [sessionsWithOptimisticStatus]);
+  }, [activeSessionsWithOptimisticStatus]);
 
   const filteredSessions = useMemo(
     () =>
-      sessionsWithOptimisticStatus.filter((session) => {
+      activeSessionsWithOptimisticStatus.filter((session) => {
         if (
           workspaceFilterIds.length > 0 &&
           !workspaceFilterIds.includes(session.workspace.id)
@@ -569,7 +616,11 @@ export function KanbanSessionHub() {
 
         return true;
       }),
-    [executorFilterValues, sessionsWithOptimisticStatus, workspaceFilterIds]
+    [
+      executorFilterValues,
+      activeSessionsWithOptimisticStatus,
+      workspaceFilterIds,
+    ]
   );
 
   const flatSessions = useMemo(
@@ -585,12 +636,12 @@ export function KanbanSessionHub() {
       done: [],
     };
 
-    sessionsWithOptimisticStatus.forEach((session) => {
+    activeSessionsWithOptimisticStatus.forEach((session) => {
       groups[session.status as SessionStatusKey].push(session);
     });
 
     return groups;
-  }, [sessionsWithOptimisticStatus]);
+  }, [activeSessionsWithOptimisticStatus]);
 
   const activeWorkspacePlacement = useMemo(() => {
     if (activeWorktreeId && activeAttempt?.session?.id) {
@@ -652,7 +703,7 @@ export function KanbanSessionHub() {
     executorFilterValues.length > 0 ||
     sortField !== null
       ? flatSessions.length
-      : sessions.length;
+      : activeSessionsWithOptimisticStatus.length;
 
   const handleCreatePopoverOpenChange = (open: boolean) => {
     setIsCreatePopoverOpen(open);
@@ -683,6 +734,17 @@ export function KanbanSessionHub() {
     setIsDeleteMode(false);
     setSelectedSessionIds([]);
     setDeleteErrorMessage(null);
+  };
+
+  const handleArchiveViewChange = (value: boolean) => {
+    setIsArchiveView(value);
+    setDeleteSuccessMessage(null);
+    setDeleteErrorMessage(null);
+
+    if (value) {
+      setIsDeleteMode(false);
+      setSelectedSessionIds([]);
+    }
   };
 
   const handleToggleDeleteMode = () => {
@@ -735,7 +797,7 @@ export function KanbanSessionHub() {
     try {
       setOptimisticStatusBySessionId((current) => ({
         ...current,
-        [session.id]: nextStatus as SessionStatusKey,
+        [session.id]: nextStatus,
       }));
 
       await sessionsApi.updateStatus(session.id, nextStatus);
@@ -750,6 +812,51 @@ export function KanbanSessionHub() {
       });
       setDeleteErrorMessage(
         mapSessionErrorMessage(error, '更新会话状态失败，请稍后重试。')
+      );
+    }
+  };
+
+  const handleRestoreArchivedSession = async (
+    session: KanbanProjectSessionRecord
+  ) => {
+    if (session.status !== ARCHIVED_SESSION_STATUS) {
+      return;
+    }
+
+    const restoredName = resolveRestoredSessionName(
+      session,
+      activeSessionsWithOptimisticStatus
+    );
+
+    setDeleteErrorMessage(null);
+    setDeleteSuccessMessage(null);
+
+    try {
+      setOptimisticStatusBySessionId((current) => ({
+        ...current,
+        [session.id]: 'done',
+      }));
+
+      if (restoredName) {
+        await renameSessionMutation.mutateAsync({
+          sessionId: session.id,
+          name: restoredName,
+          workspaceId: session.workspace.id,
+        });
+      }
+
+      await sessionsApi.updateStatus(session.id, 'done');
+      await queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', session.workspace.id],
+      });
+    } catch (error) {
+      setOptimisticStatusBySessionId((current) => {
+        const next = { ...current };
+        delete next[session.id];
+        return next;
+      });
+      setDeleteErrorMessage(
+        mapSessionErrorMessage(error, '恢复归档会话失败，请稍后重试。')
       );
     }
   };
@@ -777,11 +884,12 @@ export function KanbanSessionHub() {
 
     try {
       await sessionsApi.delete(session.id);
+      removeSessionsFromWorkspaceCaches(queryClient, [session.id]);
       await queryClient.invalidateQueries({
         queryKey: ['workspaceSessions', session.workspace.id],
       });
-      queryClient.removeQueries({
-        queryKey: ['session', session.id],
+      await queryClient.invalidateQueries({
+        queryKey: ['taskAttemptWithSession', session.workspace.id],
       });
 
       const remainingSessionIds = new Set(
@@ -860,6 +968,8 @@ export function KanbanSessionHub() {
       new Set(targetSessions.map((session) => session.workspace.id))
     );
 
+    removeSessionsFromWorkspaceCaches(queryClient, succeededIds);
+
     await Promise.all(
       affectedWorkspaceIds.map((workspaceId) =>
         queryClient.invalidateQueries({
@@ -868,11 +978,13 @@ export function KanbanSessionHub() {
       )
     );
 
-    succeededIds.forEach((sessionId) => {
-      queryClient.removeQueries({
-        queryKey: ['session', sessionId],
-      });
-    });
+    await Promise.all(
+      affectedWorkspaceIds.map((workspaceId) =>
+        queryClient.invalidateQueries({
+          queryKey: ['taskAttemptWithSession', workspaceId],
+        })
+      )
+    );
 
     if (succeededIds.length > 0) {
       const remainingSessionIds = new Set(
@@ -958,7 +1070,8 @@ export function KanbanSessionHub() {
         <SessionHubSidebar
           width={sessionListWidth}
           isLoading={isLoading}
-          sessions={sessions}
+          sessions={activeSessionsWithOptimisticStatus}
+          archivedSessions={archivedSessionsWithOptimisticStatus}
           groupedSessions={groupedSessions}
           flatSessions={flatSessions}
           workspaces={workspaces}
@@ -988,7 +1101,9 @@ export function KanbanSessionHub() {
           monitorPlacements={monitorPlacements}
           currentExecutionPlacement={currentExecutionPlacement}
           openingSessionId={openingSessionId}
+          isArchiveView={isArchiveView}
           onResizeMouseDown={handleSessionListResizeMouseDown}
+          onArchiveViewChange={handleArchiveViewChange}
           onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
           onCreateSession={() =>
             createSessionMutation.mutate({
@@ -1022,6 +1137,9 @@ export function KanbanSessionHub() {
           }}
           onSessionStatusChange={(session, nextStatus) => {
             void handleSessionStatusChange(session, nextStatus);
+          }}
+          onRestoreArchivedSession={(session) => {
+            void handleRestoreArchivedSession(session);
           }}
           onExpandedChange={(status, expanded) => {
             setExpandedSections((current) => ({

@@ -311,7 +311,7 @@ export function EditorSettings() {
               ) : null}
             </div>
             <Input
-              placeholder="vu"
+              placeholder="vx"
               value={draft.git_branch_prefix ?? ''}
               onChange={(event) => {
                 const value = event.target.value.trim();

@@ -8,7 +8,7 @@ pub use v6::{EditorConfig, EditorType, GitHubConfig, NotificationConfig, SoundFi
 use crate::services::config::versions::v6;
 
 fn default_git_branch_prefix() -> String {
-    "vu".to_string()
+    "vx".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, Default)]

@@ -57,7 +57,17 @@ vi.mock('@/components/tasks/TaskFollowUpSection', () => ({
 }));
 
 vi.mock('@/contexts/EntriesContext', () => ({
-  EntriesProvider: ({ children }: { children: ReactNode }) => children,
+  EntriesProvider: ({
+    children,
+    runtimeKey,
+  }: {
+    children: ReactNode;
+    runtimeKey?: string;
+  }) => (
+    <div data-testid="entries-provider" data-runtime-key={runtimeKey}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock('@/contexts/ExecutionProcessesContext', () => ({
@@ -192,6 +202,10 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
       'workspace-empty:none'
     );
+    expect(screen.getByTestId('entries-provider')).toHaveAttribute(
+      'data-runtime-key',
+      'workspace-empty:no-session'
+    );
     expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '新建会话' })
@@ -284,6 +298,10 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
       'workspace-1:session-1'
     );
+    expect(screen.getByTestId('entries-provider')).toHaveAttribute(
+      'data-runtime-key',
+      'workspace-1:session-1'
+    );
     expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument();
   });
 
@@ -325,5 +343,95 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
       'workspace-2:session-2'
     );
+  });
+
+  it('keeps the interactive shell mounted while session details are still loading', () => {
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId="workspace-2"
+            sessionId="session-2"
+            interactive={true}
+            showSessionSelector={true}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
+      'workspace-2:session-2'
+    );
+    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
+    expect(screen.getByTestId('entries-provider')).toHaveAttribute(
+      'data-runtime-key',
+      'workspace-2:session-2'
+    );
+  });
+
+  it('does not fabricate a conversation when the requested session was deleted', async () => {
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+    sessionsGetByIdMock.mockRejectedValueOnce(new Error('Session not found'));
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId="workspace-2"
+            sessionId="deleted-session"
+            interactive={true}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(
+      await screen.findByRole('button', { name: '新建会话' })
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
   });
 });

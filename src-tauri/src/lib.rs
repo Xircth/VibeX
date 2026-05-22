@@ -1,4 +1,4 @@
-use tauri::{Manager, image::Image};
+use tauri::{Emitter, Manager, image::Image};
 
 pub mod commands;
 mod error;
@@ -9,6 +9,7 @@ mod workspace_paths;
 use state::AppState;
 
 const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
+const MAIN_WINDOW_CLOSE_REQUESTED_EVENT: &str = "main-window-close-requested";
 
 fn install_rustls_crypto_provider() {
     // The workspace uses reqwest's no-provider rustls mode, so the application
@@ -41,6 +42,12 @@ async fn get_preview_proxy_url(
             url
         )
     })
+}
+
+#[tauri::command]
+async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
 }
 
 pub fn run() {
@@ -77,6 +84,10 @@ pub fn run() {
 
                 let app_handle = app.handle().clone();
                 main_window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = app_handle.emit(MAIN_WINDOW_CLOSE_REQUESTED_EVENT, ());
+                    }
                     tauri::WindowEvent::Moved(_)
                     | tauri::WindowEvent::Resized(_)
                     | tauri::WindowEvent::ScaleFactorChanged { .. }
@@ -93,6 +104,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             health_check,
             get_preview_proxy_url,
+            exit_app,
             commands::projects::get_projects,
             commands::projects::get_project,
             commands::projects::create_project,
@@ -261,6 +273,7 @@ pub fn run() {
             commands::config::read_agent_native_configs,
             commands::config::write_agent_native_config,
             commands::desktop_toast::show_desktop_toast,
+            commands::desktop_toast::is_main_window_focused,
             commands::desktop_toast::activate_desktop_toast,
             commands::desktop_toast::desktop_toast_window_ready,
             commands::project_rail_window::set_project_rail_window_visible,
@@ -298,6 +311,11 @@ pub fn run() {
             commands::provider_runtime::provider_runtime_list_sessions,
             commands::provider_runtime::provider_runtime_load_history,
             commands::provider_runtime::provider_runtime_respond_to_request,
+            commands::provider_runtime::provider_runtime_codex_list_skills,
+            commands::provider_runtime::provider_runtime_codex_configure_skill,
+            commands::provider_runtime::provider_runtime_codex_list_hooks,
+            commands::provider_runtime::provider_runtime_codex_set_hook_enabled,
+            commands::provider_runtime::provider_runtime_codex_list_apps,
             // Execution process commands
             commands::execution_processes::get_execution_process,
             commands::execution_processes::stop_execution_process,

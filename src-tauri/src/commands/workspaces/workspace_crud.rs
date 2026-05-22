@@ -298,6 +298,65 @@ pub async fn delete_workspace(
     Ok(())
 }
 
+async fn interrupt_codex_native_processes_for_workspace(
+    state: &tauri::State<'_, AppState>,
+    workspace: &Workspace,
+) {
+    let pool = &state.deployment.db().pool;
+    let sessions = match Session::find_by_workspace_id(pool, workspace.id).await {
+        Ok(sessions) => sessions,
+        Err(error) => {
+            tracing::debug!(
+                "Failed to load sessions before stopping workspace {}: {}",
+                workspace.id,
+                error
+            );
+            return;
+        }
+    };
+
+    for session in sessions {
+        if session.executor.as_deref() != Some("codex") {
+            continue;
+        }
+
+        let processes = match ExecutionProcess::find_by_session_id(pool, session.id, false).await {
+            Ok(processes) => processes,
+            Err(error) => {
+                tracing::debug!(
+                    "Failed to load execution processes for session {} before stopping workspace {}: {}",
+                    session.id,
+                    workspace.id,
+                    error
+                );
+                continue;
+            }
+        };
+
+        for process in processes {
+            if process.run_reason != ExecutionProcessRunReason::CodingAgent
+                || process.status != ExecutionProcessStatus::Running
+            {
+                continue;
+            }
+
+            if let Err(error) = crate::commands::provider_runtime::interrupt_codex_native_execution_process(
+                pool,
+                process.id,
+            )
+            .await
+            {
+                tracing::debug!(
+                    "Failed to interrupt native Codex process {} before stopping workspace {}: {}",
+                    process.id,
+                    workspace.id,
+                    error
+                );
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn stop_workspace_execution(
     state: tauri::State<'_, AppState>,
@@ -308,6 +367,8 @@ pub async fn stop_workspace_execution(
     let workspace = Workspace::find_by_id(pool, workspace_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
+
+    interrupt_codex_native_processes_for_workspace(&state, &workspace).await;
 
     state
         .deployment

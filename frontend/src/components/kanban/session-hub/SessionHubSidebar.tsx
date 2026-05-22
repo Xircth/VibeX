@@ -1,5 +1,6 @@
 import {
   useMemo,
+  useState,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
@@ -8,6 +9,7 @@ import {
   PointerSensor,
   closestCenter,
   type DragEndEvent,
+  type DragStartEvent,
   useDraggable,
   useDroppable,
   useSensor,
@@ -15,6 +17,7 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  Archive,
   ArrowUpDown,
   ChevronDown,
   ChevronRight,
@@ -61,9 +64,11 @@ import { SessionHubListItem } from './SessionHubListItem';
 import {
   SESSION_LIST_ACTION_BUTTON_CLASS,
   SESSION_LIST_ACTION_ICON_CLASS,
+  ARCHIVED_SESSION_STATUS,
   SESSION_STATUS_LABELS,
   SESSION_STATUS_ORDER,
   SESSION_STATUS_SECTION_STYLES,
+  type ActiveSessionStatus,
   getSessionMarker,
   getSortLabel,
   mapSessionErrorMessage,
@@ -80,6 +85,7 @@ interface SessionHubSidebarProps {
   width: number;
   isLoading: boolean;
   sessions: KanbanProjectSessionRecord[];
+  archivedSessions: KanbanProjectSessionRecord[];
   groupedSessions: Record<string, KanbanProjectSessionRecord[]>;
   flatSessions: KanbanProjectSessionRecord[];
   workspaces: Workspace[];
@@ -109,7 +115,9 @@ interface SessionHubSidebarProps {
   monitorPlacements: Array<{ sessionId: string }>;
   currentExecutionPlacement: { sessionId: string } | null;
   openingSessionId?: string | null;
+  isArchiveView: boolean;
   onResizeMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
+  onArchiveViewChange: (value: boolean) => void;
   onCreatePopoverOpenChange: (open: boolean) => void;
   onCreateSession: () => void;
   onCreateModeChange: (value: SessionCreationMode) => void;
@@ -137,21 +145,23 @@ interface SessionHubSidebarProps {
     session: KanbanProjectSessionRecord,
     nextStatus: SessionStatus
   ) => void;
+  onRestoreArchivedSession: (session: KanbanProjectSessionRecord) => void;
   onExpandedChange: (status: string, expanded: boolean) => void;
 }
 
 const STATUS_DROP_ID_PREFIX = 'session-status-drop:';
+const ARCHIVE_DROP_ID = 'session-archive-drop';
 
-function getStatusDropId(status: SessionStatus) {
+function getStatusDropId(status: ActiveSessionStatus) {
   return `${STATUS_DROP_ID_PREFIX}${status}`;
 }
 
-function parseStatusDropId(id: unknown): SessionStatus | null {
+function parseStatusDropId(id: unknown): ActiveSessionStatus | null {
   if (typeof id !== 'string' || !id.startsWith(STATUS_DROP_ID_PREFIX)) {
     return null;
   }
 
-  const value = id.slice(STATUS_DROP_ID_PREFIX.length) as SessionStatus;
+  const value = id.slice(STATUS_DROP_ID_PREFIX.length) as ActiveSessionStatus;
   if (!SESSION_STATUS_ORDER.includes(value)) {
     return null;
   }
@@ -186,7 +196,7 @@ function SectionLabel({
   expanded,
   onToggle,
 }: {
-  status: keyof typeof SESSION_STATUS_LABELS;
+  status: ActiveSessionStatus;
   title: string;
   count: number;
   expanded: boolean;
@@ -232,7 +242,7 @@ function StatusDropZone({
   enabled,
   children,
 }: {
-  status: SessionStatus;
+  status: ActiveSessionStatus;
   enabled: boolean;
   children: ReactNode;
 }) {
@@ -245,11 +255,36 @@ function StatusDropZone({
     <div
       ref={setNodeRef}
       className={cn(
-        'session-hub-drop-zone rounded-xl p-2 transition-colors',
+        'session-hub-drop-zone session-hub-status-zone rounded-xl p-2 transition-colors',
         isOver && enabled ? 'is-over' : ''
       )}
     >
       {children}
+    </div>
+  );
+}
+
+function ArchiveDropZone({ enabled }: { enabled: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: ARCHIVE_DROP_ID,
+    disabled: !enabled,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'session-hub-drop-zone rounded-xl border border-dashed px-3 py-2 transition-colors',
+        enabled
+          ? 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-200'
+          : 'text-muted-foreground',
+        isOver && enabled ? 'is-over border-sky-500/70 bg-sky-500/20' : ''
+      )}
+    >
+      <div className="flex items-center gap-2 text-xs font-medium">
+        <Archive className="h-3.5 w-3.5" />
+        拖到这里归档
+      </div>
     </div>
   );
 }
@@ -268,7 +303,7 @@ function DraggableSessionCard({
   onDeleteSession,
 }: {
   session: KanbanProjectSessionRecord;
-  status: SessionStatus;
+  status: ActiveSessionStatus;
   isDeleteMode: boolean;
   isSelected: boolean;
   monitorPlacements: Array<{ sessionId: string }>;
@@ -329,7 +364,7 @@ function DraggableSessionCard({
 
 function renderSessionList(
   sessions: KanbanProjectSessionRecord[],
-  status: SessionStatus | null,
+  status: ActiveSessionStatus | null,
   enableDrag: boolean,
   isDeleteMode: boolean,
   selectedSessionIdSet: Set<string>,
@@ -344,7 +379,8 @@ function renderSessionList(
   ) => Promise<void>,
   onDeleteSession?: (
     session: KanbanProjectSessionRecord
-  ) => void | Promise<void>
+  ) => void | Promise<void>,
+  onRestoreArchivedSession?: (session: KanbanProjectSessionRecord) => void
 ) {
   return (
     <div className="w-full max-w-full min-w-0 space-y-1.5">
@@ -381,6 +417,11 @@ function renderSessionList(
             onDeleteSession={
               onDeleteSession ? () => onDeleteSession(session) : undefined
             }
+            onRestoreFromArchive={
+              onRestoreArchivedSession
+                ? () => onRestoreArchivedSession(session)
+                : undefined
+            }
             isOpening={openingSessionId === session.id}
           />
         )
@@ -393,6 +434,7 @@ export function SessionHubSidebar({
   width,
   isLoading,
   sessions,
+  archivedSessions,
   groupedSessions,
   flatSessions,
   workspaces,
@@ -422,7 +464,9 @@ export function SessionHubSidebar({
   monitorPlacements,
   currentExecutionPlacement,
   openingSessionId = null,
+  isArchiveView,
   onResizeMouseDown,
+  onArchiveViewChange,
   onCreatePopoverOpenChange,
   onCreateSession,
   onCreateModeChange,
@@ -442,12 +486,18 @@ export function SessionHubSidebar({
   onRenameSession,
   onDeleteSession,
   onSessionStatusChange,
+  onRestoreArchivedSession,
   onExpandedChange,
 }: SessionHubSidebarProps) {
   const hasActiveFilters =
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
-  const isFlatListMode = hasActiveFilters || sortField !== null;
-  const canDragAcrossSections = !isFlatListMode && !isDeleteMode;
+  const isFlatListMode =
+    !isArchiveView && (hasActiveFilters || sortField !== null);
+  const canDragAcrossSections =
+    !isArchiveView && !isFlatListMode && !isDeleteMode;
+  const [activeDragSessionId, setActiveDragSessionId] = useState<string | null>(
+    null
+  );
   const sessionsById = useMemo(
     () =>
       sessions.reduce<Record<string, KanbanProjectSessionRecord>>(
@@ -465,7 +515,13 @@ export function SessionHubSidebar({
     })
   );
 
+  const handleDragStart = (event: DragStartEvent) => {
+    if (!canDragAcrossSections) return;
+    setActiveDragSessionId(String(event.active.id));
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveDragSessionId(null);
     if (!canDragAcrossSections || !event.over) {
       return;
     }
@@ -473,6 +529,11 @@ export function SessionHubSidebar({
     const sessionId = String(event.active.id);
     const session = sessionsById[sessionId];
     if (!session) {
+      return;
+    }
+
+    if (event.over.id === ARCHIVE_DROP_ID) {
+      onSessionStatusChange(session, ARCHIVED_SESSION_STATUS);
       return;
     }
 
@@ -484,6 +545,9 @@ export function SessionHubSidebar({
     onSessionStatusChange(session, targetStatus);
   };
 
+  const visibleCount = isArchiveView ? archivedSessions.length : displayedCount;
+  const totalCount = isArchiveView ? archivedSessions.length : sessions.length;
+
   return (
     <>
       <aside
@@ -492,11 +556,16 @@ export function SessionHubSidebar({
       >
         <div className="space-y-2.5 px-3 py-2.5">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-foreground">
-                会话列表
-              </div>
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="cursor-default text-sm font-semibold text-foreground">
+                  {isArchiveView ? '归档区' : '会话列表'}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {visibleCount} / {totalCount}
+              </TooltipContent>
+            </Tooltip>
 
             <div className="flex items-center gap-1">
               <Popover
@@ -743,24 +812,43 @@ export function SessionHubSidebar({
                     variant="ghost"
                     className={cn(
                       SESSION_LIST_ACTION_BUTTON_CLASS,
-                      isDeleteMode
-                        ? 'text-destructive hover:text-destructive'
-                        : undefined
+                      'order-2 border border-border/60',
+                      isArchiveView && 'text-foreground'
                     )}
-                    aria-label={isDeleteMode ? '退出删除模式' : '批量删除'}
-                    onClick={onToggleDeleteMode}
+                    aria-label={isArchiveView ? '返回会话列表' : '打开归档区'}
+                    onClick={() => onArchiveViewChange(!isArchiveView)}
                   >
-                    <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
+                    <Archive className={SESSION_LIST_ACTION_ICON_CLASS} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {isDeleteMode ? '退出删除模式' : '批量删除'}
+                  {isArchiveView ? '返回会话列表' : '打开归档区'}
                 </TooltipContent>
               </Tooltip>
 
-              <div className="session-hub-count-chip rounded-full px-2 py-1 text-[11px]">
-                {displayedCount} / {sessions.length}
-              </div>
+              <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className={cn(
+                        SESSION_LIST_ACTION_BUTTON_CLASS,
+                        'order-1',
+                        isDeleteMode
+                          ? 'text-destructive hover:text-destructive'
+                          : undefined
+                      )}
+                      aria-label={isDeleteMode ? '退出删除模式' : '批量删除'}
+                      onClick={onToggleDeleteMode}
+                    >
+                      <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isDeleteMode ? '退出删除模式' : '批量删除'}
+                  </TooltipContent>
+                </Tooltip>
             </div>
           </div>
 
@@ -848,13 +936,40 @@ export function SessionHubSidebar({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveDragSessionId(null)}
           >
             <div className="space-y-3 px-3 py-3 pr-4">
+              {activeDragSessionId ? (
+                <ArchiveDropZone enabled={canDragAcrossSections} />
+              ) : null}
               {isLoading ? (
                 <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                   正在加载会话...
                 </div>
+              ) : isArchiveView ? (
+                archivedSessions.length > 0 ? (
+                  renderSessionList(
+                    archivedSessions,
+                    null,
+                    false,
+                    false,
+                    selectedSessionIdSet,
+                    monitorPlacements,
+                    currentExecutionPlacement,
+                    openingSessionId,
+                    onSessionClick,
+                    onToggleSessionSelection,
+                    onRenameSession,
+                    undefined,
+                    onRestoreArchivedSession
+                  )
+                ) : (
+                  <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+                    归档区暂无会话。
+                  </div>
+                )
               ) : sessions.length === 0 ? (
                 <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                   暂无会话，点击上方“新增”即可创建。
@@ -928,7 +1043,7 @@ export function SessionHubSidebar({
       <div
         role="separator"
         aria-orientation="vertical"
-        className="session-hub-resizer relative w-3 shrink-0 cursor-col-resize transition-colors before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:transition-all before:duration-150 hover:before:w-[3px]"
+        className="session-hub-resizer relative z-10 -ml-2 w-2 shrink-0 cursor-col-resize transition-colors before:absolute before:inset-y-0 before:right-0 before:w-px before:transition-all before:duration-150 hover:before:w-[3px]"
         onMouseDown={onResizeMouseDown}
       />
     </>

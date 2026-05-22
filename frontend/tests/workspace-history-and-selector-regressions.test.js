@@ -15,13 +15,13 @@ function readFile(relativePath) {
 test('settings header no longer shows the VibeX desktop wording', () => {
   const source = readFile('src/pages/settings/SettingsLayout.tsx');
 
-  assert.doesNotMatch(source, /VibeX 濡楀矂娼扮粩顖濐啎缂?/);
+  assert.doesNotMatch(source, /VibeX 婵℃鐭傚鎵博椤栨繍鍟庣紓?/);
 });
 
 test('branding tagline stays on the multi-task Vibe Coding copy', () => {
   const source = readFile('src/lib/branding.ts');
 
-  assert.match(source, /APP_TAGLINE\s*=\s*['"]澶氫换鍔￠┍鍔ㄩ珮鏁圴ibe Coding['"]/);
+  assert.match(source, /APP_TAGLINE\s*=\s*['"]高效多并发驱动的Vibe Coding['"]/);
 });
 
 test('loading history view uses the current scroll container instead of the old timeout overlay', () => {
@@ -36,12 +36,12 @@ test('loading history view uses the current scroll container instead of the old 
   );
 });
 
-test('conversation history hook keeps the current cache-and-stream pipeline', () => {
+test('conversation history hook keeps the current runtime-and-stream pipeline', () => {
   const source = readFile(
     'src/hooks/useConversationHistory/useConversationHistory.ts'
   );
 
-  assert.match(source, /const MAX_CONVERSATION_HISTORY_CACHE = 20/);
+  assert.match(source, /const MAX_CONVERSATION_RUNTIME_ENTRIES = 20/);
   assert.match(source, /executionProcessesVisible: executionProcessesRaw/);
   assert.match(source, /const loadedInitialEntries = useRef\(false\)/);
   assert.match(source, /queryKey: \['queue-status', sessionId\]/);

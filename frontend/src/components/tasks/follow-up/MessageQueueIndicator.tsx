@@ -3,11 +3,13 @@ import { Clock } from 'lucide-react';
 interface MessageQueueIndicatorProps {
   isQueued: boolean;
   messagePreview?: string | null;
+  attachmentCount?: number;
 }
 
 export function MessageQueueIndicator({
   isQueued,
   messagePreview,
+  attachmentCount = 0,
 }: MessageQueueIndicatorProps) {
   if (!isQueued) return null;
 
@@ -21,6 +23,11 @@ export function MessageQueueIndicator({
         {messagePreview ? (
           <div className="mt-0.5 truncate text-xs text-muted-foreground/90">
             {messagePreview}
+          </div>
+        ) : null}
+        {attachmentCount > 0 ? (
+          <div className="mt-0.5 text-xs text-muted-foreground/90">
+            {attachmentCount} image{attachmentCount === 1 ? '' : 's'} attached
           </div>
         ) : null}
       </div>

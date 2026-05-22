@@ -1,7 +1,23 @@
 ﻿fn should_hide_provider_slash_command(provider: ProviderId, name: &str) -> bool {
     let normalized = name.trim().trim_start_matches('/').to_ascii_lowercase();
-    matches!(normalized.as_str(), "config" | "mcp" | "model" | "theme")
-        || (provider == ProviderId::Claude && normalized == "permissions")
+    if matches!(normalized.as_str(), "config" | "mcp" | "model" | "theme") {
+        return true;
+    }
+    if provider == ProviderId::Claude && normalized == "permissions" {
+        return true;
+    }
+    provider == ProviderId::Opencode
+        && matches!(
+            normalized.as_str(),
+            "agents"
+                | "build"
+                | "commands"
+                | "models"
+                | "plan"
+                | "session"
+                | "sessions"
+                | "status"
+        )
 }
 
 fn provider_from_executor_name(executor: &str) -> Option<ProviderId> {
@@ -63,6 +79,67 @@ fn should_force_acp_fallback(request: &ProviderTurnRequest) -> bool {
     provider_option_bool(&request.provider_options, "force_acp_fallback")
 }
 
+async fn apply_native_commit_reminder_to_request(
+    state: &tauri::State<'_, AppState>,
+    request: &mut ProviderTurnRequest,
+    workspace_dir: &Path,
+) {
+    if provider_option_bool(&request.provider_options, "skip_commit_reminder") {
+        return;
+    }
+
+    let config = state.deployment.config().read().await;
+    if !config.commit_reminder_enabled {
+        return;
+    }
+    if !native_commit_reminder_worktree_has_changes(state, workspace_dir) {
+        return;
+    }
+    let reminder_prompt = config
+        .commit_reminder_prompt
+        .clone()
+        .unwrap_or_else(|| DEFAULT_COMMIT_REMINDER_PROMPT.to_string());
+    drop(config);
+
+    request.text = native_commit_reminder_prompt_text(&request.text, reminder_prompt.trim());
+}
+
+fn native_commit_reminder_worktree_has_changes(
+    state: &tauri::State<'_, AppState>,
+    workspace_dir: &Path,
+) -> bool {
+    match state.deployment.git().get_worktree_status(workspace_dir) {
+        Ok(status) => {
+            native_commit_reminder_status_has_changes(
+                status.uncommitted_tracked,
+                status.untracked,
+            )
+        }
+        Err(error) => {
+            tracing::debug!(
+                workspace_dir = %workspace_dir.display(),
+                ?error,
+                "Skipping native commit reminder because worktree status is unavailable"
+            );
+            false
+        }
+    }
+}
+
+fn native_commit_reminder_status_has_changes(
+    uncommitted_tracked: usize,
+    untracked: usize,
+) -> bool {
+    uncommitted_tracked > 0 || untracked > 0
+}
+
+fn native_commit_reminder_prompt_text(prompt: &str, reminder_prompt: &str) -> String {
+    format!(
+        "{}\n\n<native-provider-commit-reminder-hook>\nAfter completing the requested work, check the repository status before your final response. If there are uncommitted changes, follow this commit reminder instruction:\n{}\n</native-provider-commit-reminder-hook>",
+        prompt, reminder_prompt
+    )
+}
+
 fn codex_approval_policy_value(approval: Option<&AskForApproval>) -> &'static str {
     match approval {
         Some(AskForApproval::UnlessTrusted) => "untrusted",
@@ -115,6 +192,54 @@ struct CodexRuntimeOptions {
     sandbox_mode: String,
     sandbox_policy: Value,
     effort: Option<String>,
+    base_instructions: Option<String>,
+}
+
+fn codex_instruction_option(
+    request: &ProviderTurnRequest,
+    snake_case_key: &str,
+    camel_case_key: &str,
+) -> Option<String> {
+    provider_option_string(&request.provider_options, snake_case_key)
+        .or_else(|| provider_option_string(&request.provider_options, camel_case_key))
+        .map(ToString::to_string)
+}
+
+fn codex_runtime_base_instructions(
+    request: &ProviderTurnRequest,
+    profile: Option<&executors::executors::codex::Codex>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(base_instructions) = codex_instruction_option(
+        request,
+        "base_instructions",
+        "baseInstructions",
+    )
+    .or_else(|| profile.and_then(|codex| codex.base_instructions.clone()))
+    {
+        parts.push(base_instructions);
+    }
+    if let Some(developer_instructions) = codex_instruction_option(
+        request,
+        "developer_instructions",
+        "developerInstructions",
+    )
+    .or_else(|| profile.and_then(|codex| codex.developer_instructions.clone()))
+    {
+        parts.push(developer_instructions);
+    }
+
+    let instructions = parts
+        .into_iter()
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if instructions.is_empty() {
+        None
+    } else {
+        Some(instructions)
+    }
 }
 
 fn resolve_codex_runtime_options(
@@ -172,6 +297,7 @@ fn resolve_codex_runtime_options(
                 .map(codex_reasoning_effort_value)
                 .map(ToString::to_string)
         });
+    let base_instructions = codex_runtime_base_instructions(request, profile.as_ref());
 
     CodexRuntimeOptions {
         model,
@@ -179,6 +305,7 @@ fn resolve_codex_runtime_options(
         sandbox_mode,
         sandbox_policy,
         effort,
+        base_instructions,
     }
 }
 

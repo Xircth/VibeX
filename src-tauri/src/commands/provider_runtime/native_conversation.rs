@@ -1,4 +1,4 @@
-﻿async fn push_native_provider_event_to_conversation(sink: &NativeConversationSink, event: &Value) {
+async fn push_native_provider_event_to_conversation(sink: &NativeConversationSink, event: &Value) {
     if let Some(token_usage) = extract_provider_token_usage_info_with_codex_context_window(
         event,
         codex_config_model_context_window(),
@@ -59,19 +59,15 @@
     };
 
     let mut state = sink.state.lock().await;
-    append_provider_assistant_text(&mut state.assistant_content, &text, is_stream_delta);
+    if should_skip_provider_text_snapshot(&state, event, is_stream_delta) {
+        return;
+    }
 
-    let (index, is_new) = if let Some(index) = state.assistant_index {
-        (index, false)
-    } else {
-        let index = state.next_entry_index;
-        state.next_entry_index += 1;
-        state.assistant_index = Some(index);
-        (index, true)
-    };
+    let (index, is_new, content) =
+        upsert_native_assistant_entry(&mut state, event, &text, is_stream_delta);
     let entry = native_normalized_entry(
         NormalizedEntryType::AssistantMessage,
-        state.assistant_content.clone(),
+        content,
         Some(event.clone()),
     );
     let patch = if is_new {
@@ -90,6 +86,7 @@ async fn push_native_tool_update_to_conversation(
     update: NativeToolUpdate,
 ) {
     let mut state = sink.state.lock().await;
+    close_native_assistant_segment(&mut state);
     let (index, is_new, tool_name, action_type, content) =
         if let Some(existing) = state.tool_entries.get_mut(&update.id) {
             if let Some(tool_name) = update.tool_name.as_ref() {
@@ -162,6 +159,53 @@ async fn push_native_tool_update_to_conversation(
     push_native_log_msg(sink, LogMsg::JsonPatch(patch)).await;
 }
 
+fn close_native_assistant_segment(state: &mut NativeConversationState) {
+    state.active_assistant_entry_id = None;
+}
+
+fn should_skip_provider_text_snapshot(
+    state: &NativeConversationState,
+    event: &Value,
+    is_stream_delta: bool,
+) -> bool {
+    !is_stream_delta
+        && !state.assistant_entries.is_empty()
+        && provider_event_is_codex_turn_snapshot(event)
+}
+
+fn upsert_native_assistant_entry(
+    state: &mut NativeConversationState,
+    event: &Value,
+    text: &str,
+    is_stream_delta: bool,
+) -> (usize, bool, String) {
+    let entry_id = extract_provider_assistant_entry_id(event)
+        .map(|id| format!("assistant:{id}"))
+        .or_else(|| state.active_assistant_entry_id.clone())
+        .unwrap_or_else(|| format!("assistant:{}", state.next_entry_index));
+
+    state.active_assistant_entry_id = Some(entry_id.clone());
+
+    if let Some(existing) = state.assistant_entries.get_mut(&entry_id) {
+        append_provider_assistant_text(&mut existing.content, text, is_stream_delta);
+        return (existing.index, false, existing.content.clone());
+    }
+
+    let index = state.next_entry_index;
+    state.next_entry_index += 1;
+    let mut content = String::new();
+    append_provider_assistant_text(&mut content, text, is_stream_delta);
+    state.assistant_entries.insert(
+        entry_id,
+        NativeAssistantEntryState {
+            index,
+            content: content.clone(),
+        },
+    );
+
+    (index, true, content)
+}
+
 async fn complete_native_conversation_sink(
     sink: NativeConversationSink,
     status: ExecutionProcessStatus,
@@ -186,6 +230,41 @@ async fn complete_native_conversation_sink(
         );
     }
     sink.msg_store.push_finished();
+}
+
+async fn complete_codex_native_sink(
+    sink: NativeConversationSink,
+    turn_id: Option<String>,
+    thread_id: Option<String>,
+    status: ExecutionProcessStatus,
+) {
+    if let Some(turn_id) = turn_id.as_deref() {
+        CODEX_NATIVE_TURN_SINKS.lock().await.remove(turn_id);
+    }
+    if let Some(thread_id) = thread_id.as_deref() {
+        CODEX_NATIVE_THREAD_SINKS.lock().await.remove(thread_id);
+    }
+    let exit_code = if status == ExecutionProcessStatus::Completed {
+        Some(0)
+    } else {
+        None
+    };
+    complete_native_conversation_sink(sink, status, exit_code).await;
+}
+
+fn is_codex_context_compaction_completed(value: &Value) -> bool {
+    if value.get("method").and_then(Value::as_str) != Some("item/completed") {
+        return false;
+    }
+
+    value
+        .get("params")
+        .and_then(|params| params.get("item"))
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        .is_some_and(|item_type| {
+            matches!(item_type, "contextCompaction" | "context_compaction")
+        })
 }
 
 async fn route_codex_event_to_native_conversation(value: &Value) {
@@ -214,28 +293,25 @@ async fn route_codex_event_to_native_conversation(value: &Value) {
         .get("method")
         .and_then(Value::as_str)
         .unwrap_or_default();
+
+    if method == "thread/tokenUsage/updated" {
+        return;
+    }
+
     if method == "turn/completed"
         || method == "thread/compacted"
+        || is_codex_context_compaction_completed(value)
         || method == "turn/error"
         || method == "error"
     {
-        if let Some(turn_id) = turn_id.as_deref() {
-            CODEX_NATIVE_TURN_SINKS.lock().await.remove(turn_id);
-        }
-        if let Some(thread_id) = thread_id.as_deref() {
-            CODEX_NATIVE_THREAD_SINKS.lock().await.remove(thread_id);
-        }
-        let status = if method == "turn/completed" || method == "thread/compacted" {
+        let status = if method == "turn/completed"
+            || method == "thread/compacted"
+            || is_codex_context_compaction_completed(value)
+        {
             ExecutionProcessStatus::Completed
         } else {
             ExecutionProcessStatus::Failed
         };
-        let exit_code = if status == ExecutionProcessStatus::Completed {
-            Some(0)
-        } else {
-            None
-        };
-        complete_native_conversation_sink(sink, status, exit_code).await;
+        complete_codex_native_sink(sink, turn_id, thread_id, status).await;
     }
 }
-

@@ -120,6 +120,33 @@ function hasUsableTerminalContainer(element: HTMLElement): boolean {
   );
 }
 
+function hasLiveTerminalElement(
+  terminal: Terminal,
+  container: HTMLElement
+): boolean {
+  const element = terminal.element;
+  return !!element && element.isConnected && container.contains(element);
+}
+
+function fitTerminalIfReady(
+  fitAddon: FitAddon,
+  terminal: Terminal,
+  container: HTMLElement
+): void {
+  if (
+    !hasUsableTerminalContainer(container) ||
+    !hasLiveTerminalElement(terminal, container)
+  ) {
+    return;
+  }
+
+  try {
+    fitAddon.fit();
+  } catch {
+    // The Dockview panel may be mid-layout or hidden.
+  }
+}
+
 export function useTauriTerminal({
   workspaceId,
   tabId,
@@ -220,7 +247,8 @@ export function useTauriTerminal({
       errorRef.current = null;
       setErrorState((current) => (current === null ? current : null));
 
-      initializeVersionRef.current += 1;
+      const initializeVersion = initializeVersionRef.current + 1;
+      initializeVersionRef.current = initializeVersion;
 
       const terminal = new Terminal({
         cursorBlink: !readOnly,
@@ -233,6 +261,14 @@ export function useTauriTerminal({
         disableStdin: readOnly,
       });
       terminalRef.current = terminal;
+
+      const isCurrentInitialization = () =>
+        mountedRef.current &&
+        initializeVersionRef.current === initializeVersion &&
+        terminalRef.current === terminal &&
+        containerElRef.current === container &&
+        terminalOpenedRef.current &&
+        hasLiveTerminalElement(terminal, container);
 
       const fitAddon = new FitAddon();
       fitAddonRef.current = fitAddon;
@@ -307,22 +343,22 @@ export function useTauriTerminal({
         return false;
       });
 
-      try {
-        fitAddon.fit();
-      } catch {
-        // Container may not have dimensions yet
-      }
+      fitTerminalIfReady(fitAddon, terminal, container);
 
       const attachListener = async (currentSessionId: string) => {
         const unlisten = await tauriListen<string>(
           `terminal-output:${currentSessionId}`,
           (payload) => {
             if (
-              terminalRef.current &&
+              isCurrentInitialization() &&
               sessionIdRef.current === currentSessionId
             ) {
               const bytes = decodeBase64ToBytes(payload);
-              terminalRef.current.write(bytes);
+              try {
+                terminal.write(bytes);
+              } catch (error) {
+                console.warn('Failed to write terminal output:', error);
+              }
             }
           }
         );
@@ -372,24 +408,32 @@ export function useTauriTerminal({
                 : String(fallbackErr);
             errorRef.current = message;
             setErrorState(message);
-            terminal.writeln(
-              `\r\n\x1b[31mFailed to create terminal for ${tabId}: ${message}\x1b[0m`
-            );
+            if (isCurrentInitialization()) {
+              terminal.writeln(
+                `\r\n\x1b[31mFailed to create terminal for ${tabId}: ${message}\x1b[0m`
+              );
+            }
             return;
           }
         } else {
           const message = err instanceof Error ? err.message : String(err);
           errorRef.current = message;
           setErrorState(message);
-          terminal.writeln(
-            `\r\n\x1b[31mFailed to attach terminal for ${tabId}: ${message}\x1b[0m`
-          );
+          if (isCurrentInitialization()) {
+            terminal.writeln(
+              `\r\n\x1b[31mFailed to attach terminal for ${tabId}: ${message}\x1b[0m`
+            );
+          }
           return;
         }
       }
 
-      if (!mountedRef.current || !resolvedSessionId) {
-        disposeView();
+      if (!isCurrentInitialization() || !resolvedSessionId) {
+        if (terminalRef.current === terminal) {
+          disposeView();
+        } else {
+          terminal.dispose();
+        }
         return;
       }
 
@@ -410,7 +454,7 @@ export function useTauriTerminal({
       }
 
       terminal.onResize(({ cols, rows }) => {
-        if (sessionIdRef.current) {
+        if (isCurrentInitialization() && sessionIdRef.current) {
           tauriInvoke('resize_terminal', {
             sessionId: sessionIdRef.current,
             cols,
@@ -422,12 +466,8 @@ export function useTauriTerminal({
       });
 
       const resizeObserver = new ResizeObserver(() => {
-        if (fitAddonRef.current && terminalRef.current) {
-          try {
-            fitAddonRef.current.fit();
-          } catch {
-            // Ignore fit errors when container is hidden
-          }
+        if (fitAddonRef.current && isCurrentInitialization()) {
+          fitTerminalIfReady(fitAddonRef.current, terminal, container);
         }
       });
       resizeObserver.observe(container);
@@ -518,12 +558,11 @@ export function useTauriTerminal({
   );
 
   const refit = useCallback(() => {
-    if (fitAddonRef.current && terminalOpenedRef.current) {
-      try {
-        fitAddonRef.current.fit();
-      } catch {
-        // Container may currently have zero size
-      }
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    const container = containerElRef.current;
+    if (terminal && fitAddon && container && terminalOpenedRef.current) {
+      fitTerminalIfReady(fitAddon, terminal, container);
     }
   }, []);
 

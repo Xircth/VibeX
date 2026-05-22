@@ -48,7 +48,7 @@ export type CreateTask = { project_id: string, title: string, description: strin
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, };
 
-export type DraftFollowUpData = { message: string, executor_profile_id: ExecutorProfileId, };
+export type DraftFollowUpData = { message: string, images: Array<string>, executor_config: ExecutorProfileId, queued: boolean, };
 
 export type DraftWorkspaceData = { message: string, project_id: string | null, repos: Array<DraftWorkspaceRepo>, selected_profile: ExecutorProfileId | null, linked_issue: DraftWorkspaceLinkedIssue | null, };
 
@@ -410,15 +410,15 @@ export type SendMessageShortcut = "ModifierEnter" | "Enter";
 
 export type GitBranch = { name: string, is_current: boolean, is_remote: boolean, is_worktree: boolean, worktree_path: string | null, last_commit_date: Date, };
 
-export type QueuedMessage = { 
+export type QueuedMessage = {
 /**
  * The session this message is queued for
  */
-session_id: string, 
+session_id: string,
 /**
  * The follow-up data (message + variant)
  */
-data: DraftFollowUpData, 
+data: DraftFollowUpData,
 /**
  * Timestamp when the message was queued
  */
@@ -679,7 +679,7 @@ export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE = "{title} (VibeX {id})\n\n{d
 
 export type CreateSession = { executor: string | null, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus | null, };
 
-export type SessionStatus = "todo" | "inprogress" | "inreview" | "done";
+export type SessionStatus = "todo" | "inprogress" | "inreview" | "done" | "archived";
 
 export type SessionContinuityMode = "new_session" | "resume_in_place" | "fork_snapshot";
 

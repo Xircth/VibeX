@@ -19,6 +19,7 @@ import {
   useWorkspaceSessions,
 } from '@/hooks/useWorkspaceSessions';
 import { attemptsApi, sessionsApi } from '@/lib/api';
+import { buildSessionConversationKey } from '@/lib/conversationKeys';
 
 type SessionRecord = Session & {
   task_id?: string | null;
@@ -160,12 +161,14 @@ function KanbanSessionConversationContent({
     sessionState.sessions.length === 0 &&
     !sessionState.isNewSessionMode;
 
-  const conversationKey = `${attempt.id}:${activeSession?.id ?? attempt.session?.id ?? 'unknown'}`;
+  const conversationKey = buildSessionConversationKey(
+    attempt.id,
+    activeSession?.id ?? attempt.session?.id
+  );
 
   return (
-    <EntriesProvider key={conversationKey} cacheKey={conversationKey}>
+    <EntriesProvider runtimeKey={conversationKey}>
       <ExecutionProcessesProvider
-        key={conversationKey}
         attemptId={attempt.id}
         sessionId={activeSession?.id ?? attempt.session?.id}
       >
@@ -251,31 +254,39 @@ export function KanbanSessionConversationView({
           ? previousData
           : (initialWorkspace ?? undefined),
     });
-  const { data: session, isFetching: isSessionFetching } =
-    useQuery<SessionRecord>({
-      queryKey: ['session', sessionId],
-      queryFn: () => sessionsApi.getById(sessionId!) as Promise<SessionRecord>,
-      enabled: !!sessionId,
-      placeholderData: (previousData) =>
-        previousData?.id === sessionId
-          ? previousData
-          : (initialSession ?? undefined),
-    });
+  const {
+    data: session,
+    isError: isSessionError,
+    isFetching: isSessionFetching,
+  } = useQuery<SessionRecord>({
+    queryKey: ['session', sessionId],
+    queryFn: () => sessionsApi.getById(sessionId!) as Promise<SessionRecord>,
+    enabled: !!sessionId,
+    placeholderData: (previousData) =>
+      previousData?.id === sessionId
+        ? previousData
+        : (initialSession ?? undefined),
+  });
 
   const resolvedWorkspace =
     workspace ?? createFallbackWorkspace(workspaceId, initialWorkspace);
+  const canUseSessionFallback = !!sessionId && !isSessionError;
   const resolvedSession =
     session ??
     initialSession ??
-    (sessionId
+    (canUseSessionFallback
       ? createFallbackSession(sessionId, workspaceId, initialSession)
       : undefined);
   const taskId =
     resolvedSession?.task_id ?? initialTask?.id ?? resolvedWorkspace.task_id;
   const canInteractWithoutResolvedSession = interactive && !sessionId;
+  const requestedSessionMissing =
+    !!sessionId && isSessionError && !initialSession;
   const shouldRenderInteractiveShell =
     interactive &&
-    (canInteractWithoutResolvedSession || !!session || !!initialSession);
+    (canInteractWithoutResolvedSession ||
+      !!resolvedSession ||
+      requestedSessionMissing);
 
   const isBootstrapping =
     (!workspace && isWorkspaceLoading && !initialWorkspace) ||
@@ -290,7 +301,6 @@ export function KanbanSessionConversationView({
         </div>
       ) : null}
       <KanbanSessionConversationContent
-        key={`${resolvedWorkspace.id}:${resolvedSession?.id ?? 'none'}:${interactive ? 'interactive' : 'readonly'}`}
         attempt={createWorkspaceWithSession(resolvedWorkspace, resolvedSession)}
         taskId={taskId}
         interactive={shouldRenderInteractiveShell}

@@ -89,6 +89,64 @@ describe('Markdown', () => {
     );
   });
 
+  it('opens relative file hrefs in the workspace editor instead of navigating the page', () => {
+    renderMarkdown(
+      '[provider_text.rs](src-tauri/src/commands/provider_runtime/provider_text.rs)'
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'provider_text.rs' }));
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/src-tauri/src/commands/provider_runtime/provider_text.rs',
+      {
+        displayPath: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+        title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+      }
+    );
+  });
+
+  it('opens same-origin URL paths as workspace files instead of browser URLs', () => {
+    renderMarkdown(
+      '[provider_text.rs](http://127.0.0.1:3002/src-tauri/src/commands/provider_runtime/provider_text.rs)'
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'provider_text.rs' }));
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/src-tauri/src/commands/provider_runtime/provider_text.rs',
+      {
+        displayPath: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+        title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+      }
+    );
+  });
+
+  it('opens web-root file paths as workspace-relative files on Windows', () => {
+    renderMarkdown(
+      '[provider_text.rs](/src-tauri/src/commands/provider_runtime/provider_text.rs)'
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'provider_text.rs' }));
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/src-tauri/src/commands/provider_runtime/provider_text.rs',
+      {
+        displayPath: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+        title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+      }
+    );
+  });
+
+  it('renders placeholder document hrefs without browser navigation targets', () => {
+    renderMarkdown('[文件名称](path_to_document)');
+
+    const link = screen.getByRole('link', { name: '文件名称' });
+
+    expect(link).not.toHaveAttribute('href');
+    fireEvent.click(link);
+    expect(panelActionsMock.openFilePreview).not.toHaveBeenCalled();
+  });
+
   it('opens inline code file paths in the workspace editor', () => {
     renderMarkdown('Open `frontend/src/App.tsx`');
 

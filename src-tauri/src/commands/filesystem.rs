@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::Command};
+use std::path::PathBuf;
 
 use deployment::Deployment;
 use services::services::filesystem::{DirectoryEntry, DirectoryListResponse};
@@ -57,7 +57,8 @@ pub async fn reveal_in_file_manager(path: String) -> Result<(), AppError> {
 
     #[cfg(target_os = "windows")]
     {
-        let mut command = Command::new("explorer");
+        let mut command =
+            utils::process::new_hidden_std_command("explorer", std::iter::empty::<&str>());
         if sanitized_path.is_dir() {
             command.arg(&sanitized_path);
         } else {
@@ -70,7 +71,8 @@ pub async fn reveal_in_file_manager(path: String) -> Result<(), AppError> {
 
     #[cfg(target_os = "macos")]
     {
-        let mut command = Command::new("open");
+        let mut command =
+            utils::process::new_hidden_std_command("open", std::iter::empty::<&str>());
         if sanitized_path.is_dir() {
             command.arg(&sanitized_path);
         } else {
@@ -88,7 +90,7 @@ pub async fn reveal_in_file_manager(path: String) -> Result<(), AppError> {
             .map(PathBuf::from)
             .unwrap_or_else(|| sanitized_path.clone());
 
-        Command::new("xdg-open")
+        utils::process::new_hidden_std_command("xdg-open", std::iter::empty::<&str>())
             .arg(parent)
             .spawn()
             .map_err(|error| {

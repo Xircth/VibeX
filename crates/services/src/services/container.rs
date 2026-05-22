@@ -41,10 +41,12 @@ use executors::{
 };
 use futures::{StreamExt, future, stream::BoxStream};
 use git::{GitService, GitServiceError};
-use json_patch::Patch;
+use json_patch::{Patch, PatchOperation, ReplaceOperation};
+use serde_json::{Value, json};
 use sqlx::Error as SqlxError;
 use thiserror::Error;
 use tokio::{sync::RwLock, task::JoinHandle};
+use tokio_stream::wrappers::BroadcastStream;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
@@ -79,11 +81,40 @@ fn build_workspace_branch_name(prefix: &str, workspace_id: &Uuid, task_title: &s
     }
 }
 
+fn compact_normalized_log_history(history: &[LogMsg]) -> LogMsg {
+    let mut snapshot = json!({ "entries": [] });
+
+    for msg in history {
+        let LogMsg::JsonPatch(patch) = msg else {
+            continue;
+        };
+
+        if let Err(error) = json_patch::patch(&mut snapshot, patch) {
+            tracing::warn!("Failed to compact normalized log patch history: {error}");
+        }
+    }
+
+    let entries = snapshot
+        .get("entries")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+
+    LogMsg::JsonPatch(Patch(vec![PatchOperation::Replace(ReplaceOperation {
+        path: "/entries"
+            .try_into()
+            .expect("normalized log snapshot path should be valid"),
+        value: entries,
+    })]))
+}
+
 #[cfg(test)]
 mod tests {
+    use json_patch::{AddOperation, Patch, PatchOperation, ReplaceOperation};
+    use serde_json::json;
+    use utils::log_msg::LogMsg;
     use uuid::Uuid;
 
-    use super::build_workspace_branch_name;
+    use super::{build_workspace_branch_name, compact_normalized_log_history};
 
     #[test]
     fn workspace_branch_name_omits_separator_when_title_slug_is_empty() {
@@ -102,6 +133,41 @@ mod tests {
         assert_eq!(
             build_workspace_branch_name("vu", &workspace_id, "New Session"),
             "vu/5f3a-new-session"
+        );
+    }
+
+    #[test]
+    fn compact_normalized_log_history_replays_latest_entries_snapshot() {
+        let history = vec![
+            LogMsg::JsonPatch(Patch(vec![PatchOperation::Add(AddOperation {
+                path: "/entries/0".try_into().unwrap(),
+                value: json!({ "type": "NORMALIZED_ENTRY", "content": "old" }),
+            })])),
+            LogMsg::JsonPatch(Patch(vec![PatchOperation::Replace(ReplaceOperation {
+                path: "/entries/0".try_into().unwrap(),
+                value: json!({ "type": "NORMALIZED_ENTRY", "content": "new" }),
+            })])),
+            LogMsg::JsonPatch(Patch(vec![PatchOperation::Add(AddOperation {
+                path: "/entries/1".try_into().unwrap(),
+                value: json!({ "type": "NORMALIZED_ENTRY", "content": "next" }),
+            })])),
+        ];
+
+        let LogMsg::JsonPatch(snapshot) = compact_normalized_log_history(&history) else {
+            panic!("expected compacted history to be a json patch");
+        };
+
+        assert_eq!(snapshot.0.len(), 1);
+        let PatchOperation::Replace(replace) = &snapshot.0[0] else {
+            panic!("expected snapshot to replace the entries array");
+        };
+        assert_eq!(replace.path.to_string(), "/entries");
+        assert_eq!(
+            replace.value,
+            json!([
+                { "type": "NORMALIZED_ENTRY", "content": "new" },
+                { "type": "NORMALIZED_ENTRY", "content": "next" }
+            ])
         );
     }
 }
@@ -997,12 +1063,22 @@ pub trait ContainerService {
     ) -> Option<futures::stream::BoxStream<'static, Result<LogMsg, std::io::Error>>> {
         // First try in-memory store (existing behavior)
         if let Some(store) = self.get_msg_store_by_id(id).await {
+            let live_rx = store.get_receiver();
+            let initial_msg = compact_normalized_log_history(&store.get_history());
+            let initial_stream = futures::stream::iter(vec![Ok(initial_msg)]);
+            let live_stream = BroadcastStream::new(live_rx).filter_map(|msg| async move {
+                match msg {
+                    Ok(log_msg @ (LogMsg::JsonPatch(_) | LogMsg::Finished)) => {
+                        Some(Ok::<_, std::io::Error>(log_msg))
+                    }
+                    Ok(_) => None,
+                    Err(_) => None,
+                }
+            });
+
             Some(
-                store
-                    .history_plus_stream() // BoxStream<Result<LogMsg, io::Error>>
-                    .filter(|msg| {
-                        future::ready(matches!(msg, Ok(LogMsg::JsonPatch(..) | LogMsg::Finished)))
-                    })
+                initial_stream
+                    .chain(live_stream)
                     .chain(futures::stream::once(async {
                         Ok::<_, std::io::Error>(LogMsg::Finished)
                     }))
@@ -1027,6 +1103,20 @@ pub trait ContainerService {
                     return None;
                 }
             };
+
+            if raw_messages
+                .iter()
+                .all(|msg| matches!(msg, LogMsg::JsonPatch(_) | LogMsg::Finished))
+            {
+                let initial_msg = compact_normalized_log_history(&raw_messages);
+                return Some(
+                    futures::stream::iter(vec![
+                        Ok(initial_msg),
+                        Ok::<_, std::io::Error>(LogMsg::Finished),
+                    ])
+                    .boxed(),
+                );
+            }
 
             // Create temporary store and populate
             // Include JsonPatch messages (already normalized) and Stdout/Stderr (need normalization)

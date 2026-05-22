@@ -89,6 +89,33 @@ test('tab context menu uses the current Chinese label and keeps the panel split 
   assert.match(panelActions, /referencePanel:\s*panel,/);
 });
 
+test('native SDK provider turns drain stdout and stderr before finishing the message stream', () => {
+  const source = readRepoFile(
+    'src-tauri/src/commands/provider_runtime/provider_turns.rs'
+  );
+  const firstFinishIndex = source.indexOf('msg_store.push_finished()');
+
+  assert.match(source, /let stdout_reader = tokio::spawn/);
+  assert.match(source, /let stderr_reader = tokio::spawn/);
+  assert.match(source, /let _ = stdout_reader\.await;/);
+  assert.match(source, /let _ = stderr_reader\.await;/);
+  assert.notEqual(firstFinishIndex, -1);
+  assert.ok(source.indexOf('let _ = stdout_reader.await;') < firstFinishIndex);
+  assert.ok(source.indexOf('let _ = stderr_reader.await;') < firstFinishIndex);
+});
+
+test('claude sdk bridge keeps provider events on stdout', () => {
+  const bridge = readRepoFile('scripts/claude-agent-sdk-provider.mjs');
+  const buildOptionsIndex = bridge.indexOf('function buildOptions(input)');
+  const optionsIndex = bridge.indexOf('const options = {', buildOptionsIndex);
+  const optionsEndIndex = bridge.indexOf('};', optionsIndex);
+  const optionsBlock = bridge.slice(optionsIndex, optionsEndIndex);
+
+  assert.match(bridge, /Object\.assign\(process\.env, profileEnv/);
+  assert.match(bridge, /writeEvent\(\{/);
+  assert.doesNotMatch(optionsBlock, /\benv:/);
+});
+
 test('dev preview resolves workspace outside route params', () => {
   const previewPanel = readFrontendFile(
     'src/components/panels/PreviewPanel.tsx'
@@ -127,6 +154,11 @@ test('windows hidden cli helper wraps batch-based agent commands', () => {
   const workspaces = readWorkspaceCommandSource();
   const providerRuntime = readProviderRuntimeSource();
   const opencodeBridge = readRepoFile('scripts/opencode-sdk-provider.mjs');
+  const filesystemCommands = readRepoFile('src-tauri/src/commands/filesystem.rs');
+  const fileTreePanel = readFrontendFile(
+    'src/components/file-tree/FileTreePanel.tsx'
+  );
+  const desktopDevScript = readRepoFile('scripts/run-tauri-dev-desktop.js');
 
   assert.match(processUtils, /new_hidden_tokio_command/);
   assert.match(processUtils, /is_windows_batch_script/);
@@ -140,6 +172,14 @@ test('windows hidden cli helper wraps batch-based agent commands', () => {
   assert.doesNotMatch(providerRuntime, /Command::new\(/);
   assert.match(opencodeBridge, /windowsHide:\s*true/);
   assert.match(opencodeBridge, /taskkill/);
+  assert.match(opencodeBridge, /partMetadata/);
+  assert.match(opencodeBridge, /partType:\s*metadata\.type/);
+  assert.match(filesystemCommands, /new_hidden_std_command/);
+  assert.doesNotMatch(filesystemCommands, /Command::new\(/);
+  assert.match(fileTreePanel, /desktopApi\.revealInFileManager/);
+  assert.doesNotMatch(fileTreePanel, /@tauri-apps\/plugin-shell/);
+  assert.doesNotMatch(fileTreePanel, /Command\.create\("cmd"/);
+  assert.match(desktopDevScript, /windowsHide:\s*true/);
 });
 
 test('codex profile controls preserve explicit model overrides', () => {

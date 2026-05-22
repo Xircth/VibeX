@@ -113,6 +113,12 @@ const CLAUDE_COMMANDS: ProviderCommandDefinition[] = [
     'Compact',
     'compact',
   ],
+  [
+    'goal',
+    'Set, inspect, pause, resume, or clear a long-running goal',
+    'Goal',
+    'goal',
+  ],
   ['init', 'Initialize a CLAUDE.md file', 'Init', 'init'],
   ['resume', 'Resume a Claude Code conversation', 'Resume', 'command'],
   ['review', 'Review a pull request', 'Review', 'review'],
@@ -155,13 +161,7 @@ const CODEX_COMMANDS: ProviderCommandDefinition[] = [
 }));
 
 const OPENCODE_COMMANDS: ProviderCommandDefinition[] = [
-  ['agents', 'List or switch OpenCode agents', 'Agents', 'command'],
-  ['build', 'Switch to build mode', 'Build', 'command'],
   ['compact', 'Compact the current session', 'Compact', 'compact'],
-  ['init', 'Create or update AGENTS.md', 'Init', 'init'],
-  ['plan', 'Switch to plan mode', 'Plan', 'command'],
-  ['sessions', 'List sessions', 'Sessions', 'command'],
-  ['status', 'Show current OpenCode status', 'Status', 'command'],
 ].map(([name, description, label, iconKey]) => ({
   name,
   description,
@@ -224,8 +224,18 @@ function capabilityState(provider: ProviderId): ProviderCapabilityState {
         images: AVAILABLE_APP_SERVER,
         session_resume: AVAILABLE_APP_SERVER,
         session_fork: AVAILABLE_APP_SERVER,
-        approvals: AVAILABLE_APP_SERVER,
-        user_input_requests: AVAILABLE_APP_SERVER,
+        approvals: {
+          state: 'partial',
+          source: 'app_server',
+          detail:
+            'App-server approval requests are parsed as events; VibeX UI response routing is not fully wired yet.',
+        },
+        user_input_requests: {
+          state: 'partial',
+          source: 'app_server',
+          detail:
+            'Server-initiated app-server requests can be responded to by id, but user-facing prompt surfaces are not complete yet.',
+        },
         reasoning_control: AVAILABLE_APP_SERVER,
         collaboration_mode: AVAILABLE_APP_SERVER,
         mcp: AVAILABLE_CONFIG,
@@ -297,6 +307,9 @@ function eventText(event: ProviderRuntimeEvent): string | null {
   if (!event.event || typeof event.event !== 'object') return null;
   const record = event.event as Record<string, unknown>;
 
+  const sdkStreamText = providerStreamEventText(record);
+  if (sdkStreamText) return sdkStreamText;
+
   if (record.method === 'item/agentMessage/delta') {
     const params = record.params;
     if (params && typeof params === 'object' && 'delta' in params) {
@@ -312,18 +325,93 @@ function eventText(event: ProviderRuntimeEvent): string | null {
 
   if (record.type === 'sdk_event') {
     if (isUserEchoEvent(record)) return null;
-    return assistantPayloadText(record.event);
+    const assistantText = assistantPayloadText(record.event);
+    if (assistantText) return assistantText;
+
+    if (isSdkResultEvent(record.event)) {
+      const text = record.text;
+      return typeof text === 'string' && text.trim() ? text : null;
+    }
+
+    return null;
   }
 
   if (record.type === 'opencode_sdk_event') {
-    return assistantPayloadText(record.event);
+    return opencodeEventText(record);
   }
 
   if (record.type === 'opencode_sdk_response') {
-    return assistantPayloadText(record.response);
+    return opencodeResponseText(record.response);
   }
 
   return assistantPayloadText(record);
+}
+
+function providerStreamEventText(value: unknown): string | null {
+  const record = objectRecord(value);
+  if (!record) return null;
+
+  if (record.type === 'sdk_event') {
+    return providerStreamEventText(record.event);
+  }
+
+  if (record.type !== 'stream_event') return null;
+
+  const event = objectRecord(record.event);
+  if (event?.type !== 'content_block_delta') return null;
+
+  const delta = objectRecord(event.delta);
+  if (delta?.type !== 'text_delta') return null;
+
+  return typeof delta.text === 'string' && delta.text ? delta.text : null;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isSdkResultEvent(value: unknown): boolean {
+  const record = objectRecord(value);
+  return record?.type === 'result';
+}
+
+function opencodeEventPayload(value: unknown): unknown {
+  const record = objectRecord(value);
+  return record?.event ?? record?.payload ?? value;
+}
+
+function opencodeEventText(value: unknown): string | null {
+  const payload = opencodeEventPayload(value);
+  const record = objectRecord(payload);
+  if (!record) return null;
+  if (opencodeEventIsUserEcho(record)) return null;
+
+  const eventType = typeof record.type === 'string' ? record.type : null;
+  if (eventType?.startsWith('message.part.')) {
+    return null;
+  }
+  if (eventType?.startsWith('session.next.text.')) {
+    return null;
+  }
+
+  return assistantPayloadText(payload);
+}
+
+function opencodeEventIsUserEcho(record: Record<string, unknown>): boolean {
+  const properties = objectRecord(record.properties);
+  const info = objectRecord(properties?.info) ?? objectRecord(record.info);
+  const message = objectRecord(record.message);
+  const role =
+    properties?.partRole ?? info?.role ?? message?.role ?? record.role;
+  return typeof role === 'string' && role.toLowerCase() === 'user';
+}
+
+function opencodeResponseText(value: unknown): string | null {
+  const record = objectRecord(value);
+  if (!record) return null;
+  return assistantPayloadText(record) ?? textBlockContent(record.parts);
 }
 
 function textBlockContent(value: unknown): string | null {
@@ -351,13 +439,19 @@ function textBlockContent(value: unknown): string | null {
 function assistantPayloadText(value: unknown): string | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
-  const role = typeof record.role === 'string' ? record.role : null;
+  const info = objectRecord(record.info);
+  const rawRole = record.role ?? info?.role;
+  const role = typeof rawRole === 'string' ? rawRole : null;
   if (role?.toLowerCase() === 'user') return null;
 
   const eventType = typeof record.type === 'string' ? record.type : null;
   const isAssistant =
     role?.toLowerCase() === 'assistant' ||
-    eventType?.toLowerCase() === 'assistant';
+    eventType?.toLowerCase() === 'assistant' ||
+    eventType === 'agentMessage' ||
+    eventType === 'agent_message' ||
+    eventType === 'assistantMessage' ||
+    eventType === 'assistant_message';
   if (isAssistant) {
     if (typeof record.text === 'string' && record.text.trim()) {
       return record.text;
@@ -368,7 +462,13 @@ function assistantPayloadText(value: unknown): string | null {
   return (
     assistantPayloadText(record.message) ??
     assistantPayloadText(record.event) ??
-    assistantPayloadText(record.response)
+    assistantPayloadText(record.payload) ??
+    assistantPayloadText(record.response) ??
+    assistantPayloadText(record.params) ??
+    assistantPayloadText(record.properties) ??
+    assistantPayloadText(record.result) ??
+    assistantPayloadText(record.item) ??
+    assistantPayloadText(record.part)
   );
 }
 

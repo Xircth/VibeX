@@ -399,7 +399,9 @@ export function RightPanelContent() {
               type: 'DRAFT_FOLLOW_UP',
               data: {
                 message: '',
-                executor_profile_id: selectedExecutorProfile,
+                images: [],
+                executor_config: selectedExecutorProfile,
+                queued: false,
               },
             },
           });

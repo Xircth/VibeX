@@ -1,4 +1,4 @@
-﻿use executors::{
+use executors::{
     executors::{BaseCodingAgent, SlashCommandKind},
     profile::ExecutorProfileId,
 };
@@ -392,8 +392,14 @@ pub fn provider_capabilities(provider: ProviderId) -> ProviderCapabilityState {
             images: CapabilityStatus::available(CapabilitySource::AppServer),
             session_resume: CapabilityStatus::available(CapabilitySource::AppServer),
             session_fork: CapabilityStatus::available(CapabilitySource::AppServer),
-            approvals: CapabilityStatus::available(CapabilitySource::AppServer),
-            user_input_requests: CapabilityStatus::available(CapabilitySource::AppServer),
+            approvals: CapabilityStatus::partial(
+                CapabilitySource::AppServer,
+                "App-server approval requests are parsed as events; VibeX UI response routing is not fully wired yet.",
+            ),
+            user_input_requests: CapabilityStatus::partial(
+                CapabilitySource::AppServer,
+                "Server-initiated app-server requests can be responded to by id, but user-facing prompt surfaces are not complete yet.",
+            ),
             reasoning_control: CapabilityStatus::available(CapabilitySource::AppServer),
             collaboration_mode: CapabilityStatus::available(CapabilitySource::AppServer),
             mcp: CapabilityStatus::available(CapabilitySource::Config),
@@ -442,6 +448,10 @@ pub fn provider_slash_commands(provider: ProviderId) -> Vec<ProviderCommand> {
             ("context", "Show context usage"),
             ("cost", "Show token usage and cost"),
             ("doctor", "Check Claude Code installation health"),
+            (
+                "goal",
+                "Set, inspect, pause, resume, or clear a long-running goal",
+            ),
             ("init", "Initialize a CLAUDE.md file"),
             ("memory", "Edit CLAUDE.md memory files"),
             ("resume", "Resume a Claude Code conversation"),
@@ -462,19 +472,7 @@ pub fn provider_slash_commands(provider: ProviderId) -> Vec<ProviderCommand> {
             ("plan", "Switch to planning-oriented Codex behavior"),
             ("review", "Review code with optional instructions"),
         ],
-        ProviderId::Opencode => &[
-            ("agents", "List or switch OpenCode agents"),
-            ("build", "Switch to build mode"),
-            ("compact", "Compact the current session"),
-            ("commands", "Show available OpenCode commands"),
-            ("init", "Create or update AGENTS.md"),
-            ("models", "List available models"),
-            ("plan", "Switch to plan mode"),
-            ("session", "Manage or switch sessions"),
-            ("sessions", "List sessions"),
-            ("status", "Show current OpenCode status"),
-            ("summarize", "Summarize the current session"),
-        ],
+        ProviderId::Opencode => &[("compact", "Compact the current session")],
     };
 
     entries

@@ -238,22 +238,34 @@ fn opencode_sdk_bridge_input_maps_profile_session_and_file_inputs() {
 fn opencode_sdk_metadata_maps_command_and_model_catalogs() {
     let metadata = json!({
         "commands": [
-            { "name": "review", "description": "Review changes" },
+            { "name": "compact", "description": "Compact the current session" },
+            { "name": "review", "description": "Review changes", "source": "skill" },
             { "name": "mcp", "description": "Show MCP server status" },
+            { "name": "plan", "description": "Switch to plan mode" },
+            { "name": "status", "description": "Show status" },
             { "description": "missing name" }
         ],
+        "providers": [
+            { "id": "opencode", "name": "OpenCode Zen", "source": "api" },
+            { "id": "deepseek", "name": "DeepSeek", "source": "api" },
+            { "id": "modelverse", "name": "modelverse", "source": "config" }
+        ],
         "models": [
-            { "id": "opencode/gpt-5.5", "label": "OpenCode / GPT-5.5" },
-            { "id": "modelverse/deepseek-v4-pro", "name": "DeepSeek V4 Pro" },
+            { "id": "opencode/gpt-5.5", "providerID": "opencode", "providerSource": "api", "label": "OpenCode / GPT-5.5" },
+            { "id": "deepseek/deepseek-v4-pro", "providerID": "deepseek", "providerSource": "api", "name": "DeepSeek V4 Pro" },
+            { "id": "modelverse/deepseek-v4-pro", "providerID": "modelverse", "providerSource": "config", "name": "DeepSeek V4 Pro" },
             { "label": "missing id" }
         ]
     });
 
     let commands = opencode_sdk_metadata_commands(&metadata);
-    assert_eq!(commands.len(), 1);
+    assert_eq!(commands.len(), 2);
     assert_eq!(commands[0].provider, ProviderId::Opencode);
-    assert_eq!(commands[0].name, "review");
+    assert_eq!(commands[0].name, "compact");
+    assert_eq!(commands[0].kind, SlashCommandKind::Command);
     assert_eq!(commands[0].source, CapabilitySource::Sdk);
+    assert_eq!(commands[1].name, "review");
+    assert_eq!(commands[1].kind, SlashCommandKind::Skill);
 
     let models = opencode_sdk_metadata_models(&metadata);
     assert_eq!(models.len(), 2);
@@ -323,6 +335,45 @@ fn codex_input_items_include_empty_text_elements_for_unicode_prompt() {
 }
 
 #[test]
+fn codex_input_items_include_official_skill_and_mention_hints() {
+    let mut request = turn_request(ProviderId::Codex);
+    request.provider_options.insert(
+        "skills".to_string(),
+        json!([
+            {
+                "name": "skill-creator",
+                "path": "C:\\Users\\me\\.codex\\skills\\skill-creator\\SKILL.md"
+            }
+        ]),
+    );
+    request.provider_options.insert(
+        "apps".to_string(),
+        json!([
+            {
+                "name": "Demo App",
+                "id": "demo-app"
+            }
+        ]),
+    );
+
+    let input = codex_input_items(&request);
+
+    assert_eq!(input[1].get("type").and_then(Value::as_str), Some("skill"));
+    assert_eq!(
+        input[1].get("name").and_then(Value::as_str),
+        Some("skill-creator")
+    );
+    assert_eq!(
+        input[2].get("type").and_then(Value::as_str),
+        Some("mention")
+    );
+    assert_eq!(
+        input[2].get("path").and_then(Value::as_str),
+        Some("app://demo-app")
+    );
+}
+
+#[test]
 fn codex_app_server_args_preserve_user_hooks_for_embedded_runtime() {
     let mut request = turn_request(ProviderId::Codex);
     request
@@ -338,6 +389,26 @@ fn codex_app_server_args_preserve_user_hooks_for_embedded_runtime() {
         args.windows(2)
             .any(|window| window[0] == "--listen" && window[1] == "stdio://")
     );
+}
+
+#[test]
+fn native_provider_commit_reminder_prompt_is_appended_as_tail_instruction() {
+    let prompt = native_commit_reminder_prompt_text(
+        "Implement the feature",
+        "Review git diff and commit if needed.",
+    );
+
+    assert!(prompt.starts_with("Implement the feature\n\n"));
+    assert!(prompt.contains("<native-provider-commit-reminder-hook>"));
+    assert!(prompt.contains("check the repository status before your final response"));
+    assert!(prompt.contains("Review git diff and commit if needed."));
+}
+
+#[test]
+fn native_provider_commit_reminder_requires_dirty_worktree() {
+    assert!(!native_commit_reminder_status_has_changes(0, 0));
+    assert!(native_commit_reminder_status_has_changes(1, 0));
+    assert!(native_commit_reminder_status_has_changes(0, 1));
 }
 
 #[test]
@@ -377,6 +448,86 @@ fn codex_runtime_options_prefer_profile_model_override() {
     let options = resolve_codex_runtime_options(&request, Path::new("C:\\workspace"));
 
     assert_eq!(options.model.as_deref(), Some("gpt-5.4"));
+}
+
+#[test]
+fn codex_json_rpc_error_responses_are_failures() {
+    let response = json!({
+        "id": 1,
+        "error": {
+            "code": -32000,
+            "message": "active turn already running"
+        }
+    });
+
+    let error = codex_response_success("turn/start", &response).unwrap_err();
+
+    assert!(error.contains("turn/start failed"));
+    assert!(error.contains("active turn already running"));
+}
+
+#[test]
+fn codex_model_list_response_is_parsed_from_app_server_shapes() {
+    let response = json!({
+        "id": 1,
+        "result": {
+            "data": [
+                { "id": "gpt-5.5", "displayName": "GPT-5.5" },
+                { "model": "gpt-5.4" },
+                "gpt-5.5"
+            ]
+        }
+    });
+
+    let models = codex_models_from_response(&response);
+
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].id, "gpt-5.5");
+    assert_eq!(models[0].label, "GPT-5.5");
+    assert_eq!(models[1].id, "gpt-5.4");
+}
+
+#[test]
+fn codex_capabilities_do_not_overstate_request_ui_support() {
+    let capabilities = provider_capabilities(ProviderId::Codex);
+
+    assert_eq!(capabilities.approvals.state, CapabilityState::Partial);
+    assert_eq!(capabilities.user_input_requests.state, CapabilityState::Partial);
+}
+
+#[test]
+fn codex_runtime_options_pass_base_instructions_to_turn_start() {
+    let mut request = turn_request(ProviderId::Codex);
+    request.provider_options.insert(
+        "baseInstructions".to_string(),
+        json!("Follow the repository instructions."),
+    );
+    request.provider_options.insert(
+        "developer_instructions".to_string(),
+        json!("Keep the patch focused."),
+    );
+
+    let options = resolve_codex_runtime_options(&request, Path::new("C:\\workspace"));
+
+    assert_eq!(
+        options.base_instructions.as_deref(),
+        Some("Follow the repository instructions.\n\nKeep the patch focused.")
+    );
+}
+
+#[test]
+fn codex_steer_is_limited_to_normal_follow_up_text() {
+    let mut request = turn_request(ProviderId::Codex);
+    request.text = "continue with this extra constraint".to_string();
+    request
+        .provider_options
+        .insert("turnId".to_string(), json!("turn-123"));
+
+    assert!(codex_steer_is_allowed(&request));
+    assert_eq!(codex_request_turn_id(&request).as_deref(), Some("turn-123"));
+
+    request.text = "/compact".to_string();
+    assert!(!codex_steer_is_allowed(&request));
 }
 
 #[test]

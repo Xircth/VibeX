@@ -1,16 +1,15 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
-  useState,
   useMemo,
   useRef,
-  useCallback,
-  ReactNode,
+  useState,
+  type ReactNode,
 } from 'react';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
-import { TokenUsageInfo } from 'shared/types';
-import { useSessionConversationStore } from '@/stores/useSessionConversationStore';
+import type { TokenUsageInfo } from 'shared/types';
 
 interface EntriesContextType {
   entries: PatchTypeWithKey[];
@@ -20,116 +19,140 @@ interface EntriesContextType {
   tokenUsageInfo: TokenUsageInfo | null;
 }
 
-const EntriesContext = createContext<EntriesContextType | null>(null);
-
-type EntriesCacheValue = {
+type EntriesRuntimeValue = {
   entries: PatchTypeWithKey[];
   tokenUsageInfo: TokenUsageInfo | null;
 };
 
-function getCachedEntriesValue(cacheKey?: string): EntriesCacheValue {
-  if (!cacheKey) {
-    return {
-      entries: [],
-      tokenUsageInfo: null,
-    };
-  }
+const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
+  entries: [],
+  tokenUsageInfo: null,
+};
 
-  const snapshot = useSessionConversationStore.getState().getSnapshot(cacheKey);
-  return snapshot
-    ? {
-        entries: snapshot.entries,
-        tokenUsageInfo: snapshot.tokenUsageInfo,
-      }
-    : {
-        entries: [],
-        tokenUsageInfo: null,
-      };
+const entriesRuntimeByKey = new Map<string, EntriesRuntimeValue>();
+const listenersByKey = new Map<string, Set<() => void>>();
+
+const EntriesContext = createContext<EntriesContextType | null>(null);
+
+function getRuntimeValue(key: string): EntriesRuntimeValue {
+  return entriesRuntimeByKey.get(key) ?? EMPTY_RUNTIME_VALUE;
+}
+
+function writeRuntimeValue(key: string, value: EntriesRuntimeValue) {
+  entriesRuntimeByKey.set(key, value);
+  listenersByKey.get(key)?.forEach((listener) => listener());
+}
+
+function subscribeRuntimeValue(key: string, listener: () => void) {
+  const listeners = listenersByKey.get(key) ?? new Set<() => void>();
+  listeners.add(listener);
+  listenersByKey.set(key, listeners);
+
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      listenersByKey.delete(key);
+    }
+  };
+}
+
+export function clearEntriesRuntimeForTests() {
+  entriesRuntimeByKey.clear();
+  listenersByKey.clear();
 }
 
 interface EntriesProviderProps {
   children: ReactNode;
-  cacheKey?: string;
+  runtimeKey?: string;
 }
 
 export const EntriesProvider = ({
   children,
-  cacheKey,
+  runtimeKey,
 }: EntriesProviderProps) => {
-  const cachedValue = getCachedEntriesValue(cacheKey);
-  const [entries, setEntriesState] = useState<PatchTypeWithKey[]>(
-    cachedValue.entries
+  const [localValue, setLocalValue] = useState<EntriesRuntimeValue>(() =>
+    runtimeKey ? getRuntimeValue(runtimeKey) : EMPTY_RUNTIME_VALUE
   );
-  const [tokenUsageInfo, setTokenUsageInfo] = useState<TokenUsageInfo | null>(
-    cachedValue.tokenUsageInfo
-  );
-  const entriesRef = useRef(entries);
-  const tokenUsageInfoRef = useRef(tokenUsageInfo);
+  const localValueRef = useRef(localValue);
 
   useEffect(() => {
-    entriesRef.current = entries;
-  }, [entries]);
+    localValueRef.current = localValue;
+  }, [localValue]);
 
   useEffect(() => {
-    tokenUsageInfoRef.current = tokenUsageInfo;
-  }, [tokenUsageInfo]);
+    if (!runtimeKey) {
+      const nextValue = EMPTY_RUNTIME_VALUE;
+      localValueRef.current = nextValue;
+      setLocalValue(nextValue);
+      return;
+    }
 
-  useEffect(() => {
-    const nextValue = getCachedEntriesValue(cacheKey);
-    entriesRef.current = nextValue.entries;
-    tokenUsageInfoRef.current = nextValue.tokenUsageInfo;
-    setEntriesState(nextValue.entries);
-    setTokenUsageInfo(nextValue.tokenUsageInfo);
-  }, [cacheKey]);
+    const sync = () => {
+      const nextValue = getRuntimeValue(runtimeKey);
+      localValueRef.current = nextValue;
+      setLocalValue(nextValue);
+    };
+
+    sync();
+    return subscribeRuntimeValue(runtimeKey, sync);
+  }, [runtimeKey]);
 
   const setEntries = useCallback(
     (newEntries: PatchTypeWithKey[]) => {
-      const cachedValue = cacheKey
-        ? useSessionConversationStore.getState().getSnapshot(cacheKey)
-        : undefined;
-      const hasPersistedEntries = (cachedValue?.entries.length ?? 0) > 0;
-      const shouldIgnoreEmptyReplacement =
-        newEntries.length === 0 &&
-        hasPersistedEntries &&
-        entriesRef.current.length > 0;
+      const nextValue = {
+        ...localValueRef.current,
+        entries: newEntries,
+      };
+      localValueRef.current = nextValue;
 
-      if (shouldIgnoreEmptyReplacement) {
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
         return;
       }
 
-      entriesRef.current = newEntries;
-      setEntriesState(newEntries);
+      setLocalValue(nextValue);
     },
-    [cacheKey]
+    [runtimeKey]
   );
 
-  const setTokenUsageInfoCallback = useCallback(
+  const setTokenUsageInfo = useCallback(
     (info: TokenUsageInfo | null) => {
-      tokenUsageInfoRef.current = info;
-      setTokenUsageInfo(info);
+      const nextValue = {
+        ...localValueRef.current,
+        tokenUsageInfo: info,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
     },
-    []
+    [runtimeKey]
   );
 
   const reset = useCallback(() => {
-    entriesRef.current = [];
-    tokenUsageInfoRef.current = null;
-    setEntriesState([]);
-    setTokenUsageInfo(null);
-    if (cacheKey) {
-      useSessionConversationStore.getState().clearSnapshot(cacheKey);
+    localValueRef.current = EMPTY_RUNTIME_VALUE;
+
+    if (runtimeKey) {
+      writeRuntimeValue(runtimeKey, EMPTY_RUNTIME_VALUE);
+      return;
     }
-  }, [cacheKey]);
+
+    setLocalValue(EMPTY_RUNTIME_VALUE);
+  }, [runtimeKey]);
 
   const value = useMemo(
     () => ({
-      entries,
+      entries: localValue.entries,
       setEntries,
-      setTokenUsageInfo: setTokenUsageInfoCallback,
+      setTokenUsageInfo,
       reset,
-      tokenUsageInfo,
+      tokenUsageInfo: localValue.tokenUsageInfo,
     }),
-    [entries, setEntries, setTokenUsageInfoCallback, reset, tokenUsageInfo]
+    [localValue, reset, setEntries, setTokenUsageInfo]
   );
 
   return (

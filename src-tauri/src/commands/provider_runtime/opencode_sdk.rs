@@ -189,11 +189,18 @@ fn opencode_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
                         .get("description")
                         .and_then(Value::as_str)
                         .unwrap_or("");
+                    let source = command.get("source").and_then(Value::as_str);
+                    let kind =
+                        if source == Some("skill") || !is_opencode_core_slash_command(name) {
+                            SlashCommandKind::Skill
+                        } else {
+                            SlashCommandKind::Command
+                        };
                     Some(ProviderCommand {
                         provider: ProviderId::Opencode,
                         name: name.to_string(),
                         description: description.to_string(),
-                        kind: SlashCommandKind::Command,
+                        kind,
                         source: CapabilitySource::Sdk,
                     })
                 })
@@ -202,7 +209,32 @@ fn opencode_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
         .unwrap_or_default()
 }
 
+fn is_opencode_core_slash_command(name: &str) -> bool {
+    matches!(
+        name.trim().trim_start_matches('/').to_ascii_lowercase().as_str(),
+        "compact"
+    )
+}
+
 fn opencode_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
+    let provider_sources: HashMap<String, String> = metadata
+        .get("providers")
+        .and_then(Value::as_array)
+        .map(|providers| {
+            providers
+                .iter()
+                .filter_map(|provider| {
+                    let id = provider.get("id").and_then(Value::as_str)?;
+                    let source = provider
+                        .get("source")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    Some((id.to_string(), source.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     metadata
         .get("models")
         .and_then(Value::as_array)
@@ -211,6 +243,17 @@ fn opencode_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
                 .iter()
                 .filter_map(|model| {
                     let id = model.get("id").and_then(Value::as_str)?;
+                    let provider_id = model
+                        .get("providerID")
+                        .and_then(Value::as_str)
+                        .or_else(|| id.split_once('/').map(|(provider_id, _)| provider_id))?;
+                    let provider_source = model
+                        .get("providerSource")
+                        .and_then(Value::as_str)
+                        .or_else(|| provider_sources.get(provider_id).map(String::as_str));
+                    if provider_id != "opencode" && provider_source != Some("config") {
+                        return None;
+                    }
                     let label = model
                         .get("label")
                         .and_then(Value::as_str)

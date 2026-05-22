@@ -22,6 +22,17 @@ function readBoolean(value) {
 }
 
 function extractText(message) {
+  const streamEvent = message?.type === 'stream_event' ? message.event : undefined;
+  const streamDelta = streamEvent?.type === 'content_block_delta'
+    ? streamEvent.delta
+    : undefined;
+  if (
+    streamDelta?.type === 'text_delta' &&
+    typeof streamDelta.text === 'string'
+  ) {
+    return streamDelta.text;
+  }
+
   const content = message?.message?.content ?? message?.content;
   if (typeof content === 'string') {
     return content;
@@ -103,16 +114,17 @@ function buildOptions(input) {
           )
         )
       : {};
+
+  Object.assign(process.env, profileEnv, {
+    CLAUDE_AGENT_SDK_CLIENT_APP:
+      process.env.CLAUDE_AGENT_SDK_CLIENT_APP ??
+      'vibex/claude-native-provider',
+  });
+
   const options = {
     cwd: readString(input.cwd),
     includePartialMessages: true,
     includeHookEvents: true,
-    env: {
-      ...process.env,
-      ...profileEnv,
-      CLAUDE_AGENT_SDK_CLIENT_APP:
-        process.env.CLAUDE_AGENT_SDK_CLIENT_APP ?? 'vibex/claude-native-provider',
-    },
   };
 
   const model = readString(input.model);
@@ -170,15 +182,15 @@ function promptForInput(input, command) {
   return command ? command.raw : promptFromInput(input);
 }
 
-function isCompactCommand(command) {
-  return command?.command?.toLowerCase() === 'compact';
-}
-
 async function readInputJson(inputPath) {
   return JSON.parse((await readFile(inputPath, 'utf8')).replace(/^\uFEFF/, ''));
 }
 
 async function emitContextUsage(agent, input) {
+  if (typeof agent?.getContextUsage !== 'function') {
+    return;
+  }
+
   try {
     const contextUsage = await agent.getContextUsage();
     await writeEventAsync({
@@ -213,9 +225,7 @@ async function run(inputPath) {
     });
   }
 
-  if (isCompactCommand(command)) {
-    await emitContextUsage(agent, input);
-  }
+  await emitContextUsage(agent, input);
 }
 
 async function writeMetadata(inputPath) {

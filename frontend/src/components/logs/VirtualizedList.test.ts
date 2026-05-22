@@ -6,6 +6,7 @@ import {
   findPreviousUserMessageKey,
 } from './VirtualizedList';
 import { buildProcessChangeFileGroups } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
+import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
 
 describe('findPreviousUserMessageKey', () => {
   it('jumps to the latest user turn above the current viewport anchor', () => {
@@ -151,6 +152,138 @@ describe('buildProcessChangeItems', () => {
       { path: 'src/App.tsx', count: 2 },
       { path: 'src/main.tsx', count: 1 },
     ]);
+  });
+});
+
+describe('buildDisplayEntries agent creation groups', () => {
+  it('groups consecutive subagent creation entries and keeps them visible before the assistant reply', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:0',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'spawn_agent',
+            action_type: {
+              action: 'task_create',
+              description: 'Inspect Kanban behavior',
+              subagent_type: 'explorer',
+              result: null,
+            },
+            status: { status: 'created' },
+          },
+          content: 'Inspect Kanban behavior',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:1',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'spawn_agent',
+            action_type: {
+              action: 'task_create',
+              description: 'Implement theme behavior',
+              subagent_type: 'executor',
+              result: null,
+            },
+            status: { status: 'created' },
+          },
+          content: 'Implement theme behavior',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:2',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'assistant_message' },
+          content: 'Two subagents are running.',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      collapseAiMessagesByDefault: true,
+    });
+
+    expect(displayEntries).toHaveLength(2);
+    expect(displayEntries[0]).toMatchObject({
+      type: 'AGGREGATED_GROUP',
+      aggregationType: 'task_create',
+      entries: expect.arrayContaining([
+        expect.objectContaining({ patchKey: 'proc-1:0' }),
+        expect.objectContaining({ patchKey: 'proc-1:1' }),
+      ]),
+    });
+    expect(displayEntries[1]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: { entry_type: { type: 'assistant_message' } },
+    });
+  });
+
+  it('promotes assistant subagent launch text into a visible agent creation group', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:0',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'assistant_message' },
+          content:
+            '两个子代理已启动：Peirce 看 agent/contracts，Lovelace 看 frontend/protocol。主线程先补齐 spec 三件套。',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      collapseAiMessagesByDefault: true,
+    });
+
+    expect(displayEntries).toHaveLength(2);
+    expect(displayEntries[0]).toMatchObject({
+      type: 'AGGREGATED_GROUP',
+      aggregationType: 'task_create',
+      entries: [
+        expect.objectContaining({
+          content: expect.objectContaining({
+            entry_type: expect.objectContaining({
+              action_type: expect.objectContaining({
+                action: 'task_create',
+                subagent_type: 'Peirce',
+                description: '看 agent/contracts',
+              }),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          content: expect.objectContaining({
+            entry_type: expect.objectContaining({
+              action_type: expect.objectContaining({
+                action: 'task_create',
+                subagent_type: 'Lovelace',
+                description: '看 frontend/protocol',
+              }),
+            }),
+          }),
+        }),
+      ],
+    });
+    expect(displayEntries[1]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: {
+        entry_type: { type: 'assistant_message' },
+        content: '主线程先补齐 spec 三件套。',
+      },
+    });
   });
 });
 

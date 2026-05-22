@@ -34,7 +34,10 @@ test('通用设置页暴露发送快捷键设置项', () => {
 test('任务跟进输入框读取 send_message_shortcut 配置', () => {
   const source = readFile('src/components/tasks/TaskFollowUpSection.tsx');
 
-  assert.match(source, /sendShortcut=\{config\?\.send_message_shortcut\}/);
+  assert.match(
+    source,
+    /sendShortcut=\{config\?\.send_message_shortcut \?\? 'Enter'\}/
+  );
 });
 
 test('GeneralSettings 仅在 updateAndSaveConfig 返回成功后展示成功状态', () => {

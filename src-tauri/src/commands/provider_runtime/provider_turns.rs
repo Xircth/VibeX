@@ -1,6 +1,7 @@
 ﻿async fn start_claude_sdk_native_turn(
     state: &tauri::State<'_, AppState>,
     request: ProviderTurnRequest,
+    visible_prompt: &str,
     workspace: &Workspace,
     workspace_dir: PathBuf,
     session: &Session,
@@ -40,6 +41,7 @@
         workspace,
         session,
         &request,
+        visible_prompt,
         request.thread_id.clone(),
         Some(turn_id.clone()),
     )
@@ -77,7 +79,7 @@
     let stdout_pool = state.deployment.db().pool.clone();
     let stdout_process_id = process.id;
     let stdout_sink = conversation_sink.clone();
-    tokio::spawn(async move {
+    let stdout_reader = tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if line.trim().is_empty() {
@@ -122,7 +124,7 @@
     let stderr_workspace_id = workspace_id.to_string();
     let stderr_turn_id = turn_id.clone();
     let stderr_sink = conversation_sink.clone();
-    tokio::spawn(async move {
+    let stderr_reader = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if line.trim().is_empty() {
@@ -162,6 +164,8 @@
     let wait_msg_stores = state.deployment.container().msg_stores().clone();
     tokio::spawn(async move {
         let status = child.lock().await.wait().await;
+        let _ = stdout_reader.await;
+        let _ = stderr_reader.await;
         let _ = std::fs::remove_file(&bridge_input_path);
         NATIVE_ACTIVE_TURNS.lock().await.remove(&wait_turn_id);
         let (event, process_status, exit_code) = match status {
@@ -238,6 +242,7 @@
 async fn start_opencode_sdk_native_turn(
     state: &tauri::State<'_, AppState>,
     request: ProviderTurnRequest,
+    visible_prompt: &str,
     workspace: &Workspace,
     workspace_dir: PathBuf,
     session: &Session,
@@ -277,6 +282,7 @@ async fn start_opencode_sdk_native_turn(
         workspace,
         session,
         &request,
+        visible_prompt,
         request.thread_id.clone(),
         Some(turn_id.clone()),
     )
@@ -314,7 +320,7 @@ async fn start_opencode_sdk_native_turn(
     let stdout_pool = state.deployment.db().pool.clone();
     let stdout_process_id = process.id;
     let stdout_sink = conversation_sink.clone();
-    tokio::spawn(async move {
+    let stdout_reader = tokio::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if line.trim().is_empty() {
@@ -359,7 +365,7 @@ async fn start_opencode_sdk_native_turn(
     let stderr_workspace_id = workspace_id.to_string();
     let stderr_turn_id = turn_id.clone();
     let stderr_sink = conversation_sink.clone();
-    tokio::spawn(async move {
+    let stderr_reader = tokio::spawn(async move {
         let mut lines = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             if line.trim().is_empty() {
@@ -399,6 +405,8 @@ async fn start_opencode_sdk_native_turn(
     let wait_msg_stores = state.deployment.container().msg_stores().clone();
     tokio::spawn(async move {
         let status = child.lock().await.wait().await;
+        let _ = stdout_reader.await;
+        let _ = stderr_reader.await;
         let _ = std::fs::remove_file(&bridge_input_path);
         NATIVE_ACTIVE_TURNS.lock().await.remove(&wait_turn_id);
         let (event, process_status, exit_code) = match status {
@@ -486,17 +494,43 @@ async fn try_native_provider_turn(
     }
 
     apply_profile_defaults_to_request(&mut request);
+    let visible_prompt = prompt_with_display_images(&request.text, &request.images);
     let mut workspace = load_provider_workspace(state, workspace_id).await?;
     let workspace_dir = resolve_provider_workspace_dir(state, &mut workspace).await?;
+    apply_native_commit_reminder_to_request(state, &mut request, &workspace_dir).await;
     match request.provider {
         ProviderId::Codex => {
-            start_codex_native_turn(state, request, &workspace, workspace_dir, session).await
+            start_codex_native_turn(
+                state,
+                request,
+                &visible_prompt,
+                &workspace,
+                workspace_dir,
+                session,
+            )
+            .await
         }
         ProviderId::Claude => {
-            start_claude_sdk_native_turn(state, request, &workspace, workspace_dir, session).await
+            start_claude_sdk_native_turn(
+                state,
+                request,
+                &visible_prompt,
+                &workspace,
+                workspace_dir,
+                session,
+            )
+            .await
         }
         ProviderId::Opencode => {
-            start_opencode_sdk_native_turn(state, request, &workspace, workspace_dir, session).await
+            start_opencode_sdk_native_turn(
+                state,
+                request,
+                &visible_prompt,
+                &workspace,
+                workspace_dir,
+                session,
+            )
+            .await
         }
     }
 }
@@ -521,10 +555,11 @@ async fn fallback_acp_turn(
     }
 
     let executor_profile_id = provider_executor_profile_id(&request);
+    let prompt = prompt_with_display_images(&request.text, &request.images);
     let process = crate::commands::sessions::follow_up(
         state,
         session.id,
-        request.text.clone(),
+        prompt,
         executor_profile_id,
         None,
         None,

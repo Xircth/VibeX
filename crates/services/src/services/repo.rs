@@ -195,7 +195,22 @@ impl RepoService {
 
         let repo_path = normalized_parent.join(folder_name);
         if repo_path.exists() {
-            return Err(RepoError::DirectoryAlreadyExists(repo_path));
+            if !repo_path.is_dir() {
+                return Err(RepoError::DirectoryAlreadyExists(repo_path));
+            }
+
+            match self.resolve_git_repo_path(&repo_path) {
+                Ok(existing_repo_path) => {
+                    let repo =
+                        RepoModel::find_or_create(pool, &existing_repo_path, folder_name).await?;
+                    return Ok(repo);
+                }
+                Err(RepoError::NotGitRepository(_)) if directory_is_empty(&repo_path)? => {}
+                Err(RepoError::NotGitRepository(_)) => {
+                    return Err(RepoError::DirectoryAlreadyExists(repo_path));
+                }
+                Err(error) => return Err(error),
+            }
         }
 
         git.initialize_repo_with_main_branch(&repo_path)?;
@@ -235,12 +250,45 @@ impl RepoService {
     }
 }
 
+fn directory_is_empty(path: &Path) -> std::io::Result<bool> {
+    Ok(std::fs::read_dir(path)?.next().is_none())
+}
+
 #[cfg(test)]
 mod tests {
     use git::GitService;
+    use sqlx::SqlitePool;
     use tempfile::TempDir;
 
     use super::*;
+
+    async fn repo_test_pool() -> SqlitePool {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"
+            CREATE TABLE repos (
+                id BLOB PRIMARY KEY NOT NULL,
+                path TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                setup_script TEXT,
+                cleanup_script TEXT,
+                archive_script TEXT,
+                copy_files TEXT,
+                parallel_setup_script INTEGER NOT NULL DEFAULT 0,
+                dev_server_script TEXT,
+                default_target_branch TEXT,
+                default_working_dir TEXT,
+                created_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z',
+                updated_at TEXT NOT NULL DEFAULT '2024-01-01T00:00:00Z'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
 
     #[test]
     fn child_directory_inside_parent_repo_is_not_registered_as_parent_repo() {
@@ -307,5 +355,52 @@ mod tests {
         let expected = normalize_windows_extended_path_prefix(repo_path.canonicalize().unwrap());
 
         assert_eq!(resolved, expected);
+    }
+
+    #[tokio::test]
+    async fn init_repo_recovers_existing_git_directory() {
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("created-on-first-attempt");
+        let git = GitService::new();
+        git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        let service = RepoService::new();
+        let pool = repo_test_pool().await;
+
+        let repo = service
+            .init_repo(
+                &pool,
+                &git,
+                temp.path().to_str().unwrap(),
+                "created-on-first-attempt",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            repo.path,
+            normalize_windows_extended_path_prefix(repo_path.canonicalize().unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn init_repo_keeps_non_empty_non_git_directory_protected() {
+        let temp = TempDir::new().unwrap();
+        let repo_path = temp.path().join("existing-folder");
+        std::fs::create_dir_all(&repo_path).unwrap();
+        std::fs::write(repo_path.join("notes.txt"), "do not overwrite").unwrap();
+        let service = RepoService::new();
+        let pool = repo_test_pool().await;
+
+        let error = service
+            .init_repo(
+                &pool,
+                &GitService::new(),
+                temp.path().to_str().unwrap(),
+                "existing-folder",
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, RepoError::DirectoryAlreadyExists(path) if path == repo_path));
     }
 }

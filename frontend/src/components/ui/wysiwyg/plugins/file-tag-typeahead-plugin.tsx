@@ -128,6 +128,7 @@ export function FileTagTypeaheadPlugin({
   const [activeQuery, setActiveQuery] = useState<string | null>(null);
   const portalContainer = usePortalContainer();
   const { setIsOpen } = useTypeaheadOpen();
+  const isThisMenuOpenRef = useRef(false);
   const searchRequestRef = useRef(0);
   const searchDebounceTimerRef = useRef<number | null>(null);
   const lastQueryRef = useRef<string | null>(null);
@@ -281,13 +282,9 @@ export function FileTagTypeaheadPlugin({
   );
 
   const menuOptions = useMemo(() => {
-    if (activeQuery === null) {
-      return [] as FileTagOption[];
-    }
-
     if (
       isFileTrigger &&
-      activeQuery.trim() === '' &&
+      (activeQuery ?? '').trim() === '' &&
       initialRepoId &&
       (!initialRepo || isInitialRootEntriesLoading)
     ) {
@@ -461,11 +458,15 @@ export function FileTagTypeaheadPlugin({
       options={menuOptions}
       onQueryChange={onQueryChange}
       onOpen={() => {
+        isThisMenuOpenRef.current = true;
         setIsOpen(true);
         onQueryChange('');
       }}
       onClose={() => {
-        setIsOpen(false);
+        if (isThisMenuOpenRef.current) {
+          isThisMenuOpenRef.current = false;
+          setIsOpen(false);
+        }
         setActiveQuery(null);
         setOptions([]);
       }}

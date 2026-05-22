@@ -97,16 +97,6 @@ function activeEditable():
   return null;
 }
 
-function isTextInputElement(
-  el:
-    | HTMLInputElement
-    | HTMLTextAreaElement
-    | (HTMLElement & { isContentEditable: boolean })
-    | null
-): el is HTMLInputElement | HTMLTextAreaElement {
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
-}
-
 /** Attempt to write to the OS clipboard. Returns true on success. */
 async function writeClipboardText(text: string): Promise<boolean> {
   try {
@@ -118,15 +108,6 @@ async function writeClipboardText(text: string): Promise<boolean> {
     } catch {
       return false;
     }
-  }
-}
-
-/** Attempt to read from the OS clipboard. Returns empty string on failure. */
-async function readClipboardText(): Promise<string> {
-  try {
-    return await navigator.clipboard.readText();
-  } catch {
-    return '';
   }
 }
 
@@ -371,7 +352,8 @@ export function installVSCodeIframeKeyboardBridge() {
   };
 
   const onKeyDown = async (e: KeyboardEvent) => {
-    // Handle clipboard combos locally so OS shortcuts work inside the iframe
+    // Handle copy/cut locally when needed. Paste inside editable fields must
+    // stay native so text, images, and rich clipboard payloads reach app code.
     if (isCopy(e)) {
       const text = getSelectedText();
       if (text) {
@@ -416,12 +398,7 @@ export function installVSCodeIframeKeyboardBridge() {
         | HTMLTextAreaElement
         | (HTMLElement & { isContentEditable: boolean })
         | null;
-      if (isTextInputElement(el)) {
-        e.preventDefault();
-        e.stopPropagation();
-        let text = await readClipboardText();
-        if (!text) text = await parentClipboardRead();
-        insertTextAtCaretGeneric(text);
+      if (el) {
         return;
       }
     }

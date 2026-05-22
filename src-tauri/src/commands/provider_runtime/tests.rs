@@ -16,5 +16,27 @@ fn turn_request(provider: ProviderId) -> ProviderTurnRequest {
     }
 }
 
+#[test]
+fn display_prompt_includes_provider_turn_images_as_markdown() {
+    let images = vec![
+        ".vibe-images/shot.png".to_string(),
+        "  ".to_string(),
+        ".vibe-images/second.webp".to_string(),
+    ];
+
+    assert_eq!(
+        prompt_with_display_images("analyze this", &images),
+        "analyze this\n\n![](.vibe-images/shot.png)\n![](.vibe-images/second.webp)"
+    );
+}
+
+#[test]
+fn display_prompt_can_be_image_only() {
+    assert_eq!(
+        prompt_with_display_images("", &[".vibe-images/shot.png".to_string()]),
+        "![](.vibe-images/shot.png)"
+    );
+}
+
 include!("tests_events.rs");
 include!("tests_sdk.rs");

@@ -1,15 +1,8 @@
 import { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { Loader2 } from 'lucide-react';
 import { defineModal } from '@/lib/modals';
-import { formatFileSize } from '@/lib/utils';
 
 export interface ImagePreviewDialogProps {
   imageUrl: string;
@@ -22,52 +15,31 @@ export interface ImagePreviewDialogProps {
 const ImagePreviewDialogImpl = NiceModal.create<ImagePreviewDialogProps>(
   (props) => {
     const modal = useModal();
-    const { imageUrl, altText, fileName, format, sizeBytes } = props;
+    const { imageUrl, altText } = props;
     const [imageLoaded, setImageLoaded] = useState(false);
 
     const handleClose = () => {
       modal.hide();
     };
 
-    // Build metadata string
-    const metadataParts: string[] = [];
-    if (format) {
-      metadataParts.push(format.toUpperCase());
-    }
-    const sizeStr = formatFileSize(sizeBytes);
-    if (sizeStr) {
-      metadataParts.push(sizeStr);
-    }
-    const metadataLine = metadataParts.join(' · ');
-
     return (
       <Dialog open={modal.visible} onOpenChange={handleClose}>
-        <DialogContent className="max-w-4xl p-0 overflow-hidden">
-          {fileName && (
-            <DialogHeader className="px-4 pt-4 pb-0">
-              <DialogTitle className="truncate">{fileName}</DialogTitle>
-            </DialogHeader>
-          )}
-          <div className="relative flex items-center justify-center min-h-[200px]">
+        <DialogContent className="max-w-4xl overflow-hidden p-0">
+          <div className="relative flex min-h-[200px] items-center justify-center">
             {!imageLoaded && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             )}
             <img
               src={imageUrl}
               alt={altText}
-              className={`max-w-full max-h-[70vh] object-contain ${
+              className={`max-h-[70vh] max-w-full object-contain ${
                 imageLoaded ? 'opacity-100' : 'opacity-0'
               }`}
               onLoad={() => setImageLoaded(true)}
             />
           </div>
-          {metadataLine && (
-            <DialogFooter className="px-4 py-3 border-t sm:justify-start">
-              <p className="text-xs text-muted-foreground">{metadataLine}</p>
-            </DialogFooter>
-          )}
         </DialogContent>
       </Dialog>
     );

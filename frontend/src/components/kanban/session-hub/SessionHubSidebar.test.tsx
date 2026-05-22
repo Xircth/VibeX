@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { useState, type ComponentProps } from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { SessionHubSidebar } from './SessionHubSidebar';
@@ -74,7 +74,19 @@ beforeAll(() => {
   });
 });
 
-function Harness() {
+type SidebarProps = ComponentProps<typeof SessionHubSidebar>;
+
+function Harness({
+  archivedSessions = [],
+  isArchiveView = false,
+  onArchiveViewChange = vi.fn(),
+  onRestoreArchivedSession = vi.fn(),
+}: {
+  archivedSessions?: SidebarProps['archivedSessions'];
+  isArchiveView?: boolean;
+  onArchiveViewChange?: SidebarProps['onArchiveViewChange'];
+  onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
+}) {
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
 
   return (
@@ -82,6 +94,7 @@ function Harness() {
       width={320}
       isLoading={false}
       sessions={[]}
+      archivedSessions={archivedSessions}
       groupedSessions={{}}
       flatSessions={[]}
       workspaces={[
@@ -152,7 +165,9 @@ function Harness() {
       displayedCount={0}
       monitorPlacements={[]}
       currentExecutionPlacement={null}
+      isArchiveView={isArchiveView}
       onResizeMouseDown={vi.fn()}
+      onArchiveViewChange={onArchiveViewChange}
       onCreatePopoverOpenChange={setIsCreatePopoverOpen}
       onCreateSession={vi.fn()}
       onCreateModeChange={vi.fn()}
@@ -171,6 +186,7 @@ function Harness() {
       onToggleSessionSelection={vi.fn()}
       onRenameSession={vi.fn(async () => undefined)}
       onSessionStatusChange={vi.fn()}
+      onRestoreArchivedSession={onRestoreArchivedSession}
       onExpandedChange={vi.fn()}
     />
   );
@@ -205,5 +221,83 @@ describe('SessionHubSidebar', () => {
 
     expect(document.querySelector('#session-create-workspace')).not.toBeNull();
     expect(document.querySelector('#session-create-name')).not.toBeNull();
+  });
+
+  it('keeps delete available in archive view and styles the archive toggle distinctly', () => {
+    const { container } = render(<Harness isArchiveView={true} />);
+
+    const archiveButton = container
+      .querySelector('svg.lucide-archive')
+      ?.closest('button');
+    const deleteButton = container
+      .querySelector('svg.lucide-trash-2')
+      ?.closest('button');
+
+    expect(deleteButton).not.toBeNull();
+    expect(deleteButton).toHaveClass('order-1');
+    expect(archiveButton).not.toBeNull();
+    expect(archiveButton).toHaveClass(
+      'order-2',
+      'border',
+      'border-border/60'
+    );
+  });
+
+  it('restores archived sessions from the archive context menu', async () => {
+    const user = userEvent.setup();
+    const onRestoreArchivedSession = vi.fn();
+    const archivedSession: SidebarProps['archivedSessions'][number] = {
+      id: 'session-1',
+      placement: {
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+      },
+      workspace: {
+        id: 'workspace-1',
+        project_id: 'project-1',
+        task_id: 'task-1',
+        parent_workspace_id: null,
+        container_ref: null,
+        branch: 'main',
+        use_worktree: true,
+        agent_working_dir: null,
+        setup_completed_at: null,
+        created_at: '2026-04-15T00:00:00.000Z',
+        updated_at: '2026-04-15T00:00:00.000Z',
+        archived: false,
+        pinned: false,
+        name: 'Main',
+      },
+      task: null,
+      taskId: null,
+      name: 'Archived Session',
+      status: 'archived',
+      branch: 'main',
+      workspaceName: 'Main',
+      workspaceDisplayLabel: 'Main · main',
+      executor: null,
+      updatedAt: '2026-04-15T00:00:00.000Z',
+      createdAt: '2026-04-15T00:00:00.000Z',
+      firstPrompt: null,
+      fullName: 'Archived Session',
+      shortName: 'Archive',
+      taskTitle: null,
+      isCompleted: false,
+      isRunning: false,
+      isErrored: false,
+    };
+
+    render(
+      <Harness
+        archivedSessions={[archivedSession]}
+        isArchiveView={true}
+        onRestoreArchivedSession={onRestoreArchivedSession}
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByText('Archived Session'));
+    await user.click(screen.getByText('移至会话列表'));
+
+    expect(onRestoreArchivedSession).toHaveBeenCalledWith(archivedSession);
   });
 });

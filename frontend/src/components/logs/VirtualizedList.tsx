@@ -35,6 +35,7 @@ import type {
 } from '@/hooks/useConversationHistory/types';
 import { isCollapsedAssistantMessagesGroup } from '@/hooks/useConversationHistory/types';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
 
 export interface VirtualizedListRef {
@@ -132,7 +133,10 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
-    const conversationScrollKey = `${attempt.id}:${attempt.session?.id ?? 'none'}`;
+    const conversationScrollKey = buildSessionConversationKey(
+      attempt.id,
+      attempt.session?.id
+    );
     const restoredScrollRef = useRef<string | null>(null);
     const isAtBottomRef = useRef(true);
     const { config } = useUserSystem();

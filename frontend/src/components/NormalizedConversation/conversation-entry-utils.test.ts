@@ -3,6 +3,7 @@ import {
   buildDisplayEntries,
   getCompactMetaNoticeText,
   getCompactVerboseErrorText,
+  getToolSummary,
   isInternalTracingLogContent,
   isNeutralTransportNotice,
   normalizeMetaNoticeText,
@@ -347,6 +348,28 @@ describe('conversation meta notices', () => {
     expect(displayEntries[0]).toMatchObject({
       type: 'AGGREGATED_GROUP',
       aggregationType: 'command_run',
+    });
+  });
+
+  it('summarizes Codex subagent status tools as status components', () => {
+    const summary = getToolSummary(
+      {
+        type: 'tool_use',
+        tool_name: 'wait_agent',
+        action_type: {
+          action: 'tool',
+          tool_name: 'wait_agent',
+          arguments: null,
+          result: null,
+        },
+        status: { status: 'success' },
+      },
+      'agent-7: completed\nagent-8: running'
+    );
+
+    expect(summary).toEqual({
+      label: 'Subagent status',
+      detail: 'agent-7: completed',
     });
   });
 

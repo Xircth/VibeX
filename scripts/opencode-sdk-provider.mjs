@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient as createOpencodeClientV2 } from "@opencode-ai/sdk/v2";
 
 const PROBE_OK = "opencode-sdk-provider:ok";
 
@@ -292,6 +293,7 @@ async function createRuntime(input) {
   });
   return {
     client: createOpencodeClient({ baseUrl: server.url }),
+    clientV2: createOpencodeClientV2({ baseUrl: server.url }),
     server,
   };
 }
@@ -302,12 +304,74 @@ async function startEventPump(client, directory, signal) {
     signal,
     sseMaxRetryAttempts: 0,
   });
+  const messageRoles = new Map();
+  const partMetadata = new Map();
+  const rememberPart = (part) => {
+    if (!part || typeof part !== "object" || typeof part.id !== "string") {
+      return;
+    }
+    const messageID =
+      typeof part.messageID === "string" ? part.messageID : undefined;
+    partMetadata.set(part.id, {
+      type: typeof part.type === "string" ? part.type : undefined,
+      messageID,
+      role: messageID ? messageRoles.get(messageID) : undefined,
+    });
+  };
+  const enrichEvent = (event) => {
+    if (!event || typeof event !== "object") {
+      return event;
+    }
+    const properties =
+      event.properties && typeof event.properties === "object"
+        ? event.properties
+        : undefined;
+    if (event.type === "message.updated") {
+      const info =
+        properties?.info && typeof properties.info === "object"
+          ? properties.info
+          : undefined;
+      if (typeof info?.id === "string" && typeof info?.role === "string") {
+        messageRoles.set(info.id, info.role);
+      }
+      return event;
+    }
+    if (event.type === "message.part.updated") {
+      const part =
+        properties?.part && typeof properties.part === "object"
+          ? properties.part
+          : undefined;
+      rememberPart(part);
+      return event;
+    }
+    if (event.type !== "message.part.delta") {
+      return event;
+    }
+    const partID =
+      typeof properties?.partID === "string" ? properties.partID : undefined;
+    if (!partID) {
+      return event;
+    }
+    const metadata = partMetadata.get(partID);
+    if (!metadata) {
+      return event;
+    }
+    return {
+      ...event,
+      properties: {
+        ...properties,
+        partType: metadata.type,
+        partRole: metadata.role,
+        messageID: properties.messageID ?? metadata.messageID,
+      },
+    };
+  };
   return (async () => {
     try {
       for await (const event of subscription.stream) {
         await writeEventAsync({
           type: "opencode_sdk_event",
-          event,
+          event: enrichEvent(event),
         });
       }
     } catch (error) {
@@ -413,6 +477,7 @@ function flattenModels(providerList) {
         providerID: provider.id,
         modelID,
         provider: provider.name ?? provider.id,
+        providerSource: provider.source,
         name: model?.name ?? modelID,
         source: "sdk",
       });
@@ -438,9 +503,12 @@ async function writeMetadata(inputPath) {
   const directory = input.cwd ?? process.cwd();
   const runtime = await createRuntime(input);
   try {
-    const [commands, agents, configProviders] = await Promise.all([
+    const [commands, commandsV2, agents, configProviders] = await Promise.all([
       safeCall("command.list", () =>
         runtime.client.command.list({ query: { directory } }),
+      ),
+      safeCall("command.list.v2", () =>
+        runtime.clientV2.command.list({ directory }),
       ),
       safeCall("app.agents", () =>
         runtime.client.app.agents({ query: { directory } }),
@@ -450,10 +518,14 @@ async function writeMetadata(inputPath) {
       ),
     ]);
     const providerData = configProviders.data;
+    const commandData =
+      Array.isArray(commandsV2.data) && commandsV2.data.length > 0
+        ? commandsV2.data
+        : commands.data;
 
     await writeEventAsync({
       type: "opencode_sdk_metadata",
-      commands: commands.data ?? [],
+      commands: commandData ?? [],
       agents: (agents.data ?? []).map((agent) => ({
         name: agent.name,
         description: agent.description,
@@ -466,7 +538,7 @@ async function writeMetadata(inputPath) {
         source: provider.source,
       })),
       models: flattenModels(providerData),
-      errors: [commands, agents, configProviders]
+      errors: [commands, commandsV2, agents, configProviders]
         .filter((item) => item.error)
         .map((item) => ({ source: item.name, message: item.error })),
     });
@@ -476,8 +548,34 @@ async function writeMetadata(inputPath) {
 }
 
 async function probe() {
-  const runtime = await createRuntime({});
-  runtime.server.close();
+  const probe =
+    process.platform === "win32"
+      ? spawnSync(
+          process.env.ComSpec || "cmd.exe",
+          ["/d", "/c", "opencode --version"],
+          {
+            env: process.env,
+            encoding: "utf8",
+            windowsHide: true,
+            timeout: 5000,
+          },
+        )
+      : spawnSync("opencode", ["--version"], {
+          env: process.env,
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: 5000,
+        });
+  if (probe.error) {
+    throw probe.error;
+  }
+  if (probe.status !== 0) {
+    throw new Error(
+      `OpenCode CLI probe failed with status ${probe.status}: ${
+        probe.stderr || probe.stdout || "no output"
+      }`,
+    );
+  }
   process.stdout.write(`${PROBE_OK}\n`);
 }
 

@@ -209,6 +209,7 @@ async fn create_native_execution_process(
     workspace: &Workspace,
     session: &Session,
     request: &ProviderTurnRequest,
+    visible_prompt: &str,
     agent_session_id: Option<String>,
     native_message_id: Option<String>,
 ) -> Result<ExecutionProcess, AppError> {
@@ -254,7 +255,7 @@ async fn create_native_execution_process(
     let executor_config = provider_executor_config(request);
     let action_type = if let Some(agent_session_id) = agent_session_id.clone() {
         ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt: request.text.clone(),
+            prompt: visible_prompt.to_string(),
             session_id: agent_session_id,
             reset_to_message_id: None,
             executor_config,
@@ -262,7 +263,7 @@ async fn create_native_execution_process(
         })
     } else {
         ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-            prompt: request.text.clone(),
+            prompt: visible_prompt.to_string(),
             executor_config,
             working_dir,
         })
@@ -284,7 +285,7 @@ async fn create_native_execution_process(
         pool,
         &CreateCodingAgentTurn {
             execution_process_id: process.id,
-            prompt: Some(request.text.clone()),
+            prompt: Some(visible_prompt.to_string()),
         },
         Uuid::new_v4(),
     )
@@ -299,6 +300,35 @@ async fn create_native_execution_process(
     Session::update_status(pool, session.id, SessionStatus::InProgress).await?;
 
     Ok(process)
+}
+
+fn prompt_with_display_images(message: &str, images: &[String]) -> String {
+    if images.is_empty() {
+        return message.to_string();
+    }
+
+    let image_markdown = images
+        .iter()
+        .filter_map(|image| {
+            let image = image.trim();
+            if image.is_empty() {
+                None
+            } else {
+                Some(format!("![]({image})"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if image_markdown.is_empty() {
+        return message.to_string();
+    }
+
+    if message.trim().is_empty() {
+        image_markdown
+    } else {
+        format!("{message}\n\n{image_markdown}")
+    }
 }
 
 fn provider_request_with_resolved_thread_id(

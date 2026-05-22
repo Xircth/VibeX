@@ -363,12 +363,19 @@ export const ToolCallCard: React.FC<{
 
   const exitStatus = entryType ? getToolExitStatus(entryType) : null;
   const taskCreateStatus = isTaskCreate ? entryType?.status.status : null;
+  const genericToolStatus = isTool ? entryType?.status.status : null;
   const statusBorderClass =
     taskCreateStatus === 'failed' ||
+    genericToolStatus === 'failed' ||
     taskCreateStatus === 'denied' ||
+    genericToolStatus === 'denied' ||
     taskCreateStatus === 'timed_out'
       ? 'conv-tool-card-error'
+      : genericToolStatus === 'timed_out'
+      ? 'conv-tool-card-error'
       : taskCreateStatus === 'created'
+        ? 'conv-tool-card-pending'
+        : genericToolStatus === 'created'
         ? 'conv-tool-card-pending'
         : !isCommand && exitStatus
           ? exitStatus === 'success'
@@ -385,13 +392,21 @@ export const ToolCallCard: React.FC<{
         : 'conv-tool-dot conv-tool-dot-pending'
     : taskCreateStatus === 'success'
       ? 'conv-tool-dot conv-tool-dot-success'
+      : genericToolStatus === 'success'
+        ? 'conv-tool-dot conv-tool-dot-success'
       : taskCreateStatus === 'failed' ||
+          genericToolStatus === 'failed' ||
           taskCreateStatus === 'denied' ||
+          genericToolStatus === 'denied' ||
           taskCreateStatus === 'timed_out'
         ? 'conv-tool-dot conv-tool-dot-error'
+        : genericToolStatus === 'timed_out'
+          ? 'conv-tool-dot conv-tool-dot-error'
         : taskCreateStatus === 'created'
           ? 'conv-tool-dot conv-tool-dot-pending'
-          : '';
+          : genericToolStatus === 'created'
+            ? 'conv-tool-dot conv-tool-dot-pending'
+            : '';
 
   return (
     <div className="w-full">
@@ -526,16 +541,26 @@ export const ToolCallCard: React.FC<{
             <>
               {isTool && actionType && (
                 <>
-                  <div className="conv-tool-details-section-label">
-                    Arguments
-                  </div>
-                  <div className="conv-tool-details-content">
-                    {renderJson(actionType.arguments)}
-                  </div>
-                  <div className="conv-tool-details-section-label">Result</div>
-                  <div className="conv-tool-details-content">
-                    {renderToolResult(actionType.result, taskAttemptId)}
-                  </div>
+                  {hasArgs && (
+                    <>
+                      <div className="conv-tool-details-section-label">
+                        Arguments
+                      </div>
+                      <div className="conv-tool-details-content">
+                        {renderJson(actionType.arguments)}
+                      </div>
+                    </>
+                  )}
+                  {hasResult && (
+                    <>
+                      <div className="conv-tool-details-section-label">
+                        Result
+                      </div>
+                      <div className="conv-tool-details-content">
+                        {renderToolResult(actionType.result, taskAttemptId)}
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </>

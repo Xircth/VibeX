@@ -5,6 +5,7 @@ import {
   GitBranch,
   Loader2,
   Pencil,
+  RotateCcw,
   Trash2,
   X,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ interface SessionHubListItemProps {
   onToggleSelect: () => void;
   onRenameSession?: (name: string | null) => void | Promise<void>;
   onDeleteSession?: () => void | Promise<void>;
+  onRestoreFromArchive?: () => void | Promise<void>;
   displayMode?: 'default' | 'kanban-board';
   dragging?: boolean;
   isOpening?: boolean;
@@ -49,6 +51,7 @@ export function SessionHubListItem({
   onToggleSelect,
   onRenameSession,
   onDeleteSession,
+  onRestoreFromArchive,
   displayMode = 'default',
   dragging = false,
   isOpening = false,
@@ -64,6 +67,10 @@ export function SessionHubListItem({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [draftName, setDraftName] = useState(session.fullName);
   const [isHovered, setIsHovered] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!isEditing) {
@@ -97,12 +104,30 @@ export function SessionHubListItem({
     setIsSubmitting(false);
   };
 
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('keydown', closeMenu);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('keydown', closeMenu);
+    };
+  }, [contextMenu]);
+
   return (
     <div
       role="button"
       tabIndex={0}
       aria-busy={isOpening || undefined}
       onClick={onClick}
+      onContextMenu={(event) => {
+        if (!onRestoreFromArchive) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setContextMenu({ x: event.clientX, y: event.clientY });
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onKeyDown={(event) => {
@@ -306,6 +331,26 @@ export function SessionHubListItem({
           ) : null}
         </div>
       </div>
+      {contextMenu ? (
+        <div
+          className="fixed z-50 min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              setContextMenu(null);
+              void onRestoreFromArchive?.();
+            }}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            移至会话列表
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

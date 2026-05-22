@@ -38,7 +38,7 @@ use executors::{
     profile::{ExecutorConfig, ExecutorConfigs, ExecutorProfileId},
 };
 use serde_json::{Value, json};
-use services::services::container::ContainerService;
+use services::services::{config::DEFAULT_COMMIT_REMINDER_PROMPT, container::ContainerService};
 use sqlx::SqlitePool;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -92,10 +92,16 @@ struct NativeConversationSink {
 
 #[derive(Default)]
 struct NativeConversationState {
-    assistant_content: String,
-    assistant_index: Option<usize>,
+    assistant_entries: HashMap<String, NativeAssistantEntryState>,
+    active_assistant_entry_id: Option<String>,
     next_entry_index: usize,
     tool_entries: HashMap<String, NativeToolEntryState>,
+}
+
+#[derive(Clone)]
+struct NativeAssistantEntryState {
+    index: usize,
+    content: String,
 }
 
 #[derive(Clone)]

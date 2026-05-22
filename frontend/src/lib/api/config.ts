@@ -310,11 +310,16 @@ export const queueApi = {
    */
   queue: async (
     sessionId: string,
-    data: { message: string; executor_profile_id: ExecutorProfileId }
+    data: {
+      message: string;
+      images?: string[];
+      executor_profile_id: ExecutorProfileId;
+    }
   ): Promise<QueueStatus> => {
     return tauriInvoke<QueueStatus>('queue_message', {
       sessionId,
       message: data.message,
+      images: data.images ?? [],
       executorProfileId: data.executor_profile_id,
     });
   },

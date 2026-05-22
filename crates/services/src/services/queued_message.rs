@@ -134,6 +134,7 @@ mod tests {
                 id: followup_session,
                 payload: ScratchPayload::DraftFollowUp(DraftFollowUpData {
                     message: "resume me".to_string(),
+                    images: vec![".vibe-images/queued.png".to_string()],
                     executor_config: executors::profile::ExecutorConfig::from(
                         executors::profile::ExecutorProfileId::new(
                             executors::executors::BaseCodingAgent::Codex,
@@ -164,6 +165,7 @@ mod tests {
             .get_queued(followup_session)
             .expect("follow-up restored");
         assert_eq!(restored.data.message, "resume me");
+        assert_eq!(restored.data.images, vec![".vibe-images/queued.png"]);
         assert_eq!(restored.queued_at, queued_at);
         assert!(service.get_queued(other_session).is_none());
     }

@@ -21,7 +21,10 @@ pub enum ScratchError {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct DraftFollowUpData {
     pub message: String,
+    #[serde(default)]
+    pub images: Vec<String>,
     #[serde(alias = "executor_profile_id", alias = "config")]
+    #[ts(type = "ExecutorProfileId")]
     pub executor_config: ExecutorConfig,
     #[serde(default)]
     pub queued: bool,

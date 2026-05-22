@@ -45,12 +45,19 @@ function buildDefaultSessionName(summary: SessionSummary) {
     };
   }
 
-  const firstPrompt = summary.first_prompt?.replace(/\s+/g, ' ').trim() ?? '';
-  if (firstPrompt.length > 0) {
+  const firstPrompt = summary.first_prompt?.replace(/\s+/g, ' ').trim();
+  const displayName = summary.display_name?.replace(/\s+/g, ' ').trim();
+  const promptName =
+    firstPrompt ||
+    (displayName && displayName !== 'Session' && displayName !== '会话'
+      ? displayName
+      : '');
+
+  if (promptName.length > 0) {
     return {
-      name: Array.from(firstPrompt).slice(0, 6).join(''),
+      name: Array.from(promptName).slice(0, 6).join(''),
       source: 'prompt' as const,
-      prompt: firstPrompt,
+      prompt: promptName,
     };
   }
 
@@ -177,11 +184,17 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
           new Date(left.updatedAt).getTime()
       );
 
+    const getDuplicateKey = (session: KanbanProjectSessionRecord) =>
+      `${session.status === 'archived' ? 'archived' : 'active'}:${
+        session.fullName
+      }`;
+
     const totalsByBaseName = new Map<string, number>();
     baseSessions.forEach((session) => {
+      const duplicateKey = getDuplicateKey(session);
       totalsByBaseName.set(
-        session.fullName,
-        (totalsByBaseName.get(session.fullName) ?? 0) + 1
+        duplicateKey,
+        (totalsByBaseName.get(duplicateKey) ?? 0) + 1
       );
     });
 
@@ -190,20 +203,22 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
 
     return baseSessions.map((session) => {
       const baseName = session.fullName;
-      const total = totalsByBaseName.get(baseName) ?? 1;
+      const duplicateKey = getDuplicateKey(session);
+      const total = totalsByBaseName.get(duplicateKey) ?? 1;
 
       if (total <= 1) {
         return session;
       }
 
-      const usedNames = usedNamesByBaseName.get(baseName) ?? new Set<string>();
-      usedNamesByBaseName.set(baseName, usedNames);
+      const usedNames =
+        usedNamesByBaseName.get(duplicateKey) ?? new Set<string>();
+      usedNamesByBaseName.set(duplicateKey, usedNames);
 
       let resolvedName = baseName;
       const meta = nameMetaById.get(session.id);
       if (meta?.source === 'prompt' && meta.prompt) {
         const chars = Array.from(meta.prompt);
-        const upperBound = Math.min(20, chars.length);
+        const upperBound = Math.min(32, chars.length);
         for (let length = 6; length <= upperBound; length += 1) {
           const candidate = chars.slice(0, length).join('');
           if (!usedNames.has(candidate)) {
@@ -214,9 +229,10 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       }
 
       if (usedNames.has(resolvedName)) {
-        const nextOccurrence = (occurrenceByBaseName.get(baseName) ?? 0) + 1;
-        occurrenceByBaseName.set(baseName, nextOccurrence);
-        resolvedName = `${baseName} #${nextOccurrence}`;
+        const nextOccurrence =
+          (occurrenceByBaseName.get(duplicateKey) ?? 0) + 1;
+        occurrenceByBaseName.set(duplicateKey, nextOccurrence);
+        resolvedName = `${resolvedName}_${nextOccurrence}`;
       }
 
       usedNames.add(resolvedName);

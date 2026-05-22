@@ -2,13 +2,13 @@ import { useMemo } from 'react';
 import {
   DiffView,
   DiffModeEnum,
-  DiffLineType,
   parseInstance,
 } from '@git-diff-view/react';
 import { ChevronRight, Edit } from 'lucide-react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
+import { parseDiffStats } from '@/utils/diffStatsParser';
 /* diff-style-overrides.css and edit-diff-overrides.css imported by parent FileChangeRenderer */
 import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -33,18 +33,10 @@ function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
   // Hide line numbers when backend says they are unreliable
   const hideNums = !hasLineNumbers;
   let isValidDiff;
+  const { additions, deletions } = parseDiffStats(unifiedDiff);
 
-  // Pre-compute additions/deletions using the library parser so counts are available while collapsed
-  let additions = 0;
-  let deletions = 0;
   try {
     const parsed = parseInstance.parse(unifiedDiff);
-    for (const h of parsed.hunks) {
-      for (const line of h.lines) {
-        if (line.type === DiffLineType.Add) additions++;
-        else if (line.type === DiffLineType.Delete) deletions++;
-      }
-    }
     isValidDiff = parsed.hunks.length > 0;
   } catch (err) {
     console.error('Failed to parse diff hunks:', err);

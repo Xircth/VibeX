@@ -7,6 +7,7 @@ import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
+import { buildSessionConversationKey } from '@/lib/conversationKeys';
 
 function DockviewLogsPanel(_props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
@@ -46,12 +47,14 @@ function DockviewLogsPanel(_props: IDockviewPanelProps) {
     );
   }
 
-  const conversationKey = `${attempt.id}:${attempt.session?.id ?? 'unknown'}:logs`;
+  const conversationKey = buildSessionConversationKey(
+    attempt.id,
+    attempt.session?.id
+  );
 
   return (
-    <EntriesProvider key={conversationKey} cacheKey={conversationKey}>
+    <EntriesProvider runtimeKey={conversationKey}>
       <ExecutionProcessesProvider
-        key={conversationKey}
         attemptId={attempt.id}
         sessionId={attempt.session?.id}
       >

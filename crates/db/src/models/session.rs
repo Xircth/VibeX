@@ -18,6 +18,7 @@ pub enum SessionStatus {
     InProgress,
     InReview,
     Done,
+    Archived,
 }
 
 #[derive(Debug, Error)]

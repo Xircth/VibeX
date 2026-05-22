@@ -34,10 +34,35 @@ describe('provider frontend adapters', () => {
         .some((command) => command.name === 'goal')
     ).toBe(true);
     expect(
+      claude
+        .getFallbackSlashCommands()
+        .some((command) => command.name === 'goal')
+    ).toBe(true);
+    expect(
       opencode
         .getFallbackSlashCommands()
         .some((command) => command.name === 'agents')
+    ).toBe(false);
+    expect(
+      opencode
+        .getFallbackSlashCommands()
+        .some((command) => command.name === 'compact')
     ).toBe(true);
+    expect(
+      opencode
+        .getFallbackSlashCommands()
+        .some((command) => command.name === 'plan')
+    ).toBe(false);
+    expect(
+      opencode
+        .getFallbackSlashCommands()
+        .some((command) => command.name === 'build')
+    ).toBe(false);
+    expect(
+      opencode
+        .getFallbackSlashCommands()
+        .some((command) => command.name === 'status')
+    ).toBe(false);
     expect(
       codex.getFallbackSlashCommands().some((command) => command.name === 'mcp')
     ).toBe(false);
@@ -63,15 +88,18 @@ describe('provider frontend adapters', () => {
     ).toBe(false);
 
     expect(
-      claude
-        .getFallbackSlashCommands()
-        .some((command) => command.name === 'goal')
-    ).toBe(false);
-    expect(
       codex
         .getFallbackSlashCommands()
         .some((command) => command.name === 'permissions')
     ).toBe(false);
+  });
+
+  it('does not overstate Codex request-response capability support', () => {
+    const codex = getProviderFrontendAdapter('codex');
+    const capabilities = codex.getCapabilities();
+
+    expect(capabilities.approvals.state).toBe('partial');
+    expect(capabilities.user_input_requests.state).toBe('partial');
   });
 
   it('builds provider-owned turn requests without cross-provider options', () => {
@@ -142,6 +170,45 @@ describe('provider frontend adapters', () => {
         variant: null,
         model: 'anthropic/claude-sonnet-4-5',
       },
+    });
+  });
+
+  it('preserves Codex skill and app mention provider options for app-server input items', () => {
+    expect(
+      buildProviderRuntimeTurnRequest({
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        executorProfileId: {
+          executor: BaseCodingAgent.CODEX,
+          variant: 'GPT_5_5',
+        },
+        text: '$skill-creator add docs',
+        providerOptions: {
+          skills: [
+            {
+              name: 'skill-creator',
+              path: 'C:\\Users\\me\\.codex\\skills\\skill-creator\\SKILL.md',
+            },
+          ],
+          apps: [
+            {
+              name: 'Demo App',
+              id: 'demo-app',
+            },
+          ],
+        },
+      }).provider_options
+    ).toMatchObject({
+      skills: [
+        {
+          name: 'skill-creator',
+        },
+      ],
+      apps: [
+        {
+          id: 'demo-app',
+        },
+      ],
     });
   });
 
@@ -266,6 +333,210 @@ describe('provider frontend adapters', () => {
     ).toMatchObject({
       type: 'append_text',
       text: 'assistant text',
+    });
+  });
+
+  it('maps Claude SDK result text without rendering tool-result echoes', () => {
+    const claude = getProviderFrontendAdapter('claude');
+
+    expect(
+      claude.mapRuntimeEvent({
+        provider: 'claude',
+        workspace_id: 'workspace-1',
+        thread_id: 'claude-session-1',
+        event: {
+          type: 'sdk_event',
+          text: 'live chunk',
+          event: {
+            type: 'stream_event',
+            event: {
+              type: 'content_block_delta',
+              delta: {
+                type: 'text_delta',
+                text: 'live chunk',
+              },
+            },
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'append_text',
+      text: 'live chunk',
+    });
+
+    expect(
+      claude.mapRuntimeEvent({
+        provider: 'claude',
+        workspace_id: 'workspace-1',
+        thread_id: 'claude-session-1',
+        event: {
+          type: 'sdk_event',
+          text: 'final Claude reply',
+          event: {
+            type: 'result',
+            subtype: 'success',
+            result: 'final Claude reply',
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'append_text',
+      text: 'final Claude reply',
+    });
+
+    expect(
+      claude.mapRuntimeEvent({
+        provider: 'claude',
+        workspace_id: 'workspace-1',
+        event: {
+          type: 'sdk_event',
+          text: 'tool stdout should not render',
+          event: {
+            type: 'tool_result',
+            content: [{ type: 'text', text: 'tool stdout should not render' }],
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'raw_diagnostic',
+    });
+  });
+
+  it('maps only the final OpenCode response into visible text', () => {
+    const opencode = getProviderFrontendAdapter('opencode');
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        event: {
+          type: 'opencode_sdk_event',
+          event: {
+            type: 'message.part.updated',
+            properties: {
+              sessionID: 'session-1',
+              part: {
+                id: 'user-part-1',
+                messageID: 'user-message-1',
+                type: 'text',
+                text: 'hello opencode',
+              },
+            },
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'raw_diagnostic',
+    });
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        event: {
+          type: 'opencode_sdk_event',
+          event: {
+            type: 'message.part.updated',
+            properties: {
+              delta: 'hello ',
+              part: {
+                id: 'part-1',
+                type: 'text',
+                text: 'hello world',
+              },
+            },
+          },
+        },
+      })[0]
+    ).toMatchObject({ type: 'raw_diagnostic' });
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        event: {
+          type: 'opencode_sdk_event',
+          event: {
+            type: 'message.part.delta',
+            properties: {
+              sessionID: 'session-1',
+              messageID: 'assistant-message-1',
+              partID: 'text-part-1',
+              partType: 'text',
+              field: 'text',
+              delta: 'chunk text',
+            },
+          },
+        },
+      })[0]
+    ).toMatchObject({ type: 'raw_diagnostic' });
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        event: {
+          type: 'opencode_sdk_event',
+          event: {
+            type: 'session.next.text.delta',
+            properties: {
+              sessionID: 'session-1',
+              delta: 'next text',
+            },
+          },
+        },
+      })[0]
+    ).toMatchObject({ type: 'raw_diagnostic' });
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        event: {
+          type: 'opencode_sdk_event',
+          event: {
+            type: 'message.part.delta',
+            properties: {
+              sessionID: 'session-1',
+              messageID: 'assistant-message-1',
+              partID: 'reasoning-part-1',
+              partType: 'reasoning',
+              field: 'text',
+              delta: 'The user is asking who I am.',
+            },
+          },
+        },
+      })[0]
+    ).toMatchObject({ type: 'raw_diagnostic' });
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        event: {
+          type: 'opencode_sdk_response',
+          sessionID: 'session-1',
+          response: {
+            info: {
+              role: 'assistant',
+            },
+            parts: [
+              { type: 'step-start' },
+              { type: 'text', text: 'final OpenCode reply' },
+              { type: 'step-finish' },
+            ],
+          },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'append_text',
+      text: 'final OpenCode reply',
     });
   });
 });

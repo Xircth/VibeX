@@ -1,10 +1,6 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
+  Plus,
   Loader2,
   Save,
   Eye,
@@ -25,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import type { AgentSettingInfo, PreflightCheck } from '@/lib/api';
+import type { AgentSettingInfo } from '@/lib/api';
 import { agentSettingsApi, claudeSettingsApi } from '@/lib/api';
 import type { BaseCodingAgent, ProviderModel } from 'shared/types';
 import { providerRuntimeApi } from '@/lib/providerRuntime';
@@ -218,62 +214,6 @@ function buildConfigJson(agentType: string, draft: AgentDraft): string {
   return JSON.stringify(config);
 }
 
-// Preflight status color helpers
-function statusIcon(status: string) {
-  switch (status) {
-    case 'pass':
-      return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />;
-    case 'warn':
-      return <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />;
-    case 'fail':
-      return <XCircle className="h-3.5 w-3.5 text-red-500" />;
-    default:
-      return null;
-  }
-}
-
-function statusBorderClass(status: string | null, enabled: boolean): string {
-  if (!enabled) return 'border-muted-foreground/30 bg-muted/30';
-  switch (status) {
-    case 'pass':
-      return 'border-green-500/40 bg-green-500/5';
-    case 'warn':
-      return 'border-yellow-500/40 bg-yellow-500/5';
-    case 'fail':
-      return 'border-red-500/40 bg-red-500/5';
-    default:
-      return '';
-  }
-}
-
-function summarizeChecks(
-  checks: PreflightCheck[]
-): 'pass' | 'warn' | 'fail' | null {
-  if (checks.length === 0) return null;
-  if (checks.some((c) => c.status === 'fail')) return 'fail';
-  if (checks.some((c) => c.status === 'warn')) return 'warn';
-  return 'pass';
-}
-
-function isVisibleAgentCheck(check: PreflightCheck): boolean {
-  if (
-    check.check_id === 'runtime_launcher' ||
-    check.check_id === 'adapter_version'
-  ) {
-    return false;
-  }
-
-  const searchable = [
-    check.label,
-    check.message,
-    ...check.fixes.flatMap((fix) => [fix.action, fix.label]),
-  ]
-    .join(' ')
-    .toLowerCase();
-
-  return !/\b(acp|sdk)\b|provider runtime/.test(searchable);
-}
-
 function getUpgradeAction(agentType: string): string | null {
   switch (agentType) {
     case 'claude_code':
@@ -327,15 +267,10 @@ export function AgentCard({
   };
 
   const [draft, setDraft] = useState<AgentDraft>(() => createEmptyDraft(agent));
-  const [checks, setChecks] = useState<PreflightCheck[]>([]);
-  const [isChecking, setIsChecking] = useState(false);
   const [isVersionChecking, setIsVersionChecking] = useState(false);
   const [versionMessage, setVersionMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [expandedChecks, setExpandedChecks] = useState<Record<string, boolean>>(
-    {}
-  );
   const [runningFixActions, setRunningFixActions] = useState<
     Record<string, boolean>
   >({});
@@ -352,35 +287,9 @@ export function AgentCard({
   const [opencodeAuthJsonText, setOpencodeAuthJsonText] = useState('');
   const [nativeConfigPath, setNativeConfigPath] = useState<string | null>(null);
 
-  const visibleChecks = useMemo(
-    () => checks.filter(isVisibleAgentCheck),
-    [checks]
-  );
-  const summary = summarizeChecks(visibleChecks);
-
   const updateDraft = useCallback((patch: Partial<AgentDraft>) => {
     setDraft((prev) => ({ ...prev, ...patch }));
   }, []);
-
-  const handlePreflight = useCallback(async () => {
-    setIsChecking(true);
-    try {
-      const result = await agentSettingsApi.preflight(agent.agent_type);
-      setChecks(result.checks);
-    } catch {
-      setChecks([
-        {
-          check_id: 'error',
-          label: 'Preflight Error',
-          status: 'fail',
-          message: '无法运行预检查',
-          fixes: [],
-        },
-      ]);
-    } finally {
-      setIsChecking(false);
-    }
-  }, [agent.agent_type]);
 
   const handleDetectVersion = useCallback(async () => {
     setIsVersionChecking(true);
@@ -402,12 +311,6 @@ export function AgentCard({
       setIsVersionChecking(false);
     }
   }, [agent.agent_type, onReload]);
-
-  useEffect(() => {
-    if (selected && checks.length === 0 && !isChecking) {
-      void handlePreflight();
-    }
-  }, [checks.length, handlePreflight, isChecking, selected]);
 
   useEffect(() => {
     if (!selected) return;
@@ -503,7 +406,6 @@ export function AgentCard({
       }
 
       onReload();
-      await handlePreflight();
     } catch (error) {
       setNativeConfigError(
         error instanceof Error ? error.message : '保存配置文件失败'
@@ -516,7 +418,6 @@ export function AgentCard({
     claudeSettingsText,
     codexAuthJsonText,
     codexConfigTomlText,
-    handlePreflight,
     onReload,
     opencodeAuthJsonText,
     opencodeConfigJsonText,
@@ -552,7 +453,6 @@ export function AgentCard({
           setVersionMessage('已执行更新，请重新检测版本确认结果');
         }
         await onReload();
-        await handlePreflight();
       } catch (error) {
         setNativeConfigError(
           error instanceof Error ? error.message : '执行修复操作失败'
@@ -561,7 +461,7 @@ export function AgentCard({
         setRunningFixActions((prev) => ({ ...prev, [key]: false }));
       }
     },
-    [agent.agent_type, handlePreflight, onReload]
+    [agent.agent_type, onReload]
   );
 
   const upgradeAction = getUpgradeAction(agent.agent_type);
@@ -574,7 +474,7 @@ export function AgentCard({
       className={cn(
         'rounded-lg border bg-card p-3 transition-colors cursor-pointer',
         selected && 'border-primary/60 bg-primary/5',
-        statusBorderClass(summary, draft.enabled)
+        !draft.enabled && 'border-muted-foreground/30 bg-muted/30'
       )}
       onClick={onSelect}
     >
@@ -597,13 +497,6 @@ export function AgentCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Preflight summary */}
-          {isChecking ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
-          ) : summary ? (
-            statusIcon(summary)
-          ) : null}
-
           <Switch
             checked={draft.enabled}
             onCheckedChange={handleToggleEnabled}
@@ -618,7 +511,6 @@ export function AgentCard({
           className="mt-3 space-y-4 border-t pt-3"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Preflight checks */}
           <div className="space-y-2">
             <div className="rounded-md border bg-muted/10 p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -671,101 +563,6 @@ export function AgentCard({
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" />
-                预检查 ({visibleChecks.length} 项)
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-6 text-xs"
-                onClick={handlePreflight}
-                disabled={isChecking}
-              >
-                {isChecking ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : (
-                  <RotateCw className="h-3 w-3 mr-1" />
-                )}
-                检查
-              </Button>
-            </div>
-            {visibleChecks.map((check) => {
-              const key = `${agent.agent_type}:${check.check_id}`;
-              const expanded = expandedChecks[key] ?? false;
-              return (
-                <div
-                  key={check.check_id}
-                  className="rounded-md border bg-muted/20 px-3 py-2 space-y-1"
-                >
-                  <button
-                    type="button"
-                    className="w-full flex items-center justify-between gap-2 text-left"
-                    onClick={() =>
-                      setExpandedChecks((prev) => ({
-                        ...prev,
-                        [key]: !expanded,
-                      }))
-                    }
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {expanded ? (
-                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      )}
-                      <span className="text-xs font-medium truncate">
-                        {check.label}
-                      </span>
-                    </div>
-                    <span
-                      className={cn(
-                        'text-[11px] font-semibold shrink-0',
-                        check.status === 'pass' && 'text-green-500',
-                        check.status === 'warn' && 'text-yellow-500',
-                        check.status === 'fail' && 'text-red-500'
-                      )}
-                    >
-                      {check.status.toUpperCase()}
-                    </span>
-                  </button>
-                  {expanded && (
-                    <div className="space-y-2 pl-5">
-                      <div className="text-[11px] text-muted-foreground">
-                        {check.message}
-                      </div>
-                      {check.fixes.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {check.fixes.map((fix) => {
-                            const fixKey = `${agent.agent_type}:${fix.action}`;
-                            const isRunning =
-                              runningFixActions[fixKey] === true;
-                            return (
-                              <Button
-                                type="button"
-                                key={fixKey}
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs"
-                                onClick={() => void handleRunFix(fix.action)}
-                                disabled={isRunning}
-                              >
-                                {isRunning ? (
-                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                                ) : null}
-                                {fix.label}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
           </div>
 
           {/* Agent-specific config form */}
@@ -787,7 +584,12 @@ export function AgentCard({
               />
             )}
             {agent.agent_type === 'open_code' && (
-              <OpenCodeFields draft={draft} onChange={updateDraft} />
+              <OpenCodeFields
+                draft={draft}
+                onChange={updateDraft}
+                nativeConfigText={opencodeConfigJsonText}
+                onNativeConfigChange={setOpencodeConfigJsonText}
+              />
             )}
           </div>
 
@@ -1162,16 +964,129 @@ function CodexFields({
 
 // ─── OpenCode Fields ───────────────────────────────────────────
 
+type JsonObject = Record<string, unknown>;
+
+function parseJsonObjectText(text: string): JsonObject {
+  if (!text.trim()) return {};
+  const parsed = JSON.parse(text) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('OpenCode config must be a JSON object');
+  }
+  return parsed as JsonObject;
+}
+
+function modelDisplayName(modelId: string): string {
+  return modelId
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) =>
+      /^[a-z]+$/i.test(part) && part.length <= 3
+        ? part.toUpperCase()
+        : part.charAt(0).toUpperCase() + part.slice(1)
+    )
+    .join(' ');
+}
+
+function applyOpenCodeProviderConfig(
+  configText: string,
+  provider: {
+    id: string;
+    name: string;
+    baseURL: string;
+    apiKey: string;
+    modelsText: string;
+  }
+): string {
+  const providerId = provider.id.trim();
+  if (!/^[A-Za-z0-9._-]+$/.test(providerId)) {
+    throw new Error(
+      'Provider ID can only contain letters, numbers, dot, underscore, or dash'
+    );
+  }
+
+  const modelIds = provider.modelsText
+    .split(/[\n,]+/)
+    .map((model) => model.trim())
+    .filter(Boolean);
+  if (modelIds.length === 0) {
+    throw new Error('Add at least one model id');
+  }
+
+  const config = parseJsonObjectText(configText);
+  config.$schema ??= 'https://opencode.ai/config.json';
+
+  const providers =
+    config.provider &&
+    typeof config.provider === 'object' &&
+    !Array.isArray(config.provider)
+      ? { ...(config.provider as JsonObject) }
+      : {};
+  const existing =
+    providers[providerId] &&
+    typeof providers[providerId] === 'object' &&
+    !Array.isArray(providers[providerId])
+      ? { ...(providers[providerId] as JsonObject) }
+      : {};
+  const options =
+    existing.options &&
+    typeof existing.options === 'object' &&
+    !Array.isArray(existing.options)
+      ? { ...(existing.options as JsonObject) }
+      : {};
+  const models =
+    existing.models &&
+    typeof existing.models === 'object' &&
+    !Array.isArray(existing.models)
+      ? { ...(existing.models as JsonObject) }
+      : {};
+
+  for (const modelId of modelIds) {
+    models[modelId] =
+      models[modelId] &&
+      typeof models[modelId] === 'object' &&
+      !Array.isArray(models[modelId])
+        ? models[modelId]
+        : { name: modelDisplayName(modelId) };
+  }
+
+  if (provider.baseURL.trim()) options.baseURL = provider.baseURL.trim();
+  if (provider.apiKey.trim()) options.apiKey = provider.apiKey.trim();
+
+  providers[providerId] = {
+    ...existing,
+    npm: existing.npm ?? '@ai-sdk/openai-compatible',
+    name: provider.name.trim() || existing.name || providerId,
+    options,
+    models,
+  };
+  config.provider = providers;
+
+  return JSON.stringify(config, null, 2);
+}
+
 function OpenCodeFields({
   draft,
   onChange,
+  nativeConfigText,
+  onNativeConfigChange,
 }: {
   draft: AgentDraft;
   onChange: (patch: Partial<AgentDraft>) => void;
+  nativeConfigText: string;
+  onNativeConfigChange: (value: string) => void;
 }) {
   const [modelOptions, setModelOptions] = useState<ProviderModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [providerId, setProviderId] = useState('');
+  const [providerName, setProviderName] = useState('');
+  const [providerBaseUrl, setProviderBaseUrl] = useState('');
+  const [providerApiKey, setProviderApiKey] = useState('');
+  const [providerModelsText, setProviderModelsText] = useState('');
+  const [providerConfigError, setProviderConfigError] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1205,6 +1120,29 @@ function OpenCodeFields({
     modelOptions.length > 0
       ? 'Select or type provider/model'
       : 'google/gemini-3-pro';
+  const handleApplyProviderConfig = () => {
+    setProviderConfigError(null);
+    try {
+      const nextConfigText = applyOpenCodeProviderConfig(
+        nativeConfigText || draft.openCodeConfigText,
+        {
+          id: providerId,
+          name: providerName,
+          baseURL: providerBaseUrl,
+          apiKey: providerApiKey,
+          modelsText: providerModelsText,
+        }
+      );
+      onNativeConfigChange(nextConfigText);
+      onChange({ openCodeConfigText: nextConfigText });
+    } catch (error) {
+      setProviderConfigError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update OpenCode config'
+      );
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -1248,6 +1186,87 @@ function OpenCodeFields({
             : `OpenCode SDK models unavailable: ${modelsError}`}
         </div>
       ) : null}
+
+      <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+        <div>
+          <div className="text-xs font-medium text-foreground">
+            Custom provider and models
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            Writes OpenCode provider config using provider/model IDs.
+          </div>
+        </div>
+        <div className="grid gap-3 grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">
+              Provider ID
+            </Label>
+            <Input
+              value={providerId}
+              onChange={(e) => setProviderId(e.target.value)}
+              placeholder="modelverse"
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">
+              Display Name
+            </Label>
+            <Input
+              value={providerName}
+              onChange={(e) => setProviderName(e.target.value)}
+              placeholder="ModelVerse"
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">
+              Base URL
+            </Label>
+            <Input
+              value={providerBaseUrl}
+              onChange={(e) => setProviderBaseUrl(e.target.value)}
+              placeholder="https://api.example.com/v1"
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">API Key</Label>
+            <Input
+              value={providerApiKey}
+              onChange={(e) => setProviderApiKey(e.target.value)}
+              placeholder="{env:MODELVERSE_API_KEY}"
+              className="h-8 text-xs"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-[11px] text-muted-foreground">Models</Label>
+          <Textarea
+            value={providerModelsText}
+            onChange={(e) => setProviderModelsText(e.target.value)}
+            placeholder="deepseek-v4-pro&#10;gemini-3.1-pro-preview"
+            className="min-h-16 font-mono text-xs"
+          />
+        </div>
+        {providerConfigError && (
+          <div className="text-[11px] text-destructive">
+            {providerConfigError}
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            onClick={handleApplyProviderConfig}
+          >
+            <Plus className="mr-1 h-3 w-3" />
+            Add to config
+          </Button>
+        </div>
+      </div>
 
       <div className="space-y-1.5">
         <Label className="text-[11px] text-muted-foreground">

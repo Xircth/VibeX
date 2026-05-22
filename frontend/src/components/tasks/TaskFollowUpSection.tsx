@@ -23,7 +23,6 @@ import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { cn } from '@/lib/utils';
 import { useReview } from '@/contexts/ReviewProvider';
-import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useTodos } from '@/hooks/useTodos';
 import { useKeySubmitFollowUp, Scope } from '@/keyboard';
@@ -32,12 +31,6 @@ import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
-import { buildClickedElementData } from '@/contexts/ClickedElementsProvider';
-import type { ClickedElementData } from '@/components/ui/wysiwyg/nodes/clicked-element-node';
-import WYSIWYGEditor, {
-  SESSION_INPUT_EDITOR_CLASS_NAME,
-  SESSION_INPUT_MARKDOWN_PRESET,
-} from '@/components/ui/wysiwyg';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { useGitStatus } from '@/hooks/git';
@@ -58,7 +51,13 @@ import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { queueApi, imagesApi, sessionsApi, configApi, scratchApi } from '@/lib/api';
+import {
+  queueApi,
+  imagesApi,
+  sessionsApi,
+  configApi,
+  scratchApi,
+} from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
 import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
@@ -74,6 +73,10 @@ import { SessionSelector } from './follow-up/SessionSelector';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
+import {
+  SessionComposerInput,
+  type SessionComposerImage,
+} from './follow-up/SessionComposerInput';
 import {
   SessionCreationForm,
   type SessionCreationMode,
@@ -123,6 +126,21 @@ const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
 interface TodoItem {
   content: string;
   status: string;
+}
+
+function imageAttachmentFromPath(path: string): SessionComposerImage {
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  return {
+    id: path,
+    name,
+    path,
+  };
+}
+
+function revokeImagePreviewUrl(image: SessionComposerImage): void {
+  if (image.previewUrl) {
+    URL.revokeObjectURL(image.previewUrl);
+  }
 }
 
 function truncateSessionLabel(label: string, maxUnits = 8): string {
@@ -359,27 +377,6 @@ export function TaskFollowUpSection({
   const { branch: attemptBranch, refetch: refetchAttemptBranch } =
     useAttemptBranch(workspaceIdValue);
   const { comments, generateReviewMarkdown, clearComments } = useReview();
-  const { registerOnElementAdded, workspaceRoot } = useClickedElements();
-
-  // Clicked element chip insertion bridge
-  const insertClickedElementRef = useRef<
-    ((data: ClickedElementData) => void) | null
-  >(null);
-
-  const handleRegisterClickedElementInsert = useCallback(
-    (insertFn: (data: ClickedElementData) => void) => {
-      insertClickedElementRef.current = insertFn;
-    },
-    []
-  );
-
-  useEffect(() => {
-    const unregister = registerOnElementAdded((entry) => {
-      const data = buildClickedElementData(entry, workspaceRoot);
-      insertClickedElementRef.current?.(data);
-    });
-    return unregister;
-  }, [registerOnElementAdded, workspaceRoot]);
 
   const { enableScope, disableScope } = useHotkeysContext();
 
@@ -445,6 +442,7 @@ export function TaskFollowUpSection({
   const scratchExecutorProfile = useMemo(() => {
     const data = scratchData as
       | (DraftFollowUpData & {
+          executor_profile_id?: ExecutorProfileId;
           executor_config?: {
             executor: BaseCodingAgent;
             variant?: string | null;
@@ -473,6 +471,17 @@ export function TaskFollowUpSection({
 
   const [isTextareaFocused, setIsTextareaFocused] = useState(false);
   const [localMessage, setLocalMessage] = useState('');
+  const [attachedImages, setAttachedImages] = useState<SessionComposerImage[]>(
+    []
+  );
+  const attachedImagePaths = useMemo(
+    () => attachedImages.map((image) => image.path),
+    [attachedImages]
+  );
+  const attachedImagePathsRef = useRef<string[]>(attachedImagePaths);
+  useEffect(() => {
+    attachedImagePathsRef.current = attachedImagePaths;
+  }, [attachedImagePaths]);
   const [newSessionName, setNewSessionName] = useState('');
   const [newSessionMode, setNewSessionMode] =
     useState<SessionCreationMode>('existing_workspace');
@@ -552,6 +561,9 @@ export function TaskFollowUpSection({
   const [selectedExecutorProfile, setSelectedExecutorProfile] =
     useState<ExecutorProfileId | null>(defaultExecutorProfile);
   const previousScratchIdRef = useRef<string | undefined>(scratchIdValue);
+  const hydratedExecutorProfileScratchIdRef = useRef<string | undefined>(
+    undefined
+  );
 
   useEffect(() => {
     const scratchChanged = previousScratchIdRef.current !== scratchIdValue;
@@ -571,6 +583,13 @@ export function TaskFollowUpSection({
     }
   }, [defaultExecutorProfile, selectedExecutorProfile, scratchIdValue]);
 
+  useEffect(() => {
+    if (isScratchLoading) return;
+    if (hydratedExecutorProfileScratchIdRef.current === scratchIdValue) return;
+    hydratedExecutorProfileScratchIdRef.current = scratchIdValue;
+    setSelectedExecutorProfile(defaultExecutorProfile);
+  }, [defaultExecutorProfile, isScratchLoading, scratchIdValue]);
+
   const effectiveExecutorProfile =
     selectedExecutorProfile ?? defaultExecutorProfile;
   const executorProfileRef = useRef<ExecutorProfileId | null>(
@@ -587,10 +606,15 @@ export function TaskFollowUpSection({
   }, [scratch]);
 
   const saveToScratch = useCallback(
-    async (message: string, executorProfileId: ExecutorProfileId | null) => {
+    async (
+      message: string,
+      executorProfileId: ExecutorProfileId | null,
+      images: string[] = attachedImagePathsRef.current
+    ) => {
       if (!workspaceId || !executorProfileId?.executor) return;
       if (
         !message.trim() &&
+        images.length === 0 &&
         !executorProfileId.variant &&
         !executorProfileId.model &&
         !scratchRef.current
@@ -602,7 +626,8 @@ export function TaskFollowUpSection({
             type: 'DRAFT_FOLLOW_UP',
             data: {
               message,
-              executor_profile_id: executorProfileId,
+              images,
+              executor_config: executorProfileId,
               queued: false,
             } as DraftFollowUpData,
           },
@@ -640,7 +665,11 @@ export function TaskFollowUpSection({
     if (hydratedScratchIdRef.current === scratchIdValue) return;
     hydratedScratchIdRef.current = scratchIdValue;
     setLocalMessage(scratchData?.message ?? '');
-  }, [isScratchLoading, scratchData?.message, scratchIdValue]);
+    setAttachedImages((prev) => {
+      prev.forEach(revokeImagePreviewUrl);
+      return (scratchData?.images ?? []).map(imageAttachmentFromPath);
+    });
+  }, [isScratchLoading, scratchData?.images, scratchData?.message, scratchIdValue]);
 
   const { activeRetryProcessId } = useRetryUi();
   const isRetryActive = !!activeRetryProcessId;
@@ -683,11 +712,13 @@ export function TaskFollowUpSection({
   const queueMutation = useMutation({
     mutationFn: ({
       message,
+      images,
       executor_profile_id,
     }: {
       message: string;
+      images: string[];
       executor_profile_id: ExecutorProfileId;
-    }) => queueApi.queue(sessionId!, { message, executor_profile_id }),
+    }) => queueApi.queue(sessionId!, { message, images, executor_profile_id }),
     onSuccess: (status) => {
       queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);
     },
@@ -701,10 +732,15 @@ export function TaskFollowUpSection({
   });
 
   const queueMessage = useCallback(
-    async (message: string, executorProfileId: ExecutorProfileId) => {
+    async (
+      message: string,
+      executorProfileId: ExecutorProfileId,
+      images: string[] = []
+    ) => {
       if (!sessionId) return;
       await queueMutation.mutateAsync({
         message,
+        images,
         executor_profile_id: executorProfileId,
       });
     },
@@ -766,7 +802,8 @@ export function TaskFollowUpSection({
             type: 'DRAFT_FOLLOW_UP',
             data: {
               message: '',
-              executor_profile_id: profile,
+              images: [],
+              executor_config: profile,
               queued: false,
             } as DraftFollowUpData,
           },
@@ -790,7 +827,10 @@ export function TaskFollowUpSection({
 
   const { entries } = useEntries();
   const codexGoalState = useMemo(() => {
-    if (effectiveExecutorProfile?.executor !== BaseCodingAgent.CODEX) {
+    if (
+      effectiveExecutorProfile?.executor !== BaseCodingAgent.CODEX &&
+      effectiveExecutorProfile?.executor !== BaseCodingAgent.CLAUDE_CODE
+    ) {
       return null;
     }
 
@@ -822,6 +862,7 @@ export function TaskFollowUpSection({
       onSelectSession: handleSelectSession,
       onSessionCreated: handleFollowUpSessionCreated,
       message: localMessage,
+      images: attachedImagePaths,
       conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,
       executorProfileId: effectiveExecutorProfile,
@@ -829,6 +870,10 @@ export function TaskFollowUpSection({
       onAfterSendCleanup: async () => {
         cancelDebouncedSave();
         setLocalMessage('');
+        setAttachedImages((prev) => {
+          prev.forEach(revokeImagePreviewUrl);
+          return [];
+        });
         setNewSessionName('');
         hydratedScratchIdRef.current = scratchIdValue;
         if (scratchIdValue) {
@@ -887,7 +932,10 @@ export function TaskFollowUpSection({
     if (!canTypeFollowUp || !effectiveExecutorProfile?.executor) return false;
     if (isAwaitingNewSessionConfirmation || isNewSessionMode) return false;
     return Boolean(
-      conflictResolutionInstructions || reviewMarkdown || localMessage.trim()
+      conflictResolutionInstructions ||
+        reviewMarkdown ||
+        localMessage.trim() ||
+        attachedImages.length > 0
     );
   }, [
     canTypeFollowUp,
@@ -897,13 +945,13 @@ export function TaskFollowUpSection({
     conflictResolutionInstructions,
     reviewMarkdown,
     localMessage,
+    attachedImages.length,
   ]);
   const canEnhancePrompt = useMemo(
     () => Boolean(canTypeFollowUp && localMessage.trim()),
     [canTypeFollowUp, localMessage]
   );
-  const isEditable =
-    !isRetryActive && !hasPendingApproval && !isCompactingContext;
+  const isEditable = !isRetryActive && !hasPendingApproval;
   const canCompactContext = useMemo(() => {
     if (!sessionId || !workspaceIdValue || !effectiveExecutorProfile?.executor)
       return false;
@@ -924,7 +972,8 @@ export function TaskFollowUpSection({
     if (
       !localMessage.trim() &&
       !conflictResolutionInstructions &&
-      !reviewMarkdown
+      !reviewMarkdown &&
+      attachedImagePaths.length === 0
     )
       return;
     cancelDebouncedSave();
@@ -934,12 +983,13 @@ export function TaskFollowUpSection({
       [conflictResolutionInstructions, reviewMarkdown].filter(Boolean)
     );
     if (effectiveExecutorProfile) {
-      await queueMessage(prompt, effectiveExecutorProfile);
+      await queueMessage(prompt, effectiveExecutorProfile, attachedImagePaths);
     }
   }, [
     localMessage,
     conflictResolutionInstructions,
     reviewMarkdown,
+    attachedImagePaths,
     effectiveExecutorProfile,
     queueMessage,
     cancelDebouncedSave,
@@ -1011,40 +1061,76 @@ export function TaskFollowUpSection({
     return { isQueued: queued, queuedMessage: message };
   }, [queryClient, sessionId]);
 
-  const handlePasteFiles = useCallback(
+  const handleAttachImages = useCallback(
     async (files: File[]) => {
       if (!workspaceId) return;
       for (const file of files) {
         try {
           const response = await imagesApi.uploadForAttempt(workspaceId, file);
-          const imageMarkdown = `![${response.original_name}](${toVibeImagePath(response.file_path)})`;
           const {
             isQueued: currentlyQueued,
             queuedMessage: currentQueuedMessage,
           } = getQueueState();
+          let scratchMessage = localMessage;
+          const queuedAttachments =
+            currentlyQueued && currentQueuedMessage
+              ? currentQueuedMessage.data.images.map(imageAttachmentFromPath)
+              : [];
           if (currentlyQueued && currentQueuedMessage) {
             cancelMutation.mutate();
             const base = currentQueuedMessage.data.message;
-            const newMessage = base
-              ? `${base}\n\n${imageMarkdown}`
-              : imageMarkdown;
-            setLocalMessage(newMessage);
-            setFollowUpMessageRef.current(newMessage);
-          } else {
-            setLocalMessage((prev) => {
-              const newMessage = prev
-                ? `${prev}\n\n${imageMarkdown}`
-                : imageMarkdown;
-              setFollowUpMessageRef.current(newMessage);
-              return newMessage;
-            });
+            scratchMessage = base;
+            setLocalMessage(base);
+            setFollowUpMessageRef.current(base);
           }
+          const newAttachment = {
+            id: response.id,
+            name: response.original_name,
+            path: toVibeImagePath(response.file_path),
+            previewUrl: URL.createObjectURL(file),
+          };
+          setAttachedImages((prev) => {
+            const merged = new Map<string, SessionComposerImage>();
+            for (const image of [...queuedAttachments, ...prev]) {
+              merged.set(image.path, image);
+            }
+            const replaced = merged.get(newAttachment.path);
+            if (replaced?.previewUrl && replaced.previewUrl !== newAttachment.previewUrl) {
+              revokeImagePreviewUrl(replaced);
+            }
+            merged.set(newAttachment.path, newAttachment);
+            const next = Array.from(merged.values());
+            void saveToScratch(
+              scratchMessage,
+              executorProfileRef.current,
+              next.map((image) => image.path)
+            );
+            return next;
+          });
         } catch (error) {
           console.error('Failed to upload image:', error);
         }
       }
     },
-    [workspaceId, getQueueState, cancelMutation]
+    [workspaceId, localMessage, getQueueState, cancelMutation, saveToScratch]
+  );
+
+  const handleRemoveImage = useCallback(
+    (imageId: string) => {
+      setAttachedImages((prev) => {
+        prev
+          .filter((image) => image.id === imageId)
+          .forEach(revokeImagePreviewUrl);
+        const next = prev.filter((image) => image.id !== imageId);
+        void saveToScratch(
+          localMessage,
+          executorProfileRef.current,
+          next.map((image) => image.path)
+        );
+        return next;
+      });
+    },
+    [localMessage, saveToScratch]
   );
 
   const handleEditorChange = useCallback(
@@ -1264,7 +1350,7 @@ export function TaskFollowUpSection({
     <TooltipProvider delayDuration={200}>
       <div
         className={cn(
-          'flex min-h-0 flex-col overflow-hidden',
+          'flex min-h-0 flex-col overflow-visible',
           isRetryActive && 'opacity-50'
         )}
       >
@@ -1303,6 +1389,11 @@ export function TaskFollowUpSection({
                     ? (queuedMessage?.data.message ?? null)
                     : null
                 }
+                attachmentCount={
+                  hasVisibleQueuedMessage
+                    ? (queuedMessage?.data.images.length ?? 0)
+                    : 0
+                }
               />
             </div>
           </div>
@@ -1310,7 +1401,7 @@ export function TaskFollowUpSection({
 
         {/* Input area with buttons inside */}
         <div
-          className="composer-shell mx-3 mb-3 flex shrink-0 flex-col gap-1 overflow-hidden rounded-xl p-2"
+          className="composer-shell relative z-10 mx-3 mb-3 mt-2 flex shrink-0 flex-col gap-1 overflow-visible rounded-xl p-2"
           data-typeahead-surface="composer"
           onFocus={() => setIsTextareaFocused(true)}
           onBlur={(e) => {
@@ -1446,22 +1537,16 @@ export function TaskFollowUpSection({
             </div>
           ) : null}
 
-          <WYSIWYGEditor
-            placeholder=""
+          <SessionComposerInput
             value={localMessage}
             onChange={handleEditorChange}
             disabled={!isEditable}
-            onPasteFiles={handlePasteFiles}
-            repoIds={repos.map((r) => r.id)}
-            projectId={projectId}
-            executorProfile={effectiveExecutorProfile}
+            sendShortcut={config?.send_message_shortcut ?? 'Enter'}
             taskAttemptId={workspaceId}
-            onCmdEnter={handleSubmitShortcut}
-            sendShortcut={config?.send_message_shortcut}
-            className={SESSION_INPUT_EDITOR_CLASS_NAME}
-            onRegisterClickedElementInsert={handleRegisterClickedElementInsert}
-            enableFloatingToolbar={false}
-            markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
+            images={attachedImages}
+            onSubmit={handleSubmitShortcut}
+            onAttachImages={handleAttachImages}
+            onRemoveImage={handleRemoveImage}
           />
 
           <ActionBar
@@ -1486,6 +1571,7 @@ export function TaskFollowUpSection({
             canEnhancePrompt={canEnhancePrompt}
             sessionId={sessionId}
             localMessage={localMessage}
+            attachmentCount={attachedImages.length}
             conflictResolutionInstructions={conflictResolutionInstructions}
             reviewMarkdown={reviewMarkdown}
             todos={todos}
@@ -1497,7 +1583,7 @@ export function TaskFollowUpSection({
             onSendFollowUp={onSendFollowUp}
             onEnhancePrompt={handleEnhancePrompt}
             onClearComments={clearComments}
-            onPasteFiles={handlePasteFiles}
+            onAttachImages={handleAttachImages}
           />
         </div>
       </div>

@@ -83,6 +83,506 @@ async fn send_codex_response(
         .map_err(|error| error.to_string())
 }
 
+fn codex_response_error_message(response: &Value) -> Option<String> {
+    let error = response.get("error")?;
+    if let Some(message) = error.get("message").and_then(Value::as_str) {
+        return Some(message.to_string());
+    }
+    Some(error.to_string())
+}
+
+fn codex_response_success<'a>(method: &str, response: &'a Value) -> Result<&'a Value, String> {
+    if let Some(error) = codex_response_error_message(response) {
+        return Err(format!("{method} failed: {error}"));
+    }
+    Ok(response)
+}
+
+fn codex_turn_start_error_is_active_turn(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("active turn")
+        || message.contains("turn already")
+        || message.contains("already running")
+        || message.contains("currently running")
+        || message.contains("in progress")
+}
+
+async fn send_codex_turn_interrupt(thread_id: &str, turn_id: &str) -> Result<(), String> {
+    let servers: Vec<Arc<CodexAppServer>> =
+        CODEX_APP_SERVERS.lock().await.values().cloned().collect();
+    let mut last_error = None;
+
+    for server in servers {
+        match send_codex_request(
+            &server,
+            "turn/interrupt",
+            json!({ "threadId": thread_id, "turnId": turn_id }),
+            Duration::from_secs(5),
+        )
+        .await
+        {
+            Ok(response) => match codex_response_success("turn/interrupt", &response) {
+                Ok(_) => return Ok(()),
+                Err(error) => last_error = Some(error),
+            },
+            Err(error) => {
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "no Codex app-server is available".to_string()))
+}
+
+async fn send_codex_turn_steer(
+    thread_id: &str,
+    turn_id: &str,
+    input: Vec<Value>,
+) -> Result<Value, String> {
+    let servers: Vec<Arc<CodexAppServer>> =
+        CODEX_APP_SERVERS.lock().await.values().cloned().collect();
+    let mut last_error = None;
+
+    for server in servers {
+        match send_codex_request(
+            &server,
+            "turn/steer",
+            json!({
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "input": input,
+            }),
+            Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+        )
+        .await
+        {
+            Ok(response) => match codex_response_success("turn/steer", &response) {
+                Ok(_) => return Ok(response),
+                Err(error) => last_error = Some(error),
+            },
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "no Codex app-server is available".to_string()))
+}
+
+async fn send_codex_turn_start_request(
+    server: &Arc<CodexAppServer>,
+    params: Value,
+) -> Result<Value, String> {
+    const MAX_ATTEMPTS: usize = 6;
+
+    for attempt in 0..MAX_ATTEMPTS {
+        let response = send_codex_request(
+            server,
+            "turn/start",
+            params.clone(),
+            Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+        )
+        .await?;
+
+        if let Some(error) = codex_response_error_message(&response)
+            && codex_turn_start_error_is_active_turn(&error)
+            && attempt + 1 < MAX_ATTEMPTS
+        {
+            let delay_ms = 250 * (attempt as u64 + 1);
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            continue;
+        }
+
+        return Ok(response);
+    }
+
+    Err("turn/start retry loop exhausted".to_string())
+}
+
+fn fallback_codex_provider_models() -> Vec<ProviderModel> {
+    [
+        ("gpt-5.5".to_string(), "GPT-5.5".to_string()),
+        ("gpt-5.4".to_string(), "GPT-5.4".to_string()),
+    ]
+    .into_iter()
+    .map(|(id, label)| ProviderModel {
+        provider: ProviderId::Codex,
+        id,
+        label,
+        source: CapabilitySource::AppServer,
+    })
+    .collect()
+}
+
+fn codex_model_label_from_id(id: &str) -> String {
+    id.split('-')
+        .map(|part| {
+            if part.eq_ignore_ascii_case("gpt") {
+                "GPT".to_string()
+            } else {
+                part.to_ascii_uppercase()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn codex_model_from_value(value: &Value) -> Option<ProviderModel> {
+    match value {
+        Value::String(id) => {
+            let id = id.trim();
+            if id.is_empty() {
+                return None;
+            }
+            Some(ProviderModel {
+                provider: ProviderId::Codex,
+                id: id.to_string(),
+                label: codex_model_label_from_id(id),
+                source: CapabilitySource::AppServer,
+            })
+        }
+        Value::Object(record) => {
+            let id = ["id", "model", "name", "slug"]
+                .iter()
+                .find_map(|key| record.get(*key).and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|id| !id.is_empty())?;
+            let label = ["label", "displayName", "display_name", "title", "name"]
+                .iter()
+                .find_map(|key| record.get(*key).and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+                .map(ToString::to_string)
+                .unwrap_or_else(|| codex_model_label_from_id(id));
+            Some(ProviderModel {
+                provider: ProviderId::Codex,
+                id: id.to_string(),
+                label,
+                source: CapabilitySource::AppServer,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn codex_models_from_array(value: &Value) -> Vec<ProviderModel> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(codex_model_from_value)
+        .fold(Vec::new(), |mut models, model| {
+            if !models.iter().any(|existing: &ProviderModel| existing.id == model.id) {
+                models.push(model);
+            }
+            models
+        })
+}
+
+fn codex_models_from_response(response: &Value) -> Vec<ProviderModel> {
+    let result = response.get("result").unwrap_or(response);
+    for candidate in [
+        result.get("models"),
+        result.get("data"),
+        result.get("items"),
+        Some(result),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let models = codex_models_from_array(candidate);
+        if !models.is_empty() {
+            return models;
+        }
+    }
+
+    let mut models = Vec::new();
+    for object_key in ["defaultModels", "default_models"] {
+        let Some(defaults) = result.get(object_key).and_then(Value::as_object) else {
+            continue;
+        };
+        for value in defaults.values() {
+            if let Some(model) = codex_model_from_value(value)
+                && !models
+                    .iter()
+                    .any(|existing: &ProviderModel| existing.id == model.id)
+            {
+                models.push(model);
+            }
+        }
+    }
+    models
+}
+
+async fn load_codex_app_server_models() -> Result<Vec<ProviderModel>, AppError> {
+    let workspace_dir = repo_root_path();
+    let request = ProviderTurnRequest {
+        provider: ProviderId::Codex,
+        workspace_id: Uuid::nil().to_string(),
+        executor_profile_id: None,
+        thread_id: None,
+        session_id: None,
+        text: String::new(),
+        model: None,
+        images: Vec::new(),
+        provider_options: serde_json::Map::new(),
+    };
+    let server = ensure_codex_app_server(
+        &request,
+        Uuid::nil(),
+        &workspace_dir,
+        "codex-model-list",
+    )
+    .await
+    .map_err(|error| {
+        tracing::debug!("Falling back to bundled Codex models; app-server unavailable: {error}");
+        error
+    });
+    let Ok(server) = server else {
+        return Ok(fallback_codex_provider_models());
+    };
+    let response = match send_codex_request(
+        &server,
+        "model/list",
+        json!({}),
+        Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+    )
+    .await
+    .and_then(|response| {
+        codex_response_success("model/list", &response)?;
+        Ok(response)
+    })
+    {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::debug!("Falling back to bundled Codex models; model/list failed: {error}");
+            return Ok(fallback_codex_provider_models());
+        }
+    };
+    let models = codex_models_from_response(&response);
+    if models.is_empty() {
+        return Ok(fallback_codex_provider_models());
+    }
+    Ok(models)
+}
+
+async fn ensure_codex_app_server_for_workspace(
+    state: &tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    session_id: &str,
+) -> Result<Arc<CodexAppServer>, AppError> {
+    let mut workspace = Workspace::find_by_id(&state.deployment.db().pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    let workspace_dir = resolve_provider_workspace_dir(state, &mut workspace).await?;
+    let request = ProviderTurnRequest {
+        provider: ProviderId::Codex,
+        workspace_id: workspace_id.to_string(),
+        executor_profile_id: None,
+        thread_id: None,
+        session_id: None,
+        text: String::new(),
+        model: None,
+        images: Vec::new(),
+        provider_options: serde_json::Map::new(),
+    };
+    ensure_codex_app_server(&request, workspace_id, &workspace_dir, session_id)
+        .await
+        .map_err(|error| app_error_from_native(ProviderId::Codex, error))
+}
+
+async fn send_codex_app_server_workspace_request(
+    state: &tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    method: &str,
+    params: Value,
+) -> Result<Value, AppError> {
+    let server = ensure_codex_app_server_for_workspace(state, workspace_id, method).await?;
+    let response = send_codex_request(
+        &server,
+        method,
+        params,
+        Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+    )
+    .await
+    .and_then(|response| {
+        codex_response_success(method, &response)?;
+        Ok(response)
+    })
+    .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
+    Ok(response.get("result").cloned().unwrap_or(response))
+}
+
+fn codex_workspace_cwd_param(server: &CodexAppServer) -> String {
+    server.workspace_dir.to_string_lossy().to_string()
+}
+
+fn codex_steer_is_allowed(request: &ProviderTurnRequest) -> bool {
+    if request.provider != ProviderId::Codex
+        || should_force_acp_fallback(request)
+        || provider_option_bool(&request.provider_options, "force_new_turn")
+        || provider_option_bool(&request.provider_options, "fork")
+    {
+        return false;
+    }
+
+    let prompt = request.text.trim_start();
+    !prompt.starts_with('/')
+}
+
+fn codex_request_turn_id(request: &ProviderTurnRequest) -> Option<String> {
+    provider_option_string(&request.provider_options, "turn_id")
+        .or_else(|| provider_option_string(&request.provider_options, "turnId"))
+        .map(ToString::to_string)
+}
+
+async fn try_steer_active_codex_turn(
+    pool: &SqlitePool,
+    request: &ProviderTurnRequest,
+    workspace_id: Uuid,
+    session: &Session,
+) -> Result<Option<ProviderRuntimeEvent>, AppError> {
+    if !codex_steer_is_allowed(request) {
+        return Ok(None);
+    }
+
+    let resolved_request =
+        resolve_native_provider_request(pool, session, request.clone()).await?;
+    let processes = ExecutionProcess::find_by_session_id(pool, session.id, false).await?;
+    for process in processes.into_iter().rev() {
+        if !matches!(&process.status, ExecutionProcessStatus::Running)
+            || !matches!(&process.run_reason, ExecutionProcessRunReason::CodingAgent)
+        {
+            continue;
+        }
+
+        let Some(turn) = CodingAgentTurn::find_by_execution_process_id(pool, process.id).await?
+        else {
+            continue;
+        };
+        let Some(thread_id) = turn
+            .agent_session_id
+            .clone()
+            .or_else(|| resolved_request.thread_id.clone())
+        else {
+            continue;
+        };
+        if resolved_request
+            .thread_id
+            .as_deref()
+            .is_some_and(|request_thread_id| request_thread_id != thread_id)
+        {
+            continue;
+        }
+        let Some(turn_id) = codex_request_turn_id(&resolved_request)
+            .or_else(|| turn.agent_message_id.clone())
+        else {
+            continue;
+        };
+
+        let response = send_codex_turn_steer(
+            &thread_id,
+            &turn_id,
+            codex_input_items(&resolved_request),
+        )
+        .await
+        .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
+        let event = ProviderRuntimeEvent {
+            provider: ProviderId::Codex,
+            workspace_id: workspace_id.to_string(),
+            thread_id: Some(thread_id),
+            turn_id: Some(turn_id),
+            event: json!({
+                "method": "turn/steered",
+                "runtime_source": "native_app_server",
+                "execution_process_id": process.id,
+                "session_id": session.id,
+                "response": response,
+            }),
+        };
+        push_provider_event(&session.id.to_string(), event.clone()).await;
+        return Ok(Some(event));
+    }
+
+    Ok(None)
+}
+
+async fn complete_if_codex_process_was_stopped(
+    pool: &SqlitePool,
+    process_id: Uuid,
+    conversation_sink: &NativeConversationSink,
+    turn_id: Option<String>,
+    thread_id: Option<String>,
+) -> bool {
+    if !ExecutionProcess::was_stopped(pool, process_id).await {
+        return false;
+    }
+
+    if let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref())
+        && let Err(error) = send_codex_turn_interrupt(thread_id, turn_id).await
+    {
+        tracing::debug!(
+            "Failed to interrupt stopped Codex app-server turn process_id={} thread_id={} turn_id={}: {}",
+            process_id,
+            thread_id,
+            turn_id,
+            error
+        );
+    }
+
+    complete_codex_native_sink(
+        conversation_sink.clone(),
+        turn_id,
+        thread_id,
+        ExecutionProcessStatus::Killed,
+    )
+    .await;
+    true
+}
+
+pub async fn interrupt_codex_native_execution_process(
+    pool: &SqlitePool,
+    process_id: Uuid,
+) -> Result<bool, AppError> {
+    let Some(turn) = CodingAgentTurn::find_by_execution_process_id(pool, process_id).await? else {
+        return Ok(false);
+    };
+
+    let thread_id = turn.agent_session_id;
+    let turn_id = turn.agent_message_id;
+
+    if let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref())
+        && let Err(error) = send_codex_turn_interrupt(thread_id, turn_id).await
+    {
+        tracing::debug!(
+            "Failed to interrupt Codex app-server turn process_id={} thread_id={} turn_id={}: {}",
+            process_id,
+            thread_id,
+            turn_id,
+            error
+        );
+    }
+
+    let mut sink = None;
+    if let Some(turn_id) = turn_id.as_deref() {
+        sink = CODEX_NATIVE_TURN_SINKS.lock().await.get(turn_id).cloned();
+    }
+    if sink.is_none()
+        && let Some(thread_id) = thread_id.as_deref()
+    {
+        sink = CODEX_NATIVE_THREAD_SINKS
+            .lock()
+            .await
+            .get(thread_id)
+            .cloned();
+    }
+
+    if let Some(sink) = sink {
+        complete_codex_native_sink(sink, turn_id, thread_id, ExecutionProcessStatus::Killed).await;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn codex_app_server_command_args(request: &ProviderTurnRequest) -> Vec<String> {
     let mut args = vec!["app-server".to_string()];
 
@@ -199,12 +699,19 @@ async fn ensure_codex_app_server(
             .try_wait()
             .map(|status| status.is_none())
             .unwrap_or(false);
-        if process_alive
-            && send_codex_request(&server, "model/list", json!({}), Duration::from_secs(4))
-                .await
-                .is_ok()
-        {
-            return Ok(server);
+        if process_alive {
+            let is_healthy = send_codex_request(
+                &server,
+                "model/list",
+                json!({}),
+                Duration::from_secs(4),
+            )
+            .await
+            .and_then(|response| codex_response_success("model/list", &response).map(|_| ()))
+            .is_ok();
+            if is_healthy {
+                return Ok(server);
+            }
         }
         CODEX_APP_SERVERS.lock().await.remove(&key);
     }
@@ -266,6 +773,7 @@ async fn ensure_codex_app_server(
 async fn start_codex_native_turn(
     state: &tauri::State<'_, AppState>,
     request: ProviderTurnRequest,
+    visible_prompt: &str,
     workspace: &Workspace,
     workspace_dir: PathBuf,
     session: &Session,
@@ -279,6 +787,7 @@ async fn start_codex_native_turn(
         workspace,
         session,
         &request,
+        visible_prompt,
         request.thread_id.clone(),
         Some(queued_turn_id.clone()),
     )
@@ -353,6 +862,18 @@ async fn start_codex_native_turn(
                 return;
             }
         };
+
+        if complete_if_codex_process_was_stopped(
+            &pool,
+            process_id,
+            &conversation_sink,
+            None,
+            final_thread_id.clone(),
+        )
+        .await
+        {
+            return;
+        }
 
         let thread_result: Result<String, String> = match request.thread_id.clone() {
             Some(thread_id) if provider_option_bool(&request.provider_options, "fork") => {
@@ -470,6 +991,18 @@ async fn start_codex_native_turn(
             );
         }
 
+        if complete_if_codex_process_was_stopped(
+            &pool,
+            process_id,
+            &conversation_sink,
+            None,
+            final_thread_id.clone(),
+        )
+        .await
+        {
+            return;
+        }
+
         if is_context_compact_prompt(&request.text) {
             let response = match send_codex_request(
                 &server,
@@ -573,6 +1106,9 @@ async fn start_codex_native_turn(
         if let Some(effort) = codex_options.effort.as_deref() {
             params.insert("effort".to_string(), json!(effort));
         }
+        if let Some(base_instructions) = codex_options.base_instructions.as_deref() {
+            params.insert("baseInstructions".to_string(), json!(base_instructions));
+        }
         if let Some(collaboration_mode) =
             provider_option_string(&request.provider_options, "collaboration_mode")
         {
@@ -586,13 +1122,7 @@ async fn start_codex_native_turn(
             Value::Array(codex_input_items(&request)),
         );
 
-        let response = match send_codex_request(
-            &server,
-            "turn/start",
-            Value::Object(params),
-            Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
-        )
-        .await
+        let response = match send_codex_turn_start_request(&server, Value::Object(params)).await
         {
             Ok(response) if response.get("error").is_some() => {
                 let event = failure_event(format!("turn/start failed: {}", response["error"]));
@@ -665,6 +1195,18 @@ async fn start_codex_native_turn(
                     error
                 );
             }
+        }
+
+        if complete_if_codex_process_was_stopped(
+            &pool,
+            process_id,
+            &conversation_sink,
+            Some(final_turn_id.clone()),
+            final_thread_id.clone(),
+        )
+        .await
+        {
+            return;
         }
 
         let event = ProviderRuntimeEvent {

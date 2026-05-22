@@ -10,7 +10,7 @@ pub use v7::{
 use crate::services::config::versions::v7;
 
 fn default_git_branch_prefix() -> String {
-    "vu".to_string()
+    "vx".to_string()
 }
 
 fn default_pr_auto_description_enabled() -> bool {
@@ -23,8 +23,8 @@ fn default_commit_reminder_enabled() -> bool {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
 pub enum SendMessageShortcut {
-    #[default]
     ModifierEnter,
+    #[default]
     Enter,
 }
 

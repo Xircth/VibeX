@@ -209,7 +209,9 @@ export function repairTokenizedStreamContent(content: string): string {
     return sanitized;
   }
 
-  const shortLineCount = lines.filter((line) => line.trim().length <= 12).length;
+  const shortLineCount = lines.filter(
+    (line) => line.trim().length <= 12
+  ).length;
   const averageLineLength =
     lines.reduce((total, line) => total + line.trim().length, 0) / lines.length;
   const looksTokenized =
@@ -683,8 +685,7 @@ export function getCompactMetaNoticeText(
     return normalizeMetaNoticeText(impeccablePreflight.notice);
   }
 
-  const unstableFeatureNotice =
-    splitLeadingCodexUnstableFeatureNotice(content);
+  const unstableFeatureNotice = splitLeadingCodexUnstableFeatureNotice(content);
   if (unstableFeatureNotice) {
     if (!unstableFeatureNotice.remainder) {
       return normalizeMetaNoticeText(unstableFeatureNotice.notice);
@@ -1081,21 +1082,6 @@ function isAssistantMessageDisplayEntry(
 }
 
 function shouldCollapseAssistantPreludeEntry(entry: BaseDisplayEntry): boolean {
-  if (
-    entry.type === 'AGGREGATED_GROUP' &&
-    entry.aggregationType === 'task_create'
-  ) {
-    return false;
-  }
-
-  if (
-    entry.type === 'NORMALIZED_ENTRY' &&
-    entry.content.entry_type.type === 'tool_use' &&
-    entry.content.entry_type.action_type.action === 'task_create'
-  ) {
-    return false;
-  }
-
   if (entry.type !== 'NORMALIZED_ENTRY') {
     return true;
   }
@@ -1122,7 +1108,10 @@ function collapseAssistantPreludeEntries(
     Extract<DisplayEntry, { type: 'COLLAPSED_ASSISTANT_MESSAGES' }>
   >();
 
-  for (const [executionProcessId, assistantIndex] of lastAssistantIndexByProcess) {
+  for (const [
+    executionProcessId,
+    assistantIndex,
+  ] of lastAssistantIndexByProcess) {
     const hiddenEntries: BaseDisplayEntry[] = [];
 
     for (let index = 0; index < assistantIndex; index += 1) {
@@ -1177,10 +1166,8 @@ export function buildDisplayEntries(
     return [];
   }
 
-  const {
-    aggregateThinking = false,
-    collapseAiMessagesByDefault = false,
-  } = options;
+  const { aggregateThinking = false, collapseAiMessagesByDefault = false } =
+    options;
   const sourceEntries = expandAssistantAgentLaunchEntries(entries);
   const completedExecutionProcessIds = options.completedExecutionProcessIds;
   const displayEntries: BaseDisplayEntry[] = [];

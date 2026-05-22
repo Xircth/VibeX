@@ -156,7 +156,7 @@ describe('buildProcessChangeItems', () => {
 });
 
 describe('buildDisplayEntries agent creation groups', () => {
-  it('groups consecutive subagent creation entries and keeps them visible before the assistant reply', () => {
+  it('groups consecutive subagent creation entries inside collapsed process messages', () => {
     const entries: PatchTypeWithKey[] = [
       {
         type: 'NORMALIZED_ENTRY',
@@ -216,12 +216,18 @@ describe('buildDisplayEntries agent creation groups', () => {
 
     expect(displayEntries).toHaveLength(2);
     expect(displayEntries[0]).toMatchObject({
-      type: 'AGGREGATED_GROUP',
-      aggregationType: 'task_create',
-      entries: expect.arrayContaining([
-        expect.objectContaining({ patchKey: 'proc-1:0' }),
-        expect.objectContaining({ patchKey: 'proc-1:1' }),
-      ]),
+      type: 'COLLAPSED_ASSISTANT_MESSAGES',
+      hiddenCount: 1,
+      entries: [
+        expect.objectContaining({
+          type: 'AGGREGATED_GROUP',
+          aggregationType: 'task_create',
+          entries: expect.arrayContaining([
+            expect.objectContaining({ patchKey: 'proc-1:0' }),
+            expect.objectContaining({ patchKey: 'proc-1:1' }),
+          ]),
+        }),
+      ],
     });
     expect(displayEntries[1]).toMatchObject({
       type: 'NORMALIZED_ENTRY',
@@ -229,7 +235,7 @@ describe('buildDisplayEntries agent creation groups', () => {
     });
   });
 
-  it('promotes assistant subagent launch text into a visible agent creation group', () => {
+  it('promotes assistant subagent launch text into a collapsed agent creation group', () => {
     const entries: PatchTypeWithKey[] = [
       {
         type: 'NORMALIZED_ENTRY',
@@ -250,8 +256,19 @@ describe('buildDisplayEntries agent creation groups', () => {
 
     expect(displayEntries).toHaveLength(2);
     expect(displayEntries[0]).toMatchObject({
-      type: 'AGGREGATED_GROUP',
-      aggregationType: 'task_create',
+      type: 'COLLAPSED_ASSISTANT_MESSAGES',
+      hiddenCount: 1,
+      entries: [
+        expect.objectContaining({
+          type: 'AGGREGATED_GROUP',
+          aggregationType: 'task_create',
+        }),
+      ],
+    });
+
+    expect(
+      (displayEntries[0] as { entries: unknown[] }).entries[0]
+    ).toMatchObject({
       entries: [
         expect.objectContaining({
           content: expect.objectContaining({

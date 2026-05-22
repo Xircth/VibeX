@@ -218,7 +218,8 @@ describe('conversation meta notices', () => {
         '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。\n\n前端已恢复访问。'
       )
     ).toEqual({
-      prefix: '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。',
+      prefix:
+        '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。',
       output: '前端已恢复访问。',
     });
   });
@@ -266,6 +267,26 @@ describe('conversation meta notices', () => {
       },
       {
         type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:subagent',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'spawn_agent',
+            action_type: {
+              action: 'task_create',
+              description: 'Inspect related components',
+              subagent_type: 'explorer',
+              result: null,
+            },
+            status: { status: 'created' },
+          },
+          content: 'Inspect related components',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
         patchKey: 'proc-1:assistant-2',
         executionProcessId: 'proc-1',
         content: {
@@ -289,7 +310,10 @@ describe('conversation meta notices', () => {
     });
     expect(displayEntries[1]).toMatchObject({
       type: 'COLLAPSED_ASSISTANT_MESSAGES',
-      hiddenCount: 2,
+      hiddenCount: 3,
+      entries: expect.arrayContaining([
+        expect.objectContaining({ patchKey: 'proc-1:subagent' }),
+      ]),
     });
     expect(displayEntries[2]).toMatchObject({
       type: 'NORMALIZED_ENTRY',

@@ -79,17 +79,17 @@ export function WorkspaceLayout({
       <KanbanSessionProvider>
         <PendingProjectFocusBridge />
         <ReviewProvider>
-          <KanbanSessionConversationPlacementProvider>
-            <TerminalProvider>
-              <PanelActionsProvider>
+          <TerminalProvider>
+            <PanelActionsProvider>
+              <KanbanSessionConversationPlacementProvider>
                 <AcpTerminalBridge />
                 <IDELayout
                   rightPanelContent={rightPanelContent}
                   toolbarContent={toolbarContent}
                 />
-              </PanelActionsProvider>
-            </TerminalProvider>
-          </KanbanSessionConversationPlacementProvider>
+              </KanbanSessionConversationPlacementProvider>
+            </PanelActionsProvider>
+          </TerminalProvider>
         </ReviewProvider>
       </KanbanSessionProvider>
     </WorktreeProvider>

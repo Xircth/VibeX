@@ -41,11 +41,15 @@ import { stripTagReferenceAppendix } from '@/lib/tagReferenceMarkers';
 const COLLAPSED_MAX_HEIGHT = 120;
 const EXPANDED_BOTTOM_SAFE_SPACE = 28;
 const MAX_USER_MESSAGE_IMAGE_URL_CACHE = 100;
+const MAX_USER_MESSAGE_THUMBNAIL_CACHE = 100;
+const USER_MESSAGE_THUMBNAIL_SIZE = 160;
 const VIBE_IMAGE_MARKDOWN_PATTERN =
   /!\[([^\]]*)\]\((\.vibe-images\/[^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
 
 const userMessageImageUrlCache = new Map<string, string>();
 const userMessageImageUrlRequests = new Map<string, Promise<string>>();
+const userMessageThumbnailCache = new Map<string, string>();
+const userMessageThumbnailRequests = new Map<string, Promise<string | null>>();
 
 type UserMessageImage = {
   id: string;
@@ -93,6 +97,111 @@ function getCachedUserMessageImageUrl(path: string): string | null {
   return userMessageImageUrlCache.get(path) ?? null;
 }
 
+function rememberUserMessageThumbnail(path: string, url: string) {
+  userMessageThumbnailCache.delete(path);
+  userMessageThumbnailCache.set(path, url);
+
+  while (userMessageThumbnailCache.size > MAX_USER_MESSAGE_THUMBNAIL_CACHE) {
+    const oldestKey = userMessageThumbnailCache.keys().next().value;
+    if (!oldestKey) break;
+    userMessageThumbnailCache.delete(oldestKey);
+  }
+}
+
+function getCachedUserMessageThumbnail(path: string): string | null {
+  return userMessageThumbnailCache.get(path) ?? null;
+}
+
+function createImageThumbnail(sourceUrl: string): Promise<string | null> {
+  if (typeof window === 'undefined') {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const image = new window.Image();
+    image.decoding = 'async';
+
+    image.onload = () => {
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      if (width <= 0 || height <= 0) {
+        resolve(null);
+        return;
+      }
+
+      const scale = Math.min(
+        1,
+        USER_MESSAGE_THUMBNAIL_SIZE / Math.max(width, height)
+      );
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        resolve(null);
+        return;
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      try {
+        resolve(canvas.toDataURL('image/webp', 0.76));
+      } catch {
+        try {
+          resolve(canvas.toDataURL('image/png'));
+        } catch {
+          resolve(null);
+        }
+      }
+    };
+
+    image.onerror = () => resolve(null);
+    image.src = sourceUrl;
+  });
+}
+
+function ensureUserMessageThumbnail(path: string, sourceUrl: string) {
+  const cached = getCachedUserMessageThumbnail(path);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
+  const pending = userMessageThumbnailRequests.get(path);
+  if (pending) {
+    return pending;
+  }
+
+  const request = createImageThumbnail(sourceUrl)
+    .then((thumbnailUrl) => {
+      if (thumbnailUrl) {
+        rememberUserMessageThumbnail(path, thumbnailUrl);
+      }
+
+      return thumbnailUrl;
+    })
+    .finally(() => {
+      userMessageThumbnailRequests.delete(path);
+    });
+
+  userMessageThumbnailRequests.set(path, request);
+  return request;
+}
+
+async function ensureUserMessageThumbnailFromAsset(
+  path: string,
+  assetPath: string,
+  sourceUrl: string
+) {
+  const directThumbnail = await ensureUserMessageThumbnail(path, sourceUrl);
+  if (directThumbnail) {
+    return directThumbnail;
+  }
+
+  const assetUrl = await readCachedUserMessageImageUrl(assetPath);
+  return ensureUserMessageThumbnail(path, assetUrl);
+}
+
 function readCachedUserMessageImageUrl(path: string): Promise<string> {
   const cached = getCachedUserMessageImageUrl(path);
   if (cached) {
@@ -133,15 +242,39 @@ function UserMessageImageAttachment({
   const [cachedImageUrl, setCachedImageUrl] = useState<string | null>(() =>
     getCachedUserMessageImageUrl(image.path)
   );
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(() =>
+    getCachedUserMessageThumbnail(image.path)
+  );
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const imageUrl = cachedImageUrl ?? metadata?.proxy_url;
+  const displayImageUrl = thumbnailUrl ?? imageUrl;
   const label = image.altText || metadata?.file_name || 'Image';
   const resolvedImagePath = metadata?.path ?? image.path;
 
   useEffect(() => {
     setCachedImageUrl(getCachedUserMessageImageUrl(image.path));
+    setThumbnailUrl(getCachedUserMessageThumbnail(image.path));
     setImageLoadFailed(false);
   }, [image.path]);
+
+  useEffect(() => {
+    if (!imageUrl || thumbnailUrl) return;
+
+    let cancelled = false;
+    ensureUserMessageThumbnailFromAsset(image.path, resolvedImagePath, imageUrl)
+      .then((nextThumbnailUrl) => {
+        if (!cancelled && nextThumbnailUrl) {
+          setThumbnailUrl(nextThumbnailUrl);
+        }
+      })
+      .catch(() => {
+        // A failed thumbnail conversion should not block the full image.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [image.path, imageUrl, resolvedImagePath, thumbnailUrl]);
 
   const handleImageError = useCallback(() => {
     if (cachedImageUrl && imageUrl === cachedImageUrl) {
@@ -152,12 +285,18 @@ function UserMessageImageAttachment({
     readCachedUserMessageImageUrl(resolvedImagePath)
       .then((asset) => {
         setCachedImageUrl(asset);
+        return ensureUserMessageThumbnail(image.path, asset);
+      })
+      .then((nextThumbnailUrl) => {
+        if (nextThumbnailUrl) {
+          setThumbnailUrl(nextThumbnailUrl);
+        }
       })
       .catch((error: unknown) => {
         console.warn('Failed to load user message image fallback:', error);
         setImageLoadFailed(true);
       });
-  }, [cachedImageUrl, imageUrl, resolvedImagePath]);
+  }, [cachedImageUrl, image.path, imageUrl, resolvedImagePath]);
 
   const handleImageLoad = useCallback(() => {
     if (!imageUrl) return;
@@ -184,9 +323,9 @@ function UserMessageImageAttachment({
       disabled={!imageUrl || imageLoadFailed}
       aria-label="Preview image"
     >
-      {imageUrl && !imageLoadFailed ? (
+      {displayImageUrl && !imageLoadFailed ? (
         <img
-          src={imageUrl}
+          src={displayImageUrl}
           alt={label}
           className="h-full w-full object-cover"
           onLoad={handleImageLoad}
@@ -398,12 +537,8 @@ const UserMessage = ({
               {isCollapseMeasured && needsCollapse && (
                 <button
                   className="conv-user-toggle"
-                  title={
-                    isCollapsed ? '查看完整消息' : '收起消息'
-                  }
-                  aria-label={
-                    isCollapsed ? '查看完整消息' : '收起消息'
-                  }
+                  title={isCollapsed ? '查看完整消息' : '收起消息'}
+                  aria-label={isCollapsed ? '查看完整消息' : '收起消息'}
                   onClick={() => setIsCollapsed((value) => !value)}
                 >
                   <ChevronDown

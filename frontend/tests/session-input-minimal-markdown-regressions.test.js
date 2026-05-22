@@ -19,7 +19,10 @@ test('session execution input uses the lightweight composer instead of WYSIWYG m
 
   assert.match(source, /<SessionComposerInput/);
   assert.doesNotMatch(source, /<WYSIWYGEditor/);
-  assert.doesNotMatch(source, /markdownPreset=\{SESSION_INPUT_MARKDOWN_PRESET\}/);
+  assert.doesNotMatch(
+    source,
+    /markdownPreset=\{SESSION_INPUT_MARKDOWN_PRESET\}/
+  );
   assert.match(
     source,
     /sendShortcut=\{config\?\.send_message_shortcut \?\? 'Enter'\}/
@@ -149,7 +152,10 @@ test('iframe clipboard bridge lets editable paste use the native paste event', (
 
   assert.match(bridgeSource, /else if \(isPaste\(e\)\)/);
   assert.match(bridgeSource, /if \(el\) \{\s*return;\s*\}/);
-  assert.doesNotMatch(bridgeSource, /readClipboardText\(\)[\s\S]*insertTextAtCaretGeneric\(text\)/);
+  assert.doesNotMatch(
+    bridgeSource,
+    /readClipboardText\(\)[\s\S]*insertTextAtCaretGeneric\(text\)/
+  );
 });
 
 test('minimal session-input preset does not bleed into the shared conversation markdown renderer', () => {
@@ -172,8 +178,12 @@ test('user message images render as thumbnails outside the text bubble', () => {
   assert.match(source, /readBinaryAsset/);
   assert.match(source, /userMessageImageUrlCache/);
   assert.match(source, /userMessageImageUrlRequests/);
+  assert.match(source, /userMessageThumbnailCache/);
+  assert.match(source, /ensureUserMessageThumbnailFromAsset/);
+  assert.match(source, /USER_MESSAGE_THUMBNAIL_SIZE/);
   assert.match(source, /rememberUserMessageImageUrl/);
   assert.match(source, /getCachedUserMessageImageUrl/);
+  assert.match(source, /src=\{displayImageUrl\}/);
   assert.match(source, /value=\{displayText\}/);
   assert.doesNotMatch(source, /value=\{displayContent\}/);
   assert.match(

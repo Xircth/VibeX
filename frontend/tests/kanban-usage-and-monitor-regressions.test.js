@@ -39,6 +39,9 @@ test('session hub monitor cards keep time inline and avoid backend display-name 
   assert.match(source, /className="flex min-w-0 items-baseline gap-2"/);
   assert.match(source, /formatTimeAgo\(session\.updatedAt\)/);
   assert.doesNotMatch(source, /session\.workspaceDisplayLabel/);
+  assert.doesNotMatch(source, /createSessionSnapshot/);
+  assert.doesNotMatch(source, /initialSession=/);
+  assert.doesNotMatch(source, /initialWorkspace=/);
   assert.match(hookSource, /name: '会话'/);
   assert.doesNotMatch(
     hookSource,

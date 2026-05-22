@@ -30,8 +30,6 @@ export function FullAttemptLogsPage() {
                 <KanbanSessionConversationView
                   workspaceId={attempt.id}
                   sessionId={attempt.session?.id ?? ''}
-                  initialWorkspace={attempt}
-                  initialSession={attempt.session}
                   interactive={true}
                   showSessionSelector={true}
                   className="h-full"

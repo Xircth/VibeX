@@ -6,7 +6,6 @@ import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
-import { createSessionSnapshot } from '@/components/kanban/sessionSnapshot';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
@@ -17,7 +16,6 @@ import {
   useRepoBranches,
   useRepoBranchSelection,
 } from '@/hooks';
-import { useKanbanProjectSessions } from '@/hooks/useKanbanProjectSessions';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useProject } from '@/contexts/ProjectContext';
@@ -180,7 +178,6 @@ export function RightPanelContent() {
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
   const { data: repos = [] } = useProjectRepos(effectiveProjectId);
-  const { sessionsById } = useKanbanProjectSessions(effectiveProjectId);
   const primaryRepo = repos[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -324,11 +321,6 @@ export function RightPanelContent() {
       findWorkspaceBranchOption(workspaceBranchOptions, createWorkspaceValue),
     [createWorkspaceValue, workspaceBranchOptions]
   );
-  const routeSessionRecord = sessionId ? sessionsById[sessionId] : null;
-  const rightSessionRecord = visibleRightSession
-    ? sessionsById[visibleRightSession.sessionId]
-    : null;
-
   const syncWorkspaceRouteSession = useCallback(
     (session: { sessionId: string; workspaceId: string }) => {
       if (activeWorktreeId !== session.workspaceId) {
@@ -506,13 +498,6 @@ export function RightPanelContent() {
                 <KanbanSessionConversationView
                   workspaceId={workspaceId}
                   sessionId={sessionId}
-                  initialWorkspace={routeSessionRecord?.workspace}
-                  initialSession={
-                    routeSessionRecord
-                      ? createSessionSnapshot(routeSessionRecord)
-                      : undefined
-                  }
-                  initialTask={routeSessionRecord?.task}
                   interactive={true}
                   showSessionSelector={true}
                   onSessionCreated={handleCreatedSession}
@@ -525,13 +510,6 @@ export function RightPanelContent() {
                 <KanbanSessionConversationView
                   workspaceId={visibleRightSession.workspaceId}
                   sessionId={visibleRightSession.sessionId}
-                  initialWorkspace={rightSessionRecord?.workspace}
-                  initialSession={
-                    rightSessionRecord
-                      ? createSessionSnapshot(rightSessionRecord)
-                      : undefined
-                  }
-                  initialTask={rightSessionRecord?.task}
                   interactive={true}
                   showSessionSelector={true}
                   onSessionCreated={handleCreatedSession}

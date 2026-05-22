@@ -6,7 +6,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
-import { createSessionSnapshot } from '@/components/kanban/sessionSnapshot';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { cn } from '@/lib/utils';
 import {
@@ -125,9 +124,6 @@ export function SessionHubMonitor({
                   <KanbanSessionConversationView
                     workspaceId={session.workspace.id}
                     sessionId={session.id}
-                    initialWorkspace={session.workspace}
-                    initialSession={createSessionSnapshot(session)}
-                    initialTask={session.task}
                     className="h-full"
                   />
                 </div>

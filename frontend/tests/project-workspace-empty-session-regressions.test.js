@@ -16,13 +16,12 @@ test('workspace route without a current session reuses the conversation view ins
   const source = readFile('src/pages/ProjectTasks.tsx');
 
   assert.match(source, /sessionId=\{routeSessionId\}/);
-  assert.match(
-    source,
-    /const matchedInitialSession =\s*routeSessionId && attempt\.session\?\.id === routeSessionId/
-  );
   assert.match(source, /<KanbanSessionConversationView/);
   assert.match(source, /interactive=\{true\}/);
   assert.match(source, /showSessionSelector=\{true\}/);
+  assert.doesNotMatch(source, /matchedInitialSession/);
+  assert.doesNotMatch(source, /initialWorkspace=/);
+  assert.doesNotMatch(source, /initialSession=/);
   assert.doesNotMatch(
     source,
     /const effectiveSessionId = sessionId \?\? attempt\.session\?\.id/

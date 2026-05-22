@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { forwardRef, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
+import type { Session, Workspace } from 'shared/types';
 import { KanbanSessionConversationView } from './KanbanSessionConversationView';
 
 const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
@@ -88,6 +88,39 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+function createWorkspace(id: string): Workspace {
+  return {
+    id,
+    project_id: 'project-1',
+    task_id: 'task-1',
+    parent_workspace_id: null,
+    container_ref: null,
+    branch: 'feature/test',
+    use_worktree: true,
+    agent_working_dir: null,
+    setup_completed_at: null,
+    created_at: '2026-03-24T00:00:00.000Z',
+    updated_at: '2026-03-24T00:00:00.000Z',
+    archived: false,
+    pinned: false,
+    name: 'Workspace One',
+  };
+}
+
+function createSession(id: string, workspaceId: string): Session {
+  return {
+    id,
+    workspace_id: workspaceId,
+    task_id: 'task-1',
+    name: 'Session One',
+    initial_prompt: null,
+    status: 'todo',
+    executor: null,
+    created_at: '2026-03-24T00:00:00.000Z',
+    updated_at: '2026-03-24T00:00:00.000Z',
+  };
+}
+
 describe('KanbanSessionConversationView', () => {
   it('shows a standalone new-session button when a workspace has no existing sessions', () => {
     const startNewSession = vi.fn();
@@ -112,6 +145,10 @@ describe('KanbanSessionConversationView', () => {
           retry: false,
         },
       },
+    });
+    queryClient.setQueryData(['taskAttempt', 'workspace-empty'], {
+      ...createWorkspace('workspace-empty'),
+      task_id: null,
     });
 
     render(
@@ -180,6 +217,10 @@ describe('KanbanSessionConversationView', () => {
         },
       },
     });
+    queryClient.setQueryData(['taskAttempt', 'workspace-empty'], {
+      ...createWorkspace('workspace-empty'),
+      task_id: null,
+    });
 
     render(
       <MemoryRouter>
@@ -214,7 +255,7 @@ describe('KanbanSessionConversationView', () => {
     expect(startNewSession).not.toHaveBeenCalled();
   });
 
-  it('renders immediately from initial Kanban session data', () => {
+  it('renders immediately from shared query cache data', () => {
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
       selectedSession: undefined,
@@ -238,48 +279,10 @@ describe('KanbanSessionConversationView', () => {
       },
     });
 
-    const workspace: Workspace = {
-      id: 'workspace-1',
-      project_id: 'project-1',
-      task_id: 'task-1',
-      parent_workspace_id: null,
-      container_ref: null,
-      branch: 'feature/test',
-      use_worktree: true,
-      agent_working_dir: null,
-      setup_completed_at: null,
-      created_at: '2026-03-24T00:00:00.000Z',
-      updated_at: '2026-03-24T00:00:00.000Z',
-      archived: false,
-      pinned: false,
-      name: 'Workspace One',
-    };
-
-    const session: Session = {
-      id: 'session-1',
-      workspace_id: 'workspace-1',
-      task_id: 'task-1',
-      name: 'Session One',
-      initial_prompt: null,
-      status: 'todo',
-      executor: null,
-      created_at: '2026-03-24T00:00:00.000Z',
-      updated_at: '2026-03-24T00:00:00.000Z',
-    };
-
-    const task: TaskWithAttemptStatus = {
-      id: 'task-1',
-      project_id: 'project-1',
-      title: 'Task One',
-      description: null,
-      status: 'todo',
-      parent_workspace_id: null,
-      created_at: '2026-03-24T00:00:00.000Z',
-      updated_at: '2026-03-24T00:00:00.000Z',
-      has_in_progress_attempt: false,
-      last_attempt_failed: false,
-      executor: 'CLAUDE_CODE',
-    };
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
 
     render(
       <MemoryRouter>
@@ -287,9 +290,6 @@ describe('KanbanSessionConversationView', () => {
           <KanbanSessionConversationView
             workspaceId={workspace.id}
             sessionId={session.id}
-            initialWorkspace={workspace}
-            initialSession={session}
-            initialTask={task}
           />
         </QueryClientProvider>
       </MemoryRouter>
@@ -305,7 +305,7 @@ describe('KanbanSessionConversationView', () => {
     expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument();
   });
 
-  it('renders conversation shell even before detail queries resolve', () => {
+  it('shows the loader instead of fabricating a conversation before detail queries resolve', () => {
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
       selectedSession: undefined,
@@ -340,12 +340,11 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
-      'workspace-2:session-2'
-    );
+    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
+    expect(screen.getByText(/加载/)).toBeInTheDocument();
   });
 
-  it('keeps the interactive shell mounted while session details are still loading', () => {
+  it('does not mount the interactive shell while session details are still loading', () => {
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
       selectedSession: undefined,
@@ -368,6 +367,10 @@ describe('KanbanSessionConversationView', () => {
         },
       },
     });
+    queryClient.setQueryData(
+      ['taskAttempt', 'workspace-2'],
+      createWorkspace('workspace-2')
+    );
 
     render(
       <MemoryRouter>
@@ -382,14 +385,9 @@ describe('KanbanSessionConversationView', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByTestId('virtualized-list')).toHaveTextContent(
-      'workspace-2:session-2'
-    );
-    expect(screen.getByTestId('follow-up-section')).toBeInTheDocument();
-    expect(screen.getByTestId('entries-provider')).toHaveAttribute(
-      'data-runtime-key',
-      'workspace-2:session-2'
-    );
+    expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('follow-up-section')).not.toBeInTheDocument();
+    expect(screen.getByText(/加载/)).toBeInTheDocument();
   });
 
   it('does not fabricate a conversation when the requested session was deleted', async () => {
@@ -416,6 +414,10 @@ describe('KanbanSessionConversationView', () => {
         },
       },
     });
+    queryClient.setQueryData(
+      ['taskAttempt', 'workspace-2'],
+      createWorkspace('workspace-2')
+    );
 
     render(
       <MemoryRouter>

@@ -44,11 +44,6 @@ function ProjectWorkspaceSessionRoute({
     return <Loader message="Loading session..." size={32} className="py-8" />;
   }
 
-  const matchedInitialSession =
-    routeSessionId && attempt.session?.id === routeSessionId
-      ? attempt.session
-      : undefined;
-
   return (
     <GitOperationsProvider attemptId={attempt.id}>
       <ReviewProvider attemptId={attempt.id}>
@@ -60,8 +55,6 @@ function ProjectWorkspaceSessionRoute({
             <KanbanSessionConversationView
               workspaceId={attempt.id}
               sessionId={routeSessionId}
-              initialWorkspace={attempt}
-              initialSession={matchedInitialSession}
               interactive={true}
               showSessionSelector={true}
               className="h-full"

@@ -49,10 +49,11 @@ test('right panel session creation uses a local centered overlay form and create
   assert.doesNotMatch(source, />New Session</);
   assert.match(source, /onCancel=\{onClose\}/);
   assert.match(source, /useTaskAttempt\(fallbackWorkspaceId\)/);
-  assert.match(source, /useKanbanProjectSessions\(effectiveProjectId\)/);
-  assert.match(source, /createSessionSnapshot\(rightSessionRecord\)/);
-  assert.match(source, /initialWorkspace=\{rightSessionRecord\?\.workspace\}/);
-  assert.match(source, /initialTask=\{rightSessionRecord\?\.task\}/);
+  assert.doesNotMatch(source, /useKanbanProjectSessions\(effectiveProjectId\)/);
+  assert.doesNotMatch(source, /createSessionSnapshot/);
+  assert.doesNotMatch(source, /initialWorkspace=/);
+  assert.doesNotMatch(source, /initialSession=/);
+  assert.doesNotMatch(source, /initialTask=/);
   assert.match(
     source,
     /useTaskAttempt\(\s*lastActiveWorkspaceId \?\? undefined\s*\)/
@@ -98,10 +99,7 @@ test('workspace right-panel new-session triggers route through the shared overla
     followUpSource,
     /if \(rightPanelSessionCreation\) \{\s*rightPanelSessionCreation\.openCreateSessionOverlay\(\);/
   );
-  assert.match(
-    conversationSource,
-    /autoSelectFirstSession: interactive/
-  );
+  assert.match(conversationSource, /autoSelectFirstSession: interactive/);
   assert.match(
     conversationSource,
     /!activeSession &&\s*sessionState\.sessions\.length === 0 &&\s*!sessionState\.isNewSessionMode/
@@ -152,10 +150,7 @@ test('right panel session creation switches the active workspace after new-works
     /const \{ activeWorktreeId, setActiveWorktree \} = useWorktree\(\)/
   );
   assert.match(source, /create_workspace: createMode === 'new_workspace'/);
-  assert.match(
-    source,
-    /setActiveWorktree\(session\.workspaceId,\s*null\)/
-  );
+  assert.match(source, /setActiveWorktree\(session\.workspaceId,\s*null\)/);
   assert.match(rustSource, /pub async fn create_project_session/);
   assert.match(rustSource, /pub async fn ensure_project_workspace/);
   assert.match(rustSource, /find_matching_project_worktree_workspace/);

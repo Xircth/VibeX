@@ -77,9 +77,9 @@ export function WorkspaceLayout({
   return (
     <WorktreeProvider>
       <KanbanSessionProvider>
-        <KanbanSessionConversationPlacementProvider>
-          <PendingProjectFocusBridge />
-          <ReviewProvider>
+        <PendingProjectFocusBridge />
+        <ReviewProvider>
+          <KanbanSessionConversationPlacementProvider>
             <TerminalProvider>
               <PanelActionsProvider>
                 <AcpTerminalBridge />
@@ -89,8 +89,8 @@ export function WorkspaceLayout({
                 />
               </PanelActionsProvider>
             </TerminalProvider>
-          </ReviewProvider>
-        </KanbanSessionConversationPlacementProvider>
+          </KanbanSessionConversationPlacementProvider>
+        </ReviewProvider>
       </KanbanSessionProvider>
     </WorktreeProvider>
   );

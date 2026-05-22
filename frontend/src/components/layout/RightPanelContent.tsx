@@ -6,6 +6,7 @@ import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
+import { createSessionSnapshot } from '@/components/kanban/sessionSnapshot';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { RightPanelSessionCreationProvider } from '@/contexts/RightPanelSessionCreationContext';
@@ -16,6 +17,7 @@ import {
   useRepoBranches,
   useRepoBranchSelection,
 } from '@/hooks';
+import { useKanbanProjectSessions } from '@/hooks/useKanbanProjectSessions';
 import { useTaskAttempt } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useProject } from '@/contexts/ProjectContext';
@@ -32,7 +34,11 @@ import {
   SessionCreationForm,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
-import { ScratchType, type ExecutorProfileId, type Workspace } from 'shared/types';
+import {
+  ScratchType,
+  type ExecutorProfileId,
+  type Workspace,
+} from 'shared/types';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { paths } from '@/lib/paths';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
@@ -107,9 +113,7 @@ function CreateSessionOverlay({
           <span className="sr-only">Close</span>
         </button>
         <div className="mb-4 space-y-1">
-          <div className="text-sm font-semibold text-foreground">
-            新建会话
-          </div>
+          <div className="text-sm font-semibold text-foreground">新建会话</div>
         </div>
 
         <SessionCreationForm
@@ -176,6 +180,7 @@ export function RightPanelContent() {
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
   const queryClient = useQueryClient();
   const { data: repos = [] } = useProjectRepos(effectiveProjectId);
+  const { sessionsById } = useKanbanProjectSessions(effectiveProjectId);
   const primaryRepo = repos[0];
   const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
     enabled: Boolean(primaryRepo?.id),
@@ -319,6 +324,10 @@ export function RightPanelContent() {
       findWorkspaceBranchOption(workspaceBranchOptions, createWorkspaceValue),
     [createWorkspaceValue, workspaceBranchOptions]
   );
+  const routeSessionRecord = sessionId ? sessionsById[sessionId] : null;
+  const rightSessionRecord = visibleRightSession
+    ? sessionsById[visibleRightSession.sessionId]
+    : null;
 
   const syncWorkspaceRouteSession = useCallback(
     (session: { sessionId: string; workspaceId: string }) => {
@@ -487,9 +496,7 @@ export function RightPanelContent() {
   };
 
   return (
-    <RightPanelSessionCreationProvider
-      value={{ openCreateSessionOverlay }}
-    >
+    <RightPanelSessionCreationProvider value={{ openCreateSessionOverlay }}>
       <div className="h-full flex overflow-hidden bg-transparent">
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
           <BranchInfoHeader />
@@ -499,6 +506,13 @@ export function RightPanelContent() {
                 <KanbanSessionConversationView
                   workspaceId={workspaceId}
                   sessionId={sessionId}
+                  initialWorkspace={routeSessionRecord?.workspace}
+                  initialSession={
+                    routeSessionRecord
+                      ? createSessionSnapshot(routeSessionRecord)
+                      : undefined
+                  }
+                  initialTask={routeSessionRecord?.task}
                   interactive={true}
                   showSessionSelector={true}
                   onSessionCreated={handleCreatedSession}
@@ -511,6 +525,13 @@ export function RightPanelContent() {
                 <KanbanSessionConversationView
                   workspaceId={visibleRightSession.workspaceId}
                   sessionId={visibleRightSession.sessionId}
+                  initialWorkspace={rightSessionRecord?.workspace}
+                  initialSession={
+                    rightSessionRecord
+                      ? createSessionSnapshot(rightSessionRecord)
+                      : undefined
+                  }
+                  initialTask={rightSessionRecord?.task}
                   interactive={true}
                   showSessionSelector={true}
                   onSessionCreated={handleCreatedSession}
@@ -522,9 +543,7 @@ export function RightPanelContent() {
               <div className="workspace-loading-state flex h-full min-h-0 flex-col items-center justify-center gap-3 p-6 text-sm">
                 <Loader2 className="h-6 w-6 animate-spin" />
                 <div className="workspace-loading-panel flex flex-col items-center gap-1 px-5 py-4">
-                  <p className="font-medium text-foreground">
-                    Loading session
-                  </p>
+                  <p className="font-medium text-foreground">Loading session</p>
                   <p className="text-xs text-muted-foreground">
                     Preparing the conversation panel...
                   </p>

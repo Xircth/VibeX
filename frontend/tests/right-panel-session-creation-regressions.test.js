@@ -21,7 +21,8 @@ test('right panel session creation does not route through createSession query pa
   const source = readFile('src/components/layout/RightPanelContent.tsx');
 
   assert.doesNotMatch(source, /\?createSession=1/);
-  assert.doesNotMatch(source, /navigate\(/);
+  assert.doesNotMatch(source, /createSession=1/);
+  assert.match(source, /paths\.projectSession\(/);
 });
 
 test('right panel session creation uses a local centered overlay form and creates sessions directly', () => {
@@ -37,7 +38,7 @@ test('right panel session creation uses a local centered overlay form and create
   assert.match(source, /placeCreatedSession\(/);
   assert.match(
     source,
-    /absolute inset-0 z-10 flex items-center justify-center bg-background\/86 p-6 backdrop-blur-sm/
+    /absolute inset-0 z-10 flex items-center justify-center bg-background\/70 p-6 backdrop-blur-md/
   );
   assert.match(source, /<RightPanelNewSessionPrompt/);
   assert.match(source, /onCreateSession=\{openCreateSessionOverlay\}/);
@@ -48,6 +49,10 @@ test('right panel session creation uses a local centered overlay form and create
   assert.doesNotMatch(source, />New Session</);
   assert.match(source, /onCancel=\{onClose\}/);
   assert.match(source, /useTaskAttempt\(fallbackWorkspaceId\)/);
+  assert.match(source, /useKanbanProjectSessions\(effectiveProjectId\)/);
+  assert.match(source, /createSessionSnapshot\(rightSessionRecord\)/);
+  assert.match(source, /initialWorkspace=\{rightSessionRecord\?\.workspace\}/);
+  assert.match(source, /initialTask=\{rightSessionRecord\?\.task\}/);
   assert.match(
     source,
     /useTaskAttempt\(\s*lastActiveWorkspaceId \?\? undefined\s*\)/
@@ -68,7 +73,9 @@ test('workspace right-panel new-session triggers route through the shared overla
   const conversationSource = readFile(
     'src/components/kanban/KanbanSessionConversationView.tsx'
   );
-  const followUpSource = readFile('src/components/tasks/TaskFollowUpSection.tsx');
+  const followUpSource = readFile(
+    'src/components/tasks/TaskFollowUpSection.tsx'
+  );
   const promptSource = readFile(
     'src/components/layout/RightPanelNewSessionPrompt.tsx'
   );
@@ -93,20 +100,26 @@ test('workspace right-panel new-session triggers route through the shared overla
   );
   assert.match(
     conversationSource,
-    /autoSelectFirstSession: Boolean\(attempt\.session\?\.id\)/
+    /autoSelectFirstSession: interactive/
   );
   assert.match(
     conversationSource,
-    /!activeSession &&\s*\(!attempt\.session\?\.id \|\| sessionState\.sessions\.length === 0\)/
+    /!activeSession &&\s*sessionState\.sessions\.length === 0 &&\s*!sessionState\.isNewSessionMode/
   );
   assert.match(conversationSource, /<RightPanelNewSessionPrompt/);
-  assert.match(promptSource, /className=\{cn\(\s*'flex h-full min-h-0 flex-col items-center justify-center/);
+  assert.match(
+    promptSource,
+    /className=\{cn\(\s*'flex h-full min-h-0 flex-col items-center justify-center/
+  );
 });
 
 test('workspace route binds the right panel to the current workspace instead of reusing a stale persisted right-session', () => {
   const source = readFile('src/components/layout/RightPanelContent.tsx');
 
-  assert.match(source, /const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;/);
+  assert.match(
+    source,
+    /const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;/
+  );
   assert.match(
     source,
     /\{isWorkspaceRoute && workspaceId \? \(\s*<div className="h-full min-h-0 overflow-hidden">\s*<KanbanSessionConversationView\s*workspaceId=\{workspaceId\}\s*sessionId=\{sessionId\}/
@@ -138,10 +151,10 @@ test('right panel session creation switches the active workspace after new-works
     source,
     /const \{ activeWorktreeId, setActiveWorktree \} = useWorktree\(\)/
   );
-  assert.match(source, /if \(createMode === 'new_workspace'\)/);
+  assert.match(source, /create_workspace: createMode === 'new_workspace'/);
   assert.match(
     source,
-    /setActiveWorktree\(newSession\.workspace_id,\s*newSession\.task_id \?\? null\)/
+    /setActiveWorktree\(session\.workspaceId,\s*null\)/
   );
   assert.match(rustSource, /pub async fn create_project_session/);
   assert.match(rustSource, /pub async fn ensure_project_workspace/);

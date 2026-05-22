@@ -4,7 +4,10 @@ import { forwardRef, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { Session, Workspace } from 'shared/types';
-import { KanbanSessionConversationView } from './KanbanSessionConversationView';
+import {
+  KanbanSessionConversationPlacementProvider,
+  KanbanSessionConversationView,
+} from './KanbanSessionConversationView';
 
 const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
   vi.hoisted(() => ({
@@ -435,5 +438,78 @@ describe('KanbanSessionConversationView', () => {
       await screen.findByRole('button', { name: '新建会话' })
     ).toBeInTheDocument();
     expect(screen.queryByTestId('virtualized-list')).not.toBeInTheDocument();
+  });
+
+  it('moves a session between placement slots without remounting the conversation tree', () => {
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    function PlacementHarness({
+      placement,
+    }: {
+      placement: 'monitor' | 'right';
+    }) {
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              {placement === 'monitor' ? (
+                <div data-testid="monitor-slot">
+                  <KanbanSessionConversationView
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                  />
+                </div>
+              ) : (
+                <div data-testid="right-slot">
+                  <KanbanSessionConversationView
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                    interactive={true}
+                    showSessionSelector={true}
+                  />
+                </div>
+              )}
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(<PlacementHarness placement="monitor" />);
+    const originalConversationNode = screen.getByTestId('virtualized-list');
+
+    rerender(<PlacementHarness placement="right" />);
+
+    expect(screen.getByTestId('virtualized-list')).toBe(
+      originalConversationNode
+    );
+    expect(screen.getByTestId('right-slot')).toContainElement(
+      originalConversationNode
+    );
   });
 });

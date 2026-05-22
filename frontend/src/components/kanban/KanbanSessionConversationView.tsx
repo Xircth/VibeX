@@ -1,4 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Loader2 } from 'lucide-react';
@@ -39,6 +50,153 @@ interface KanbanSessionConversationViewProps {
     workspaceId: string;
   }) => void;
   className?: string;
+}
+
+type ConversationPlacementRecord = {
+  key: string;
+  container: HTMLDivElement;
+  props: KanbanSessionConversationViewProps;
+  slots: Map<string, HTMLElement>;
+  activeSlotId: string | null;
+};
+
+type ConversationPlacementContextValue = {
+  mountSlot: (
+    key: string,
+    slotId: string,
+    target: HTMLElement,
+    props: KanbanSessionConversationViewProps
+  ) => () => void;
+};
+
+const ConversationPlacementContext =
+  createContext<ConversationPlacementContextValue | null>(null);
+
+function buildPlacementKey(workspaceId: string, sessionId?: string) {
+  return `${workspaceId}:${sessionId ?? 'no-session'}`;
+}
+
+function createPlacementContainer() {
+  const container = document.createElement('div');
+  container.className = 'h-full min-h-0';
+  return container;
+}
+
+export function KanbanSessionConversationPlacementProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const recordsRef = useRef(new Map<string, ConversationPlacementRecord>());
+  const removalTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  );
+  const [, setVersion] = useState(0);
+
+  const bumpVersion = useCallback(() => {
+    setVersion((current) => current + 1);
+  }, []);
+
+  const mountSlot = useCallback<ConversationPlacementContextValue['mountSlot']>(
+    (key, slotId, target, props) => {
+      const removalTimer = removalTimersRef.current.get(key);
+      if (removalTimer) {
+        clearTimeout(removalTimer);
+        removalTimersRef.current.delete(key);
+      }
+
+      let record = recordsRef.current.get(key);
+      if (!record) {
+        record = {
+          key,
+          container: createPlacementContainer(),
+          props,
+          slots: new Map(),
+          activeSlotId: null,
+        };
+        recordsRef.current.set(key, record);
+      }
+
+      record.props = props;
+      record.slots.set(slotId, target);
+      record.activeSlotId = slotId;
+      if (record.container.parentElement !== target) {
+        target.appendChild(record.container);
+      }
+      bumpVersion();
+
+      return () => {
+        const currentRecord = recordsRef.current.get(key);
+        if (!currentRecord) {
+          return;
+        }
+
+        currentRecord.slots.delete(slotId);
+        if (currentRecord.activeSlotId === slotId) {
+          const nextSlots = Array.from(currentRecord.slots.entries());
+          const nextSlot = nextSlots[nextSlots.length - 1];
+          currentRecord.activeSlotId = nextSlot?.[0] ?? null;
+          if (nextSlot) {
+            nextSlot[1].appendChild(currentRecord.container);
+          }
+        }
+
+        if (currentRecord.slots.size > 0) {
+          bumpVersion();
+          return;
+        }
+
+        const timer = setTimeout(() => {
+          const latestRecord = recordsRef.current.get(key);
+          if (!latestRecord || latestRecord.slots.size > 0) {
+            return;
+          }
+
+          latestRecord.container.remove();
+          recordsRef.current.delete(key);
+          removalTimersRef.current.delete(key);
+          bumpVersion();
+        }, 250);
+        removalTimersRef.current.set(key, timer);
+      };
+    },
+    [bumpVersion]
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of removalTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      removalTimersRef.current.clear();
+      for (const record of recordsRef.current.values()) {
+        record.container.remove();
+      }
+      recordsRef.current.clear();
+    },
+    []
+  );
+
+  const contextValue = useMemo(
+    () => ({
+      mountSlot,
+    }),
+    [mountSlot]
+  );
+  const records = Array.from(recordsRef.current.values());
+
+  return (
+    <ConversationPlacementContext.Provider value={contextValue}>
+      {children}
+      {records.map((record) =>
+        createPortal(
+          <KanbanSessionConversationSurface {...record.props} />,
+          record.container,
+          record.key
+        )
+      )}
+    </ConversationPlacementContext.Provider>
+  );
 }
 
 function KanbanSessionConversationContent({
@@ -177,7 +335,7 @@ function KanbanSessionConversationContent({
   );
 }
 
-export function KanbanSessionConversationView({
+function KanbanSessionConversationSurface({
   workspaceId,
   sessionId,
   interactive = false,
@@ -242,5 +400,34 @@ export function KanbanSessionConversationView({
         onSessionSelected={onSessionSelected}
       />
     </div>
+  );
+}
+
+export function KanbanSessionConversationView(
+  props: KanbanSessionConversationViewProps
+) {
+  const placement = useContext(ConversationPlacementContext);
+  const slotRef = useRef<HTMLDivElement | null>(null);
+  const slotIdRef = useRef<string | null>(null);
+  if (!slotIdRef.current) {
+    slotIdRef.current = `slot-${Math.random().toString(36).slice(2)}`;
+  }
+  const slotId = slotIdRef.current;
+  const placementKey = buildPlacementKey(props.workspaceId, props.sessionId);
+
+  useLayoutEffect(() => {
+    if (!placement || !slotRef.current) {
+      return;
+    }
+
+    return placement.mountSlot(placementKey, slotId, slotRef.current, props);
+  }, [placement, placementKey, props, slotId]);
+
+  if (!placement) {
+    return <KanbanSessionConversationSurface {...props} />;
+  }
+
+  return (
+    <div ref={slotRef} className={`h-full min-h-0 ${props.className ?? ''}`} />
   );
 }

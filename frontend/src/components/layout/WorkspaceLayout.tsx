@@ -10,6 +10,7 @@ import { TerminalProvider } from '@/contexts/TerminalContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { IDELayout } from '@/components/layout/IDELayout';
 import { AcpTerminalBridge } from '@/components/layout/AcpTerminalBridge';
+import { KanbanSessionConversationPlacementProvider } from '@/components/kanban/KanbanSessionConversationView';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { attemptsApi } from '@/lib/api';
@@ -76,18 +77,20 @@ export function WorkspaceLayout({
   return (
     <WorktreeProvider>
       <KanbanSessionProvider>
-        <PendingProjectFocusBridge />
-        <ReviewProvider>
-          <TerminalProvider>
-            <PanelActionsProvider>
-              <AcpTerminalBridge />
-              <IDELayout
-                rightPanelContent={rightPanelContent}
-                toolbarContent={toolbarContent}
-              />
-            </PanelActionsProvider>
-          </TerminalProvider>
-        </ReviewProvider>
+        <KanbanSessionConversationPlacementProvider>
+          <PendingProjectFocusBridge />
+          <ReviewProvider>
+            <TerminalProvider>
+              <PanelActionsProvider>
+                <AcpTerminalBridge />
+                <IDELayout
+                  rightPanelContent={rightPanelContent}
+                  toolbarContent={toolbarContent}
+                />
+              </PanelActionsProvider>
+            </TerminalProvider>
+          </ReviewProvider>
+        </KanbanSessionConversationPlacementProvider>
       </KanbanSessionProvider>
     </WorktreeProvider>
   );

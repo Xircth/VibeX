@@ -235,6 +235,67 @@ describe('buildDisplayEntries agent creation groups', () => {
     });
   });
 
+  it('collapses process messages even before final assistant output arrives', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:0',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'spawn_agent',
+            action_type: {
+              action: 'task_create',
+              description: 'Implement native bridge behavior',
+              subagent_type: 'executor',
+              result: null,
+            },
+            status: { status: 'created' },
+          },
+          content: 'Implement native bridge behavior',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:1',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'tool_use',
+            tool_name: 'wait_agent',
+            action_type: {
+              action: 'task_create',
+              description: 'Poll subagent status',
+              subagent_type: 'executor',
+              result: null,
+            },
+            status: { status: 'created' },
+          },
+          content: 'Poll subagent status',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      collapseAiMessagesByDefault: true,
+    });
+
+    expect(displayEntries).toHaveLength(1);
+    expect(displayEntries[0]).toMatchObject({
+      type: 'COLLAPSED_ASSISTANT_MESSAGES',
+      hiddenCount: 1,
+      entries: [
+        expect.objectContaining({
+          type: 'AGGREGATED_GROUP',
+          aggregationType: 'task_create',
+        }),
+      ],
+    });
+  });
+
   it('promotes assistant subagent launch text into a collapsed agent creation group', () => {
     const entries: PatchTypeWithKey[] = [
       {

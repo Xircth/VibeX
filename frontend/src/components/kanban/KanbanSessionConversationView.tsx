@@ -23,7 +23,6 @@ import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
-import { useRightPanelSessionCreation } from '@/contexts/RightPanelSessionCreationContext';
 import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import {
   resolveActiveSession,
@@ -49,6 +48,7 @@ interface KanbanSessionConversationViewProps {
     sessionId: string;
     workspaceId: string;
   }) => void;
+  onCreateSessionRequested?: () => void;
   className?: string;
 }
 
@@ -206,6 +206,7 @@ function KanbanSessionConversationContent({
   showSessionSelector,
   onSessionCreated,
   onSessionSelected,
+  onCreateSessionRequested,
 }: {
   attempt: WorkspaceWithSession;
   taskId: string | null;
@@ -219,11 +220,11 @@ function KanbanSessionConversationContent({
     sessionId: string;
     workspaceId: string;
   }) => void;
+  onCreateSessionRequested?: () => void;
 }) {
   const logsRef = useRef<VirtualizedListRef | null>(null);
   const [isAtConversationBottom, setIsAtConversationBottom] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
-  const rightPanelSessionCreation = useRightPanelSessionCreation();
   const sessionState = useWorkspaceSessions(attempt.id, {
     initialSessionId: attempt.session?.id,
     enabled: interactive,
@@ -234,19 +235,14 @@ function KanbanSessionConversationContent({
     if (!interactive) return;
     if (searchParams.get('newSession') !== '1') return;
 
-    if (rightPanelSessionCreation) {
-      rightPanelSessionCreation.openCreateSessionOverlay();
-    } else {
-      sessionState.startNewSession();
-    }
+    onCreateSessionRequested?.();
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('newSession');
     setSearchParams(nextSearchParams, { replace: true });
   }, [
     interactive,
-    rightPanelSessionCreation,
+    onCreateSessionRequested,
     searchParams,
-    sessionState,
     setSearchParams,
   ]);
 
@@ -281,12 +277,7 @@ function KanbanSessionConversationContent({
               <RightPanelNewSessionPrompt
                 className="flex-1"
                 onCreateSession={() => {
-                  if (rightPanelSessionCreation) {
-                    rightPanelSessionCreation.openCreateSessionOverlay();
-                    return;
-                  }
-
-                  sessionState.startNewSession();
+                  onCreateSessionRequested?.();
                 }}
               />
             ) : (
@@ -323,6 +314,7 @@ function KanbanSessionConversationContent({
                 showSessionSelector={showSessionSelector}
                 onSessionCreated={onSessionCreated}
                 onSessionSelected={onSessionSelected}
+                onCreateSessionRequested={onCreateSessionRequested}
                 onJumpToPreviousUserMessage={() =>
                   logsRef.current?.scrollToPreviousUserMessage()
                 }
@@ -342,6 +334,7 @@ function KanbanSessionConversationSurface({
   showSessionSelector = false,
   onSessionCreated,
   onSessionSelected,
+  onCreateSessionRequested,
   className,
 }: KanbanSessionConversationViewProps) {
   const { data: workspace, isLoading: isWorkspaceLoading } =
@@ -398,6 +391,7 @@ function KanbanSessionConversationSurface({
         showSessionSelector={showSessionSelector}
         onSessionCreated={onSessionCreated}
         onSessionSelected={onSessionSelected}
+        onCreateSessionRequested={onCreateSessionRequested}
       />
     </div>
   );

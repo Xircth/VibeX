@@ -127,6 +127,7 @@ function createSession(id: string, workspaceId: string): Session {
 describe('KanbanSessionConversationView', () => {
   it('shows a standalone new-session button when a workspace has no existing sessions', () => {
     const startNewSession = vi.fn();
+    const onCreateSessionRequested = vi.fn();
     useWorkspaceSessionsMock.mockReturnValue({
       sessions: [],
       selectedSession: undefined,
@@ -161,6 +162,7 @@ describe('KanbanSessionConversationView', () => {
             workspaceId="workspace-empty"
             interactive={true}
             showSessionSelector={true}
+            onCreateSessionRequested={onCreateSessionRequested}
           />
         </QueryClientProvider>
       </MemoryRouter>
@@ -172,7 +174,54 @@ describe('KanbanSessionConversationView', () => {
 
     fireEvent.click(button);
 
-    expect(startNewSession).toHaveBeenCalledTimes(1);
+    expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
+    expect(startNewSession).not.toHaveBeenCalled();
+  });
+
+  it('routes new-session URL requests through the overlay callback', async () => {
+    const startNewSession = vi.fn();
+    const onCreateSessionRequested = vi.fn();
+    const workspace = createWorkspace('workspace-empty');
+    const session = createSession('session-existing', workspace.id);
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [session],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession,
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+
+    render(
+      <MemoryRouter initialEntries={[`/?newSession=1`]}>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            interactive={true}
+            showSessionSelector={true}
+            onCreateSessionRequested={onCreateSessionRequested}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
+    expect(startNewSession).not.toHaveBeenCalled();
   });
 
   it('renders the existing session shell on workspace routes without an explicit session selection', () => {

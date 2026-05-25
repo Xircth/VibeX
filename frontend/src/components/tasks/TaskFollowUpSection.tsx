@@ -1,4 +1,4 @@
-import { Loader2, ArrowUp, CheckSquare, X } from 'lucide-react';
+import { Loader2, ArrowUp, CheckSquare } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -12,13 +12,7 @@ import {
 } from '@/components/ui/popover';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { BaseCodingAgent, ScratchType } from 'shared/types';
-import {
-  useBranchStatus,
-  useProjectRepos,
-  useProjectWorktrees,
-  useRepoBranches,
-  useRepoBranchSelection,
-} from '@/hooks';
+import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { cn } from '@/lib/utils';
@@ -27,7 +21,6 @@ import { useEntries } from '@/contexts/EntriesContext';
 import { useTodos } from '@/hooks/useTodos';
 import { useKeySubmitFollowUp, Scope } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
-import { useProject } from '@/contexts/ProjectContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
@@ -56,14 +49,12 @@ import {
   imagesApi,
   sessionsApi,
   configApi,
-  scratchApi,
 } from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
 import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import { useWorktree } from '@/contexts/WorktreeContext';
-import { useRightPanelSessionCreation } from '@/contexts/RightPanelSessionCreationContext';
 import { useParams } from 'react-router-dom';
 
 import { DiffStatsBar } from './follow-up/DiffStatsBar';
@@ -77,18 +68,6 @@ import {
   SessionComposerInput,
   type SessionComposerImage,
 } from './follow-up/SessionComposerInput';
-import {
-  SessionCreationForm,
-  type SessionCreationMode,
-} from '@/components/sessions/SessionCreationForm';
-import {
-  buildWorkspaceBranchOptions,
-  findWorkspaceBranchOption,
-  findWorkspaceBranchOptionByWorkspaceId,
-  resolveWorkspaceBranchSelection,
-  type WorkspaceBranchOption,
-} from '@/lib/workspaceBranchOptions';
-import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import {
   codexGoalEntriesFromConversation,
   deriveCodexGoalState,
@@ -110,13 +89,12 @@ interface TaskFollowUpSectionProps {
     sessionId: string;
     workspaceId: string;
   }) => void;
+  onCreateSessionRequested?: () => void;
   sessionState: Pick<
     UseWorkspaceSessionsResult,
     | 'sessions'
     | 'selectedSessionId'
     | 'selectSession'
-    | 'selectLatestSession'
-    | 'startNewSession'
     | 'isNewSessionMode'
   >;
 }
@@ -318,11 +296,10 @@ export function TaskFollowUpSection({
   showSessionSelector = true,
   onSessionCreated,
   onSessionSelected,
+  onCreateSessionRequested,
   sessionState,
 }: TaskFollowUpSectionProps) {
-  const { projectId } = useProject();
   const { activeWorktreeId } = useWorktree();
-  const rightPanelSessionCreation = useRightPanelSessionCreation();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
   }>();
@@ -337,12 +314,8 @@ export function TaskFollowUpSection({
     sessions,
     selectedSessionId,
     selectSession,
-    selectLatestSession,
-    startNewSession,
     isNewSessionMode,
   } = sessionState;
-  const isNewSessionConfigVisible =
-    isNewSessionMode && !rightPanelSessionCreation;
   const isAwaitingNewSessionConfirmation = false;
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
@@ -482,52 +455,7 @@ export function TaskFollowUpSection({
   useEffect(() => {
     attachedImagePathsRef.current = attachedImagePaths;
   }, [attachedImagePaths]);
-  const [newSessionName, setNewSessionName] = useState('');
-  const [newSessionMode, setNewSessionMode] =
-    useState<SessionCreationMode>('existing_workspace');
   const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
-  const { data: projectRepos = [] } = useProjectRepos(projectId);
-  const primaryRepo = projectRepos[0];
-  const { data: primaryRepoBranches = [] } = useRepoBranches(primaryRepo?.id, {
-    enabled: Boolean(primaryRepo?.id),
-  });
-  const { worktrees } = useProjectWorktrees(projectId);
-  const createWorkspaceOptions = useMemo(
-    () => worktrees.map((item) => item.workspace),
-    [worktrees]
-  );
-  const workspaceBranchOptions = useMemo(
-    () =>
-      buildWorkspaceBranchOptions({
-        workspaces: createWorkspaceOptions,
-        repoBranches: primaryRepoBranches,
-      }),
-    [createWorkspaceOptions, primaryRepoBranches]
-  );
-  const defaultNewSessionWorkspaceValue = useMemo(() => {
-    const currentWorkspaceOption = findWorkspaceBranchOptionByWorkspaceId(
-      workspaceBranchOptions,
-      workspaceId
-    );
-    if (currentWorkspaceOption) {
-      return currentWorkspaceOption.value;
-    }
-
-    return workspaceBranchOptions[0]?.value ?? '';
-  }, [workspaceBranchOptions, workspaceId]);
-  const [newSessionWorkspaceValue, setNewSessionWorkspaceValue] = useState(
-    defaultNewSessionWorkspaceValue
-  );
-  const {
-    configs: newSessionRepoBranchConfigs,
-    isLoading: isLoadingNewSessionBranches,
-    setRepoBranch: setNewSessionRepoBranch,
-    getWorkspaceRepoInputs: getNewSessionRepoInputs,
-    reset: resetNewSessionRepoSelection,
-  } = useRepoBranchSelection({
-    repos: projectRepos,
-    enabled: isNewSessionMode,
-  });
 
   const latestProfileId = useMemo(
     () => getLatestProfileFromProcesses(processes),
@@ -792,28 +720,6 @@ export function TaskFollowUpSection({
     },
     []
   );
-  const persistCreatedSessionProfile = useCallback(
-    async (sessionId: string, profile: ExecutorProfileId | null) => {
-      if (!profile?.executor) return;
-      rememberCreatedSessionProfile(sessionId, profile);
-      try {
-        await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, sessionId, {
-          payload: {
-            type: 'DRAFT_FOLLOW_UP',
-            data: {
-              message: '',
-              images: [],
-              executor_config: profile,
-              queued: false,
-            } as DraftFollowUpData,
-          },
-        });
-      } catch (error) {
-        console.warn('Failed to persist created session profile', error);
-      }
-    },
-    [rememberCreatedSessionProfile]
-  );
   const handleFollowUpSessionCreated = useCallback(
     (createdSession: { sessionId: string; workspaceId: string }) => {
       rememberCreatedSessionProfile(
@@ -858,7 +764,7 @@ export function TaskFollowUpSection({
       sessionExecutor: session?.executor,
       workspaceId: workspaceIdValue,
       isNewSessionMode,
-      newSessionName,
+      newSessionName: '',
       onSelectSession: handleSelectSession,
       onSessionCreated: handleFollowUpSessionCreated,
       message: localMessage,
@@ -874,7 +780,6 @@ export function TaskFollowUpSection({
           prev.forEach(revokeImagePreviewUrl);
           return [];
         });
-        setNewSessionName('');
         hydratedScratchIdRef.current = scratchIdValue;
         if (scratchIdValue) {
           await deleteScratch();
@@ -1223,119 +1128,6 @@ export function TaskFollowUpSection({
     refetchAttemptBranch,
   ]);
 
-  useEffect(() => {
-    if (!isNewSessionConfigVisible) {
-      setNewSessionName('');
-    }
-  }, [isNewSessionConfigVisible, workspaceId]);
-  useEffect(() => {
-    if (
-      !newSessionWorkspaceValue ||
-      !workspaceBranchOptions.some(
-        (option) => option.value === newSessionWorkspaceValue
-      )
-    ) {
-      setNewSessionWorkspaceValue(defaultNewSessionWorkspaceValue);
-    }
-  }, [
-    defaultNewSessionWorkspaceValue,
-    newSessionWorkspaceValue,
-    workspaceBranchOptions,
-  ]);
-  const selectedWorkspaceOption = useMemo<WorkspaceBranchOption | null>(
-    () =>
-      findWorkspaceBranchOption(
-        workspaceBranchOptions,
-        newSessionWorkspaceValue
-      ),
-    [newSessionWorkspaceValue, workspaceBranchOptions]
-  );
-
-  const handleCancelNewSession = useCallback(() => {
-    selectLatestSession();
-    setNewSessionName('');
-    setNewSessionWorkspaceValue(defaultNewSessionWorkspaceValue);
-    setNewSessionMode(
-      workspaceBranchOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
-    );
-    resetNewSessionRepoSelection();
-    setSelectedExecutorProfile(defaultExecutorProfile);
-  }, [
-    defaultNewSessionWorkspaceValue,
-    defaultExecutorProfile,
-    resetNewSessionRepoSelection,
-    selectLatestSession,
-    workspaceBranchOptions.length,
-  ]);
-
-  const canCreateSessionDirectly =
-    !!effectiveExecutorProfile?.executor &&
-    (newSessionMode === 'existing_workspace'
-      ? !!selectedWorkspaceOption
-      : projectRepos.length > 0 &&
-        newSessionRepoBranchConfigs.length > 0 &&
-        newSessionRepoBranchConfigs.every((config) => !!config.targetBranch));
-
-  const createSessionMutation = useMutation({
-    mutationFn: async () => {
-      if (!projectId) {
-        throw new Error('Project is required');
-      }
-
-      const workspaceSelection =
-        newSessionMode === 'existing_workspace'
-          ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
-          : { workspaceId: null, branch: null };
-
-      return sessionsApi.createProject({
-        project_id: projectId,
-        workspace_id: workspaceSelection.workspaceId,
-        branch: workspaceSelection.branch,
-        executor: effectiveExecutorProfile?.executor ?? undefined,
-        name: newSessionName.trim() || null,
-        create_workspace: newSessionMode === 'new_workspace',
-        repos:
-          newSessionMode === 'new_workspace'
-            ? getNewSessionRepoInputs()
-            : undefined,
-      });
-    },
-    onSuccess: async (newSession) => {
-      await queryClient.invalidateQueries({
-        queryKey: ['workspaceSessions', newSession.workspace_id],
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ['taskAttempt', newSession.workspace_id],
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ['taskAttemptWithSession', newSession.workspace_id],
-      });
-      if (projectId) {
-        await queryClient.invalidateQueries({
-          queryKey: ['projectWorktrees', projectId],
-        });
-      }
-      if (primaryRepo?.id) {
-        await queryClient.invalidateQueries({
-          queryKey: ['repoBranches', primaryRepo.id],
-        });
-      }
-      await persistCreatedSessionProfile(
-        newSession.id,
-        effectiveExecutorProfile
-      );
-      setSelectedExecutorProfile(effectiveExecutorProfile);
-      onSessionCreated?.({
-        sessionId: newSession.id,
-        workspaceId: newSession.workspace_id,
-      });
-      if (newSession.workspace_id === workspaceId) {
-        handleSelectSession(newSession.id);
-      }
-      setNewSessionName('');
-    },
-  });
-
   if (!workspaceId) return null;
 
   if (isScratchLoading) {
@@ -1474,69 +1266,13 @@ export function TaskFollowUpSection({
                   compactSessionLabel={compactSessionLabel}
                   selectedSessionLabel={selectedSessionLabel}
                   onSelectSession={handleSelectSession}
-                  onStartNewSession={() => {
-                    if (rightPanelSessionCreation) {
-                      rightPanelSessionCreation.openCreateSessionOverlay();
-                      return;
-                    }
-
-                    startNewSession();
-                  }}
+                  onStartNewSession={() => onCreateSessionRequested?.()}
                   onRenameSession={handleRenameSession}
                   dropdownSide="top"
                 />
               ) : null}
             </div>
           )}
-
-          {isNewSessionConfigVisible ? (
-            <div className="composer-config-panel rounded-xl p-2">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-xs font-medium text-foreground">
-                  {'\u65b0\u5efa\u4f1a\u8bdd\u914d\u7f6e'}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCancelNewSession}
-                  className="composer-control inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-                  aria-label="取消新建会话"
-                  title="取消新建会话"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <SessionCreationForm
-                mode={newSessionMode}
-                onModeChange={setNewSessionMode}
-                workspaceBranchOptions={workspaceBranchOptions}
-                selectedWorkspaceValue={newSessionWorkspaceValue}
-                onSelectedWorkspaceValueChange={setNewSessionWorkspaceValue}
-                sessionName={newSessionName}
-                onSessionNameChange={setNewSessionName}
-                profiles={profiles}
-                selectedExecutorProfile={effectiveExecutorProfile}
-                onSelectedExecutorProfileChange={setSelectedExecutorProfile}
-                repoBranchConfigs={newSessionRepoBranchConfigs}
-                onRepoBranchChange={setNewSessionRepoBranch}
-                isLoadingBranches={isLoadingNewSessionBranches}
-                canSubmit={canCreateSessionDirectly}
-                isSubmitting={createSessionMutation.isPending}
-                errorMessage={
-                  createSessionMutation.error
-                    ? getSessionUiErrorMessage(
-                        createSessionMutation.error,
-                        '创建会话失败，请稍后重试。'
-                      )
-                    : null
-                }
-                onSubmit={() => createSessionMutation.mutate()}
-                onCancel={handleCancelNewSession}
-                compact
-                dropdownSide="top"
-              />
-            </div>
-          ) : null}
-
           <SessionComposerInput
             value={localMessage}
             onChange={handleEditorChange}
@@ -1553,7 +1289,7 @@ export function TaskFollowUpSection({
             profiles={profiles}
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={setSelectedExecutorProfile}
-            showProfileControls={!isNewSessionConfigVisible}
+            showProfileControls={true}
             isEditable={isEditable}
             isAttemptRunning={isAttemptRunning}
             isQueued={hasVisibleQueuedMessage}

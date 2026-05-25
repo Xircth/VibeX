@@ -1093,33 +1093,44 @@ function shouldCollapseAssistantPreludeEntry(entry: BaseDisplayEntry): boolean {
 function collapseAssistantPreludeEntries(
   displayEntries: BaseDisplayEntry[]
 ): DisplayEntry[] {
+  const indexesByProcess = new Map<string, number[]>();
   const lastAssistantIndexByProcess = new Map<string, number>();
 
   for (let index = 0; index < displayEntries.length; index += 1) {
     const entry = displayEntries[index]!;
+    const indexes = indexesByProcess.get(entry.executionProcessId) ?? [];
+    indexes.push(index);
+    indexesByProcess.set(entry.executionProcessId, indexes);
+
     if (isAssistantMessageDisplayEntry(entry)) {
       lastAssistantIndexByProcess.set(entry.executionProcessId, index);
     }
   }
 
   const hiddenIndexes = new Set<number>();
-  const collapsedGroupByAssistantIndex = new Map<
+  const collapsedGroupByInsertionIndex = new Map<
     number,
     Extract<DisplayEntry, { type: 'COLLAPSED_ASSISTANT_MESSAGES' }>
   >();
 
-  for (const [
-    executionProcessId,
-    assistantIndex,
-  ] of lastAssistantIndexByProcess) {
+  for (const [executionProcessId, processIndexes] of indexesByProcess) {
+    const assistantIndex = lastAssistantIndexByProcess.get(executionProcessId);
     const hiddenEntries: BaseDisplayEntry[] = [];
+    let firstHiddenIndex: number | null = null;
 
-    for (let index = 0; index < assistantIndex; index += 1) {
+    for (const index of processIndexes) {
+      if (assistantIndex !== undefined && index >= assistantIndex) {
+        continue;
+      }
+
       const entry = displayEntries[index]!;
       if (
         entry.executionProcessId === executionProcessId &&
         shouldCollapseAssistantPreludeEntry(entry)
       ) {
+        if (firstHiddenIndex === null) {
+          firstHiddenIndex = index;
+        }
         hiddenEntries.push(entry);
         hiddenIndexes.add(index);
       }
@@ -1131,7 +1142,7 @@ function collapseAssistantPreludeEntries(
 
     const firstHiddenEntry = hiddenEntries[0]!;
     const lastHiddenEntry = hiddenEntries[hiddenEntries.length - 1]!;
-    collapsedGroupByAssistantIndex.set(assistantIndex, {
+    collapsedGroupByInsertionIndex.set(assistantIndex ?? firstHiddenIndex!, {
       type: 'COLLAPSED_ASSISTANT_MESSAGES',
       entries: hiddenEntries,
       hiddenCount: hiddenEntries.length,
@@ -1143,13 +1154,13 @@ function collapseAssistantPreludeEntries(
   const collapsedEntries: DisplayEntry[] = [];
 
   for (let index = 0; index < displayEntries.length; index += 1) {
-    if (hiddenIndexes.has(index)) {
-      continue;
-    }
-
-    const collapsedGroup = collapsedGroupByAssistantIndex.get(index);
+    const collapsedGroup = collapsedGroupByInsertionIndex.get(index);
     if (collapsedGroup) {
       collapsedEntries.push(collapsedGroup);
+    }
+
+    if (hiddenIndexes.has(index)) {
+      continue;
     }
 
     collapsedEntries.push(displayEntries[index]!);

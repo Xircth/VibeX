@@ -502,6 +502,7 @@ export function RightPanelContent() {
                   showSessionSelector={true}
                   onSessionCreated={handleCreatedSession}
                   onSessionSelected={handleSelectedSession}
+                  onCreateSessionRequested={openCreateSessionOverlay}
                   className="h-full"
                 />
               </div>
@@ -514,6 +515,7 @@ export function RightPanelContent() {
                   showSessionSelector={true}
                   onSessionCreated={handleCreatedSession}
                   onSessionSelected={handleSelectedSession}
+                  onCreateSessionRequested={openCreateSessionOverlay}
                   className="h-full"
                 />
               </div>

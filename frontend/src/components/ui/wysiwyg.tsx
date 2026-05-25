@@ -311,7 +311,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
               : 'mt-2 mb-1 text-xs font-medium uppercase tracking-wide',
           },
           quote:
-            'my-3 border-l-4 border-primary-foreground pl-4 text-muted-foreground',
+            'my-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-muted-foreground',
           list: {
             ul: isSessionInputMinimalPreset
               ? 'my-1 list-disc pl-5 text-[13px] leading-5 tracking-[0.005em]'
@@ -644,7 +644,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                 aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
                 title={copied ? 'Copied!' : 'Copy as Markdown'}
                 onClick={handleCopy}
-                className="p-1 rounded hover:bg-white/10 transition-colors"
+                className="p-1 rounded hover:bg-muted/70 transition-colors"
               >
                 {copied ? (
                   <Check className="w-3.5 h-3.5 text-green-400" />
@@ -659,7 +659,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   aria-label="Edit"
                   title="Edit"
                   onClick={onEdit}
-                  className="p-1 rounded hover:bg-white/10 transition-colors"
+                  className="p-1 rounded hover:bg-muted/70 transition-colors"
                 >
                   <Pencil className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
                 </button>
@@ -671,7 +671,7 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   aria-label="Delete"
                   title="Delete"
                   onClick={onDelete}
-                  className="p-1 rounded hover:bg-white/10 transition-colors"
+                  className="p-1 rounded hover:bg-muted/70 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5 opacity-60 hover:opacity-100" />
                 </button>

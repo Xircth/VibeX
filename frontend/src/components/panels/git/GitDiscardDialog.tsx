@@ -42,7 +42,7 @@ export const GitDiscardDialog = memo(function GitDiscardDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[hsl(220_42%_4%_/_0.58)] backdrop-blur-[2px]"
       onKeyDown={handleKeyDown}
       onClick={(e) => {
         if (e.target === e.currentTarget && !loading) onCancel();

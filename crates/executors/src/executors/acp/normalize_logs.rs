@@ -1,17 +1,23 @@
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, LazyLock},
 };
 
-use agent_client_protocol::schema::SessionNotification;
 use futures::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
 use workspace_utils::{approvals::ApprovalStatus, msg_store::MsgStore};
 
 pub use super::AcpAgentHarness;
-use super::AcpEvent;
+use super::{
+    AcpEvent,
+    formatting::{content_block_to_markdown, format_plan_markdown},
+    parser::{parse_event_line, parse_execute_command},
+    streaming::{StreamingState, StreamingText, merge_streaming_text},
+    task_inference::{TaskToolCallView, heuristically_extract_task_create},
+    tool_state::PartialToolCallData,
+};
 use crate::{
     approvals::ToolCallMetadata,
     logs::{
@@ -47,7 +53,7 @@ pub fn normalize_logs_with_context_window_override(
 
         let mut stdout_lines = msg_store.stdout_lines_stream();
         while let Some(Ok(line)) = stdout_lines.next().await {
-            if let Some(parsed) = AcpEventParser::parse_line(&line) {
+            if let Some(parsed) = parse_event_line(&line) {
                 tracing::trace!("Parsed ACP line: {:?}", parsed);
                 match parsed {
                     AcpEvent::SessionStart(id) => {
@@ -353,7 +359,7 @@ pub fn normalize_logs_with_context_window_override(
                     }
                 }
                 agent_client_protocol::schema::ToolKind::Execute => {
-                    let command = AcpEventParser::parse_execute_command(tc);
+                    let command = parse_execute_command(&tc.title, tc.raw_input.as_ref());
                     // Prefer structured raw_output, else fallback to aggregated text content
                     let completed = matches!(
                         tc.status,
@@ -425,7 +431,9 @@ pub fn normalize_logs_with_context_window_override(
                     ActionType::WebFetch { url }
                 }
                 agent_client_protocol::schema::ToolKind::Think => {
-                    if let Some(task_action) = heuristically_extract_task_create(tc) {
+                    if let Some(task_action) =
+                        heuristically_extract_task_create(task_tool_call_view(tc))
+                    {
                         return task_action;
                     }
                     let tool_name = extract_tool_name_from_id(tc.id.0.as_ref())
@@ -459,7 +467,9 @@ pub fn normalize_logs_with_context_window_override(
                 agent_client_protocol::schema::ToolKind::Other
                 | agent_client_protocol::schema::ToolKind::Move
                 | _ => {
-                    if let Some(task_action) = heuristically_extract_task_create(tc) {
+                    if let Some(task_action) =
+                        heuristically_extract_task_create(task_tool_call_view(tc))
+                    {
                         return task_action;
                     }
                     // Derive a friendlier tool name from the id if it looks like name-<digits>
@@ -647,244 +657,6 @@ pub fn normalize_logs_with_context_window_override(
     });
 }
 
-fn format_plan_markdown(plan: &agent_client_protocol::schema::Plan) -> String {
-    plan.entries
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| {
-            let status = serde_json::to_value(&entry.status)
-                .ok()
-                .and_then(|value| value.as_str().map(ToOwned::to_owned))
-                .unwrap_or_else(|| "unknown".to_string());
-            let priority = serde_json::to_value(&entry.priority)
-                .ok()
-                .and_then(|value| value.as_str().map(ToOwned::to_owned))
-                .unwrap_or_else(|| "normal".to_string());
-
-            format!(
-                "{}. [{} | {}] {}",
-                index + 1,
-                status,
-                priority,
-                entry.content.trim()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn content_block_to_markdown(
-    content: &agent_client_protocol::schema::ContentBlock,
-) -> Option<String> {
-    match content {
-        agent_client_protocol::schema::ContentBlock::Text(text) => Some(text.text.clone()),
-        agent_client_protocol::schema::ContentBlock::Image(image) => {
-            let src = image
-                .uri
-                .as_deref()
-                .filter(|uri| !uri.trim().is_empty())
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("data:{};base64,{}", image.mime_type, image.data));
-            Some(format!("![Image]({})", markdown_url(&src)))
-        }
-        agent_client_protocol::schema::ContentBlock::ResourceLink(link) => {
-            let label = markdown_label(
-                link.title
-                    .as_deref()
-                    .or(Some(link.name.as_str()))
-                    .unwrap_or("Resource"),
-            );
-            if link
-                .mime_type
-                .as_deref()
-                .is_some_and(|mime| mime.starts_with("image/"))
-                || looks_like_image_uri(&link.uri)
-            {
-                Some(format!("![{}]({})", label, markdown_url(&link.uri)))
-            } else {
-                Some(format!("[{}]({})", label, markdown_url(&link.uri)))
-            }
-        }
-        agent_client_protocol::schema::ContentBlock::Resource(resource) => {
-            match &resource.resource {
-                agent_client_protocol::schema::EmbeddedResourceResource::TextResourceContents(
-                    text,
-                ) => Some(text.text.clone()),
-                agent_client_protocol::schema::EmbeddedResourceResource::BlobResourceContents(
-                    blob,
-                ) => {
-                    let mime_type = blob
-                        .mime_type
-                        .as_deref()
-                        .unwrap_or("application/octet-stream");
-                    if mime_type.starts_with("image/") {
-                        Some(format!(
-                            "![{}](data:{};base64,{})",
-                            markdown_label(&blob.uri),
-                            mime_type,
-                            blob.blob
-                        ))
-                    } else {
-                        Some(format!(
-                            "[{}]({})",
-                            markdown_label(&blob.uri),
-                            markdown_url(&blob.uri)
-                        ))
-                    }
-                }
-                _ => None,
-            }
-        }
-        agent_client_protocol::schema::ContentBlock::Audio(audio) => Some(format!(
-            "[Audio: {}](data:{};base64,{})",
-            markdown_label(&audio.mime_type),
-            audio.mime_type,
-            audio.data
-        )),
-        _ => None,
-    }
-}
-
-fn markdown_label(label: &str) -> String {
-    label.replace('[', "\\[").replace(']', "\\]")
-}
-
-fn markdown_url(url: &str) -> String {
-    if url.starts_with("data:") || (!url.contains(char::is_whitespace) && !url.contains(')')) {
-        url.to_string()
-    } else {
-        format!("<{}>", url.replace('>', "%3E"))
-    }
-}
-
-fn looks_like_image_uri(uri: &str) -> bool {
-    let lower = uri
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(uri)
-        .to_ascii_lowercase();
-    matches!(
-        lower.rsplit('.').next(),
-        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif")
-    )
-}
-
-fn merge_streaming_text(current: &mut String, incoming: &str) {
-    if incoming.is_empty() {
-        return;
-    }
-
-    if current.is_empty() {
-        current.push_str(incoming);
-        return;
-    }
-
-    if incoming.starts_with(current.as_str()) {
-        current.clear();
-        current.push_str(incoming);
-        return;
-    }
-
-    if current.starts_with(incoming) {
-        return;
-    }
-
-    current.push_str(incoming);
-}
-
-fn heuristically_extract_task_create(tc: &PartialToolCallData) -> Option<ActionType> {
-    let parsed_title_json = tc
-        .title
-        .trim_start()
-        .starts_with('{')
-        .then(|| serde_json::from_str::<serde_json::Value>(&tc.title).ok())
-        .flatten();
-    let arguments = tc.raw_input.as_ref().or(parsed_title_json.as_ref());
-    let tool_name =
-        extract_task_tool_name(tc.id.0.as_ref()).unwrap_or_else(|| tc.title.trim().to_string());
-
-    let has_task_signal = is_task_like_name(&tool_name)
-        || is_task_like_name(&tc.title)
-        || extract_string_argument(
-            arguments,
-            &[
-                "description",
-                "prompt",
-                "task",
-                "subagent_type",
-                "agent_type",
-            ],
-        )
-        .is_some();
-
-    if !has_task_signal {
-        return None;
-    }
-
-    let description = extract_string_argument(
-        arguments,
-        &[
-            "description",
-            "prompt",
-            "task",
-            "title",
-            "summary",
-            "message",
-            "instruction",
-        ],
-    )
-    .or_else(|| extract_task_description_from_title(&tc.title, &tool_name))
-    .or_else(|| collect_text_content_blocks(&tc.content))
-    .filter(|text| !text.trim().is_empty())
-    .unwrap_or_else(|| tool_name.clone());
-
-    let subagent_type = extract_string_argument(
-        arguments,
-        &["subagent_type", "agent_type", "agent", "kind", "role"],
-    );
-
-    Some(ActionType::TaskCreate {
-        description: description.trim().trim_matches('`').to_string(),
-        subagent_type,
-        result: collect_tool_result(tc),
-    })
-}
-
-fn collect_tool_result(tc: &PartialToolCallData) -> Option<ToolResult> {
-    if let Some(output) = &tc.raw_output {
-        Some(ToolResult {
-            r#type: ToolResultValueType::Json,
-            value: output.clone(),
-        })
-    } else {
-        collect_text_content_blocks(&tc.content).map(|text| ToolResult {
-            r#type: ToolResultValueType::Markdown,
-            value: serde_json::Value::String(text),
-        })
-    }
-}
-
-fn collect_text_content_blocks(
-    content: &[agent_client_protocol::schema::ToolCallContent],
-) -> Option<String> {
-    let mut out = String::new();
-    for item in content {
-        if let agent_client_protocol::schema::ToolCallContent::Content(inner) = item
-            && let agent_client_protocol::schema::ContentBlock::Text(text) = &inner.content
-        {
-            out.push_str(&text.text);
-            if !out.ends_with('\n') {
-                out.push('\n');
-            }
-        }
-    }
-    if out.trim().is_empty() {
-        None
-    } else {
-        Some(out.trim().to_string())
-    }
-}
-
 fn acp_context_window_or_fallback(size: u64, fallback: Option<u32>) -> Option<u32> {
     if size > 0 {
         Some(size.min(u32::MAX as u64) as u32)
@@ -893,115 +665,48 @@ fn acp_context_window_or_fallback(size: u64, fallback: Option<u32>) -> Option<u3
     }
 }
 
-fn extract_task_description_from_title(title: &str, tool_name: &str) -> Option<String> {
-    let trimmed = title.trim();
-    if trimmed.is_empty() {
-        return None;
+fn task_tool_call_view(tc: &PartialToolCallData) -> TaskToolCallView<'_> {
+    TaskToolCallView {
+        id: &tc.id,
+        title: &tc.title,
+        content: &tc.content,
+        raw_input: tc.raw_input.as_ref(),
+        raw_output: tc.raw_output.as_ref(),
     }
-
-    let normalized_tool_name = normalize_task_name(tool_name);
-    let normalized_title = normalize_task_name(trimmed);
-    if normalized_title == normalized_tool_name {
-        return None;
-    }
-
-    for separator in [":", "-", "=>"] {
-        if let Some((prefix, rest)) = trimmed.split_once(separator)
-            && normalize_task_name(prefix) == normalized_tool_name
-            && !rest.trim().is_empty()
-        {
-            return Some(rest.trim().to_string());
-        }
-    }
-
-    Some(trimmed.to_string())
-}
-
-fn extract_string_argument(value: Option<&serde_json::Value>, keys: &[&str]) -> Option<String> {
-    let value = value?;
-    if let Some(text) = value
-        .as_str()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
-        return Some(text.to_string());
-    }
-
-    let object = value.as_object()?;
-    keys.iter().find_map(|key| {
-        object.get(*key).and_then(|candidate| {
-            candidate
-                .as_str()
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .map(ToOwned::to_owned)
-        })
-    })
-}
-
-fn extract_task_tool_name(id: &str) -> Option<String> {
-    if let Some(idx) = id.rfind('-') {
-        let (head, tail) = id.split_at(idx);
-        if tail
-            .trim_start_matches('-')
-            .chars()
-            .all(|c| c.is_ascii_digit())
-        {
-            return Some(head.to_string());
-        }
-    }
-    None
-}
-
-fn normalize_task_name(name: &str) -> String {
-    name.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-fn is_task_like_name(name: &str) -> bool {
-    let normalized = normalize_task_name(name);
-    [
-        "task",
-        "task_create",
-        "create_task",
-        "subagent",
-        "sub_agent",
-        "create_subagent",
-        "spawn_agent",
-        "spawn",
-        "delegate",
-        "multi_agent",
-        "muti_agent",
-    ]
-    .iter()
-    .any(|candidate| {
-        normalized == *candidate
-            || normalized.starts_with(&format!("{candidate}_"))
-            || normalized.ends_with(&format!("_{candidate}"))
-            || normalized.contains(&format!("_{candidate}_"))
-    })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{path::Path, sync::Arc};
+
     use agent_client_protocol::schema::{
         ContentBlock, ImageContent, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
-        ResourceLink, ToolCallId, ToolCallStatus, ToolKind,
+        ResourceLink, TextContent, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
+        ToolCallUpdate, ToolCallUpdateFields, ToolKind,
     };
     use serde_json::json;
+    use workspace_utils::{log_msg::LogMsg, msg_store::MsgStore};
 
     use super::{
-        PartialToolCallData, acp_context_window_or_fallback, content_block_to_markdown,
+        AcpEvent, PartialToolCallData, acp_context_window_or_fallback, content_block_to_markdown,
         format_plan_markdown, heuristically_extract_task_create, merge_streaming_text,
+        normalize_logs_with_context_window_override, task_tool_call_view,
     };
-    use crate::logs::ActionType;
+    use crate::logs::{
+        ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus,
+        utils::patch::extract_normalized_entry_from_patch,
+    };
+
+    fn normalized_entries(msg_store: &MsgStore) -> Vec<(usize, NormalizedEntry)> {
+        msg_store
+            .get_history()
+            .into_iter()
+            .filter_map(|msg| match msg {
+                LogMsg::JsonPatch(patch) => extract_normalized_entry_from_patch(&patch),
+                _ => None,
+            })
+            .collect()
+    }
 
     #[test]
     fn formats_acp_plan_as_readable_markdown() {
@@ -1094,7 +799,8 @@ mod tests {
             ..Default::default()
         };
 
-        let action = heuristically_extract_task_create(&tool_call).expect("task action");
+        let action = heuristically_extract_task_create(task_tool_call_view(&tool_call))
+            .expect("task action");
         let ActionType::TaskCreate {
             description,
             subagent_type,
@@ -1124,7 +830,8 @@ mod tests {
             ..Default::default()
         };
 
-        let action = heuristically_extract_task_create(&tool_call).expect("task action");
+        let action = heuristically_extract_task_create(task_tool_call_view(&tool_call))
+            .expect("task action");
         let ActionType::TaskCreate {
             description,
             subagent_type,
@@ -1138,143 +845,161 @@ mod tests {
         assert_eq!(subagent_type.as_deref(), Some("architect"));
         assert!(result.is_some());
     }
-}
 
-struct PartialToolCallData {
-    index: usize,
-    id: agent_client_protocol::schema::ToolCallId,
-    kind: agent_client_protocol::schema::ToolKind,
-    title: String,
-    status: agent_client_protocol::schema::ToolCallStatus,
-    path: Option<PathBuf>,
-    content: Vec<agent_client_protocol::schema::ToolCallContent>,
-    raw_input: Option<serde_json::Value>,
-    raw_output: Option<serde_json::Value>,
-}
+    #[tokio::test]
+    async fn normalizes_stdout_acp_event_sequence_end_to_end() {
+        let msg_store = Arc::new(MsgStore::new());
+        normalize_logs_with_context_window_override(
+            msg_store.clone(),
+            Path::new("C:/repo"),
+            Some(1_000_000),
+        );
 
-impl PartialToolCallData {
-    fn extend(&mut self, tc: &agent_client_protocol::schema::ToolCall, worktree_path: &Path) {
-        self.id = tc.tool_call_id.clone();
-        if tc.kind != Default::default() {
-            self.kind = tc.kind;
-        }
-        if !tc.title.is_empty() {
-            self.title = tc.title.clone();
-        }
-        if tc.status != Default::default() {
-            self.status = tc.status;
-        }
-        if !tc.locations.is_empty() {
-            self.path = tc.locations.first().map(|l| {
-                PathBuf::from(workspace_utils::path::make_path_relative(
-                    &l.path.to_string_lossy(),
-                    &worktree_path.to_string_lossy(),
-                ))
-            });
-        }
-        if !tc.content.is_empty() {
-            self.content = tc.content.clone();
-        }
-        if tc.raw_input.is_some() {
-            self.raw_input = tc.raw_input.clone();
-        }
-        if tc.raw_output.is_some() {
-            self.raw_output = tc.raw_output.clone();
-        }
-    }
-}
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::Message(ContentBlock::Text(TextContent::new("Review complete")))
+        ));
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::Message(ContentBlock::Text(TextContent::new(
+                "Review complete\n\n- locked behavior"
+            )))
+        ));
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::ToolCall(
+                ToolCall::new(ToolCallId::new("spawn_agent-1"), "spawn_agent")
+                    .kind(ToolKind::Other)
+                    .status(ToolCallStatus::Completed)
+                    .raw_input(json!({
+                        "message": "Audit ACP normalization",
+                        "agent_type": "critic"
+                    }))
+                    .raw_output(json!({ "ok": true }))
+            )
+        ));
+        msg_store.push_stdout(format!("{}\n", AcpEvent::Usage { used: 42, size: 0 }));
+        msg_store.push_finished();
 
-impl Default for PartialToolCallData {
-    fn default() -> Self {
-        Self {
-            id: agent_client_protocol::schema::ToolCallId::new(""),
-            index: 0,
-            kind: agent_client_protocol::schema::ToolKind::default(),
-            title: String::new(),
-            status: Default::default(),
-            path: None,
-            content: Vec::new(),
-            raw_input: None,
-            raw_output: None,
-        }
-    }
-}
-
-struct AcpEventParser;
-
-impl AcpEventParser {
-    /// Parse a line that may contain an ACP event
-    pub fn parse_line(line: &str) -> Option<AcpEvent> {
-        let trimmed = line.trim();
-
-        if let Ok(acp_event) = serde_json::from_str::<AcpEvent>(trimmed) {
-            return Some(acp_event);
-        }
-
-        tracing::debug!("Failed to parse ACP raw log {trimmed}");
-
-        None
-    }
-
-    /// Parse command from tool title (for execute tools)
-    pub fn parse_execute_command(tc: &PartialToolCallData) -> String {
-        if let Some(command) = tc.raw_input.as_ref().and_then(|value| {
-            value
-                .as_object()
-                .and_then(|o| o.get("command").and_then(|v| v.as_str()))
-        }) {
-            return command.to_string();
-        }
-        let title = &tc.title;
-        if let Some(command) = title.split(" [current working directory ").next() {
-            command.trim().to_string()
-        } else if let Some(command) = title.split(" (").next() {
-            command.trim().to_string()
-        } else {
-            title.trim().to_string()
-        }
-    }
-}
-
-/// Result of parsing a line
-#[derive(Debug, Clone)]
-#[allow(clippy::large_enum_variant)]
-pub enum ParsedLine {
-    SessionId(String),
-    Event(AcpEvent),
-    Error(String),
-    Done,
-}
-
-impl TryFrom<SessionNotification> for AcpEvent {
-    type Error = ();
-
-    fn try_from(notification: SessionNotification) -> Result<Self, ()> {
-        let event = match notification.update {
-            agent_client_protocol::schema::SessionUpdate::AgentMessageChunk(chunk) => {
-                AcpEvent::Message(chunk.content)
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if normalized_entries(&msg_store).len() >= 4 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-            agent_client_protocol::schema::SessionUpdate::AgentThoughtChunk(chunk) => {
-                AcpEvent::Thought(chunk.content)
-            }
-            agent_client_protocol::schema::SessionUpdate::ToolCall(tc) => AcpEvent::ToolCall(tc),
-            agent_client_protocol::schema::SessionUpdate::ToolCallUpdate(update) => {
-                AcpEvent::ToolUpdate(update)
-            }
-            agent_client_protocol::schema::SessionUpdate::Plan(plan) => AcpEvent::Plan(plan),
-            agent_client_protocol::schema::SessionUpdate::UsageUpdate(update) => AcpEvent::Usage {
-                used: update.used,
-                size: update.size,
-            },
-            agent_client_protocol::schema::SessionUpdate::AvailableCommandsUpdate(update) => {
-                AcpEvent::AvailableCommands(update.available_commands)
-            }
-            agent_client_protocol::schema::SessionUpdate::CurrentModeUpdate(update) => {
-                AcpEvent::CurrentMode(update.current_mode_id)
-            }
-            _ => return Err(()),
+        })
+        .await
+        .expect("normalization task produced expected entries");
+
+        let entries = normalized_entries(&msg_store);
+
+        assert!(matches!(
+            entries[0].1.entry_type,
+            NormalizedEntryType::AssistantMessage
+        ));
+        assert_eq!(entries[0].1.content, "Review complete");
+
+        assert!(matches!(
+            entries[1].1.entry_type,
+            NormalizedEntryType::AssistantMessage
+        ));
+        assert_eq!(entries[1].1.content, "Review complete\n\n- locked behavior");
+
+        let NormalizedEntryType::ToolUse {
+            action_type,
+            status,
+            ..
+        } = &entries[2].1.entry_type
+        else {
+            panic!("expected task-create tool entry");
         };
-        Ok(event)
+        let ActionType::TaskCreate {
+            description,
+            subagent_type,
+            result,
+        } = action_type
+        else {
+            panic!("expected task-create action");
+        };
+        assert_eq!(description, "Audit ACP normalization");
+        assert_eq!(subagent_type.as_deref(), Some("critic"));
+        assert!(matches!(status, ToolStatus::Success));
+        assert!(result.is_some());
+
+        let NormalizedEntryType::TokenUsageInfo(usage) = &entries[3].1.entry_type else {
+            panic!("expected token usage entry");
+        };
+        assert_eq!(usage.total_tokens, 42);
+        assert_eq!(usage.model_context_window, 1_000_000);
+    }
+
+    #[tokio::test]
+    async fn tool_updates_without_titles_replace_existing_tool_entries() {
+        let msg_store = Arc::new(MsgStore::new());
+        normalize_logs_with_context_window_override(msg_store.clone(), Path::new("C:/repo"), None);
+
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::ToolCall(
+                ToolCall::new(
+                    ToolCallId::new("shell-1"),
+                    "cargo check (running in C:/repo)"
+                )
+                .kind(ToolKind::Execute)
+                .status(ToolCallStatus::InProgress)
+                .raw_input(json!({ "command": "cargo check" }))
+            )
+        ));
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::ToolUpdate(ToolCallUpdate::new(
+                ToolCallId::new("shell-1"),
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::Completed)
+                    .content(vec![ToolCallContent::from(ContentBlock::Text(
+                        TextContent::new("finished")
+                    ))])
+            ))
+        ));
+        msg_store.push_finished();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if normalized_entries(&msg_store).len() >= 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("tool update replaced existing entry");
+
+        let entries = normalized_entries(&msg_store);
+        assert_eq!(entries[0].0, entries[1].0);
+
+        let NormalizedEntryType::ToolUse {
+            action_type,
+            status,
+            ..
+        } = &entries[1].1.entry_type
+        else {
+            panic!("expected updated tool entry");
+        };
+        let ActionType::CommandRun {
+            command, result, ..
+        } = action_type
+        else {
+            panic!("expected command run action");
+        };
+
+        assert_eq!(command, "cargo check");
+        assert!(matches!(status, ToolStatus::Success));
+        assert_eq!(entries[1].1.content, "cargo check");
+        assert_eq!(
+            result.as_ref().and_then(|value| value.output.as_deref()),
+            Some("finished\n")
+        );
     }
 }
 
@@ -1286,18 +1011,6 @@ struct SearchArgs {
 #[derive(Debug, Clone, Deserialize)]
 struct FetchArgs {
     url: String,
-}
-
-#[derive(Debug, Clone, Default)]
-struct StreamingState {
-    assistant_text: Option<StreamingText>,
-    thinking_text: Option<StreamingText>,
-}
-
-#[derive(Debug, Clone)]
-struct StreamingText {
-    index: usize,
-    content: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

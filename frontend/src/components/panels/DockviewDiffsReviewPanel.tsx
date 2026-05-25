@@ -78,7 +78,7 @@ const changeBadge: Record<DiffChangeKind, { label: string; color: string }> = {
   },
   permissionChange: {
     label: 'P',
-    color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/40',
+    color: 'text-muted-foreground bg-muted',
   },
 };
 

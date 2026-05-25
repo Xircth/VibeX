@@ -30,16 +30,18 @@ import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import { SearchPalette } from '@/components/search/SearchPalette';
 import { useWorkspaceShortcuts } from '@/hooks/useWorkspaceShortcuts';
+import {
+  BOTTOM_PANEL_IDS,
+  compareEditorGroups,
+  getGroupElement,
+  getNextEditorGroupId,
+  isBottomGroup,
+  isEditorGroup,
+  isLeftGroup,
+  isSplittableEditorPanel,
+  LEFT_PANEL_IDS,
+} from '@/utils/dockviewGroupPolicy';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
-
-const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
-  PANEL_IDS.FILE_TREE,
-  PANEL_IDS.GIT,
-  PANEL_IDS.SEARCH,
-]);
-
-const BOTTOM_PANEL_IDS: ReadonlySet<string> = new Set([PANEL_IDS.TERMINAL]);
-const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([PANEL_IDS.WELCOME]);
 
 const LAYOUT = {
   LEFT_PANEL_DEFAULT_WIDTH: 220,
@@ -72,50 +74,6 @@ const LazyKanbanBoard = lazy(() =>
   }))
 );
 
-function isLeftGroup(group: DockviewGroup): boolean {
-  return (
-    group.id === GROUP_IDS.LEFT ||
-    group.panels.some((panel) => LEFT_PANEL_IDS.has(panel.id))
-  );
-}
-
-function isBottomGroup(group: DockviewGroup): boolean {
-  return (
-    group.id === GROUP_IDS.BOTTOM ||
-    group.panels.some((panel) => BOTTOM_PANEL_IDS.has(panel.id))
-  );
-}
-
-function isEditorGroup(group: DockviewGroup): boolean {
-  return !isLeftGroup(group) && !isBottomGroup(group);
-}
-
-function isSplittableEditorPanel(panel: DockviewPanel): boolean {
-  return isEditorGroup(panel.group) && !PLACEHOLDER_PANEL_IDS.has(panel.id);
-}
-
-function getGroupElement(group: DockviewGroup): HTMLElement | null {
-  const value = group as unknown as { element?: HTMLElement };
-  return value.element ?? null;
-}
-
-function compareEditorGroups(a: DockviewGroup, b: DockviewGroup): number {
-  const aRect = getGroupElement(a)?.getBoundingClientRect();
-  const bRect = getGroupElement(b)?.getBoundingClientRect();
-
-  if (aRect && bRect) {
-    if (Math.abs(aRect.left - bRect.left) > 1) {
-      return aRect.left - bRect.left;
-    }
-
-    if (Math.abs(aRect.top - bRect.top) > 1) {
-      return aRect.top - bRect.top;
-    }
-  }
-
-  return a.id.localeCompare(b.id);
-}
-
 function getLeftGroup(api: DockviewApi): DockviewGroup | undefined {
   return (
     api.getGroup(GROUP_IDS.LEFT) ??
@@ -134,17 +92,6 @@ function getEditorGroups(api: DockviewApi): DockviewGroup[] {
   return api.groups
     .filter((group) => isEditorGroup(group))
     .sort(compareEditorGroups);
-}
-
-function getNextEditorGroupId(api: DockviewApi): string {
-  const ids = new Set(api.groups.map((group) => group.id));
-  let index = 1;
-
-  while (ids.has(`${EDITOR_GROUP_PREFIX}${index}`)) {
-    index += 1;
-  }
-
-  return `${EDITOR_GROUP_PREFIX}${index}`;
 }
 
 function normalizeGroupIds(api: DockviewApi) {

@@ -261,7 +261,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                             <Folder className="h-4 w-4 text-blue-600 flex-shrink-0" />
                           )
                         ) : (
-                          <File className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                          <File className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
                         )}
                         <span className="text-sm flex-1 truncate min-w-0">
                           {entry.name}

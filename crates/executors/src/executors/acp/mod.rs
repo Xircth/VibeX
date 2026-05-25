@@ -1,9 +1,14 @@
 pub mod client;
+mod formatting;
 pub mod harness;
 pub mod normalize_logs;
+mod parser;
 pub mod provider;
 pub mod session;
+mod streaming;
+mod task_inference;
 pub mod terminal;
+mod tool_state;
 
 use std::{fmt::Display, str::FromStr};
 

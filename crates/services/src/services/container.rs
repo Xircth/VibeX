@@ -55,16 +55,12 @@ use utils::{
 use uuid::Uuid;
 
 use crate::services::{
-    notification::NotificationService, workspace_manager::WorkspaceError as WorkspaceManagerError,
+    notification::NotificationService,
+    workspace_manager::WorkspaceError as WorkspaceManagerError,
+    workspace_paths::{self, WorkspacePathRepo},
     worktree_manager::WorktreeError,
 };
 pub type ContainerRef = String;
-
-fn path_points_at_repo_root(path: &Path, repo: &Repo) -> bool {
-    path.file_name()
-        .and_then(|segment| segment.to_str())
-        .is_some_and(|segment| segment == repo.name)
-}
 
 fn build_workspace_branch_name(prefix: &str, workspace_id: &Uuid, task_title: &str) -> String {
     let task_title_id = git_branch_id(task_title);
@@ -173,23 +169,16 @@ mod tests {
 }
 
 fn workspace_base_dir(workspace: &Workspace, container_ref: &str, repos: &[Repo]) -> PathBuf {
-    let container_path = PathBuf::from(container_ref);
-    let [repo] = repos else {
-        return container_path;
+    let container_path = std::path::Path::new(container_ref);
+    let repo = match repos {
+        [repo] => Some(WorkspacePathRepo {
+            name: &repo.name,
+            path: &repo.path,
+        }),
+        _ => None,
     };
 
-    if !workspace.use_worktree {
-        return repo.path.clone();
-    }
-
-    if path_points_at_repo_root(&container_path, repo) {
-        return container_path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or(container_path);
-    }
-
-    container_path
+    workspace_paths::workspace_base_dir(container_path, workspace.use_worktree, repo)
 }
 
 fn normalized_workspace_agent_working_dir(
@@ -197,54 +186,16 @@ fn normalized_workspace_agent_working_dir(
     container_ref: &str,
     repos: &[Repo],
 ) -> Option<String> {
-    let raw = workspace
-        .agent_working_dir
-        .as_deref()
-        .map(str::trim)
-        .filter(|dir| !dir.is_empty())?;
-
-    let [repo] = repos else {
-        return Some(raw.to_string());
+    let repo_name = match repos {
+        [repo] => Some(repo.name.as_str()),
+        _ => None,
     };
-
-    let base_is_repo_root =
-        !workspace.use_worktree || path_points_at_repo_root(Path::new(container_ref), repo);
-    let mut segments = raw
-        .split(['/', '\\'])
-        .filter(|segment| !segment.is_empty())
-        .map(ToOwned::to_owned)
-        .collect::<Vec<_>>();
-
-    if base_is_repo_root
-        && segments
-            .first()
-            .is_some_and(|segment| segment == &repo.name)
-    {
-        segments.remove(0);
-        return if segments.is_empty() {
-            None
-        } else {
-            let mut path = PathBuf::new();
-            for segment in segments {
-                path.push(segment);
-            }
-            Some(path.to_string_lossy().to_string())
-        };
-    }
-
-    if workspace.use_worktree
-        && !base_is_repo_root
-        && segments.first().is_none_or(|segment| segment != &repo.name)
-    {
-        segments.insert(0, repo.name.clone());
-        let mut path = PathBuf::new();
-        for segment in segments {
-            path.push(segment);
-        }
-        return Some(path.to_string_lossy().to_string());
-    }
-
-    Some(raw.to_string())
+    workspace_paths::normalize_agent_working_dir(
+        workspace.agent_working_dir.as_deref(),
+        workspace.use_worktree,
+        std::path::Path::new(container_ref),
+        repo_name,
+    )
 }
 
 #[derive(Debug, Error)]

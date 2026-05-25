@@ -48,6 +48,7 @@ use services::services::{
     notification::NotificationService,
     queued_message::QueuedMessageService,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
+    workspace_paths,
 };
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
@@ -85,40 +86,18 @@ impl LocalContainerService {
         next
     }
 
-    fn workspace_agent_dir_targets_repo_folder(workspace: &Workspace, repo_name: &str) -> bool {
-        workspace
-            .agent_working_dir
-            .as_deref()
-            .map(str::trim)
-            .filter(|dir| !dir.is_empty())
-            .and_then(|dir| dir.split(['/', '\\']).find(|segment| !segment.is_empty()))
-            .is_some_and(|segment| segment == repo_name)
-    }
-
     fn workspace_repo_path(
         workspace: &Workspace,
         workspace_root: &Path,
         repo_name: &str,
     ) -> PathBuf {
-        if workspace.use_worktree {
-            if workspace_root.join(".git").exists() {
-                workspace_root.to_path_buf()
-            } else if Self::workspace_agent_dir_targets_repo_folder(workspace, repo_name) {
-                workspace_root.join(repo_name)
-            } else if workspace
-                .agent_working_dir
-                .as_deref()
-                .map(str::trim)
-                .filter(|dir| !dir.is_empty())
-                .is_some()
-            {
-                workspace_root.to_path_buf()
-            } else {
-                workspace_root.join(repo_name)
-            }
-        } else {
-            workspace_root.to_path_buf()
-        }
+        workspace_paths::workspace_repo_path(
+            workspace_root,
+            workspace.use_worktree,
+            workspace.agent_working_dir.as_deref(),
+            repo_name,
+            workspace_root.join(".git").exists(),
+        )
     }
 
     fn normalized_workspace_base_dir(workspace: &Workspace, repos: &[Repo]) -> PathBuf {
@@ -1798,6 +1777,19 @@ impl ContainerService for LocalContainerService {
     }
 }
 
+fn success_exit_status() -> std::process::ExitStatus {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatusExt::from_raw(0)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatusExt::from_raw(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashMap, sync::Arc};
@@ -1884,17 +1876,5 @@ mod tests {
 
         assert_eq!(status, "failed");
         assert!(completed_at.is_some());
-    }
-}
-fn success_exit_status() -> std::process::ExitStatus {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        ExitStatusExt::from_raw(0)
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::ExitStatusExt;
-        ExitStatusExt::from_raw(0)
     }
 }

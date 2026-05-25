@@ -5,7 +5,7 @@ use utils;
 
 use crate::services::config::{Config, NotificationConfig, SoundFile};
 
-/// Service for handling cross-platform notifications including sound alerts and push notifications
+/// Service for handling completion sound alerts.
 #[derive(Debug, Clone)]
 pub struct NotificationService {
     config: Arc<RwLock<Config>>,
@@ -19,20 +19,16 @@ impl NotificationService {
         Self { config }
     }
 
-    /// Send both sound and push notifications if enabled
-    pub async fn notify(&self, title: &str, message: &str) {
+    /// Send completion notifications if enabled.
+    pub async fn notify(&self, _title: &str, _message: &str) {
         let config = self.config.read().await.notifications.clone();
-        Self::send_notification(&config, title, message).await;
+        Self::send_notification(&config).await;
     }
 
     /// Internal method to send notifications with a given config
-    async fn send_notification(config: &NotificationConfig, title: &str, message: &str) {
+    async fn send_notification(config: &NotificationConfig) {
         if config.sound_enabled {
             Self::play_sound_notification(&config.sound_file).await;
-        }
-
-        if config.push_enabled {
-            Self::send_push_notification(title, message).await;
         }
     }
 
@@ -97,117 +93,6 @@ impl NotificationService {
             utils::process::configure_tokio_command_no_window(&mut cmd);
             let _ = cmd.spawn();
         }
-    }
-
-    /// Send a cross-platform push notification
-    async fn send_push_notification(title: &str, message: &str) {
-        let _ = (title, message);
-        // Session-complete push notifications are handled in the frontend with
-        // custom in-app toasts so users can jump directly back into the
-        // matching project/session context without relying on OS-native
-        // notifications.
-    }
-
-    /// Send macOS notification using osascript.
-    /// Sanitize inputs with strict character whitelist to prevent AppleScript injection.
-    #[allow(dead_code)]
-    async fn send_macos_notification(title: &str, message: &str) {
-        // Strict sanitization: only allow alphanumeric, spaces, and basic punctuation.
-        // This prevents all AppleScript injection vectors including backslash sequences,
-        // string interpolation, and command chaining via special characters.
-        let sanitize = |input: &str| -> String {
-            input
-                .chars()
-                .filter(|c| {
-                    c.is_alphanumeric()
-                        || matches!(
-                            c,
-                            ' ' | '.' | ',' | '!' | '?' | '-' | ':' | ';' | '(' | ')' | '\''
-                        )
-                })
-                .take(256) // Limit length to prevent abuse
-                .collect()
-        };
-
-        let safe_message = sanitize(message);
-        let safe_title = sanitize(title);
-
-        // AppleScript string escaping: escape backslashes first, then double quotes.
-        // After whitelist sanitization these characters won't appear, but defense-in-depth.
-        let safe_message = safe_message.replace('\\', "\\\\").replace('"', "\\\"");
-        let safe_title = safe_title.replace('\\', "\\\\").replace('"', "\\\"");
-
-        let script = format!(
-            r#"display notification "{safe_message}" with title "{safe_title}" sound name "Glass""#
-        );
-
-        let _ = tokio::process::Command::new("osascript")
-            .arg("-e")
-            .arg(script)
-            .spawn();
-    }
-
-    /// Send Linux notification using notify-rust
-    #[allow(dead_code)]
-    async fn send_linux_notification(title: &str, message: &str) {
-        use notify_rust::Notification;
-
-        let title = title.to_string();
-        let message = message.to_string();
-
-        let _handle = tokio::task::spawn_blocking(move || {
-            if let Err(e) = Notification::new()
-                .summary(&title)
-                .body(&message)
-                .timeout(10000)
-                .show()
-            {
-                tracing::error!("Failed to send Linux notification: {}", e);
-            }
-        });
-        drop(_handle); // Don't await, fire-and-forget
-    }
-
-    /// Send Windows/WSL notification using PowerShell toast script
-    #[allow(dead_code)]
-    async fn send_windows_notification(title: &str, message: &str) {
-        const WINDOWS_TOAST_APP_ID: &str = "com.vibex.app";
-        const WINDOWS_TOAST_APP_NAME: &str = "VibeX";
-        let script_path = match utils::get_powershell_script().await {
-            Ok(path) => path,
-            Err(e) => {
-                tracing::error!("Failed to get PowerShell script: {}", e);
-                return;
-            }
-        };
-
-        // Convert WSL path to Windows path if in WSL2
-        let script_path_str = if utils::is_wsl2() {
-            if let Some(windows_path) = Self::wsl_to_windows_path(&script_path).await {
-                windows_path
-            } else {
-                script_path.to_string_lossy().to_string()
-            }
-        } else {
-            script_path.to_string_lossy().to_string()
-        };
-
-        let mut cmd = tokio::process::Command::new("powershell.exe");
-        cmd.arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(script_path_str)
-            .arg("-AppId")
-            .arg(WINDOWS_TOAST_APP_ID)
-            .arg("-AppName")
-            .arg(WINDOWS_TOAST_APP_NAME)
-            .arg("-Title")
-            .arg(title)
-            .arg("-Message")
-            .arg(message);
-        utils::process::configure_tokio_command_no_window(&mut cmd);
-        let _ = cmd.spawn();
     }
 
     /// Get WSL root path via PowerShell (cached)

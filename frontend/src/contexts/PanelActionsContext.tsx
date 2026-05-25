@@ -8,7 +8,6 @@ import {
 } from 'react';
 import type { DockviewApi } from 'dockview-react';
 import {
-  EDITOR_GROUP_PREFIX,
   GROUP_IDS,
   MAX_EDITOR_GROUPS,
   PANEL_IDS,
@@ -21,86 +20,29 @@ import {
   type OpenFilePreviewOptions,
 } from '@/types/panels';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
+import {
+  BOTTOM_PANEL_IDS,
+  compareEditorGroups,
+  getGroupElement,
+  getNextEditorGroupId,
+  isBottomGroup,
+  isEditorGroup,
+  isLeftGroup,
+  isPlaceholderPanelId,
+  isSplittableEditorPanel,
+  LEFT_PANEL_IDS,
+} from '@/utils/dockviewGroupPolicy';
 
-const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
-  PANEL_IDS.FILE_TREE,
-  PANEL_IDS.GIT,
-  PANEL_IDS.SEARCH,
-]);
-
-const BOTTOM_PANEL_IDS: ReadonlySet<string> = new Set([PANEL_IDS.TERMINAL]);
-const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([PANEL_IDS.WELCOME]);
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
 
-type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;
-type DockviewPanel = NonNullable<ReturnType<DockviewApi['getPanel']>>;
 type AddPanelOptions = Omit<
   Parameters<DockviewApi['addPanel']>[0],
   'position' | 'floating'
 >;
 
-function isPlaceholderPanelId(panelId: string): boolean {
-  return PLACEHOLDER_PANEL_IDS.has(panelId);
-}
-
 function buildDiffPreviewPanelId(filePath: string): string {
   return `${DIFF_PREVIEW_PANEL_ID_PREFIX}${filePath.replace(/\\/g, '/')}`;
-}
-
-function isLeftGroup(group: DockviewGroup): boolean {
-  return (
-    group.id === GROUP_IDS.LEFT ||
-    group.panels.some((panel) => LEFT_PANEL_IDS.has(panel.id))
-  );
-}
-
-function isBottomGroup(group: DockviewGroup): boolean {
-  return (
-    group.id === GROUP_IDS.BOTTOM ||
-    group.panels.some((panel) => BOTTOM_PANEL_IDS.has(panel.id))
-  );
-}
-
-function isEditorGroup(group: DockviewGroup): boolean {
-  return !isLeftGroup(group) && !isBottomGroup(group);
-}
-
-function isSplittableEditorPanel(panel: DockviewPanel): boolean {
-  return isEditorGroup(panel.group) && !isPlaceholderPanelId(panel.id);
-}
-
-function getGroupElement(group: DockviewGroup): HTMLElement | null {
-  const value = group as unknown as { element?: HTMLElement };
-  return value.element ?? null;
-}
-
-function compareEditorGroups(a: DockviewGroup, b: DockviewGroup): number {
-  const aRect = getGroupElement(a)?.getBoundingClientRect();
-  const bRect = getGroupElement(b)?.getBoundingClientRect();
-
-  if (aRect && bRect) {
-    if (Math.abs(aRect.left - bRect.left) > 1) {
-      return aRect.left - bRect.left;
-    }
-
-    if (Math.abs(aRect.top - bRect.top) > 1) {
-      return aRect.top - bRect.top;
-    }
-  }
-
-  return a.id.localeCompare(b.id);
-}
-
-function getNextEditorGroupId(dockviewApi: DockviewApi): string {
-  const existing = new Set(dockviewApi.groups.map((group) => group.id));
-  let index = 1;
-
-  while (existing.has(`${EDITOR_GROUP_PREFIX}${index}`)) {
-    index += 1;
-  }
-
-  return `${EDITOR_GROUP_PREFIX}${index}`;
 }
 
 function buildSplitPanelId(panelId: string, targetGroupId: string): string {

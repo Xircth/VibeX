@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-25T00:00:00+08:00",
+  "title": "Design System: VibeX",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Workbench Blue",
+        "canonical": "hsl(215 50% 55%)",
+        "tonalRamp": [
+          "#101b2b",
+          "#1c3350",
+          "#2c4d76",
+          "#416b9d",
+          "#5b8cc7",
+          "#86add6",
+          "#b7cce7",
+          "#e5eef8"
+        ]
+      },
+      "shell-bg": {
+        "role": "neutral",
+        "displayName": "Shell Mist",
+        "canonical": "hsl(225 18% 94%)",
+        "tonalRamp": [
+          "#17191d",
+          "#30343b",
+          "#555b66",
+          "#858b94",
+          "#b9bec6",
+          "#eef1f5",
+          "#f5f7fa",
+          "#fbfcfd"
+        ]
+      },
+      "panel-bg": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "canonical": "hsl(0 0% 100%)",
+        "tonalRamp": [
+          "#161718",
+          "#333538",
+          "#5d6066",
+          "#8f9399",
+          "#c7cbd1",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff"
+        ]
+      },
+      "destructive": {
+        "role": "semantic",
+        "displayName": "Review Red",
+        "canonical": "#f51818",
+        "tonalRamp": [
+          "#2a0707",
+          "#5b0b0b",
+          "#941111",
+          "#c71515",
+          "#f51818",
+          "#ff6666",
+          "#ffadad",
+          "#ffe5e5"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "App-level titles and welcome headings only."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Dense product copy, settings descriptions, and list content."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Paths, branches, terminal data, and code references."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shell",
+        "value": "0 18px 42px hsl(220 36% 8% / 0.16)",
+        "purpose": "Large floating shell surfaces."
+      },
+      {
+        "name": "popover",
+        "value": "0 18px 42px hsl(220 36% 8% / 0.2)",
+        "purpose": "Dialogs, menus, and command surfaces."
+      },
+      {
+        "name": "card-low",
+        "value": "0 2px 7px hsl(220 36% 8% / 0.075)",
+        "purpose": "Repeated session cards and compact list items."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "150ms ease",
+        "purpose": "Hover, active, and focus state changes."
+      },
+      {
+        "name": "state-medium",
+        "value": "200ms ease-out",
+        "purpose": "Accordion and short reveal transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "xl",
+        "value": "1280px"
+      },
+      {
+        "name": "2xl",
+        "value": "1400px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Default committed action in dialogs, settings, and task workflows.",
+      "html": "<button class=\"ds-btn-primary\">Run task</button>",
+      "css": ".ds-btn-primary { height: 40px; padding: 0 16px; border: 1px solid transparent; border-radius: 6px; background: #5b8cc7; color: #f8fafc; font: 500 14px/20px 'IBM Plex Sans', sans-serif; letter-spacing: 0; transition: background 150ms ease, box-shadow 150ms ease; } .ds-btn-primary:hover { background: #4d7eb8; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(91, 140, 199, 0.24); }"
+    },
+    {
+      "name": "Ghost Toolbar Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Toolbar and rail action that stays quiet until hover or active state.",
+      "html": "<button class=\"ds-btn-ghost\">Review</button>",
+      "css": ".ds-btn-ghost { height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #7e8790; font: 500 12px/16px 'IBM Plex Sans', sans-serif; transition: background 150ms ease, border-color 150ms ease, color 150ms ease; } .ds-btn-ghost:hover { color: #242936; border-color: #dde1e7; background: #eef0f4; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(91, 140, 199, 0.18); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Compact field for settings, command surfaces, and URL entry.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search sessions\" />",
+      "css": ".ds-input { height: 40px; width: 240px; padding: 8px 12px; border: 1px solid #dde1e7; border-radius: 6px; background: transparent; color: #4f5a63; font: 400 14px/20px 'IBM Plex Sans', sans-serif; } .ds-input::placeholder { color: #7e8790; } .ds-input:focus-visible { outline: none; border-color: #c6ced8; box-shadow: 0 0 0 2px rgba(91, 140, 199, 0.14); }"
+    },
+    {
+      "name": "Session Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "Repeated session item for sidebars and Kanban session hub.",
+      "html": "<article class=\"ds-session-card\"><strong>Codex fix branch</strong><span>Running · 2 files changed</span></article>",
+      "css": ".ds-session-card { display: grid; gap: 4px; padding: 12px; border: 1px solid #dde1e7; border-radius: 8px; background: #ffffff; color: #4f5a63; box-shadow: 0 2px 7px rgba(20, 31, 48, 0.075); font-family: 'IBM Plex Sans', sans-serif; } .ds-session-card strong { color: #242936; font-size: 14px; line-height: 20px; font-weight: 600; } .ds-session-card span { color: #7e8790; font-size: 12px; line-height: 16px; } .ds-session-card:hover { background: #f8fafc; box-shadow: 0 4px 12px rgba(20, 31, 48, 0.06); }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "button-ghost",
+      "description": "Filter, count, and compact status marker.",
+      "html": "<span class=\"ds-chip\">Running 3</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid #dde1e7; border-radius: 999px; background: #eef0f4; color: #7e8790; font: 500 12px/16px 'IBM Plex Sans', sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Developer Flight Deck",
+    "overview": "VibeX should feel like a local engineering control surface: calm, dense, inspectable, and fast to scan. The product is not trying to impress users with a decorative AI aesthetic. It is trying to help them coordinate multiple agent sessions, worktrees, terminals, previews, and diffs without losing context.",
+    "keyCharacteristics": [
+      "Dense information, quiet surfaces, visible state.",
+      "Light mode is the primary working scene; dark mode is supported for code-heavy or low-light sessions.",
+      "Blue accent is functional: selected, focused, primary, or live state only.",
+      "Panels are layered by border, tonal surface, and small shadows, not by decorative glass.",
+      "Typography is compact, fixed scale, and developer-readable."
+    ],
+    "rules": [
+      {
+        "name": "The State-Only Accent Rule",
+        "body": "Blue is for selected, focused, primary, or live state. It is not decorative fill.",
+        "section": "colors"
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "body": "Cards and panels are flat at rest unless they are floating above another layer.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the tokenized shell classes in frontend/src/styles/legacy/index.css before adding new one-off Tailwind color stacks.",
+      "Do keep product controls compact: 32px dense controls, 40px default controls, 8px default card radius."
+    ],
+    "donts": [
+      "Don't use generic AI SaaS dashboard patterns: oversized cards, decorative gradients, glass panels, and vague productivity claims.",
+      "Don't use side-stripe borders greater than 1px on cards, callouts, list items, markdown blocks, or file tree rows."
+    ]
+  }
+}

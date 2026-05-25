@@ -749,7 +749,7 @@ export function KanbanUsageDashboard() {
                             'flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold',
                             index === 0 && 'bg-yellow-500/20 text-yellow-600',
                             index === 1 &&
-                              'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
+                              'bg-muted text-muted-foreground',
                             index === 2 && 'bg-orange-500/20 text-orange-600',
                             index >= 3 && 'bg-muted text-muted-foreground'
                           )}

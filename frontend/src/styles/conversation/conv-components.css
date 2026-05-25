@@ -11,24 +11,18 @@
 
 @keyframes conv-shimmer {
   0% {
-    background-position: -200% 50%;
+    opacity: 0.58;
+  }
+  50% {
+    opacity: 1;
   }
   100% {
-    background-position: 200% 50%;
+    opacity: 0.58;
   }
 }
 
 .conv-shimmer-text {
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--conv-shimmer-from),
-    var(--conv-shimmer-via),
-    var(--conv-shimmer-to)
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
+  color: var(--conv-shimmer-via);
   animation: conv-shimmer 2.2s ease-in-out infinite;
 }
 

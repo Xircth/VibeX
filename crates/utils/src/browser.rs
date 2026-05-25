@@ -1,10 +1,18 @@
 use crate::is_wsl2;
 
-/// Validate that a URL contains only safe characters for shell execution.
-/// Rejects any URL containing shell metacharacters that could enable injection.
-fn validate_url(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Only allow characters that are valid in URLs per RFC 3986
-    // This whitelist approach prevents any shell metacharacter injection
+const WSL_BROWSER_PROGRAM: &str = "powershell.exe";
+const WSL_BROWSER_SCRIPT: &str = "Start-Process -FilePath $args[0]";
+
+#[derive(Debug, PartialEq, Eq)]
+struct BrowserCommandParts<'a> {
+    program: &'static str,
+    args: [&'a str; 4],
+}
+
+/// Validate that a URL is safe to hand to the external browser launcher.
+fn validate_browser_url(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Keep the historical URL whitelist until call-site behavior is fully
+    // mapped. The PowerShell script no longer depends on this for escaping.
     let is_safe = url.chars().all(|c| {
         c.is_ascii_alphanumeric()
             || matches!(
@@ -45,25 +53,59 @@ fn validate_url(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync
     Ok(())
 }
 
+fn wsl_browser_command_parts(
+    url: &str,
+) -> Result<BrowserCommandParts<'_>, Box<dyn std::error::Error + Send + Sync>> {
+    validate_browser_url(url)?;
+
+    Ok(BrowserCommandParts {
+        program: WSL_BROWSER_PROGRAM,
+        args: ["-NoProfile", "-Command", WSL_BROWSER_SCRIPT, url],
+    })
+}
+
 /// Open URL in browser with WSL2 support
 pub async fn open_browser(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if is_wsl2() {
-        // Validate URL before passing to any shell command
-        validate_url(url)?;
-
-        // In WSL2, use PowerShell Start-Process with the URL as a single
-        // quoted argument. The URL has been validated to contain only safe
-        // RFC 3986 characters (no single quotes, backticks, or other
-        // PowerShell metacharacters), so single-quote wrapping is safe.
-        let mut cmd = tokio::process::Command::new("powershell.exe");
-        cmd.arg("-NoProfile")
-            .arg("-Command")
-            .arg(format!("Start-Process '{url}'"));
+        let command = wsl_browser_command_parts(url)?;
+        let mut cmd = tokio::process::Command::new(command.program);
+        cmd.args(command.args);
         crate::process::configure_tokio_command_no_window(&mut cmd);
         cmd.spawn()?;
         Ok(())
     } else {
         // Use the standard open crate for other platforms
         open::that(url).map_err(|e| e.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wsl_browser_command_parts;
+
+    #[test]
+    fn wsl_browser_command_keeps_url_out_of_powershell_script() {
+        let url = "https://example.com/path?query=1&next=%2Fok";
+
+        let command = wsl_browser_command_parts(url).expect("valid URL");
+
+        assert_eq!(command.program, "powershell.exe");
+        assert_eq!(
+            command.args,
+            [
+                "-NoProfile",
+                "-Command",
+                "Start-Process -FilePath $args[0]",
+                url
+            ]
+        );
+    }
+
+    #[test]
+    fn wsl_browser_command_rejects_non_http_protocols() {
+        let err = wsl_browser_command_parts("file:///C:/Windows/System32/calc.exe")
+            .expect_err("file protocol should be rejected");
+
+        assert!(err.to_string().contains("http or https"));
     }
 }

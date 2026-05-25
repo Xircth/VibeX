@@ -773,14 +773,19 @@
 .file-preview-popover::after {
   content: '';
   position: absolute;
-  right: -8px;
+  right: -5px;
   top: var(--file-preview-arrow-top, 40px);
-  width: 0;
-  height: 0;
-  border-top: 8px solid transparent;
-  border-bottom: 8px solid transparent;
-  border-left: 8px solid var(--surface-popover);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  background: color-mix(
+    in srgb,
+    var(--surface-popover) 94%,
+    var(--border-subtle) 6%
+  );
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .file-preview-header {

@@ -37,7 +37,7 @@ export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {
     };
 
     return (
-      <div className="relative w-full aspect-[16/10] bg-black">
+      <div className="relative w-full aspect-[16/10] bg-[hsl(222_24%_10%)]">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <Loader size={32} />

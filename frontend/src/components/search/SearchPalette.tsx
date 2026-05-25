@@ -149,7 +149,7 @@ export function SearchPalette() {
       role="presentation"
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-[hsl(220_42%_4%_/_0.46)] backdrop-blur-sm" />
 
       {/* Palette */}
       <div

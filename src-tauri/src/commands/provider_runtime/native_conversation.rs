@@ -327,12 +327,11 @@ async fn route_codex_event_to_native_conversation(value: &Value) {
         return;
     }
 
-    if method == "turn/completed" {
-        if let Some(thread_id) = thread_id.as_deref() {
-            if codex_auto_compaction_is_in_flight(thread_id).await {
-                return;
-            }
-        }
+    if method == "turn/completed"
+        && let Some(thread_id) = thread_id.as_deref()
+        && codex_auto_compaction_is_in_flight(thread_id).await
+    {
+        return;
     }
 
     if method == "turn/completed"

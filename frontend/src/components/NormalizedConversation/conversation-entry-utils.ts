@@ -755,7 +755,7 @@ export const getContentClassName = (entryType: NormalizedEntryType) => {
     entryType.type === 'tool_use' &&
     entryType.action_type.action === 'plan_presentation'
   )
-    return `${base} text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/20 px-3 py-2 border-l-4 border-blue-400`;
+    return `${base} rounded-md border border-blue-400/30 bg-blue-50 px-3 py-2 text-blue-700 dark:bg-blue-950/20 dark:text-blue-300`;
 
   return base;
 };

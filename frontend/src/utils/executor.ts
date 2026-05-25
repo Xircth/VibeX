@@ -19,6 +19,7 @@ type RuntimeExecutorConfigLike = {
   variant?: string | null;
   model?: string | null;
   model_id?: string | null;
+  fast_mode?: boolean | null;
 };
 
 type ExecutorVariantRecord<T extends Record<string, unknown>> = {
@@ -891,6 +892,7 @@ function toProfileId(
     executor: value.executor,
     variant: value.variant ?? null,
     model: value.model ?? modelId ?? null,
+    fast_mode: value.fast_mode ?? null,
   };
 }
 

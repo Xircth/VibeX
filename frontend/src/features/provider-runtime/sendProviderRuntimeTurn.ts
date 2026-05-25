@@ -1,8 +1,9 @@
-import type {
-  ExecutorProfileId,
-  JsonValue,
-  ProviderRuntimeEvent,
-  ProviderTurnRequest,
+import {
+  BaseCodingAgent,
+  type ExecutorProfileId,
+  type JsonValue,
+  type ProviderRuntimeEvent,
+  type ProviderTurnRequest,
 } from 'shared/types';
 import { providerRuntimeApi } from '@/lib/providerRuntime';
 import { getProviderFrontendAdapterByExecutor } from './providerFrontendAdapters';
@@ -35,11 +36,17 @@ function extractMarkdownImagePaths(text: string): string[] {
   return images;
 }
 
-function mergeImageInputs(explicitImages: string[] | undefined, text: string): string[] {
+function mergeImageInputs(
+  explicitImages: string[] | undefined,
+  text: string
+): string[] {
   const merged: string[] = [];
   const seen = new Set<string>();
 
-  for (const image of [...(explicitImages ?? []), ...extractMarkdownImagePaths(text)]) {
+  for (const image of [
+    ...(explicitImages ?? []),
+    ...extractMarkdownImagePaths(text),
+  ]) {
     if (!image || seen.has(image)) continue;
     seen.add(image);
     merged.push(image);
@@ -82,6 +89,9 @@ export function buildProviderRuntimeTurnRequest({
     provider_options: {
       ...(request.provider_options ?? {}),
       ...(providerOptions ?? {}),
+      ...(executorProfileId.executor === BaseCodingAgent.CODEX
+        ? { fast_mode: executorProfileId.fast_mode ?? false }
+        : {}),
     },
   };
 }

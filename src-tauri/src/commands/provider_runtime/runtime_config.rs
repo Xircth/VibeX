@@ -52,6 +52,13 @@ fn provider_option_bool(options: &serde_json::Map<String, Value>, key: &str) -> 
     options.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
+fn provider_option_optional_bool(
+    options: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Option<bool> {
+    options.get(key).and_then(Value::as_bool)
+}
+
 fn provider_executor_profile_id(request: &ProviderTurnRequest) -> ExecutorProfileId {
     request
         .executor_profile_id
@@ -193,6 +200,7 @@ struct CodexRuntimeOptions {
     sandbox_policy: Value,
     effort: Option<String>,
     base_instructions: Option<String>,
+    fast_mode: Option<bool>,
 }
 
 fn codex_instruction_option(
@@ -298,6 +306,9 @@ fn resolve_codex_runtime_options(
                 .map(ToString::to_string)
         });
     let base_instructions = codex_runtime_base_instructions(request, profile.as_ref());
+    let fast_mode = provider_option_optional_bool(&request.provider_options, "fast_mode")
+        .or_else(|| provider_option_optional_bool(&request.provider_options, "fastMode"))
+        .or(profile_id.fast_mode);
 
     CodexRuntimeOptions {
         model,
@@ -306,6 +317,7 @@ fn resolve_codex_runtime_options(
         sandbox_policy,
         effort,
         base_instructions,
+        fast_mode,
     }
 }
 

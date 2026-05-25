@@ -62,6 +62,9 @@ interface TerminalProfileControlsProps {
 }
 
 const OPEN_CODE_DEFAULT_MODE = '__DEFAULT__';
+const CODEX_FAST_MODE_LABEL = 'Fast';
+const CODEX_FAST_MODE_HINT =
+  '\u5feb\u901f\u6a21\u5f0f\u4ec5\u9650Codex\u8ba2\u9605\u7528\u6237\u4f7f\u7528\uff0c\u82e5\u5f00\u542f\u540e\u51fa\u73b0\u9519\u8bef\u4fe1\u606f\u8bf7\u5173\u95ed';
 
 type OpenCodeProviderOption = {
   id: string;
@@ -401,6 +404,7 @@ export function TerminalProfileControls({
     );
     const sandboxOptions = getCodexSandboxOptions(profiles);
     const currentModel = selectedProfile.model ?? currentConfig.model;
+    const currentFastMode = selectedProfile.fast_mode ?? false;
     const modelOptions = mergeModelOptions(
       getCodexModelOptions(profiles),
       [],
@@ -408,20 +412,12 @@ export function TerminalProfileControls({
     );
     const reasoningOptions = CODEX_REASONING_EFFORT_OPTIONS;
 
-    const hasRichControls =
-      sandboxOptions.length > 1 ||
-      modelOptions.length > 1 ||
-      reasoningOptions.length > 1;
-
-    if (!hasRichControls) {
-      return variantSelector;
-    }
-
     const updateVariant = (next: {
       model?: string | null;
       sandbox?: typeof currentConfig.sandbox;
       approvalPolicy?: typeof currentConfig.approvalPolicy;
       reasoningEffort?: CodexReasoningEffort;
+      fastMode?: boolean;
     }) => {
       const selectedModel =
         next.model === undefined
@@ -435,6 +431,8 @@ export function TerminalProfileControls({
           : next.approvalPolicy;
       const selectedReasoningEffort =
         next.reasoningEffort ?? currentConfig.reasoningEffort;
+      const selectedFastMode =
+        next.fastMode === undefined ? selectedProfile.fast_mode : next.fastMode;
       const variant = getCodexVariantFromConfigSelection(profiles, {
         model: selectedModel,
         sandbox: selectedSandbox,
@@ -449,6 +447,7 @@ export function TerminalProfileControls({
         executor,
         variant,
         model: modelOverride,
+        fast_mode: selectedFastMode,
       });
     };
 
@@ -470,11 +469,17 @@ export function TerminalProfileControls({
           />
         ) : null}
 
-        {modelOptions.length > 1 ? (
+        {modelOptions.length > 0 ? (
           <CodexModelSelector
             value={currentModel}
             options={modelOptions}
             onChange={(model) => updateVariant({ model })}
+            fastMode={{
+              checked: currentFastMode,
+              label: CODEX_FAST_MODE_LABEL,
+              hint: CODEX_FAST_MODE_HINT,
+              onCheckedChange: (fastMode) => updateVariant({ fastMode }),
+            }}
             disabled={disabled}
             iconOnly={iconOnly}
             dropdownSide={dropdownSide}

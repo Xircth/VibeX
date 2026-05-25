@@ -393,6 +393,12 @@ async fn ensure_project_root_workspace(
             .git()
             .checkout_branch(&primary_repo.path, &desired_branch)
             .map_err(|e| {
+                if git_checkout_error_is_local_changes(&e.to_string()) {
+                    return AppError::BadRequest(format!(
+                        "当前分支{current_branch}中存在未提交更改，无法切换到{desired_branch}分支，请先提交或放弃更改。"
+                    ));
+                }
+
                 AppError::Internal(format!(
                     "Failed to checkout project root branch '{desired_branch}': {e}"
                 ))
@@ -490,6 +496,11 @@ async fn ensure_project_root_workspace(
     Workspace::find_by_id(pool, workspace.id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))
+}
+
+fn git_checkout_error_is_local_changes(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("local changes") && normalized.contains("would be overwritten by checkout")
 }
 
 // --- Commands ---

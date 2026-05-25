@@ -916,6 +916,14 @@ function shouldHideDisplayEntry(data: PatchTypeWithKey): boolean {
 
   const entryType = data.content.entry_type;
   if (
+    entryType.type === 'token_usage_info' ||
+    entryType.type === 'next_action' ||
+    shouldHideInitializationNotice(entryType, data.content.content)
+  ) {
+    return true;
+  }
+
+  if (
     entryType.type === 'tool_use' &&
     entryType.action_type.action === 'web_fetch'
   ) {
@@ -1087,7 +1095,11 @@ function shouldCollapseAssistantPreludeEntry(entry: BaseDisplayEntry): boolean {
   }
 
   const entryType = entry.content.entry_type.type;
-  return entryType !== 'user_message' && entryType !== 'user_feedback';
+  return (
+    entryType !== 'user_message' &&
+    entryType !== 'user_feedback' &&
+    entryType !== 'loading'
+  );
 }
 
 function collapseAssistantPreludeEntries(

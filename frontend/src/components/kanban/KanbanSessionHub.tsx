@@ -31,6 +31,7 @@ import { paths } from '@/lib/paths';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import {
   buildWorkspaceBranchOptions,
+  findCurrentProjectBranchOption,
   findWorkspaceBranchOption,
   findWorkspaceBranchOptionByWorkspaceId,
   resolveWorkspaceBranchSelection,
@@ -176,6 +177,13 @@ export function KanbanSessionHub() {
   );
 
   const defaultWorkspaceValue = useMemo(() => {
+    const currentProjectBranchOption = findCurrentProjectBranchOption(
+      workspaceBranchOptions
+    );
+    if (currentProjectBranchOption) {
+      return currentProjectBranchOption.value;
+    }
+
     const lastActiveOption = findWorkspaceBranchOptionByWorkspaceId(
       workspaceBranchOptions,
       lastActiveWorkspaceId

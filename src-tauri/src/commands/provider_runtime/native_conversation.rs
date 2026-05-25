@@ -1,4 +1,24 @@
 async fn push_native_provider_event_to_conversation(sink: &NativeConversationSink, event: &Value) {
+    if provider_event_is_codex_auto_compacting(event) {
+        let mut state = sink.state.lock().await;
+        close_native_assistant_segment(&mut state);
+        let index = state.next_entry_index;
+        state.next_entry_index += 1;
+        drop(state);
+
+        let entry = native_normalized_entry(
+            NormalizedEntryType::SystemMessage,
+            "正在自动压缩上下文...",
+            Some(event.clone()),
+        );
+        push_native_log_msg(
+            sink,
+            LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
+        )
+        .await;
+        return;
+    }
+
     if let Some(token_usage) = extract_provider_token_usage_info_with_codex_context_window(
         event,
         codex_config_model_context_window(),
@@ -267,6 +287,15 @@ fn is_codex_context_compaction_completed(value: &Value) -> bool {
         })
 }
 
+fn provider_event_is_codex_auto_compacting(value: &Value) -> bool {
+    value.get("method").and_then(Value::as_str) == Some("thread/compacting")
+        && value
+            .get("params")
+            .and_then(|params| params.get("auto"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
 async fn route_codex_event_to_native_conversation(value: &Value) {
     let turn_id = extract_turn_id(value);
     let thread_id = extract_thread_id(value);
@@ -298,14 +327,24 @@ async fn route_codex_event_to_native_conversation(value: &Value) {
         return;
     }
 
+    if method == "turn/completed" {
+        if let Some(thread_id) = thread_id.as_deref() {
+            if codex_auto_compaction_is_in_flight(thread_id).await {
+                return;
+            }
+        }
+    }
+
     if method == "turn/completed"
         || method == "thread/compacted"
+        || method == "thread/compactionFailed"
         || is_codex_context_compaction_completed(value)
         || method == "turn/error"
         || method == "error"
     {
         let status = if method == "turn/completed"
             || method == "thread/compacted"
+            || method == "thread/compactionFailed"
             || is_codex_context_compaction_completed(value)
         {
             ExecutionProcessStatus::Completed

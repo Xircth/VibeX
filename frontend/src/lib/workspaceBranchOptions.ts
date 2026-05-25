@@ -79,7 +79,8 @@ export function buildWorkspaceBranchOptions({
 
     seenBranches.add(key);
     const branchMeta = branchByName.get(key) ?? null;
-    const isWorktree = workspace?.use_worktree ?? branchMeta?.is_worktree ?? false;
+    const isWorktree =
+      workspace?.use_worktree ?? branchMeta?.is_worktree ?? false;
     options.push({
       value: createOptionValue(workspace, branch),
       branch,
@@ -123,6 +124,12 @@ export function findWorkspaceBranchOptionByWorkspaceId(
   return (
     options.find((option) => option.existingWorkspaceId === workspaceId) ?? null
   );
+}
+
+export function findCurrentProjectBranchOption(
+  options: WorkspaceBranchOption[]
+): WorkspaceBranchOption | null {
+  return options.find((option) => option.isCurrentProjectBranch) ?? null;
 }
 
 export function matchesWorkspaceBranch(

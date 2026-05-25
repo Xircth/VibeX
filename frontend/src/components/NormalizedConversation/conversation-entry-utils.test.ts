@@ -760,4 +760,83 @@ describe('conversation meta notices', () => {
 
     expect(displayEntries).toHaveLength(0);
   });
+
+  it('does not create a collapsed assistant group for hidden metadata entries', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:1',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'token_usage_info',
+            total_tokens: 1,
+            model_context_window: 100,
+          },
+          content: 'input: 1',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:2',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: {
+            type: 'next_action',
+            failed: false,
+            execution_processes: 0,
+            needs_setup: false,
+          },
+          content: '',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      collapseAiMessagesByDefault: true,
+    });
+
+    expect(displayEntries).toHaveLength(0);
+  });
+
+  it('keeps a pending loading entry visible instead of folding it as process output', () => {
+    const entries: PatchTypeWithKey[] = [
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:user',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'user_message' },
+          content: 'hello',
+          timestamp: null,
+        },
+      },
+      {
+        type: 'NORMALIZED_ENTRY',
+        patchKey: 'proc-1:loading',
+        executionProcessId: 'proc-1',
+        content: {
+          entry_type: { type: 'loading' },
+          content: '',
+          timestamp: null,
+        },
+      },
+    ];
+
+    const displayEntries = buildDisplayEntries(entries, {
+      collapseAiMessagesByDefault: true,
+    });
+
+    expect(displayEntries).toHaveLength(2);
+    expect(displayEntries[0]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: { entry_type: { type: 'user_message' } },
+    });
+    expect(displayEntries[1]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: { entry_type: { type: 'loading' } },
+    });
+  });
 });

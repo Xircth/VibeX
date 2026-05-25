@@ -44,12 +44,7 @@ import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import { useScratch } from '@/hooks/useScratch';
 import { useDebouncedCallback } from '@/hooks/useDebouncedCallback';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  queueApi,
-  imagesApi,
-  sessionsApi,
-  configApi,
-} from '@/lib/api';
+import { queueApi, imagesApi, sessionsApi, configApi } from '@/lib/api';
 import { buildAgentPrompt } from '@/utils/promptMessage';
 import { toVibeImagePath } from '@/utils/images';
 import { useTokenUsage } from '@/contexts/EntriesContext';
@@ -92,10 +87,7 @@ interface TaskFollowUpSectionProps {
   onCreateSessionRequested?: () => void;
   sessionState: Pick<
     UseWorkspaceSessionsResult,
-    | 'sessions'
-    | 'selectedSessionId'
-    | 'selectSession'
-    | 'isNewSessionMode'
+    'sessions' | 'selectedSessionId' | 'selectSession' | 'isNewSessionMode'
   >;
 }
 
@@ -288,6 +280,16 @@ function TodoListButton({ todos }: { todos: TodoItem[] }) {
   );
 }
 
+function getExecutorProfileStateKey(profile: ExecutorProfileId | null) {
+  if (!profile?.executor) return null;
+  return [
+    profile.executor,
+    profile.variant ?? 'DEFAULT',
+    profile.model ?? 'DEFAULT',
+    profile.fast_mode == null ? 'FAST_DEFAULT' : String(profile.fast_mode),
+  ].join(':');
+}
+
 export function TaskFollowUpSection({
   taskId,
   session,
@@ -310,12 +312,8 @@ export function TaskFollowUpSection({
     session?.workspace_id ??
     null;
   const workspaceIdValue = workspaceId ?? undefined;
-  const {
-    sessions,
-    selectedSessionId,
-    selectSession,
-    isNewSessionMode,
-  } = sessionState;
+  const { sessions, selectedSessionId, selectSession, isNewSessionMode } =
+    sessionState;
   const isAwaitingNewSessionConfirmation = false;
   const sessionId = isNewSessionMode ? undefined : session?.id;
   const { profiles, config } = useUserSystem();
@@ -333,8 +331,13 @@ export function TaskFollowUpSection({
       : (selectedSessionSummary?.displayName ?? '\u4f1a\u8bdd')
   );
 
-  const { isAttemptRunning, stopExecution, isStopping, processes } =
-    useAttemptExecution(workspaceIdValue, taskId ?? undefined);
+  const {
+    isAttemptRunning,
+    stopExecution,
+    clearStopping,
+    isStopping,
+    processes,
+  } = useAttemptExecution(workspaceIdValue, taskId ?? undefined);
 
   const { data: branchStatus, refetch: refetchBranchStatus } =
     useBranchStatus(workspaceIdValue);
@@ -421,24 +424,32 @@ export function TaskFollowUpSection({
             variant?: string | null;
             model?: string | null;
             model_id?: string | null;
+            fast_mode?: boolean | null;
           };
         })
       | undefined;
 
     const raw = data?.executor_config ?? data?.executor_profile_id;
     if (!raw?.executor) return null;
-    const rawModel = raw as { model?: unknown; model_id?: unknown };
+    const rawModel = raw as {
+      model?: unknown;
+      model_id?: unknown;
+      fast_mode?: unknown;
+    };
     const model =
       typeof rawModel.model === 'string'
         ? rawModel.model
         : typeof rawModel.model_id === 'string'
           ? rawModel.model_id
           : null;
+    const fastMode =
+      typeof rawModel.fast_mode === 'boolean' ? rawModel.fast_mode : null;
 
     return {
       executor: raw.executor,
       variant: raw.variant ?? null,
       model,
+      fast_mode: fastMode,
     } satisfies ExecutorProfileId;
   }, [scratchData]);
 
@@ -492,6 +503,7 @@ export function TaskFollowUpSection({
   const hydratedExecutorProfileScratchIdRef = useRef<string | undefined>(
     undefined
   );
+  const appliedScratchExecutorProfileKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const scratchChanged = previousScratchIdRef.current !== scratchIdValue;
@@ -517,6 +529,21 @@ export function TaskFollowUpSection({
     hydratedExecutorProfileScratchIdRef.current = scratchIdValue;
     setSelectedExecutorProfile(defaultExecutorProfile);
   }, [defaultExecutorProfile, isScratchLoading, scratchIdValue]);
+
+  useEffect(() => {
+    if (isScratchLoading || !scratchExecutorProfile) return;
+    const scratchProfileKey = getExecutorProfileStateKey(
+      scratchExecutorProfile
+    );
+    const appliedKey = `${scratchIdValue ?? ''}:${scratchProfileKey ?? ''}`;
+    if (appliedScratchExecutorProfileKeyRef.current === appliedKey) return;
+    appliedScratchExecutorProfileKeyRef.current = appliedKey;
+    setSelectedExecutorProfile((current) =>
+      getExecutorProfileStateKey(current) === scratchProfileKey
+        ? current
+        : scratchExecutorProfile
+    );
+  }, [isScratchLoading, scratchExecutorProfile, scratchIdValue]);
 
   const effectiveExecutorProfile =
     selectedExecutorProfile ?? defaultExecutorProfile;
@@ -545,6 +572,7 @@ export function TaskFollowUpSection({
         images.length === 0 &&
         !executorProfileId.variant &&
         !executorProfileId.model &&
+        executorProfileId.fast_mode == null &&
         !scratchRef.current
       )
         return;
@@ -577,9 +605,7 @@ export function TaskFollowUpSection({
     );
 
   useEffect(() => {
-    const profileKey = effectiveExecutorProfile
-      ? `${effectiveExecutorProfile.executor}:${effectiveExecutorProfile.variant ?? 'DEFAULT'}:${effectiveExecutorProfile.model ?? 'DEFAULT'}`
-      : null;
+    const profileKey = getExecutorProfileStateKey(effectiveExecutorProfile);
     if (previousExecutorProfileKeyRef.current === profileKey) return;
     previousExecutorProfileKeyRef.current = profileKey;
     if (!isScratchLoading) {
@@ -597,7 +623,12 @@ export function TaskFollowUpSection({
       prev.forEach(revokeImagePreviewUrl);
       return (scratchData?.images ?? []).map(imageAttachmentFromPath);
     });
-  }, [isScratchLoading, scratchData?.images, scratchData?.message, scratchIdValue]);
+  }, [
+    isScratchLoading,
+    scratchData?.images,
+    scratchData?.message,
+    scratchIdValue,
+  ]);
 
   const { activeRetryProcessId } = useRetryUi();
   const isRetryActive = !!activeRetryProcessId;
@@ -773,6 +804,7 @@ export function TaskFollowUpSection({
       reviewMarkdown,
       executorProfileId: effectiveExecutorProfile,
       clearComments,
+      onBeforeSend: clearStopping,
       onAfterSendCleanup: async () => {
         cancelDebouncedSave();
         setLocalMessage('');
@@ -881,6 +913,7 @@ export function TaskFollowUpSection({
       attachedImagePaths.length === 0
     )
       return;
+    clearStopping();
     cancelDebouncedSave();
     await saveToScratch(localMessage, effectiveExecutorProfile);
     const { prompt } = buildAgentPrompt(
@@ -897,6 +930,7 @@ export function TaskFollowUpSection({
     attachedImagePaths,
     effectiveExecutorProfile,
     queueMessage,
+    clearStopping,
     cancelDebouncedSave,
     saveToScratch,
   ]);
@@ -912,6 +946,7 @@ export function TaskFollowUpSection({
 
     try {
       setFollowUpError(null);
+      clearStopping();
 
       const event = await sendProviderRuntimeTurn({
         workspaceId: workspaceIdValue,
@@ -926,6 +961,7 @@ export function TaskFollowUpSection({
     }
   }, [
     canCompactContext,
+    clearStopping,
     effectiveExecutorProfile,
     sessionId,
     setFollowUpError,
@@ -1000,7 +1036,10 @@ export function TaskFollowUpSection({
               merged.set(image.path, image);
             }
             const replaced = merged.get(newAttachment.path);
-            if (replaced?.previewUrl && replaced.previewUrl !== newAttachment.previewUrl) {
+            if (
+              replaced?.previewUrl &&
+              replaced.previewUrl !== newAttachment.previewUrl
+            ) {
               revokeImagePreviewUrl(replaced);
             }
             merged.set(newAttachment.path, newAttachment);

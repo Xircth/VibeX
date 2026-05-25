@@ -25,6 +25,7 @@ type Args = {
   reviewMarkdown: string;
   executorProfileId: ExecutorProfileId | null;
   clearComments: () => void;
+  onBeforeSend?: () => void;
   onAfterSendCleanup: () => void | Promise<void>;
 };
 
@@ -42,6 +43,7 @@ export function useFollowUpSend({
   reviewMarkdown,
   executorProfileId,
   clearComments,
+  onBeforeSend,
   onAfterSendCleanup,
 }: Args) {
   const queryClient = useQueryClient();
@@ -60,6 +62,7 @@ export function useFollowUpSend({
     if (!prompt && images.length === 0) return;
 
     try {
+      onBeforeSend?.();
       setIsSendingFollowUp(true);
       setFollowUpError(null);
 
@@ -135,6 +138,7 @@ export function useFollowUpSend({
     reviewMarkdown,
     executorProfileId,
     clearComments,
+    onBeforeSend,
     onAfterSendCleanup,
   ]);
 

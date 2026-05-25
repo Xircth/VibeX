@@ -22,6 +22,7 @@ import { useProject } from '@/contexts/ProjectContext';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import {
   buildWorkspaceBranchOptions,
+  findCurrentProjectBranchOption,
   findWorkspaceBranchOption,
   findWorkspaceBranchOptionByWorkspaceId,
   resolveWorkspaceBranchSelection,
@@ -239,6 +240,13 @@ export function RightPanelContent() {
     );
     if (activeOption) {
       return activeOption.value;
+    }
+
+    const currentProjectBranchOption = findCurrentProjectBranchOption(
+      workspaceBranchOptions
+    );
+    if (currentProjectBranchOption) {
+      return currentProjectBranchOption.value;
     }
 
     const lastActiveOption = findWorkspaceBranchOptionByWorkspaceId(

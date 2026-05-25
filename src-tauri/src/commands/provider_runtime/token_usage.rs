@@ -33,31 +33,17 @@ fn positive_u32(value: Option<u32>) -> Option<u32> {
     value.filter(|value| *value > 0)
 }
 
-fn positive_sum_u32(values: impl IntoIterator<Item = Option<u32>>) -> Option<u32> {
-    positive_u32(sum_u32(values))
-}
-
 fn codex_context_tokens(usage: &Value) -> Option<u32> {
     if let Some(last) = usage.get("last") {
-        return positive_sum_u32([
-            json_u32(last.get("inputTokens")),
-            json_u32(last.get("cachedInputTokens")),
-        ])
-        .or_else(|| positive_u32(json_u32(last.get("totalTokens"))));
+        return positive_u32(json_u32(last.get("inputTokens")))
+            .or_else(|| positive_u32(json_u32(last.get("totalTokens"))));
     }
 
     usage
         .get("total")
         .and_then(|total| {
-            positive_sum_u32([
-                json_u32(total.get("inputTokens")),
-                json_u32(total.get("cachedInputTokens")),
-            ])
-        })
-        .or_else(|| {
-            usage
-                .get("total")
-                .and_then(|total| positive_u32(json_u32(total.get("totalTokens"))))
+            positive_u32(json_u32(total.get("inputTokens")))
+                .or_else(|| positive_u32(json_u32(total.get("totalTokens"))))
         })
 }
 

@@ -61,6 +61,26 @@ async fn send_codex_notification(
         .map_err(|e| e.to_string())
 }
 
+async fn send_codex_fire_and_forget_request(
+    server: &Arc<CodexAppServer>,
+    method: &str,
+    params: Value,
+) -> Result<(), String> {
+    let id = server.next_id.fetch_add(1, Ordering::SeqCst);
+    let mut stdin = server.stdin.lock().await;
+    let mut line = serde_json::to_string(&json!({
+        "id": id,
+        "method": method,
+        "params": params,
+    }))
+    .map_err(|error| error.to_string())?;
+    line.push('\n');
+    stdin
+        .write_all(line.as_bytes())
+        .await
+        .map_err(|error| error.to_string())
+}
+
 async fn send_codex_response(
     server: &Arc<CodexAppServer>,
     request_id: &str,
@@ -105,6 +125,217 @@ fn codex_turn_start_error_is_active_turn(message: &str) -> bool {
         || message.contains("already running")
         || message.contains("currently running")
         || message.contains("in progress")
+}
+
+const CODEX_AUTO_COMPACTION_THRESHOLD_PERCENT: f64 = 92.0;
+const CODEX_AUTO_COMPACTION_TARGET_PERCENT: f64 = 70.0;
+const CODEX_AUTO_COMPACTION_COOLDOWN_MS: u64 = 90_000;
+const CODEX_AUTO_COMPACTION_INFLIGHT_TIMEOUT_MS: u64 = 120_000;
+
+fn codex_now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default()
+}
+
+fn codex_number_field(value: Option<&Value>) -> Option<f64> {
+    value.and_then(|value| {
+        value
+            .as_f64()
+            .or_else(|| value.as_i64().map(|value| value as f64))
+            .or_else(|| value.as_u64().map(|value| value as f64))
+            .or_else(|| value.as_str().and_then(|value| value.trim().parse().ok()))
+    })
+}
+
+fn codex_positive_number(value: Option<f64>) -> Option<f64> {
+    value.filter(|value| *value > 0.0)
+}
+
+fn codex_usage_snapshot_tokens(snapshot: &Value) -> Option<f64> {
+    codex_positive_number(codex_number_field(
+        snapshot.get("inputTokens").or_else(|| snapshot.get("input_tokens")),
+    ))
+    .or_else(|| {
+        codex_positive_number(codex_number_field(
+            snapshot.get("totalTokens").or_else(|| snapshot.get("total_tokens")),
+        ))
+    })
+}
+
+fn extract_codex_compaction_usage_percent(value: &Value) -> Option<f64> {
+    let method = value.get("method").and_then(Value::as_str)?;
+    let params = value.get("params")?;
+    let (used_tokens, context_window) = match method {
+        "thread/tokenUsage/updated" => {
+            let usage = params
+                .get("tokenUsage")
+                .or_else(|| params.get("token_usage"))?;
+            let last = usage.get("last").filter(|value| value.is_object())?;
+            let used_tokens = codex_usage_snapshot_tokens(last)?;
+            let context_window = codex_positive_number(codex_number_field(
+                usage
+                    .get("modelContextWindow")
+                    .or_else(|| usage.get("model_context_window"))
+                    .or_else(|| usage.get("context_window")),
+            ))?;
+            (used_tokens, context_window)
+        }
+        "token_count" => {
+            let info = params.get("info")?;
+            let usage = info
+                .get("last_token_usage")
+                .or_else(|| info.get("lastTokenUsage"))?;
+            let used_tokens = codex_usage_snapshot_tokens(usage)?;
+            let context_window = codex_positive_number(codex_number_field(
+                usage
+                    .get("model_context_window")
+                    .or_else(|| usage.get("modelContextWindow"))
+                    .or_else(|| usage.get("context_window")),
+            ))
+            .or_else(|| {
+                codex_positive_number(codex_number_field(
+                    info.get("model_context_window")
+                        .or_else(|| info.get("modelContextWindow")),
+                ))
+            })?;
+            (used_tokens, context_window)
+        }
+        _ => return None,
+    };
+
+    Some((used_tokens / context_window) * 100.0)
+}
+
+fn evaluate_codex_auto_compaction_state(
+    state: &mut CodexAutoCompactionThreadState,
+    method: &str,
+    usage_percent: Option<f64>,
+    now: u64,
+) -> bool {
+    match method {
+        "turn/started" => state.is_processing = true,
+        "turn/completed" | "turn/error" => state.is_processing = false,
+        "thread/compacted" => {
+            state.is_processing = false;
+            state.in_flight = false;
+            state.last_usage_percent = None;
+        }
+        "thread/compactionFailed" => state.in_flight = false,
+        _ => {}
+    }
+
+    if let Some(percent) = usage_percent {
+        state.last_usage_percent = Some(percent);
+    }
+
+    let Some(percent) = usage_percent.or(state.last_usage_percent) else {
+        return false;
+    };
+    if percent <= CODEX_AUTO_COMPACTION_TARGET_PERCENT {
+        return false;
+    }
+    if percent < CODEX_AUTO_COMPACTION_THRESHOLD_PERCENT {
+        return false;
+    }
+
+    if state.in_flight
+        && now.saturating_sub(state.last_triggered_at_ms)
+            > CODEX_AUTO_COMPACTION_INFLIGHT_TIMEOUT_MS
+    {
+        state.in_flight = false;
+    }
+
+    if state.in_flight || state.is_processing {
+        return false;
+    }
+    if now.saturating_sub(state.last_triggered_at_ms) < CODEX_AUTO_COMPACTION_COOLDOWN_MS {
+        return false;
+    }
+
+    state.in_flight = true;
+    state.last_triggered_at_ms = now;
+    true
+}
+
+async fn codex_auto_compaction_is_in_flight(thread_id: &str) -> bool {
+    let servers: Vec<Arc<CodexAppServer>> =
+        CODEX_APP_SERVERS.lock().await.values().cloned().collect();
+    for server in servers {
+        if server
+            .auto_compaction_thread_state
+            .lock()
+            .await
+            .get(thread_id)
+            .is_some_and(|state| state.in_flight)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+async fn maybe_trigger_codex_auto_compaction(
+    server: &Arc<CodexAppServer>,
+    session_id: &str,
+    method: &str,
+    thread_id: Option<&str>,
+    usage_percent: Option<f64>,
+) {
+    let Some(thread_id) = thread_id else {
+        return;
+    };
+
+    let should_trigger = {
+        let mut states = server.auto_compaction_thread_state.lock().await;
+        let state = states.entry(thread_id.to_string()).or_default();
+        evaluate_codex_auto_compaction_state(state, method, usage_percent, codex_now_millis())
+    };
+    if !should_trigger {
+        return;
+    }
+
+    let params = json!({ "threadId": thread_id });
+    if let Err(error) =
+        send_codex_fire_and_forget_request(server, "thread/compact/start", params).await
+    {
+        if let Some(state) = server
+            .auto_compaction_thread_state
+            .lock()
+            .await
+            .get_mut(thread_id)
+        {
+            state.in_flight = false;
+        }
+        tracing::warn!("Failed to start Codex auto compaction: {}", error);
+        return;
+    }
+
+    let event = json!({
+        "method": "thread/compacting",
+        "runtime_source": "native_app_server",
+        "params": {
+            "threadId": thread_id,
+            "thread_id": thread_id,
+            "thresholdPercent": CODEX_AUTO_COMPACTION_THRESHOLD_PERCENT,
+            "threshold_percent": CODEX_AUTO_COMPACTION_THRESHOLD_PERCENT,
+            "auto": true,
+            "manual": false,
+        }
+    });
+    push_provider_event(
+        session_id,
+        ProviderRuntimeEvent {
+            provider: ProviderId::Codex,
+            workspace_id: server.workspace_id.clone(),
+            thread_id: Some(thread_id.to_string()),
+            turn_id: None,
+            event: event.clone(),
+        },
+    )
+    .await;
+    route_codex_event_to_native_conversation(&event).await;
 }
 
 async fn send_codex_turn_interrupt(thread_id: &str, turn_id: &str) -> Result<(), String> {
@@ -195,6 +426,55 @@ async fn send_codex_turn_start_request(
     }
 
     Err("turn/start retry loop exhausted".to_string())
+}
+
+async fn apply_codex_fast_mode_setting(
+    server: &Arc<CodexAppServer>,
+    fast_mode: Option<bool>,
+) -> Result<(), String> {
+    let Some(enabled) = fast_mode else {
+        return Ok(());
+    };
+
+    let service_tier = if enabled { json!("fast") } else { Value::Null };
+    let response = match send_codex_request(
+        server,
+        "config/batchWrite",
+        json!({
+            "edits": [
+                {
+                    "keyPath": "service_tier",
+                    "value": service_tier,
+                    "mergeStrategy": "upsert",
+                },
+                {
+                    "keyPath": "features.fast_mode",
+                    "value": enabled,
+                    "mergeStrategy": "upsert",
+                },
+            ],
+            "reloadUserConfig": true,
+        }),
+        Duration::from_secs(CODEX_REQUEST_TIMEOUT_SECS),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) if !enabled => {
+            tracing::warn!("Failed to disable Codex fast mode: {}", error);
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+
+    match codex_response_success("config/batchWrite", &response) {
+        Ok(_) => Ok(()),
+        Err(error) if !enabled => {
+            tracing::warn!("Failed to disable Codex fast mode: {}", error);
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn fallback_codex_provider_models() -> Vec<ProviderModel> {
@@ -642,13 +922,23 @@ fn spawn_codex_app_server_readers(
                 continue;
             }
 
-            if value.get("method").is_some() {
+            if let Some(method) = value.get("method").and_then(Value::as_str) {
+                let thread_id = extract_thread_id(&value);
+                let usage_percent = extract_codex_compaction_usage_percent(&value);
+                maybe_trigger_codex_auto_compaction(
+                    &stdout_server,
+                    &stdout_session_id,
+                    method,
+                    thread_id.as_deref(),
+                    usage_percent,
+                )
+                .await;
                 push_provider_event(
                     &stdout_session_id,
                     ProviderRuntimeEvent {
                         provider: ProviderId::Codex,
                         workspace_id: stdout_server.workspace_id.clone(),
-                        thread_id: extract_thread_id(&value),
+                        thread_id,
                         turn_id: extract_turn_id(&value),
                         event: value.clone(),
                     },
@@ -741,6 +1031,7 @@ async fn ensure_codex_app_server(
         stdin: Arc::new(Mutex::new(stdin)),
         pending: Arc::new(Mutex::new(HashMap::new())),
         next_id: AtomicU64::new(1),
+        auto_compaction_thread_state: Arc::new(Mutex::new(HashMap::new())),
     });
 
     spawn_codex_app_server_readers(server.clone(), stdout, stderr, session_id.to_string());
@@ -872,6 +1163,30 @@ async fn start_codex_native_turn(
         )
         .await
         {
+            return;
+        }
+
+        if let Err(error) = apply_codex_fast_mode_setting(&server, codex_options.fast_mode).await {
+            let event = failure_event(error);
+            push_provider_event(
+                &session_id_string,
+                ProviderRuntimeEvent {
+                    provider: ProviderId::Codex,
+                    workspace_id: workspace_id_string.clone(),
+                    thread_id: final_thread_id.clone(),
+                    turn_id: Some(final_turn_id.clone()),
+                    event: event.clone(),
+                },
+            )
+            .await;
+            push_native_provider_event_to_conversation(&conversation_sink, &event).await;
+            CODEX_NATIVE_TURN_SINKS.lock().await.remove(&final_turn_id);
+            complete_native_conversation_sink(
+                conversation_sink,
+                ExecutionProcessStatus::Failed,
+                None,
+            )
+            .await;
             return;
         }
 

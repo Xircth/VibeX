@@ -78,6 +78,10 @@ export function useAttemptExecution(attemptId?: string, taskId?: string) {
     setIsStopping,
   ]);
 
+  const clearStopping = useCallback(() => {
+    setIsStopping(false);
+  }, [setIsStopping]);
+
   useEffect(() => {
     if (isStopping && !isAttemptRunning) {
       setIsStopping(false);
@@ -102,6 +106,7 @@ export function useAttemptExecution(attemptId?: string, taskId?: string) {
 
     // Actions
     stopExecution,
+    clearStopping,
     isStopping,
   };
 }

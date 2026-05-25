@@ -1,4 +1,4 @@
-import { ChevronDown, Cpu } from 'lucide-react';
+import { ChevronDown, Cpu, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -7,6 +7,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 export interface CodexModelOption {
@@ -18,6 +24,13 @@ interface CodexModelSelectorProps {
   value: string | null;
   options: CodexModelOption[];
   onChange: (model: string | null) => void;
+  fastMode?: {
+    checked: boolean;
+    label: string;
+    hint: string;
+    onCheckedChange: (checked: boolean) => void;
+    disabled?: boolean;
+  };
   disabled?: boolean;
   className?: string;
   iconOnly?: boolean;
@@ -28,6 +41,7 @@ export function CodexModelSelector({
   value,
   options,
   onChange,
+  fastMode,
   disabled,
   className,
   iconOnly = false,
@@ -60,6 +74,12 @@ export function CodexModelSelector({
               {current.label}
             </span>
           ) : null}
+          {!iconOnly && fastMode?.checked ? (
+            <Zap
+              className="h-3 w-3 fill-blue-500 text-blue-500 dark:fill-blue-400 dark:text-blue-400"
+              aria-label={fastMode.label}
+            />
+          ) : null}
           {!iconOnly ? <ChevronDown className="h-2.5 w-2.5" /> : null}
         </Button>
       </DropdownMenuTrigger>
@@ -71,6 +91,48 @@ export function CodexModelSelector({
         className="min-w-[220px]"
       >
         <DropdownMenuLabel>模型</DropdownMenuLabel>
+        {fastMode ? (
+          <div className="px-1 pb-1">
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={fastMode.checked}
+                    aria-label={fastMode.label}
+                    disabled={disabled || fastMode.disabled}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      if (disabled || fastMode.disabled) return;
+                      fastMode.onCheckedChange(!fastMode.checked);
+                    }}
+                    className={cn(
+                      'flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50',
+                      fastMode.checked &&
+                        'bg-blue-50 text-blue-600 hover:bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-950/30'
+                    )}
+                  >
+                    <Zap
+                      className={cn(
+                        'h-3.5 w-3.5',
+                        fastMode.checked &&
+                          'fill-blue-500 text-blue-500 dark:fill-blue-400 dark:text-blue-400'
+                      )}
+                    />
+                    <span>{fastMode.label}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="right"
+                  className="max-w-[240px] text-xs leading-4"
+                >
+                  {fastMode.hint}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        ) : null}
         {options.map((option) => (
           <DropdownMenuItem
             key={option.value ?? 'DEFAULT'}

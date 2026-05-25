@@ -1127,12 +1127,12 @@ fn native_provider_events_extract_token_usage_info() {
     assert_eq!(
         extract_provider_token_usage_info(&codex_event)
             .map(|info| { (info.total_tokens, info.model_context_window) }),
-        Some((250, 128000))
+        Some((200, 128000))
     );
     assert_eq!(
         extract_provider_token_usage_info_with_codex_context_window(&codex_event, Some(1_000_000))
             .map(|info| { (info.total_tokens, info.model_context_window) }),
-        Some((250, 128000))
+        Some((200, 128000))
     );
     assert_eq!(
         extract_provider_token_usage_info_with_codex_context_window(
@@ -1140,12 +1140,12 @@ fn native_provider_events_extract_token_usage_info() {
             Some(1_000_000)
         )
         .map(|info| { (info.total_tokens, info.model_context_window) }),
-        Some((250, 1_000_000))
+        Some((200, 1_000_000))
     );
     assert_eq!(
         extract_provider_token_usage_info(&codex_event_without_last_usage)
             .map(|info| { (info.total_tokens, info.model_context_window) }),
-        Some((1000, 128000))
+        Some((900, 128000))
     );
     assert_eq!(
         extract_provider_token_usage_info(&codex_compaction_usage_with_zero_last)
@@ -1191,6 +1191,49 @@ fn native_provider_events_extract_token_usage_info() {
         .map(|info| { (info.total_tokens, info.model_context_window) }),
         None
     );
+}
+
+#[test]
+fn codex_auto_compaction_uses_input_tokens_without_cached_double_count() {
+    let event = json!({
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": "thread-123",
+            "tokenUsage": {
+                "last": {
+                    "inputTokens": 92_000,
+                    "cachedInputTokens": 40_000
+                },
+                "modelContextWindow": 100_000
+            }
+        }
+    });
+
+    assert_eq!(extract_codex_compaction_usage_percent(&event), Some(92.0));
+}
+
+#[test]
+fn codex_auto_compaction_waits_until_turn_is_not_processing() {
+    let mut state = CodexAutoCompactionThreadState::default();
+    assert!(!evaluate_codex_auto_compaction_state(
+        &mut state,
+        "turn/started",
+        None,
+        1
+    ));
+    assert!(!evaluate_codex_auto_compaction_state(
+        &mut state,
+        "thread/tokenUsage/updated",
+        Some(93.0),
+        CODEX_AUTO_COMPACTION_COOLDOWN_MS
+    ));
+    assert!(evaluate_codex_auto_compaction_state(
+        &mut state,
+        "turn/completed",
+        None,
+        CODEX_AUTO_COMPACTION_COOLDOWN_MS
+    ));
+    assert!(state.in_flight);
 }
 
 #[test]

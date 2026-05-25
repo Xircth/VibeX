@@ -6,6 +6,7 @@ use std::{
         Arc, LazyLock,
         atomic::{AtomicU64, Ordering},
     },
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
@@ -125,6 +126,14 @@ struct NativeToolUpdate {
 
 type CodexPendingRequests = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
 
+#[derive(Debug, Default, Clone)]
+struct CodexAutoCompactionThreadState {
+    is_processing: bool,
+    in_flight: bool,
+    last_triggered_at_ms: u64,
+    last_usage_percent: Option<f64>,
+}
+
 struct CodexAppServer {
     workspace_id: String,
     workspace_dir: PathBuf,
@@ -132,6 +141,7 @@ struct CodexAppServer {
     stdin: Arc<Mutex<ChildStdin>>,
     pending: CodexPendingRequests,
     next_id: AtomicU64,
+    auto_compaction_thread_state: Arc<Mutex<HashMap<String, CodexAutoCompactionThreadState>>>,
 }
 
 mod contract;

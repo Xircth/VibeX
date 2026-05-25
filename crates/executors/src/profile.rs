@@ -71,6 +71,9 @@ pub struct ExecutorProfileId {
     /// Optional model override carried by UI/runtime selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Optional Codex fast mode override carried by UI/runtime selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_mode: Option<bool>,
 }
 
 // Convert legacy profile/executor names from kebab-case to SCREAMING_SNAKE_CASE, can be deleted 14 days from 3/9/25
@@ -92,6 +95,7 @@ impl ExecutorProfileId {
             executor,
             variant: None,
             model: None,
+            fast_mode: None,
         }
     }
 
@@ -101,6 +105,7 @@ impl ExecutorProfileId {
             executor,
             variant: Some(variant),
             model: None,
+            fast_mode: None,
         }
     }
 
@@ -167,6 +172,7 @@ impl ExecutorConfig {
             executor: self.executor,
             variant: self.variant.clone(),
             model: self.model_id.clone(),
+            fast_mode: None,
         }
     }
 
@@ -591,6 +597,7 @@ pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
         executor: id.executor,
         variant: None,
         model: id.model.clone(),
+        fast_mode: id.fast_mode,
     }
 }
 

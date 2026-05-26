@@ -284,7 +284,9 @@ export function createDecoratorNode<T>(
 
 function createInlineTransformer<T>(
   NodeClass: unknown,
-  isNode: (node: LexicalNode | null | undefined) => boolean,
+  isNode: (
+    node: LexicalNode | null | undefined
+  ) => node is GeneratedDecoratorNode<T>,
   config: InlineSerialization<T>,
   createNode: (data: T) => LexicalNode
 ): TextMatchTransformer {
@@ -292,9 +294,7 @@ function createInlineTransformer<T>(
     dependencies: [NodeClass as typeof LexicalNode],
     export: (node) => {
       if (isNode(node)) {
-        return config.serialize(
-          (node as unknown as { getData(): T }).getData()
-        );
+        return config.serialize(node.getData());
       }
       return null;
     },
@@ -311,7 +311,9 @@ function createInlineTransformer<T>(
 
 function createFencedTransformers<T>(
   NodeClass: unknown,
-  isNode: (node: LexicalNode | null | undefined) => boolean,
+  isNode: (
+    node: LexicalNode | null | undefined
+  ) => node is GeneratedDecoratorNode<T>,
   config: FencedSerialization<T>,
   createNode: (data: T) => LexicalNode
 ): [TextMatchTransformer, MultilineElementTransformer] {
@@ -325,7 +327,7 @@ function createFencedTransformers<T>(
         '\n```' +
         config.language +
         '\n' +
-        config.serialize((node as unknown as { getData(): T }).getData()) +
+        config.serialize(node.getData()) +
         '\n```\n'
       );
     },

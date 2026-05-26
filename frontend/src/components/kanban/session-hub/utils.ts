@@ -3,6 +3,12 @@ import type { SessionStatus } from '@/lib/api';
 import { getAgentName } from '@/components/agents/AgentIcon';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
+import {
+  findWorkspaceBranchOption,
+  resolveWorkspaceBranchSelection,
+  type WorkspaceBranchOption,
+} from '@/lib/workspaceBranchOptions';
+import { dateTimestamp } from '@/utils/date';
 
 export const MONITOR_SLOT_STYLES = [
   {
@@ -99,6 +105,9 @@ export const SESSION_STATUS_SECTION_STYLES: Record<
 };
 
 export type SortField = 'name' | 'time' | 'status';
+export type KanbanSessionCreationMode =
+  | 'existing_workspace'
+  | 'new_workspace';
 
 export interface SessionMarker {
   bar: string;
@@ -115,7 +124,7 @@ function getSessionStatusOrder(status: SessionStatus) {
 }
 
 export function formatTimeAgo(iso: string) {
-  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMs = Date.now() - dateTimestamp(iso);
   const seconds = Math.max(Math.round(Math.abs(diffMs) / 1000), 1);
   const isFuture = diffMs < 0;
   const suffix = isFuture ? '后' : '前';
@@ -174,7 +183,7 @@ export function sortSessions(
     if (sortField === 'name') {
       return (
         left.fullName.localeCompare(right.fullName, 'zh-CN') ||
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+        dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
       );
     }
 
@@ -182,13 +191,11 @@ export function sortSessions(
       return (
         getSessionStatusOrder(left.status) -
           getSessionStatusOrder(right.status) ||
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+        dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
       );
     }
 
-    return (
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-    );
+    return dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt);
   });
 
   return next;
@@ -198,6 +205,245 @@ export function toggleStringValue(values: string[], nextValue: string) {
   return values.includes(nextValue)
     ? values.filter((value) => value !== nextValue)
     : [...values, nextValue];
+}
+
+export interface ExecutorFilterOption {
+  value: string;
+  label: string;
+}
+
+export function getExecutorFilterOptions(
+  sessions: KanbanProjectSessionRecord[]
+): ExecutorFilterOption[] {
+  const values = Array.from(
+    new Set(
+      sessions.map((session) => getExecutorFilterValue(session.executor))
+    )
+  );
+
+  return values
+    .map((value) => ({
+      value,
+      label: getExecutorDisplayName(
+        value === UNASSIGNED_EXECUTOR ? null : value
+      ),
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
+}
+
+export function filterKanbanSessions({
+  sessions,
+  workspaceFilterIds,
+  executorFilterValues,
+}: {
+  sessions: KanbanProjectSessionRecord[];
+  workspaceFilterIds: string[];
+  executorFilterValues: string[];
+}): KanbanProjectSessionRecord[] {
+  return sessions.filter((session) => {
+    if (
+      workspaceFilterIds.length > 0 &&
+      !workspaceFilterIds.includes(session.workspace.id)
+    ) {
+      return false;
+    }
+
+    if (
+      executorFilterValues.length > 0 &&
+      !executorFilterValues.includes(getExecutorFilterValue(session.executor))
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function groupKanbanSessionsByStatus(
+  sessions: KanbanProjectSessionRecord[]
+): Record<ActiveSessionStatus, KanbanProjectSessionRecord[]> {
+  const groups: Record<ActiveSessionStatus, KanbanProjectSessionRecord[]> = {
+    todo: [],
+    inprogress: [],
+    inreview: [],
+    done: [],
+  };
+
+  sessions.forEach((session) => {
+    groups[session.status as ActiveSessionStatus].push(session);
+  });
+
+  return groups;
+}
+
+export function getDisplayedSessionCount({
+  workspaceFilterIds,
+  executorFilterValues,
+  sortField,
+  filteredCount,
+  activeCount,
+}: {
+  workspaceFilterIds: string[];
+  executorFilterValues: string[];
+  sortField: SortField | null;
+  filteredCount: number;
+  activeCount: number;
+}): number {
+  return workspaceFilterIds.length > 0 ||
+    executorFilterValues.length > 0 ||
+    sortField !== null
+    ? filteredCount
+    : activeCount;
+}
+
+export interface CreateProjectSessionRequest {
+  project_id: string;
+  workspace_id: string | null;
+  branch: string | null;
+  executor?: string;
+  name: string | null;
+  create_workspace: boolean;
+  repos?: Array<{ repo_id: string; target_branch: string }>;
+}
+
+export function getCanCreateKanbanSession({
+  executorProfile,
+  isPending,
+  mode,
+  selectedWorkspaceOption,
+  projectRepoCount,
+  repoBranchConfigs,
+}: {
+  executorProfile: ExecutorProfileId | null;
+  isPending: boolean;
+  mode: KanbanSessionCreationMode;
+  selectedWorkspaceOption: WorkspaceBranchOption | null;
+  projectRepoCount: number;
+  repoBranchConfigs: Array<{ targetBranch?: string | null } & Record<
+    string,
+    unknown
+  >>;
+}): boolean {
+  if (!executorProfile?.executor || isPending) {
+    return false;
+  }
+
+  if (mode === 'existing_workspace') {
+    return Boolean(selectedWorkspaceOption);
+  }
+
+  return (
+    projectRepoCount > 0 &&
+    repoBranchConfigs.length > 0 &&
+    repoBranchConfigs.every((config) => Boolean(config.targetBranch))
+  );
+}
+
+export function getCreateProjectSessionRequest({
+  projectId,
+  workspaceValue,
+  sessionName,
+  executorProfile,
+  mode,
+  workspaceBranchOptions,
+  repoInputs,
+}: {
+  projectId: string | null | undefined;
+  workspaceValue: string;
+  sessionName: string;
+  executorProfile: ExecutorProfileId | null;
+  mode: KanbanSessionCreationMode;
+  workspaceBranchOptions: WorkspaceBranchOption[];
+  repoInputs?: Array<{ repo_id: string; target_branch: string }>;
+}): CreateProjectSessionRequest {
+  if (mode === 'existing_workspace' && !workspaceValue) {
+    throw new Error('Workspace is required');
+  }
+
+  if (!projectId) {
+    throw new Error('Project is required');
+  }
+
+  const selectedWorkspaceOption =
+    mode === 'existing_workspace'
+      ? findWorkspaceBranchOption(workspaceBranchOptions, workspaceValue)
+      : null;
+  const workspaceSelection =
+    mode === 'existing_workspace'
+      ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
+      : { workspaceId: null, branch: null };
+
+  return {
+    project_id: projectId,
+    workspace_id: workspaceSelection.workspaceId,
+    branch: workspaceSelection.branch,
+    executor: executorProfile?.executor ?? undefined,
+    name: sessionName.trim() || null,
+    create_workspace: mode === 'new_workspace',
+    repos: mode === 'new_workspace' ? repoInputs : undefined,
+  };
+}
+
+export interface BulkDeleteSessionSummary {
+  succeededIds: string[];
+  failedResults: Array<{
+    result: PromiseRejectedResult;
+    sessionId: string;
+  }>;
+  failedSessionIds: string[];
+  affectedWorkspaceIds: string[];
+  remainingSessionIds: Set<string>;
+}
+
+export function getBulkDeleteSessionSummary({
+  targetIds,
+  sessionsById,
+  sessions,
+  deleteResults,
+}: {
+  targetIds: string[];
+  sessionsById: Record<string, KanbanProjectSessionRecord | undefined>;
+  sessions: KanbanProjectSessionRecord[];
+  deleteResults: PromiseSettledResult<string>[];
+}): BulkDeleteSessionSummary {
+  const succeededIds = deleteResults
+    .filter(
+      (result): result is PromiseFulfilledResult<string> =>
+        result.status === 'fulfilled'
+    )
+    .map((result) => result.value);
+
+  const failedResults = deleteResults
+    .map((result, index) => ({ result, sessionId: targetIds[index] }))
+    .filter(
+      (
+        item
+      ): item is {
+        result: PromiseRejectedResult;
+        sessionId: string;
+      } => item.result.status === 'rejected'
+    );
+
+  const targetSessions = targetIds
+    .map((sessionId) => sessionsById[sessionId])
+    .filter((session): session is KanbanProjectSessionRecord =>
+      Boolean(session)
+    );
+  const succeededIdSet = new Set(succeededIds);
+
+  return {
+    succeededIds,
+    failedResults,
+    failedSessionIds: failedResults.map(({ sessionId }) => sessionId),
+    affectedWorkspaceIds: Array.from(
+      new Set(targetSessions.map((session) => session.workspace.id))
+    ),
+    remainingSessionIds: new Set(
+      sessions
+        .map((session) => session.id)
+        .filter((sessionId) => !succeededIdSet.has(sessionId))
+    ),
+  };
 }
 
 export function getMonitorGridClassName(count: number) {

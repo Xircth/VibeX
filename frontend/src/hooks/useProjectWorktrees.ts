@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { attemptsApi } from '@/lib/api';
+import { dateTimestamp } from '@/utils/date';
 import type { Workspace } from 'shared/types';
 
 export const projectWorktreeKeys = {
@@ -29,8 +30,7 @@ export function useProjectWorktrees(projectId: string | undefined) {
         )
         .sort(
           (left, right) =>
-            new Date(right.updated_at).getTime() -
-            new Date(left.updated_at).getTime()
+            dateTimestamp(right.updated_at) - dateTimestamp(left.updated_at)
         );
     },
     enabled: !!projectId,

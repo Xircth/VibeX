@@ -1,4 +1,22 @@
-﻿fn codex_input_items(request: &ProviderTurnRequest) -> Vec<Value> {
+use std::{path::Path, sync::Arc};
+
+use db::models::execution_process_logs::ExecutionProcessLogs;
+use deployment::Deployment;
+use executors::logs::{NormalizedEntry, NormalizedEntryType};
+use serde_json::{Value, json};
+use services::services::container::ContainerService;
+use sqlx::SqlitePool;
+use tokio::sync::Mutex;
+use utils::{log_msg::LogMsg, msg_store::MsgStore};
+use uuid::Uuid;
+
+use super::{
+    NativeConversationSink, NativeConversationState, PROVIDER_EVENT_HISTORY, ProviderRuntimeEvent,
+    ProviderTurnRequest,
+};
+use crate::state::AppState;
+
+pub(super) fn codex_input_items(request: &ProviderTurnRequest) -> Vec<Value> {
     let mut input = vec![json!({
         "type": "text",
         "text": request.text,
@@ -92,7 +110,7 @@ fn codex_provider_option_input_item(value: &Value, item_type: &str) -> Option<Va
     }))
 }
 
-fn is_context_compact_prompt(prompt: &str) -> bool {
+pub(super) fn is_context_compact_prompt(prompt: &str) -> bool {
     let trimmed = prompt.trim();
     let compact_len = "/compact".len();
     let Some(command) = trimmed.get(..compact_len) else {
@@ -105,7 +123,7 @@ fn is_context_compact_prompt(prompt: &str) -> bool {
     rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace)
 }
 
-fn extract_thread_id(value: &Value) -> Option<String> {
+pub(super) fn extract_thread_id(value: &Value) -> Option<String> {
     value
         .get("result")
         .and_then(|result| result.get("threadId"))
@@ -190,7 +208,7 @@ fn extract_thread_id(value: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn extract_turn_id(value: &Value) -> Option<String> {
+pub(super) fn extract_turn_id(value: &Value) -> Option<String> {
     value
         .get("result")
         .and_then(|result| result.get("turnId"))
@@ -228,11 +246,11 @@ fn extract_turn_id(value: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn codex_runtime_key(workspace_id: &str, workspace_dir: &Path) -> String {
+pub(super) fn codex_runtime_key(workspace_id: &str, workspace_dir: &Path) -> String {
     format!("codex:{workspace_id}:{}", workspace_dir.display())
 }
 
-async fn push_provider_event(session_id: &str, event: ProviderRuntimeEvent) {
+pub(super) async fn push_provider_event(session_id: &str, event: ProviderRuntimeEvent) {
     let key = event.provider.history_key(session_id);
     PROVIDER_EVENT_HISTORY
         .lock()
@@ -242,7 +260,7 @@ async fn push_provider_event(session_id: &str, event: ProviderRuntimeEvent) {
         .push(event);
 }
 
-async fn register_native_conversation_sink(
+pub(super) async fn register_native_conversation_sink(
     state: &tauri::State<'_, AppState>,
     process_id: Uuid,
     session_id: Uuid,
@@ -289,12 +307,12 @@ async fn persist_native_log_msg(pool: &SqlitePool, process_id: Uuid, msg: &LogMs
     }
 }
 
-async fn push_native_log_msg(sink: &NativeConversationSink, msg: LogMsg) {
+pub(super) async fn push_native_log_msg(sink: &NativeConversationSink, msg: LogMsg) {
     sink.msg_store.push(msg.clone());
     persist_native_log_msg(&sink.pool, sink.process_id, &msg).await;
 }
 
-fn native_normalized_entry(
+pub(super) fn native_normalized_entry(
     entry_type: NormalizedEntryType,
     content: impl Into<String>,
     metadata: Option<Value>,
@@ -307,7 +325,7 @@ fn native_normalized_entry(
     }
 }
 
-fn provider_event_is_user_echo(value: &Value) -> bool {
+pub(super) fn provider_event_is_user_echo(value: &Value) -> bool {
     value
         .get("event")
         .and_then(|event| event.get("message"))
@@ -343,7 +361,7 @@ fn provider_event_is_user_echo(value: &Value) -> bool {
         .is_some_and(|role| role.eq_ignore_ascii_case("user"))
 }
 
-fn extract_provider_diagnostic_text(value: &Value) -> Option<String> {
+pub(super) fn extract_provider_diagnostic_text(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => {
             let trimmed = text.trim();
@@ -388,7 +406,7 @@ fn extract_provider_diagnostic_text(value: &Value) -> Option<String> {
     }
 }
 
-fn extract_text_block_content(value: &Value) -> Option<String> {
+pub(super) fn extract_text_block_content(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => {
             if text.trim().is_empty() {
@@ -428,15 +446,12 @@ fn extract_text_block_content(value: &Value) -> Option<String> {
 
 fn extract_assistant_payload_text(value: &Value) -> Option<String> {
     let record = value.as_object()?;
-    let role = record
-        .get("role")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            record
-                .get("info")
-                .and_then(|info| info.get("role"))
-                .and_then(Value::as_str)
-        });
+    let role = record.get("role").and_then(Value::as_str).or_else(|| {
+        record
+            .get("info")
+            .and_then(|info| info.get("role"))
+            .and_then(Value::as_str)
+    });
     if role.is_some_and(|role| role.eq_ignore_ascii_case("user")) {
         return None;
     }
@@ -517,7 +532,7 @@ fn extract_opencode_event_text(value: &Value) -> Option<String> {
     extract_assistant_payload_text(value)
 }
 
-fn extract_provider_text(value: &Value) -> Option<String> {
+pub(super) fn extract_provider_text(value: &Value) -> Option<String> {
     if let Some(text) = extract_provider_stream_text(value) {
         return Some(text);
     }
@@ -563,7 +578,7 @@ fn extract_opencode_stream_text(_value: &Value) -> Option<String> {
     None
 }
 
-fn extract_provider_stream_text(value: &Value) -> Option<String> {
+pub(super) fn extract_provider_stream_text(value: &Value) -> Option<String> {
     let record = value.as_object()?;
     let method = record.get("method").and_then(Value::as_str);
     if method == Some("item/agentMessage/delta") {
@@ -615,7 +630,7 @@ fn extract_provider_stream_text(value: &Value) -> Option<String> {
     None
 }
 
-fn codex_turn_from_response(value: &Value) -> Option<&Value> {
+pub(super) fn codex_turn_from_response(value: &Value) -> Option<&Value> {
     value
         .get("result")
         .and_then(|result| result.get("turn"))
@@ -629,20 +644,20 @@ fn codex_turn_from_response(value: &Value) -> Option<&Value> {
         })
 }
 
-fn codex_turn_status(value: &Value) -> Option<&str> {
+pub(super) fn codex_turn_status(value: &Value) -> Option<&str> {
     codex_turn_from_response(value)?
         .get("status")
         .and_then(Value::as_str)
 }
 
-fn codex_turn_status_is_complete(status: &str) -> bool {
+pub(super) fn codex_turn_status_is_complete(status: &str) -> bool {
     matches!(
         status.to_ascii_lowercase().as_str(),
         "completed" | "complete" | "succeeded" | "success"
     )
 }
 
-fn codex_turn_status_is_terminal(status: &str) -> bool {
+pub(super) fn codex_turn_status_is_terminal(status: &str) -> bool {
     codex_turn_status_is_complete(status)
         || matches!(
             status.to_ascii_lowercase().as_str(),
@@ -650,7 +665,11 @@ fn codex_turn_status_is_terminal(status: &str) -> bool {
         )
 }
 
-fn append_provider_assistant_text(content: &mut String, text: &str, is_stream_delta: bool) {
+pub(super) fn append_provider_assistant_text(
+    content: &mut String,
+    text: &str,
+    is_stream_delta: bool,
+) {
     if content.is_empty() {
         content.push_str(text);
         return;
@@ -676,7 +695,7 @@ fn append_provider_assistant_text(content: &mut String, text: &str, is_stream_de
     content.push_str(text);
 }
 
-fn extract_provider_assistant_entry_id(value: &Value) -> Option<String> {
+pub(super) fn extract_provider_assistant_entry_id(value: &Value) -> Option<String> {
     let record = value.as_object()?;
 
     if record.get("method").and_then(Value::as_str) == Some("item/agentMessage/delta") {
@@ -719,7 +738,10 @@ fn extract_provider_assistant_entry_id(value: &Value) -> Option<String> {
         "item",
         "part",
     ] {
-        if let Some(id) = record.get(key).and_then(extract_provider_assistant_entry_id) {
+        if let Some(id) = record
+            .get(key)
+            .and_then(extract_provider_assistant_entry_id)
+        {
             return Some(id);
         }
     }
@@ -727,11 +749,10 @@ fn extract_provider_assistant_entry_id(value: &Value) -> Option<String> {
     None
 }
 
-fn provider_event_is_codex_turn_snapshot(value: &Value) -> bool {
+pub(super) fn provider_event_is_codex_turn_snapshot(value: &Value) -> bool {
     value
         .get("method")
         .and_then(Value::as_str)
         .is_some_and(|method| method == "turn/completed" || method == "thread/compacted")
         || codex_turn_from_response(value).is_some()
 }
-

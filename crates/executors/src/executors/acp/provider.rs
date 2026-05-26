@@ -18,6 +18,7 @@ use crate::{
         acp::{AcpAgentHarness, normalize_logs, normalize_logs_with_context_window_override},
     },
     logs::utils::patch,
+    model_selector::PermissionPolicy,
     profile::ExecutorConfig,
 };
 
@@ -467,6 +468,31 @@ fn is_slash_command_prompt(prompt: &str) -> bool {
     !name.is_empty() && !name.contains('/')
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AcpPermissionPolicyOverrides {
+    approvals_enabled: bool,
+    mode: Option<&'static str>,
+}
+
+fn acp_permission_policy_overrides(
+    permission_policy: PermissionPolicy,
+) -> AcpPermissionPolicyOverrides {
+    match permission_policy {
+        PermissionPolicy::Auto => AcpPermissionPolicyOverrides {
+            approvals_enabled: false,
+            mode: None,
+        },
+        PermissionPolicy::Supervised => AcpPermissionPolicyOverrides {
+            approvals_enabled: true,
+            mode: None,
+        },
+        PermissionPolicy::Plan => AcpPermissionPolicyOverrides {
+            approvals_enabled: true,
+            mode: Some("plan"),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,6 +592,56 @@ mod tests {
             executor.prompt_for_agent("/src/main.rs"),
             "/src/main.rs\nextra instruction"
         );
+    }
+
+    fn executor_config_with_permission_policy(
+        permission_policy: crate::model_selector::PermissionPolicy,
+    ) -> ExecutorConfig {
+        let mut config = ExecutorConfig::new(crate::executors::BaseCodingAgent::Codex);
+        config.permission_policy = Some(permission_policy);
+        config
+    }
+
+    #[test]
+    fn permission_policy_auto_disables_approvals_without_clearing_mode() {
+        let mut executor = AcpBackedExecutor::new(AcpProvider::Codex)
+            .with_approvals_enabled(true)
+            .with_mode(Some("review".to_string()));
+
+        executor.apply_overrides(&executor_config_with_permission_policy(
+            crate::model_selector::PermissionPolicy::Auto,
+        ));
+
+        assert!(!executor.approvals_enabled);
+        assert_eq!(executor.mode.as_deref(), Some("review"));
+    }
+
+    #[test]
+    fn permission_policy_supervised_enables_approvals_without_changing_mode() {
+        let mut executor = AcpBackedExecutor::new(AcpProvider::Codex)
+            .with_approvals_enabled(false)
+            .with_mode(Some("review".to_string()));
+
+        executor.apply_overrides(&executor_config_with_permission_policy(
+            crate::model_selector::PermissionPolicy::Supervised,
+        ));
+
+        assert!(executor.approvals_enabled);
+        assert_eq!(executor.mode.as_deref(), Some("review"));
+    }
+
+    #[test]
+    fn permission_policy_plan_enables_approvals_and_forces_plan_mode() {
+        let mut executor = AcpBackedExecutor::new(AcpProvider::Codex)
+            .with_approvals_enabled(false)
+            .with_mode(Some("review".to_string()));
+
+        executor.apply_overrides(&executor_config_with_permission_policy(
+            crate::model_selector::PermissionPolicy::Plan,
+        ));
+
+        assert!(executor.approvals_enabled);
+        assert_eq!(executor.mode.as_deref(), Some("plan"));
     }
 
     #[test]
@@ -792,15 +868,10 @@ impl StandardCodingAgentExecutor for AcpBackedExecutor {
             self.mode = Some(reasoning_id.clone());
         }
         if let Some(permission_policy) = executor_config.permission_policy.clone() {
-            self.approvals_enabled = !matches!(
-                permission_policy,
-                crate::model_selector::PermissionPolicy::Auto
-            );
-            if matches!(
-                permission_policy,
-                crate::model_selector::PermissionPolicy::Plan
-            ) {
-                self.mode = Some("plan".to_string());
+            let overrides = acp_permission_policy_overrides(permission_policy);
+            self.approvals_enabled = overrides.approvals_enabled;
+            if let Some(mode) = overrides.mode {
+                self.mode = Some(mode.to_string());
             }
         }
     }

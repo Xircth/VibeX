@@ -1,4 +1,29 @@
-async fn push_native_provider_event_to_conversation(sink: &NativeConversationSink, event: &Value) {
+use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    session::{Session, SessionStatus},
+};
+use executors::logs::{
+    ActionType, NormalizedEntryError, NormalizedEntryType, utils::ConversationPatch,
+};
+use serde_json::Value;
+use utils::log_msg::LogMsg;
+
+use super::{
+    CODEX_NATIVE_THREAD_SINKS, CODEX_NATIVE_TURN_SINKS, NativeAssistantEntryState,
+    NativeConversationSink, NativeConversationState, NativeToolEntryState, NativeToolUpdate,
+    append_provider_assistant_text, codex_auto_compaction_is_in_flight,
+    codex_config_model_context_window, extract_provider_assistant_entry_id, extract_provider_error,
+    extract_provider_stream_text, extract_provider_text,
+    extract_provider_token_usage_info_with_codex_context_window, extract_provider_tool_updates,
+    extract_thread_id, extract_turn_id, merge_tool_result, native_normalized_entry,
+    provider_event_is_codex_turn_snapshot, provider_event_is_user_echo, provider_tool_content,
+    push_native_log_msg,
+};
+
+pub(super) async fn push_native_provider_event_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+) {
     if provider_event_is_codex_auto_compacting(event) {
         let mut state = sink.state.lock().await;
         close_native_assistant_segment(&mut state);
@@ -179,11 +204,11 @@ async fn push_native_tool_update_to_conversation(
     push_native_log_msg(sink, LogMsg::JsonPatch(patch)).await;
 }
 
-fn close_native_assistant_segment(state: &mut NativeConversationState) {
+pub(super) fn close_native_assistant_segment(state: &mut NativeConversationState) {
     state.active_assistant_entry_id = None;
 }
 
-fn should_skip_provider_text_snapshot(
+pub(super) fn should_skip_provider_text_snapshot(
     state: &NativeConversationState,
     event: &Value,
     is_stream_delta: bool,
@@ -193,7 +218,7 @@ fn should_skip_provider_text_snapshot(
         && provider_event_is_codex_turn_snapshot(event)
 }
 
-fn upsert_native_assistant_entry(
+pub(super) fn upsert_native_assistant_entry(
     state: &mut NativeConversationState,
     event: &Value,
     text: &str,
@@ -226,7 +251,7 @@ fn upsert_native_assistant_entry(
     (index, true, content)
 }
 
-async fn complete_native_conversation_sink(
+pub(super) async fn complete_native_conversation_sink(
     sink: NativeConversationSink,
     status: ExecutionProcessStatus,
     exit_code: Option<i64>,
@@ -252,7 +277,7 @@ async fn complete_native_conversation_sink(
     sink.msg_store.push_finished();
 }
 
-async fn complete_codex_native_sink(
+pub(super) async fn complete_codex_native_sink(
     sink: NativeConversationSink,
     turn_id: Option<String>,
     thread_id: Option<String>,
@@ -272,7 +297,7 @@ async fn complete_codex_native_sink(
     complete_native_conversation_sink(sink, status, exit_code).await;
 }
 
-fn is_codex_context_compaction_completed(value: &Value) -> bool {
+pub(super) fn is_codex_context_compaction_completed(value: &Value) -> bool {
     if value.get("method").and_then(Value::as_str) != Some("item/completed") {
         return false;
     }
@@ -282,9 +307,7 @@ fn is_codex_context_compaction_completed(value: &Value) -> bool {
         .and_then(|params| params.get("item"))
         .and_then(|item| item.get("type"))
         .and_then(Value::as_str)
-        .is_some_and(|item_type| {
-            matches!(item_type, "contextCompaction" | "context_compaction")
-        })
+        .is_some_and(|item_type| matches!(item_type, "contextCompaction" | "context_compaction"))
 }
 
 fn provider_event_is_codex_auto_compacting(value: &Value) -> bool {
@@ -296,7 +319,7 @@ fn provider_event_is_codex_auto_compacting(value: &Value) -> bool {
             .unwrap_or(false)
 }
 
-async fn route_codex_event_to_native_conversation(value: &Value) {
+pub(super) async fn route_codex_event_to_native_conversation(value: &Value) {
     let turn_id = extract_turn_id(value);
     let thread_id = extract_thread_id(value);
     let mut sink = None;

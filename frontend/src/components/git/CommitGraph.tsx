@@ -6,6 +6,10 @@ import {
   type CommitGraphResult,
 } from '@/lib/api';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import {
+  COMMIT_GRAPH_LABELS,
+  formatCommitTimeAgo,
+} from './commitGraphPresentation';
 
 const ROW_HEIGHT = 32;
 const LANE_WIDTH = 16;
@@ -39,16 +43,6 @@ function assignLanes(graph: CommitGraphResult): LaneNode[] {
   }));
 }
 
-function formatTimeAgo(timestamp: number): string {
-  const now = Math.floor(Date.now() / 1000);
-  const diff = now - timestamp;
-  if (diff < 60) return `${diff}秒前`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}天前`;
-  return new Date(timestamp * 1000).toLocaleDateString();
-}
-
 export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
   const { data: graph, isLoading } = useQuery({
     queryKey: ['commit-graph', workspaceId, repoId],
@@ -80,7 +74,9 @@ export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
 
   if (isLoading) {
     return (
-      <div className="text-xs text-muted-foreground py-2">加载提交图...</div>
+      <div className="text-xs text-muted-foreground py-2">
+        {COMMIT_GRAPH_LABELS.loading}
+      </div>
     );
   }
 
@@ -94,7 +90,7 @@ export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
   return (
     <div className="border-t border-border pt-2 mt-2">
       <div className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1.5">
-        提交图
+        {COMMIT_GRAPH_LABELS.title}
         <span className="text-[10px] font-normal">
           (
           <span style={{ color: COLORS.currentBranch }}>
@@ -221,7 +217,7 @@ export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
                 {node.author}
               </span>
               <span className="shrink-0 ml-2 text-[10px] text-muted-foreground whitespace-nowrap">
-                {formatTimeAgo(node.timestamp)}
+                {formatCommitTimeAgo(node.timestamp)}
               </span>
             </div>
           ))}

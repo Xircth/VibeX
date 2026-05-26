@@ -90,7 +90,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
                 return;
               }
 
-              // Handle Finished �?no further events expected
+              // Handle Finished: no further events expected
               if (msg === 'Finished') {
                 return;
               }

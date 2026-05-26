@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useTauriPatchStream } from './useTauriPatchStream';
 import type { ExecutionProcess } from 'shared/types';
+import { dateTimestamp } from '@/utils/date';
 
 type ExecutionProcessState = {
   execution_processes: Record<string, ExecutionProcess>;
@@ -55,9 +56,7 @@ export const useExecutionProcesses = (
 
   const executionProcessesById = data?.execution_processes ?? {};
   const executionProcesses = Object.values(executionProcessesById).sort(
-    (a, b) =>
-      new Date(a.created_at as unknown as string).getTime() -
-      new Date(b.created_at as unknown as string).getTime()
+    (a, b) => dateTimestamp(a.created_at) - dateTimestamp(b.created_at)
   );
   const isAttemptRunning = executionProcesses.some(
     (process) =>

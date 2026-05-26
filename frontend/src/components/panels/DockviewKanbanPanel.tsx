@@ -18,6 +18,7 @@ import {
   useKanbanProjectSessions,
   type KanbanProjectSessionRecord,
 } from '@/hooks/useKanbanProjectSessions';
+import { dateTimestamp } from '@/utils/date';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -203,7 +204,7 @@ function SessionKanbanBoard() {
       (list) => {
         list.sort(
           (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+            dateTimestamp(b.updatedAt) - dateTimestamp(a.updatedAt)
         );
       }
     );

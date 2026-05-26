@@ -111,7 +111,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   }}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  {'鏌ョ湅椤圭洰'}
+                  {'查看详情'}
                 </DropdownMenuItem>
                 {isSingleRepoProject && (
                   <DropdownMenuItem
@@ -121,7 +121,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                     }}
                   >
                     <FolderOpen className="mr-2 h-4 w-4" />
-                    {'鍦?IDE 涓墦寮€'}
+                    {'在 IDE 中打开'}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
@@ -131,7 +131,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   }}
                 >
                   <Edit className="mr-2 h-4 w-4" />
-                  {'缂栬緫'}
+                  {'编辑'}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={(e) => {
@@ -141,7 +141,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   className="text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  {'鍒犻櫎'}
+                  {'删除'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -149,7 +149,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
         </div>
         <CardDescription className="flex items-center">
           <Calendar className="mr-1 h-3 w-3" />
-          {`鍒涘缓浜?${new Date(project.created_at).toLocaleDateString()}`}
+          {`创建于 ${new Date(project.created_at).toLocaleDateString()}`}
         </CardDescription>
       </CardHeader>
     </Card>

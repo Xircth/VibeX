@@ -1,6 +1,6 @@
 # ProblemMap: Rust Utils
 
-Scope: `crates/utils/**`, with the first cleanup pass focused on the WSL2 browser launch path in `crates/utils/src/browser.rs`.
+Scope: `crates/utils/**`, with completed cleanup passes covering the WSL2 browser launch path, browser URL validation contract, and process command construction boundaries.
 
 ## Problems
 
@@ -17,8 +17,6 @@ Scope: `crates/utils/**`, with the first cleanup pass focused on the WSL2 browse
 - Behavior lock: added tests that prove the URL is not embedded in the PowerShell script and non-http protocols are rejected.
 - Verification: `cargo test -p utils browser --lib`; `pnpm run check`.
 
-## Deferred Findings
-
 ### RU-002: URL validation name and contract are narrower than the implementation intent
 
 - Category: historical baggage, weak boundary
@@ -26,7 +24,10 @@ Scope: `crates/utils/**`, with the first cleanup pass focused on the WSL2 browse
 - Confidence: medium
 - Files: `crates/utils/src/browser.rs`
 - Evidence: `validate_browser_url` still carries the historical strict URL whitelist even though, after RU-001, the URL is passed as a separate process argument rather than embedded into PowerShell script text. The whitelist may reject valid URLs that could now be passed safely as an argument.
-- Recommended next step: add explicit tests for accepted URL forms before relaxing or changing the whitelist.
+- Cleanup status: behavior contract locked in this pass; whitelist relaxation remains deferred.
+- Plan: [ru-002-browser-url-contract-plan.md](ru-002-browser-url-contract-plan.md) documents the test-only contract pass.
+- Behavior lock: added tests for current accepted GitHub, Azure DevOps, and localhost URL forms with query/fragment characters, plus rejected spaces, quotes, backticks, and non-http protocols.
+- Verification: `cargo test -p utils browser --lib` passed with 4 tests; `pnpm run check`; `pnpm run lint`.
 
 ### RU-003: Process helpers carry platform-specific behavior that needs broader boundary tests
 
@@ -34,8 +35,22 @@ Scope: `crates/utils/**`, with the first cleanup pass focused on the WSL2 browse
 - Severity: medium
 - Confidence: medium
 - Files: `crates/utils/src/process.rs`
-- Evidence: Windows-specific no-window and batch-script behavior is mostly protected under `#[cfg(all(test, windows))]`, while cross-platform command construction behavior has limited test coverage.
-- Recommended next step: add platform-neutral tests for argument preservation in `new_hidden_tokio_command` and `new_hidden_std_command`, then keep Windows runtime tests for actual `.cmd` execution.
+- Evidence: Windows-specific no-window and batch-script behavior was mostly protected under `#[cfg(all(test, windows))]`, while cross-platform command construction behavior had limited test coverage.
+- Cleanup status: fixed in this pass.
+- Plan: [ru-003-process-command-construction-plan.md](ru-003-process-command-construction-plan.md) documents the test-only boundary reinforcement and keeps Windows `.cmd` runtime behavior under the existing Windows-only tests.
+- Behavior lock: added platform-neutral tests that prove `new_hidden_std_command` and `new_hidden_tokio_command` preserve the requested program and all arguments in order for ordinary executables; existing Windows runtime tests still prove `.cmd` wrapping.
+- Verification: `cargo test -p utils process --lib` passed with 9 tests; `pnpm run check`; `pnpm run lint`.
+
+## Deferred Findings
+
+### RU-002 follow-up: URL whitelist relaxation remains an intentional product/security decision
+
+- Category: weak boundary, uncertainty
+- Severity: low-medium
+- Confidence: medium
+- Files: `crates/utils/src/browser.rs`
+- Evidence: the current accepted/rejected URL contract is now explicitly tested, but no call-site evidence yet proves that broader valid URL characters are required.
+- Recommended next step: relax the whitelist only after a concrete rejected-but-needed browser URL form is identified from call sites or user reports.
 
 ## Uncertainties
 

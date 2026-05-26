@@ -3,116 +3,19 @@ import { useScratch } from './useScratch';
 import { useDebouncedCallback } from './useDebouncedCallback';
 import {
   ScratchType,
-  type UiPreferencesData,
   type ScratchPayload,
-  type WorkspacePanelStateData,
-  type JsonValue,
+  type UiPreferencesData,
 } from 'shared/types';
+import { useUiPreferencesStore } from '@/stores/useUiPreferencesStore';
 import {
-  useUiPreferencesStore,
-  type RightMainPanelMode,
-  type ContextBarPosition,
-  type WorkspacePanelState,
-  type RepoAction,
-} from '@/stores/useUiPreferencesStore';
+  uiPreferencesScratchDataToStore,
+  uiPreferencesStoreToScratchData,
+} from './uiPreferencesScratchData';
 
 // Stable UUID for global UI preferences (not tied to a workspace/user)
 // This is a deterministic UUID v5 generated from the namespace "ui-preferences"
 // Using a fixed UUID ensures all users/sessions share the same preferences record
 const UI_PREFERENCES_ID = '00000000-0000-0000-0000-000000000001';
-
-/**
- * Converts store state to scratch data format (camelCase to snake_case)
- */
-function storeToScratchData(state: {
-  repoActions: Record<string, RepoAction>;
-  expanded: Record<string, boolean>;
-  contextBarPosition: ContextBarPosition;
-  paneSizes: Record<string, number | string>;
-  collapsedPaths: Record<string, string[]>;
-  fileSearchRepoId: string | null;
-  isLeftSidebarVisible: boolean;
-  isRightSidebarVisible: boolean;
-  isTerminalVisible: boolean;
-  workspacePanelStates: Record<string, WorkspacePanelState>;
-}): UiPreferencesData {
-  const workspacePanelStates: { [key: string]: WorkspacePanelStateData } = {};
-  for (const [key, value] of Object.entries(state.workspacePanelStates)) {
-    workspacePanelStates[key] = {
-      right_main_panel_mode: value.rightMainPanelMode,
-      is_left_main_panel_visible: value.isLeftMainPanelVisible,
-    };
-  }
-
-  return {
-    repo_actions: state.repoActions as { [key: string]: string },
-    expanded: state.expanded,
-    context_bar_position: state.contextBarPosition,
-    pane_sizes: state.paneSizes as { [key: string]: JsonValue },
-    collapsed_paths: state.collapsedPaths,
-    file_search_repo_id: state.fileSearchRepoId,
-    is_left_sidebar_visible: state.isLeftSidebarVisible,
-    is_right_sidebar_visible: state.isRightSidebarVisible,
-    is_terminal_visible: state.isTerminalVisible,
-    workspace_panel_states: workspacePanelStates,
-  };
-}
-
-/**
- * Converts scratch data to store state format (snake_case to camelCase)
- */
-function scratchDataToStore(data: UiPreferencesData): {
-  repoActions: Record<string, RepoAction>;
-  expanded: Record<string, boolean>;
-  contextBarPosition: ContextBarPosition;
-  paneSizes: Record<string, number | string>;
-  collapsedPaths: Record<string, string[]>;
-  fileSearchRepoId: string | null;
-  isLeftSidebarVisible: boolean;
-  isRightSidebarVisible: boolean;
-  isTerminalVisible: boolean;
-  workspacePanelStates: Record<string, WorkspacePanelState>;
-} {
-  const workspacePanelStates: Record<string, WorkspacePanelState> = {};
-  if (data.workspace_panel_states) {
-    for (const [key, value] of Object.entries(data.workspace_panel_states)) {
-      if (value) {
-        workspacePanelStates[key] = {
-          rightMainPanelMode:
-            (value.right_main_panel_mode as RightMainPanelMode) ?? null,
-          isLeftMainPanelVisible: value.is_left_main_panel_visible ?? true,
-        };
-      }
-    }
-  }
-
-  // Backwards compatibility with older payloads that used
-  // file_search_repo_by_project (project_id -> repo_id).
-  const legacyFileSearchRepoByProject = (
-    data as UiPreferencesData & {
-      file_search_repo_by_project?: Record<string, string>;
-    }
-  ).file_search_repo_by_project;
-  const legacyFileSearchRepoId =
-    legacyFileSearchRepoByProject &&
-    Object.values(legacyFileSearchRepoByProject)[0]
-      ? Object.values(legacyFileSearchRepoByProject)[0]
-      : null;
-
-  return {
-    repoActions: (data.repo_actions ?? {}) as Record<string, RepoAction>,
-    expanded: (data.expanded ?? {}) as Record<string, boolean>,
-    contextBarPosition:
-      (data.context_bar_position as ContextBarPosition) ?? 'middle-right',
-    paneSizes: (data.pane_sizes ?? {}) as Record<string, number | string>,
-    collapsedPaths: (data.collapsed_paths ?? {}) as Record<string, string[]>,
-    fileSearchRepoId: data.file_search_repo_id ?? legacyFileSearchRepoId,
-    isLeftSidebarVisible: data.is_left_sidebar_visible ?? true,
-    isRightSidebarVisible: data.is_right_sidebar_visible ?? true,
-    isTerminalVisible: data.is_terminal_visible ?? true,
-    workspacePanelStates,
-  };
-}
 
 /**
  * Hook that syncs UI preferences between Zustand store and server scratch storage.
@@ -155,7 +58,7 @@ export function useUiPreferencesScratch() {
     }
 
     const currentState = useUiPreferencesStore.getState();
-    const data = storeToScratchData({
+    const data = uiPreferencesStoreToScratchData({
       repoActions: currentState.repoActions,
       expanded: currentState.expanded,
       contextBarPosition: currentState.contextBarPosition,
@@ -193,7 +96,7 @@ export function useUiPreferencesScratch() {
     if (scratchData) {
       // Server has data - apply it to store
       isApplyingServerDataRef.current = true;
-      const serverState = scratchDataToStore(scratchData);
+      const serverState = uiPreferencesScratchDataToStore(scratchData);
 
       // Merge server state into the store
       useUiPreferencesStore.setState({

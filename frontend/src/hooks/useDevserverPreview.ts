@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
+import { dateTimestamp } from '@/utils/date';
 
 export interface DevserverPreviewState {
   status: 'idle' | 'searching' | 'ready' | 'error';
@@ -45,9 +46,7 @@ export function useDevserverPreview(
     if (devserverProcesses.length === 0) return null;
 
     return devserverProcesses.sort(
-      (a, b) =>
-        new Date(b.created_at as unknown as string).getTime() -
-        new Date(a.created_at as unknown as string).getTime()
+      (a, b) => dateTimestamp(b.created_at) - dateTimestamp(a.created_at)
     )[0];
   }, [executionProcesses]);
 

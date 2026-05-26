@@ -1,3 +1,37 @@
+use std::path::PathBuf;
+
+use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    repo::{Repo, RepoError},
+    session::{CreateSession, Session, SessionStatus},
+    workspace::Workspace,
+    workspace_repo::WorkspaceRepo,
+};
+use deployment::Deployment;
+#[cfg(target_os = "macos")]
+use executors::actions::script::ScriptContext;
+use executors::{
+    actions::ExecutorAction,
+    executors::{ExecutorError, StandardCodingAgentExecutor},
+    profile::{ExecutorConfigs, ExecutorProfileId},
+};
+use services::services::{container::ContainerService, container_actions};
+use utils::shell::resolve_executable_path;
+use uuid::Uuid;
+
+use super::{
+    GhCliSetupError, GhCliSetupResult, OpenEditorResponse, RunScriptError, RunScriptResult,
+    detect_package_manager,
+};
+use crate::{
+    error::AppError,
+    state::AppState,
+    workspace_paths::{
+        resolve_workspace_default_open_path, resolve_workspace_repo_root,
+        resolve_workspace_repo_script_working_dir,
+    },
+};
+
 #[tauri::command]
 pub async fn start_workspace_dev_server(
     state: tauri::State<'_, AppState>,
@@ -92,15 +126,11 @@ pub async fn start_workspace_dev_server(
     for repo in repos_with_dev_script {
         let working_dir =
             resolve_workspace_repo_script_working_dir(&workspace, &container_ref, &repos, repo);
-        let executor_action = ExecutorAction::new(
-            ExecutorActionType::ScriptRequest(ScriptRequest {
-                script: repo.dev_server_script.clone().unwrap(),
-                language: ScriptRequestLanguage::Bash,
-                context: ScriptContext::DevServer,
-                working_dir,
-            }),
-            None,
-        );
+        let Some(executor_action) =
+            container_actions::dev_server_action_for_repo(repo, working_dir)
+        else {
+            continue;
+        };
 
         let execution_process = state
             .deployment
@@ -185,15 +215,8 @@ pub async fn install_web_companion(
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let message = if !stderr.is_empty() {
-        stderr
-    } else if !stdout.is_empty() {
-        stdout
-    } else {
-        format!("{} exited with status {}", package_manager, output.status)
-    };
+    let message = utils::process::command_output_detail(&output)
+        .unwrap_or_else(|| format!("{} exited with status {}", package_manager, output.status));
 
     Err(AppError::Internal(format!(
         "Failed to install vibex-web-companion: {}",
@@ -379,13 +402,6 @@ else
 fi"#
         .to_string();
 
-        let install_request = ScriptRequest {
-            script: install_script,
-            language: ScriptRequestLanguage::Bash,
-            context: ScriptContext::ToolInstallScript,
-            working_dir: None,
-        };
-
         let auth_script = r#"#!/bin/bash
 set -e
 export GH_PROMPT_DISABLED=1
@@ -393,19 +409,16 @@ gh auth login --web --git-protocol https --skip-ssh-key
 "#
         .to_string();
 
-        let auth_request = ScriptRequest {
-            script: auth_script,
-            language: ScriptRequestLanguage::Bash,
-            context: ScriptContext::ToolInstallScript,
-            working_dir: None,
-        };
-
-        Ok(ExecutorAction::new(
-            ExecutorActionType::ScriptRequest(install_request),
-            Some(Box::new(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(auth_request),
+        Ok(container_actions::script_action(
+            install_script,
+            ScriptContext::ToolInstallScript,
+            None,
+            Some(container_actions::script_action(
+                auth_script,
+                ScriptContext::ToolInstallScript,
                 None,
-            ))),
+                None,
+            )),
         ))
     }
 
@@ -454,7 +467,7 @@ pub async fn run_setup_script(
         .ok_or_else(|| AppError::NotFound("Parent project not found".to_string()))?;
 
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let executor_action = match state.deployment.container().setup_actions_for_repos(&repos) {
+    let executor_action = match container_actions::setup_actions_for_repos(&repos) {
         Some(action) => action,
         None => {
             return Ok(RunScriptResult {
@@ -537,11 +550,7 @@ pub async fn run_cleanup_script(
         .ok_or_else(|| AppError::NotFound("Parent project not found".to_string()))?;
 
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let executor_action = match state
-        .deployment
-        .container()
-        .cleanup_actions_for_repos(&repos)
-    {
+    let executor_action = match container_actions::cleanup_actions_for_repos(&repos) {
         Some(action) => action,
         None => {
             return Ok(RunScriptResult {
@@ -624,11 +633,7 @@ pub async fn run_archive_script(
         .ok_or_else(|| AppError::NotFound("Parent project not found".to_string()))?;
 
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let executor_action = match state
-        .deployment
-        .container()
-        .archive_actions_for_repos(&repos)
-    {
+    let executor_action = match container_actions::archive_actions_for_repos(&repos) {
         Some(action) => action,
         None => {
             return Ok(RunScriptResult {

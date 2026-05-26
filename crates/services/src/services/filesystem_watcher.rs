@@ -15,7 +15,7 @@ use ignore::{
 };
 use notify::{
     RecommendedWatcher, RecursiveMode,
-    event::{EventKind, ModifyKind, RenameMode},
+    event::{CreateKind, EventKind, ModifyKind, RemoveKind, RenameMode},
 };
 use notify_debouncer_full::{
     DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache, new_debouncer,
@@ -117,7 +117,36 @@ fn build_gitignore_set(root: &Path) -> Result<Gitignore, FilesystemWatcherError>
     Ok(builder.build()?)
 }
 
-fn path_allowed(path: &Path, gi: &Gitignore, canonical_root: &Path) -> bool {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PathKindHint {
+    File,
+    Directory,
+}
+
+impl PathKindHint {
+    fn is_dir(self) -> bool {
+        matches!(self, Self::Directory)
+    }
+}
+
+fn path_kind_hint(kind: &EventKind) -> Option<PathKindHint> {
+    match kind {
+        EventKind::Create(CreateKind::File) | EventKind::Remove(RemoveKind::File) => {
+            Some(PathKindHint::File)
+        }
+        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => {
+            Some(PathKindHint::Directory)
+        }
+        _ => None,
+    }
+}
+
+fn path_allowed(
+    path: &Path,
+    gi: &Gitignore,
+    canonical_root: &Path,
+    kind_hint: Option<PathKindHint>,
+) -> bool {
     let canonical_path = canonicalize_lossy(path);
 
     // Convert absolute path to relative path from the gitignore root
@@ -144,11 +173,9 @@ fn path_allowed(path: &Path, gi: &Gitignore, canonical_root: &Path) -> bool {
     let is_dir = if let Ok(metadata) = std::fs::metadata(&canonical_path) {
         metadata.is_dir()
     } else {
-        // File may already be gone (e.g., remove event). Fall back to the
-        // old extension heuristic so directory-only rules still match.
-        // FIXME: capture file-type information earlier (e.g., when we add
-        // watches) so we don't have to guess after the fact.
-        relative_path.extension().is_none()
+        kind_hint
+            .map(PathKindHint::is_dir)
+            .unwrap_or_else(|| relative_path.extension().is_none())
     };
     let matched = gi.matched_path_or_any_parents(relative_path, is_dir);
 
@@ -161,11 +188,13 @@ fn debounced_should_forward(event: &DebouncedEvent, gi: &Gitignore, canonical_ro
         // Ignore access events
         return false;
     }
+    let kind_hint = path_kind_hint(&event.kind);
+
     // We can check its paths field to determine if the event should be forwarded
     event
         .paths
         .iter()
-        .all(|path| path_allowed(path, gi, canonical_root))
+        .all(|path| path_allowed(path, gi, canonical_root, kind_hint))
 }
 
 /// Represents a directory to watch with its recursive mode.
@@ -276,7 +305,7 @@ fn has_ignored_descendants(
             }
 
             // If it's not in allowed_dirs, it means WalkBuilder skipped it (gitignored)
-            if !allowed_dirs.contains(&path) && !path_allowed(&path, gi, canonical_root) {
+            if !allowed_dirs.contains(&path) && !path_allowed(&path, gi, canonical_root, None) {
                 return true;
             }
 
@@ -394,7 +423,7 @@ fn determine_watch_mode(path: &Path, gi: &Gitignore, canonical_root: &Path) -> R
             return RecursiveMode::NonRecursive;
         }
 
-        if !path_allowed(&child_path, gi, canonical_root) {
+        if !path_allowed(&child_path, gi, canonical_root, None) {
             return RecursiveMode::NonRecursive;
         }
     }
@@ -412,7 +441,7 @@ fn add_directory_watch(
 ) {
     let canonical_dir = canonicalize_lossy(dir_path);
 
-    if !path_allowed(&canonical_dir, gi, canonical_root) {
+    if !path_allowed(&canonical_dir, gi, canonical_root, None) {
         return;
     }
 
@@ -617,4 +646,48 @@ pub fn async_watcher(root: PathBuf) -> Result<WatcherComponents, FilesystemWatch
     });
 
     Ok((debouncer, filtered_rx, canonical_root))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use notify::{Event, event::RemoveKind};
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn gitignore_for(root: &Path, contents: &str) -> Gitignore {
+        std::fs::write(root.join(".gitignore"), contents).unwrap();
+        build_gitignore_set(root).unwrap()
+    }
+
+    fn remove_event(path: PathBuf, kind: RemoveKind) -> DebouncedEvent {
+        DebouncedEvent::new(
+            Event::new(EventKind::Remove(kind)).add_path(path),
+            Instant::now(),
+        )
+    }
+
+    #[test]
+    fn deleted_extensionless_file_does_not_match_directory_only_gitignore_rule() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let gi = gitignore_for(&root, "ignored-dir/\n");
+
+        let file_event = remove_event(root.join("ignored-dir"), RemoveKind::File);
+
+        assert!(debounced_should_forward(&file_event, &gi, &root));
+    }
+
+    #[test]
+    fn deleted_directory_still_matches_directory_only_gitignore_rule() {
+        let temp = TempDir::new().unwrap();
+        let root = canonicalize_lossy(temp.path());
+        let gi = gitignore_for(&root, "ignored-dir/\n");
+
+        let directory_event = remove_event(root.join("ignored-dir"), RemoveKind::Folder);
+
+        assert!(!debounced_should_forward(&directory_event, &gi, &root));
+    }
 }

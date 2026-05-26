@@ -31,12 +31,10 @@ use executors::executors::qa_mock::QaMockExecutor;
 use executors::profile::ExecutorConfigs;
 use executors::{
     actions::{
-        ExecutorAction, ExecutorActionType,
-        coding_agent_initial::CodingAgentInitialRequest,
-        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
+        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
     },
     executors::{ExecutorError, StandardCodingAgentExecutor},
-    logs::{NormalizedEntry, NormalizedEntryError, NormalizedEntryType, utils::ConversationPatch},
+    logs::utils::ConversationPatch,
     profile::{ExecutorConfig, ExecutorProfileId},
 };
 use futures::{StreamExt, future, stream::BoxStream};
@@ -55,6 +53,7 @@ use utils::{
 use uuid::Uuid;
 
 use crate::services::{
+    container_actions, container_workflow,
     notification::NotificationService,
     workspace_manager::WorkspaceError as WorkspaceManagerError,
     workspace_paths::{self, WorkspacePathRepo},
@@ -329,74 +328,78 @@ pub trait ContainerService {
     /// - Never when a setup script has no next_action (parallel mode)
     /// - The next action is None (no follow-up actions)
     fn should_finalize(&self, ctx: &ExecutionContext) -> bool {
-        // Never finalize DevServer processes
-        if matches!(
-            ctx.execution_process.run_reason,
-            ExecutionProcessRunReason::DevServer
-        ) {
-            return false;
-        }
-
-        // Never finalize setup scripts without a next_action (parallel mode).
-        // In sequential mode, setup scripts have next_action pointing to coding agent,
-        // so they won't finalize anyway (handled by next_action.is_none() check below).
         let action = ctx.execution_process.executor_action().unwrap();
-        if matches!(
-            ctx.execution_process.run_reason,
-            ExecutionProcessRunReason::SetupScript
-        ) && action.next_action.is_none()
-        {
-            return false;
-        }
-
-        // Always finalize failed or killed executions, regardless of next action
-        if matches!(
-            ctx.execution_process.status,
-            ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed
-        ) {
-            return true;
-        }
-
-        // Otherwise, finalize only if no next action
-        action.next_action.is_none()
+        container_workflow::should_finalize_execution(
+            &ctx.execution_process.status,
+            &ctx.execution_process.run_reason,
+            action,
+        )
     }
 
-    /// Finalize task execution by updating status to InReview and sending notifications
-    async fn finalize_task(&self, ctx: &ExecutionContext) {
+    async fn mark_session_and_task_in_review(&self, session_id: Uuid, task_id: Uuid) {
         if let Err(e) =
-            Session::update_status(&self.db().pool, ctx.session.id, SessionStatus::InReview).await
+            Session::update_status(&self.db().pool, session_id, SessionStatus::InReview).await
         {
             tracing::error!("Failed to update session status to InReview: {e}");
         }
 
-        if let Err(e) =
-            Task::update_status(&self.db().pool, ctx.task.id, TaskStatus::InReview).await
-        {
+        if let Err(e) = Task::update_status(&self.db().pool, task_id, TaskStatus::InReview).await {
             tracing::error!("Failed to update task status to InReview: {e}");
         }
+    }
+
+    async fn record_after_head_commits(&self, ctx: &ExecutionContext) {
+        let workspace_root = self.workspace_to_current_dir(&ctx.workspace, &ctx.repos);
+        let workspace_root_is_git_checkout = workspace_root.join(".git").exists();
+
+        for repo in &ctx.repos {
+            let repo_path = workspace_paths::workspace_repo_path(
+                &workspace_root,
+                ctx.workspace.use_worktree,
+                ctx.workspace.agent_working_dir.as_deref(),
+                &repo.name,
+                workspace_root_is_git_checkout,
+            );
+            if let Ok(head) = self.git().get_head_info(&repo_path)
+                && let Err(err) = ExecutionProcessRepoState::update_after_head_commit(
+                    &self.db().pool,
+                    ctx.execution_process.id,
+                    repo.id,
+                    &head.oid,
+                )
+                .await
+            {
+                tracing::warn!(
+                    "Failed to update after_head_commit for repo {} on process {}: {}",
+                    repo.id,
+                    ctx.execution_process.id,
+                    err
+                );
+            }
+        }
+    }
+
+    /// Finalize task execution by updating status to InReview and sending notifications
+    async fn finalize_task(&self, ctx: &ExecutionContext) {
+        self.mark_session_and_task_in_review(ctx.session.id, ctx.task.id)
+            .await;
 
         // Skip notification if process was intentionally killed by user
         if matches!(ctx.execution_process.status, ExecutionProcessStatus::Killed) {
             return;
         }
 
-        let title = format!("Task Complete: {}", ctx.task.title);
-        let message = match ctx.execution_process.status {
-            ExecutionProcessStatus::Completed => format!(
-                "✅ '{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
-                ctx.task.title, ctx.workspace.branch, ctx.session.executor
-            ),
-            ExecutionProcessStatus::Failed => format!(
-                "❌ '{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
-                ctx.task.title, ctx.workspace.branch, ctx.session.executor
-            ),
-            _ => {
-                tracing::warn!(
-                    "Tried to notify workspace completion for {} but process is still running!",
-                    ctx.workspace.id
-                );
-                return;
-            }
+        let Some((title, message)) = container_workflow::completion_notification(
+            &ctx.execution_process.status,
+            &ctx.task.title,
+            &ctx.workspace.branch,
+            ctx.session.executor.as_deref(),
+        ) else {
+            tracing::warn!(
+                "Tried to notify workspace completion for {} but process is still running!",
+                ctx.workspace.id
+            );
+            return;
         };
         self.notification_service().notify(&title, &message).await;
     }
@@ -427,64 +430,22 @@ pub trait ContainerService {
                 continue;
             }
             // Capture after-head commit OID per repository
-            if let Ok(ctx) = ExecutionProcess::load_context(&self.db().pool, process.id).await
-                && let Some(ref container_ref) = ctx.workspace.container_ref
-            {
-                for repo in &ctx.repos {
-                    let repo_path = ctx
-                        .workspace
-                        .repo_path(repo)
-                        .unwrap_or_else(|| PathBuf::from(container_ref));
-                    if let Ok(head) = self.git().get_head_info(&repo_path)
-                        && let Err(err) = ExecutionProcessRepoState::update_after_head_commit(
-                            &self.db().pool,
-                            process.id,
-                            repo.id,
-                            &head.oid,
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            "Failed to update after_head_commit for repo {} on process {}: {}",
-                            repo.id,
-                            process.id,
-                            err
-                        );
-                    }
-                }
+            if let Ok(ctx) = ExecutionProcess::load_context(&self.db().pool, process.id).await {
+                self.record_after_head_commits(&ctx).await;
             }
             // Process marked as failed
             tracing::info!("Marked orphaned execution process {} as failed", process.id);
             // Update task status to InReview for coding agent and setup script failures
-            if matches!(
-                process.run_reason,
-                ExecutionProcessRunReason::CodingAgent
-                    | ExecutionProcessRunReason::SetupScript
-                    | ExecutionProcessRunReason::CleanupScript
+            if container_workflow::should_mark_session_in_review_after_orphan_cleanup(
+                &process.run_reason,
             ) && let Ok(Some(session)) =
                 Session::find_by_id(&self.db().pool, process.session_id).await
                 && let Ok(Some(workspace)) =
                     Workspace::find_by_id(&self.db().pool, session.workspace_id).await
                 && let Ok(Some(task)) = workspace.parent_task(&self.db().pool).await
             {
-                if let Err(e) =
-                    Session::update_status(&self.db().pool, session.id, SessionStatus::InReview)
-                        .await
-                {
-                    tracing::error!(
-                        "Failed to update session status to InReview for orphaned session: {}",
-                        e
-                    );
-                }
-
-                if let Err(e) =
-                    Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await
-                {
-                    tracing::error!(
-                        "Failed to update task status to InReview for orphaned session: {}",
-                        e
-                    );
-                }
+                self.mark_session_and_task_in_review(session.id, task.id)
+                    .await;
             }
         }
         Ok(())
@@ -568,80 +529,6 @@ pub trait ContainerService {
         Ok(())
     }
 
-    fn cleanup_actions_for_repos(&self, repos: &[Repo]) -> Option<ExecutorAction> {
-        let repos_with_cleanup: Vec<_> = repos
-            .iter()
-            .filter(|r| r.cleanup_script.is_some())
-            .collect();
-
-        if repos_with_cleanup.is_empty() {
-            return None;
-        }
-
-        let mut iter = repos_with_cleanup.iter();
-        let first = iter.next()?;
-        let mut root_action = ExecutorAction::new(
-            ExecutorActionType::ScriptRequest(ScriptRequest {
-                script: first.cleanup_script.clone().unwrap(),
-                language: ScriptRequestLanguage::Bash,
-                context: ScriptContext::CleanupScript,
-                working_dir: Some(first.name.clone()),
-            }),
-            None,
-        );
-
-        for repo in iter {
-            root_action = root_action.append_action(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script: repo.cleanup_script.clone().unwrap(),
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::CleanupScript,
-                    working_dir: Some(repo.name.clone()),
-                }),
-                None,
-            ));
-        }
-
-        Some(root_action)
-    }
-
-    fn archive_actions_for_repos(&self, repos: &[Repo]) -> Option<ExecutorAction> {
-        let repos_with_archive: Vec<_> = repos
-            .iter()
-            .filter(|r| r.archive_script.is_some())
-            .collect();
-
-        if repos_with_archive.is_empty() {
-            return None;
-        }
-
-        let mut iter = repos_with_archive.iter();
-        let first = iter.next()?;
-        let mut root_action = ExecutorAction::new(
-            ExecutorActionType::ScriptRequest(ScriptRequest {
-                script: first.archive_script.clone().unwrap(),
-                language: ScriptRequestLanguage::Bash,
-                context: ScriptContext::ArchiveScript,
-                working_dir: Some(first.name.clone()),
-            }),
-            None,
-        );
-
-        for repo in iter {
-            root_action = root_action.append_action(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script: repo.archive_script.clone().unwrap(),
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::ArchiveScript,
-                    working_dir: Some(repo.name.clone()),
-                }),
-                None,
-            ));
-        }
-
-        Some(root_action)
-    }
-
     /// Attempts to run the archive script for a workspace if configured.
     /// Silently returns Ok if no archive script is configured or if conditions aren't met.
     async fn try_run_archive_script(&self, workspace_id: Uuid) -> Result<(), ContainerError> {
@@ -659,7 +546,7 @@ pub trait ContainerService {
             return Ok(());
         }
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        let Some(action) = self.archive_actions_for_repos(&repos) else {
+        let Some(action) = container_actions::archive_actions_for_repos(&repos) else {
             return Ok(());
         };
         let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
@@ -728,75 +615,6 @@ pub trait ContainerService {
         Ok(())
     }
 
-    fn setup_actions_for_repos(&self, repos: &[Repo]) -> Option<ExecutorAction> {
-        let repos_with_setup: Vec<_> = repos.iter().filter(|r| r.setup_script.is_some()).collect();
-
-        if repos_with_setup.is_empty() {
-            return None;
-        }
-
-        let mut iter = repos_with_setup.iter();
-        let first = iter.next()?;
-        let mut root_action = ExecutorAction::new(
-            ExecutorActionType::ScriptRequest(ScriptRequest {
-                script: first.setup_script.clone().unwrap(),
-                language: ScriptRequestLanguage::Bash,
-                context: ScriptContext::SetupScript,
-                working_dir: Some(first.name.clone()),
-            }),
-            None,
-        );
-
-        for repo in iter {
-            root_action = root_action.append_action(ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script: repo.setup_script.clone().unwrap(),
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::SetupScript,
-                    working_dir: Some(repo.name.clone()),
-                }),
-                None,
-            ));
-        }
-
-        Some(root_action)
-    }
-
-    fn setup_action_for_repo(repo: &Repo) -> Option<ExecutorAction> {
-        repo.setup_script.as_ref().map(|script| {
-            ExecutorAction::new(
-                ExecutorActionType::ScriptRequest(ScriptRequest {
-                    script: script.clone(),
-                    language: ScriptRequestLanguage::Bash,
-                    context: ScriptContext::SetupScript,
-                    working_dir: Some(repo.name.clone()),
-                }),
-                None,
-            )
-        })
-    }
-
-    fn build_sequential_setup_chain(
-        repos: &[&Repo],
-        next_action: ExecutorAction,
-    ) -> ExecutorAction {
-        let mut chained = next_action;
-        for repo in repos.iter().rev() {
-            if let Some(script) = &repo.setup_script {
-                chained = ExecutorAction::new(
-                    ExecutorActionType::ScriptRequest(ScriptRequest {
-                        script: script.clone(),
-                        language: ScriptRequestLanguage::Bash,
-                        context: ScriptContext::SetupScript,
-                        working_dir: Some(repo.name.clone()),
-                    }),
-                    Some(Box::new(chained)),
-                );
-            }
-        }
-        chained
-    }
-
     /// Reset a session to a specific process: restore worktrees, stop processes, drop later processes.
     async fn reset_session_to_process(
         &self,
@@ -838,18 +656,22 @@ pub trait ContainerService {
 
         for repo in &repos {
             let repo_state = repo_states.iter().find(|s| s.repo_id == repo.id);
-            let target_oid = match repo_state.and_then(|s| s.before_head_commit.clone()) {
-                Some(oid) => Some(oid),
-                None => {
-                    ExecutionProcess::find_prev_after_head_commit(
-                        pool,
-                        session_id,
-                        target_process_id,
-                        repo.id,
-                    )
-                    .await?
-                }
+            let before_head_commit = repo_state.and_then(|s| s.before_head_commit.as_deref());
+            let previous_after_head_commit = if before_head_commit.is_none() {
+                ExecutionProcess::find_prev_after_head_commit(
+                    pool,
+                    session_id,
+                    target_process_id,
+                    repo.id,
+                )
+                .await?
+            } else {
+                None
             };
+            let target_oid = container_workflow::reset_target_oid(
+                before_head_commit,
+                previous_after_head_commit.as_deref(),
+            );
             let worktree_path = workspace
                 .repo_path(repo)
                 .unwrap_or_else(|| workspace_dir.clone());
@@ -857,18 +679,29 @@ pub trait ContainerService {
                 self.git().reconcile_worktree_to_commit(
                     &worktree_path,
                     &oid,
-                    git::WorktreeResetOptions::new(
+                    container_workflow::reset_options(
                         perform_git_reset,
                         force_when_dirty,
                         is_dirty,
-                        perform_git_reset,
                     ),
                 );
             }
         }
 
-        self.try_stop(&workspace, false).await;
-        ExecutionProcess::drop_at_and_after(pool, session_id, target_process_id).await?;
+        self.finish_reset_to_process(&workspace, session_id, target_process_id)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn finish_reset_to_process(
+        &self,
+        workspace: &Workspace,
+        session_id: Uuid,
+        target_process_id: Uuid,
+    ) -> Result<(), ContainerError> {
+        self.try_stop(workspace, false).await;
+        ExecutionProcess::drop_at_and_after(&self.db().pool, session_id, target_process_id).await?;
 
         Ok(())
     }
@@ -881,31 +714,200 @@ pub trait ContainerService {
         };
 
         for session in sessions {
-            if let Ok(processes) =
-                ExecutionProcess::find_by_session_id(&self.db().pool, session.id, false).await
-            {
-                for process in processes {
-                    // Skip dev server processes unless explicitly included
-                    if !include_dev_server
-                        && process.run_reason == ExecutionProcessRunReason::DevServer
-                    {
-                        continue;
-                    }
-                    if process.status == ExecutionProcessStatus::Running {
-                        self.stop_execution(&process, ExecutionProcessStatus::Killed)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::debug!(
-                                    "Failed to stop execution process {} for workspace {}: {}",
-                                    process.id,
-                                    workspace.id,
-                                    e
-                                );
-                            });
-                    }
+            self.try_stop_session_processes(workspace.id, session.id, include_dev_server)
+                .await;
+        }
+    }
+
+    async fn try_stop_session_processes(
+        &self,
+        workspace_id: Uuid,
+        session_id: Uuid,
+        include_dev_server: bool,
+    ) {
+        if let Ok(processes) =
+            ExecutionProcess::find_by_session_id(&self.db().pool, session_id, false).await
+        {
+            for process in processes {
+                if container_workflow::should_stop_execution(
+                    &process.status,
+                    &process.run_reason,
+                    include_dev_server,
+                ) {
+                    self.stop_execution(&process, ExecutionProcessStatus::Killed)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::debug!(
+                                "Failed to stop execution process {} for workspace {}: {}",
+                                process.id,
+                                workspace_id,
+                                e
+                            );
+                        });
                 }
             }
         }
+    }
+
+    async fn create_start_execution_process(
+        &self,
+        workspace: &Workspace,
+        session_id: Uuid,
+        executor_action: &ExecutorAction,
+        run_reason: &ExecutionProcessRunReason,
+    ) -> Result<ExecutionProcess, ContainerError> {
+        let repositories =
+            WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
+        if repositories.is_empty() {
+            return Err(ContainerError::Other(anyhow!(
+                "Workspace has no repositories configured"
+            )));
+        }
+
+        let workspace_root = workspace
+            .container_ref
+            .as_ref()
+            .map(PathBuf::from)
+            .ok_or_else(|| ContainerError::Other(anyhow!("Container ref not found")))?;
+
+        let mut repo_states = Vec::with_capacity(repositories.len());
+        for repo in &repositories {
+            let repo_path = workspace
+                .repo_path(repo)
+                .unwrap_or_else(|| workspace_root.clone());
+            let before_head_commit = self.git().get_head_info(&repo_path).ok().map(|h| h.oid);
+            repo_states.push(CreateExecutionProcessRepoState {
+                repo_id: repo.id,
+                before_head_commit,
+                after_head_commit: None,
+                merge_commit: None,
+            });
+        }
+        let create_execution_process = CreateExecutionProcess {
+            session_id,
+            executor_action: executor_action.clone(),
+            run_reason: run_reason.clone(),
+        };
+
+        ExecutionProcess::create(
+            &self.db().pool,
+            &create_execution_process,
+            Uuid::new_v4(),
+            &repo_states,
+        )
+        .await
+        .map_err(ContainerError::from)
+    }
+
+    async fn finish_failed_start(
+        &self,
+        execution_process_id: Uuid,
+        session_id: Uuid,
+        task_id: Option<Uuid>,
+        start_error: &ContainerError,
+    ) -> Result<(), ContainerError> {
+        if let Err(update_error) = ExecutionProcess::update_completion(
+            &self.db().pool,
+            execution_process_id,
+            ExecutionProcessStatus::Failed,
+            None,
+        )
+        .await
+        {
+            tracing::error!(
+                "Failed to mark execution process {} as failed after start error: {}",
+                execution_process_id,
+                update_error
+            );
+        }
+        Session::update_status(&self.db().pool, session_id, SessionStatus::InReview).await?;
+        if let Some(task_id) = task_id {
+            Task::update_status(&self.db().pool, task_id, TaskStatus::InReview).await?;
+        }
+
+        let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));
+        if let Ok(json_line) = serde_json::to_string(&log_message) {
+            let _ = ExecutionProcessLogs::append_log_line(
+                &self.db().pool,
+                execution_process_id,
+                &format!("{json_line}\n"),
+            )
+            .await;
+        }
+
+        if let ContainerError::ExecutorError(ExecutorError::ExecutableNotFound { program }) =
+            start_error
+        {
+            let error_message = container_workflow::missing_executable_start_error_entry(program);
+            let patch = ConversationPatch::add_normalized_entry(2, error_message);
+            if let Ok(json_line) = serde_json::to_string::<LogMsg>(&LogMsg::JsonPatch(patch)) {
+                let _ = ExecutionProcessLogs::append_log_line(
+                    &self.db().pool,
+                    execution_process_id,
+                    &format!("{json_line}\n"),
+                )
+                .await;
+            }
+        };
+
+        Ok(())
+    }
+
+    async fn create_start_coding_agent_turn(
+        &self,
+        execution_process_id: Uuid,
+        executor_action: &ExecutorAction,
+    ) -> Result<(), ContainerError> {
+        if let Some(prompt) = container_workflow::coding_agent_turn_prompt(executor_action) {
+            let create_coding_agent_turn = CreateCodingAgentTurn {
+                execution_process_id,
+                prompt: Some(prompt.to_string()),
+            };
+
+            CodingAgentTurn::create(&self.db().pool, &create_coding_agent_turn, Uuid::new_v4())
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn start_success_log_streaming(
+        &self,
+        workspace: &Workspace,
+        execution_process_id: Uuid,
+        executor_action: &ExecutorAction,
+    ) -> Result<(), ContainerError> {
+        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
+        let workspace_root = self.workspace_to_current_dir(workspace, &repos);
+        #[cfg_attr(feature = "qa-mode", allow(unused_variables))]
+        if let Some(msg_store) = self.get_msg_store_by_id(&execution_process_id).await
+            && let Some(normalization_target) =
+                container_workflow::log_normalization_target(executor_action, &workspace_root)
+        {
+            #[cfg(feature = "qa-mode")]
+            {
+                let executor = QaMockExecutor;
+                executor.normalize_logs(msg_store, &normalization_target.working_dir);
+            }
+            #[cfg(not(feature = "qa-mode"))]
+            {
+                if let Some(executor) = ExecutorConfigs::get_cached()
+                    .get_coding_agent(&normalization_target.executor_profile_id)
+                {
+                    executor.normalize_logs(msg_store, &normalization_target.working_dir);
+                } else {
+                    tracing::error!(
+                        "Failed to resolve profile '{:?}' for normalization",
+                        normalization_target.executor_profile_id
+                    );
+                }
+            }
+        }
+
+        let db_stream_handle = self.spawn_stream_raw_logs_to_db(&execution_process_id);
+        self.store_db_stream_handle(execution_process_id, db_stream_handle)
+            .await;
+        Ok(())
     }
 
     async fn ensure_container_exists(
@@ -1138,65 +1140,28 @@ pub trait ContainerService {
                 return None;
             };
 
-            // Spawn normalizer on populated store
-            match executor_action.typ() {
-                ExecutorActionType::CodingAgentInitialRequest(request) => {
-                    #[cfg(feature = "qa-mode")]
-                    {
-                        let executor = QaMockExecutor;
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        );
-                    }
-                    #[cfg(not(feature = "qa-mode"))]
-                    {
-                        let executor = ExecutorConfigs::get_cached()
-                            .get_coding_agent_or_default(&request.executor_config.profile_id());
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        );
-                    }
-                }
-                ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                    #[cfg(feature = "qa-mode")]
-                    {
-                        let executor = QaMockExecutor;
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        );
-                    }
-                    #[cfg(not(feature = "qa-mode"))]
-                    {
-                        let executor = ExecutorConfigs::get_cached()
-                            .get_coding_agent_or_default(&request.executor_config.profile_id());
-                        executor.normalize_logs(
-                            temp_store.clone(),
-                            &request.effective_dir(&current_dir),
-                        );
-                    }
-                }
-                #[cfg(feature = "qa-mode")]
-                ExecutorActionType::ReviewRequest(_request) => {
-                    let executor = QaMockExecutor;
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
-                }
-                #[cfg(not(feature = "qa-mode"))]
-                ExecutorActionType::ReviewRequest(request) => {
-                    let executor = ExecutorConfigs::get_cached()
-                        .get_coding_agent_or_default(&request.executor_config.profile_id());
-                    executor.normalize_logs(temp_store.clone(), &current_dir);
-                }
-                _ => {
-                    tracing::debug!(
-                        "Executor action doesn't support log normalization: {:?}",
-                        process.executor_action()
-                    );
-                    return None;
-                }
+            let Some(normalization_target) =
+                container_workflow::log_normalization_target(executor_action, &current_dir)
+            else {
+                tracing::debug!(
+                    "Executor action doesn't support log normalization: {:?}",
+                    process.executor_action()
+                );
+                return None;
+            };
+
+            #[cfg(feature = "qa-mode")]
+            {
+                let executor = QaMockExecutor;
+                executor.normalize_logs(temp_store.clone(), &normalization_target.working_dir);
             }
+            #[cfg(not(feature = "qa-mode"))]
+            {
+                let executor = ExecutorConfigs::get_cached()
+                    .get_coding_agent_or_default(&normalization_target.executor_profile_id);
+                executor.normalize_logs(temp_store.clone(), &normalization_target.working_dir);
+            }
+
             Some(
                 temp_store
                     .history_plus_stream()
@@ -1363,10 +1328,9 @@ pub trait ContainerService {
             .unwrap_or_else(|| task.to_prompt());
 
         let repos_with_setup: Vec<_> = repos.iter().filter(|r| r.setup_script.is_some()).collect();
+        let setup_start_mode = container_actions::workspace_setup_start_mode(&repos_with_setup);
 
-        let all_parallel = repos_with_setup.iter().all(|r| r.parallel_setup_script);
-
-        let cleanup_action = self.cleanup_actions_for_repos(&repos);
+        let cleanup_action = container_actions::cleanup_actions_for_repos(&repos);
 
         let container_ref = match runnable_workspace.container_ref.as_deref() {
             Some(container_ref) if !container_ref.is_empty() => container_ref.to_string(),
@@ -1384,39 +1348,53 @@ pub trait ContainerService {
             cleanup_action.map(Box::new),
         );
 
-        let execution_process = if all_parallel {
-            // All parallel: start each setup independently, then start coding agent
-            for repo in &repos_with_setup {
-                if let Some(action) = Self::setup_action_for_repo(repo)
-                    && let Err(e) = self
-                        .start_execution(
-                            &runnable_workspace,
-                            session,
-                            &action,
-                            &ExecutionProcessRunReason::SetupScript,
-                        )
-                        .await
-                {
-                    tracing::warn!(?e, "Failed to start setup script in parallel mode");
-                }
+        let execution_process = match setup_start_mode {
+            container_actions::WorkspaceSetupStartMode::DirectCoding => {
+                self.start_execution(
+                    &runnable_workspace,
+                    session,
+                    &coding_action,
+                    &ExecutionProcessRunReason::CodingAgent,
+                )
+                .await?
             }
-            self.start_execution(
-                &runnable_workspace,
-                session,
-                &coding_action,
-                &ExecutionProcessRunReason::CodingAgent,
-            )
-            .await?
-        } else {
-            // Any sequential: chain ALL setups → coding agent via next_action
-            let main_action = Self::build_sequential_setup_chain(&repos_with_setup, coding_action);
-            self.start_execution(
-                &runnable_workspace,
-                session,
-                &main_action,
-                &ExecutionProcessRunReason::SetupScript,
-            )
-            .await?
+            container_actions::WorkspaceSetupStartMode::ParallelSetupsThenCoding => {
+                for repo in &repos_with_setup {
+                    if let Some(action) = container_actions::setup_action_for_repo(repo)
+                        && let Err(e) = self
+                            .start_execution(
+                                &runnable_workspace,
+                                session,
+                                &action,
+                                &ExecutionProcessRunReason::SetupScript,
+                            )
+                            .await
+                    {
+                        tracing::warn!(?e, "Failed to start setup script in parallel mode");
+                    }
+                }
+                self.start_execution(
+                    &runnable_workspace,
+                    session,
+                    &coding_action,
+                    &ExecutionProcessRunReason::CodingAgent,
+                )
+                .await?
+            }
+            container_actions::WorkspaceSetupStartMode::SequentialSetupChain => {
+                // Any sequential setup chain must end in the coding agent action.
+                let main_action = container_actions::build_sequential_setup_chain(
+                    &repos_with_setup,
+                    coding_action,
+                );
+                self.start_execution(
+                    &runnable_workspace,
+                    session,
+                    &main_action,
+                    &ExecutionProcessRunReason::SetupScript,
+                )
+                .await?
+            }
         };
 
         Ok(execution_process)
@@ -1435,192 +1413,43 @@ pub trait ContainerService {
         } else {
             workspace.parent_task(&self.db().pool).await?
         };
-        if run_reason != &ExecutionProcessRunReason::DevServer {
+        if container_workflow::should_mark_session_in_progress_on_start(run_reason) {
             Session::update_status(&self.db().pool, session.id, SessionStatus::InProgress).await?;
             if let Some(task) = task.as_ref()
-                && task.status != TaskStatus::InProgress
+                && container_workflow::should_mark_task_in_progress_on_start(
+                    run_reason,
+                    &task.status,
+                )
             {
                 Task::update_status(&self.db().pool, task.id, TaskStatus::InProgress).await?;
             }
         }
-        // Create new execution process record
-        // Capture current HEAD per repository as the "before" commit for this execution
-        let repositories =
-            WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-        if repositories.is_empty() {
-            return Err(ContainerError::Other(anyhow!(
-                "Workspace has no repositories configured"
-            )));
-        }
-
-        let workspace_root = workspace
-            .container_ref
-            .as_ref()
-            .map(std::path::PathBuf::from)
-            .ok_or_else(|| ContainerError::Other(anyhow!("Container ref not found")))?;
-
-        let mut repo_states = Vec::with_capacity(repositories.len());
-        for repo in &repositories {
-            let repo_path = workspace
-                .repo_path(repo)
-                .unwrap_or_else(|| workspace_root.clone());
-            let before_head_commit = self.git().get_head_info(&repo_path).ok().map(|h| h.oid);
-            repo_states.push(CreateExecutionProcessRepoState {
-                repo_id: repo.id,
-                before_head_commit,
-                after_head_commit: None,
-                merge_commit: None,
-            });
-        }
-        let create_execution_process = CreateExecutionProcess {
-            session_id: session.id,
-            executor_action: executor_action.clone(),
-            run_reason: run_reason.clone(),
-        };
-
-        let execution_process = ExecutionProcess::create(
-            &self.db().pool,
-            &create_execution_process,
-            Uuid::new_v4(),
-            &repo_states,
-        )
-        .await?;
-        if *run_reason != ExecutionProcessRunReason::ArchiveScript {
+        let execution_process = self
+            .create_start_execution_process(workspace, session.id, executor_action, run_reason)
+            .await?;
+        if container_workflow::should_unarchive_workspace_on_start(run_reason) {
             Workspace::set_archived(&self.db().pool, workspace.id, false).await?;
         }
 
-        if let Some(prompt) = match executor_action.typ() {
-            ExecutorActionType::CodingAgentInitialRequest(coding_agent_request) => {
-                Some(coding_agent_request.prompt.clone())
-            }
-            ExecutorActionType::CodingAgentFollowUpRequest(follow_up_request) => {
-                Some(follow_up_request.prompt.clone())
-            }
-            ExecutorActionType::ReviewRequest(review_request) => {
-                Some(review_request.prompt.clone())
-            }
-            ExecutorActionType::ScriptRequest(_) => None,
-        } {
-            let create_coding_agent_turn = CreateCodingAgentTurn {
-                execution_process_id: execution_process.id,
-                prompt: Some(prompt),
-            };
-
-            let coding_agent_turn_id = Uuid::new_v4();
-
-            CodingAgentTurn::create(
-                &self.db().pool,
-                &create_coding_agent_turn,
-                coding_agent_turn_id,
-            )
+        self.create_start_coding_agent_turn(execution_process.id, executor_action)
             .await?;
-        }
 
         if let Err(start_error) = self
             .start_execution_inner(workspace, &execution_process, executor_action)
             .await
         {
-            // Mark process as failed
-            if let Err(update_error) = ExecutionProcess::update_completion(
-                &self.db().pool,
+            self.finish_failed_start(
                 execution_process.id,
-                ExecutionProcessStatus::Failed,
-                None,
+                session.id,
+                task.as_ref().map(|task| task.id),
+                &start_error,
             )
-            .await
-            {
-                tracing::error!(
-                    "Failed to mark execution process {} as failed after start error: {}",
-                    execution_process.id,
-                    update_error
-                );
-            }
-            Session::update_status(&self.db().pool, session.id, SessionStatus::InReview).await?;
-            if let Some(task) = task.as_ref() {
-                Task::update_status(&self.db().pool, task.id, TaskStatus::InReview).await?;
-            }
-
-            // Emit stderr error message
-            let log_message = LogMsg::Stderr(format!("Failed to start execution: {start_error}"));
-            if let Ok(json_line) = serde_json::to_string(&log_message) {
-                let _ = ExecutionProcessLogs::append_log_line(
-                    &self.db().pool,
-                    execution_process.id,
-                    &format!("{json_line}\n"),
-                )
-                .await;
-            }
-
-            // Emit NextAction with failure context for coding agent requests
-            if let ContainerError::ExecutorError(ExecutorError::ExecutableNotFound { program }) =
-                &start_error
-            {
-                let help_text = format!("The required executable `{program}` is not installed.");
-                let error_message = NormalizedEntry {
-                    timestamp: None,
-                    entry_type: NormalizedEntryType::ErrorMessage {
-                        error_type: NormalizedEntryError::SetupRequired,
-                    },
-                    content: help_text,
-                    metadata: None,
-                };
-                let patch = ConversationPatch::add_normalized_entry(2, error_message);
-                if let Ok(json_line) = serde_json::to_string::<LogMsg>(&LogMsg::JsonPatch(patch)) {
-                    let _ = ExecutionProcessLogs::append_log_line(
-                        &self.db().pool,
-                        execution_process.id,
-                        &format!("{json_line}\n"),
-                    )
-                    .await;
-                }
-            };
+            .await?;
             return Err(start_error);
         }
 
-        // Start processing normalised logs for executor requests and follow ups
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-        let workspace_root = self.workspace_to_current_dir(workspace, &repos);
-        #[cfg_attr(feature = "qa-mode", allow(unused_variables))]
-        if let Some(msg_store) = self.get_msg_store_by_id(&execution_process.id).await
-            && let Some((executor_profile_id, working_dir)) = match executor_action.typ() {
-                ExecutorActionType::CodingAgentInitialRequest(request) => Some((
-                    request.executor_config.profile_id(),
-                    request.effective_dir(&workspace_root),
-                )),
-                ExecutorActionType::CodingAgentFollowUpRequest(request) => Some((
-                    request.executor_config.profile_id(),
-                    request.effective_dir(&workspace_root),
-                )),
-                ExecutorActionType::ReviewRequest(request) => Some((
-                    request.executor_config.profile_id(),
-                    request.effective_dir(&workspace_root),
-                )),
-                _ => None,
-            }
-        {
-            #[cfg(feature = "qa-mode")]
-            {
-                let executor = QaMockExecutor;
-                executor.normalize_logs(msg_store, &working_dir);
-            }
-            #[cfg(not(feature = "qa-mode"))]
-            {
-                if let Some(executor) =
-                    ExecutorConfigs::get_cached().get_coding_agent(&executor_profile_id)
-                {
-                    executor.normalize_logs(msg_store, &working_dir);
-                } else {
-                    tracing::error!(
-                        "Failed to resolve profile '{:?}' for normalization",
-                        executor_profile_id
-                    );
-                }
-            }
-        }
-
-        let db_stream_handle = self.spawn_stream_raw_logs_to_db(&execution_process.id);
-        self.store_db_stream_handle(execution_process.id, db_stream_handle)
-            .await;
+        self.start_success_log_streaming(workspace, execution_process.id, executor_action)
+            .await?;
         Ok(execution_process)
     }
 
@@ -1633,24 +1462,7 @@ pub trait ContainerService {
             return Ok(());
         };
 
-        // Determine the run reason of the next action
-        let next_run_reason = match (action.typ(), next_action.typ()) {
-            (ExecutorActionType::ScriptRequest(_), ExecutorActionType::ScriptRequest(_)) => {
-                ExecutionProcessRunReason::SetupScript
-            }
-            (
-                ExecutorActionType::CodingAgentInitialRequest(_)
-                | ExecutorActionType::CodingAgentFollowUpRequest(_)
-                | ExecutorActionType::ReviewRequest(_),
-                ExecutorActionType::ScriptRequest(_),
-            ) => ExecutionProcessRunReason::CleanupScript,
-            (
-                _,
-                ExecutorActionType::CodingAgentFollowUpRequest(_)
-                | ExecutorActionType::CodingAgentInitialRequest(_)
-                | ExecutorActionType::ReviewRequest(_),
-            ) => ExecutionProcessRunReason::CodingAgent,
-        };
+        let next_run_reason = container_workflow::next_action_run_reason(action, next_action);
 
         self.start_execution(&ctx.workspace, &ctx.session, next_action, &next_run_reason)
             .await?;

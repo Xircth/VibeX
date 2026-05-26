@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useTauriPatchStream } from './useTauriPatchStream';
 import type { Project } from 'shared/types';
+import { dateTimestamp } from '@/utils/date';
 
 type ProjectsState = {
   projects: Record<string, Project>;
@@ -29,9 +30,7 @@ export function useProjects(): UseProjectsResult {
 
   const projects = useMemo(() => {
     return Object.values(projectsById).sort(
-      (a, b) =>
-        new Date(b.created_at as unknown as string).getTime() -
-        new Date(a.created_at as unknown as string).getTime()
+      (a, b) => dateTimestamp(b.created_at) - dateTimestamp(a.created_at)
     );
   }, [projectsById]);
 

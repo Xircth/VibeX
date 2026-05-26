@@ -1,3 +1,39 @@
+use std::path::PathBuf;
+
+use db::models::{
+    coding_agent_turn::CodingAgentTurn,
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    merge::{Merge, MergeStatus},
+    repo::{Repo, RepoError},
+    session::{CreateSession, Session, SessionStatus},
+    task::{Task, TaskStatus},
+    workspace::Workspace,
+    workspace_repo::WorkspaceRepo,
+};
+use deployment::Deployment;
+use executors::{
+    actions::{
+        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+        coding_agent_initial::CodingAgentInitialRequest,
+    },
+    profile::ExecutorConfig,
+};
+use git::{GitCliError, GitServiceError};
+use services::services::{
+    config::DEFAULT_PR_DESCRIPTION_PROMPT,
+    container::ContainerService,
+    git_host::{self, CreatePrRequest, GitHostError, GitHostProvider},
+};
+use uuid::Uuid;
+
+use super::{
+    AttachPrResponse, AttachPrResult, CreatePrResult, GetPrCommentsError, PrCommentsResponse,
+    PrCommentsResult, PrError,
+};
+use crate::{
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+};
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn create_workspace_pr(

@@ -17,7 +17,7 @@ export interface TerminalSession {
   shell?: string;
   /** Session type: 'pty' for normal terminal, 'log-viewer' for dev server logs */
   type?: 'pty' | 'log-viewer';
-  /** ExecutionProcess ID 鈥?only used when type is 'log-viewer' */
+  /** ExecutionProcess ID, only used when type is 'log-viewer' */
   processId?: string;
   /** Whether this terminal should reject user input */
   readOnly?: boolean;

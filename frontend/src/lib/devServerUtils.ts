@@ -1,4 +1,5 @@
 import type { ExecutionProcess } from 'shared/types';
+import { dateTimestamp } from '@/utils/date';
 
 /**
  * Extract the working directory from a dev server process's executor action.
@@ -24,10 +25,7 @@ export function deduplicateDevServersByWorkingDir(
   for (const process of processes) {
     const workingDir = getDevServerWorkingDir(process) ?? 'unknown';
     const existing = byWorkingDir.get(workingDir);
-    if (
-      !existing ||
-      new Date(process.started_at) > new Date(existing.started_at)
-    ) {
+    if (!existing || dateTimestamp(process.started_at) > dateTimestamp(existing.started_at)) {
       byWorkingDir.set(workingDir, process);
     }
   }

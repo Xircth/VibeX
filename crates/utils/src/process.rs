@@ -145,6 +145,104 @@ pub async fn kill_process_group(child: &mut AsyncGroupChild) -> std::io::Result<
     Ok(())
 }
 
+pub fn command_output_detail(output: &std::process::Output) -> Option<String> {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return Some(stderr);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!stdout.is_empty()).then_some(stdout)
+}
+
+#[cfg(test)]
+mod command_output_detail_tests {
+    use std::process::{ExitStatus, Output};
+
+    use super::command_output_detail;
+
+    #[cfg(unix)]
+    fn failure_status() -> ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatus::from_raw(1)
+    }
+
+    #[cfg(windows)]
+    fn failure_status() -> ExitStatus {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatus::from_raw(1)
+    }
+
+    fn output(stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status: failure_status(),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
+
+    #[test]
+    fn command_output_detail_prefers_stderr() {
+        let output = output(b"stdout detail\n", b" stderr detail \n");
+
+        assert_eq!(command_output_detail(&output), Some("stderr detail".into()));
+    }
+
+    #[test]
+    fn command_output_detail_uses_stdout_when_stderr_is_empty() {
+        let output = output(b" stdout detail \n", b"  \n");
+
+        assert_eq!(command_output_detail(&output), Some("stdout detail".into()));
+    }
+
+    #[test]
+    fn command_output_detail_returns_none_when_output_is_empty() {
+        let output = output(b"  \n", b"\t\n");
+
+        assert_eq!(command_output_detail(&output), None);
+    }
+}
+
+#[cfg(test)]
+mod command_construction_tests {
+    use std::ffi::OsString;
+
+    use super::{new_hidden_std_command, new_hidden_tokio_command};
+
+    fn os_args(args: impl Iterator<Item = OsString>) -> Vec<OsString> {
+        args.collect()
+    }
+
+    #[test]
+    fn std_hidden_command_preserves_program_and_args() {
+        let command = new_hidden_std_command("tool", ["--flag", "value with spaces"]);
+
+        assert_eq!(command.get_program(), "tool");
+        assert_eq!(
+            os_args(command.get_args().map(OsString::from)),
+            vec![
+                OsString::from("--flag"),
+                OsString::from("value with spaces")
+            ]
+        );
+    }
+
+    #[test]
+    fn tokio_hidden_command_preserves_program_and_args() {
+        let command = new_hidden_tokio_command("tool", ["--flag", "value with spaces"]);
+        let std_command = command.as_std();
+
+        assert_eq!(std_command.get_program(), "tool");
+        assert_eq!(
+            os_args(std_command.get_args().map(OsString::from)),
+            vec![
+                OsString::from("--flag"),
+                OsString::from("value with spaces")
+            ]
+        );
+    }
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use std::{
@@ -154,6 +252,39 @@ mod tests {
     };
 
     use super::{new_hidden_std_command, new_hidden_tokio_command};
+
+    #[tokio::test]
+    async fn tokio_regular_executable_runs_with_args() {
+        let mut command = new_hidden_tokio_command("cmd.exe", ["/d", "/c", "echo ok"]);
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        let output = command.output().await.expect("run regular executable");
+
+        assert!(
+            output.status.success(),
+            "expected success, got status {:?}, stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok");
+    }
+
+    #[test]
+    fn std_regular_executable_runs_with_args() {
+        let output = new_hidden_std_command("cmd.exe", ["/d", "/c", "echo ok"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("run regular executable");
+
+        assert!(
+            output.status.success(),
+            "expected success, got status {:?}, stderr: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok");
+    }
 
     #[tokio::test]
     async fn batch_script_with_spaces_runs_successfully() {

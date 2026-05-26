@@ -21,6 +21,14 @@ describe('cn', () => {
   it('should handle object syntax', () => {
     expect(cn({ active: true, disabled: false })).toBe('active');
   });
+
+  it('should merge conflicting Tailwind utility classes', () => {
+    expect(cn('p-2', 'p-4')).toBe('p-4');
+  });
+
+  it('should preserve custom text color tokens with text sizes', () => {
+    expect(cn('text-low', 'text-base')).toBe('text-low text-base');
+  });
 });
 
 describe('formatFileSize', () => {

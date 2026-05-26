@@ -17,6 +17,7 @@ import { showDesktopToast } from '@/lib/desktopToast';
 import { paths } from '@/lib/paths';
 import { tauriListen } from '@/lib/tauriApi';
 import { desktopApi } from '@/lib/api';
+import { dateTimestamp } from '@/utils/date';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
@@ -255,8 +256,7 @@ function ProjectActivityTracker({
 
           const latestSummary = [...summaries].sort(
             (left, right) =>
-              new Date(right.updated_at).getTime() -
-              new Date(left.updated_at).getTime()
+              dateTimestamp(right.updated_at) - dateTimestamp(left.updated_at)
           )[0];
 
           const kind = workspace.is_errored ? 'error' : 'success';

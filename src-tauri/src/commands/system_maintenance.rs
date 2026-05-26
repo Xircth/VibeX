@@ -421,14 +421,11 @@ async fn run_npm_install(packages: &[String]) -> Result<(), AppError> {
     if output.status.success() {
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let detail = if stderr.is_empty() { stdout } else { stderr };
-        Err(AppError::Internal(if detail.is_empty() {
-            "npm install failed for local tools".to_string()
-        } else {
-            format!("npm install failed for local tools: {detail}")
-        }))
+        Err(AppError::Internal(
+            utils::process::command_output_detail(&output)
+                .map(|detail| format!("npm install failed for local tools: {detail}"))
+                .unwrap_or_else(|| "npm install failed for local tools".to_string()),
+        ))
     }
 }
 

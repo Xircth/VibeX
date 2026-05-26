@@ -76,7 +76,9 @@ pub struct ExecutorProfileId {
     pub fast_mode: Option<bool>,
 }
 
-// Convert legacy profile/executor names from kebab-case to SCREAMING_SNAKE_CASE, can be deleted 14 days from 3/9/25
+// Persisted profile payloads may still contain kebab-case executor ids.
+// Keep this reader-side normalization unless a migration proves old config,
+// scratch, and DB action payloads can no longer reach these serde boundaries.
 fn de_base_coding_agent_kebab<'de, D>(de: D) -> Result<BaseCodingAgent, D::Error>
 where
     D: Deserializer<'de>,
@@ -618,5 +620,35 @@ mod tests {
         assert!(codex.configurations.contains_key("GPT_5_5_APPROVALS"));
         assert!(codex.configurations.contains_key("GPT_5_4"));
         assert!(codex.configurations.contains_key("GPT_5_4_APPROVALS"));
+    }
+
+    #[test]
+    fn executor_profile_id_deserializes_legacy_kebab_executor() {
+        let profile: ExecutorProfileId =
+            serde_json::from_str(r#"{"executor":"claude-code","variant":"PLAN"}"#)
+                .expect("legacy kebab executor should deserialize");
+
+        assert_eq!(profile.executor, BaseCodingAgent::ClaudeCode);
+        assert_eq!(profile.variant.as_deref(), Some("PLAN"));
+    }
+
+    #[test]
+    fn executor_profile_id_deserializes_legacy_profile_alias() {
+        let profile: ExecutorProfileId =
+            serde_json::from_str(r#"{"profile":"opencode","model":"gpt-5.4"}"#)
+                .expect("legacy profile alias should deserialize");
+
+        assert_eq!(profile.executor, BaseCodingAgent::Opencode);
+        assert_eq!(profile.model.as_deref(), Some("gpt-5.4"));
+    }
+
+    #[test]
+    fn executor_config_deserializes_legacy_kebab_executor() {
+        let config: ExecutorConfig =
+            serde_json::from_str(r#"{"executor":"claude-code","variant":"ROUTER"}"#)
+                .expect("legacy kebab executor config should deserialize");
+
+        assert_eq!(config.executor, BaseCodingAgent::ClaudeCode);
+        assert_eq!(config.variant.as_deref(), Some("ROUTER"));
     }
 }

@@ -15,23 +15,27 @@ function group(
   panelIds: string[] = [],
   rect?: Pick<DOMRect, 'left' | 'top'>
 ) {
+  const element = rect ? document.createElement('div') : undefined;
+
+  if (element && rect) {
+    Object.defineProperty(element, 'getBoundingClientRect', {
+      value: () => ({
+        ...rect,
+        bottom: rect.top,
+        height: 0,
+        right: rect.left,
+        toJSON: () => ({}),
+        width: 0,
+        x: rect.left,
+        y: rect.top,
+      }),
+    });
+  }
+
   return {
     id,
     panels: panelIds.map((panelId) => ({ id: panelId })),
-    element: rect
-      ? {
-          getBoundingClientRect: () => ({
-            ...rect,
-            bottom: rect.top,
-            height: 0,
-            right: rect.left,
-            toJSON: () => ({}),
-            width: 0,
-            x: rect.left,
-            y: rect.top,
-          }),
-        }
-      : undefined,
+    element,
   };
 }
 

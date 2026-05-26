@@ -1,10 +1,29 @@
-﻿fn opencode_sdk_bridge_script_path() -> PathBuf {
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+use executors::executors::SlashCommandKind;
+use serde_json::{Value, json};
+use tokio::time::Duration;
+use uuid::Uuid;
+
+use super::{
+    CapabilitySource, ProviderCommand, ProviderId, ProviderModel, ProviderTurnRequest,
+    app_error_from_native, new_provider_hidden_command, provider_option_bool,
+    provider_option_string, provider_sdk_metadata_failure_error, repo_root_path,
+    should_hide_provider_slash_command,
+};
+use crate::error::AppError;
+
+pub(super) fn opencode_sdk_bridge_script_path() -> PathBuf {
     repo_root_path()
         .join("scripts")
         .join("opencode-sdk-provider.mjs")
 }
 
-fn build_opencode_sdk_bridge_args(input_path: &Path) -> Vec<String> {
+pub(super) fn build_opencode_sdk_bridge_args(input_path: &Path) -> Vec<String> {
     vec![
         opencode_sdk_bridge_script_path()
             .to_string_lossy()
@@ -13,7 +32,7 @@ fn build_opencode_sdk_bridge_args(input_path: &Path) -> Vec<String> {
     ]
 }
 
-fn build_opencode_sdk_metadata_args(input_path: &Path) -> Vec<String> {
+pub(super) fn build_opencode_sdk_metadata_args(input_path: &Path) -> Vec<String> {
     vec![
         opencode_sdk_bridge_script_path()
             .to_string_lossy()
@@ -58,7 +77,7 @@ fn resolve_opencode_file_path(workspace_dir: &Path, image: &str) -> String {
     }
 }
 
-fn build_opencode_sdk_bridge_input(
+pub(super) fn build_opencode_sdk_bridge_input(
     request: &ProviderTurnRequest,
     workspace_dir: &Path,
 ) -> Result<Value, AppError> {
@@ -102,7 +121,7 @@ fn build_opencode_sdk_bridge_input(
     }))
 }
 
-fn write_opencode_sdk_bridge_input_file(input: &Value) -> Result<PathBuf, AppError> {
+pub(super) fn write_opencode_sdk_bridge_input_file(input: &Value) -> Result<PathBuf, AppError> {
     let path = std::env::temp_dir().join(format!("vibex-opencode-sdk-{}.json", Uuid::new_v4()));
     let bytes = serde_json::to_vec(input).map_err(|error| {
         app_error_from_native(
@@ -146,14 +165,9 @@ async fn load_opencode_sdk_metadata(workspace_dir: &Path) -> Result<Value, AppEr
     let output = output?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(app_error_from_native(
+        return Err(provider_sdk_metadata_failure_error(
             ProviderId::Opencode,
-            if stderr.is_empty() {
-                "SDK metadata discovery failed".to_string()
-            } else {
-                stderr
-            },
+            &output,
         ));
     }
 
@@ -173,7 +187,7 @@ async fn load_opencode_sdk_metadata(workspace_dir: &Path) -> Result<Value, AppEr
     ))
 }
 
-fn opencode_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
+pub(super) fn opencode_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
     metadata
         .get("commands")
         .and_then(Value::as_array)
@@ -190,12 +204,11 @@ fn opencode_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
                         .and_then(Value::as_str)
                         .unwrap_or("");
                     let source = command.get("source").and_then(Value::as_str);
-                    let kind =
-                        if source == Some("skill") || !is_opencode_core_slash_command(name) {
-                            SlashCommandKind::Skill
-                        } else {
-                            SlashCommandKind::Command
-                        };
+                    let kind = if source == Some("skill") || !is_opencode_core_slash_command(name) {
+                        SlashCommandKind::Skill
+                    } else {
+                        SlashCommandKind::Command
+                    };
                     Some(ProviderCommand {
                         provider: ProviderId::Opencode,
                         name: name.to_string(),
@@ -211,12 +224,15 @@ fn opencode_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
 
 fn is_opencode_core_slash_command(name: &str) -> bool {
     matches!(
-        name.trim().trim_start_matches('/').to_ascii_lowercase().as_str(),
+        name.trim()
+            .trim_start_matches('/')
+            .to_ascii_lowercase()
+            .as_str(),
         "compact"
     )
 }
 
-fn opencode_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
+pub(super) fn opencode_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
     let provider_sources: HashMap<String, String> = metadata
         .get("providers")
         .and_then(Value::as_array)
@@ -271,7 +287,7 @@ fn opencode_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
         .unwrap_or_default()
 }
 
-async fn load_opencode_sdk_commands(
+pub(super) async fn load_opencode_sdk_commands(
     workspace_dir: &Path,
 ) -> Result<Vec<ProviderCommand>, AppError> {
     let commands =
@@ -285,7 +301,9 @@ async fn load_opencode_sdk_commands(
     Ok(commands)
 }
 
-async fn load_opencode_sdk_models(workspace_dir: &Path) -> Result<Vec<ProviderModel>, AppError> {
+pub(super) async fn load_opencode_sdk_models(
+    workspace_dir: &Path,
+) -> Result<Vec<ProviderModel>, AppError> {
     let models = opencode_sdk_metadata_models(&load_opencode_sdk_metadata(workspace_dir).await?);
     if models.is_empty() {
         return Err(app_error_from_native(
@@ -295,4 +313,3 @@ async fn load_opencode_sdk_models(workspace_dir: &Path) -> Result<Vec<ProviderMo
     }
     Ok(models)
 }
-

@@ -251,29 +251,8 @@ pub fn normalize_logs_with_context_window_override(
                     }
                     AcpEvent::ApprovalResponse(resp) => {
                         tracing::trace!("Received approval response: {:?}", resp);
-                        if let ApprovalStatus::Denied { reason } = resp.status {
-                            let tool_name = tool_states
-                                .get(&resp.tool_call_id)
-                                .map(|t| {
-                                    extract_tool_name_from_id(t.id.0.as_ref())
-                                        .unwrap_or_else(|| t.title.clone())
-                                })
-                                .unwrap_or_default();
+                        if let Some(entry) = denied_approval_feedback_entry(&resp, &tool_states) {
                             let idx = entry_index.next();
-                            let entry = NormalizedEntry {
-                                timestamp: None,
-                                entry_type: NormalizedEntryType::UserFeedback {
-                                    denied_tool: tool_name,
-                                },
-                                content: reason
-                                    .clone()
-                                    .unwrap_or_else(|| {
-                                        "User denied this tool use request".to_string()
-                                    })
-                                    .trim()
-                                    .to_string(),
-                                metadata: None,
-                            };
                             msg_store
                                 .push_patch(ConversationPatch::add_normalized_entry(idx, entry));
                         }
@@ -600,20 +579,6 @@ pub fn normalize_logs_with_context_window_override(
             }
         }
 
-        fn extract_tool_name_from_id(id: &str) -> Option<String> {
-            if let Some(idx) = id.rfind('-') {
-                let (head, tail) = id.split_at(idx);
-                if tail
-                    .trim_start_matches('-')
-                    .chars()
-                    .all(|c| c.is_ascii_digit())
-                {
-                    return Some(head.to_string());
-                }
-            }
-            None
-        }
-
         fn extract_url_from_text(text: &str) -> Option<String> {
             // Simple URL extractor
             static URL_RE: LazyLock<Regex> =
@@ -657,6 +622,49 @@ pub fn normalize_logs_with_context_window_override(
     });
 }
 
+fn extract_tool_name_from_id(id: &str) -> Option<String> {
+    if let Some(idx) = id.rfind('-') {
+        let (head, tail) = id.split_at(idx);
+        if tail
+            .trim_start_matches('-')
+            .chars()
+            .all(|c| c.is_ascii_digit())
+        {
+            return Some(head.to_string());
+        }
+    }
+    None
+}
+
+fn denied_approval_feedback_entry(
+    response: &super::ApprovalResponse,
+    tool_states: &HashMap<String, PartialToolCallData>,
+) -> Option<NormalizedEntry> {
+    let ApprovalStatus::Denied { reason } = &response.status else {
+        return None;
+    };
+
+    let tool_name = tool_states
+        .get(&response.tool_call_id)
+        .map(|tool| {
+            extract_tool_name_from_id(tool.id.0.as_ref()).unwrap_or_else(|| tool.title.clone())
+        })
+        .unwrap_or_default();
+
+    Some(NormalizedEntry {
+        timestamp: None,
+        entry_type: NormalizedEntryType::UserFeedback {
+            denied_tool: tool_name,
+        },
+        content: reason
+            .clone()
+            .unwrap_or_else(|| "User denied this tool use request".to_string())
+            .trim()
+            .to_string(),
+        metadata: None,
+    })
+}
+
 fn acp_context_window_or_fallback(size: u64, fallback: Option<u32>) -> Option<u32> {
     if size > 0 {
         Some(size.min(u32::MAX as u64) as u32)
@@ -680,21 +688,25 @@ mod tests {
     use std::{path::Path, sync::Arc};
 
     use agent_client_protocol::schema::{
-        ContentBlock, ImageContent, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
-        ResourceLink, TextContent, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
-        ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+        ContentBlock, ImageContent, PermissionOption, PermissionOptionKind, Plan, PlanEntry,
+        PlanEntryPriority, PlanEntryStatus, RequestPermissionRequest, ResourceLink, TextContent,
+        ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate,
+        ToolCallUpdateFields, ToolKind,
     };
     use serde_json::json;
-    use workspace_utils::{log_msg::LogMsg, msg_store::MsgStore};
+    use workspace_utils::{approvals::ApprovalStatus, log_msg::LogMsg, msg_store::MsgStore};
 
     use super::{
         AcpEvent, PartialToolCallData, acp_context_window_or_fallback, content_block_to_markdown,
         format_plan_markdown, heuristically_extract_task_create, merge_streaming_text,
         normalize_logs_with_context_window_override, task_tool_call_view,
     };
-    use crate::logs::{
-        ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus,
-        utils::patch::extract_normalized_entry_from_patch,
+    use crate::{
+        executors::acp::ApprovalResponse,
+        logs::{
+            ActionType, NormalizedEntry, NormalizedEntryType, ToolStatus,
+            utils::patch::extract_normalized_entry_from_patch,
+        },
     };
 
     fn normalized_entries(msg_store: &MsgStore) -> Vec<(usize, NormalizedEntry)> {
@@ -1000,6 +1012,75 @@ mod tests {
             result.as_ref().and_then(|value| value.output.as_deref()),
             Some("finished\n")
         );
+    }
+
+    #[tokio::test]
+    async fn denied_permission_response_adds_user_feedback_entry() {
+        let msg_store = Arc::new(MsgStore::new());
+        normalize_logs_with_context_window_override(msg_store.clone(), Path::new("C:/repo"), None);
+
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::RequestPermission(RequestPermissionRequest::new(
+                "session-1",
+                ToolCallUpdate::new(
+                    ToolCallId::new("shell-approval-1"),
+                    ToolCallUpdateFields::new()
+                        .title("cargo test")
+                        .kind(ToolKind::Execute)
+                        .status(ToolCallStatus::Pending)
+                        .raw_input(json!({ "command": "cargo test" }))
+                ),
+                vec![PermissionOption::new(
+                    "reject-once",
+                    "Reject once",
+                    PermissionOptionKind::RejectOnce
+                )],
+            ))
+        ));
+        msg_store.push_stdout(format!(
+            "{}\n",
+            AcpEvent::ApprovalResponse(ApprovalResponse {
+                tool_call_id: "shell-approval-1".to_string(),
+                status: ApprovalStatus::Denied {
+                    reason: Some("  Too risky right now  ".to_string()),
+                },
+            })
+        ));
+        msg_store.push_finished();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if normalized_entries(&msg_store).len() >= 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("permission denial produced tool and feedback entries");
+
+        let entries = normalized_entries(&msg_store);
+        let NormalizedEntryType::ToolUse {
+            tool_name,
+            action_type,
+            status,
+        } = &entries[0].1.entry_type
+        else {
+            panic!("expected permission request to produce tool entry");
+        };
+        assert_eq!(tool_name, "cargo test");
+        assert!(matches!(status, ToolStatus::Created));
+        let ActionType::CommandRun { command, .. } = action_type else {
+            panic!("expected command run action");
+        };
+        assert_eq!(command, "cargo test");
+
+        let NormalizedEntryType::UserFeedback { denied_tool } = &entries[1].1.entry_type else {
+            panic!("expected denied approval feedback");
+        };
+        assert_eq!(denied_tool, "shell-approval");
+        assert_eq!(entries[1].1.content, "Too risky right now");
     }
 }
 

@@ -27,18 +27,12 @@ pub use types::{EventError, EventPatch, EventPatchInner, HookTables, RecordTypes
 pub struct EventService {
     msg_store: Arc<MsgStore>,
     db: DBService,
-    #[allow(dead_code)]
-    entry_count: Arc<RwLock<usize>>,
 }
 
 impl EventService {
     /// Creates a new EventService that will work with a DBService configured with hooks
-    pub fn new(db: DBService, msg_store: Arc<MsgStore>, entry_count: Arc<RwLock<usize>>) -> Self {
-        Self {
-            msg_store,
-            db,
-            entry_count,
-        }
+    pub fn new(db: DBService, msg_store: Arc<MsgStore>) -> Self {
+        Self { msg_store, db }
     }
 
     async fn push_workspace_update_for_session(

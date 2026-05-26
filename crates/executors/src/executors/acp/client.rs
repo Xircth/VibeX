@@ -18,6 +18,51 @@ use crate::{
     executors::acp::{AcpEvent, ApprovalResponse, acp_terminal_registry},
 };
 
+fn selected_permission_outcome_for_kind(
+    options: &[acp::schema::PermissionOption],
+    kind: PermissionOptionKind,
+) -> Option<RequestPermissionOutcome> {
+    options
+        .iter()
+        .find(|option| option.kind == kind)
+        .map(|option| {
+            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                option.option_id.clone(),
+            ))
+        })
+}
+
+fn auto_permission_outcome(options: &[acp::schema::PermissionOption]) -> RequestPermissionOutcome {
+    selected_permission_outcome_for_kind(options, PermissionOptionKind::AllowAlways)
+        .or_else(|| selected_permission_outcome_for_kind(options, PermissionOptionKind::AllowOnce))
+        .or_else(|| {
+            options.first().map(|option| {
+                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                    option.option_id.clone(),
+                ))
+            })
+        })
+        .unwrap_or(RequestPermissionOutcome::Cancelled)
+}
+
+fn approval_status_permission_outcome(
+    status: &ApprovalStatus,
+    options: &[acp::schema::PermissionOption],
+) -> Option<RequestPermissionOutcome> {
+    match status {
+        ApprovalStatus::Approved => {
+            selected_permission_outcome_for_kind(options, PermissionOptionKind::AllowOnce)
+        }
+        ApprovalStatus::Denied { .. } => Some(
+            selected_permission_outcome_for_kind(options, PermissionOptionKind::RejectOnce)
+                .unwrap_or(RequestPermissionOutcome::Cancelled),
+        ),
+        ApprovalStatus::TimedOut | ApprovalStatus::Pending => {
+            Some(RequestPermissionOutcome::Cancelled)
+        }
+    }
+}
+
 /// ACP client that handles agent-client protocol communication
 #[derive(Clone)]
 pub struct AcpClient {
@@ -150,27 +195,15 @@ impl AcpClient {
         self.send_event(AcpEvent::RequestPermission(args.clone()));
 
         if self.approvals.is_none() {
-            // Auto-approve with best available option when no approval service is configured
-            let chosen_option = args
-                .options
-                .iter()
-                .find(|o| matches!(o.kind, PermissionOptionKind::AllowAlways))
-                .or_else(|| {
-                    args.options
-                        .iter()
-                        .find(|o| matches!(o.kind, PermissionOptionKind::AllowOnce))
-                })
-                .or_else(|| args.options.first());
-
-            let outcome = if let Some(opt) = chosen_option {
-                debug!("Auto-approving permission with option: {}", opt.option_id);
-                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                    opt.option_id.clone(),
-                ))
+            let outcome = auto_permission_outcome(&args.options);
+            if let RequestPermissionOutcome::Selected(selected) = &outcome {
+                debug!(
+                    "Auto-approving permission with option: {}",
+                    selected.option_id
+                );
             } else {
                 warn!("No permission options available, cancelling");
-                RequestPermissionOutcome::Cancelled
-            };
+            }
 
             return Ok(RequestPermissionResponse::new(outcome));
         }
@@ -207,49 +240,26 @@ impl AcpClient {
             }
         };
 
-        // Map our ApprovalStatus to ACP outcome
-        let outcome = match &status {
-            ApprovalStatus::Approved => {
-                let chosen = args
-                    .options
-                    .iter()
-                    .find(|o| matches!(o.kind, PermissionOptionKind::AllowOnce));
-                if let Some(opt) = chosen {
-                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                        opt.option_id.clone(),
-                    ))
-                } else {
-                    tracing::error!("No suitable approval option found, cancelling");
-                    return Err(acp::Error::invalid_request());
-                }
+        if let ApprovalStatus::Denied { reason } = &status {
+            if let Some(feedback) = reason.as_ref() {
+                self.enqueue_feedback(feedback.clone()).await;
             }
-            ApprovalStatus::Denied { reason } => {
-                // If user provided a reason, queue it to send after denial
-                if let Some(feedback) = reason.as_ref() {
-                    self.enqueue_feedback(feedback.clone()).await;
-                }
-                let chosen = args
-                    .options
-                    .iter()
-                    .find(|o| matches!(o.kind, PermissionOptionKind::RejectOnce));
-                if let Some(opt) = chosen {
-                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                        opt.option_id.clone(),
-                    ))
-                } else {
-                    warn!("No permission options for denial, cancelling");
-                    RequestPermissionOutcome::Cancelled
-                }
+            if selected_permission_outcome_for_kind(&args.options, PermissionOptionKind::RejectOnce)
+                .is_none()
+            {
+                warn!("No permission options for denial, cancelling");
             }
-            ApprovalStatus::TimedOut => {
-                warn!("Approval timed out");
-                RequestPermissionOutcome::Cancelled
-            }
-            ApprovalStatus::Pending => {
-                // This should not occur after waiter resolves
-                warn!("Approval resolved to Pending");
-                RequestPermissionOutcome::Cancelled
-            }
+        }
+        if matches!(status, ApprovalStatus::TimedOut) {
+            warn!("Approval timed out");
+        }
+        if matches!(status, ApprovalStatus::Pending) {
+            warn!("Approval resolved to Pending");
+        }
+
+        let Some(outcome) = approval_status_permission_outcome(&status, &args.options) else {
+            tracing::error!("No suitable approval option found, cancelling");
+            return Err(acp::Error::invalid_request());
         };
 
         self.send_event(AcpEvent::ApprovalResponse(ApprovalResponse {
@@ -310,5 +320,86 @@ impl AcpClient {
         }
 
         Ok(KillTerminalResponse::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use agent_client_protocol::schema::{
+        PermissionOption, PermissionOptionKind, RequestPermissionOutcome,
+    };
+    use workspace_utils::approvals::ApprovalStatus;
+
+    use super::{approval_status_permission_outcome, auto_permission_outcome};
+
+    fn option(id: &'static str, kind: PermissionOptionKind) -> PermissionOption {
+        PermissionOption::new(id, id, kind)
+    }
+
+    fn selected_id(outcome: &RequestPermissionOutcome) -> Option<String> {
+        match outcome {
+            RequestPermissionOutcome::Selected(selected) => Some(selected.option_id.0.to_string()),
+            RequestPermissionOutcome::Cancelled => None,
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn auto_permission_prefers_allow_always_then_allow_once() {
+        let options = vec![
+            option("allow-once", PermissionOptionKind::AllowOnce),
+            option("allow-always", PermissionOptionKind::AllowAlways),
+        ];
+
+        let outcome = auto_permission_outcome(&options);
+
+        assert_eq!(selected_id(&outcome).as_deref(), Some("allow-always"));
+    }
+
+    #[test]
+    fn auto_permission_falls_back_to_first_option_or_cancelled() {
+        let options = vec![option("reject-once", PermissionOptionKind::RejectOnce)];
+
+        let outcome = auto_permission_outcome(&options);
+
+        assert_eq!(selected_id(&outcome).as_deref(), Some("reject-once"));
+        assert!(matches!(
+            auto_permission_outcome(&[]),
+            RequestPermissionOutcome::Cancelled
+        ));
+    }
+
+    #[test]
+    fn approval_status_permission_outcome_maps_approved_and_denied_options() {
+        let options = vec![
+            option("allow-once", PermissionOptionKind::AllowOnce),
+            option("reject-once", PermissionOptionKind::RejectOnce),
+        ];
+
+        let approved = approval_status_permission_outcome(&ApprovalStatus::Approved, &options)
+            .expect("approved outcome");
+        let denied =
+            approval_status_permission_outcome(&ApprovalStatus::Denied { reason: None }, &options)
+                .expect("denied outcome");
+
+        assert_eq!(selected_id(&approved).as_deref(), Some("allow-once"));
+        assert_eq!(selected_id(&denied).as_deref(), Some("reject-once"));
+    }
+
+    #[test]
+    fn approval_status_permission_outcome_handles_missing_and_cancelled_states() {
+        let reject_only = vec![option("reject-once", PermissionOptionKind::RejectOnce)];
+
+        assert!(
+            approval_status_permission_outcome(&ApprovalStatus::Approved, &reject_only).is_none()
+        );
+        assert!(matches!(
+            approval_status_permission_outcome(&ApprovalStatus::TimedOut, &reject_only),
+            Some(RequestPermissionOutcome::Cancelled)
+        ));
+        assert!(matches!(
+            approval_status_permission_outcome(&ApprovalStatus::Pending, &reject_only),
+            Some(RequestPermissionOutcome::Cancelled)
+        ));
     }
 }

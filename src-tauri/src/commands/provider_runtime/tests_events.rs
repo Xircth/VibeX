@@ -1,3 +1,5 @@
+use super::*;
+
 #[test]
 fn provider_command_catalogs_are_isolated() {
     let claude = provider_slash_commands(ProviderId::Claude);
@@ -90,9 +92,7 @@ fn codex_turn_start_active_turn_errors_are_retryable() {
     assert!(codex_turn_start_error_is_active_turn(
         "conversation is currently running"
     ));
-    assert!(!codex_turn_start_error_is_active_turn(
-        "thread not found"
-    ));
+    assert!(!codex_turn_start_error_is_active_turn("thread not found"));
 }
 
 #[test]
@@ -277,13 +277,13 @@ fn native_provider_events_extract_display_text_without_user_echoes() {
         extract_provider_text(&opencode_event),
         Some("opencode reply".to_string())
     );
-    assert_eq!(
-        extract_provider_stream_text(&opencode_part_delta),
-        None
-    );
+    assert_eq!(extract_provider_stream_text(&opencode_part_delta), None);
     assert_eq!(extract_provider_text(&opencode_part_delta), None);
     assert_eq!(extract_provider_stream_text(&opencode_next_delta), None);
-    assert_eq!(extract_provider_stream_text(&opencode_reasoning_delta), None);
+    assert_eq!(
+        extract_provider_stream_text(&opencode_reasoning_delta),
+        None
+    );
     assert_eq!(extract_provider_text(&opencode_reasoning_delta), None);
     assert_eq!(extract_provider_text(&opencode_user_part), None);
     assert_eq!(
@@ -654,9 +654,24 @@ fn native_provider_events_extract_agent_creation_tools_for_all_providers() {
     });
 
     for (event, expected_id, expected_description, expected_agent) in [
-        (&claude_task, "toolu_task", "Inspect Kanban button behavior", "explorer"),
-        (&codex_spawn_agent, "call_spawn", "Implement the theme updates", "executor"),
-        (&opencode_delegate, "call_delegate", "Verify the final UI", "verifier"),
+        (
+            &claude_task,
+            "toolu_task",
+            "Inspect Kanban button behavior",
+            "explorer",
+        ),
+        (
+            &codex_spawn_agent,
+            "call_spawn",
+            "Implement the theme updates",
+            "executor",
+        ),
+        (
+            &opencode_delegate,
+            "call_delegate",
+            "Verify the final UI",
+            "verifier",
+        ),
     ] {
         let updates = extract_provider_tool_updates(event);
         assert_eq!(updates.len(), 1);
@@ -715,10 +730,7 @@ fn native_provider_events_extract_codex_collab_agent_tools() {
     assert_eq!(spawn_updates[0].tool_name.as_deref(), Some("spawn_agent"));
     assert!(matches!(spawn_updates[0].status, ToolStatus::Created));
     match spawn_updates[0].action_type.as_ref().unwrap() {
-        ActionType::TaskCreate {
-            description,
-            ..
-        } => {
+        ActionType::TaskCreate { description, .. } => {
             assert_eq!(description, "Audit current panel");
             assert!(spawn_updates[0].result.is_some());
         }
@@ -731,9 +743,7 @@ fn native_provider_events_extract_codex_collab_agent_tools() {
     assert_eq!(wait_updates[0].tool_name.as_deref(), Some("wait_agent"));
     assert!(matches!(wait_updates[0].status, ToolStatus::Success));
     match wait_updates[0].action_type.as_ref().unwrap() {
-        ActionType::Tool {
-            tool_name, ..
-        } => {
+        ActionType::Tool { tool_name, .. } => {
             assert_eq!(tool_name, "wait_agent");
             assert!(wait_updates[0].result.is_some());
         }

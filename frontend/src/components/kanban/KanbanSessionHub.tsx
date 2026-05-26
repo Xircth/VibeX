@@ -6,9 +6,9 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ScratchType, type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -25,7 +25,7 @@ import { useRepoBranches } from '@/hooks/useRepoBranches';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { scratchApi, sessionsApi, type SessionStatus } from '@/lib/api';
+import { sessionsApi, type SessionStatus } from '@/lib/api';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import { paths } from '@/lib/paths';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
@@ -34,22 +34,25 @@ import {
   findCurrentProjectBranchOption,
   findWorkspaceBranchOption,
   findWorkspaceBranchOptionByWorkspaceId,
-  resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { getFirstAvailableProfile } from '@/utils/executor';
 import { type SessionCreationMode } from '@/components/sessions/SessionCreationForm';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
+import { useKanbanSessionMutations } from './session-hub/useKanbanSessionMutations';
 import {
   DEFAULT_SESSION_LIST_WIDTH,
   ARCHIVED_SESSION_STATUS,
   MAX_SESSION_LIST_WIDTH,
   MIN_SESSION_LIST_WIDTH,
   SESSION_LIST_WIDTH_STORAGE_KEY,
-  UNASSIGNED_EXECUTOR,
-  getExecutorDisplayName,
-  getExecutorFilterValue,
+  getBulkDeleteSessionSummary,
+  getCanCreateKanbanSession,
+  getDisplayedSessionCount,
+  getExecutorFilterOptions,
+  filterKanbanSessions,
+  groupKanbanSessionsByStatus,
   mapSessionErrorMessage,
   sortSessions,
   toggleStringValue,
@@ -435,110 +438,21 @@ export function KanbanSessionHub() {
     });
   }, [sessions]);
 
-  const createSessionMutation = useMutation({
-    mutationFn: async ({
-      workspaceValue,
-      sessionName,
-      executorProfile,
-      mode,
-    }: {
-      workspaceValue: string;
-      sessionName: string;
-      executorProfile: ExecutorProfileId | null;
-      mode: SessionCreationMode;
-    }) => {
-      if (mode === 'existing_workspace' && !workspaceValue) {
-        throw new Error('Workspace is required');
-      }
-
-      if (!projectId) {
-        throw new Error('Project is required');
-      }
-
-      const selectedWorkspaceOption =
-        mode === 'existing_workspace'
-          ? findWorkspaceBranchOption(workspaceBranchOptions, workspaceValue)
-          : null;
-      const workspaceSelection =
-        mode === 'existing_workspace'
-          ? resolveWorkspaceBranchSelection(selectedWorkspaceOption)
-          : { workspaceId: null, branch: null };
-
-      const session = await sessionsApi.createProject({
-        project_id: projectId,
-        workspace_id: workspaceSelection.workspaceId,
-        branch: workspaceSelection.branch,
-        executor: executorProfile?.executor ?? undefined,
-        name: sessionName.trim() || null,
-        create_workspace: mode === 'new_workspace',
-        repos: mode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
-      });
-
-      if (executorProfile?.executor) {
-        await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, session.id, {
-          payload: {
-            type: 'DRAFT_FOLLOW_UP',
-            data: {
-              message: '',
-              images: [],
-              executor_config: executorProfile,
-              queued: false,
-            },
-          },
-        });
-      }
-
-      return session;
-    },
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({
-        queryKey: ['kanbanProjectWorkspaces', projectId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ['projectWorktrees', projectId],
-      });
-      if (primaryRepo?.id) {
-        queryClient.invalidateQueries({
-          queryKey: ['repoBranches', primaryRepo.id],
-        });
-      }
-      queryClient.invalidateQueries({
-        queryKey: ['workspaceSessions', session.workspace_id],
-      });
-      placeCreatedSession({
-        sessionId: session.id,
-        workspaceId: session.workspace_id,
-      });
-      setPendingCreatedSessionIds((current) =>
-        current.includes(session.id) ? current : [...current, session.id]
-      );
-      updateCreateSessionName('');
-      setIsCreatePopoverOpen(false);
-    },
-  });
-
-  const renameSessionMutation = useMutation({
-    mutationFn: async ({
-      sessionId,
-      name,
-      workspaceId,
-    }: {
-      sessionId: string;
-      name: string | null;
-      workspaceId: string;
-    }) => {
-      await sessionsApi.rename(sessionId, name);
-      return { sessionId, workspaceId };
-    },
-    onSuccess: ({ sessionId, workspaceId }) => {
-      queryClient.invalidateQueries({
-        queryKey: ['workspaceSessions', workspaceId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ['session', sessionId],
-      });
-    },
-  });
+  const { createSessionMutation, renameSessionMutation } =
+    useKanbanSessionMutations({
+      projectId,
+      primaryRepoId: primaryRepo?.id,
+      workspaceBranchOptions,
+      getWorkspaceRepoInputs,
+      placeCreatedSession,
+      addPendingCreatedSession: (sessionId) => {
+        setPendingCreatedSessionIds((current) =>
+          current.includes(sessionId) ? current : [...current, sessionId]
+        );
+      },
+      clearCreateSessionName: () => updateCreateSessionName(''),
+      closeCreatePopover: () => setIsCreatePopoverOpen(false),
+    });
 
   const sessionsWithOptimisticStatus = useMemo(
     () =>
@@ -584,45 +498,17 @@ export function KanbanSessionHub() {
     [sessionsWithOptimisticStatus]
   );
 
-  const executorFilterOptions = useMemo(() => {
-    const values = Array.from(
-      new Set(
-        activeSessionsWithOptimisticStatus.map((session) =>
-          getExecutorFilterValue(session.executor)
-        )
-      )
-    );
-
-    return values
-      .map((value) => ({
-        value,
-        label: getExecutorDisplayName(
-          value === UNASSIGNED_EXECUTOR ? null : value
-        ),
-      }))
-      .sort((left, right) => left.label.localeCompare(right.label, 'zh-CN'));
-  }, [activeSessionsWithOptimisticStatus]);
+  const executorFilterOptions = useMemo(
+    () => getExecutorFilterOptions(activeSessionsWithOptimisticStatus),
+    [activeSessionsWithOptimisticStatus]
+  );
 
   const filteredSessions = useMemo(
     () =>
-      activeSessionsWithOptimisticStatus.filter((session) => {
-        if (
-          workspaceFilterIds.length > 0 &&
-          !workspaceFilterIds.includes(session.workspace.id)
-        ) {
-          return false;
-        }
-
-        if (
-          executorFilterValues.length > 0 &&
-          !executorFilterValues.includes(
-            getExecutorFilterValue(session.executor)
-          )
-        ) {
-          return false;
-        }
-
-        return true;
+      filterKanbanSessions({
+        sessions: activeSessionsWithOptimisticStatus,
+        workspaceFilterIds,
+        executorFilterValues,
       }),
     [
       executorFilterValues,
@@ -637,18 +523,7 @@ export function KanbanSessionHub() {
   );
 
   const groupedSessions = useMemo(() => {
-    const groups: Record<SessionStatusKey, KanbanProjectSessionRecord[]> = {
-      todo: [],
-      inprogress: [],
-      inreview: [],
-      done: [],
-    };
-
-    activeSessionsWithOptimisticStatus.forEach((session) => {
-      groups[session.status as SessionStatusKey].push(session);
-    });
-
-    return groups;
+    return groupKanbanSessionsByStatus(activeSessionsWithOptimisticStatus);
   }, [activeSessionsWithOptimisticStatus]);
 
   const activeWorkspacePlacement = useMemo(() => {
@@ -697,21 +572,22 @@ export function KanbanSessionHub() {
     [createWorkspaceValue, workspaceBranchOptions]
   );
 
-  const canCreateSession =
-    !!selectedExecutorProfile?.executor &&
-    !createSessionMutation.isPending &&
-    (createMode === 'existing_workspace'
-      ? !!selectedWorkspaceOption
-      : projectRepos.length > 0 &&
-        repoBranchConfigs.length > 0 &&
-        repoBranchConfigs.every((config) => !!config.targetBranch));
+  const canCreateSession = getCanCreateKanbanSession({
+    executorProfile: selectedExecutorProfile,
+    isPending: createSessionMutation.isPending,
+    mode: createMode,
+    selectedWorkspaceOption,
+    projectRepoCount: projectRepos.length,
+    repoBranchConfigs,
+  });
 
-  const displayedCount =
-    workspaceFilterIds.length > 0 ||
-    executorFilterValues.length > 0 ||
-    sortField !== null
-      ? flatSessions.length
-      : activeSessionsWithOptimisticStatus.length;
+  const displayedCount = getDisplayedSessionCount({
+    workspaceFilterIds,
+    executorFilterValues,
+    sortField,
+    filteredCount: flatSessions.length,
+    activeCount: activeSessionsWithOptimisticStatus.length,
+  });
 
   const handleCreatePopoverOpenChange = (open: boolean) => {
     setIsCreatePopoverOpen(open);
@@ -941,11 +817,6 @@ export function KanbanSessionHub() {
     setDeleteSuccessMessage(null);
 
     const targetIds = [...selectedSessionIds];
-    const targetSessions = targetIds
-      .map((sessionId) => sessionsById[sessionId])
-      .filter((session): session is KanbanProjectSessionRecord =>
-        Boolean(session)
-      );
 
     const deleteResults = await Promise.allSettled(
       targetIds.map(async (sessionId) => {
@@ -954,32 +825,18 @@ export function KanbanSessionHub() {
       })
     );
 
-    const succeededIds = deleteResults
-      .filter(
-        (result): result is PromiseFulfilledResult<string> =>
-          result.status === 'fulfilled'
-      )
-      .map((result) => result.value);
+    const deleteSummary = getBulkDeleteSessionSummary({
+      targetIds,
+      sessionsById,
+      sessions,
+      deleteResults,
+    });
+    const { succeededIds } = deleteSummary;
 
-    const failedResults = deleteResults
-      .map((result, index) => ({ result, sessionId: targetIds[index] }))
-      .filter(
-        (
-          item
-        ): item is {
-          result: PromiseRejectedResult;
-          sessionId: string;
-        } => item.result.status === 'rejected'
-      );
-
-    const affectedWorkspaceIds = Array.from(
-      new Set(targetSessions.map((session) => session.workspace.id))
-    );
-
-    removeSessionsFromWorkspaceCaches(queryClient, succeededIds);
+    removeSessionsFromWorkspaceCaches(queryClient, deleteSummary.succeededIds);
 
     await Promise.all(
-      affectedWorkspaceIds.map((workspaceId) =>
+      deleteSummary.affectedWorkspaceIds.map((workspaceId) =>
         queryClient.invalidateQueries({
           queryKey: ['workspaceSessions', workspaceId],
         })
@@ -987,32 +844,27 @@ export function KanbanSessionHub() {
     );
 
     await Promise.all(
-      affectedWorkspaceIds.map((workspaceId) =>
+      deleteSummary.affectedWorkspaceIds.map((workspaceId) =>
         queryClient.invalidateQueries({
           queryKey: ['taskAttemptWithSession', workspaceId],
         })
       )
     );
 
-    if (succeededIds.length > 0) {
-      const remainingSessionIds = new Set(
-        sessions
-          .map((session) => session.id)
-          .filter((sessionId) => !succeededIds.includes(sessionId))
-      );
-      pruneSessions(remainingSessionIds);
+    if (deleteSummary.succeededIds.length > 0) {
+      pruneSessions(deleteSummary.remainingSessionIds);
       setDeleteSuccessMessage(`已删除 ${succeededIds.length} 个会话。`);
     }
 
-    if (failedResults.length > 0) {
+    if (deleteSummary.failedResults.length > 0) {
       setDeleteErrorMessage(
-        failedResults
+        deleteSummary.failedResults
           .map(({ result }) =>
             mapSessionErrorMessage(result.reason, '删除失败，请稍后重试。')
           )
           .join('；')
       );
-      setSelectedSessionIds(failedResults.map(({ sessionId }) => sessionId));
+      setSelectedSessionIds(deleteSummary.failedSessionIds);
     } else {
       handleCancelDeleteMode();
     }

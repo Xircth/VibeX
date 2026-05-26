@@ -108,4 +108,33 @@ mod tests {
 
         assert!(err.to_string().contains("http or https"));
     }
+
+    #[test]
+    fn wsl_browser_command_accepts_known_pr_url_forms() {
+        for url in [
+            "https://github.com/owner/repo/pull/123?check_suite_focus=true#discussion_r1",
+            "https://dev.azure.com/org/project/_git/repo/pullrequest/123?_a=files&path=%2Fsrc%2Fmain.rs",
+            "http://localhost:3000/review?next=%2Fpull%2F123#files",
+        ] {
+            let command = wsl_browser_command_parts(url).expect("known browser URL");
+
+            assert_eq!(command.args[3], url);
+        }
+    }
+
+    #[test]
+    fn wsl_browser_command_rejects_shell_sensitive_url_characters() {
+        for url in [
+            "https://example.com/path with spaces",
+            "https://example.com/path'quoted'",
+            "https://example.com/path\"quoted\"",
+            "https://example.com/path`whoami`",
+            "javascript:alert(1)",
+        ] {
+            assert!(
+                wsl_browser_command_parts(url).is_err(),
+                "expected URL to be rejected: {url}"
+            );
+        }
+    }
 }

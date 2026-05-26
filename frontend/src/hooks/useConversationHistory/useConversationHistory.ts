@@ -1,24 +1,17 @@
 import {
-  CommandExitStatus,
   ExecutionProcess,
   ExecutionProcessStatus,
   NormalizedEntry,
   PatchType,
   QueueStatus,
-  TokenUsageInfo,
-  ToolStatus,
 } from 'shared/types';
 import { useQuery } from '@tanstack/react-query';
 import { queueApi } from '@/lib/api';
+import { dateTimestamp } from '@/utils/date';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
-import { streamJsonPatchEntries } from '@/utils/streamJsonPatchEntries';
-import {
-  getContextCompactStatusText,
-  isContextCompactPrompt,
-} from '@/lib/contextCompact';
 import type {
   AddEntryType,
   ExecutionProcessStateStore,
@@ -28,79 +21,41 @@ import type {
   UseConversationHistoryResult,
 } from './types';
 import {
-  makeLoadingPatch,
   MIN_INITIAL_ENTRIES,
   nextActionPatch,
   REMAINING_BATCH_SIZE,
 } from './constants';
+import {
+  createConversationStreamId,
+  getConversationRuntimeState,
+  rememberConversationHistoryState,
+} from './conversationRuntimeStore';
+import {
+  isLikelyStaleRunningSnapshot as isLikelyStaleSnapshotFromStore,
+} from './conversationSnapshotStaleness';
+import { getLatestConversationTokenUsage } from './conversationTokenUsage';
+import { getConversationEmitAddType } from './conversationEmitAddType';
+import { getConversationScriptDisplay } from './conversationScriptDisplay';
+import { getConversationCodingAgentDisplay } from './conversationCodingAgentDisplay';
+import { loadHistoricExecutionProcessEntries } from './conversationHistoricEntriesLoader';
+import { getConversationReloadPlan } from './conversationReloadPlan';
+import { loadRunningConversationStream } from './conversationRunningStream';
+import {
+  loadInitialConversationProcessStates,
+  loadRemainingConversationProcessStates,
+  toConversationProcessState,
+} from './conversationHistoricBatches';
+import { getConversationRemovalPlan } from './conversationRemovalPlan';
+export { clearConversationRuntimeForTests } from './conversationRuntimeStore';
+export { stripPreviouslyDisplayedAssistantPrefix } from './conversationCodingAgentDisplay';
 
 const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
-const MAX_CONVERSATION_RUNTIME_ENTRIES = 20;
-
-type ConversationRuntimeState = {
-  displayedExecutionProcesses: ExecutionProcessStateStore;
-  processIdsKey: string;
-  previousStatusMap: Array<[string, ExecutionProcessStatus]>;
-};
-
-const conversationRuntimeByKey = new Map<string, ConversationRuntimeState>();
-let conversationStreamSubscriptionCounter = 0;
-
-export function clearConversationRuntimeForTests() {
-  conversationRuntimeByKey.clear();
-}
-
-function rememberConversationHistoryState(
-  key: string | null,
-  displayedExecutionProcesses: ExecutionProcessStateStore,
-  processIdsKey: string,
-  previousStatusMap: Map<string, ExecutionProcessStatus>,
-  options: { clone: boolean }
-) {
-  if (!key) return;
-
-  conversationRuntimeByKey.delete(key);
-  conversationRuntimeByKey.set(key, {
-    displayedExecutionProcesses: options.clone
-      ? structuredClone(displayedExecutionProcesses)
-      : displayedExecutionProcesses,
-    processIdsKey,
-    previousStatusMap: Array.from(previousStatusMap.entries()),
-  });
-
-  while (conversationRuntimeByKey.size > MAX_CONVERSATION_RUNTIME_ENTRIES) {
-    const oldestKey = conversationRuntimeByKey.keys().next().value;
-    if (!oldestKey) break;
-    conversationRuntimeByKey.delete(oldestKey);
-  }
-}
-
-function createConversationStreamId(executionProcessId: string): string {
-  conversationStreamSubscriptionCounter += 1;
-  return `${executionProcessId}:${Date.now()}:${conversationStreamSubscriptionCounter}`;
-}
 
 function stripDisplayEntryMetadata(entry: PatchTypeWithKey): PatchType {
   return {
     type: entry.type,
     content: entry.content,
   } as PatchType;
-}
-
-export function stripPreviouslyDisplayedAssistantPrefix(
-  content: string,
-  previousAssistantTranscript: string
-): string {
-  if (
-    previousAssistantTranscript.length < 20 ||
-    content.length <= previousAssistantTranscript.length ||
-    !content.startsWith(previousAssistantTranscript)
-  ) {
-    return content;
-  }
-
-  const stripped = content.slice(previousAssistantTranscript.length);
-  return stripped.trimStart() || content;
 }
 
 export const useConversationHistory = ({
@@ -181,83 +136,6 @@ export const useConversationHistory = ({
     );
   }, [executionProcessesRaw]);
 
-  const loadEntriesForHistoricExecutionProcess = (
-    executionProcess: ExecutionProcess
-  ) => {
-    const normalized =
-      executionProcess.executor_action.typ.type !== 'ScriptRequest';
-    const isRunningSnapshot =
-      executionProcess.status === ExecutionProcessStatus.running;
-    const HISTORIC_STREAM_IDLE_TIMEOUT_MS = isRunningSnapshot ? 50 : 200;
-    const HISTORIC_STREAM_MAX_WAIT_MS = isRunningSnapshot ? 100 : 8000;
-
-    return new Promise<PatchType[]>((resolve) => {
-      let settled = false;
-      let latestEntries: PatchType[] = [];
-      let controller: { close: () => void } | null = null;
-      let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      let maxTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const clearTimers = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-          idleTimer = null;
-        }
-        if (maxTimer) {
-          clearTimeout(maxTimer);
-          maxTimer = null;
-        }
-      };
-
-      const settle = (entries: PatchType[]) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimers();
-        controller?.close();
-        resolve(entries);
-      };
-
-      const scheduleIdleTimeout = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-        }
-        idleTimer = setTimeout(() => {
-          settle(latestEntries);
-        }, HISTORIC_STREAM_IDLE_TIMEOUT_MS);
-      };
-
-      maxTimer = setTimeout(() => {
-        settle(latestEntries);
-      }, HISTORIC_STREAM_MAX_WAIT_MS);
-
-      controller = streamJsonPatchEntries<PatchType>(
-        {
-          executionProcessId: executionProcess.id,
-          normalized,
-        },
-        {
-          onEntries: (entries) => {
-            latestEntries = entries;
-            scheduleIdleTimeout();
-          },
-          onFinished: (allEntries) => {
-            latestEntries = allEntries;
-            settle(allEntries);
-          },
-          onError: (err) => {
-            console.warn(
-              `Error loading entries for historic execution process ${executionProcess.id}`,
-              err
-            );
-            settle(latestEntries);
-          },
-        }
-      );
-    });
-  };
-
   const getLiveExecutionProcess = (
     executionProcessId: string
   ): ExecutionProcess | undefined => {
@@ -266,67 +144,15 @@ export const useConversationHistory = ({
     );
   };
 
-  const patchWithKey = (
-    patch: PatchType,
-    executionProcessId: string,
-    index: number | string
-  ) => {
-    return {
-      ...patch,
-      patchKey: `${executionProcessId}:${index}`,
-      executionProcessId,
-    };
-  };
-
-  const getSnapshotComparisonKeys = useCallback(
-    (entries: PatchTypeWithKey[]): string[] => {
-      return entries
-        .map((entry) => {
-          if (entry.type !== 'NORMALIZED_ENTRY') {
-            return JSON.stringify({ type: entry.type, content: entry.content });
-          }
-
-          const entryType = entry.content.entry_type.type;
-          if (
-            entryType === 'user_message' ||
-            entryType === 'token_usage_info' ||
-            entryType === 'loading'
-          ) {
-            return null;
-          }
-
-          return JSON.stringify({
-            type: entry.type,
-            content: entry.content,
-          });
-        })
-        .filter((key): key is string => Boolean(key));
-    },
-    []
-  );
-
   const isLikelyStaleRunningSnapshot = useCallback(
     (executionProcessId: string, entries: PatchTypeWithKey[]): boolean => {
-      const nextKeys = getSnapshotComparisonKeys(entries);
-      if (nextKeys.length === 0) {
-        return false;
-      }
-
-      return Object.entries(displayedExecutionProcesses.current).some(
-        ([otherProcessId, state]) => {
-          if (otherProcessId === executionProcessId) {
-            return false;
-          }
-
-          const existingKeys = getSnapshotComparisonKeys(state.entries);
-          return (
-            existingKeys.length === nextKeys.length &&
-            existingKeys.every((key, index) => key === nextKeys[index])
-          );
-        }
+      return isLikelyStaleSnapshotFromStore(
+        executionProcessId,
+        entries,
+        displayedExecutionProcesses.current
       );
     },
-    [getSnapshotComparisonKeys]
+    []
   );
 
   const getActiveAgentProcesses = (): ExecutionProcess[] => {
@@ -353,12 +179,8 @@ export const useConversationHistory = ({
       const allEntries = Object.values(executionProcessState)
         .sort(
           (a, b) =>
-            new Date(
-              a.executionProcess.created_at as unknown as string
-            ).getTime() -
-            new Date(
-              b.executionProcess.created_at as unknown as string
-            ).getTime()
+            dateTimestamp(a.executionProcess.created_at) -
+            dateTimestamp(b.executionProcess.created_at)
         )
         .flatMap((p, index) => {
           const entries: PatchTypeWithKey[] = [];
@@ -369,258 +191,62 @@ export const useConversationHistory = ({
               'CodingAgentFollowUpRequest' ||
             p.executionProcess.executor_action.typ.type === 'ReviewRequest'
           ) {
-            const actionType = p.executionProcess.executor_action.typ;
-            const compactProcessStatus = getLiveExecutionProcess(
-              p.executionProcess.id
-            )?.status;
-            const isContextCompact = isContextCompactPrompt(actionType.prompt);
+            const agentDisplay = getConversationCodingAgentDisplay(p, {
+              previousAssistantTranscript,
+              liveProcessStatus: getLiveExecutionProcess(p.executionProcess.id)
+                ?.status,
+            });
 
-            if (isContextCompact) {
-              const compactStatusEntryType =
-                compactProcessStatus === ExecutionProcessStatus.failed ||
-                compactProcessStatus === ExecutionProcessStatus.killed
-                  ? ({
-                      type: 'error_message',
-                      error_type: {
-                        type: 'other',
-                      },
-                    } as const)
-                  : ({
-                      type: 'system_message',
-                    } as const);
-
-              const compactStatusEntry: NormalizedEntry = {
-                entry_type: compactStatusEntryType,
-                content: getContextCompactStatusText(compactProcessStatus),
-                timestamp: null,
-              };
-
-              entries.push(
-                patchWithKey(
-                  {
-                    type: 'NORMALIZED_ENTRY',
-                    content: compactStatusEntry,
-                  },
-                  p.executionProcess.id,
-                  'context-compact'
-                )
-              );
-
-              if (compactProcessStatus === ExecutionProcessStatus.running) {
-                hasRunningProcess = true;
-              }
-
-              if (
-                (compactProcessStatus === ExecutionProcessStatus.failed ||
-                  compactProcessStatus === ExecutionProcessStatus.killed) &&
-                index === Object.keys(executionProcessState).length - 1
-              ) {
-                lastProcessFailedOrKilled = true;
-              }
-
+            if (!agentDisplay) {
               return entries;
             }
 
-            // New user message
-            const userNormalizedEntry: NormalizedEntry = {
-              entry_type: {
-                type: 'user_message',
-              },
-              content: actionType.prompt,
-              timestamp: null,
-            };
-            const userPatch: PatchType = {
-              type: 'NORMALIZED_ENTRY',
-              content: userNormalizedEntry,
-            };
-            const userPatchTypeWithKey = patchWithKey(
-              userPatch,
-              p.executionProcess.id,
-              'user'
-            );
-            entries.push(userPatchTypeWithKey);
-
-            // Remove user messages (replaced with custom one) and token usage info (displayed separately)
-            const filteredEntries = p.entries
-              .filter(
-                (e) =>
-                  e.type !== 'NORMALIZED_ENTRY' ||
-                  (e.content.entry_type.type !== 'user_message' &&
-                    e.content.entry_type.type !== 'token_usage_info')
-              )
-              .map((entry) => {
-                if (
-                  entry.type !== 'NORMALIZED_ENTRY' ||
-                  entry.content.entry_type.type !== 'assistant_message'
-                ) {
-                  return entry;
-                }
-
-                const strippedContent = stripPreviouslyDisplayedAssistantPrefix(
-                  entry.content.content,
-                  previousAssistantTranscript
-                );
-                if (strippedContent === entry.content.content) {
-                  return entry;
-                }
-
-                return {
-                  ...entry,
-                  content: {
-                    ...entry.content,
-                    content: strippedContent,
-                  },
-                };
-              });
-
-            const hasPendingApprovalEntry = filteredEntries.some((entry) => {
-              if (entry.type !== 'NORMALIZED_ENTRY') return false;
-              const entryType = entry.content.entry_type;
-              return (
-                entryType.type === 'tool_use' &&
-                entryType.status.status === 'pending_approval'
-              );
-            });
-
-            if (hasPendingApprovalEntry) {
+            if (agentDisplay.hasPendingApproval) {
               hasPendingApproval = true;
             }
 
-            entries.push(...filteredEntries);
-            for (const entry of filteredEntries) {
-              if (
-                entry.type === 'NORMALIZED_ENTRY' &&
-                entry.content.entry_type.type === 'assistant_message' &&
-                entry.content.content.trim().length > 0
-              ) {
-                previousAssistantTranscript += entry.content.content;
-              }
-            }
+            entries.push(...agentDisplay.entries);
+            previousAssistantTranscript = agentDisplay.nextAssistantTranscript;
 
-            const liveProcessStatus = getLiveExecutionProcess(
-              p.executionProcess.id
-            )?.status;
-            const isProcessRunning =
-              liveProcessStatus === ExecutionProcessStatus.running;
-            const processFailedOrKilled =
-              liveProcessStatus === ExecutionProcessStatus.failed ||
-              liveProcessStatus === ExecutionProcessStatus.killed;
-
-            if (isProcessRunning) {
+            if (agentDisplay.isRunning) {
               hasRunningProcess = true;
             }
 
             if (
-              processFailedOrKilled &&
+              agentDisplay.isFailedOrKilled &&
               index === Object.keys(executionProcessState).length - 1
             ) {
               lastProcessFailedOrKilled = true;
 
-              // Check if this failed process has a SetupRequired entry
-              const hasSetupRequired = filteredEntries.some((entry) => {
-                if (entry.type !== 'NORMALIZED_ENTRY') return false;
-                if (
-                  entry.content.entry_type.type === 'error_message' &&
-                  entry.content.entry_type.error_type.type === 'setup_required'
-                ) {
-                  setupHelpText = entry.content.content;
-                  return true;
-                }
-                return false;
-              });
-
-              if (hasSetupRequired) {
+              if (agentDisplay.setupHelpText) {
                 needsSetup = true;
+                setupHelpText = agentDisplay.setupHelpText;
               }
-            }
-
-            if (isProcessRunning && !hasPendingApprovalEntry) {
-              entries.push(makeLoadingPatch(p.executionProcess.id));
             }
           } else if (
             p.executionProcess.executor_action.typ.type === 'ScriptRequest'
           ) {
-            // Add setup and cleanup script as a tool call
-            let toolName = '';
-            switch (p.executionProcess.executor_action.typ.context) {
-              case 'SetupScript':
-                toolName = 'Setup Script';
-                break;
-              case 'CleanupScript':
-                toolName = 'Cleanup Script';
-                break;
-              case 'ArchiveScript':
-                toolName = 'Archive Script';
-                break;
-              case 'ToolInstallScript':
-                toolName = 'Tool Install Script';
-                break;
-              default:
-                return [];
-            }
-
-            const executionProcess = getLiveExecutionProcess(
-              p.executionProcess.id
+            const scriptDisplay = getConversationScriptDisplay(
+              p,
+              getLiveExecutionProcess(p.executionProcess.id)
             );
 
-            if (executionProcess?.status === ExecutionProcessStatus.running) {
+            if (!scriptDisplay) {
+              return [];
+            }
+
+            if (scriptDisplay.isRunning) {
               hasRunningProcess = true;
             }
 
             if (
-              (executionProcess?.status === ExecutionProcessStatus.failed ||
-                executionProcess?.status === ExecutionProcessStatus.killed) &&
+              scriptDisplay.isFailedOrKilled &&
               index === Object.keys(executionProcessState).length - 1
             ) {
               lastProcessFailedOrKilled = true;
             }
 
-            const exitCode = Number(executionProcess?.exit_code) || 0;
-            const exit_status: CommandExitStatus | null =
-              executionProcess?.status === 'running'
-                ? null
-                : {
-                    type: 'exit_code',
-                    code: exitCode,
-                  };
-
-            const toolStatus: ToolStatus =
-              executionProcess?.status === ExecutionProcessStatus.running
-                ? { status: 'created' }
-                : exitCode === 0
-                  ? { status: 'success' }
-                  : { status: 'failed' };
-
-            const output = p.entries.map((line) => line.content).join('\n');
-
-            const toolNormalizedEntry: NormalizedEntry = {
-              entry_type: {
-                type: 'tool_use',
-                tool_name: toolName,
-                action_type: {
-                  action: 'command_run',
-                  command: p.executionProcess.executor_action.typ.script,
-                  result: {
-                    output,
-                    exit_status,
-                  },
-                },
-                status: toolStatus,
-              },
-              content: toolName,
-              timestamp: null,
-            };
-            const toolPatch: PatchType = {
-              type: 'NORMALIZED_ENTRY',
-              content: toolNormalizedEntry,
-            };
-            const toolPatchWithKey: PatchTypeWithKey = patchWithKey(
-              toolPatch,
-              p.executionProcess.id,
-              0
-            );
-
-            entries.push(toolPatchWithKey);
+            entries.push(scriptDisplay.entry);
           }
 
           return entries;
@@ -670,36 +296,8 @@ export const useConversationHistory = ({
       loading: boolean
     ) => {
       const entries = flattenEntriesForEmit(executionProcessState);
-      const orderedProcesses = Object.values(executionProcessState).sort(
-        (a, b) =>
-          new Date(
-            a.executionProcess.created_at as unknown as string
-          ).getTime() -
-          new Date(b.executionProcess.created_at as unknown as string).getTime()
-      );
-      let latestTokenUsageInfo: TokenUsageInfo | null = null;
-
-      for (
-        let processIndex = orderedProcesses.length - 1;
-        processIndex >= 0 && !latestTokenUsageInfo;
-        processIndex--
-      ) {
-        const process = orderedProcesses[processIndex];
-        for (
-          let entryIndex = process.entries.length - 1;
-          entryIndex >= 0;
-          entryIndex--
-        ) {
-          const entry = process.entries[entryIndex];
-          if (
-            entry.type === 'NORMALIZED_ENTRY' &&
-            entry.content.entry_type.type === 'token_usage_info'
-          ) {
-            latestTokenUsageInfo = entry.content.entry_type;
-            break;
-          }
-        }
-      }
+      const latestTokenUsageInfo =
+        getLatestConversationTokenUsage(executionProcessState);
 
       setTokenUsageInfo(latestTokenUsageInfo);
       rememberConversationHistoryState(
@@ -709,19 +307,10 @@ export const useConversationHistory = ({
         previousStatusMapRef.current,
         { clone: false }
       );
-      let modifiedAddEntryType = addEntryType;
-
-      // Modify so that if add entry type is 'running' and last entry is a plan, emit special plan type
-      if (entries.length > 0) {
-        const lastEntry = entries[entries.length - 1];
-        if (
-          lastEntry.type === 'NORMALIZED_ENTRY' &&
-          lastEntry.content.entry_type.type === 'tool_use' &&
-          lastEntry.content.entry_type.tool_name === 'ExitPlanMode'
-        ) {
-          modifiedAddEntryType = 'plan';
-        }
-      }
+      const modifiedAddEntryType = getConversationEmitAddType(
+        entries,
+        addEntryType
+      );
 
       onEntriesUpdatedRef.current?.(entries, modifiedAddEntryType, loading);
     },
@@ -731,131 +320,39 @@ export const useConversationHistory = ({
   // This emits its own events as they are streamed via Tauri Events
   const loadRunningAndEmit = useCallback(
     (executionProcess: ExecutionProcess): Promise<void> => {
-      const normalized =
-        executionProcess.executor_action.typ.type !== 'ScriptRequest';
-      const EMPTY_RUNNING_STREAM_RETRY_MS = 100;
-      const MAX_EMPTY_RUNNING_STREAM_RETRIES = 3;
-
-      return new Promise((resolve, reject) => {
-        activeStreamControllersRef.current.get(executionProcess.id)?.close();
-        activeStreamControllersRef.current.delete(executionProcess.id);
-
-        let controller: { close: () => void } | null = null;
-        let closed = false;
-        let retryTimer: ReturnType<typeof setTimeout> | null = null;
-        let emptyStreamRetryCount = 0;
-        const closeController = () => {
-          if (closed) return;
-          closed = true;
-          if (retryTimer) {
-            clearTimeout(retryTimer);
-            retryTimer = null;
-          }
-          activeStreamControllersRef.current.delete(executionProcess.id);
-          controller?.close();
-        };
-        const startStream = () => {
-          if (closed) return;
-
-          let receivedEntries = false;
-          controller = streamJsonPatchEntries<PatchType>(
-            {
-              executionProcessId: executionProcess.id,
-              normalized,
-              streamId: createConversationStreamId(executionProcess.id),
-            },
-            {
-              initial: {
-                entries:
-                  displayedExecutionProcesses.current[
-                    executionProcess.id
-                  ]?.entries.map(stripDisplayEntryMetadata) ?? [],
-              },
-              onEntries(entries) {
-                const patchesWithKey = entries.map((entry, index) =>
-                  patchWithKey(entry, executionProcess.id, index)
-                );
-                if (
-                  isLikelyStaleRunningSnapshot(
-                    executionProcess.id,
-                    patchesWithKey
-                  )
-                ) {
-                  return;
-                }
-
-                receivedEntries = true;
-                mergeIntoDisplayed((state) => {
-                  state[executionProcess.id] = {
-                    executionProcess,
-                    entries: patchesWithKey,
-                  };
-                });
-                emitEntries(
-                  displayedExecutionProcesses.current,
-                  'running',
-                  false
-                );
-              },
-              onFinished: () => {
-                const liveProcessStatus = getLiveExecutionProcess(
-                  executionProcess.id
-                )?.status;
-                if (
-                  !receivedEntries &&
-                  liveProcessStatus === ExecutionProcessStatus.running &&
-                  emptyStreamRetryCount < MAX_EMPTY_RUNNING_STREAM_RETRIES
-                ) {
-                  emptyStreamRetryCount += 1;
-                  controller?.close();
-                  retryTimer = setTimeout(() => {
-                    retryTimer = null;
-                    startStream();
-                  }, EMPTY_RUNNING_STREAM_RETRY_MS);
-                  return;
-                }
-
-                emitEntries(
-                  displayedExecutionProcesses.current,
-                  'running',
-                  false
-                );
-                closeController();
-                resolve();
-              },
-              onError: (err) => {
-                const liveProcessStatus = getLiveExecutionProcess(
-                  executionProcess.id
-                )?.status;
-                if (
-                  !receivedEntries &&
-                  liveProcessStatus === ExecutionProcessStatus.running &&
-                  emptyStreamRetryCount < MAX_EMPTY_RUNNING_STREAM_RETRIES
-                ) {
-                  emptyStreamRetryCount += 1;
-                  controller?.close();
-                  retryTimer = setTimeout(() => {
-                    retryTimer = null;
-                    startStream();
-                  }, EMPTY_RUNNING_STREAM_RETRY_MS);
-                  return;
-                }
-
-                console.warn(
-                  `Error streaming entries for execution process ${executionProcess.id}`,
-                  err
-                );
-                closeController();
-                reject(err);
-              },
-            }
-          );
-          activeStreamControllersRef.current.set(executionProcess.id, {
-            close: closeController,
+      return loadRunningConversationStream({
+        executionProcess,
+        initialEntries:
+          displayedExecutionProcesses.current[
+            executionProcess.id
+          ]?.entries.map(stripDisplayEntryMetadata) ?? [],
+        createStreamId: createConversationStreamId,
+        getLiveProcessStatus: () =>
+          getLiveExecutionProcess(executionProcess.id)?.status,
+        isLikelyStaleRunningSnapshot: (entries) =>
+          isLikelyStaleRunningSnapshot(executionProcess.id, entries),
+        onEntries: (entries) => {
+          mergeIntoDisplayed((state) => {
+            state[executionProcess.id] = {
+              executionProcess,
+              entries,
+            };
           });
-        };
-
-        startStream();
+          emitEntries(displayedExecutionProcesses.current, 'running', false);
+        },
+        onFinished: () => {
+          emitEntries(displayedExecutionProcesses.current, 'running', false);
+        },
+        closeExistingController: () => {
+          activeStreamControllersRef.current.get(executionProcess.id)?.close();
+          activeStreamControllersRef.current.delete(executionProcess.id);
+        },
+        setActiveController: (controller) => {
+          activeStreamControllersRef.current.set(executionProcess.id, controller);
+        },
+        clearActiveController: () => {
+          activeStreamControllersRef.current.delete(executionProcess.id);
+        },
       });
     },
     [emitEntries, isLikelyStaleRunningSnapshot]
@@ -863,102 +360,34 @@ export const useConversationHistory = ({
 
   const loadInitialEntries =
     useCallback(async (): Promise<ExecutionProcessStateStore> => {
-      const localDisplayedExecutionProcesses: ExecutionProcessStateStore = {};
+      if (!executionProcesses?.current) return {};
 
-      if (!executionProcesses?.current) return localDisplayedExecutionProcesses;
-
-      const historicProcesses = [...executionProcesses.current].reverse();
-
-      for (
-        let index = 0;
-        index < historicProcesses.length;
-        index += HISTORIC_PROCESS_CONCURRENCY
-      ) {
-        const chunk = historicProcesses.slice(
-          index,
-          index + HISTORIC_PROCESS_CONCURRENCY
-        );
-        const chunkEntries = await Promise.all(
-          chunk.map(async (executionProcess) => {
-            const entries =
-              await loadEntriesForHistoricExecutionProcess(executionProcess);
-            const entriesWithKey = entries.map((entry, entryIndex) =>
-              patchWithKey(entry, executionProcess.id, entryIndex)
-            );
-
-            return {
-              executionProcess,
-              entries: entriesWithKey,
-            };
-          })
-        );
-
-        chunkEntries.forEach(({ executionProcess, entries }) => {
-          localDisplayedExecutionProcesses[executionProcess.id] = {
-            executionProcess,
-            entries,
-          };
-        });
-
-        const totalEntries = Object.values(
-          localDisplayedExecutionProcesses
-        ).flatMap((processState) => processState.entries).length;
-        if (totalEntries > MIN_INITIAL_ENTRIES) {
-          break;
-        }
-      }
-
-      return localDisplayedExecutionProcesses;
+      return loadInitialConversationProcessStates(executionProcesses.current, {
+        processConcurrency: HISTORIC_PROCESS_CONCURRENCY,
+        minInitialEntries: MIN_INITIAL_ENTRIES,
+        loadEntries: loadHistoricExecutionProcessEntries,
+      });
     }, [executionProcesses]);
 
   const loadRemainingEntriesInBatches = useCallback(
     async (batchSize: number): Promise<boolean> => {
       if (!executionProcesses?.current) return false;
 
-      const remainingProcesses = [...executionProcesses.current]
-        .reverse()
-        .filter((executionProcess) => {
-          const current = displayedExecutionProcesses.current;
-          return (
-            !current[executionProcess.id] &&
-            executionProcess.status !== ExecutionProcessStatus.running
-          );
-        });
-
-      if (remainingProcesses.length === 0) {
-        return false;
-      }
-
-      const chunk = remainingProcesses.slice(0, HISTORIC_PROCESS_CONCURRENCY);
-      const chunkEntries = await Promise.all(
-        chunk.map(async (executionProcess) => {
-          const entries =
-            await loadEntriesForHistoricExecutionProcess(executionProcess);
-          const entriesWithKey = entries.map((entry, entryIndex) =>
-            patchWithKey(entry, executionProcess.id, entryIndex)
-          );
-
-          return {
-            executionProcess,
-            entries: entriesWithKey,
-          };
-        })
+      const result = await loadRemainingConversationProcessStates(
+        executionProcesses.current,
+        displayedExecutionProcesses.current,
+        {
+          processConcurrency: HISTORIC_PROCESS_CONCURRENCY,
+          batchSize,
+          loadEntries: loadHistoricExecutionProcessEntries,
+        }
       );
 
       mergeIntoDisplayed((state) => {
-        chunkEntries.forEach(({ executionProcess, entries }) => {
-          state[executionProcess.id] = {
-            executionProcess,
-            entries,
-          };
-        });
+        Object.assign(state, result.loadedStates);
       });
 
-      const totalEntries = Object.values(
-        displayedExecutionProcesses.current
-      ).flatMap((processState) => processState.entries).length;
-
-      return totalEntries > batchSize || chunkEntries.length > 0;
+      return result.shouldContinue;
     },
     [executionProcesses]
   );
@@ -998,7 +427,7 @@ export const useConversationHistory = ({
     prevConversationKeyRef.current = conversationKey;
 
     closeAllRunningStreams();
-    const existingRuntime = conversationRuntimeByKey.get(conversationKey);
+    const existingRuntime = getConversationRuntimeState(conversationKey);
 
     if (existingRuntime) {
       displayedExecutionProcesses.current = structuredClone(
@@ -1138,75 +567,54 @@ export const useConversationHistory = ({
   useEffect(() => {
     if (!executionProcessesRaw) return;
 
-    const processesToReload: ExecutionProcess[] = [];
-    const lateHistoricProcesses: ExecutionProcess[] = [];
-    let shouldEmitStoppedState = false;
+    const reloadPlan = getConversationReloadPlan({
+      processes: executionProcessesRaw,
+      displayedProcessIds: new Set(
+        Object.keys(displayedExecutionProcesses.current)
+      ),
+      previousStatusMap: previousStatusMapRef.current,
+      loadingHistoricProcessIds: loadingHistoricProcessIdsRef.current,
+      loadedInitialEntries: loadedInitialEntries.current,
+    });
 
-    for (const process of executionProcessesRaw) {
-      const previousStatus = previousStatusMapRef.current.get(process.id);
-      const currentStatus = process.status;
-      const isDisplayed = !!displayedExecutionProcesses.current[process.id];
-      const isRunning = currentStatus === ExecutionProcessStatus.running;
-
-      if (
-        previousStatus === ExecutionProcessStatus.running &&
-        currentStatus !== ExecutionProcessStatus.running &&
-        isDisplayed
-      ) {
-        shouldEmitStoppedState = true;
-
-        const activeStreamController = activeStreamControllersRef.current.get(
-          process.id
-        );
-        if (activeStreamController) {
-          activeStreamController.close();
-          activeStreamControllersRef.current.delete(process.id);
-          streamingProcessIdsRef.current.delete(process.id);
-        }
-        processesToReload.push(process);
+    for (const process of reloadPlan.processesToReload) {
+      const activeStreamController = activeStreamControllersRef.current.get(
+        process.id
+      );
+      if (activeStreamController) {
+        activeStreamController.close();
+        activeStreamControllersRef.current.delete(process.id);
+        streamingProcessIdsRef.current.delete(process.id);
       }
-
-      if (
-        loadedInitialEntries.current &&
-        !isRunning &&
-        !isDisplayed &&
-        !loadingHistoricProcessIdsRef.current.has(process.id)
-      ) {
-        loadingHistoricProcessIdsRef.current.add(process.id);
-        lateHistoricProcesses.push(process);
-      }
-
-      previousStatusMapRef.current.set(process.id, currentStatus);
     }
 
-    if (shouldEmitStoppedState) {
+    for (const processId of reloadPlan.loadingHistoricProcessIdsToAdd) {
+      loadingHistoricProcessIdsRef.current.add(processId);
+    }
+
+    for (const [processId, status] of reloadPlan.nextPreviousStatuses) {
+      previousStatusMapRef.current.set(processId, status);
+    }
+
+    if (reloadPlan.shouldEmitStoppedState) {
       emitEntries(displayedExecutionProcesses.current, 'running', false);
     }
 
-    const reloadTargets = [...processesToReload, ...lateHistoricProcesses];
+    const reloadTargets = [
+      ...reloadPlan.processesToReload,
+      ...reloadPlan.lateHistoricProcesses,
+    ];
     if (reloadTargets.length === 0) return;
 
     (async () => {
       let anyUpdated = false;
 
       for (const process of reloadTargets) {
-        const entries = await loadEntriesForHistoricExecutionProcess(process);
+        const entries = await loadHistoricExecutionProcessEntries(process);
         loadingHistoricProcessIdsRef.current.delete(process.id);
 
-        const entriesWithKey = entries.map((entry, idx) =>
-          patchWithKey(entry, process.id, idx)
-        );
-
         mergeIntoDisplayed((state) => {
-          state[process.id] = {
-            executionProcess: {
-              id: process.id,
-              created_at: process.created_at,
-              updated_at: process.updated_at,
-              executor_action: process.executor_action,
-            },
-            entries: entriesWithKey,
-          };
+          state[process.id] = toConversationProcessState(process, entries);
         });
         anyUpdated = true;
       }
@@ -1220,11 +628,12 @@ export const useConversationHistory = ({
   // If an execution process is removed, remove it from the state
   useEffect(() => {
     if (!executionProcessesRaw) return;
-    if (executionProcessesLoading || executionProcessesError) return;
-
-    const removedProcessIds = Object.keys(
-      displayedExecutionProcesses.current
-    ).filter((id) => !executionProcessesRaw.some((p) => p.id === id));
+    const removedProcessIds = getConversationRemovalPlan({
+      displayedProcessIds: Object.keys(displayedExecutionProcesses.current),
+      visibleProcessIds: executionProcessesRaw.map((process) => process.id),
+      isLoading: executionProcessesLoading,
+      hasError: !!executionProcessesError,
+    });
 
     if (removedProcessIds.length > 0) {
       mergeIntoDisplayed((state) => {

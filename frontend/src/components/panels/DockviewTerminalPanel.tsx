@@ -22,6 +22,9 @@ import {
   getTerminalWorkspaceKey,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
+import { isTerminalTabCloseKey } from './terminalTabClosePolicy';
+
+type TerminalCloseEvent = Pick<React.SyntheticEvent, 'stopPropagation'>;
 
 function DockviewTerminalPanel(props: IDockviewPanelProps) {
   const { activeWorktreeId } = useWorktree();
@@ -139,7 +142,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
   }, [activeTabId, sessions, setActiveTab, workspaceId]);
 
   const handleCloseTab = useCallback(
-    async (event: React.MouseEvent, tabId: string) => {
+    async (event: TerminalCloseEvent, tabId: string) => {
       event.stopPropagation();
       if (!workspaceId) return;
 
@@ -271,11 +274,8 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
                   tabIndex={0}
                   onClick={(event) => void handleCloseTab(event, session.tabId)}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      void handleCloseTab(
-                        event as unknown as React.MouseEvent,
-                        session.tabId
-                      );
+                    if (isTerminalTabCloseKey(event.key)) {
+                      void handleCloseTab(event, session.tabId);
                     }
                   }}
                   className="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"

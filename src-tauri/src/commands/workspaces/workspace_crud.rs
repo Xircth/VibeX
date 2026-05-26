@@ -1,3 +1,27 @@
+use std::path::PathBuf;
+
+use db::models::{
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    repo::{Repo, RepoError},
+    session::Session,
+    task::Task,
+    workspace::{CreateWorkspace, Workspace},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+};
+use deployment::Deployment;
+use executors::profile::ExecutorConfig;
+use git::GitService;
+use services::services::{container::ContainerService, workspace_manager::WorkspaceManager};
+use uuid::Uuid;
+
+use super::{
+    CreateWorkspaceRequest, UpdateWorkspaceRequest,
+    workspace_sync::{
+        recover_workspace_container_ref, sync_project_workspaces_from_local_worktrees,
+    },
+};
+use crate::{error::AppError, state::AppState};
+
 #[tauri::command]
 pub async fn get_workspaces(
     state: tauri::State<'_, AppState>,
@@ -340,11 +364,11 @@ async fn interrupt_codex_native_processes_for_workspace(
                 continue;
             }
 
-            if let Err(error) = crate::commands::provider_runtime::interrupt_codex_native_execution_process(
-                pool,
-                process.id,
-            )
-            .await
+            if let Err(error) =
+                crate::commands::provider_runtime::interrupt_codex_native_execution_process(
+                    pool, process.id,
+                )
+                .await
             {
                 tracing::debug!(
                     "Failed to interrupt native Codex process {} before stopping workspace {}: {}",

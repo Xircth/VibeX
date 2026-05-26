@@ -449,14 +449,13 @@ pub async fn run_agent_fix(
             })?;
 
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let detail = if !stderr.is_empty() { stderr } else { stdout };
-                return Err(AppError::Internal(if detail.is_empty() {
-                    format!("Install command failed for {}", agent_type)
-                } else {
-                    format!("Install command failed for {}: {}", agent_type, detail)
-                }));
+                return Err(AppError::Internal(
+                    utils::process::command_output_detail(&output)
+                        .map(|detail| {
+                            format!("Install command failed for {}: {}", agent_type, detail)
+                        })
+                        .unwrap_or_else(|| format!("Install command failed for {}", agent_type)),
+                ));
             }
         }
         "uninstall_npm" => {
@@ -475,14 +474,13 @@ pub async fn run_agent_fix(
             })?;
 
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let detail = if !stderr.is_empty() { stderr } else { stdout };
-                return Err(AppError::Internal(if detail.is_empty() {
-                    format!("Uninstall command failed for {}", agent_type)
-                } else {
-                    format!("Uninstall command failed for {}: {}", agent_type, detail)
-                }));
+                return Err(AppError::Internal(
+                    utils::process::command_output_detail(&output)
+                        .map(|detail| {
+                            format!("Uninstall command failed for {}: {}", agent_type, detail)
+                        })
+                        .unwrap_or_else(|| format!("Uninstall command failed for {}", agent_type)),
+                ));
             }
         }
         _ => {

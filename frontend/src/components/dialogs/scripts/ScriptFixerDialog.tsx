@@ -24,6 +24,7 @@ import { repoApi, attemptsApi } from '@/lib/api';
 import { useLogStream } from '@/hooks/useLogStream';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { normalizeDisplayPath } from '@/utils/displayPath';
+import { dateTimestamp } from '@/utils/date';
 import type { RepoWithTargetBranch, PatchType, UpdateRepo } from 'shared/types';
 
 export type ScriptType = 'setup' | 'cleanup' | 'dev_server' | 'archive';
@@ -80,9 +81,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
       );
       // Sort by created_at descending and return the first one
       return filtered.sort(
-        (a, b) =>
-          new Date(b.created_at as unknown as string).getTime() -
-          new Date(a.created_at as unknown as string).getTime()
+        (a, b) => dateTimestamp(b.created_at) - dateTimestamp(a.created_at)
       )[0];
     }, [executionProcesses, scriptType]);
 

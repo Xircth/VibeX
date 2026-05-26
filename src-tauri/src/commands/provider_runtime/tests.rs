@@ -38,5 +38,7 @@ fn display_prompt_can_be_image_only() {
     );
 }
 
-include!("tests_events.rs");
-include!("tests_sdk.rs");
+#[path = "tests_events.rs"]
+mod events;
+#[path = "tests_sdk.rs"]
+mod sdk;

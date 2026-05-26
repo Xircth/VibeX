@@ -1,4 +1,25 @@
-﻿fn claude_settings_path() -> Option<PathBuf> {
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
+
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use executors::executors::SlashCommandKind;
+use serde_json::{Value, json};
+use tokio::time::Duration;
+use uuid::Uuid;
+
+use super::{
+    CLAUDE_DEFAULT_HAIKU_ENV, CLAUDE_DEFAULT_OPUS_ENV, CLAUDE_DEFAULT_SONNET_ENV,
+    CLAUDE_PRIMARY_MODEL_ENV, CapabilitySource, ProviderCommand, ProviderId, ProviderModel,
+    ProviderTurnRequest, app_error_from_native, new_provider_hidden_command, provider_option_bool,
+    provider_option_string, provider_sdk_metadata_failure_error,
+    should_hide_provider_slash_command,
+};
+use crate::error::AppError;
+
+fn claude_settings_path() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(|home| PathBuf::from(home).join(".claude").join("settings.json"))
@@ -41,7 +62,10 @@ fn read_claude_model_env() -> HashMap<String, String> {
     env
 }
 
-fn resolve_claude_model_from_env(model: &str, env: &HashMap<String, String>) -> Option<String> {
+pub(super) fn resolve_claude_model_from_env(
+    model: &str,
+    env: &HashMap<String, String>,
+) -> Option<String> {
     let model = model.trim();
     let env_key = match model.to_ascii_lowercase().as_str() {
         "sonnet" => Some(CLAUDE_DEFAULT_SONNET_ENV),
@@ -110,7 +134,7 @@ fn resolve_claude_image_path(workspace_dir: &Path, image: &str) -> Result<PathBu
     })
 }
 
-fn repo_root_path() -> PathBuf {
+pub(super) fn repo_root_path() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .parent()
@@ -118,13 +142,13 @@ fn repo_root_path() -> PathBuf {
         .unwrap_or(manifest_dir)
 }
 
-fn claude_sdk_bridge_script_path() -> PathBuf {
+pub(super) fn claude_sdk_bridge_script_path() -> PathBuf {
     repo_root_path()
         .join("scripts")
         .join("claude-agent-sdk-provider.mjs")
 }
 
-fn build_claude_sdk_bridge_args(input_path: &Path) -> Vec<String> {
+pub(super) fn build_claude_sdk_bridge_args(input_path: &Path) -> Vec<String> {
     vec![
         claude_sdk_bridge_script_path()
             .to_string_lossy()
@@ -133,7 +157,7 @@ fn build_claude_sdk_bridge_args(input_path: &Path) -> Vec<String> {
     ]
 }
 
-fn build_claude_sdk_metadata_args(input_path: &Path) -> Vec<String> {
+pub(super) fn build_claude_sdk_metadata_args(input_path: &Path) -> Vec<String> {
     vec![
         claude_sdk_bridge_script_path()
             .to_string_lossy()
@@ -152,7 +176,7 @@ fn claude_provider_option_string<'a>(
         .or_else(|| provider_option_string(&request.provider_options, camel_case_key))
 }
 
-fn build_claude_sdk_bridge_input(
+pub(super) fn build_claude_sdk_bridge_input(
     request: &ProviderTurnRequest,
     workspace_dir: &Path,
 ) -> Result<Value, AppError> {
@@ -200,7 +224,7 @@ fn build_claude_sdk_bridge_input(
     }))
 }
 
-fn write_claude_sdk_bridge_input_file(input: &Value) -> Result<PathBuf, AppError> {
+pub(super) fn write_claude_sdk_bridge_input_file(input: &Value) -> Result<PathBuf, AppError> {
     let path = std::env::temp_dir().join(format!("vibex-claude-sdk-{}.json", Uuid::new_v4()));
     let bytes = serde_json::to_vec(input).map_err(|error| {
         app_error_from_native(
@@ -243,14 +267,9 @@ async fn load_claude_sdk_metadata(workspace_dir: &Path) -> Result<Value, AppErro
     let output = output?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(app_error_from_native(
+        return Err(provider_sdk_metadata_failure_error(
             ProviderId::Claude,
-            if stderr.is_empty() {
-                "SDK metadata discovery failed".to_string()
-            } else {
-                stderr
-            },
+            &output,
         ));
     }
 
@@ -270,7 +289,7 @@ async fn load_claude_sdk_metadata(workspace_dir: &Path) -> Result<Value, AppErro
     ))
 }
 
-fn claude_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
+pub(super) fn claude_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
     metadata
         .get("commands")
         .and_then(Value::as_array)
@@ -299,7 +318,7 @@ fn claude_sdk_metadata_commands(metadata: &Value) -> Vec<ProviderCommand> {
         .unwrap_or_default()
 }
 
-fn claude_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
+pub(super) fn claude_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
     metadata
         .get("models")
         .and_then(Value::as_array)
@@ -325,7 +344,9 @@ fn claude_sdk_metadata_models(metadata: &Value) -> Vec<ProviderModel> {
         .unwrap_or_default()
 }
 
-async fn load_claude_sdk_commands(workspace_dir: &Path) -> Result<Vec<ProviderCommand>, AppError> {
+pub(super) async fn load_claude_sdk_commands(
+    workspace_dir: &Path,
+) -> Result<Vec<ProviderCommand>, AppError> {
     let commands = claude_sdk_metadata_commands(&load_claude_sdk_metadata(workspace_dir).await?);
     if commands.is_empty() {
         return Err(app_error_from_native(
@@ -336,7 +357,9 @@ async fn load_claude_sdk_commands(workspace_dir: &Path) -> Result<Vec<ProviderCo
     Ok(commands)
 }
 
-async fn load_claude_sdk_models(workspace_dir: &Path) -> Result<Vec<ProviderModel>, AppError> {
+pub(super) async fn load_claude_sdk_models(
+    workspace_dir: &Path,
+) -> Result<Vec<ProviderModel>, AppError> {
     let models = claude_sdk_metadata_models(&load_claude_sdk_metadata(workspace_dir).await?);
     if models.is_empty() {
         return Err(app_error_from_native(
@@ -346,4 +369,3 @@ async fn load_claude_sdk_models(workspace_dir: &Path) -> Result<Vec<ProviderMode
     }
     Ok(models)
 }
-

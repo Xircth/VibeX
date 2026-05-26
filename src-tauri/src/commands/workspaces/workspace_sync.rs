@@ -1,4 +1,22 @@
-async fn recover_workspace_container_ref(
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+use db::models::{
+    project_repo::ProjectRepo,
+    repo::Repo,
+    task::{CreateTask, Task, TaskStatus},
+    workspace::{CreateWorkspace, Workspace},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+};
+use deployment::Deployment;
+use git::GitCli;
+use uuid::Uuid;
+
+use crate::{error::AppError, state::AppState};
+
+pub(super) async fn recover_workspace_container_ref(
     state: &tauri::State<'_, AppState>,
     workspace: &mut Workspace,
 ) -> Result<(), AppError> {
@@ -200,7 +218,7 @@ fn derive_workspace_root_from_worktree_path(repo: &Repo, worktree_path: &Path) -
     }
 }
 
-async fn sync_project_workspaces_from_local_worktrees(
+pub(super) async fn sync_project_workspaces_from_local_worktrees(
     state: &tauri::State<'_, AppState>,
     project_id: Uuid,
 ) -> Result<(), AppError> {

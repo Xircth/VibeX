@@ -62,6 +62,18 @@ fn drain_pre_prompt_events(event_rx: &mut mpsc::UnboundedReceiver<AcpEvent>) {
     }
 }
 
+fn should_cancel_session_after_event(event: &AcpEvent) -> bool {
+    matches!(
+        event,
+        AcpEvent::ApprovalResponse(super::ApprovalResponse {
+            status: ApprovalStatus::Denied {
+                reason: Some(reason),
+            },
+            ..
+        }) if !reason.trim().is_empty()
+    )
+}
+
 impl AcpAgentHarness {
     /// Create a harness with the default Gemini namespace
     pub fn new() -> Self {
@@ -490,12 +502,7 @@ impl AcpAgentHarness {
                                 let acp_session_id_for_cancel = acp_session_id.clone();
                                 tokio::task::spawn_local(async move {
                                     while let Some(event) = event_rx.recv().await {
-                                        if let AcpEvent::ApprovalResponse(resp) = &event
-                                            && let ApprovalStatus::Denied {
-                                                reason: Some(reason),
-                                            } = &resp.status
-                                            && !reason.trim().is_empty()
-                                        {
+                                        if should_cancel_session_after_event(&event) {
                                             let _ = conn_for_cancel.send_notification(
                                                 CancelNotification::new(SessionId::new(
                                                     acp_session_id_for_cancel.clone(),
@@ -664,6 +671,7 @@ impl AcpAgentHarness {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::executors::acp::ApprovalResponse;
 
     #[test]
     fn drain_pre_prompt_events_discards_session_replay_messages() {
@@ -676,5 +684,44 @@ mod tests {
         drain_pre_prompt_events(&mut rx);
 
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn approval_denial_with_reason_cancels_session() {
+        let event = AcpEvent::ApprovalResponse(ApprovalResponse {
+            tool_call_id: "tool-1".to_string(),
+            status: ApprovalStatus::Denied {
+                reason: Some("not safe".to_string()),
+            },
+        });
+
+        assert!(should_cancel_session_after_event(&event));
+    }
+
+    #[test]
+    fn approval_denial_without_feedback_does_not_cancel_session() {
+        let blank_reason = AcpEvent::ApprovalResponse(ApprovalResponse {
+            tool_call_id: "tool-1".to_string(),
+            status: ApprovalStatus::Denied {
+                reason: Some("   ".to_string()),
+            },
+        });
+        let missing_reason = AcpEvent::ApprovalResponse(ApprovalResponse {
+            tool_call_id: "tool-1".to_string(),
+            status: ApprovalStatus::Denied { reason: None },
+        });
+
+        assert!(!should_cancel_session_after_event(&blank_reason));
+        assert!(!should_cancel_session_after_event(&missing_reason));
+    }
+
+    #[test]
+    fn non_denied_approval_does_not_cancel_session() {
+        let event = AcpEvent::ApprovalResponse(ApprovalResponse {
+            tool_call_id: "tool-1".to_string(),
+            status: ApprovalStatus::Approved,
+        });
+
+        assert!(!should_cancel_session_after_event(&event));
     }
 }

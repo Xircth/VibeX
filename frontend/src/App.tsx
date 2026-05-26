@@ -1,47 +1,20 @@
 import {
-  type ReactNode,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from 'react';
-import {
-  BrowserRouter,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from 'react-router-dom';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { AlertTriangle, ChevronDown, Minimize2, Power, X } from 'lucide-react';
-import { Projects } from '@/pages/Projects';
-import { ProjectTasks } from '@/pages/ProjectTasks';
-import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
-import { NormalLayout } from '@/components/layout/NormalLayout';
-import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
 
-import {
-  AgentSettings,
-  AppearanceSettings,
-  EditorSettings,
-  McpSettings,
-  SkillsSettings,
-  ShortcutSettings,
-  SystemSettings,
-  SettingsLayout,
-} from '@/pages/settings/';
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
-import {
-  ProjectRailProjectDialogBridge,
-  ProjectWindowManager,
-} from '@/components/layout/ProjectWindowManager';
+import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
 import { ProjectRail } from '@/components/layout/ProjectRail';
 
@@ -56,32 +29,24 @@ import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { configApi, type LocalToolStatus } from '@/lib/api';
 import { tauriListen } from '@/lib/tauriApi';
-import { desktopApi } from '@/lib/api/misc';
+import { getStartupPromptStep } from '@/appStartupPrompt';
+import {
+  getLocalDependencyUpdatePromptTools,
+  shouldShowAppUpdateToast,
+  shouldStartSystemMaintenance,
+} from '@/appMaintenancePlan';
+import { getAppRouteMode } from '@/appRouteMode';
+import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
+import {
+  getSavedMainWindowCloseBehavior,
+  performMainWindowCloseBehavior,
+  saveMainWindowCloseBehavior,
+  type MainWindowCloseBehavior,
+} from '@/mainWindowCloseBehavior';
+import { MainAppRoutes } from '@/MainAppRoutes';
 
 // Design scope components
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
-
-const MAIN_WINDOW_CLOSE_BEHAVIOR_KEY = 'vibex.mainWindowCloseBehavior';
-type MainWindowCloseBehavior = 'exit' | 'minimize';
-
-function getSavedMainWindowCloseBehavior(): MainWindowCloseBehavior | null {
-  const value = window.localStorage.getItem(MAIN_WINDOW_CLOSE_BEHAVIOR_KEY);
-  return value === 'exit' || value === 'minimize' ? value : null;
-}
-
-function saveMainWindowCloseBehavior(behavior: MainWindowCloseBehavior) {
-  window.localStorage.setItem(MAIN_WINDOW_CLOSE_BEHAVIOR_KEY, behavior);
-}
-
-async function performMainWindowCloseBehavior(
-  behavior: MainWindowCloseBehavior
-) {
-  if (behavior === 'exit') {
-    await desktopApi.exitApp();
-    return;
-  }
-  await getCurrentWindow().minimize();
-}
 
 function MainWindowCloseToastBridge() {
   const [isOpen, setIsOpen] = useState(false);
@@ -190,40 +155,6 @@ function ThemedToaster() {
   return <Toaster theme={resolvedTheme} />;
 }
 
-function versionParts(version: string): number[] {
-  return version
-    .trim()
-    .replace(/^v/i, '')
-    .split(/[.-]/)
-    .map((part) => Number.parseInt(part, 10))
-    .filter((part) => Number.isFinite(part));
-}
-
-function compareVersionLike(current: string, minimum: string): number {
-  const currentParts = versionParts(current);
-  const minimumParts = versionParts(minimum);
-  const length = Math.max(currentParts.length, minimumParts.length);
-
-  for (let index = 0; index < length; index += 1) {
-    const currentPart = currentParts[index] ?? 0;
-    const minimumPart = minimumParts[index] ?? 0;
-    if (currentPart > minimumPart) return 1;
-    if (currentPart < minimumPart) return -1;
-  }
-
-  return 0;
-}
-
-function localToolNeedsUpdatePrompt(tool: LocalToolStatus): boolean {
-  if (!tool.installed) return true;
-  if (!tool.minimum_supported_version || !tool.installed_version) return false;
-
-  return compareVersionLike(
-    tool.installed_version,
-    tool.minimum_supported_version
-  ) < 0;
-}
-
 function LocalDependencyUpdateToast({
   toastId,
   tools,
@@ -317,21 +248,6 @@ function LocalDependencyUpdateToast({
   );
 }
 
-function MainLegacyScope({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <LegacyDesignScope className={className}>
-      <ProjectRailProjectDialogBridge />
-      {children}
-    </LegacyDesignScope>
-  );
-}
-
 function MainAppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
@@ -344,21 +260,19 @@ function MainAppContent() {
   // Sync UI preferences with server scratch storage
   useUiPreferencesScratch();
 
-  useEffect(() => {
-    document.body.classList.add('legacy-design');
-    return () => {
-      document.body.classList.remove('legacy-design');
-    };
-  }, []);
+  useLegacyDesignBodyClass();
 
   useEffect(() => {
-    if (!config) return;
-    if (location.pathname.startsWith('/settings')) return;
+    const startupPromptStep = getStartupPromptStep({
+      config,
+      pathname: location.pathname,
+    });
+    if (startupPromptStep === 'none') return;
     let cancelled = false;
 
     const showNextStep = async () => {
       // 1) Disclaimer - first step
-      if (!config.disclaimer_acknowledged) {
+      if (startupPromptStep === 'disclaimer') {
         await DisclaimerDialog.show();
         if (!cancelled) {
           await updateAndSaveConfig({ disclaimer_acknowledged: true });
@@ -369,7 +283,7 @@ function MainAppContent() {
       }
 
       // 2) Onboarding - configure executor and editor
-      if (!config.onboarding_acknowledged) {
+      if (startupPromptStep === 'onboarding') {
         const result = await OnboardingDialog.show();
         if (!cancelled) {
           await updateAndSaveConfig({
@@ -384,7 +298,7 @@ function MainAppContent() {
       }
 
       // 3) Release notes - silently dismiss legacy update announcement
-      if (config.show_release_notes) {
+      if (startupPromptStep === 'dismiss-release-notes') {
         if (!cancelled) {
           await updateAndSaveConfig({ show_release_notes: false });
         }
@@ -400,13 +314,11 @@ function MainAppContent() {
   }, [config, location.pathname, navigate, updateAndSaveConfig]);
 
   useEffect(() => {
-    if (!config || maintenanceStartedRef.current) return;
-    if (!config.disclaimer_acknowledged) {
-      return;
-    }
     if (
-      config.auto_update_enabled === false &&
-      config.auto_install_local_dependencies === false
+      !shouldStartSystemMaintenance({
+        config,
+        hasStarted: maintenanceStartedRef.current,
+      })
     ) {
       return;
     }
@@ -419,10 +331,7 @@ function MainAppContent() {
         const status = await configApi.getSystemMaintenanceStatus();
         if (cancelled) return;
 
-        if (
-          config.auto_update_enabled !== false &&
-          status.app.update_available
-        ) {
+        if (shouldShowAppUpdateToast({ config, status })) {
           toast.warning(`VibeX ${status.app.latest_version} 可更新。`, {
             action: status.app.release_url
               ? {
@@ -438,12 +347,12 @@ function MainAppContent() {
           });
         }
 
-        if (config.auto_install_local_dependencies !== false) {
-          const visibleTools = status.tools.filter((tool) => tool.user_visible);
-          const toolsNeedingDecision = visibleTools.filter(
-            localToolNeedsUpdatePrompt
-          );
+        const toolsNeedingDecision = getLocalDependencyUpdatePromptTools({
+          config,
+          tools: status.tools,
+        });
 
+        if (toolsNeedingDecision.length > 0) {
           const installLocalDependencyGroups = async (
             tools: LocalToolStatus[]
           ) => {
@@ -470,21 +379,19 @@ function MainAppContent() {
             }
           };
 
-          if (toolsNeedingDecision.length > 0) {
-            toast.custom(
-              (toastId) => (
-                <LocalDependencyUpdateToast
-                  toastId={toastId}
-                  tools={toolsNeedingDecision}
-                  onUpdate={() => {
-                    toast.dismiss(toastId);
-                    void installLocalDependencyGroups(toolsNeedingDecision);
-                  }}
-                />
-              ),
-              { duration: 15000 }
-            );
-          }
+          toast.custom(
+            (toastId) => (
+              <LocalDependencyUpdateToast
+                toastId={toastId}
+                tools={toolsNeedingDecision}
+                onUpdate={() => {
+                  toast.dismiss(toastId);
+                  void installLocalDependencyGroups(toolsNeedingDecision);
+                }}
+              />
+            ),
+            { duration: 15000 }
+          );
         }
       } catch (error) {
         if (!cancelled) {
@@ -505,85 +412,7 @@ function MainAppContent() {
         <ProjectWindowManager />
         <MainWindowCloseToastBridge />
         <ThemedToaster />
-        <Routes>
-          {/* ========== FULL-PAGE ROUTES (outside layout) ========== */}
-          <Route
-            path="/local-projects/:projectId/workspaces/:workspaceId/full"
-            element={
-              <MainLegacyScope>
-                <FullAttemptLogsPage />
-              </MainLegacyScope>
-            }
-          />
-
-          {/* ========== IDE WORKSPACE ROUTES (dockview layout) ========== */}
-          <Route
-            element={
-              <MainLegacyScope>
-                <IDEWorkspaceRoute />
-              </MainLegacyScope>
-            }
-          >
-            <Route
-              path="/local-projects/:projectId/sessions"
-              element={<ProjectTasks />}
-            />
-            <Route
-              path="/local-projects/:projectId/workspaces/:workspaceId"
-              element={<ProjectTasks />}
-            />
-            <Route
-              path="/local-projects/:projectId/workspaces/:workspaceId/sessions/:sessionId"
-              element={<ProjectTasks />}
-            />
-          </Route>
-
-          {/* ========== SETTINGS ROUTES (standalone layout, no Navbar) ========== */}
-          <Route
-            path="/settings/*"
-            element={
-              <MainLegacyScope>
-                <SettingsLayout />
-              </MainLegacyScope>
-            }
-          >
-            <Route index element={<Navigate to="agents" replace />} />
-            <Route path="agents" element={<AgentSettings />} />
-            <Route path="mcp" element={<McpSettings />} />
-            <Route path="skills" element={<SkillsSettings />} />
-            <Route path="shortcuts" element={<ShortcutSettings />} />
-            <Route path="editor" element={<EditorSettings />} />
-            <Route path="appearance" element={<AppearanceSettings />} />
-            <Route path="system" element={<SystemSettings />} />
-          </Route>
-
-          {/* ========== LEGACY DESIGN ROUTES (standard layout) ========== */}
-          <Route
-            element={
-              <MainLegacyScope>
-                <NormalLayout />
-              </MainLegacyScope>
-            }
-          >
-            <Route path="/" element={<Projects />} />
-            <Route path="/local-projects" element={<Projects />} />
-            <Route path="/local-projects/:projectId" element={<Projects />} />
-            <Route
-              path="/mcp-servers"
-              element={<Navigate to="/settings/mcp" replace />}
-            />
-
-            {/* Redirect disabled new UI routes back to legacy UI */}
-            <Route
-              path="/workspaces/*"
-              element={<Navigate to="/local-projects" replace />}
-            />
-            <Route
-              path="/projects/*"
-              element={<Navigate to="/local-projects" replace />}
-            />
-          </Route>
-        </Routes>
+        <MainAppRoutes />
       </SearchProvider>
     </ThemeProvider>
   );
@@ -618,12 +447,13 @@ function ProjectRailAppContent() {
 
 function AppContent() {
   const location = useLocation();
+  const routeMode = getAppRouteMode(location.pathname);
 
-  if (location.pathname === '/desktop-toast') {
+  if (routeMode === 'desktop-toast') {
     return <DesktopToastAppContent />;
   }
 
-  if (location.pathname === '/project-rail') {
+  if (routeMode === 'project-rail') {
     return <ProjectRailAppContent />;
   }
 

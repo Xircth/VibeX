@@ -1,3 +1,7 @@
+export function dateTimestamp(value: string | number | Date): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
 /**
  * Format a date string as "Jan 5, 10:30 AM".
  */

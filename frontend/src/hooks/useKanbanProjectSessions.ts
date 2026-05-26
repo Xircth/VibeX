@@ -4,6 +4,7 @@ import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { SessionStatus, SessionSummary } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
 import { sessionsApi } from '@/lib/api';
+import { dateTimestamp } from '@/utils/date';
 import { useProjectWorkspacesStream } from './useProjectWorkspacesStream';
 
 export interface KanbanProjectSessionRecord {
@@ -180,8 +181,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       })
       .sort(
         (left, right) =>
-          new Date(right.updatedAt).getTime() -
-          new Date(left.updatedAt).getTime()
+          dateTimestamp(right.updatedAt) - dateTimestamp(left.updatedAt)
       );
 
     const getDuplicateKey = (session: KanbanProjectSessionRecord) =>

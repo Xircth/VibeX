@@ -6,22 +6,46 @@ function isJsonObject(v: unknown): v is JsonObject {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+function cloneJsonObject(value: JsonValue | undefined): JsonObject {
+  const cloned: JsonValue = JSON.parse(JSON.stringify(value ?? {}));
+  return isJsonObject(cloned) ? cloned : {};
+}
+
+function pathLabel(path: string[]): string {
+  return path.join('.');
+}
+
+function readValueAtPath(root: JsonValue, path: string[]): JsonValue {
+  let current: JsonValue = root;
+  for (const key of path) {
+    if (!isJsonObject(current)) {
+      throw new Error(`Expected object at path: ${pathLabel(path)}`);
+    }
+    current = current[key];
+    if (current === undefined) {
+      throw new Error(`Missing required field at path: ${pathLabel(path)}`);
+    }
+  }
+  return current;
+}
+
+function ensureObjectPath(root: JsonObject, path: string[]): JsonObject {
+  let current = root;
+  for (const key of path) {
+    const next = current[key];
+    if (!isJsonObject(next)) {
+      current[key] = {};
+    }
+    current = current[key] as JsonObject;
+  }
+  return current;
+}
+
 export class McpConfigStrategyGeneral {
   static createFullConfig(cfg: McpConfig): JsonObject {
-    const cloned: JsonValue = JSON.parse(JSON.stringify(cfg.template ?? {}));
-    const fullConfig: JsonObject = isJsonObject(cloned) ? cloned : {};
-    let current: JsonObject = fullConfig;
-
-    for (let i = 0; i < cfg.servers_path.length - 1; i++) {
-      const key = cfg.servers_path[i];
-      const next = isJsonObject(current[key])
-        ? (current[key] as JsonObject)
-        : undefined;
-      if (!next) current[key] = {};
-      current = current[key] as JsonObject;
-    }
-
+    const fullConfig = cloneJsonObject(cfg.template);
     if (cfg.servers_path.length > 0) {
+      const current = ensureObjectPath(fullConfig, cfg.servers_path.slice(0, -1));
       const lastKey = cfg.servers_path[cfg.servers_path.length - 1];
       current[lastKey] = cfg.servers;
     }
@@ -31,20 +55,7 @@ export class McpConfigStrategyGeneral {
     mcp_config: McpConfig,
     full_config: JsonValue
   ): void {
-    let current: JsonValue = full_config;
-    for (const key of mcp_config.servers_path) {
-      if (!isJsonObject(current)) {
-        throw new Error(
-          `Expected object at path: ${mcp_config.servers_path.join('.')}`
-        );
-      }
-      current = current[key];
-      if (current === undefined) {
-        throw new Error(
-          `Missing required field at path: ${mcp_config.servers_path.join('.')}`
-        );
-      }
-    }
+    const current = readValueAtPath(full_config, mcp_config.servers_path);
     if (!isJsonObject(current)) {
       throw new Error('Servers configuration must be an object');
     }
@@ -53,20 +64,7 @@ export class McpConfigStrategyGeneral {
     mcp_config: McpConfig,
     full_config: JsonValue
   ): JsonObject {
-    let current: JsonValue = full_config;
-    for (const key of mcp_config.servers_path) {
-      if (!isJsonObject(current)) {
-        throw new Error(
-          `Expected object at path: ${mcp_config.servers_path.join('.')}`
-        );
-      }
-      current = current[key];
-      if (current === undefined) {
-        throw new Error(
-          `Missing required field at path: ${mcp_config.servers_path.join('.')}`
-        );
-      }
-    }
+    const current = readValueAtPath(full_config, mcp_config.servers_path);
     if (!isJsonObject(current)) {
       throw new Error('Servers configuration must be an object');
     }
@@ -83,26 +81,17 @@ export class McpConfigStrategyGeneral {
       throw new Error(`Unknown preconfigured server '${serverKey}'`);
     }
 
-    const updatedVal: JsonValue = JSON.parse(
-      JSON.stringify(existingConfig ?? {})
-    );
-    const updated: JsonObject = isJsonObject(updatedVal) ? updatedVal : {};
-    let current: JsonObject = updated;
-
-    for (let i = 0; i < mcp_config.servers_path.length - 1; i++) {
-      const key = mcp_config.servers_path[i];
-      const next = isJsonObject(current[key])
-        ? (current[key] as JsonObject)
-        : undefined;
-      if (!next) current[key] = {};
-      current = current[key] as JsonObject;
-    }
+    const updated = cloneJsonObject(existingConfig);
 
     if (mcp_config.servers_path.length === 0) {
-      current[serverKey] = preconfVal[serverKey];
+      updated[serverKey] = preconfVal[serverKey];
       return updated;
     }
 
+    const current = ensureObjectPath(
+      updated,
+      mcp_config.servers_path.slice(0, -1)
+    );
     const lastKey = mcp_config.servers_path[mcp_config.servers_path.length - 1];
     if (!isJsonObject(current[lastKey])) current[lastKey] = {};
     (current[lastKey] as JsonObject)[serverKey] = preconfVal[serverKey];

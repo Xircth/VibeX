@@ -1,4 +1,5 @@
 import type { GitBranch, Workspace } from 'shared/types';
+import { dateTimestamp } from '@/utils/date';
 
 export interface WorkspaceBranchOption {
   value: string;
@@ -26,8 +27,8 @@ function compareWorkspacePriority(
     return candidate.use_worktree ? candidate : current;
   }
 
-  const currentUpdatedAt = new Date(current.updated_at).getTime();
-  const candidateUpdatedAt = new Date(candidate.updated_at).getTime();
+  const currentUpdatedAt = dateTimestamp(current.updated_at);
+  const candidateUpdatedAt = dateTimestamp(candidate.updated_at);
 
   return candidateUpdatedAt > currentUpdatedAt ? candidate : current;
 }

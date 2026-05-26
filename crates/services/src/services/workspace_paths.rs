@@ -55,6 +55,22 @@ pub fn workspace_base_dir(
     container_ref.to_path_buf()
 }
 
+pub fn local_runtime_workspace_base_dir(
+    container_ref: &Path,
+    use_worktree: bool,
+    repo: Option<WorkspacePathRepo<'_>>,
+) -> PathBuf {
+    let Some(repo) = repo else {
+        return container_ref.to_path_buf();
+    };
+
+    if !use_worktree {
+        return repo.path.to_path_buf();
+    }
+
+    container_ref.to_path_buf()
+}
+
 pub fn normalize_agent_working_dir(
     agent_working_dir: Option<&str>,
     use_worktree: bool,
@@ -124,7 +140,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        WorkspacePathRepo, normalize_agent_working_dir, workspace_base_dir, workspace_repo_path,
+        WorkspacePathRepo, local_runtime_workspace_base_dir, normalize_agent_working_dir,
+        workspace_base_dir, workspace_repo_path,
     };
 
     fn repo<'a>(name: &'a str, path: &'a Path) -> WorkspacePathRepo<'a> {
@@ -161,6 +178,40 @@ mod tests {
                 true,
                 Some(repo("repo", Path::new("C:/source/repo")))
             ),
+            PathBuf::from("C:/workspace")
+        );
+    }
+
+    #[test]
+    fn local_runtime_workspace_base_dir_uses_repo_path_without_worktree() {
+        let repo_path = PathBuf::from("C:/source/repo");
+
+        assert_eq!(
+            local_runtime_workspace_base_dir(
+                Path::new("C:/workspace"),
+                false,
+                Some(repo("repo", &repo_path))
+            ),
+            repo_path
+        );
+    }
+
+    #[test]
+    fn local_runtime_workspace_base_dir_keeps_direct_checkout_root() {
+        assert_eq!(
+            local_runtime_workspace_base_dir(
+                Path::new("C:/workspace/repo"),
+                true,
+                Some(repo("repo", Path::new("C:/source/repo")))
+            ),
+            PathBuf::from("C:/workspace/repo")
+        );
+    }
+
+    #[test]
+    fn local_runtime_workspace_base_dir_keeps_container_for_multi_repo_workspace() {
+        assert_eq!(
+            local_runtime_workspace_base_dir(Path::new("C:/workspace"), true, None),
             PathBuf::from("C:/workspace")
         );
     }

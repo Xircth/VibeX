@@ -1,3 +1,19 @@
+use std::path::PathBuf;
+
+use db::models::{
+    coding_agent_turn::CodingAgentTurn,
+    repo::{Repo, RepoError},
+    task::{Task, TaskRelationships},
+    workspace::Workspace,
+    workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
+};
+use deployment::Deployment;
+use serde::Serialize;
+use services::services::container::ContainerService;
+use uuid::Uuid;
+
+use crate::{error::AppError, state::AppState};
+
 #[tauri::command]
 pub async fn get_workspace_children(
     state: tauri::State<'_, AppState>,
@@ -190,7 +206,7 @@ pub async fn get_workspace_commit_graph(
 // --- Git Panel operations ---
 
 /// Helper: resolve workspace + repo to worktree path.
-async fn resolve_worktree_path(
+pub(super) async fn resolve_worktree_path(
     state: &AppState,
     workspace_id: Uuid,
     repo_id: Uuid,

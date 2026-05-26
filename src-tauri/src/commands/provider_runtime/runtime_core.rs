@@ -1,4 +1,33 @@
-﻿fn app_error_from_native(provider: ProviderId, error: impl Into<String>) -> AppError {
+use std::{path::PathBuf, process::Output};
+
+use db::models::{
+    coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
+    execution_process::{CreateExecutionProcess, ExecutionProcess, ExecutionProcessRunReason},
+    execution_process_repo_state::CreateExecutionProcessRepoState,
+    session::{CreateSession, Session, SessionStatus},
+    workspace::Workspace,
+    workspace_repo::WorkspaceRepo,
+};
+use deployment::Deployment;
+use executors::actions::{
+    ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
+    coding_agent_initial::CodingAgentInitialRequest,
+};
+use services::services::container::ContainerService;
+use sqlx::SqlitePool;
+use tokio::time::Duration;
+use uuid::Uuid;
+
+use super::{
+    CapabilityStatus, ProviderId, ProviderTurnRequest, acp_fallback_config,
+    claude_sdk_bridge_script_path, new_provider_hidden_command, opencode_sdk_bridge_script_path,
+    provider_executor_config, provider_runtime_contract, session_executor_matches_provider,
+};
+use crate::{
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+};
+
+pub(super) fn app_error_from_native(provider: ProviderId, error: impl Into<String>) -> AppError {
     AppError::BadRequest(format!(
         "{} native runtime failed: {}",
         provider.label(),
@@ -6,7 +35,18 @@
     ))
 }
 
-fn provider_fallback_status(provider: ProviderId) -> CapabilityStatus {
+pub(super) fn provider_sdk_metadata_failure_error(
+    provider: ProviderId,
+    output: &Output,
+) -> AppError {
+    app_error_from_native(
+        provider,
+        utils::process::command_output_detail(output)
+            .unwrap_or_else(|| "SDK metadata discovery failed".to_string()),
+    )
+}
+
+pub(super) fn provider_fallback_status(provider: ProviderId) -> CapabilityStatus {
     let fallback = acp_fallback_config(provider);
     let contract = provider_runtime_contract(provider);
     if !fallback.enabled {
@@ -38,7 +78,7 @@ impl CapabilityStatus {
     }
 }
 
-async fn probe_native_runtime(provider: ProviderId) -> CapabilityStatus {
+pub(super) async fn probe_native_runtime(provider: ProviderId) -> CapabilityStatus {
     let contract = provider_runtime_contract(provider);
     let (program, args, expected) = match provider {
         ProviderId::Claude => (
@@ -116,7 +156,7 @@ async fn probe_native_runtime(provider: ProviderId) -> CapabilityStatus {
     }
 }
 
-async fn ensure_provider_session(
+pub(super) async fn ensure_provider_session(
     state: &tauri::State<'_, AppState>,
     provider: ProviderId,
     workspace_id: Uuid,
@@ -166,7 +206,7 @@ async fn ensure_provider_session(
     .map_err(AppError::from)
 }
 
-async fn resolve_provider_workspace_dir(
+pub(super) async fn resolve_provider_workspace_dir(
     state: &tauri::State<'_, AppState>,
     workspace: &mut Workspace,
 ) -> Result<PathBuf, AppError> {
@@ -195,7 +235,7 @@ async fn resolve_provider_workspace_dir(
         .unwrap_or_else(|| PathBuf::from(container_ref)))
 }
 
-async fn load_provider_workspace(
+pub(super) async fn load_provider_workspace(
     state: &tauri::State<'_, AppState>,
     workspace_id: Uuid,
 ) -> Result<Workspace, AppError> {
@@ -204,7 +244,7 @@ async fn load_provider_workspace(
         .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))
 }
 
-async fn create_native_execution_process(
+pub(super) async fn create_native_execution_process(
     state: &tauri::State<'_, AppState>,
     workspace: &Workspace,
     session: &Session,
@@ -302,7 +342,7 @@ async fn create_native_execution_process(
     Ok(process)
 }
 
-fn prompt_with_display_images(message: &str, images: &[String]) -> String {
+pub(super) fn prompt_with_display_images(message: &str, images: &[String]) -> String {
     if images.is_empty() {
         return message.to_string();
     }
@@ -331,7 +371,7 @@ fn prompt_with_display_images(message: &str, images: &[String]) -> String {
     }
 }
 
-fn provider_request_with_resolved_thread_id(
+pub(super) fn provider_request_with_resolved_thread_id(
     mut request: ProviderTurnRequest,
     latest_session_id: Option<String>,
 ) -> ProviderTurnRequest {
@@ -341,7 +381,7 @@ fn provider_request_with_resolved_thread_id(
     request
 }
 
-async fn resolve_native_provider_request(
+pub(super) async fn resolve_native_provider_request(
     pool: &SqlitePool,
     session: &Session,
     request: ProviderTurnRequest,
@@ -358,4 +398,3 @@ async fn resolve_native_provider_request(
         latest_session_id,
     ))
 }
-

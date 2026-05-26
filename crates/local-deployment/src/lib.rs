@@ -31,6 +31,7 @@ use crate::{container::LocalContainerService, pty::PtyService};
 mod command;
 pub mod container;
 mod copy;
+mod process_completion;
 pub mod pty;
 
 #[derive(Clone)]
@@ -135,7 +136,7 @@ impl Deployment for LocalDeployment {
         )
         .await;
 
-        let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
+        let events = EventService::new(db.clone(), events_msg_store);
 
         let file_search_cache = Arc::new(FileSearchCache::new());
 

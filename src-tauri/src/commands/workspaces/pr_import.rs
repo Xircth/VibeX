@@ -1,3 +1,26 @@
+use std::path::PathBuf;
+
+use db::models::{
+    execution_process::ExecutionProcessRunReason,
+    merge::Merge,
+    project_repo::ProjectRepo,
+    repo::{Repo, RepoError},
+    session::{CreateSession, Session, SessionStatus},
+    task::{CreateTask, Task, TaskStatus},
+    workspace::{CreateWorkspace, Workspace},
+    workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
+};
+use deployment::Deployment;
+use git::GitRemote;
+use services::services::{container::ContainerService, container_actions, git_host::github::GhCli};
+use uuid::Uuid;
+
+use super::{
+    CreateFromPrError, CreateFromPrResult, CreateWorkspaceFromPrRequest,
+    CreateWorkspaceFromPrResponse,
+};
+use crate::{error::AppError, state::AppState};
+
 #[tauri::command]
 pub async fn create_workspace_from_pr(
     state: tauri::State<'_, AppState>,
@@ -132,7 +155,7 @@ pub async fn create_workspace_from_pr(
 
     if payload.run_setup {
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        if let Some(setup_action) = state.deployment.container().setup_actions_for_repos(&repos) {
+        if let Some(setup_action) = container_actions::setup_actions_for_repos(&repos) {
             let session = Session::create(
                 pool,
                 &CreateSession {
@@ -179,5 +202,3 @@ pub async fn create_workspace_from_pr(
         error: None,
     })
 }
-
-// --- Commit operations ---

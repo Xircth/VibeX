@@ -653,7 +653,7 @@ mod tests {
     fn parses_opencode_models_from_stdout_lines() {
         let raw = concat!(
             "opencode/minimax-m2.5-free\n",
-            "閳?opencode/mimo-v2-pro-free 閳?free tier 閳逛繐n",
+            "* opencode/mimo-v2-pro-free - free tier\n",
             "- opencode/gpt-5.5 (recommended)\n"
         );
         let models = super::parse_opencode_models(raw);

@@ -6,6 +6,7 @@ import {
   ReactNode,
 } from 'react';
 import { useApprovalMutation } from '@/hooks/useApprovalMutation';
+import { dateTimestamp } from '@/utils/date';
 
 interface ActiveApproval {
   approvalId: string;
@@ -53,7 +54,7 @@ export function ApprovalFeedbackProvider({
   const { denyAsync, isDenying, denyError, reset } = useApprovalMutation();
 
   const isTimedOut = activeApproval
-    ? new Date() > new Date(activeApproval.timeoutAt)
+    ? Date.now() > dateTimestamp(activeApproval.timeoutAt)
     : false;
 
   const enterFeedbackMode = useCallback(
@@ -74,7 +75,7 @@ export function ApprovalFeedbackProvider({
       if (!activeApproval) return;
 
       // Check timeout before submitting
-      if (new Date() > new Date(activeApproval.timeoutAt)) {
+      if (Date.now() > dateTimestamp(activeApproval.timeoutAt)) {
         throw new Error('Approval has timed out');
       }
 

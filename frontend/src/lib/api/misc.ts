@@ -336,11 +336,6 @@ export const imagesApi = {
   getTaskImages: async (taskId: string): Promise<ImageResponse[]> => {
     return tauriInvoke<ImageResponse[]>('get_task_images', { taskId });
   },
-
-  getImageUrl: (_imageId: string): string => {
-    // TODO: In Tauri, images need to be served differently (e.g., asset protocol)
-    return '';
-  },
 };
 
 // Approval API

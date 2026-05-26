@@ -1,4 +1,13 @@
-﻿fn value_string<'a>(record: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+use executors::logs::{
+    ActionType, CommandExitStatus, CommandRunResult, FileChange, ToolResult, ToolResultValueType,
+    ToolStatus,
+};
+use serde_json::Value;
+
+use super::{NativeToolUpdate, extract_text_block_content};
+
+fn value_string<'a>(record: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
     keys.iter().find_map(|key| record.get(*key)?.as_str())
 }
 
@@ -187,7 +196,11 @@ fn task_create_action_from_input(
         .and_then(Value::as_object)
         .unwrap_or(input);
     let has_task_signal = is_task_create_tool_name(normalized_tool_name)
-        || value_string(task_input, &["subagent_type", "agent_type", "agent", "role"]).is_some();
+        || value_string(
+            task_input,
+            &["subagent_type", "agent_type", "agent", "role"],
+        )
+        .is_some();
 
     if !has_task_signal {
         return None;
@@ -218,10 +231,12 @@ fn task_create_action_from_input(
     })
     .unwrap_or_else(|| tool_name.to_string());
 
-    let subagent_type =
-        value_string(task_input, &["subagent_type", "agent_type", "agent", "kind", "role"])
-            .filter(|value| !value.trim().is_empty())
-            .map(ToString::to_string);
+    let subagent_type = value_string(
+        task_input,
+        &["subagent_type", "agent_type", "agent", "kind", "role"],
+    )
+    .filter(|value| !value.trim().is_empty())
+    .map(ToString::to_string);
 
     Some(ActionType::TaskCreate {
         description,
@@ -346,7 +361,7 @@ fn provider_tool_action(tool_name: &str, record: &serde_json::Map<String, Value>
     }
 }
 
-fn provider_tool_content(tool_name: &str, action_type: &ActionType) -> String {
+pub(super) fn provider_tool_content(tool_name: &str, action_type: &ActionType) -> String {
     match action_type {
         ActionType::CommandRun { command, .. } => command.clone(),
         ActionType::FileRead { path } => path.clone(),
@@ -869,7 +884,11 @@ fn provider_opencode_diff_updates(value: &Value, fallback_id: &str) -> Vec<Nativ
         record
             .get("diff")
             .or_else(|| record.get("diffs"))
-            .or_else(|| record.get("summary").and_then(|summary| summary.get("diffs")))
+            .or_else(|| {
+                record
+                    .get("summary")
+                    .and_then(|summary| summary.get("diffs"))
+            })
             .and_then(Value::as_array)
     };
 
@@ -988,7 +1007,7 @@ fn collect_provider_tool_updates(
     }
 }
 
-fn extract_provider_tool_updates(value: &Value) -> Vec<NativeToolUpdate> {
+pub(super) fn extract_provider_tool_updates(value: &Value) -> Vec<NativeToolUpdate> {
     let fallback_id = value
         .as_object()
         .map(|record| provider_tool_id(record, "provider-tool"))
@@ -998,7 +1017,7 @@ fn extract_provider_tool_updates(value: &Value) -> Vec<NativeToolUpdate> {
     updates
 }
 
-fn merge_tool_result(action_type: &mut ActionType, update: &NativeToolUpdate) {
+pub(super) fn merge_tool_result(action_type: &mut ActionType, update: &NativeToolUpdate) {
     match action_type {
         ActionType::CommandRun {
             result, command, ..
@@ -1039,4 +1058,3 @@ fn merge_tool_result(action_type: &mut ActionType, update: &NativeToolUpdate) {
         _ => {}
     }
 }
-

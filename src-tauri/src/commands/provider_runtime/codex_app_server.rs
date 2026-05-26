@@ -1,4 +1,47 @@
-﻿async fn send_codex_request(
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use db::models::{
+    coding_agent_turn::CodingAgentTurn,
+    execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
+    session::Session,
+    workspace::Workspace,
+};
+use deployment::Deployment;
+use serde_json::{Value, json};
+use sqlx::SqlitePool;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    sync::{Mutex, oneshot},
+    time::Duration,
+};
+use uuid::Uuid;
+
+use super::{
+    CODEX_APP_SERVERS, CODEX_INITIALIZE_TIMEOUT_SECS, CODEX_NATIVE_THREAD_SINKS,
+    CODEX_NATIVE_TURN_SINKS, CODEX_REQUEST_TIMEOUT_SECS, CapabilitySource, CodexAppServer,
+    CodexAutoCompactionThreadState, NativeConversationSink, ProviderId, ProviderModel,
+    ProviderRuntimeEvent, ProviderTurnRequest, app_error_from_native, codex_input_items,
+    codex_runtime_key, codex_turn_from_response, codex_turn_status, codex_turn_status_is_complete,
+    codex_turn_status_is_terminal, complete_codex_native_sink, complete_native_conversation_sink,
+    create_native_execution_process, extract_thread_id, extract_turn_id, is_context_compact_prompt,
+    new_provider_hidden_command, provider_option_bool, provider_option_string,
+    push_native_provider_event_to_conversation, push_provider_event,
+    register_native_conversation_sink, repo_root_path, resolve_codex_runtime_options,
+    resolve_native_provider_request, resolve_provider_workspace_dir,
+    route_codex_event_to_native_conversation, should_force_acp_fallback,
+};
+use crate::{error::AppError, state::AppState};
+
+pub(super) async fn send_codex_request(
     server: &Arc<CodexAppServer>,
     method: &str,
     params: Value,
@@ -81,7 +124,7 @@ async fn send_codex_fire_and_forget_request(
         .map_err(|error| error.to_string())
 }
 
-async fn send_codex_response(
+pub(super) async fn send_codex_response(
     server: &Arc<CodexAppServer>,
     request_id: &str,
     response: Value,
@@ -111,14 +154,17 @@ fn codex_response_error_message(response: &Value) -> Option<String> {
     Some(error.to_string())
 }
 
-fn codex_response_success<'a>(method: &str, response: &'a Value) -> Result<&'a Value, String> {
+pub(super) fn codex_response_success<'a>(
+    method: &str,
+    response: &'a Value,
+) -> Result<&'a Value, String> {
     if let Some(error) = codex_response_error_message(response) {
         return Err(format!("{method} failed: {error}"));
     }
     Ok(response)
 }
 
-fn codex_turn_start_error_is_active_turn(message: &str) -> bool {
+pub(super) fn codex_turn_start_error_is_active_turn(message: &str) -> bool {
     let message = message.to_ascii_lowercase();
     message.contains("active turn")
         || message.contains("turn already")
@@ -129,7 +175,7 @@ fn codex_turn_start_error_is_active_turn(message: &str) -> bool {
 
 const CODEX_AUTO_COMPACTION_THRESHOLD_PERCENT: f64 = 92.0;
 const CODEX_AUTO_COMPACTION_TARGET_PERCENT: f64 = 70.0;
-const CODEX_AUTO_COMPACTION_COOLDOWN_MS: u64 = 90_000;
+pub(super) const CODEX_AUTO_COMPACTION_COOLDOWN_MS: u64 = 90_000;
 const CODEX_AUTO_COMPACTION_INFLIGHT_TIMEOUT_MS: u64 = 120_000;
 
 fn codex_now_millis() -> u64 {
@@ -155,16 +201,20 @@ fn codex_positive_number(value: Option<f64>) -> Option<f64> {
 
 fn codex_usage_snapshot_tokens(snapshot: &Value) -> Option<f64> {
     codex_positive_number(codex_number_field(
-        snapshot.get("inputTokens").or_else(|| snapshot.get("input_tokens")),
+        snapshot
+            .get("inputTokens")
+            .or_else(|| snapshot.get("input_tokens")),
     ))
     .or_else(|| {
         codex_positive_number(codex_number_field(
-            snapshot.get("totalTokens").or_else(|| snapshot.get("total_tokens")),
+            snapshot
+                .get("totalTokens")
+                .or_else(|| snapshot.get("total_tokens")),
         ))
     })
 }
 
-fn extract_codex_compaction_usage_percent(value: &Value) -> Option<f64> {
+pub(super) fn extract_codex_compaction_usage_percent(value: &Value) -> Option<f64> {
     let method = value.get("method").and_then(Value::as_str)?;
     let params = value.get("params")?;
     let (used_tokens, context_window) = match method {
@@ -208,7 +258,7 @@ fn extract_codex_compaction_usage_percent(value: &Value) -> Option<f64> {
     Some((used_tokens / context_window) * 100.0)
 }
 
-fn evaluate_codex_auto_compaction_state(
+pub(super) fn evaluate_codex_auto_compaction_state(
     state: &mut CodexAutoCompactionThreadState,
     method: &str,
     usage_percent: Option<f64>,
@@ -259,7 +309,7 @@ fn evaluate_codex_auto_compaction_state(
     true
 }
 
-async fn codex_auto_compaction_is_in_flight(thread_id: &str) -> bool {
+pub(super) async fn codex_auto_compaction_is_in_flight(thread_id: &str) -> bool {
     let servers: Vec<Arc<CodexAppServer>> =
         CODEX_APP_SERVERS.lock().await.values().cloned().collect();
     for server in servers {
@@ -338,7 +388,10 @@ async fn maybe_trigger_codex_auto_compaction(
     route_codex_event_to_native_conversation(&event).await;
 }
 
-async fn send_codex_turn_interrupt(thread_id: &str, turn_id: &str) -> Result<(), String> {
+pub(super) async fn send_codex_turn_interrupt(
+    thread_id: &str,
+    turn_id: &str,
+) -> Result<(), String> {
     let servers: Vec<Arc<CodexAppServer>> =
         CODEX_APP_SERVERS.lock().await.values().cloned().collect();
     let mut last_error = None;
@@ -550,14 +603,17 @@ fn codex_models_from_array(value: &Value) -> Vec<ProviderModel> {
         .flatten()
         .filter_map(codex_model_from_value)
         .fold(Vec::new(), |mut models, model| {
-            if !models.iter().any(|existing: &ProviderModel| existing.id == model.id) {
+            if !models
+                .iter()
+                .any(|existing: &ProviderModel| existing.id == model.id)
+            {
                 models.push(model);
             }
             models
         })
 }
 
-fn codex_models_from_response(response: &Value) -> Vec<ProviderModel> {
+pub(super) fn codex_models_from_response(response: &Value) -> Vec<ProviderModel> {
     let result = response.get("result").unwrap_or(response);
     for candidate in [
         result.get("models"),
@@ -592,7 +648,7 @@ fn codex_models_from_response(response: &Value) -> Vec<ProviderModel> {
     models
 }
 
-async fn load_codex_app_server_models() -> Result<Vec<ProviderModel>, AppError> {
+pub(super) async fn load_codex_app_server_models() -> Result<Vec<ProviderModel>, AppError> {
     let workspace_dir = repo_root_path();
     let request = ProviderTurnRequest {
         provider: ProviderId::Codex,
@@ -605,17 +661,14 @@ async fn load_codex_app_server_models() -> Result<Vec<ProviderModel>, AppError> 
         images: Vec::new(),
         provider_options: serde_json::Map::new(),
     };
-    let server = ensure_codex_app_server(
-        &request,
-        Uuid::nil(),
-        &workspace_dir,
-        "codex-model-list",
-    )
-    .await
-    .map_err(|error| {
-        tracing::debug!("Falling back to bundled Codex models; app-server unavailable: {error}");
-        error
-    });
+    let server = ensure_codex_app_server(&request, Uuid::nil(), &workspace_dir, "codex-model-list")
+        .await
+        .map_err(|error| {
+            tracing::debug!(
+                "Falling back to bundled Codex models; app-server unavailable: {error}"
+            );
+            error
+        });
     let Ok(server) = server else {
         return Ok(fallback_codex_provider_models());
     };
@@ -629,8 +682,7 @@ async fn load_codex_app_server_models() -> Result<Vec<ProviderModel>, AppError> 
     .and_then(|response| {
         codex_response_success("model/list", &response)?;
         Ok(response)
-    })
-    {
+    }) {
         Ok(response) => response,
         Err(error) => {
             tracing::debug!("Falling back to bundled Codex models; model/list failed: {error}");
@@ -644,7 +696,7 @@ async fn load_codex_app_server_models() -> Result<Vec<ProviderModel>, AppError> 
     Ok(models)
 }
 
-async fn ensure_codex_app_server_for_workspace(
+pub(super) async fn ensure_codex_app_server_for_workspace(
     state: &tauri::State<'_, AppState>,
     workspace_id: Uuid,
     session_id: &str,
@@ -669,7 +721,7 @@ async fn ensure_codex_app_server_for_workspace(
         .map_err(|error| app_error_from_native(ProviderId::Codex, error))
 }
 
-async fn send_codex_app_server_workspace_request(
+pub(super) async fn send_codex_app_server_workspace_request(
     state: &tauri::State<'_, AppState>,
     workspace_id: Uuid,
     method: &str,
@@ -691,11 +743,11 @@ async fn send_codex_app_server_workspace_request(
     Ok(response.get("result").cloned().unwrap_or(response))
 }
 
-fn codex_workspace_cwd_param(server: &CodexAppServer) -> String {
+pub(super) fn codex_workspace_cwd_param(server: &CodexAppServer) -> String {
     server.workspace_dir.to_string_lossy().to_string()
 }
 
-fn codex_steer_is_allowed(request: &ProviderTurnRequest) -> bool {
+pub(super) fn codex_steer_is_allowed(request: &ProviderTurnRequest) -> bool {
     if request.provider != ProviderId::Codex
         || should_force_acp_fallback(request)
         || provider_option_bool(&request.provider_options, "force_new_turn")
@@ -708,13 +760,13 @@ fn codex_steer_is_allowed(request: &ProviderTurnRequest) -> bool {
     !prompt.starts_with('/')
 }
 
-fn codex_request_turn_id(request: &ProviderTurnRequest) -> Option<String> {
+pub(super) fn codex_request_turn_id(request: &ProviderTurnRequest) -> Option<String> {
     provider_option_string(&request.provider_options, "turn_id")
         .or_else(|| provider_option_string(&request.provider_options, "turnId"))
         .map(ToString::to_string)
 }
 
-async fn try_steer_active_codex_turn(
+pub(super) async fn try_steer_active_codex_turn(
     pool: &SqlitePool,
     request: &ProviderTurnRequest,
     workspace_id: Uuid,
@@ -724,8 +776,7 @@ async fn try_steer_active_codex_turn(
         return Ok(None);
     }
 
-    let resolved_request =
-        resolve_native_provider_request(pool, session, request.clone()).await?;
+    let resolved_request = resolve_native_provider_request(pool, session, request.clone()).await?;
     let processes = ExecutionProcess::find_by_session_id(pool, session.id, false).await?;
     for process in processes.into_iter().rev() {
         if !matches!(&process.status, ExecutionProcessStatus::Running)
@@ -752,19 +803,16 @@ async fn try_steer_active_codex_turn(
         {
             continue;
         }
-        let Some(turn_id) = codex_request_turn_id(&resolved_request)
-            .or_else(|| turn.agent_message_id.clone())
+        let Some(turn_id) =
+            codex_request_turn_id(&resolved_request).or_else(|| turn.agent_message_id.clone())
         else {
             continue;
         };
 
-        let response = send_codex_turn_steer(
-            &thread_id,
-            &turn_id,
-            codex_input_items(&resolved_request),
-        )
-        .await
-        .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
+        let response =
+            send_codex_turn_steer(&thread_id, &turn_id, codex_input_items(&resolved_request))
+                .await
+                .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
         let event = ProviderRuntimeEvent {
             provider: ProviderId::Codex,
             workspace_id: workspace_id.to_string(),
@@ -863,7 +911,7 @@ pub async fn interrupt_codex_native_execution_process(
     Ok(false)
 }
 
-fn codex_app_server_command_args(request: &ProviderTurnRequest) -> Vec<String> {
+pub(super) fn codex_app_server_command_args(request: &ProviderTurnRequest) -> Vec<String> {
     let mut args = vec!["app-server".to_string()];
 
     if let Some(listen) = provider_option_string(&request.provider_options, "listen") {
@@ -990,15 +1038,13 @@ async fn ensure_codex_app_server(
             .map(|status| status.is_none())
             .unwrap_or(false);
         if process_alive {
-            let is_healthy = send_codex_request(
-                &server,
-                "model/list",
-                json!({}),
-                Duration::from_secs(4),
-            )
-            .await
-            .and_then(|response| codex_response_success("model/list", &response).map(|_| ()))
-            .is_ok();
+            let is_healthy =
+                send_codex_request(&server, "model/list", json!({}), Duration::from_secs(4))
+                    .await
+                    .and_then(|response| {
+                        codex_response_success("model/list", &response).map(|_| ())
+                    })
+                    .is_ok();
             if is_healthy {
                 return Ok(server);
             }
@@ -1006,7 +1052,8 @@ async fn ensure_codex_app_server(
         CODEX_APP_SERVERS.lock().await.remove(&key);
     }
 
-    let mut command = new_provider_hidden_command("codex", codex_app_server_command_args(request)).await;
+    let mut command =
+        new_provider_hidden_command("codex", codex_app_server_command_args(request)).await;
     command
         .current_dir(workspace_dir)
         .stdin(Stdio::piped())
@@ -1061,7 +1108,7 @@ async fn ensure_codex_app_server(
     Ok(server)
 }
 
-async fn start_codex_native_turn(
+pub(super) async fn start_codex_native_turn(
     state: &tauri::State<'_, AppState>,
     request: ProviderTurnRequest,
     visible_prompt: &str,
@@ -1437,8 +1484,7 @@ async fn start_codex_native_turn(
             Value::Array(codex_input_items(&request)),
         );
 
-        let response = match send_codex_turn_start_request(&server, Value::Object(params)).await
-        {
+        let response = match send_codex_turn_start_request(&server, Value::Object(params)).await {
             Ok(response) if response.get("error").is_some() => {
                 let event = failure_event(format!("turn/start failed: {}", response["error"]));
                 push_provider_event(
@@ -1594,4 +1640,3 @@ async fn start_codex_native_turn(
 
     Ok(event)
 }
-

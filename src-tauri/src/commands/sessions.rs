@@ -26,7 +26,9 @@ use executors::{
     profile::{ExecutorConfig, ExecutorProfileId},
 };
 use serde::Serialize;
-use services::services::{container::ContainerService, queued_message::QueueStatus};
+use services::services::{
+    container::ContainerService, container_actions, queued_message::QueueStatus,
+};
 use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -894,10 +896,7 @@ pub async fn follow_up(
 
     // Get repos for cleanup action
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let cleanup_action = state
-        .deployment
-        .container()
-        .cleanup_actions_for_repos(&repos);
+    let cleanup_action = container_actions::cleanup_actions_for_repos(&repos);
 
     let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos);
 

@@ -114,29 +114,48 @@ fn set_mcp_servers_in_config_path(
     path: &[String],
     servers: &HashMap<String, Value>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if path.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "MCP servers path cannot be empty",
+        )
+        .into());
+    }
+
     if !raw_config.is_object() {
         *raw_config = serde_json::json!({});
     }
 
     let mut current = raw_config;
     for part in &path[..path.len() - 1] {
-        if current.get(part).is_none() {
-            current
-                .as_object_mut()
-                .unwrap()
-                .insert(part.to_string(), serde_json::json!({}));
+        let object = current.as_object_mut().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "MCP config path traversal reached a non-object value",
+            )
+        })?;
+        let next = object
+            .entry(part.to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !next.is_object() {
+            *next = serde_json::json!({});
         }
-        current = current.get_mut(part).unwrap();
-        if !current.is_object() {
-            *current = serde_json::json!({});
-        }
+        current = next;
     }
 
-    let final_attr = path.last().unwrap();
-    current
-        .as_object_mut()
-        .unwrap()
-        .insert(final_attr.to_string(), serde_json::to_value(servers)?);
+    let final_attr = path.last().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "MCP servers path cannot be empty",
+        )
+    })?;
+    let object = current.as_object_mut().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "MCP config path target parent is not an object",
+        )
+    })?;
+    object.insert(final_attr.to_string(), serde_json::to_value(servers)?);
 
     Ok(())
 }
@@ -170,4 +189,40 @@ async fn update_mcp_servers_in_config(
     };
 
     Ok(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn set_mcp_servers_rejects_empty_path_without_panic() {
+        let mut raw_config = json!({});
+        let servers = HashMap::new();
+
+        let err = set_mcp_servers_in_config_path(&mut raw_config, &[], &servers)
+            .expect_err("empty path should be rejected");
+
+        assert!(err.to_string().contains("MCP servers path"));
+    }
+
+    #[test]
+    fn set_mcp_servers_replaces_non_object_intermediate_path() {
+        let mut raw_config = json!({
+            "mcp": "not-an-object"
+        });
+        let mut servers = HashMap::new();
+        servers.insert("filesystem".to_string(), json!({ "command": "npx" }));
+
+        set_mcp_servers_in_config_path(
+            &mut raw_config,
+            &["mcp".to_string(), "servers".to_string()],
+            &servers,
+        )
+        .expect("nested MCP server path should be written");
+
+        assert_eq!(raw_config["mcp"]["servers"], json!(servers));
+    }
 }

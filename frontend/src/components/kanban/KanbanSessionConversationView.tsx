@@ -30,6 +30,7 @@ import {
 } from '@/hooks/useWorkspaceSessions';
 import { attemptsApi, sessionsApi } from '@/lib/api';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
+import { getKanbanSessionDetailQueryState } from './kanbanSessionConversationQuery';
 
 type SessionRecord = Session & {
   task_id?: string | null;
@@ -345,14 +346,22 @@ function KanbanSessionConversationSurface({
       placeholderData: (previousData) =>
         previousData?.id === workspaceId ? previousData : undefined,
     });
+  const sessionDetailQuery = getKanbanSessionDetailQueryState(sessionId);
   const {
     data: session,
     isError: isSessionError,
     isFetching: isSessionFetching,
   } = useQuery<SessionRecord>({
-    queryKey: ['session', sessionId],
-    queryFn: () => sessionsApi.getById(sessionId!) as Promise<SessionRecord>,
-    enabled: !!sessionId,
+    queryKey: sessionDetailQuery.queryKey,
+    queryFn: () => {
+      if (!sessionDetailQuery.fetchSessionId) {
+        throw new Error('Session id is required to fetch session details');
+      }
+      return sessionsApi.getById(
+        sessionDetailQuery.fetchSessionId
+      ) as Promise<SessionRecord>;
+    },
+    enabled: sessionDetailQuery.enabled,
     placeholderData: (previousData) =>
       previousData?.id === sessionId ? previousData : undefined,
   });

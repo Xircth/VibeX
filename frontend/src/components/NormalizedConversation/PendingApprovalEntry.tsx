@@ -24,6 +24,7 @@ import { TabNavContext } from '@/contexts/TabNavigationContext';
 import { useKeyApproveRequest, useKeyDenyApproval, Scope } from '@/keyboard';
 import { useProject } from '@/contexts/ProjectContext';
 import { useApprovalForm } from '@/contexts/ApprovalFormContext';
+import { dateTimestamp } from '@/utils/date';
 
 const DEFAULT_DENIAL_REASON = 'User denied this tool use request.';
 
@@ -41,20 +42,20 @@ function useApprovalCountdown(
 ) {
   const totalSeconds = useMemo(() => {
     const total = Math.floor(
-      (new Date(timeoutAt).getTime() - new Date(requestedAt).getTime()) / 1000
+      (dateTimestamp(timeoutAt) - dateTimestamp(requestedAt)) / 1000
     );
     return Math.max(1, total);
   }, [requestedAt, timeoutAt]);
 
   const [timeLeft, setTimeLeft] = useState<number>(() => {
-    const remaining = new Date(timeoutAt).getTime() - Date.now();
+    const remaining = dateTimestamp(timeoutAt) - Date.now();
     return Math.max(0, Math.floor(remaining / 1000));
   });
 
   useEffect(() => {
     if (paused) return;
     const id = window.setInterval(() => {
-      const remaining = new Date(timeoutAt).getTime() - Date.now();
+      const remaining = dateTimestamp(timeoutAt) - Date.now();
       const next = Math.max(0, Math.floor(remaining / 1000));
       setTimeLeft(next);
       if (next <= 0) window.clearInterval(id);

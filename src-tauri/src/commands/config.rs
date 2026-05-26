@@ -363,26 +363,19 @@ pub async fn play_notification_sound(
         .map_err(|e| AppError::Internal(format!("Failed to resolve sound file: {}", e)))?;
 
     if cfg!(target_os = "macos") {
-        let _ = tokio::process::Command::new("afplay")
-            .arg(&file_path)
-            .spawn();
+        let _ = utils::process::new_hidden_tokio_command("afplay", [&file_path]).spawn();
     } else if cfg!(target_os = "linux") && !utils::is_wsl2() {
-        let _ = tokio::process::Command::new("paplay")
-            .arg(&file_path)
+        let _ = utils::process::new_hidden_tokio_command("paplay", [&file_path])
             .spawn()
-            .or_else(|_| {
-                tokio::process::Command::new("aplay")
-                    .arg(&file_path)
-                    .spawn()
-            });
+            .or_else(|_| utils::process::new_hidden_tokio_command("aplay", [&file_path]).spawn());
     } else {
         let file_path = file_path.to_string_lossy().replace('\'', "''");
-        let mut cmd = tokio::process::Command::new("powershell.exe");
-        cmd.arg("-NoProfile").arg("-Command").arg(format!(
-            "(New-Object Media.SoundPlayer '{file_path}').PlaySync()"
-        ));
-        utils::process::configure_tokio_command_no_window(&mut cmd);
-        let _ = cmd.spawn();
+        let script = format!("(New-Object Media.SoundPlayer '{file_path}').PlaySync()");
+        let _ = utils::process::new_hidden_tokio_command(
+            "powershell.exe",
+            ["-NoProfile", "-Command", &script],
+        )
+        .spawn();
     }
 
     Ok(())

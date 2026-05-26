@@ -1,4 +1,36 @@
-﻿async fn start_claude_sdk_native_turn(
+use std::{path::PathBuf, process::Stdio, sync::Arc};
+
+use db::models::{
+    coding_agent_turn::CodingAgentTurn,
+    execution_process::{ExecutionProcess, ExecutionProcessStatus},
+    session::{Session, SessionStatus},
+    workspace::Workspace,
+};
+use deployment::Deployment;
+use serde_json::{Value, json};
+use services::services::container::ContainerService;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    sync::Mutex,
+};
+use uuid::Uuid;
+
+use super::{
+    ACP_FALLBACK_ENV, NATIVE_ACTIVE_TURNS, NativeProcessHandle, ProviderId, ProviderRuntimeEvent,
+    ProviderTurnRequest, acp_fallback_config, app_error_from_native,
+    apply_native_commit_reminder_to_request, apply_profile_defaults_to_request,
+    build_claude_sdk_bridge_args, build_claude_sdk_bridge_input, build_opencode_sdk_bridge_args,
+    build_opencode_sdk_bridge_input, create_native_execution_process, extract_thread_id,
+    extract_turn_id, load_provider_workspace, new_provider_hidden_command,
+    prompt_with_display_images, provider_executor_profile_id,
+    push_native_provider_event_to_conversation, push_provider_event,
+    register_native_conversation_sink, resolve_native_provider_request,
+    resolve_provider_workspace_dir, should_force_acp_fallback, start_codex_native_turn,
+    write_claude_sdk_bridge_input_file, write_opencode_sdk_bridge_input_file,
+};
+use crate::{error::AppError, state::AppState};
+
+async fn start_claude_sdk_native_turn(
     state: &tauri::State<'_, AppState>,
     request: ProviderTurnRequest,
     visible_prompt: &str,
@@ -480,7 +512,7 @@ async fn start_opencode_sdk_native_turn(
     Ok(event)
 }
 
-async fn try_native_provider_turn(
+pub(super) async fn try_native_provider_turn(
     state: &tauri::State<'_, AppState>,
     mut request: ProviderTurnRequest,
     workspace_id: Uuid,
@@ -535,7 +567,7 @@ async fn try_native_provider_turn(
     }
 }
 
-async fn fallback_acp_turn(
+pub(super) async fn fallback_acp_turn(
     state: tauri::State<'_, AppState>,
     request: ProviderTurnRequest,
     workspace_id: Uuid,
@@ -588,4 +620,3 @@ async fn fallback_acp_turn(
         event: payload,
     })
 }
-

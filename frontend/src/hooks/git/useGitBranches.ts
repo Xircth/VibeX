@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { attemptsApi, repoApi } from '@/lib/api';
+import { dateTimestamp } from '@/utils/date';
 import type { GitBranch } from 'shared/types';
 
 interface UseGitBranchesOptions {
@@ -36,10 +37,7 @@ export function useGitBranches({
       const sorted = [...result].sort((a, b) => {
         if (a.is_current && !b.is_current) return -1;
         if (!a.is_current && b.is_current) return 1;
-        return (
-          new Date(b.last_commit_date).getTime() -
-          new Date(a.last_commit_date).getTime()
-        );
+        return dateTimestamp(b.last_commit_date) - dateTimestamp(a.last_commit_date);
       });
       setBranches(sorted);
     } catch (e) {

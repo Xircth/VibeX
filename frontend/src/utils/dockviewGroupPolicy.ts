@@ -21,6 +21,7 @@ export const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([
 interface DockviewGroupLike {
   id: string;
   panels: Array<{ id: string }>;
+  element?: HTMLElement;
 }
 
 interface DockviewPanelLike {
@@ -59,8 +60,7 @@ export function isSplittableEditorPanel(panel: DockviewPanelLike): boolean {
 }
 
 export function getGroupElement(group: DockviewGroupLike): HTMLElement | null {
-  const value = group as unknown as { element?: HTMLElement };
-  return value.element ?? null;
+  return group.element ?? null;
 }
 
 export function compareEditorGroups(

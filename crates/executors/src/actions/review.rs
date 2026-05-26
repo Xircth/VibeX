@@ -6,11 +6,11 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    actions::Executable,
+    actions::{Executable, configured_coding_agent, effective_working_dir},
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
     executors::{BaseCodingAgent, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
-    profile::{ExecutorConfig, ExecutorConfigs},
+    profile::ExecutorConfig,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
@@ -41,10 +41,7 @@ impl ReviewRequest {
     }
 
     pub fn effective_dir(&self, current_dir: &Path) -> std::path::PathBuf {
-        match &self.working_dir {
-            Some(rel_path) => current_dir.join(rel_path),
-            None => current_dir.to_path_buf(),
-        }
+        effective_working_dir(current_dir, self.working_dir.as_deref())
     }
 }
 
@@ -57,16 +54,7 @@ impl Executable for ReviewRequest {
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
         let effective_dir = self.effective_dir(current_dir);
-
-        let profile_id = self.executor_config.profile_id();
-        let mut agent = ExecutorConfigs::get_cached()
-            .get_coding_agent(&profile_id)
-            .ok_or(ExecutorError::UnknownExecutorType(profile_id.to_string()))?;
-
-        if self.executor_config.has_overrides() {
-            agent.apply_overrides(&self.executor_config);
-        }
-        agent.use_approvals(approvals.clone());
+        let agent = configured_coding_agent(&self.executor_config, approvals.clone())?;
 
         agent
             .spawn_review(

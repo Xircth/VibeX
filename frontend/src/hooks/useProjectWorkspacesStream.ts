@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import type { Workspace, WorkspaceWithStatus } from 'shared/types';
 import { useTauriPatchStream } from './useTauriPatchStream';
+import { dateTimestamp } from '@/utils/date';
 
 type ProjectWorkspacesState = {
   workspaces: Record<string, WorkspaceWithStatus>;
@@ -37,8 +38,7 @@ export function useProjectWorkspacesStream(
     () =>
       Object.values(data?.workspaces ?? {}).sort(
         (left, right) =>
-          new Date(right.updated_at).getTime() -
-          new Date(left.updated_at).getTime()
+          dateTimestamp(right.updated_at) - dateTimestamp(left.updated_at)
       ),
     [data?.workspaces]
   );

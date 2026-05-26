@@ -1,4 +1,66 @@
-﻿#[test]
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+use std::os::windows::process::ExitStatusExt;
+use std::process::{ExitStatus, Output};
+
+use super::*;
+
+#[cfg(unix)]
+fn failed_exit_status() -> ExitStatus {
+    ExitStatus::from_raw(1 << 8)
+}
+
+#[cfg(windows)]
+fn failed_exit_status() -> ExitStatus {
+    ExitStatus::from_raw(1)
+}
+
+fn command_output(stdout: &[u8], stderr: &[u8]) -> Output {
+    Output {
+        status: failed_exit_status(),
+        stdout: stdout.to_vec(),
+        stderr: stderr.to_vec(),
+    }
+}
+
+#[test]
+fn provider_sdk_metadata_failure_error_prefers_stderr() {
+    let output = command_output(b"stdout detail\n", b" stderr detail \n");
+
+    let error = provider_sdk_metadata_failure_error(ProviderId::Claude, &output);
+
+    assert_eq!(
+        error.to_string(),
+        "Bad request: Claude Code native runtime failed: stderr detail"
+    );
+}
+
+#[test]
+fn provider_sdk_metadata_failure_error_uses_stdout_when_stderr_is_empty() {
+    let output = command_output(b" stdout detail \n", b"\n");
+
+    let error = provider_sdk_metadata_failure_error(ProviderId::Opencode, &output);
+
+    assert_eq!(
+        error.to_string(),
+        "Bad request: OpenCode native runtime failed: stdout detail"
+    );
+}
+
+#[test]
+fn provider_sdk_metadata_failure_error_keeps_generic_fallback_without_output() {
+    let output = command_output(b" \n", b"\t\n");
+
+    let error = provider_sdk_metadata_failure_error(ProviderId::Claude, &output);
+
+    assert_eq!(
+        error.to_string(),
+        "Bad request: Claude Code native runtime failed: SDK metadata discovery failed"
+    );
+}
+
+#[test]
 fn claude_sdk_bridge_args_use_node_bridge_without_stream_json() {
     let input_path = PathBuf::from("C:\\tmp\\claude-sdk-input.json");
     let args = build_claude_sdk_bridge_args(&input_path);
@@ -492,7 +554,10 @@ fn codex_capabilities_do_not_overstate_request_ui_support() {
     let capabilities = provider_capabilities(ProviderId::Codex);
 
     assert_eq!(capabilities.approvals.state, CapabilityState::Partial);
-    assert_eq!(capabilities.user_input_requests.state, CapabilityState::Partial);
+    assert_eq!(
+        capabilities.user_input_requests.state,
+        CapabilityState::Partial
+    );
 }
 
 #[test]

@@ -4,10 +4,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[cfg(not(feature = "qa-mode"))]
-use crate::profile::ExecutorConfigs;
 use crate::{
-    actions::Executable,
+    actions::{Executable, effective_working_dir},
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
     executors::{BaseCodingAgent, ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
@@ -32,10 +30,7 @@ impl CodingAgentInitialRequest {
     }
 
     pub fn effective_dir(&self, current_dir: &Path) -> std::path::PathBuf {
-        match &self.working_dir {
-            Some(rel_path) => current_dir.join(rel_path),
-            None => current_dir.to_path_buf(),
-        }
+        effective_working_dir(current_dir, self.working_dir.as_deref())
     }
 }
 
@@ -59,16 +54,8 @@ impl Executable for CodingAgentInitialRequest {
 
         #[cfg(not(feature = "qa-mode"))]
         {
-            let profile_id = self.executor_config.profile_id();
-            let mut agent = ExecutorConfigs::get_cached()
-                .get_coding_agent(&profile_id)
-                .ok_or(ExecutorError::UnknownExecutorType(profile_id.to_string()))?;
-
-            if self.executor_config.has_overrides() {
-                agent.apply_overrides(&self.executor_config);
-            }
-            agent.use_approvals(approvals.clone());
-
+            let agent =
+                crate::actions::configured_coding_agent(&self.executor_config, approvals.clone())?;
             agent.spawn(&effective_dir, &self.prompt, env).await
         }
     }

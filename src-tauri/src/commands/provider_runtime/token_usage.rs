@@ -1,3 +1,8 @@
+use executors::logs::TokenUsageInfo;
+use serde_json::Value;
+
+use super::extract_provider_diagnostic_text;
+
 fn json_u32(value: Option<&Value>) -> Option<u32> {
     value
         .and_then(Value::as_u64)
@@ -39,12 +44,10 @@ fn codex_context_tokens(usage: &Value) -> Option<u32> {
             .or_else(|| positive_u32(json_u32(last.get("totalTokens"))));
     }
 
-    usage
-        .get("total")
-        .and_then(|total| {
-            positive_u32(json_u32(total.get("inputTokens")))
-                .or_else(|| positive_u32(json_u32(total.get("totalTokens"))))
-        })
+    usage.get("total").and_then(|total| {
+        positive_u32(json_u32(total.get("inputTokens")))
+            .or_else(|| positive_u32(json_u32(total.get("totalTokens"))))
+    })
 }
 
 fn codex_token_usage_info_from_usage(
@@ -124,11 +127,11 @@ fn extract_opencode_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
 }
 
 #[cfg(test)]
-fn extract_provider_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
+pub(super) fn extract_provider_token_usage_info(value: &Value) -> Option<TokenUsageInfo> {
     extract_provider_token_usage_info_with_codex_context_window(value, None)
 }
 
-fn extract_provider_token_usage_info_with_codex_context_window(
+pub(super) fn extract_provider_token_usage_info_with_codex_context_window(
     value: &Value,
     codex_context_window_fallback: Option<u32>,
 ) -> Option<TokenUsageInfo> {
@@ -153,7 +156,7 @@ fn extract_provider_token_usage_info_with_codex_context_window(
         })
 }
 
-fn extract_provider_error(value: &Value) -> Option<String> {
+pub(super) fn extract_provider_error(value: &Value) -> Option<String> {
     let record = value.as_object()?;
     let event_type = record
         .get("type")

@@ -1,3 +1,9 @@
+use deployment::Deployment;
+use uuid::Uuid;
+
+use super::workspace_queries::resolve_worktree_path;
+use crate::{error::AppError, state::AppState};
+
 #[tauri::command]
 pub async fn get_workspace_commit_detail(
     state: tauri::State<'_, AppState>,

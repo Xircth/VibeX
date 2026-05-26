@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -8,17 +9,42 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Image, Loader2, X } from 'lucide-react';
-import type { SendMessageShortcut } from 'shared/types';
+import type {
+  ExecutorProfileId,
+  SendMessageShortcut,
+} from 'shared/types';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
+import { TypeaheadMenu } from '@/components/ui/wysiwyg/plugins/typeahead-menu-components';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
-import { fileTreeApi } from '@/lib/api';
+import { useSlashCommands } from '@/hooks/useSlashCommands';
+import { fileTreeApi, repoApi, skillsApi } from '@/lib/api';
+import {
+  DOLLAR_COMMANDS,
+  mergeDollarCommands,
+  skillsToDollarCommands,
+} from '@/lib/dollarCommands';
+import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
 import {
   clipboardDataHasTextPayload,
   extractImageFilesFromClipboardData,
   readImageFilesFromNavigatorClipboard,
 } from '@/utils/clipboard';
+import {
+  getTextareaTypeaheadState,
+  replaceTextareaTypeaheadRange,
+  type TextareaTypeaheadState,
+} from './sessionComposerTypeahead';
+import {
+  dollarCommandsToTypeaheadOptions,
+  referenceResultsToTypeaheadOptions,
+  rootEntriesToFileReferenceOptions,
+  slashCommandsToTypeaheadOptions,
+  type ComposerTypeaheadOption,
+} from './sessionComposerTypeaheadOptions';
 
 export type SessionComposerImage = {
   id: string;
@@ -27,13 +53,22 @@ export type SessionComposerImage = {
   previewUrl?: string;
 };
 
+export type SessionComposerInputContext = {
+  sendShortcut?: SendMessageShortcut;
+  taskAttemptId?: string;
+  taskId?: string;
+  workspaceId?: string;
+  repoId?: string;
+  repoIds?: string[];
+  projectId?: string;
+  executorProfile?: ExecutorProfileId | null;
+};
+
 type SessionComposerInputProps = {
   value: string;
   disabled?: boolean;
   className?: string;
-  sendShortcut?: SendMessageShortcut;
-  taskAttemptId?: string;
-  taskId?: string;
+  context?: SessionComposerInputContext;
   images: SessionComposerImage[];
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -175,16 +210,167 @@ export function SessionComposerInput({
   value,
   disabled = false,
   className,
-  sendShortcut = 'Enter',
-  taskAttemptId,
-  taskId,
+  context,
   images,
   onChange,
   onSubmit,
   onAttachImages,
   onRemoveImage,
 }: SessionComposerInputProps) {
+  const {
+    sendShortcut = 'Enter',
+    taskAttemptId,
+    taskId,
+    workspaceId,
+    repoId,
+    repoIds,
+    projectId,
+    executorProfile,
+  } = context ?? {};
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const blurTimerRef = useRef<number | null>(null);
+  const [typeaheadState, setTypeaheadState] =
+    useState<TextareaTypeaheadState | null>(null);
+  const [selectedTypeaheadIndex, setSelectedTypeaheadIndex] = useState(0);
+  const typeaheadTrigger = typeaheadState?.trigger ?? null;
+  const typeaheadQuery = typeaheadState?.match.matchingString ?? '';
+  const executor = executorProfile?.executor ?? null;
+  const effectiveRepoIds = useMemo(() => {
+    const ids = repoIds?.filter(Boolean) ?? [];
+    if (ids.length > 0) return ids;
+    return repoId ? [repoId] : [];
+  }, [repoId, repoIds]);
+  const primaryRepoId = effectiveRepoIds[0] ?? null;
+
+  const slashCommandsQuery = useSlashCommands(executorProfile, {
+    workspaceId,
+    repoId,
+  });
+  const allSlashCommands = useMemo(
+    () => slashCommandsQuery.commands ?? [],
+    [slashCommandsQuery.commands]
+  );
+  const { data: localSkills = [] } = useQuery({
+    queryKey: ['local-agent-skills', 'CODEX'],
+    queryFn: () => skillsApi.listLocal('CODEX'),
+    enabled: typeaheadTrigger === '$',
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+  const allDollarCommands = useMemo(
+    () =>
+      mergeDollarCommands(DOLLAR_COMMANDS, skillsToDollarCommands(localSkills)),
+    [localSkills]
+  );
+  const { data: initialRepo } = useQuery({
+    queryKey: ['session-composer-file-typeahead-repo', primaryRepoId],
+    queryFn: async () =>
+      primaryRepoId ? repoApi.getById(primaryRepoId) : null,
+    enabled: typeaheadTrigger === '@' && !!primaryRepoId,
+  });
+  const { data: initialRootEntries, isLoading: isInitialRootEntriesLoading } =
+    useQuery({
+      queryKey: ['session-composer-file-typeahead-root', initialRepo?.path],
+      queryFn: () => fileTreeApi.listDirectoryChildren(initialRepo!.path, ''),
+      enabled:
+        typeaheadTrigger === '@' &&
+        typeaheadQuery.trim() === '' &&
+        !!initialRepo?.path,
+    });
+  const shouldSearchReferences =
+    (typeaheadTrigger === '#' ||
+      (typeaheadTrigger === '@' && typeaheadQuery.trim().length > 0)) &&
+    (effectiveRepoIds.length > 0 || !!projectId || typeaheadTrigger === '#');
+  const { data: referenceResults = [], isFetching: isSearchingReferences } =
+    useQuery({
+      queryKey: [
+        'session-composer-reference-typeahead',
+        typeaheadTrigger,
+        typeaheadQuery.trim(),
+        effectiveRepoIds,
+        projectId,
+      ],
+      queryFn: () =>
+        searchTagsAndFiles(typeaheadQuery.trim(), {
+          repoIds: effectiveRepoIds,
+          projectId,
+          includeTags: typeaheadTrigger === '#',
+          includeFiles: typeaheadTrigger === '@',
+        }),
+      enabled: shouldSearchReferences,
+      staleTime: 5_000,
+    });
+
+  const typeaheadOptions = useMemo((): ComposerTypeaheadOption[] => {
+    if (!typeaheadState) return [];
+
+    if (typeaheadState.trigger === '/') {
+      return slashCommandsToTypeaheadOptions(
+        allSlashCommands,
+        typeaheadQuery,
+        executor
+      );
+    }
+
+    if (typeaheadState.trigger === '$') {
+      return dollarCommandsToTypeaheadOptions(
+        allDollarCommands,
+        typeaheadQuery
+      );
+    }
+
+    if (typeaheadState.trigger === '@' && typeaheadQuery.trim() === '') {
+      if (!initialRootEntries) return [];
+      return rootEntriesToFileReferenceOptions(initialRootEntries);
+    }
+
+    if (typeaheadState.trigger === '@' || typeaheadState.trigger === '#') {
+      return referenceResultsToTypeaheadOptions(
+        typeaheadState.trigger,
+        referenceResults
+      );
+    }
+
+    return [];
+  }, [
+    allDollarCommands,
+    allSlashCommands,
+    executor,
+    initialRootEntries,
+    referenceResults,
+    typeaheadQuery,
+    typeaheadState,
+  ]);
+  const isTypeaheadLoading =
+    (typeaheadTrigger === '/' &&
+      !!executorProfile?.executor &&
+      !slashCommandsQuery.isInitialized) ||
+    (typeaheadTrigger === '@' &&
+      typeaheadQuery.trim() === '' &&
+      !!primaryRepoId &&
+      isInitialRootEntriesLoading) ||
+    ((typeaheadTrigger === '@' || typeaheadTrigger === '#') &&
+      isSearchingReferences);
+  const shouldShowTypeahead =
+    !!typeaheadState &&
+    (typeaheadOptions.length > 0 ||
+      isTypeaheadLoading ||
+      typeaheadTrigger === '$' ||
+      typeaheadTrigger === '@' ||
+      typeaheadTrigger === '#' ||
+      (typeaheadTrigger === '/' && !!executor));
+  const typeaheadEmptyText = useMemo(() => {
+    if (isTypeaheadLoading) {
+      if (typeaheadTrigger === '@') return 'Searching files...';
+      if (typeaheadTrigger === '#') return 'Searching tags...';
+      return 'Loading commands...';
+    }
+
+    if (typeaheadTrigger === '@') return 'No matching files found.';
+    if (typeaheadTrigger === '#') return 'No matching tags found.';
+    return 'No matching commands found.';
+  }, [isTypeaheadLoading, typeaheadTrigger]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -192,6 +378,71 @@ export function SessionComposerInput({
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(textarea.scrollHeight, 100)}px`;
   }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (blurTimerRef.current !== null) {
+        window.clearTimeout(blurTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedTypeaheadIndex(0);
+  }, [typeaheadState?.trigger, typeaheadState?.match.matchingString]);
+
+  useEffect(() => {
+    if (typeaheadOptions.length === 0) {
+      setSelectedTypeaheadIndex(0);
+      return;
+    }
+
+    setSelectedTypeaheadIndex((current) =>
+      Math.min(current, typeaheadOptions.length - 1)
+    );
+  }, [typeaheadOptions.length]);
+
+  const syncTypeaheadFromTextarea = useCallback(
+    (nextValue?: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea || disabled) {
+        setTypeaheadState(null);
+        return;
+      }
+
+      const currentValue = nextValue ?? textarea.value;
+      const caretOffset = textarea.selectionStart ?? currentValue.length;
+      setTypeaheadState(getTextareaTypeaheadState(currentValue, caretOffset));
+    },
+    [disabled]
+  );
+
+  const closeTypeahead = useCallback(() => {
+    setTypeaheadState(null);
+    setSelectedTypeaheadIndex(0);
+  }, []);
+
+  const commitTypeaheadOption = useCallback(
+    (option: ComposerTypeaheadOption) => {
+      if (!typeaheadState) return;
+
+      const next = replaceTextareaTypeaheadRange(
+        value,
+        typeaheadState.match,
+        option.insertText
+      );
+      onChange(next.value);
+      closeTypeahead();
+
+      window.requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.focus();
+        textarea.setSelectionRange(next.caretOffset, next.caretOffset);
+      });
+    },
+    [closeTypeahead, onChange, typeaheadState, value]
+  );
 
   const handlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -235,6 +486,53 @@ export function SessionComposerInput({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (typeaheadState) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          event.stopPropagation();
+          setSelectedTypeaheadIndex((current) =>
+            typeaheadOptions.length === 0
+              ? 0
+              : (current + 1) % typeaheadOptions.length
+          );
+          return;
+        }
+
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          event.stopPropagation();
+          setSelectedTypeaheadIndex((current) =>
+            typeaheadOptions.length === 0
+              ? 0
+              : (current - 1 + typeaheadOptions.length) %
+                typeaheadOptions.length
+          );
+          return;
+        }
+
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          closeTypeahead();
+          return;
+        }
+
+        if (event.key === 'Tab' || event.key === 'Enter') {
+          if (typeaheadOptions.length > 0) {
+            event.preventDefault();
+            event.stopPropagation();
+            commitTypeaheadOption(typeaheadOptions[selectedTypeaheadIndex]);
+            return;
+          }
+
+          if (isTypeaheadLoading) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+        }
+      }
+
       if (disabled || event.key !== 'Enter') {
         return;
       }
@@ -252,7 +550,17 @@ export function SessionComposerInput({
       event.stopPropagation();
       onSubmit();
     },
-    [disabled, onSubmit, sendShortcut]
+    [
+      closeTypeahead,
+      commitTypeaheadOption,
+      disabled,
+      isTypeaheadLoading,
+      onSubmit,
+      selectedTypeaheadIndex,
+      sendShortcut,
+      typeaheadOptions,
+      typeaheadState,
+    ]
   );
 
   return (
@@ -281,12 +589,59 @@ export function SessionComposerInput({
           'min-h-[40px] max-h-[100px] resize-none overflow-y-auto bg-transparent px-1 py-1 text-[13px] leading-5 tracking-[0.005em] text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60',
           className
         )}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          syncTypeaheadFromTextarea(event.target.value);
+        }}
         onKeyDown={handleKeyDown}
+        onKeyUp={() => syncTypeaheadFromTextarea()}
+        onClick={() => syncTypeaheadFromTextarea()}
+        onSelect={() => syncTypeaheadFromTextarea()}
+        onFocus={() => {
+          if (blurTimerRef.current !== null) {
+            window.clearTimeout(blurTimerRef.current);
+            blurTimerRef.current = null;
+          }
+          syncTypeaheadFromTextarea();
+        }}
+        onBlur={() => {
+          blurTimerRef.current = window.setTimeout(() => {
+            closeTypeahead();
+          }, 120);
+        }}
         onPaste={handlePaste}
         onDrop={handleDrop}
         onDragOver={(event) => event.preventDefault()}
       />
+      {shouldShowTypeahead && textareaRef.current
+        ? createPortal(
+            <TypeaheadMenu anchorEl={textareaRef.current}>
+              {typeaheadOptions.length > 0 ? (
+                <TypeaheadMenu.ScrollArea>
+                  {typeaheadOptions.map((option, index) => (
+                    <TypeaheadMenu.Item
+                      key={option.key}
+                      isSelected={index === selectedTypeaheadIndex}
+                      index={index}
+                      setHighlightedIndex={setSelectedTypeaheadIndex}
+                      onClick={() => commitTypeaheadOption(option)}
+                    >
+                      <div className="truncate font-medium">{option.label}</div>
+                      {option.description ? (
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {option.description}
+                        </div>
+                      ) : null}
+                    </TypeaheadMenu.Item>
+                  ))}
+                </TypeaheadMenu.ScrollArea>
+              ) : (
+                <TypeaheadMenu.Empty>{typeaheadEmptyText}</TypeaheadMenu.Empty>
+              )}
+            </TypeaheadMenu>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

@@ -334,6 +334,22 @@ describe('session composer submit helpers', () => {
     ).toBeNull();
   });
 
+  it('serializes file reference components before queueing backend text', () => {
+    expect(
+      buildQueuedFollowUp({
+        message: 'Review @src/App.tsx with $plan',
+        conflictMarkdown: null,
+        reviewMarkdown: '',
+        images: [],
+        executorProfile: profile,
+      })
+    ).toEqual({
+      message: 'Review src/App.tsx with $plan',
+      images: [],
+      executorProfile: profile,
+    });
+  });
+
   it('derives after-send cleanup state without hiding side effects', () => {
     const image = {
       id: 'image-1',

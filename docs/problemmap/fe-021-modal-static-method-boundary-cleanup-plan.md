@@ -3,7 +3,7 @@
 ## Scope
 
 - `frontend/src/lib/modals.ts`
-- `frontend/src/lib/modals.test.tsx`
+- `frontend/src/lib/Modals.test.tsx`
 - ProblemMap index entries for this pass
 
 ## Problem
@@ -32,8 +32,8 @@ component value.
 
 ## Verification
 
-- Red `pnpm vitest run src/lib/modals.test.tsx` before implementation.
-- Passing `pnpm vitest run src/lib/modals.test.tsx` after implementation.
+- Red `pnpm vitest run src/lib/Modals.test.tsx` before implementation.
+- Passing `pnpm vitest run src/lib/Modals.test.tsx` after implementation.
 - `rg -n "as unknown as" frontend/src/lib/modals.ts`
 - `pnpm run frontend:check`
 - `pnpm run frontend:lint`

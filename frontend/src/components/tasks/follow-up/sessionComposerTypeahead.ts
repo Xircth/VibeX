@@ -5,6 +5,7 @@ import {
   matchTagReferenceTrigger,
   type TypeaheadTriggerMatch,
 } from '@/components/ui/wysiwyg/plugins/typeahead-triggers';
+import type { SessionComposerStructuredTokenSegment } from './sessionComposerStructuredTokens';
 
 export type TextareaTypeaheadTrigger = '/' | '$' | '@' | '#';
 
@@ -25,14 +26,53 @@ const MATCHERS: Record<
 
 export function getTextareaTypeaheadState(
   value: string,
-  caretOffset: number
+  caretOffset: number,
+  segments: SessionComposerStructuredTokenSegment[] = []
 ): TextareaTypeaheadState | null {
-  const textBeforeCaret = value.slice(0, caretOffset);
+  const normalizedOffset = Math.max(0, Math.min(caretOffset, value.length));
+  if (segments.length === 0) {
+    return getMatchState(value.slice(0, normalizedOffset), 0);
+  }
 
+  let cursor = 0;
+  for (const segment of segments) {
+    if (segment.kind === 'text') {
+      const start = cursor;
+      const end = start + segment.text.length;
+      if (normalizedOffset >= start && normalizedOffset <= end) {
+        return getMatchState(
+          segment.text.slice(0, normalizedOffset - start),
+          start
+        );
+      }
+      cursor = end;
+      continue;
+    }
+
+    if (normalizedOffset > segment.start && normalizedOffset < segment.end) {
+      return null;
+    }
+
+    cursor = segment.end;
+  }
+
+  return getMatchState(value.slice(0, normalizedOffset), 0);
+}
+
+function getMatchState(
+  textBeforeCaret: string,
+  rawStartOffset: number
+): TextareaTypeaheadState | null {
   for (const trigger of ['/', '$', '@', '#'] as const) {
     const match = MATCHERS[trigger](textBeforeCaret);
     if (match) {
-      return { trigger, match };
+      return {
+        trigger,
+        match: {
+          ...match,
+          leadOffset: rawStartOffset + match.leadOffset,
+        },
+      };
     }
   }
 

@@ -61,6 +61,30 @@ test('system settings exposes local data clear action and calls the config api',
   assert.match(apiSource, /clear_local_app_data/);
 });
 
+test('system settings exposes per-tool dependency actions and badge-based status copy', () => {
+  const source = readFrontendFile('src/pages/settings/SystemSettings.tsx');
+  const helperSource = readFrontendFile('src/lib/localDependencyMaintenance.ts');
+
+  assert.match(source, /LocalDependencyStatusBadge/);
+  assert.match(source, /toolIds: \[tool\.id\]/);
+  assert.match(source, /presentation\.actionLabel/);
+  assert.match(helperSource, /版本不兼容/);
+  assert.match(helperSource, /缺失/);
+});
+
+test('system settings shows app version as checking instead of unknown before maintenance loads', () => {
+  const source = readFrontendFile('src/pages/settings/SystemSettings.tsx');
+
+  assert.match(
+    source,
+    /maintenanceStatus\?\.app\.current_version \?\? '检查中\.\.\.'/
+  );
+  assert.doesNotMatch(
+    source,
+    /maintenanceStatus\?\.app\.current_version \?\? 'unknown'/
+  );
+});
+
 test('settings routes do not run main-window onboarding after local data reset', () => {
   const source = readFrontendFile('src/App.tsx');
 

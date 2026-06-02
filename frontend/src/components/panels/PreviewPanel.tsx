@@ -418,8 +418,6 @@ export function PreviewPanel({
       {
         onOpenInEditor: (payload) => {
           addElement(payload);
-          requestedSelectModeRef.current = false;
-          setIsSelectModeEnabled(false);
           setIsInspectorOpen(true);
         },
         onReady: () => {
@@ -499,8 +497,6 @@ export function PreviewPanel({
 
       if (event.data.version === 2 && event.data.payload) {
         addElement(createClickedElementPayload(event.data.payload));
-        requestedSelectModeRef.current = false;
-        setIsSelectModeEnabled(false);
         setIsInspectorOpen(true);
       }
     };

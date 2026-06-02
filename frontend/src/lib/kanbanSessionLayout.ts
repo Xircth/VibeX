@@ -183,8 +183,13 @@ export function replaceRightSession(
 
 export function resolveCurrentExecutionPlacement(
   rightSession: KanbanSessionPlacement | null,
-  activeWorkspaceSession: KanbanSessionPlacement | null
+  activeWorkspaceSession: KanbanSessionPlacement | null,
+  options: { canUseRightPanel: boolean }
 ): KanbanSessionPlacement | null {
+  if (!options.canUseRightPanel) {
+    return null;
+  }
+
   return rightSession ?? activeWorkspaceSession;
 }
 

@@ -1,4 +1,7 @@
 use super::*;
+use crate::commands::provider_runtime::native_conversation::{
+    codex_event_can_fallback_to_thread_sink, codex_event_completes_native_sink,
+};
 
 #[test]
 fn provider_command_catalogs_are_isolated() {
@@ -133,6 +136,13 @@ fn native_provider_events_extract_display_text_without_user_echoes() {
             "result": "final Claude reply"
         }
     });
+    let codex_image_event = json!({
+        "type": "agentMessage",
+        "content": [{
+            "type": "image_generation_call",
+            "result": "abc123"
+        }]
+    });
     let claude_stream_delta = json!({
         "type": "sdk_event",
         "text": "live Claude chunk",
@@ -263,6 +273,10 @@ fn native_provider_events_extract_display_text_without_user_echoes() {
     assert_eq!(
         extract_provider_text(&claude_result_event),
         Some("final Claude reply".to_string())
+    );
+    assert_eq!(
+        extract_provider_text(&codex_image_event),
+        Some("![Generated image](<data:image/png;base64,abc123>)".to_string())
     );
     assert_eq!(
         extract_provider_stream_text(&claude_stream_delta),
@@ -868,7 +882,7 @@ fn codex_app_server_events_extract_current_protocol_ids_and_text() {
 }
 
 #[test]
-fn codex_context_compaction_item_completion_is_terminal() {
+fn codex_context_compaction_item_completion_is_detected() {
     let started = json!({
         "method": "item/started",
         "params": {
@@ -896,6 +910,7 @@ fn codex_context_compaction_item_completion_is_terminal() {
 
     assert!(!is_codex_context_compaction_completed(&started));
     assert!(is_codex_context_compaction_completed(&completed));
+    assert!(!codex_event_completes_native_sink(&completed));
 }
 
 #[test]
@@ -1229,21 +1244,153 @@ fn codex_auto_compaction_waits_until_turn_is_not_processing() {
         &mut state,
         "turn/started",
         None,
+        false,
         1
     ));
     assert!(!evaluate_codex_auto_compaction_state(
         &mut state,
         "thread/tokenUsage/updated",
         Some(93.0),
+        false,
         CODEX_AUTO_COMPACTION_COOLDOWN_MS
     ));
     assert!(evaluate_codex_auto_compaction_state(
         &mut state,
         "turn/completed",
         None,
+        false,
         CODEX_AUTO_COMPACTION_COOLDOWN_MS
     ));
     assert!(state.in_flight);
+}
+
+#[test]
+fn codex_turn_id_fallback_is_limited_to_stream_openers_and_compaction() {
+    let turn_started = json!({
+        "method": "turn/started",
+        "params": {
+            "threadId": "thread-123",
+            "turn": {
+                "id": "turn-1"
+            }
+        }
+    });
+    let agent_delta = json!({
+        "method": "item/agentMessage/delta",
+        "params": {
+            "threadId": "thread-123",
+            "turnId": "turn-1",
+            "itemId": "msg-1",
+            "delta": "late text"
+        }
+    });
+    let context_compaction_completed = json!({
+        "method": "item/completed",
+        "params": {
+            "threadId": "thread-123",
+            "turnId": "turn-compact",
+            "item": {
+                "id": "compact-1",
+                "type": "contextCompaction"
+            }
+        }
+    });
+    let context_compacted = json!({
+        "method": "thread/compacted",
+        "params": {
+            "threadId": "thread-123",
+            "turnId": "turn-compact"
+        }
+    });
+    let thread_event = json!({
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": "thread-123"
+        }
+    });
+
+    assert!(codex_event_can_fallback_to_thread_sink(&turn_started));
+    assert!(!codex_event_can_fallback_to_thread_sink(&agent_delta));
+    assert!(codex_event_can_fallback_to_thread_sink(
+        &context_compaction_completed
+    ));
+    assert!(codex_event_can_fallback_to_thread_sink(&context_compacted));
+    assert!(codex_event_can_fallback_to_thread_sink(&thread_event));
+}
+
+#[test]
+fn codex_auto_compaction_state_resets_when_context_compaction_item_completes() {
+    let completed = json!({
+        "method": "item/completed",
+        "params": {
+            "threadId": "thread-123",
+            "turnId": "turn-compact",
+            "item": {
+                "id": "compact-1",
+                "type": "contextCompaction"
+            }
+        }
+    });
+    let mut state = CodexAutoCompactionThreadState {
+        in_flight: true,
+        last_usage_percent: Some(93.0),
+        ..Default::default()
+    };
+
+    assert!(!evaluate_codex_auto_compaction_state(
+        &mut state,
+        completed.get("method").and_then(Value::as_str).unwrap(),
+        None,
+        is_codex_context_compaction_completed(&completed),
+        CODEX_AUTO_COMPACTION_COOLDOWN_MS
+    ));
+    assert!(!state.in_flight);
+    assert_eq!(state.last_usage_percent, None);
+}
+
+#[test]
+fn codex_context_compaction_status_text_matches_frontend_contract() {
+    let started = json!({
+        "method": "item/started",
+        "params": {
+            "threadId": "thread-123",
+            "turnId": "turn-compact",
+            "item": {
+                "id": "compact-1",
+                "type": "contextCompaction"
+            }
+        }
+    });
+    let completed = json!({
+        "method": "item/completed",
+        "params": {
+            "threadId": "thread-123",
+            "turnId": "turn-compact",
+            "item": {
+                "id": "compact-1",
+                "type": "contextCompaction"
+            }
+        }
+    });
+    let failed = json!({
+        "method": "thread/compactionFailed",
+        "params": {
+            "threadId": "thread-123"
+        }
+    });
+
+    assert_eq!(
+        codex_context_compaction_status_text(&started),
+        Some("正在执行上下文压缩...")
+    );
+    assert_eq!(
+        codex_context_compaction_status_text(&completed),
+        Some("上下文已压缩")
+    );
+    assert_eq!(
+        codex_context_compaction_status_text(&failed),
+        Some("上下文压缩失败")
+    );
 }
 
 #[test]

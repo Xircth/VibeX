@@ -868,8 +868,11 @@ export function IDELayout({
         >
           <div
             className={
-              effectiveActiveTab === 'kanban' ? 'invisible h-full' : 'h-full'
+              effectiveActiveTab === 'kanban'
+                ? 'pointer-events-none h-full opacity-0'
+                : 'h-full'
             }
+            aria-hidden={effectiveActiveTab === 'kanban'}
           >
             <DockviewReact
               components={panelComponents}
@@ -880,10 +883,10 @@ export function IDELayout({
           </div>
 
           {effectiveActiveTab === 'kanban' && (
-            <div className="absolute inset-0 z-10">
+            <div className="kanban-overlay absolute inset-0 z-10">
               <Suspense
                 fallback={
-                  <div className="workspace-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                  <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
                     <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                       <span>Loading Kanban...</span>

@@ -33,13 +33,11 @@ function wrapperFor(queryClient: QueryClient) {
 }
 
 describe('useSessionComposerEditorChange', () => {
-  it('cancels queued drafts, updates local state, persists draft text, and clears existing errors', () => {
+  it('keeps queued drafts intact while updating local state and clearing errors', () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(getQueueStatusQueryKey('session-1'), queuedStatus());
     const setFollowUpError = vi.fn();
     const setFollowUpMessage = vi.fn();
-    const cancelQueuedMessage = vi.fn();
-
     const { result } = renderHook(
       () => {
         const [localMessage, setLocalMessage] = useState('initial');
@@ -49,7 +47,6 @@ describe('useSessionComposerEditorChange', () => {
           setFollowUpError,
           setLocalMessage,
           setFollowUpMessage,
-          cancelQueuedMessage,
         });
 
         return { handleEditorChange, localMessage };
@@ -61,9 +58,8 @@ describe('useSessionComposerEditorChange', () => {
       result.current.handleEditorChange('next draft');
     });
 
-    expect(cancelQueuedMessage).toHaveBeenCalledWith({ sessionId: 'session-1' });
     expect(result.current.localMessage).toBe('next draft');
-    expect(setFollowUpMessage).toHaveBeenCalledWith('next draft');
+    expect(setFollowUpMessage).not.toHaveBeenCalled();
     expect(setFollowUpError).toHaveBeenCalledWith(null);
   });
 
@@ -74,8 +70,6 @@ describe('useSessionComposerEditorChange', () => {
     });
     const setFollowUpError = vi.fn();
     const setFollowUpMessage = vi.fn();
-    const cancelQueuedMessage = vi.fn();
-
     const { result } = renderHook(
       () => {
         const [localMessage, setLocalMessage] = useState('initial');
@@ -85,7 +79,6 @@ describe('useSessionComposerEditorChange', () => {
           setFollowUpError,
           setLocalMessage,
           setFollowUpMessage,
-          cancelQueuedMessage,
         });
 
         return { handleEditorChange, localMessage };
@@ -97,7 +90,6 @@ describe('useSessionComposerEditorChange', () => {
       result.current.handleEditorChange('plain draft');
     });
 
-    expect(cancelQueuedMessage).not.toHaveBeenCalled();
     expect(result.current.localMessage).toBe('plain draft');
     expect(setFollowUpMessage).toHaveBeenCalledWith('plain draft');
     expect(setFollowUpError).not.toHaveBeenCalled();
@@ -124,7 +116,6 @@ describe('useSessionComposerEditorChange', () => {
           setFollowUpError: vi.fn(),
           setLocalMessage,
           setFollowUpMessage,
-          cancelQueuedMessage: vi.fn(),
         });
 
         return { applyDraftMessage, handleEditorChange, localMessage };

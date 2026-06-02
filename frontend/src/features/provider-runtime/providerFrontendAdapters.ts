@@ -428,12 +428,50 @@ function textBlockContent(value: unknown): string | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
   const blockType = typeof record.type === 'string' ? record.type : null;
+
+  const imageMarkdown = imageBlockMarkdown(record, blockType);
+  if (imageMarkdown) {
+    return imageMarkdown;
+  }
+
   if (blockType && blockType !== 'text') return null;
 
   if (typeof record.text === 'string' && record.text.trim()) {
     return record.text;
   }
   return textBlockContent(record.content) ?? textBlockContent(record.parts);
+}
+
+function imageBlockMarkdown(
+  record: Record<string, unknown>,
+  blockType: string | null
+): string | null {
+  const imageUrl =
+    (typeof record.url === 'string' && record.url) ||
+    (typeof record.image_url === 'string' && record.image_url) ||
+    null;
+  if (
+    imageUrl &&
+    (blockType === 'image' ||
+      blockType === 'output_image' ||
+      blockType === 'input_image')
+  ) {
+    return `![Generated image](${imageUrl})`;
+  }
+
+  if (
+    blockType === 'image_generation_call' &&
+    typeof record.result === 'string' &&
+    record.result.trim()
+  ) {
+    const mimeType =
+      typeof record.mime_type === 'string' && record.mime_type.trim()
+        ? record.mime_type.trim()
+        : 'image/png';
+    return `![Generated image](<data:${mimeType};base64,${record.result.trim()}>)`;
+  }
+
+  return null;
 }
 
 function assistantPayloadText(value: unknown): string | null {

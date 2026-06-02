@@ -23,10 +23,20 @@ test('设置窗口不会再参与项目栏窗口同步', () => {
 
 test('独立项目栏窗口在解析项目列表期间不会直接掉进空状态', () => {
   const source = readFile('src/components/layout/ProjectRail.tsx');
+  const helperSource = readFile('src/components/layout/projectRailProjects.ts');
 
   assert.match(source, /isResolvingStandaloneProjects/);
-  assert.match(source, /shouldShowPlaceholderProjects/);
+  assert.match(source, /mergeProjectsById/);
   assert.match(source, /syncProjectRailWindowBounds\(projectRailItemCount\)/);
+  assert.match(helperSource, /export function mergeProjectsById/);
+});
+
+test('project rail status tracking covers standalone fallback projects', () => {
+  const source = readFile('src/components/layout/ProjectWindowManager.tsx');
+
+  assert.match(source, /standaloneFallbackProjects/);
+  assert.match(source, /mergeProjectsById/);
+  assert.match(source, /projectsApi[\s\S]*?\.getAll\(\)/);
 });
 
 test('项目栏默认隐藏，且可见性不再跨窗口持久化', () => {

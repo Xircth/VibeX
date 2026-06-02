@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type QueueStatus } from 'shared/types';
 import {
   clearComposerImageAttachments,
   createUploadedImageAttachment,
@@ -200,20 +199,7 @@ describe('session composer image helpers', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
   });
 
-  it('applies uploaded images against queued state and current attachments', () => {
-    const queuedStatus: QueueStatus = {
-      status: 'queued',
-      message: {
-        session_id: 'session-1',
-        queued_at: '2026-05-25T00:00:00.000Z',
-        data: {
-          message: 'queued message',
-          images: ['.vibe-images/queued.png', '.vibe-images/shared.png'],
-          executor_config: { executor: BaseCodingAgent.CODEX },
-          queued: true,
-        },
-      },
-    };
+  it('applies uploaded images against the current draft attachments only', () => {
     const current = {
       id: 'current',
       name: 'current.png',
@@ -229,7 +215,6 @@ describe('session composer image helpers', () => {
 
     expect(
       getUploadedImageApplication({
-        queueStatus: queuedStatus,
         fallbackMessage: 'local draft',
         currentAttachments: [replacedCurrent, current],
         uploadResponse: {
@@ -240,10 +225,8 @@ describe('session composer image helpers', () => {
         previewUrl: 'blob:upload',
       })
     ).toEqual({
-      shouldCancelQueue: true,
-      scratchMessage: 'queued message',
+      scratchMessage: 'local draft',
       attachments: [
-        imageAttachmentFromPath('.vibe-images/queued.png'),
         {
           id: 'upload',
           name: 'shared.png',
@@ -253,25 +236,7 @@ describe('session composer image helpers', () => {
         current,
       ],
       imageToRevoke: replacedCurrent,
-      scratchImagePaths: [
-        '.vibe-images/queued.png',
-        '.vibe-images/shared.png',
-        '.vibe-images/current.png',
-      ],
+      scratchImagePaths: ['.vibe-images/shared.png', '.vibe-images/current.png'],
     });
-
-    expect(
-      getUploadedImageApplication({
-        queueStatus: { status: 'empty' },
-        fallbackMessage: 'local draft',
-        currentAttachments: [],
-        uploadResponse: {
-          id: 'upload',
-          original_name: 'upload.png',
-          file_path: '.vibe-images/upload.png',
-        },
-        previewUrl: 'blob:upload',
-      }).shouldCancelQueue
-    ).toBe(false);
   });
 });

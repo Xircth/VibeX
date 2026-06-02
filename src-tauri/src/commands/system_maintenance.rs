@@ -267,7 +267,6 @@ fn installable_packages_for_status(
         .iter()
         .filter(|tool| {
             requested_groups.is_none_or(|groups| groups.contains(&tool.group_id))
-                && tool.user_visible
                 && (!tool.installed
                     || !tool.supported
                     || tool.update_available
@@ -704,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn install_candidates_ignore_hidden_sdk_and_acp_tools() {
+    fn install_candidates_include_hidden_group_dependencies_for_selected_visible_tool() {
         let status = SystemMaintenanceStatus {
             app: AppReleaseStatus {
                 current_version: "0.1.8".to_string(),
@@ -760,7 +759,10 @@ mod tests {
         };
         let groups = selected_tool_groups(Some(&["opencode_cli_acp".to_string()])).unwrap();
 
-        assert!(installable_packages_for_status(&status, Some(&groups), false).is_empty());
+        assert_eq!(
+            installable_packages_for_status(&status, Some(&groups), false),
+            vec!["@opencode-ai/sdk".to_string()]
+        );
     }
 
     #[test]

@@ -306,6 +306,7 @@ pub(super) fn resolve_codex_runtime_options(
         });
     let effort = provider_option_string(&request.provider_options, "effort")
         .map(ToString::to_string)
+        .or_else(|| profile_id.reasoning_effort.clone())
         .or_else(|| {
             profile
                 .as_ref()

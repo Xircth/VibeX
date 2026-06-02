@@ -97,30 +97,14 @@ export function getQueueIndicatorState(
 }
 
 export function getAttachImageQueueSeed({
-  queueStatus,
   fallbackMessage,
 }: {
-  queueStatus: QueueStatus | undefined;
   fallbackMessage: string;
 }): {
-  shouldCancelQueue: boolean;
   scratchMessage: string;
-  queuedImagePaths: string[];
 } {
-  const { queuedMessage } = getQueueSnapshot(queueStatus);
-
-  if (!queuedMessage) {
-    return {
-      shouldCancelQueue: false,
-      scratchMessage: fallbackMessage,
-      queuedImagePaths: [],
-    };
-  }
-
   return {
-    shouldCancelQueue: true,
-    scratchMessage: queuedMessage.data.message,
-    queuedImagePaths: queuedMessage.data.images,
+    scratchMessage: fallbackMessage,
   };
 }
 
@@ -147,11 +131,11 @@ export function getEditorChangeSideEffects({
   queueStatus: QueueStatus | undefined;
   hasFollowUpError: boolean;
 }): {
-  shouldCancelQueue: boolean;
+  shouldPersistDraft: boolean;
   shouldClearError: boolean;
 } {
   return {
-    shouldCancelQueue: getQueueSnapshot(queueStatus).isQueued,
+    shouldPersistDraft: !getQueueSnapshot(queueStatus).isQueued,
     shouldClearError: hasFollowUpError,
   };
 }

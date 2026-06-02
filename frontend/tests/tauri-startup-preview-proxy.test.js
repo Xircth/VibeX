@@ -36,6 +36,21 @@ test('preview proxy streams non-html responses instead of buffering all assets',
   assert.match(source, /if !is_html \{/);
 });
 
+test('preview proxy preserves multiple Set-Cookie headers instead of overwriting them', () => {
+  const source = readRepoFile('src-tauri/src/preview_proxy.rs');
+
+  assert.match(source, /name == header::SET_COOKIE/);
+  assert.match(source, /destination\.append\(name\.clone\(\), value\.clone\(\)\)/);
+});
+
+test('preview proxy strips loopback cookie domains so the proxied host can store host-only cookies', () => {
+  const source = readRepoFile('src-tauri/src/preview_proxy.rs');
+
+  assert.match(source, /rewrite_set_cookie_for_proxy/);
+  assert.match(source, /attribute_name\.trim\(\)\.eq_ignore_ascii_case\("domain"\)/);
+  assert.match(source, /filter_map/);
+});
+
 test('preview proxy uses a short local connect timeout before retrying host variants', () => {
   const source = readRepoFile('src-tauri/src/preview_proxy.rs');
 

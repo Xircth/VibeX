@@ -1,6 +1,6 @@
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { BaseCodingAgent } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
@@ -30,12 +30,12 @@ import { SessionComposerTopbar } from './follow-up/SessionComposerTopbar';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
+import { SessionComposerInput } from './follow-up/SessionComposerInput';
+import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
-  SessionComposerInput,
-} from './follow-up/SessionComposerInput';
-import {
-  getDefaultExecutorProfile,
-} from './follow-up/sessionComposerDraft';
+  clearComposerImageAttachments,
+  revokeComposerImagePreviewUrl,
+} from './follow-up/sessionComposerImages';
 import {
   getChangedFileCount,
   getSummaryRepoId,
@@ -59,9 +59,7 @@ import {
   canTypeFollowUp as getCanTypeFollowUp,
   hasPendingToolApproval,
 } from './follow-up/sessionComposerSubmit';
-import {
-  canEnhancePrompt as getCanEnhancePrompt,
-} from './follow-up/sessionComposerPromptEnhancement';
+import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
 import { useSessionComposerPromptEnhancement } from './follow-up/useSessionComposerPromptEnhancement';
 import { useSessionComposerContextCompact } from './follow-up/useSessionComposerContextCompact';
 import { useSessionComposerQueue } from './follow-up/useSessionComposerQueue';
@@ -74,6 +72,7 @@ import { useSessionComposerExecutorProfileHydration } from './follow-up/useSessi
 import { useSessionComposerDraftHydration } from './follow-up/useSessionComposerDraftHydration';
 import { useSessionComposerHotkeys } from './follow-up/useSessionComposerHotkeys';
 import { useSessionComposerEditorChange } from './follow-up/useSessionComposerEditorChange';
+import { useSessionComposerPreviewElementInsertion } from './follow-up/useSessionComposerPreviewElementInsertion';
 import { useSessionComposerSubmitActions } from './follow-up/useSessionComposerSubmitActions';
 import { useSessionComposerImageRemoval } from './follow-up/useSessionComposerImageRemoval';
 import { useSessionComposerFocus } from './follow-up/useSessionComposerFocus';
@@ -307,7 +306,6 @@ export function TaskFollowUpSection({
   });
 
   const {
-    cancelMutation,
     queueMessage,
     cancelQueue,
     isQueueLoading,
@@ -359,25 +357,22 @@ export function TaskFollowUpSection({
       onBeforeSend: clearStopping,
       onAfterSendCleanup: handleAfterSendCleanup,
     });
-  const {
-    isCompactingContext,
-    canCompactContext,
-    handleCompactContext,
-  } = useSessionComposerContextCompact({
-    sessionId,
-    workspaceId: workspaceIdValue,
-    executorProfile: effectiveExecutorProfile,
-    processes,
-    setFollowUpError,
-    clearStopping,
-    hasWorkspaceForTyping: Boolean(workspaceId),
-    isSendingFollowUp,
-    isRetryActive,
-    hasPendingApproval,
-    isAttemptRunning,
-    isAwaitingNewSessionConfirmation,
-    isNewSessionMode,
-  });
+  const { isCompactingContext, canCompactContext, handleCompactContext } =
+    useSessionComposerContextCompact({
+      sessionId,
+      workspaceId: workspaceIdValue,
+      executorProfile: effectiveExecutorProfile,
+      processes,
+      setFollowUpError,
+      clearStopping,
+      hasWorkspaceForTyping: Boolean(workspaceId),
+      isSendingFollowUp,
+      isRetryActive,
+      hasPendingApproval,
+      isAttemptRunning,
+      isAwaitingNewSessionConfirmation,
+      isNewSessionMode,
+    });
 
   const canTypeFollowUp = useMemo(
     () =>
@@ -458,18 +453,35 @@ export function TaskFollowUpSection({
       cancelDebouncedSave,
       saveToScratch,
       queueMessage,
+      onAfterQueueCleanup: () => {
+        setLocalMessage('');
+        setAttachedImages((prev) => {
+          const cleanup = clearComposerImageAttachments(prev);
+          cleanup.imagesToRevoke.forEach(revokeComposerImagePreviewUrl);
+          return cleanup.attachments;
+        });
+      },
       onSendFollowUp,
     });
 
-  const { applyDraftMessage, handleEditorChange } =
-    useSessionComposerEditorChange({
-      sessionId,
-      followUpError,
-      setFollowUpError,
-      setLocalMessage,
-      setFollowUpMessage,
-      cancelQueuedMessage: cancelMutation.mutate,
-    });
+  const { handleEditorChange } = useSessionComposerEditorChange({
+    sessionId,
+    followUpError,
+    setFollowUpError,
+    setLocalMessage,
+    setFollowUpMessage,
+  });
+
+  const getPreviewInsertionMessage = useCallback(
+    () => localMessage,
+    [localMessage]
+  );
+
+  useSessionComposerPreviewElementInsertion({
+    enabled: isEditable,
+    getMessage: getPreviewInsertionMessage,
+    onChange: handleEditorChange,
+  });
 
   const { handleAttachImages } = useSessionComposerImageUpload({
     workspaceId,
@@ -477,8 +489,6 @@ export function TaskFollowUpSection({
     draftMessage: localMessage,
     executorProfile: executorProfileRef.current,
     saveToScratch,
-    applyDraftMessage,
-    cancelQueue,
     setAttachedImages,
   });
 

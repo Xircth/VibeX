@@ -7,9 +7,14 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendRoot = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(frontendRoot, '..');
 
 function readFrontendFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
+}
+
+function readRepoFile(relativePath) {
+  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
 test('preview toolbar selection forwards target-mode messages into the iframe bridge', () => {
@@ -48,6 +53,19 @@ test('preview panel keeps selection state aligned with actual targeting state', 
   assert.doesNotMatch(source, /if \(!activeIframe\) \{\s*return;\s*\}/);
   assert.match(source, /requestedSelectModeRef\.current\s*=\s*nextEnabled/);
   assert.match(source, /setIsSelectModeEnabled\(nextEnabled\)/);
+});
+
+test('preview panel keeps companion targeting active after element selection', () => {
+  const source = readFrontendFile('src/components/panels/PreviewPanel.tsx');
+
+  assert.doesNotMatch(
+    source,
+    /onOpenInEditor:\s*\(payload\)\s*=>\s*\{[\s\S]*requestedSelectModeRef\.current\s*=\s*false[\s\S]*setIsSelectModeEnabled\(false\)/
+  );
+  assert.doesNotMatch(
+    source,
+    /event\.data\.type !== 'component-detected'[\s\S]*requestedSelectModeRef\.current\s*=\s*false[\s\S]*setIsSelectModeEnabled\(false\)/
+  );
 });
 
 test('preview panel always clears iframe targeting during bridge bootstrap and resets', () => {
@@ -129,4 +147,30 @@ test('web companion installer injects the toolbar bridge for parent-triggered se
   assert.match(source, /set-targeting/);
   assert.match(source, /button\[title="Toggle targeting mode"\]/);
   assert.match(source, /aria-pressed/);
+});
+
+test('native preview bridge bypasses proxy hosts for WebSocket clients', () => {
+  const source = readRepoFile(
+    'src-tauri/src/preview_proxy/click_to_component_script.js'
+  );
+
+  assert.match(source, /installWebSocketProxyBypass/);
+  assert.match(source, /window\.WebSocket/);
+  assert.match(source, /new URL\([^)]*window\.location\.href/);
+  assert.match(source, /\\d\+\)\\\.localhost/);
+});
+
+test('native preview element targeting suppresses page interactions without exiting selection mode', () => {
+  const source = readRepoFile(
+    'src-tauri/src/preview_proxy/click_to_component_script.js'
+  );
+
+  assert.match(source, /suppressInspectEvent/);
+  assert.match(source, /document\.addEventListener\('pointerdown'/);
+  assert.match(source, /document\.addEventListener\('mousedown'/);
+  assert.match(source, /document\.addEventListener\('mouseup'/);
+  assert.doesNotMatch(
+    source,
+    /onClick\(event\)[\s\S]*setInspectMode\(false\)[\s\S]*getElementContext/
+  );
 });

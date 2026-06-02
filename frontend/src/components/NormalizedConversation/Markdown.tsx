@@ -6,7 +6,10 @@ import {
   type MouseEvent,
 } from 'react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type Components,
+} from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -242,7 +245,13 @@ function filePathFromFileUrl(url: URL): string {
   return pathname.replace(/^\/([a-zA-Z]:[\\/])/, '$1');
 }
 
-function hrefToWorkspaceFileCandidate(
+type WorkspacePathTarget = {
+  path: string;
+  displayPath: string;
+  nodeType: 'file' | 'folder';
+};
+
+function hrefToWorkspacePathCandidate(
   href: string | undefined,
   workspacePath?: string | null
 ): string | null {
@@ -289,7 +298,11 @@ function looksLikeWorkspaceFilePath(value: string): boolean {
     return false;
   }
   if (candidate.startsWith('/local-projects')) return false;
-  if (isAbsoluteLocalPath(candidate)) return true;
+  if (isAbsoluteLocalPath(candidate)) {
+    return /(?:^|[\\/])[^\\/]+\.[a-z0-9]{1,12}$/i.test(
+      candidate.replace(/[\\/]+$/, '')
+    );
+  }
 
   return (
     /[\\/]/.test(candidate) &&
@@ -297,26 +310,54 @@ function looksLikeWorkspaceFilePath(value: string): boolean {
   );
 }
 
-function resolveMarkdownFileLinkCandidate(
+function looksLikeWorkspaceDirectoryPath(value: string): boolean {
+  const candidate = trimFilePathCandidate(value).replace(/[\\/]+$/, '');
+  if (!candidate || candidate === '.' || candidate.startsWith('#')) {
+    return false;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(candidate) && !isAbsoluteLocalPath(candidate)) {
+    return false;
+  }
+  if (candidate.startsWith('/local-projects')) {
+    return false;
+  }
+  if (looksLikeWorkspaceFilePath(candidate)) {
+    return false;
+  }
+  if (isAbsoluteLocalPath(candidate)) {
+    return true;
+  }
+
+  return /[\\/]/.test(candidate);
+}
+
+function resolveMarkdownWorkspacePathTarget(
   href: string | undefined,
   childrenText: string,
   workspacePath?: string | null
-): { filePath: string; displayPath: string } | null {
+): WorkspacePathTarget | null {
   const candidates = [
     childrenText,
-    hrefToWorkspaceFileCandidate(href, workspacePath) ?? '',
+    hrefToWorkspacePathCandidate(href, workspacePath) ?? '',
     href ?? '',
   ]
     .map(trimFilePathCandidate)
     .filter(Boolean);
 
   for (const candidate of candidates) {
-    if (!looksLikeWorkspaceFilePath(candidate)) continue;
+    const nodeType = looksLikeWorkspaceFilePath(candidate)
+      ? 'file'
+      : looksLikeWorkspaceDirectoryPath(candidate)
+        ? 'folder'
+        : null;
+    if (!nodeType) continue;
 
-    const filePath = resolveFilePathFromRoot(candidate, workspacePath);
+    const normalizedCandidate =
+      nodeType === 'folder' ? candidate.replace(/[\\/]+$/, '') : candidate;
+    const filePath = resolveFilePathFromRoot(normalizedCandidate, workspacePath);
     const displayPath =
-      deriveRelativeFilePath(filePath, workspacePath) ?? candidate;
-    return { filePath, displayPath };
+      deriveRelativeFilePath(filePath, workspacePath) ?? normalizedCandidate;
+    return { path: filePath, displayPath, nodeType };
   }
 
   return null;
@@ -421,6 +462,14 @@ function arePropsEqual(prev: MarkdownProps, next: MarkdownProps) {
   );
 }
 
+function markdownUrlTransform(url: string): string {
+  if (url.startsWith('data:image/') || url.startsWith('blob:')) {
+    return url;
+  }
+
+  return defaultUrlTransform(url);
+}
+
 export const Markdown = memo(function Markdown({
   value,
   className,
@@ -446,19 +495,19 @@ export const Markdown = memo(function Markdown({
       ),
       code: ({ className: codeClass, children }) => {
         const text = flattenNodeText(children).trim();
-        const fileLink = resolveMarkdownFileLinkCandidate(
+        const pathTarget = resolveMarkdownWorkspacePathTarget(
           undefined,
           text,
           workspacePath
         );
 
-        if (fileLink) {
+        if (pathTarget?.nodeType === 'file') {
           const handleClick = (event: MouseEvent<HTMLElement>) => {
             event.preventDefault();
             event.stopPropagation();
-            panelActions?.openFilePreview(fileLink.filePath, {
-              displayPath: fileLink.displayPath,
-              title: fileLink.displayPath,
+            panelActions?.openFilePreview(pathTarget.path, {
+              displayPath: pathTarget.displayPath,
+              title: pathTarget.displayPath,
             });
           };
 
@@ -468,7 +517,7 @@ export const Markdown = memo(function Markdown({
               onClick={handleClick}
               role="button"
               tabIndex={0}
-              title={fileLink.displayPath}
+              title={pathTarget.displayPath}
             >
               {text || children}
             </code>
@@ -492,7 +541,11 @@ export const Markdown = memo(function Markdown({
 
         const childrenText = flattenNodeText(children);
         const imageHref =
-          href && isMarkdownImagePath(href) && !parseTagReferenceHref(href)
+          href &&
+          (isMarkdownImagePath(href) ||
+            href.startsWith('data:image/') ||
+            href.startsWith('blob:')) &&
+          !parseTagReferenceHref(href)
             ? href
             : null;
 
@@ -508,7 +561,7 @@ export const Markdown = memo(function Markdown({
           );
         }
 
-        const fileLink = resolveMarkdownFileLinkCandidate(
+        const pathTarget = resolveMarkdownWorkspacePathTarget(
           href,
           childrenText,
           workspacePath
@@ -520,20 +573,29 @@ export const Markdown = memo(function Markdown({
           ? isInternalProjectRouteHref(href)
           : false;
         const renderedHref =
-          href && isExternal && !fileLink && !isInternalProjectRoute
+          href && isExternal && !pathTarget && !isInternalProjectRoute
             ? href
             : undefined;
 
         const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
-          if (!href) return;
-
-          if (fileLink) {
+          if (pathTarget) {
             event.preventDefault();
             event.stopPropagation();
-            panelActions?.openFilePreview(fileLink.filePath, {
-              displayPath: fileLink.displayPath,
-              title: fileLink.displayPath,
-            });
+            if (pathTarget.nodeType === 'file') {
+              panelActions?.openFilePreview(pathTarget.path, {
+                displayPath: pathTarget.displayPath,
+                title: pathTarget.displayPath,
+              });
+            } else {
+              panelActions?.revealInFileTree(pathTarget.path, {
+                displayPath: pathTarget.displayPath,
+                nodeType: 'folder',
+              });
+            }
+            return;
+          }
+
+          if (!href) {
             return;
           }
 
@@ -566,7 +628,7 @@ export const Markdown = memo(function Markdown({
             rel="noopener noreferrer"
             role={renderedHref ? undefined : 'link'}
             tabIndex={renderedHref ? undefined : 0}
-            title={href}
+            title={pathTarget?.displayPath ?? href}
           >
             {children}
           </a>
@@ -590,7 +652,11 @@ export const Markdown = memo(function Markdown({
 
   return (
     <div className={`conv-markdown${className ? ` ${className}` : ''}`}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        components={components}
+        urlTransform={markdownUrlTransform}
+      >
         {normalizedValue}
       </ReactMarkdown>
     </div>

@@ -7,7 +7,7 @@ import {
   getUploadedImageApplication,
   revokeComposerImagePreviewUrl,
 } from './sessionComposerImages';
-import { getQueueStatusQueryKey } from './sessionComposerQueue';
+import { getQueueSnapshot, getQueueStatusQueryKey } from './sessionComposerQueue';
 
 export function useSessionComposerImageUpload({
   workspaceId,
@@ -15,8 +15,6 @@ export function useSessionComposerImageUpload({
   draftMessage,
   executorProfile,
   saveToScratch,
-  applyDraftMessage,
-  cancelQueue,
   setAttachedImages,
 }: {
   workspaceId: string | null | undefined;
@@ -28,8 +26,6 @@ export function useSessionComposerImageUpload({
     executorProfileId: ExecutorProfileId | null,
     images?: string[]
   ) => Promise<void> | void;
-  applyDraftMessage: (message: string) => void;
-  cancelQueue: () => Promise<void>;
   setAttachedImages: Dispatch<SetStateAction<SessionComposerImage[]>>;
 }) {
   const queryClient = useQueryClient();
@@ -48,26 +44,22 @@ export function useSessionComposerImageUpload({
 
           setAttachedImages((prev) => {
             const nextApplication = getUploadedImageApplication({
-              queueStatus: status,
               fallbackMessage: draftMessage,
               currentAttachments: prev,
               uploadResponse: response,
               previewUrl,
             });
-
-            if (nextApplication.shouldCancelQueue) {
-              void cancelQueue();
-              applyDraftMessage(nextApplication.scratchMessage);
-            }
             if (nextApplication.imageToRevoke) {
               revokeComposerImagePreviewUrl(nextApplication.imageToRevoke);
             }
 
-            void saveToScratch(
-              nextApplication.scratchMessage,
-              executorProfile,
-              nextApplication.scratchImagePaths
-            );
+            if (!getQueueSnapshot(status).isQueued) {
+              void saveToScratch(
+                nextApplication.scratchMessage,
+                executorProfile,
+                nextApplication.scratchImagePaths
+              );
+            }
 
             return nextApplication.attachments;
           });
@@ -77,8 +69,6 @@ export function useSessionComposerImageUpload({
       }
     },
     [
-      applyDraftMessage,
-      cancelQueue,
       draftMessage,
       executorProfile,
       queryClient,

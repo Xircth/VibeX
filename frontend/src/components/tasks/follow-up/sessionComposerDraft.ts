@@ -14,6 +14,8 @@ type LegacyExecutorProfile = Partial<ExecutorProfileId> & {
   variant?: unknown;
   model?: unknown;
   fast_mode?: unknown;
+  reasoning_effort?: unknown;
+  reasoning_id?: unknown;
 };
 
 type LegacyDraftFollowUpData = Omit<
@@ -46,12 +48,19 @@ export function getDraftExecutorProfile(
         : null;
   const fastMode = typeof raw.fast_mode === 'boolean' ? raw.fast_mode : null;
   const variant = typeof raw.variant === 'string' ? raw.variant : null;
+  const reasoningEffort =
+    typeof raw.reasoning_effort === 'string'
+      ? raw.reasoning_effort
+      : typeof raw.reasoning_id === 'string'
+        ? raw.reasoning_id
+        : null;
 
   return {
     executor: raw.executor as ExecutorProfileId['executor'],
     variant,
     model,
     fast_mode: fastMode,
+    reasoning_effort: reasoningEffort,
   };
 }
 
@@ -107,6 +116,7 @@ export function shouldPersistDraftFollowUp({
       executorProfileId.variant ||
       executorProfileId.model ||
       executorProfileId.fast_mode != null ||
+      executorProfileId.reasoning_effort ||
       hasExistingScratch
   );
 }
@@ -140,6 +150,7 @@ export function getExecutorProfileStateKey(
     profile.variant ?? 'DEFAULT',
     profile.model ?? 'DEFAULT',
     profile.fast_mode == null ? 'FAST_DEFAULT' : String(profile.fast_mode),
+    profile.reasoning_effort ?? 'REASONING_DEFAULT',
   ].join(':');
 }
 

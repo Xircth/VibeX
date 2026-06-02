@@ -66,6 +66,7 @@ export function useSessionComposerDraftScratch({
       images: string[] = attachedImagePathsRef.current
     ) => {
       if (!workspaceId) return;
+      if (scratchData?.queued) return;
       if (
         !shouldPersistDraftFollowUp({
           message,
@@ -90,7 +91,7 @@ export function useSessionComposerDraftScratch({
         console.error('Failed to save follow-up draft', e);
       }
     },
-    [workspaceId, updateScratch]
+    [scratchData?.queued, updateScratch, workspaceId]
   );
 
   const { debounced: setFollowUpMessage, cancel: cancelDebouncedSave } =

@@ -513,6 +513,19 @@ fn codex_runtime_options_prefer_profile_model_override() {
 }
 
 #[test]
+fn codex_runtime_options_prefer_profile_reasoning_override() {
+    let mut request = turn_request(ProviderId::Codex);
+    let mut profile =
+        ExecutorProfileId::with_variant(BaseCodingAgent::Codex, "GPT_5_5".to_string());
+    profile.reasoning_effort = Some("low".to_string());
+    request.executor_profile_id = Some(profile);
+
+    let options = resolve_codex_runtime_options(&request, Path::new("C:\\workspace"));
+
+    assert_eq!(options.effort.as_deref(), Some("low"));
+}
+
+#[test]
 fn codex_json_rpc_error_responses_are_failures() {
     let response = json!({
         "id": 1,

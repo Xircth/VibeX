@@ -88,14 +88,13 @@ test('agent settings model backfills default rows before listing or lookup', () 
   assert.match(source, /find_by_type_backfills_defaults_before_lookup/);
 });
 
-test('agent settings hides runtime-only ACP and SDK diagnostics from the card UI', () => {
+test('agent settings card keeps version detection lightweight instead of embedding provider runtime diagnostics', () => {
   const source = readFrontendFile('src/components/settings/AgentCard.tsx');
 
-  assert.match(source, /function isVisibleAgentCheck\(check: PreflightCheck\)/);
-  assert.match(source, /check\.check_id === 'runtime_launcher'/);
-  assert.match(source, /check\.check_id === 'adapter_version'/);
-  assert.match(source, /visibleChecks\.map\(\(check\) =>/);
-  assert.match(source, /visibleChecks\.length/);
+  assert.match(source, /const \[isVersionChecking, setIsVersionChecking\] = useState\(false\);/);
+  assert.match(source, /agentSettingsApi\.detectVersion\(agent\.agent_type\)/);
+  assert.match(source, /setVersionMessage\(/);
+  assert.doesNotMatch(source, /PreflightCheck/);
   assert.doesNotMatch(source, /ProviderRuntimePanel/);
 });
 
@@ -114,4 +113,35 @@ test('agent settings version and update actions do not trigger full page refresh
     /type="button"[\s\S]*onClick=\{\(\) => void handleRunFix\(upgradeAction\)\}/
   );
   assert.match(cardSource, /await onReload\(\);/);
+});
+
+test('agent and system settings local dependency sections keep only version metadata without extra update copy', () => {
+  const cardSource = readFrontendFile('src/components/settings/AgentCard.tsx');
+  const agentSettingsSource = readFrontendFile(
+    'src/pages/settings/AgentSettings.tsx'
+  );
+  const systemSettingsSource = readFrontendFile(
+    'src/pages/settings/SystemSettings.tsx'
+  );
+  const helperSource = readFrontendFile('src/lib/localDependencyMaintenance.ts');
+
+  assert.match(agentSettingsSource, /configApi\.getSystemMaintenanceStatus\(\)/);
+  assert.match(agentSettingsSource, /getAgentDependencyTool\(/);
+  assert.match(agentSettingsSource, /onInstallDependencyGroup=/);
+  assert.match(cardSource, /dependencyStatus:\s*LocalToolStatus \| null/);
+  assert.match(
+    cardSource,
+    /onInstallDependencyGroup:\s*\(tool: LocalToolStatus\) => Promise<void>/
+  );
+  assert.match(cardSource, /getLocalDependencyVersionSummary\(dependencyStatus\)/);
+  assert.match(systemSettingsSource, /getLocalDependencyVersionSummary\(tool\)/);
+  assert.match(helperSource, /当前版本：/);
+  assert.match(helperSource, /最低支持：/);
+  assert.match(helperSource, /最新版本：/);
+  assert.match(cardSource, /onInstallDependencyGroup\(dependencyStatus\)/);
+  assert.doesNotMatch(cardSource, /dependencyPresentation\.summary/);
+  assert.doesNotMatch(cardSource, /dependencyPresentation\.detail/);
+  assert.doesNotMatch(systemSettingsSource, /presentation\.summary/);
+  assert.doesNotMatch(systemSettingsSource, /presentation\.detail/);
+  assert.doesNotMatch(cardSource, /更新 CLI 时会同时处理隐藏依赖/);
 });

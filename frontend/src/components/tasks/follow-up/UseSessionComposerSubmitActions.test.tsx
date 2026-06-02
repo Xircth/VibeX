@@ -19,6 +19,7 @@ function renderSubmitActions({
   const saveToScratch = vi.fn().mockResolvedValue(undefined);
   const queueMessage = vi.fn().mockResolvedValue(undefined);
   const onSendFollowUp = vi.fn();
+  const onAfterQueueCleanup = vi.fn();
 
   const result = renderHook(() =>
     useSessionComposerSubmitActions({
@@ -33,6 +34,7 @@ function renderSubmitActions({
       cancelDebouncedSave,
       saveToScratch,
       queueMessage,
+      onAfterQueueCleanup,
       onSendFollowUp,
     })
   );
@@ -43,6 +45,7 @@ function renderSubmitActions({
     cancelDebouncedSave,
     saveToScratch,
     queueMessage,
+    onAfterQueueCleanup,
     onSendFollowUp,
   };
 }
@@ -55,6 +58,7 @@ describe('useSessionComposerSubmitActions', () => {
       cancelDebouncedSave,
       saveToScratch,
       queueMessage,
+      onAfterQueueCleanup,
     } = renderSubmitActions();
 
     await act(async () => {
@@ -69,6 +73,7 @@ describe('useSessionComposerSubmitActions', () => {
       profile,
       ['vibe://image']
     );
+    expect(onAfterQueueCleanup).toHaveBeenCalledOnce();
   });
 
   it('suppresses queue side effects when no queued follow-up can be built', async () => {
@@ -78,6 +83,7 @@ describe('useSessionComposerSubmitActions', () => {
       cancelDebouncedSave,
       saveToScratch,
       queueMessage,
+      onAfterQueueCleanup,
     } = renderSubmitActions({
       localMessage: '',
       conflictResolutionInstructions: null,
@@ -94,6 +100,7 @@ describe('useSessionComposerSubmitActions', () => {
     expect(cancelDebouncedSave).not.toHaveBeenCalled();
     expect(saveToScratch).not.toHaveBeenCalled();
     expect(queueMessage).not.toHaveBeenCalled();
+    expect(onAfterQueueCleanup).not.toHaveBeenCalled();
   });
 
   it('sends immediately from the submit shortcut when no attempt is running', () => {

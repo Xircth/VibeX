@@ -13,6 +13,7 @@ import { defineModal } from '@/lib/modals';
 import { useKeySubmitTask } from '@/keyboard/hooks';
 import { Scope } from '@/keyboard/registry';
 import { executionProcessesApi } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import {
   isCodingAgent,
   PROCESS_RUN_REASONS,
@@ -41,6 +42,80 @@ export type RestoreLogsDialogResult = {
   performGitReset?: boolean;
   forceWhenDirty?: boolean;
 };
+
+type RestoreConfirmDisabledInput = {
+  isLoading: boolean;
+  anyDirty: boolean;
+  acknowledgeUncommitted: boolean;
+  forceReset: boolean;
+  hasRisk: boolean;
+  worktreeResetOn: boolean;
+  needGitReset: boolean;
+};
+
+export function getRestoreConfirmDisabled({
+  isLoading,
+  anyDirty,
+  acknowledgeUncommitted,
+  forceReset,
+  hasRisk,
+  worktreeResetOn,
+  needGitReset,
+}: RestoreConfirmDisabledInput): boolean {
+  return (
+    isLoading ||
+    (anyDirty && !acknowledgeUncommitted && !forceReset) ||
+    (hasRisk && worktreeResetOn && needGitReset && !forceReset)
+  );
+}
+
+type ResetSwitchTone = 'success' | 'warning' | 'destructive';
+
+function ResetSwitch({
+  checked,
+  tone,
+  label,
+  onClick,
+}: {
+  checked: boolean;
+  tone: ResetSwitchTone;
+  label: string;
+  onClick: () => void;
+}) {
+  const activeClassName =
+    tone === 'destructive'
+      ? 'border-destructive bg-destructive'
+      : tone === 'warning'
+        ? 'border-warning bg-warning'
+        : 'border-success bg-success';
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        'ml-auto relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/40',
+        checked
+          ? activeClassName
+          : 'border-border/80 bg-muted/80 shadow-inner hover:bg-muted'
+      )}
+    >
+      <span
+        className={cn(
+          'pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-card shadow-sm ring-1 ring-border/40 transition-transform',
+          checked ? 'translate-x-5' : 'translate-x-1'
+        )}
+      />
+    </button>
+  );
+}
 
 const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
   ({
@@ -149,10 +224,15 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
     const repoCount = repoInfo.length;
     const continuityCopy = getContinuityActionCopy(continuityMode);
 
-    const isConfirmDisabled =
-      isLoading ||
-      (anyDirty && !acknowledgeUncommitted) ||
-      (hasRisk && worktreeResetOn && needGitReset && !forceReset);
+    const isConfirmDisabled = getRestoreConfirmDisabled({
+      isLoading,
+      anyDirty,
+      acknowledgeUncommitted,
+      forceReset,
+      hasRisk,
+      worktreeResetOn,
+      needGitReset,
+    });
 
     const handleConfirm = () => {
       modal.resolve({
@@ -275,24 +355,12 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
                             {'我了解这些更改可能会受到影响'}
                           </div>
-                          <div className="ml-auto relative inline-flex h-5 w-9 items-center rounded-full">
-                            <span
-                              className={
-                                (acknowledgeUncommitted
-                                  ? 'bg-amber-500'
-                                  : 'bg-panel') +
-                                ' absolute inset-0 rounded-full transition-colors'
-                              }
-                            />
-                            <span
-                              className={
-                                (acknowledgeUncommitted
-                                  ? 'translate-x-5'
-                                  : 'translate-x-1') +
-                                ' pointer-events-none relative inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform'
-                              }
-                            />
-                          </div>
+                          <ResetSwitch
+                            checked={acknowledgeUncommitted}
+                            tone="warning"
+                            label="确认了解未提交更改风险"
+                            onClick={() => setAcknowledgeUncommitted((v) => !v)}
+                          />
                         </div>
                       </div>
                     </div>
@@ -331,24 +399,12 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
                             {worktreeResetOn ? '已启用' : '已禁用'}
                           </div>
-                          <div className="ml-auto relative inline-flex h-5 w-9 items-center rounded-full">
-                            <span
-                              className={
-                                (worktreeResetOn
-                                  ? 'bg-emerald-500'
-                                  : 'bg-panel') +
-                                ' absolute inset-0 rounded-full transition-colors'
-                              }
-                            />
-                            <span
-                              className={
-                                (worktreeResetOn
-                                  ? 'translate-x-5'
-                                  : 'translate-x-1') +
-                                ' pointer-events-none relative inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform'
-                              }
-                            />
-                          </div>
+                          <ResetSwitch
+                            checked={worktreeResetOn}
+                            tone="success"
+                            label="切换重置工作树"
+                            onClick={() => setWorktreeResetOn((v) => !v)}
+                          />
                         </div>
                         {worktreeResetOn && (
                           <>
@@ -415,8 +471,9 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           onClick={() => {
                             setWorktreeResetOn((on) => {
                               if (forceReset) return !on; // free toggle when forced
-                              // Without force, only allow explicitly disabling reset
-                              return false;
+                              setForceReset(true);
+                              setAcknowledgeUncommitted(true);
+                              return true;
                             });
                           }}
                         >
@@ -427,24 +484,19 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                                 : '已禁用'
                               : '已禁用（检测到未提交的更改）'}
                           </div>
-                          <div className="ml-auto relative inline-flex h-5 w-9 items-center rounded-full">
-                            <span
-                              className={
-                                (worktreeResetOn && forceReset
-                                  ? 'bg-emerald-500'
-                                  : 'bg-panel') +
-                                ' absolute inset-0 rounded-full transition-colors'
-                              }
-                            />
-                            <span
-                              className={
-                                (worktreeResetOn && forceReset
-                                  ? 'translate-x-5'
-                                  : 'translate-x-1') +
-                                ' pointer-events-none relative inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform'
-                              }
-                            />
-                          </div>
+                          <ResetSwitch
+                            checked={worktreeResetOn && forceReset}
+                            tone="success"
+                            label="切换重置工作树"
+                            onClick={() => {
+                              setWorktreeResetOn((on) => {
+                                if (forceReset) return !on;
+                                setForceReset(true);
+                                setAcknowledgeUncommitted(true);
+                                return true;
+                              });
+                            }}
+                          />
                         </div>
                         <div
                           className="mt-2 w-full flex items-center cursor-pointer select-none"
@@ -452,7 +504,10 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           onClick={() => {
                             setForceReset((v) => {
                               const next = !v;
-                              if (next) setWorktreeResetOn(true);
+                              if (next) {
+                                setWorktreeResetOn(true);
+                                setAcknowledgeUncommitted(true);
+                              }
                               return next;
                             });
                           }}
@@ -460,22 +515,21 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           <div className="text-xs font-medium text-destructive flex-1 min-w-0 break-words">
                             {'强制重置（丢弃未提交的更改）'}
                           </div>
-                          <div className="ml-auto relative inline-flex h-5 w-9 items-center rounded-full">
-                            <span
-                              className={
-                                (forceReset ? 'bg-destructive' : 'bg-panel') +
-                                ' absolute inset-0 rounded-full transition-colors'
-                              }
-                            />
-                            <span
-                              className={
-                                (forceReset
-                                  ? 'translate-x-5'
-                                  : 'translate-x-1') +
-                                ' pointer-events-none relative inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform'
-                              }
-                            />
-                          </div>
+                          <ResetSwitch
+                            checked={forceReset}
+                            tone="destructive"
+                            label="切换强制重置"
+                            onClick={() => {
+                              setForceReset((v) => {
+                                const next = !v;
+                                if (next) {
+                                  setWorktreeResetOn(true);
+                                  setAcknowledgeUncommitted(true);
+                                }
+                                return next;
+                              });
+                            }}
+                          />
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
                           {forceReset

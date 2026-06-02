@@ -527,6 +527,64 @@ export function ensureFileTreeParentFolderExpanded(
   return next;
 }
 
+export function getFileTreeExpansionPaths(
+  path: string,
+  nodeType: 'file' | 'folder'
+): string[] {
+  const normalizedPath = path
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+
+  if (!normalizedPath) {
+    return [];
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const expansionDepth =
+    nodeType === 'folder' ? segments.length : segments.length - 1;
+
+  if (expansionDepth <= 0) {
+    return [];
+  }
+
+  const expansionPaths: string[] = [];
+  let currentPath = '';
+
+  for (let index = 0; index < expansionDepth; index += 1) {
+    currentPath = currentPath
+      ? `${currentPath}/${segments[index]}`
+      : segments[index]!;
+    expansionPaths.push(currentPath);
+  }
+
+  return expansionPaths;
+}
+
+export function expandFileTreeFoldersForSelection(
+  expandedFolders: Set<string>,
+  path: string,
+  nodeType: 'file' | 'folder'
+) {
+  const expansionPaths = getFileTreeExpansionPaths(path, nodeType);
+  if (expansionPaths.length === 0) {
+    return expandedFolders;
+  }
+
+  let changed = false;
+  const next = new Set(expandedFolders);
+
+  for (const expansionPath of expansionPaths) {
+    if (next.has(expansionPath)) {
+      continue;
+    }
+    next.add(expansionPath);
+    changed = true;
+  }
+
+  return changed ? next : expandedFolders;
+}
+
 export function getFileTreeInlineNewInputConfig(
   type: FileTreeInlineNewInputType
 ): FileTreeInlineNewInputConfig {

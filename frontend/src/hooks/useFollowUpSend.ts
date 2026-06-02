@@ -7,6 +7,7 @@ import {
   buildAgentPrompt,
   isSessionScopedSlashCommand,
 } from '@/utils/promptMessage';
+import { serializeSessionComposerBackendMessage } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
 type Args = {
   sessionId?: string;
@@ -53,8 +54,14 @@ export function useFollowUpSend({
   const onSendFollowUp = useCallback(async () => {
     if (!executorProfileId) return;
 
-    const extraMessage = message.trim();
-    const { prompt, isSlashCommand } = buildAgentPrompt(extraMessage, [
+    const displayMessage = message.trim();
+    const backendMessage =
+      serializeSessionComposerBackendMessage(message).trim();
+    const { prompt, isSlashCommand } = buildAgentPrompt(backendMessage, [
+      conflictMarkdown,
+      reviewMarkdown?.trim(),
+    ]);
+    const { prompt: displayPrompt } = buildAgentPrompt(displayMessage, [
       conflictMarkdown,
       reviewMarkdown?.trim(),
     ]);
@@ -111,6 +118,7 @@ export function useFollowUpSend({
         sessionId: targetSessionId,
         executorProfileId,
         text: prompt,
+        displayText: displayPrompt,
         images,
       });
       if (!isSlashCommand) {

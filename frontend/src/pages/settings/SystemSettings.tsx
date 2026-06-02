@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { SoundFile, type Config } from 'shared/types';
 import { TagManager } from '@/components/TagManager';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { LocalDependencyStatusBadge } from '@/components/settings/LocalDependencyStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -28,7 +29,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { configApi, type SystemMaintenanceStatus } from '@/lib/api';
+import {
+  configApi,
+  type LocalToolStatus,
+  type SystemMaintenanceStatus,
+} from '@/lib/api';
+import {
+  getLocalDependencyStatusPresentation,
+  getLocalDependencyVersionSummary,
+} from '@/lib/localDependencyMaintenance';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toPrettyCase } from '@/utils/string';
 
@@ -240,25 +249,32 @@ export function SystemSettings() {
   }, [refreshMaintenanceStatus]);
 
   const installDependencies = useCallback(
-    async (forceUpdate: boolean) => {
+    async ({
+      forceUpdate,
+      toolIds,
+      loadingMessage,
+      successMessage,
+      emptyMessage,
+    }: {
+      forceUpdate: boolean;
+      toolIds?: string[];
+      loadingMessage: string;
+      successMessage: string;
+      emptyMessage: string;
+    }) => {
       setDependencyInstallRunning(true);
-      const toastId = toast.loading(
-        forceUpdate
-          ? '正在更新本地依赖...'
-          : '正在安装缺失的本地依赖...'
-      );
+      const toastId = toast.loading(loadingMessage);
 
       try {
-        const result =
-          await configApi.installSystemDependencies(forceUpdate);
+        const result = await configApi.installSystemDependencies(
+          forceUpdate,
+          toolIds
+        );
         setMaintenanceStatus(result.status);
         const count = result.installed_or_updated.length;
-        toast.success(
-          count > 0
-            ? `已更新 ${count} 个本地依赖包。`
-            : '本地依赖已是最新状态。',
-          { id: toastId }
-        );
+        toast.success(count > 0 ? successMessage : emptyMessage, {
+          id: toastId,
+        });
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -311,6 +327,19 @@ export function SystemSettings() {
   const visibleMaintenanceTools = useMemo(
     () => (maintenanceStatus?.tools ?? []).filter((tool) => tool.user_visible),
     [maintenanceStatus?.tools]
+  );
+
+  const handleInstallDependencyGroup = useCallback(
+    async (tool: LocalToolStatus) => {
+      await installDependencies({
+        forceUpdate: false,
+        toolIds: [tool.id],
+        loadingMessage: `正在处理 ${tool.label}...`,
+        successMessage: `${tool.label} 及隐藏依赖已更新。`,
+        emptyMessage: `${tool.label} 当前无需处理。`,
+      });
+    },
+    [installDependencies]
   );
 
   const updateDraft = useCallback(
@@ -505,7 +534,7 @@ export function SystemSettings() {
                   <div className="text-xs font-semibold">应用版本</div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
                     当前版本：{' '}
-                    {maintenanceStatus?.app.current_version ?? 'unknown'}
+                    {maintenanceStatus?.app.current_version ?? '检查中...'}
                     {maintenanceStatus?.app.latest_version
                       ? ` / 最新版本：${maintenanceStatus.app.latest_version}`
                       : ''}
@@ -576,7 +605,14 @@ export function SystemSettings() {
                     variant="outline"
                     size="sm"
                     className="h-8 text-xs"
-                    onClick={() => void installDependencies(false)}
+                    onClick={() =>
+                      void installDependencies({
+                        forceUpdate: false,
+                        loadingMessage: '正在安装缺失的本地依赖...',
+                        successMessage: '缺失依赖已补齐。',
+                        emptyMessage: '当前没有缺失依赖。',
+                      })
+                    }
                     disabled={
                       dependencyInstallRunning ||
                       maintenanceLoading ||
@@ -593,7 +629,14 @@ export function SystemSettings() {
                   <Button
                     size="sm"
                     className="h-8 text-xs"
-                    onClick={() => void installDependencies(true)}
+                    onClick={() =>
+                      void installDependencies({
+                        forceUpdate: true,
+                        loadingMessage: '正在更新全部本地依赖...',
+                        successMessage: '可见依赖及其隐藏依赖已全部更新。',
+                        emptyMessage: '本地依赖已是最新状态。',
+                      })
+                    }
                     disabled={
                       dependencyInstallRunning ||
                       maintenanceLoading ||
@@ -607,52 +650,53 @@ export function SystemSettings() {
               </div>
 
               <div className="divide-y rounded-lg border">
-                {visibleMaintenanceTools.map((tool) => (
-                  <div
-                    key={tool.id}
-                    className="flex items-center justify-between gap-3 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">
-                        {tool.label}
+                {visibleMaintenanceTools.map((tool) => {
+                  const presentation = getLocalDependencyStatusPresentation(tool);
+
+                  return (
+                    <div
+                      key={tool.id}
+                      className="flex flex-wrap items-start justify-between gap-3 px-3 py-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="truncate text-xs font-medium">
+                            {tool.label}
+                          </div>
+                          <LocalDependencyStatusBadge tool={tool} />
+                        </div>
+                        <div className="mt-1 break-words text-[11px] text-muted-foreground">
+                          {getLocalDependencyVersionSummary(tool)}
+                        </div>
                       </div>
-                      <div className="truncate text-[11px] text-muted-foreground">
-                        当前版本：{tool.installed_version ?? '未安装'}
-                        {tool.minimum_supported_version
-                          ? ` / 最低支持：${tool.minimum_supported_version}`
-                          : ''}
+                      <div className="shrink-0">
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => void handleInstallDependencyGroup(tool)}
+                          disabled={
+                            dependencyInstallRunning ||
+                            maintenanceLoading ||
+                            maintenanceStatus?.npm.available === false ||
+                            !presentation.actionLabel
+                          }
+                        >
+                          {dependencyInstallRunning &&
+                          presentation.actionLabel ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : presentation.actionLabel === '安装' ? (
+                            <Download className="mr-1 h-3 w-3" />
+                          ) : presentation.actionLabel ? (
+                            <RefreshCw className="mr-1 h-3 w-3" />
+                          ) : null}
+                          {presentation.actionLabel ?? '已兼容'}
+                        </Button>
                       </div>
                     </div>
-                    <div className="shrink-0 text-right text-[11px]">
-                      <div
-                        className={
-                          !tool.supported
-                            ? 'font-medium text-destructive'
-                            : tool.update_available
-                            ? 'font-medium text-amber-600'
-                            : tool.installed
-                              ? 'text-emerald-600'
-                              : 'text-muted-foreground'
-                        }
-                      >
-                        {!tool.installed
-                          ? '缺失'
-                          : !tool.supported
-                            ? '版本不符合要求'
-                            : tool.update_available
-                              ? '可更新'
-                              : '已安装'}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {tool.latest_version
-                          ? `最新版本：${tool.latest_version}`
-                          : tool.installed
-                            ? '已检测'
-                            : '等待安装'}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {!maintenanceStatus && !maintenanceLoading ? (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
                     尚未检查本地环境。

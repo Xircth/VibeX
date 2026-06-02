@@ -1,4 +1,5 @@
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { PANEL_IDS } from '@/stores/useLayoutStore';
 
 /**
  * Convenience hook that re-exports panel actions from context.
@@ -20,6 +21,7 @@ export function usePanelActions() {
     closePanel,
     toggleFileTree,
     focusKanban,
+    isPanelOpen,
   } = usePanelActionsContext();
 
   return {
@@ -33,5 +35,7 @@ export function usePanelActions() {
     closePanel,
     toggleFileTree,
     focusKanban,
+    isPanelOpen,
+    isTerminalOpen: isPanelOpen(PANEL_IDS.TERMINAL),
   };
 }

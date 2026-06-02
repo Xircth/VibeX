@@ -411,6 +411,10 @@ export function TerminalProfileControls({
       currentModel
     );
     const reasoningOptions = CODEX_REASONING_EFFORT_OPTIONS;
+    const currentReasoningEffort =
+      reasoningOptions.find(
+        (option) => option.value === selectedProfile.reasoning_effort
+      )?.value ?? currentConfig.reasoningEffort;
 
     const updateVariant = (next: {
       model?: string | null;
@@ -430,7 +434,7 @@ export function TerminalProfileControls({
           ? currentConfig.approvalPolicy
           : next.approvalPolicy;
       const selectedReasoningEffort =
-        next.reasoningEffort ?? currentConfig.reasoningEffort;
+        next.reasoningEffort ?? currentReasoningEffort;
       const selectedFastMode =
         next.fastMode === undefined ? selectedProfile.fast_mode : next.fastMode;
       const variant = getCodexVariantFromConfigSelection(profiles, {
@@ -442,12 +446,17 @@ export function TerminalProfileControls({
       const variantConfig = getCodexVariantConfig(profiles, variant);
       const modelOverride =
         selectedModel === variantConfig.model ? null : selectedModel;
+      const reasoningOverride =
+        selectedReasoningEffort === variantConfig.reasoningEffort
+          ? null
+          : selectedReasoningEffort;
 
       onChange({
         executor,
         variant,
         model: modelOverride,
         fast_mode: selectedFastMode,
+        reasoning_effort: reasoningOverride,
       });
     };
 
@@ -488,7 +497,7 @@ export function TerminalProfileControls({
 
         {reasoningOptions.length > 1 ? (
           <OptionSelector<CodexReasoningEffort>
-            value={currentConfig.reasoningEffort}
+            value={currentReasoningEffort}
             options={reasoningOptions.map((option) => ({
               value: option.value,
               label: option.label,

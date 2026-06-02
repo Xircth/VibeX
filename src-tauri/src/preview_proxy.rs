@@ -379,6 +379,19 @@ fn copy_response_headers(
             continue;
         }
 
+        if name == header::SET_COOKIE {
+            if let Ok(set_cookie) = value.to_str()
+                && let Some(rewritten) = rewrite_set_cookie_for_proxy(set_cookie, target_port)
+                && let Ok(header_value) = HeaderValue::from_str(&rewritten)
+            {
+                destination.append(name.clone(), header_value);
+                continue;
+            }
+
+            destination.append(name.clone(), value.clone());
+            continue;
+        }
+
         if name == header::LOCATION
             && let (Some(proxy_port), Ok(location)) = (proxy_port, value.to_str())
             && let Some(rewritten) = rewrite_location(location, target_port, proxy_port)
@@ -400,6 +413,48 @@ fn rewrite_location(location: &str, target_port: u16, proxy_port: u16) -> Option
     }
 
     build_proxy_url(location, proxy_port, None)
+}
+
+fn rewrite_set_cookie_for_proxy(set_cookie: &str, target_port: u16) -> Option<String> {
+    let mut saw_domain = false;
+    let mut changed = false;
+    let parts = set_cookie
+        .split(';')
+        .map(|part| part.trim())
+        .enumerate()
+        .filter_map(|(index, part)| {
+            if index == 0 {
+                return Some(part.to_string());
+            }
+
+            let Some((attribute_name, attribute_value)) = part.split_once('=') else {
+                return Some(part.to_string());
+            };
+
+            if !attribute_name.trim().eq_ignore_ascii_case("domain") {
+                return Some(part.to_string());
+            }
+
+            saw_domain = true;
+            let normalized = attribute_value
+                .trim()
+                .trim_matches('"')
+                .trim_start_matches('.');
+            if !is_loopback_host(normalized) {
+                return Some(part.to_string());
+            }
+
+            changed = true;
+            let _ = target_port;
+            None
+        })
+        .collect::<Vec<_>>();
+
+    if !saw_domain || !changed {
+        return None;
+    }
+
+    Some(parts.join("; "))
 }
 
 fn strip_bridge_token_from_path_query(path_and_query: &str) -> String {
@@ -483,11 +538,12 @@ fn is_loopback_host(host: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, Method, header};
+    use axum::http::{HeaderMap, HeaderValue, Method, header};
 
     use super::{
-        build_proxy_url, build_upstream_url_candidates, parse_target_port_from_host,
-        remember_successful_upstream_host, should_fallback_to_raw_preview,
+        build_proxy_url, build_upstream_url_candidates, copy_response_headers,
+        parse_target_port_from_host, remember_successful_upstream_host,
+        rewrite_set_cookie_for_proxy, should_fallback_to_raw_preview,
         strip_bridge_token_from_absolute_url, strip_bridge_token_from_path_query,
     };
 
@@ -552,6 +608,57 @@ mod tests {
             )
             .as_deref(),
             Some("http://3000.localhost:43123/app?q=1#section")
+        );
+    }
+
+    #[test]
+    fn preserves_multiple_set_cookie_headers() {
+        let mut source = HeaderMap::new();
+        source.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("session=abc; Path=/; HttpOnly"),
+        );
+        source.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("refresh=def; Path=/; HttpOnly"),
+        );
+
+        let mut destination = HeaderMap::new();
+        copy_response_headers(&mut destination, &source, 3000, Some(43123));
+
+        let cookies = destination
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            cookies,
+            vec![
+                "session=abc; Path=/; HttpOnly".to_string(),
+                "refresh=def; Path=/; HttpOnly".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn rewrites_loopback_cookie_domains_to_proxy_host() {
+        assert_eq!(
+            rewrite_set_cookie_for_proxy("session=abc; Domain=localhost; Path=/; HttpOnly", 3000)
+                .as_deref(),
+            Some("session=abc; Path=/; HttpOnly")
+        );
+        assert_eq!(
+            rewrite_set_cookie_for_proxy("session=abc; Domain=.127.0.0.1; Path=/; Secure", 5173)
+                .as_deref(),
+            Some("session=abc; Path=/; Secure")
+        );
+    }
+
+    #[test]
+    fn leaves_non_loopback_cookie_domains_unchanged() {
+        assert_eq!(
+            rewrite_set_cookie_for_proxy("session=abc; Domain=metaso.cn; Path=/; HttpOnly", 3000),
+            None
         );
     }
 

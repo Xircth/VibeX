@@ -8,6 +8,7 @@ import {
   RotateCw,
   Download,
 } from 'lucide-react';
+import { LocalDependencyStatusBadge } from '@/components/settings/LocalDependencyStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,8 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  getLocalDependencyStatusPresentation,
+  getLocalDependencyVersionSummary,
+} from '@/lib/localDependencyMaintenance';
 import { cn } from '@/lib/utils';
-import type { AgentSettingInfo } from '@/lib/api';
+import type { AgentSettingInfo, LocalToolStatus } from '@/lib/api';
 import { agentSettingsApi, claudeSettingsApi } from '@/lib/api';
 import type { BaseCodingAgent, ProviderModel } from 'shared/types';
 import { providerRuntimeApi } from '@/lib/providerRuntime';
@@ -234,6 +239,9 @@ function formatInstalledVersion(version: string | null): string {
 interface AgentCardProps {
   agent: AgentSettingInfo;
   selected: boolean;
+  dependencyStatus: LocalToolStatus | null;
+  dependencyActionRunning: boolean;
+  onInstallDependencyGroup: (tool: LocalToolStatus) => Promise<void>;
   onSelect: () => void;
   onSave: () => void;
   onReload: () => void | Promise<void>;
@@ -255,6 +263,9 @@ function toBaseCodingAgent(agentType: string): BaseCodingAgent | null {
 export function AgentCard({
   agent,
   selected,
+  dependencyStatus,
+  dependencyActionRunning,
+  onInstallDependencyGroup,
   onSelect,
   onSave,
   onReload,
@@ -468,6 +479,9 @@ export function AgentCard({
   const isUpdating =
     upgradeAction !== null &&
     runningFixActions[`${agent.agent_type}:${upgradeAction}`] === true;
+  const dependencyPresentation = dependencyStatus
+    ? getLocalDependencyStatusPresentation(dependencyStatus)
+    : null;
 
   return (
     <section
@@ -563,6 +577,45 @@ export function AgentCard({
                 </div>
               )}
             </div>
+            {dependencyStatus && dependencyPresentation && (
+              <div className="rounded-md border bg-muted/10 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-xs font-medium text-foreground">
+                        本地依赖
+                      </div>
+                      <LocalDependencyStatusBadge tool={dependencyStatus} />
+                    </div>
+                    <div className="mt-1 break-words text-[11px] text-muted-foreground">
+                      {getLocalDependencyVersionSummary(dependencyStatus)}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() =>
+                      void onInstallDependencyGroup(dependencyStatus)
+                    }
+                    disabled={
+                      dependencyActionRunning || !dependencyPresentation.actionLabel
+                    }
+                  >
+                    {dependencyActionRunning &&
+                    dependencyPresentation.actionLabel ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : dependencyPresentation.actionLabel === '安装' ? (
+                      <Download className="mr-1 h-3 w-3" />
+                    ) : dependencyPresentation.actionLabel ? (
+                      <RotateCw className="mr-1 h-3 w-3" />
+                    ) : null}
+                    {dependencyPresentation.actionLabel ?? '已兼容'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Agent-specific config form */}

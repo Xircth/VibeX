@@ -5,6 +5,7 @@ import { Markdown } from './Markdown';
 
 const panelActionsMock = vi.hoisted(() => ({
   openFilePreview: vi.fn(),
+  revealInFileTree: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -44,6 +45,7 @@ function renderMarkdown(value: string) {
 describe('Markdown', () => {
   beforeEach(() => {
     panelActionsMock.openFilePreview.mockClear();
+    panelActionsMock.revealInFileTree.mockClear();
   });
 
   it('renders remote markdown images inline', () => {
@@ -51,6 +53,13 @@ describe('Markdown', () => {
 
     const image = screen.getByRole('img', { name: 'Generated image' });
     expect(image).toHaveAttribute('src', 'https://example.com/image.png');
+  });
+
+  it('renders data-uri markdown images inline', () => {
+    renderMarkdown('![Generated image](<data:image/png;base64,abc123>)');
+
+    const image = screen.getByRole('img', { name: 'Generated image' });
+    expect(image).toHaveAttribute('src', 'data:image/png;base64,abc123');
   });
 
   it('renders relative workspace images through the Tauri file asset URL', () => {
@@ -135,6 +144,59 @@ describe('Markdown', () => {
         title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
       }
     );
+  });
+
+  it('opens file-looking links with empty hrefs in the workspace editor', () => {
+    renderMarkdown('[PRD/english-video-review-extension-prd.md]()');
+
+    fireEvent.click(
+      screen.getByRole('link', {
+        name: 'PRD/english-video-review-extension-prd.md',
+      })
+    );
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/PRD/english-video-review-extension-prd.md',
+      {
+        displayPath: 'PRD/english-video-review-extension-prd.md',
+        title: 'PRD/english-video-review-extension-prd.md',
+      }
+    );
+  });
+
+  it('reveals directory-looking links with empty hrefs in the file tree', () => {
+    renderMarkdown('[frontend/src/components]()');
+
+    fireEvent.click(
+      screen.getByRole('link', { name: 'frontend/src/components' })
+    );
+
+    expect(panelActionsMock.revealInFileTree).toHaveBeenCalledWith(
+      'C:/workspace/project/frontend/src/components',
+      {
+        displayPath: 'frontend/src/components',
+        nodeType: 'folder',
+      }
+    );
+  });
+
+  it('reveals absolute directory links in the file tree instead of opening them as files', () => {
+    renderMarkdown('[C:/workspace/project/frontend/src/components]()');
+
+    fireEvent.click(
+      screen.getByRole('link', {
+        name: 'C:/workspace/project/frontend/src/components',
+      })
+    );
+
+    expect(panelActionsMock.revealInFileTree).toHaveBeenCalledWith(
+      'C:/workspace/project/frontend/src/components',
+      {
+        displayPath: 'frontend/src/components',
+        nodeType: 'folder',
+      }
+    );
+    expect(panelActionsMock.openFilePreview).not.toHaveBeenCalled();
   });
 
   it('renders placeholder document hrefs without browser navigation targets', () => {

@@ -11,6 +11,7 @@ import {
   GROUP_IDS,
   MAX_EDITOR_GROUPS,
   PANEL_IDS,
+  useLayoutStore,
 } from '@/stores/useLayoutStore';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
 import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
@@ -32,9 +33,15 @@ import {
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
+import { useFileTreeStore } from '@/stores/useFileTreeStore';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
+
+type RevealInFileTreeOptions = {
+  displayPath?: string | null;
+  nodeType?: 'file' | 'folder';
+};
 
 type AddPanelOptions = Omit<
   Parameters<DockviewApi['addPanel']>[0],
@@ -56,6 +63,10 @@ function isDiffPreviewPanelId(panelId: string): boolean {
 export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
   openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
+  revealInFileTree: (
+    path: string,
+    options?: RevealInFileTreeOptions
+  ) => void;
   openDiffPreview: () => void;
   openDiffPreviewAtPath: (
     path: string,
@@ -87,6 +98,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
   const clearGitDiffTargetPath = useGitDiffNavigationStore(
     (state) => state.clearTargetPath
+  );
+  const setFileTreeVisible = useLayoutStore((state) => state.setFileTreeVisible);
+  const revealInTree = useFileTreeStore((state) => state.revealInTree);
+  const setSelectedFilePath = useFileTreeStore(
+    (state) => state.setSelectedFilePath
   );
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
@@ -259,6 +275,9 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
+      setSelectedFilePath(filePath);
+      revealInTree(filePath, 'file');
+
       const panelId = `file:${filePath}`;
       const fileName = filePath.split(/[/\\]/).pop() || filePath;
       const title = options?.title ?? options?.displayPath ?? fileName;
@@ -284,7 +303,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       panel?.api.setActive();
     },
-    [addPanelToActiveEditorGroup]
+    [addPanelToActiveEditorGroup, revealInTree, setSelectedFilePath]
   );
 
   const syncDiffPreviewPanelQueue = useCallback(() => {
@@ -701,6 +720,83 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     [ensureWelcomeEditorGroup, getLeftGroup, normalizeEditorGroupIds]
   );
 
+  const showLeftPanel = useCallback(
+    (
+      targetId: string,
+      targetComponent: string,
+      targetTitle: string,
+      otherPanelIds: string[]
+    ) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      const existing = dockviewApi.getPanel(targetId);
+      if (existing) {
+        existing.api.setActive();
+
+        for (const otherPanelId of otherPanelIds) {
+          const otherPanel = dockviewApi.getPanel(otherPanelId);
+          if (otherPanel) {
+            dockviewApi.removePanel(otherPanel);
+          }
+        }
+
+        const leftGroup = getLeftGroup(dockviewApi);
+        leftGroup?.api.setVisible(true);
+        applyLeftGroupHeaderHiding(dockviewApi);
+        normalizeEditorGroupIds(dockviewApi);
+        return;
+      }
+
+      const existingLeftGroup = getLeftGroup(dockviewApi);
+      const savedLeftWidth = existingLeftGroup?.api.isVisible
+        ? existingLeftGroup.api.width
+        : 0;
+
+      let leftGroup = existingLeftGroup ?? null;
+      if (!leftGroup) {
+        const editorHost = ensureWelcomeEditorGroup();
+        const referencePanel = editorHost?.panels[0];
+        if (!referencePanel) return;
+
+        leftGroup = dockviewApi.addGroup({
+          id: GROUP_IDS.LEFT,
+          referencePanel,
+          direction: 'left',
+          hideHeader: true,
+          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 220,
+        });
+
+        if (savedLeftWidth > 0) {
+          try {
+            leftGroup.api.setSize({ width: savedLeftWidth });
+          } catch {
+            // Ignore resize failures during initialization.
+          }
+        }
+      }
+
+      dockviewApi.addPanel({
+        id: targetId,
+        component: targetComponent,
+        title: targetTitle,
+        position: { referenceGroup: GROUP_IDS.LEFT, direction: 'within' },
+      });
+
+      for (const otherPanelId of otherPanelIds) {
+        const otherPanel = dockviewApi.getPanel(otherPanelId);
+        if (otherPanel) {
+          dockviewApi.removePanel(otherPanel);
+        }
+      }
+
+      leftGroup.api.setVisible(true);
+      applyLeftGroupHeaderHiding(dockviewApi);
+      normalizeEditorGroupIds(dockviewApi);
+    },
+    [ensureWelcomeEditorGroup, getLeftGroup, normalizeEditorGroupIds]
+  );
+
   const toggleFileTree = useCallback(() => {
     switchLeftPanel(PANEL_IDS.FILE_TREE, PANEL_IDS.FILE_TREE, 'Files', [
       PANEL_IDS.GIT,
@@ -721,6 +817,26 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       PANEL_IDS.GIT,
     ]);
   }, [switchLeftPanel]);
+
+  const showFileTree = useCallback(() => {
+    setFileTreeVisible(true);
+    showLeftPanel(PANEL_IDS.FILE_TREE, PANEL_IDS.FILE_TREE, 'Files', [
+      PANEL_IDS.GIT,
+      PANEL_IDS.SEARCH,
+    ]);
+  }, [setFileTreeVisible, showLeftPanel]);
+
+  const revealInFileTree = useCallback(
+    (path: string, options?: RevealInFileTreeOptions) => {
+      const nodeType = options?.nodeType ?? 'file';
+      if (nodeType === 'file') {
+        setSelectedFilePath(path);
+      }
+      revealInTree(path, nodeType);
+      showFileTree();
+    },
+    [revealInTree, setSelectedFilePath, showFileTree]
+  );
 
   const openOrFocusPanel = useCallback(
     (panelId: string, title: string) => {
@@ -871,6 +987,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     () => ({
       openOrFocusPanel,
       openFilePreview,
+      revealInFileTree,
       openDiffPreview,
       openDiffPreviewAtPath,
       openCommitDiff,
@@ -900,6 +1017,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openDiffPreview,
       openDiffPreviewAtPath,
       openFilePreview,
+      revealInFileTree,
       openLogs,
       openNewTerminal,
       openNotes,

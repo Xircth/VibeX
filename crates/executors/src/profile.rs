@@ -74,6 +74,9 @@ pub struct ExecutorProfileId {
     /// Optional Codex fast mode override carried by UI/runtime selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast_mode: Option<bool>,
+    /// Optional reasoning effort override carried by UI/runtime selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 // Persisted profile payloads may still contain kebab-case executor ids.
@@ -98,6 +101,7 @@ impl ExecutorProfileId {
             variant: None,
             model: None,
             fast_mode: None,
+            reasoning_effort: None,
         }
     }
 
@@ -108,6 +112,7 @@ impl ExecutorProfileId {
             variant: Some(variant),
             model: None,
             fast_mode: None,
+            reasoning_effort: None,
         }
     }
 
@@ -175,6 +180,7 @@ impl ExecutorConfig {
             variant: self.variant.clone(),
             model: self.model_id.clone(),
             fast_mode: None,
+            reasoning_effort: self.reasoning_id.clone(),
         }
     }
 
@@ -194,7 +200,7 @@ impl From<ExecutorProfileId> for ExecutorConfig {
             variant: id.variant,
             model_id: id.model,
             agent_id: None,
-            reasoning_id: None,
+            reasoning_id: id.reasoning_effort,
             permission_policy: None,
         }
     }
@@ -600,6 +606,7 @@ pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
         variant: None,
         model: id.model.clone(),
         fast_mode: id.fast_mode,
+        reasoning_effort: id.reasoning_effort.clone(),
     }
 }
 

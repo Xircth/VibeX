@@ -37,6 +37,8 @@ import {
   getExecutorContinuityMode,
 } from '@/utils/sessionContinuity';
 import { stripTagReferenceAppendix } from '@/lib/tagReferenceMarkers';
+import { SessionComposerStructuredText } from '@/components/tasks/follow-up/SessionComposerStructuredText';
+import { getSessionComposerStructuredTokenSegments } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
 const COLLAPSED_MAX_HEIGHT = 120;
 const EXPANDED_BOTTOM_SAFE_SPACE = 28;
@@ -374,6 +376,13 @@ const UserMessage = ({
     () => splitDisplayContentImages(displayContent),
     [displayContent]
   );
+  const structuredSegments = useMemo(
+    () => getSessionComposerStructuredTokenSegments(displayText),
+    [displayText]
+  );
+  const hasStructuredTokens = structuredSegments.some(
+    (segment) => segment.kind === 'token'
+  );
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -521,14 +530,22 @@ const UserMessage = ({
                       : undefined,
                 }}
               >
-                <WYSIWYGEditor
-                  value={displayText}
-                  disabled
-                  className={SESSION_INPUT_TEXT_CLASS_NAME}
-                  markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
-                  taskAttemptId={taskAttempt?.id}
-                  hideReadOnlyActions
-                />
+                {hasStructuredTokens ? (
+                  <SessionComposerStructuredText
+                    segments={structuredSegments}
+                    className={`${SESSION_INPUT_TEXT_CLASS_NAME} whitespace-pre-wrap break-words`}
+                    data-testid="user-message-structured-tokens"
+                  />
+                ) : (
+                  <WYSIWYGEditor
+                    value={displayText}
+                    disabled
+                    className={SESSION_INPUT_TEXT_CLASS_NAME}
+                    markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
+                    taskAttemptId={taskAttempt?.id}
+                    hideReadOnlyActions
+                  />
+                )}
                 {isCollapseMeasured && needsCollapse && isCollapsed && (
                   <div className="conv-user-collapsible-overlay" />
                 )}

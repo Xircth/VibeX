@@ -27,6 +27,7 @@ import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSes
 import {
   resolveActiveSession,
   useWorkspaceSessions,
+  type UseWorkspaceSessionsResult,
 } from '@/hooks/useWorkspaceSessions';
 import { attemptsApi, sessionsApi } from '@/lib/api';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
@@ -53,10 +54,15 @@ interface KanbanSessionConversationViewProps {
   className?: string;
 }
 
+interface KanbanSessionConversationSurfaceProps
+  extends KanbanSessionConversationViewProps {
+  sessionState: UseWorkspaceSessionsResult;
+}
+
 type ConversationPlacementRecord = {
   key: string;
   container: HTMLDivElement;
-  props: KanbanSessionConversationViewProps;
+  props: KanbanSessionConversationSurfaceProps;
   slots: Map<string, HTMLElement>;
   activeSlotId: string | null;
 };
@@ -66,7 +72,7 @@ type ConversationPlacementContextValue = {
     key: string,
     slotId: string,
     target: HTMLElement,
-    props: KanbanSessionConversationViewProps
+    props: KanbanSessionConversationSurfaceProps
   ) => () => void;
 };
 
@@ -81,6 +87,22 @@ function createPlacementContainer() {
   const container = document.createElement('div');
   container.className = 'h-full min-h-0';
   return container;
+}
+
+function getPlacementSessionId(
+  sessionId: string | undefined,
+  interactive: boolean,
+  sessionState: UseWorkspaceSessionsResult
+) {
+  if (sessionId) {
+    return sessionId;
+  }
+
+  if (!interactive || sessionState.isNewSessionMode) {
+    return undefined;
+  }
+
+  return sessionState.selectedSessionId;
 }
 
 export function KanbanSessionConversationPlacementProvider({
@@ -204,6 +226,7 @@ function KanbanSessionConversationContent({
   attempt,
   taskId,
   interactive,
+  sessionState,
   showSessionSelector,
   onSessionCreated,
   onSessionSelected,
@@ -212,6 +235,7 @@ function KanbanSessionConversationContent({
   attempt: WorkspaceWithSession;
   taskId: string | null;
   interactive: boolean;
+  sessionState: UseWorkspaceSessionsResult;
   showSessionSelector: boolean;
   onSessionCreated?: (session: {
     sessionId: string;
@@ -226,11 +250,6 @@ function KanbanSessionConversationContent({
   const logsRef = useRef<VirtualizedListRef | null>(null);
   const [isAtConversationBottom, setIsAtConversationBottom] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
-  const sessionState = useWorkspaceSessions(attempt.id, {
-    initialSessionId: attempt.session?.id,
-    enabled: interactive,
-    autoSelectFirstSession: interactive,
-  });
 
   useEffect(() => {
     if (!interactive) return;
@@ -332,12 +351,13 @@ function KanbanSessionConversationSurface({
   workspaceId,
   sessionId,
   interactive = false,
+  sessionState,
   showSessionSelector = false,
   onSessionCreated,
   onSessionSelected,
   onCreateSessionRequested,
   className,
-}: KanbanSessionConversationViewProps) {
+}: KanbanSessionConversationSurfaceProps) {
   const { data: workspace, isLoading: isWorkspaceLoading } =
     useQuery<Workspace>({
       queryKey: ['taskAttempt', workspaceId],
@@ -397,6 +417,7 @@ function KanbanSessionConversationSurface({
         attempt={createWorkspaceWithSession(workspace, resolvedSession)}
         taskId={taskId}
         interactive={shouldRenderInteractiveShell}
+        sessionState={sessionState}
         showSessionSelector={showSessionSelector}
         onSessionCreated={onSessionCreated}
         onSessionSelected={onSessionSelected}
@@ -416,18 +437,40 @@ export function KanbanSessionConversationView(
     slotIdRef.current = `slot-${Math.random().toString(36).slice(2)}`;
   }
   const slotId = slotIdRef.current;
-  const placementKey = buildPlacementKey(props.workspaceId, props.sessionId);
+  const interactive = props.interactive ?? false;
+  const sessionState = useWorkspaceSessions(props.workspaceId, {
+    initialSessionId: props.sessionId,
+    enabled: interactive,
+    autoSelectFirstSession: interactive,
+  });
+  const surfaceProps = useMemo<KanbanSessionConversationSurfaceProps>(
+    () => ({
+      ...props,
+      interactive,
+      sessionState,
+    }),
+    [interactive, props, sessionState]
+  );
+  const placementKey = buildPlacementKey(
+    props.workspaceId,
+    getPlacementSessionId(props.sessionId, interactive, sessionState)
+  );
 
   useLayoutEffect(() => {
     if (!placement || !slotRef.current) {
       return;
     }
 
-    return placement.mountSlot(placementKey, slotId, slotRef.current, props);
-  }, [placement, placementKey, props, slotId]);
+    return placement.mountSlot(
+      placementKey,
+      slotId,
+      slotRef.current,
+      surfaceProps
+    );
+  }, [placement, placementKey, slotId, surfaceProps]);
 
   if (!placement) {
-    return <KanbanSessionConversationSurface {...props} />;
+    return <KanbanSessionConversationSurface {...surfaceProps} />;
   }
 
   return (

@@ -61,6 +61,7 @@ interface ClickedElementsProviderProps {
 }
 
 const MAX_ELEMENTS = 20;
+const DUPLICATE_ELEMENT_WINDOW_MS = 50;
 
 // Helpers
 
@@ -427,8 +428,12 @@ export function ClickedElementsProvider({
 
       setElements((prev) => {
         const last = prev[prev.length - 1];
-        if (last && last.dedupeKey === dedupeKey) {
-          return prev; // Skip consecutive duplicate
+        if (
+          last &&
+          last.dedupeKey === dedupeKey &&
+          Date.now() - last.timestamp < DUPLICATE_ELEMENT_WINDOW_MS
+        ) {
+          return prev; // Skip near-simultaneous duplicate bridge events
         }
         const newEntry = {
           id: genId(),

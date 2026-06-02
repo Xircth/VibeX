@@ -4,6 +4,7 @@ import {
   clearComposerImageAttachments,
   type SessionComposerImageAttachment,
 } from './sessionComposerImages';
+import { serializeSessionComposerBackendMessage } from './sessionComposerStructuredTokens';
 
 export type SubmitShortcutAction = 'send' | 'queue' | 'none';
 
@@ -55,9 +56,7 @@ export function canEditFollowUp({
   return !isRetryActive && !hasPendingApproval;
 }
 
-export function hasPendingToolApproval(
-  entries: readonly unknown[]
-): boolean {
+export function hasPendingToolApproval(entries: readonly unknown[]): boolean {
   return entries.some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     if (!('type' in entry) || entry.type !== 'NORMALIZED_ENTRY') return false;
@@ -70,7 +69,9 @@ export function hasPendingToolApproval(
     const entryType = content.entry_type;
     if (!entryType || typeof entryType !== 'object') return false;
     const status =
-      'status' in entryType && entryType.status && typeof entryType.status === 'object'
+      'status' in entryType &&
+      entryType.status &&
+      typeof entryType.status === 'object'
         ? entryType.status
         : null;
 
@@ -186,7 +187,7 @@ export function buildQueuedFollowUp({
   }
 
   const { prompt } = buildAgentPrompt(
-    message,
+    serializeSessionComposerBackendMessage(message),
     [conflictMarkdown, reviewMarkdown].filter(Boolean)
   );
 

@@ -1,4 +1,4 @@
-import type { ImageResponse, QueueStatus } from 'shared/types';
+import type { ImageResponse } from 'shared/types';
 import { toVibeImagePath } from '@/utils/images';
 import { getAttachImageQueueSeed } from './sessionComposerQueue';
 
@@ -95,39 +95,33 @@ export function revokeComposerImagePreviewUrl(
 }
 
 export function getUploadedImageApplication({
-  queueStatus,
   fallbackMessage,
   currentAttachments,
   uploadResponse,
   previewUrl,
 }: {
-  queueStatus: QueueStatus | undefined;
   fallbackMessage: string;
   currentAttachments: SessionComposerImageAttachment[];
   uploadResponse: Pick<ImageResponse, 'id' | 'original_name' | 'file_path'>;
   previewUrl: string;
 }): {
-  shouldCancelQueue: boolean;
   scratchMessage: string;
   attachments: SessionComposerImageAttachment[];
   imageToRevoke: SessionComposerImageAttachment | null;
   scratchImagePaths: string[];
 } {
-  const { shouldCancelQueue, scratchMessage, queuedImagePaths } =
-    getAttachImageQueueSeed({ queueStatus, fallbackMessage });
-  const queuedAttachments = queuedImagePaths.map(imageAttachmentFromPath);
+  const { scratchMessage } = getAttachImageQueueSeed({ fallbackMessage });
   const newAttachment = createUploadedImageAttachment(
     uploadResponse,
     previewUrl
   );
   const { attachments, imageToRevoke } = mergeComposerImageAttachments({
-    queuedAttachments,
+    queuedAttachments: [],
     currentAttachments,
     newAttachment,
   });
 
   return {
-    shouldCancelQueue,
     scratchMessage,
     attachments,
     imageToRevoke,

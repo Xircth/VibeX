@@ -34,7 +34,9 @@ import {
   deriveFilePreviewDisplayState,
   deriveFilePreviewSelectionRange,
   deriveFolderGitStatusMap,
+  expandFileTreeFoldersForSelection,
   ensureFileTreeParentFolderExpanded,
+  getFileTreeExpansionPaths,
   getFileTreeAbsoluteClipboardText,
   getFileTreeInlineNewInputConfig,
   getFileTreeMentionText,
@@ -56,6 +58,7 @@ import {
 } from './file-tree-utils';
 import { ConfirmDialog } from '@/components/dialogs';
 import '@/styles/file-tree.css';
+import type { FileTreeRevealTarget } from '@/stores/useFileTreeStore';
 
 export type FileTreePanelProps = {
   workspacePath: string;
@@ -71,6 +74,7 @@ export type FileTreePanelProps = {
   onRefreshFiles?: () => void;
   refreshToken?: number;
   lazyLoadAllDirectories?: boolean;
+  revealTarget?: FileTreeRevealTarget | null;
 };
 
 const FILE_TREE_LABELS = {
@@ -98,6 +102,7 @@ export function FileTreePanel({
   onRefreshFiles,
   refreshToken = 0,
   lazyLoadAllDirectories = false,
+  revealTarget = null,
 }: FileTreePanelProps) {
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
@@ -412,6 +417,30 @@ export function FileTreePanel({
       void loadLazyDirectoryChildren(path);
     });
   }, [expandedFolders, loadLazyDirectoryChildren, refreshToken]);
+
+  useEffect(() => {
+    if (!revealTarget) {
+      return;
+    }
+
+    setRootExpanded(true);
+    setExpandedFolders((prev) =>
+      expandFileTreeFoldersForSelection(
+        prev,
+        revealTarget.path,
+        revealTarget.nodeType
+      )
+    );
+    setSelectedNodePath(revealTarget.path);
+    setSelectedNodeType(revealTarget.nodeType);
+
+    for (const expansionPath of getFileTreeExpansionPaths(
+      revealTarget.path,
+      revealTarget.nodeType
+    )) {
+      void loadLazyDirectoryChildren(expansionPath);
+    }
+  }, [loadLazyDirectoryChildren, revealTarget]);
 
   useEffect(() => {
     if (!previewPath) {

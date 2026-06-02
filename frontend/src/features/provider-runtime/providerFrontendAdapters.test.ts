@@ -173,6 +173,36 @@ describe('provider frontend adapters', () => {
     });
   });
 
+  it('passes Codex reasoning overrides into provider runtime turns', () => {
+    expect(
+      buildProviderRuntimeTurnRequest({
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        executorProfileId: {
+          executor: BaseCodingAgent.CODEX,
+          variant: null,
+          model: 'gpt-5.5',
+          reasoning_effort: 'low',
+        } as {
+          executor: BaseCodingAgent;
+          variant: null;
+          model: string;
+          reasoning_effort: 'low';
+        },
+        text: 'hello codex',
+      })
+    ).toMatchObject({
+      provider: 'codex',
+      executor_profile_id: {
+        executor: BaseCodingAgent.CODEX,
+        reasoning_effort: 'low',
+      },
+      provider_options: {
+        effort: 'low',
+      },
+    });
+  });
+
   it('preserves Codex skill and app mention provider options for app-server input items', () => {
     expect(
       buildProviderRuntimeTurnRequest({
@@ -224,6 +254,26 @@ describe('provider frontend adapters', () => {
         text: 'analyze this\n\n![shot](.vibe-images/shot.png)',
       }).images
     ).toEqual(['.vibe-images/shot.png']);
+  });
+
+  it('keeps display text separate from backend text for structured composer tokens', () => {
+    expect(
+      buildProviderRuntimeTurnRequest({
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        executorProfileId: {
+          executor: BaseCodingAgent.CODEX,
+          variant: null,
+        },
+        text: 'Review src/App.tsx with $plan',
+        displayText: 'Review @src/App.tsx with $plan',
+      })
+    ).toMatchObject({
+      text: 'Review src/App.tsx with $plan',
+      provider_options: {
+        display_text: 'Review @src/App.tsx with $plan',
+      },
+    });
   });
 
   it('normalizes provider events only at the active provider boundary', () => {
@@ -399,6 +449,31 @@ describe('provider frontend adapters', () => {
       })[0]
     ).toMatchObject({
       type: 'raw_diagnostic',
+    });
+  });
+
+  it('maps assistant image generation payloads into markdown images', () => {
+    const codex = getProviderFrontendAdapter('codex');
+
+    expect(
+      codex.mapRuntimeEvent({
+        provider: 'codex',
+        workspace_id: 'workspace-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        event: {
+          type: 'agentMessage',
+          content: [
+            {
+              type: 'image_generation_call',
+              result: 'abc123',
+            },
+          ],
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'append_text',
+      text: '![Generated image](<data:image/png;base64,abc123>)',
     });
   });
 

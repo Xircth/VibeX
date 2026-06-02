@@ -342,7 +342,7 @@ function SessionKanbanBoard() {
 
   if (isLoading) {
     return (
-      <div className="workspace-loading-state flex h-full items-center justify-center p-6 text-sm">
+      <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
         正在加载会话看板...
       </div>
     );

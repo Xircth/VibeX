@@ -15,7 +15,9 @@ import {
   deriveFilePreviewDisplayState,
   deriveFilePreviewSelectionRange,
   deriveFolderGitStatusMap,
+  expandFileTreeFoldersForSelection,
   ensureFileTreeParentFolderExpanded,
+  getFileTreeExpansionPaths,
   getAreAllVisibleFileTreeFoldersExpanded,
   getFileTreeAbsoluteClipboardText,
   getFileTreeInlineNewInputConfig,
@@ -610,6 +612,37 @@ describe('ensureFileTreeParentFolderExpanded', () => {
 
     expect(Array.from(result)).toEqual(['src', 'docs']);
     expect(Array.from(expanded)).toEqual(['src']);
+  });
+});
+
+describe('file tree reveal expansion', () => {
+  it('derives every ancestor folder that must expand for a file selection', () => {
+    expect(getFileTreeExpansionPaths('frontend/src/App.tsx', 'file')).toEqual([
+      'frontend',
+      'frontend/src',
+    ]);
+  });
+
+  it('includes the target folder when revealing a directory selection', () => {
+    expect(
+      getFileTreeExpansionPaths('frontend/src/components', 'folder')
+    ).toEqual(['frontend', 'frontend/src', 'frontend/src/components']);
+  });
+
+  it('adds missing reveal folders without mutating the original set', () => {
+    const expanded = new Set(['frontend']);
+    const result = expandFileTreeFoldersForSelection(
+      expanded,
+      'frontend/src/components',
+      'folder'
+    );
+
+    expect(Array.from(result)).toEqual([
+      'frontend',
+      'frontend/src',
+      'frontend/src/components',
+    ]);
+    expect(Array.from(expanded)).toEqual(['frontend']);
   });
 });
 

@@ -36,6 +36,28 @@ function stripWindowsExtendedPathPrefix(path: string): string {
     .replace(/^\\\?\\/i, '');
 }
 
+function normalizePathForComparison(path: string): string {
+  return stripWindowsExtendedPathPrefix(path).replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+function deriveRelativeFileTreePath(
+  workspacePath: string,
+  absolutePath: string
+): string | null {
+  const normalizedWorkspacePath = normalizePathForComparison(workspacePath);
+  const normalizedAbsolutePath = normalizePathForComparison(absolutePath);
+
+  if (normalizedAbsolutePath === normalizedWorkspacePath) {
+    return '';
+  }
+
+  if (!normalizedAbsolutePath.startsWith(`${normalizedWorkspacePath}/`)) {
+    return null;
+  }
+
+  return normalizedAbsolutePath.slice(normalizedWorkspacePath.length + 1);
+}
+
 /**
  * DockviewFileTreePanel - File tree sidebar panel for browsing project files.
  *
@@ -43,8 +65,13 @@ function stripWindowsExtendedPathPrefix(path: string): string {
  * rich file icons, git status, and file preview.
  */
 function DockviewFileTreePanel(_props: IDockviewPanelProps) {
-  const { rootPath, setRootPath, setSelectedFilePath, setDiffFilePath } =
-    useFileTreeStore();
+  const {
+    rootPath,
+    revealTarget,
+    setRootPath,
+    setSelectedFilePath,
+    setDiffFilePath,
+  } = useFileTreeStore();
   const { openFilePreview } = usePanelActions();
   const { projectId } = useProject();
   const { data: repos } = useProjectRepos(projectId);
@@ -376,6 +403,22 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     }
   }, [setRootPath]);
 
+  const relativeRevealTarget = useMemo(() => {
+    if (!rootPath || !revealTarget) {
+      return null;
+    }
+
+    const relativePath = deriveRelativeFileTreePath(rootPath, revealTarget.path);
+    if (relativePath === null) {
+      return null;
+    }
+
+    return {
+      ...revealTarget,
+      path: relativePath,
+    };
+  }, [revealTarget, rootPath]);
+
   // No root path selected - show folder picker
   if (!rootPath) {
     return (
@@ -414,6 +457,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         onRefreshFiles={refreshFileTree}
         refreshToken={refreshToken}
         lazyLoadAllDirectories={rootScanTruncated}
+        revealTarget={relativeRevealTarget}
       />
     </div>
   );

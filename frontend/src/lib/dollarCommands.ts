@@ -6,6 +6,10 @@ export type DollarCommandDescription = {
 };
 
 export const DOLLAR_COMMANDS: DollarCommandDescription[] = [
+  {
+    name: 'imagegen',
+    description: 'Generate or edit raster images with Codex image tooling',
+  },
   { name: 'autopilot', description: 'Run autonomous implementation workflow' },
   { name: 'plan', description: 'Start the planning workflow' },
   {

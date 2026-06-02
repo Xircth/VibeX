@@ -539,8 +539,10 @@ export function KanbanSessionHub() {
 
   const currentExecutionPlacement = useMemo(
     () =>
-      resolveCurrentExecutionPlacement(rightSession, activeWorkspacePlacement),
-    [activeWorkspacePlacement, rightSession]
+      resolveCurrentExecutionPlacement(rightSession, activeWorkspacePlacement, {
+        canUseRightPanel: canUseRightPanelForSessions,
+      }),
+    [activeWorkspacePlacement, canUseRightPanelForSessions, rightSession]
   );
 
   const monitorRecords = useMemo(

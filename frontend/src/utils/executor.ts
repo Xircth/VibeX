@@ -334,7 +334,16 @@ export function areProfilesEqual(
   const variantB = b.variant ?? 'DEFAULT';
   const modelA = a.model ?? 'DEFAULT';
   const modelB = b.model ?? 'DEFAULT';
-  return variantA === variantB && modelA === modelB;
+  const fastModeA = a.fast_mode == null ? 'FAST_DEFAULT' : String(a.fast_mode);
+  const fastModeB = b.fast_mode == null ? 'FAST_DEFAULT' : String(b.fast_mode);
+  const reasoningA = a.reasoning_effort ?? 'REASONING_DEFAULT';
+  const reasoningB = b.reasoning_effort ?? 'REASONING_DEFAULT';
+  return (
+    variantA === variantB &&
+    modelA === modelB &&
+    fastModeA === fastModeB &&
+    reasoningA === reasoningB
+  );
 }
 
 /**

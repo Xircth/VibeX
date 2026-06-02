@@ -14,6 +14,7 @@ import {
   ProjectRecentSessionsPopover,
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
+import { mergeProjectsById } from '@/components/layout/projectRailProjects';
 
 export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
   const { projects, isLoading: isProjectsLoading } = useProjects();
@@ -109,12 +110,6 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
       return;
     }
 
-    if (projects.length > 0) {
-      setFallbackProjects([]);
-      setIsResolvingStandaloneProjects(false);
-      return;
-    }
-
     const loadProjects = async () => {
       setIsResolvingStandaloneProjects(true);
 
@@ -124,7 +119,8 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
           return;
         }
 
-        if (data.length > 0 || !hasStoredProjectSignals) {
+        const mergedProjects = mergeProjectsById(projects, data);
+        if (mergedProjects.length > 0 || !hasStoredProjectSignals) {
           setFallbackProjects(data);
           setIsResolvingStandaloneProjects(false);
           return;
@@ -174,8 +170,11 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     };
   }, [hasStoredProjectSignals, projects, standalone]);
 
-  const effectiveProjects =
-    standalone && projects.length === 0 ? fallbackProjects : projects;
+  const effectiveProjects = useMemo(
+    () =>
+      standalone ? mergeProjectsById(projects, fallbackProjects) : projects,
+    [fallbackProjects, projects, standalone]
+  );
   const orderedProjectIds = useMemo(
     () =>
       Array.from(

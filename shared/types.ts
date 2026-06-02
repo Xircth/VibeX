@@ -483,7 +483,11 @@ model?: string | null,
 /**
  * Optional Codex fast mode override carried by UI/runtime selection.
  */
-fast_mode?: boolean | null, };
+fast_mode?: boolean | null,
+/**
+ * Optional reasoning effort override carried by UI/runtime selection.
+ */
+reasoning_effort?: string | null, };
 
 export type ExecutorConfig = { [key in string]?: { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid } | { "AUGGIE": Auggie } };
 

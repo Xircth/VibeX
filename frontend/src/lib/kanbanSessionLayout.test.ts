@@ -136,15 +136,26 @@ describe('kanban session layout', () => {
   it('uses the right panel session as the execution placement when it differs from the active workspace', () => {
     const next = resolveCurrentExecutionPlacement(
       session('right'),
-      session('active')
+      session('active'),
+      { canUseRightPanel: true }
     );
 
     expect(next?.sessionId).toBe('right');
   });
 
   it('falls back to the active workspace session when the right panel has not been seeded', () => {
-    const next = resolveCurrentExecutionPlacement(null, session('active'));
+    const next = resolveCurrentExecutionPlacement(null, session('active'), {
+      canUseRightPanel: true,
+    });
 
     expect(next?.sessionId).toBe('active');
+  });
+
+  it('does not hide monitor sessions behind an execution placement when the right panel is unavailable', () => {
+    const next = resolveCurrentExecutionPlacement(null, session('active'), {
+      canUseRightPanel: false,
+    });
+
+    expect(next).toBeNull();
   });
 });

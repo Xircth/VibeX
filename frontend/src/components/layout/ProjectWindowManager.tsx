@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
@@ -10,6 +10,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import {
   attemptsApi,
   configApi,
+  projectsApi,
   sessionsApi,
   type SessionSummary,
 } from '@/lib/api';
@@ -22,6 +23,7 @@ import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
+import { mergeProjectsById } from '@/components/layout/projectRailProjects';
 
 function getSessionStatusLabel(session: KanbanProjectSessionRecord) {
   if (session.isRunning) {
@@ -384,6 +386,38 @@ export function ProjectWindowManager() {
   const isProjectRailWindow = location.pathname === '/project-rail';
   const isSettingsWindowRoute = location.pathname.startsWith('/settings');
   const shouldManageProjectWindows = !isSettingsWindowRoute;
+  const [standaloneFallbackProjects, setStandaloneFallbackProjects] = useState(
+    projects
+  );
+
+  useEffect(() => {
+    if (!isProjectRailWindow) {
+      setStandaloneFallbackProjects([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void projectsApi
+      .getAll()
+      .then((data) => {
+        if (!cancelled) {
+          setStandaloneFallbackProjects(data);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error(
+            'Failed to load standalone project rail tracking list:',
+            error
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isProjectRailWindow]);
 
   useEffect(() => {
     if (!shouldManageProjectWindows || !projectId) {
@@ -453,11 +487,18 @@ export function ProjectWindowManager() {
 
   const effectiveTrackedProjectIds = useMemo(() => {
     if (isProjectRailWindow) {
-      return projects.map((project) => project.id);
+      return mergeProjectsById(projects, standaloneFallbackProjects).map(
+        (project) => project.id
+      );
     }
 
     return trackedProjectIds;
-  }, [isProjectRailWindow, projects, trackedProjectIds]);
+  }, [
+    isProjectRailWindow,
+    projects,
+    standaloneFallbackProjects,
+    trackedProjectIds,
+  ]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

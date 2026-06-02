@@ -15,6 +15,7 @@ export type ProviderRuntimeTurnInput = {
   sessionId: string;
   executorProfileId: ExecutorProfileId;
   text: string;
+  displayText?: string;
   threadId?: string | null;
   images?: string[];
   providerOptions?: ProviderOptions;
@@ -60,6 +61,7 @@ export function buildProviderRuntimeTurnRequest({
   sessionId,
   executorProfileId,
   text,
+  displayText,
   threadId,
   images,
   providerOptions,
@@ -89,6 +91,13 @@ export function buildProviderRuntimeTurnRequest({
     provider_options: {
       ...(request.provider_options ?? {}),
       ...(providerOptions ?? {}),
+      ...(displayText !== undefined && displayText !== text
+        ? { display_text: displayText }
+        : {}),
+      ...(executorProfileId.executor === BaseCodingAgent.CODEX &&
+      executorProfileId.reasoning_effort
+        ? { effort: executorProfileId.reasoning_effort }
+        : {}),
       ...(executorProfileId.executor === BaseCodingAgent.CODEX
         ? { fast_mode: executorProfileId.fast_mode ?? false }
         : {}),

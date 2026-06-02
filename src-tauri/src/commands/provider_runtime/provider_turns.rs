@@ -22,13 +22,20 @@ use super::{
     build_claude_sdk_bridge_args, build_claude_sdk_bridge_input, build_opencode_sdk_bridge_args,
     build_opencode_sdk_bridge_input, create_native_execution_process, extract_thread_id,
     extract_turn_id, load_provider_workspace, new_provider_hidden_command,
-    prompt_with_display_images, provider_executor_profile_id,
+    prompt_with_display_images, provider_executor_profile_id, provider_option_string,
     push_native_provider_event_to_conversation, push_provider_event,
     register_native_conversation_sink, resolve_native_provider_request,
     resolve_provider_workspace_dir, should_force_acp_fallback, start_codex_native_turn,
     write_claude_sdk_bridge_input_file, write_opencode_sdk_bridge_input_file,
 };
 use crate::{error::AppError, state::AppState};
+
+pub(super) fn provider_visible_prompt(request: &ProviderTurnRequest) -> String {
+    let display_text = provider_option_string(&request.provider_options, "display_text")
+        .or_else(|| provider_option_string(&request.provider_options, "displayText"))
+        .unwrap_or(request.text.as_str());
+    prompt_with_display_images(display_text, &request.images)
+}
 
 async fn start_claude_sdk_native_turn(
     state: &tauri::State<'_, AppState>,
@@ -526,7 +533,7 @@ pub(super) async fn try_native_provider_turn(
     }
 
     apply_profile_defaults_to_request(&mut request);
-    let visible_prompt = prompt_with_display_images(&request.text, &request.images);
+    let visible_prompt = provider_visible_prompt(&request);
     let mut workspace = load_provider_workspace(state, workspace_id).await?;
     let workspace_dir = resolve_provider_workspace_dir(state, &mut workspace).await?;
     apply_native_commit_reminder_to_request(state, &mut request, &workspace_dir).await;

@@ -211,6 +211,47 @@
     installXhrCapture();
   }
 
+  function rewritePreviewProxyWebSocketUrl(input) {
+    try {
+      var rawUrl = input && typeof input.href === 'string' ? input.href : input;
+      var url = new URL(rawUrl, window.location.href);
+      if (url.protocol !== 'ws:' && url.protocol !== 'wss:') return input;
+
+      var hostMatch = /^(\d+)\.localhost$/i.exec(url.hostname);
+      if (!hostMatch) return input;
+
+      url.hostname = 'localhost';
+      url.port = hostMatch[1];
+      return url.toString();
+    } catch (e) {
+      return input;
+    }
+  }
+
+  function installWebSocketProxyBypass() {
+    if (typeof window.WebSocket !== 'function' || window.__vibeXWebSocketProxyBypassInstalled) return;
+    window.__vibeXWebSocketProxyBypassInstalled = true;
+
+    var NativeWebSocket = window.WebSocket;
+
+    function VibeXWebSocket(url, protocols) {
+      var rewrittenUrl = rewritePreviewProxyWebSocketUrl(url);
+      if (arguments.length > 1) {
+        return new NativeWebSocket(rewrittenUrl, protocols);
+      }
+      return new NativeWebSocket(rewrittenUrl);
+    }
+
+    VibeXWebSocket.prototype = NativeWebSocket.prototype;
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function(key) {
+      try {
+        VibeXWebSocket[key] = NativeWebSocket[key];
+      } catch (e) {}
+    });
+
+    window.WebSocket = VibeXWebSocket;
+  }
+
   // --- Helper: truncate attribute value ---
   function truncateAttr(val) {
     return val.length > 50 ? val.slice(0, 50) + '...' : val;
@@ -924,16 +965,22 @@
     positionOverlay(el);
   }
 
-  function onClick(event) {
-    if (!inspectModeActive) return;
+  function suppressInspectEvent(event) {
+    if (!inspectModeActive) return false;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+    return true;
+  }
+
+  function onPointerInteraction(event) {
+    suppressInspectEvent(event);
+  }
+
+  function onClick(event) {
+    if (!suppressInspectEvent(event)) return;
     var el = event.target;
     if (el === overlay || (overlay && overlay.contains(el))) return;
-
-    // Exit inspect mode immediately (visual feedback)
-    setInspectMode(false);
 
     getElementContext(el).then(function(componentPayload) {
       send('component-detected', componentPayload, 2);
@@ -949,9 +996,15 @@
       createOverlay();
       document.body.style.cursor = 'crosshair';
       document.addEventListener('mouseover', onMouseOver, true);
+      document.addEventListener('pointerdown', onPointerInteraction, true);
+      document.addEventListener('mousedown', onPointerInteraction, true);
+      document.addEventListener('mouseup', onPointerInteraction, true);
       document.addEventListener('click', onClick, true);
     } else {
       document.removeEventListener('mouseover', onMouseOver, true);
+      document.removeEventListener('pointerdown', onPointerInteraction, true);
+      document.removeEventListener('mousedown', onPointerInteraction, true);
+      document.removeEventListener('mouseup', onPointerInteraction, true);
       document.removeEventListener('click', onClick, true);
       document.body.style.cursor = '';
       hideOverlay();
@@ -982,6 +1035,7 @@
 
   // --- Notify parent that companion bridge is ready ---
   consumeBridgeTokenFromUrl();
+  installWebSocketProxyBypass();
   installConsoleCapture();
   installNetworkCapture();
   send('ready', undefined, 1);

@@ -15,8 +15,8 @@ const { attemptsGetMock, sessionsGetByIdMock, useWorkspaceSessionsMock } =
     sessionsGetByIdMock: vi.fn(() => new Promise<Session>(() => {})),
     useWorkspaceSessionsMock: vi.fn(() => ({
       sessions: [] as Array<Record<string, unknown>>,
-      selectedSession: undefined,
-      selectedSessionId: undefined,
+      selectedSession: undefined as Session | undefined,
+      selectedSessionId: undefined as string | undefined,
       selectSession: vi.fn(),
       selectLatestSession: vi.fn(),
       isLoading: false,
@@ -35,7 +35,32 @@ vi.mock('@/contexts/ProjectContext', () => ({
 
 vi.mock('@/hooks/useWorkspaceSessions', () => ({
   useWorkspaceSessions: useWorkspaceSessionsMock,
-  resolveActiveSession: (session: Session | undefined) => session,
+  resolveActiveSession: (
+    session: Session | undefined,
+    sessionState: {
+      isNewSessionMode?: boolean;
+      selectedSession?: Session | undefined;
+      selectedSessionId?: string | undefined;
+    }
+  ) => {
+    if (sessionState.isNewSessionMode) {
+      return undefined;
+    }
+
+    if (!sessionState.selectedSessionId) {
+      return session;
+    }
+
+    if (sessionState.selectedSession?.id === sessionState.selectedSessionId) {
+      return sessionState.selectedSession;
+    }
+
+    if (session?.id === sessionState.selectedSessionId) {
+      return session;
+    }
+
+    return session;
+  },
 }));
 
 vi.mock('@/components/logs/VirtualizedList', () => ({
@@ -558,6 +583,85 @@ describe('KanbanSessionConversationView', () => {
       originalConversationNode
     );
     expect(screen.getByTestId('right-slot')).toContainElement(
+      originalConversationNode
+    );
+  });
+
+  it('reuses the same conversation tree when a workspace-route session moves into monitor placement', () => {
+    const workspace = createWorkspace('workspace-1');
+    const session = createSession('session-1', workspace.id);
+
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [session],
+      selectedSession: session,
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    function PlacementHarness({
+      placement,
+    }: {
+      placement: 'workspace-route' | 'monitor';
+    }) {
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              {placement === 'workspace-route' ? (
+                <div data-testid="right-slot">
+                  <KanbanSessionConversationView
+                    workspaceId={workspace.id}
+                    interactive={true}
+                    showSessionSelector={true}
+                  />
+                </div>
+              ) : (
+                <div data-testid="monitor-slot">
+                  <KanbanSessionConversationView
+                    workspaceId={workspace.id}
+                    sessionId={session.id}
+                  />
+                </div>
+              )}
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(
+      <PlacementHarness placement="workspace-route" />
+    );
+    const originalConversationNode = screen.getByTestId('virtualized-list');
+
+    expect(originalConversationNode).toHaveTextContent(
+      'workspace-1:session-1'
+    );
+
+    rerender(<PlacementHarness placement="monitor" />);
+
+    expect(screen.getByTestId('virtualized-list')).toBe(
+      originalConversationNode
+    );
+    expect(screen.getByTestId('monitor-slot')).toContainElement(
       originalConversationNode
     );
   });

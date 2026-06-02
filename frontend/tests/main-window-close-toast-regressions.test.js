@@ -63,3 +63,18 @@ test('local dependency update notification is Chinese, grouped, and minimum-vers
   assert.doesNotMatch(appSource, /local dependency needs an update/);
   assert.doesNotMatch(appSource, /Open release/);
 });
+
+test('local dependency update notification opts out of the default sonner shell and constrains expanded details', () => {
+  const appSource = readFrontendFile('src/App.tsx');
+  const sonnerSource = readFrontendFile('src/components/ui/sonner.tsx');
+  const stylesSource = readFrontendFile('src/styles/legacy/index.css');
+
+  assert.match(appSource, /toast\.custom\(/);
+  assert.match(appSource, /unstyled:\s*true/);
+  assert.match(appSource, /vu-local-dependency-toast-shell/);
+  assert.match(sonnerSource, /vu-sonner-toast/);
+  assert.match(stylesSource, /vu-local-dependency-toast-shell/);
+  assert.match(stylesSource, /overflow:\s*visible/);
+  assert.match(appSource, /max-h-\[min\(60vh,320px\)\]/);
+  assert.match(appSource, /overflow-y-auto/);
+});

@@ -202,7 +202,7 @@ function LocalDependencyUpdateToast({
         </div>
 
         {expanded ? (
-          <div className="mt-3 space-y-2 border-t border-border/70 pt-3">
+          <div className="mt-3 max-h-[min(60vh,320px)] space-y-2 overflow-y-auto border-t border-border/70 pt-3 pr-1">
             {tools.map((tool) => (
               <div
                 key={tool.id}
@@ -390,7 +390,14 @@ function MainAppContent() {
                 }}
               />
             ),
-            { duration: 15000 }
+            {
+              duration: 15000,
+              unstyled: true,
+              closeButton: false,
+              classNames: {
+                toast: 'vu-local-dependency-toast-shell',
+              },
+            }
           );
         }
       } catch (error) {

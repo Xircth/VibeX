@@ -53,8 +53,6 @@ function renderImageUploadHook({
   workspaceId?: string;
 }) {
   const saveToScratch = vi.fn();
-  const applyDraftMessage = vi.fn();
-  const cancelQueue = vi.fn();
 
   const result = renderHook(
     () => {
@@ -66,8 +64,6 @@ function renderImageUploadHook({
         draftMessage: 'local draft',
         executorProfile: profile,
         saveToScratch,
-        applyDraftMessage,
-        cancelQueue,
         setAttachedImages:
           setAttachedImages as Dispatch<SetStateAction<SessionComposerImage[]>>,
       });
@@ -77,7 +73,7 @@ function renderImageUploadHook({
     { wrapper: wrapperFor(queryClient) }
   );
 
-  return { ...result, saveToScratch, applyDraftMessage, cancelQueue };
+  return { ...result, saveToScratch };
 }
 
 describe('useSessionComposerImageUpload', () => {
@@ -109,7 +105,7 @@ describe('useSessionComposerImageUpload', () => {
     expect(uploadForAttemptMock).not.toHaveBeenCalled();
   });
 
-  it('applies uploaded images against queued composer state', async () => {
+  it('keeps queued composer state separate from new image uploads', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -135,8 +131,6 @@ describe('useSessionComposerImageUpload', () => {
     const {
       result,
       saveToScratch,
-      applyDraftMessage,
-      cancelQueue,
     } = renderImageUploadHook({
       queryClient,
       initialImages: [replacedPreview, current],
@@ -148,20 +142,9 @@ describe('useSessionComposerImageUpload', () => {
     });
 
     expect(uploadForAttemptMock).toHaveBeenCalledWith('workspace-1', file);
-    expect(cancelQueue).toHaveBeenCalledOnce();
-    expect(applyDraftMessage).toHaveBeenCalledWith('queued draft');
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:old-preview');
-    expect(saveToScratch).toHaveBeenCalledWith('queued draft', profile, [
-      '.vibe-images/queued.png',
-      '.vibe-images/shared.png',
-      '.vibe-images/current.png',
-    ]);
+    expect(saveToScratch).not.toHaveBeenCalled();
     expect(result.current.attachedImages).toEqual([
-      {
-        id: '.vibe-images/queued.png',
-        name: 'queued.png',
-        path: '.vibe-images/queued.png',
-      },
       {
         id: 'upload',
         name: 'shared.png',

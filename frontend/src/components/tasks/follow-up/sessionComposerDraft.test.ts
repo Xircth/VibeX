@@ -69,6 +69,7 @@ describe('session composer draft helpers', () => {
       variant: 'REVIEW',
       model: 'gpt-5.4',
       fast_mode: false,
+      reasoning_effort: null,
     });
 
     expect(
@@ -87,6 +88,7 @@ describe('session composer draft helpers', () => {
       variant: null,
       model: 'claude-model',
       fast_mode: true,
+      reasoning_effort: null,
     });
 
     expect(getDraftExecutorProfile(undefined)).toBeNull();
@@ -185,7 +187,7 @@ describe('session composer draft helpers', () => {
       isScratchLoading: false,
     });
     expect(changed).toEqual({
-      previousProfileKey: 'CODEX:PLAN:gpt-5.4:false',
+      previousProfileKey: 'CODEX:PLAN:gpt-5.4:false:REASONING_DEFAULT',
       shouldSaveDraft: true,
     });
 
@@ -207,18 +209,50 @@ describe('session composer draft helpers', () => {
         isScratchLoading: true,
       })
     ).toEqual({
-      previousProfileKey: 'CLAUDE_CODE:DEFAULT:DEFAULT:FAST_DEFAULT',
+      previousProfileKey:
+        'CLAUDE_CODE:DEFAULT:DEFAULT:FAST_DEFAULT:REASONING_DEFAULT',
       shouldSaveDraft: false,
     });
 
     expect(
       getExecutorProfileAutosaveDecision({
-        previousProfileKey: 'CODEX:PLAN:gpt-5.4:false',
+        previousProfileKey:
+          'CODEX:PLAN:gpt-5.4:false:REASONING_DEFAULT',
+        executorProfile: { executor: BaseCodingAgent.CLAUDE_CODE },
+        isScratchLoading: true,
+      })
+    ).toEqual({
+      previousProfileKey:
+        'CLAUDE_CODE:DEFAULT:DEFAULT:FAST_DEFAULT:REASONING_DEFAULT',
+      shouldSaveDraft: false,
+    });
+
+    expect(
+      getExecutorProfileAutosaveDecision({
+        previousProfileKey:
+          'CODEX:PLAN:gpt-5.4:false:REASONING_DEFAULT',
         executorProfile: null,
         isScratchLoading: false,
       })
     ).toEqual({
       previousProfileKey: null,
+      shouldSaveDraft: true,
+    });
+
+    expect(
+      getExecutorProfileAutosaveDecision({
+        previousProfileKey: 'CODEX:PLAN:gpt-5.4:false',
+        executorProfile: {
+          executor: BaseCodingAgent.CODEX,
+          variant: 'PLAN',
+          model: 'gpt-5.4',
+          fast_mode: false,
+          reasoning_effort: 'low',
+        } as typeof profile & { reasoning_effort: 'low' },
+        isScratchLoading: false,
+      })
+    ).toEqual({
+      previousProfileKey: 'CODEX:PLAN:gpt-5.4:false:low',
       shouldSaveDraft: true,
     });
   });

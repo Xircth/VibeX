@@ -183,12 +183,13 @@ use token_usage::{
 mod native_conversation;
 #[cfg(test)]
 use native_conversation::{
-    close_native_assistant_segment, is_codex_context_compaction_completed,
+    close_native_assistant_segment, codex_context_compaction_status_text,
     should_skip_provider_text_snapshot, upsert_native_assistant_entry,
 };
 use native_conversation::{
     complete_codex_native_sink, complete_native_conversation_sink,
-    push_native_provider_event_to_conversation, route_codex_event_to_native_conversation,
+    is_codex_context_compaction_completed, push_native_provider_event_to_conversation,
+    route_codex_event_to_native_conversation,
 };
 mod runtime_core;
 #[cfg(test)]

@@ -7,11 +7,19 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { AlertCircle, Loader2, RotateCw } from 'lucide-react';
+import { toast } from 'sonner';
 import { AgentCard } from '@/components/settings/AgentCard';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
-import { agentSettingsApi } from '@/lib/api';
-import type { AgentSettingInfo } from '@/lib/api';
+import { agentSettingsApi, configApi } from '@/lib/api';
+import {
+  getAgentDependencyTool,
+} from '@/lib/localDependencyMaintenance';
+import type {
+  AgentSettingInfo,
+  LocalToolStatus,
+  SystemMaintenanceStatus,
+} from '@/lib/api';
 
 const DEFAULT_LOAD_ERROR = '加载编码代理设置失败。';
 
@@ -28,6 +36,11 @@ export function AgentSettings() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [maintenanceStatus, setMaintenanceStatus] =
+    useState<SystemMaintenanceStatus | null>(null);
+  const [dependencyActionToolId, setDependencyActionToolId] = useState<
+    string | null
+  >(null);
   const { reloadSystem } = useUserSystem();
 
   const loadAgents = useCallback(
@@ -46,6 +59,7 @@ export function AgentSettings() {
         );
       } catch (error) {
         setAgents([]);
+        setMaintenanceStatus(null);
         setSelectedType(null);
         setLoadError(getLoadErrorMessage(error));
       } finally {
@@ -57,14 +71,52 @@ export function AgentSettings() {
     []
   );
 
+  const loadMaintenanceStatus = useCallback(async () => {
+    try {
+      const status = await configApi.getSystemMaintenanceStatus();
+      setMaintenanceStatus(status);
+    } catch {
+      setMaintenanceStatus(null);
+    }
+  }, []);
+
   useEffect(() => {
     void loadAgents();
-  }, [loadAgents]);
+    // Dependency checks are supplemental; do not block the agent list on them.
+    void loadMaintenanceStatus();
+  }, [loadAgents, loadMaintenanceStatus]);
+
+  const handleInstallDependencyGroup = useCallback(
+    async (tool: LocalToolStatus) => {
+      setDependencyActionToolId(tool.id);
+      const toastId = toast.loading(`正在处理 ${tool.label}...`);
+
+      try {
+        const result = await configApi.installSystemDependencies(false, [
+          tool.id,
+        ]);
+        setMaintenanceStatus(result.status);
+        await loadAgents({ showLoading: false });
+        void loadMaintenanceStatus();
+        await reloadSystem();
+        toast.success(`${tool.label} 及隐藏依赖已更新。`, { id: toastId });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : `${tool.label} 更新失败。`,
+          { id: toastId }
+        );
+      } finally {
+        setDependencyActionToolId(null);
+      }
+    },
+    [loadAgents, loadMaintenanceStatus, reloadSystem]
+  );
 
   const reloadAgentSettingsAndRuntime = useCallback(async () => {
     await loadAgents({ showLoading: false });
+    void loadMaintenanceStatus();
     await reloadSystem();
-  }, [loadAgents, reloadSystem]);
+  }, [loadAgents, loadMaintenanceStatus, reloadSystem]);
 
   if (isLoading) {
     return (
@@ -121,20 +173,32 @@ export function AgentSettings() {
         </div>
       ) : (
         <div className="space-y-2">
-          {agents.map((agent) => (
-            <AgentCard
-              key={agent.agent_type}
-              agent={agent}
-              selected={selectedType === agent.agent_type}
-              onSelect={() =>
-                setSelectedType((prev) =>
-                  prev === agent.agent_type ? null : agent.agent_type
-                )
-              }
-              onSave={() => {}}
-              onReload={reloadAgentSettingsAndRuntime}
-            />
-          ))}
+          {agents.map((agent) => {
+            const dependencyStatus = getAgentDependencyTool(
+              agent.agent_type,
+              maintenanceStatus?.tools ?? []
+            );
+
+            return (
+              <AgentCard
+                key={agent.agent_type}
+                agent={agent}
+                selected={selectedType === agent.agent_type}
+                dependencyStatus={dependencyStatus}
+                dependencyActionRunning={
+                  dependencyActionToolId === dependencyStatus?.id
+                }
+                onInstallDependencyGroup={handleInstallDependencyGroup}
+                onSelect={() =>
+                  setSelectedType((prev) =>
+                    prev === agent.agent_type ? null : agent.agent_type
+                  )
+                }
+                onSave={() => {}}
+                onReload={reloadAgentSettingsAndRuntime}
+              />
+            );
+          })}
         </div>
       )}
     </div>

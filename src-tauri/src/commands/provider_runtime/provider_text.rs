@@ -429,6 +429,9 @@ pub(super) fn extract_text_block_content(value: &Value) -> Option<String> {
         }
         Value::Object(record) => {
             let block_type = record.get("type").and_then(Value::as_str);
+            if let Some(markdown) = image_block_markdown(record, block_type) {
+                return Some(markdown);
+            }
             match block_type {
                 Some("text") | None => record
                     .get("text")
@@ -442,6 +445,46 @@ pub(super) fn extract_text_block_content(value: &Value) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn image_block_markdown(
+    record: &serde_json::Map<String, Value>,
+    block_type: Option<&str>,
+) -> Option<String> {
+    let image_url = record
+        .get("url")
+        .and_then(Value::as_str)
+        .filter(|url| !url.trim().is_empty())
+        .or_else(|| {
+            record
+                .get("image_url")
+                .and_then(Value::as_str)
+                .filter(|url| !url.trim().is_empty())
+        });
+    if matches!(block_type, Some("image" | "output_image" | "input_image"))
+        && let Some(url) = image_url
+    {
+        return Some(format!("![Generated image]({url})"));
+    }
+
+    if block_type == Some("image_generation_call") {
+        let result = record
+            .get("result")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|result| !result.is_empty())?;
+        let mime_type = record
+            .get("mime_type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|mime| !mime.is_empty())
+            .unwrap_or("image/png");
+        return Some(format!(
+            "![Generated image](<data:{mime_type};base64,{result}>)"
+        ));
+    }
+
+    None
 }
 
 fn extract_assistant_payload_text(value: &Value) -> Option<String> {

@@ -6,6 +6,7 @@ import type { DollarCommandDescription } from '@/lib/dollarCommands';
 import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import { getSlashCommandPresentation } from '@/lib/slashCommandPresentation';
+import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 
 export type ComposerTypeaheadOption = {
   key: string;
@@ -75,7 +76,11 @@ export function slashCommandsToTypeaheadOptions(
       label: `/${presentation.label}`,
       description:
         presentation.description ?? command.description ?? undefined,
-      insertText: `/${command.name}`,
+      insertText: formatSessionComposerCommand({
+        type: '/',
+        key: command.name,
+        value: `/${command.name}`,
+      }),
     };
   });
 }
@@ -90,7 +95,11 @@ export function dollarCommandsToTypeaheadOptions(
       key: `dollar-${command.name}`,
       label: `$${command.name}`,
       description: command.description,
-      insertText: `$${command.name}`,
+      insertText: formatSessionComposerCommand({
+        type: '$',
+        key: command.name,
+        value: `$${command.name}`,
+      }),
     }));
 }
 
@@ -119,7 +128,11 @@ export function searchResultToTypeaheadOption(
       key: `tag-${item.tag.id}`,
       label: `#${item.tag.tag_name}`,
       description: item.tag.content ?? undefined,
-      insertText: `#${item.tag.tag_name}`,
+      insertText: formatSessionComposerCommand({
+        type: '#',
+        key: item.tag.tag_name,
+        value: `#${item.tag.tag_name}`,
+      }),
     };
   }
 
@@ -128,7 +141,11 @@ export function searchResultToTypeaheadOption(
       key: `file-${item.file.path}`,
       label: item.file.name,
       description: item.file.path,
-      insertText: `@${item.file.path}`,
+      insertText: formatSessionComposerCommand({
+        type: '@',
+        key: item.file.name,
+        value: item.file.path,
+      }),
     };
   }
 

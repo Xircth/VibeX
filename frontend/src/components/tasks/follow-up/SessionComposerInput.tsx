@@ -1,21 +1,20 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ClipboardEvent,
   type DragEvent,
+  type FormEvent,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Image, Loader2, X } from 'lucide-react';
-import type {
-  ExecutorProfileId,
-  SendMessageShortcut,
-} from 'shared/types';
+import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { TypeaheadMenu } from '@/components/ui/wysiwyg/plugins/typeahead-menu-components';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
@@ -28,6 +27,15 @@ import {
 } from '@/lib/dollarCommands';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
+import {
+  FILE_REFERENCE_DRAG_MIME,
+  parseFileReferencePayload,
+  type FileReferencePayload,
+} from '@/utils/fileReferences';
+import {
+  clearCurrentDraggedFileReference,
+  getCurrentDraggedFileReference,
+} from '@/utils/fileReferenceDrag';
 import {
   clipboardDataHasTextPayload,
   extractImageFilesFromClipboardData,
@@ -45,6 +53,16 @@ import {
   slashCommandsToTypeaheadOptions,
   type ComposerTypeaheadOption,
 } from './sessionComposerTypeaheadOptions';
+import {
+  deleteSessionComposerStructuredToken,
+  getSessionComposerStructuredTokenSegments,
+  insertFileReferenceToken,
+  type SessionComposerStructuredTokenSegment,
+} from './sessionComposerStructuredTokens';
+import {
+  getSessionComposerTokenChipClassName,
+  getSessionComposerTokenChipTitle,
+} from './SessionComposerStructuredText';
 
 export type SessionComposerImage = {
   id: string;
@@ -79,6 +97,23 @@ type SessionComposerInputProps = {
 function imageFilesFromFileList(files: FileList | null | undefined): File[] {
   return Array.from(files ?? []).filter((file) =>
     file.type.startsWith('image/')
+  );
+}
+
+function getDroppedFileReference(
+  dataTransfer: DataTransfer
+): FileReferencePayload | null {
+  const serializedPayload = dataTransfer.getData(FILE_REFERENCE_DRAG_MIME);
+  return (
+    parseFileReferencePayload(serializedPayload) ??
+    getCurrentDraggedFileReference()
+  );
+}
+
+function hasFileReferenceDrag(dataTransfer: DataTransfer): boolean {
+  return (
+    Array.from(dataTransfer.types).includes(FILE_REFERENCE_DRAG_MIME) ||
+    Boolean(getCurrentDraggedFileReference())
   );
 }
 
@@ -206,6 +241,266 @@ function SessionComposerImageAttachment({
   );
 }
 
+type ComposerSelection = {
+  start: number;
+  end: number;
+};
+
+function getRenderedNodeSourceLength(node: ChildNode): number {
+  if (node instanceof HTMLElement) {
+    const raw = node.dataset.commandRaw;
+    if (typeof raw === 'string') {
+      return raw.length;
+    }
+
+    return Array.from(node.childNodes).reduce(
+      (total, child) => total + getRenderedNodeSourceLength(child),
+      0
+    );
+  }
+
+  return node.textContent?.length ?? 0;
+}
+
+function getTopLevelEditorChild(
+  editor: HTMLDivElement,
+  node: Node | null
+): ChildNode | null {
+  if (!node) return null;
+  let current: Node | null = node;
+
+  while (current && current.parentNode !== editor) {
+    current = current.parentNode;
+  }
+
+  return current instanceof Node ? (current as ChildNode) : null;
+}
+
+function sumEditorChildLengths(
+  editor: HTMLDivElement,
+  count: number
+): number {
+  return Array.from(editor.childNodes)
+    .slice(0, Math.max(0, count))
+    .reduce((total, child) => total + getRenderedNodeSourceLength(child), 0);
+}
+
+function getEditorPointOffset(
+  editor: HTMLDivElement,
+  node: Node,
+  offset: number
+): number {
+  if (node === editor) {
+    return sumEditorChildLengths(editor, offset);
+  }
+
+  const topLevelChild = getTopLevelEditorChild(editor, node);
+  if (!topLevelChild) {
+    return 0;
+  }
+
+  const childIndex = Array.from(editor.childNodes).indexOf(topLevelChild);
+  const childStart = sumEditorChildLengths(editor, childIndex);
+
+  if (!(topLevelChild instanceof HTMLElement)) {
+    return childStart + Math.min(offset, topLevelChild.textContent?.length ?? 0);
+  }
+
+  const childEnd = childStart + getRenderedNodeSourceLength(topLevelChild);
+  if (typeof topLevelChild.dataset.commandRaw === 'string') {
+    return offset <= 0 ? childStart : childEnd;
+  }
+
+  if (node.nodeType === Node.TEXT_NODE) {
+    return Math.min(childEnd, childStart + offset);
+  }
+
+  const textNode = topLevelChild.firstChild;
+  const textLength = textNode?.textContent?.length ?? 0;
+  if (offset <= 0) {
+    return childStart;
+  }
+
+  return Math.min(childEnd, childStart + textLength);
+}
+
+function getEditorSelection(
+  editor: HTMLDivElement
+): ComposerSelection | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return null;
+  }
+
+  const { anchorNode, focusNode, anchorOffset, focusOffset } = selection;
+  if (!anchorNode || !focusNode) {
+    return null;
+  }
+  if (!editor.contains(anchorNode) || !editor.contains(focusNode)) {
+    return null;
+  }
+
+  const anchor = getEditorPointOffset(editor, anchorNode, anchorOffset);
+  const focus = getEditorPointOffset(editor, focusNode, focusOffset);
+
+  return anchor <= focus
+    ? { start: anchor, end: focus }
+    : { start: focus, end: anchor };
+}
+
+function readEditorValue(editor: HTMLDivElement): string {
+  return Array.from(editor.childNodes)
+    .map((node) => {
+      if (node instanceof HTMLElement) {
+        const raw = node.dataset.commandRaw;
+        if (typeof raw === 'string') {
+          return raw;
+        }
+      }
+
+      return node.textContent ?? '';
+    })
+    .join('');
+}
+
+function getEditorDomPointForOffset(
+  editor: HTMLDivElement,
+  offset: number
+): { node: Node; offset: number } {
+  const childNodes = Array.from(editor.childNodes);
+  const totalLength = childNodes.reduce(
+    (total, child) => total + getRenderedNodeSourceLength(child),
+    0
+  );
+  let remaining = Math.max(0, Math.min(offset, totalLength));
+
+  for (let index = 0; index < childNodes.length; index += 1) {
+    const child = childNodes[index];
+    const childLength = getRenderedNodeSourceLength(child);
+
+    if (remaining > childLength) {
+      remaining -= childLength;
+      continue;
+    }
+
+    if (child instanceof HTMLElement) {
+      if (typeof child.dataset.commandRaw === 'string') {
+        return {
+          node: editor,
+          offset: remaining === 0 ? index : index + 1,
+        };
+      }
+
+      const textNode = child.firstChild;
+      if (textNode?.nodeType === Node.TEXT_NODE) {
+        return {
+          node: textNode,
+          offset: Math.min(remaining, textNode.textContent?.length ?? 0),
+        };
+      }
+    }
+
+    return {
+      node: child,
+      offset: Math.min(remaining, child.textContent?.length ?? 0),
+    };
+  }
+
+  return {
+    node: editor,
+    offset: childNodes.length,
+  };
+}
+
+function setEditorSelection(
+  editor: HTMLDivElement,
+  selection: ComposerSelection
+) {
+  const normalized = {
+    start: Math.max(0, selection.start),
+    end: Math.max(0, selection.end),
+  };
+  const domStart = getEditorDomPointForOffset(editor, normalized.start);
+  const domEnd = getEditorDomPointForOffset(editor, normalized.end);
+  const range = document.createRange();
+  range.setStart(domStart.node, domStart.offset);
+  range.setEnd(domEnd.node, domEnd.offset);
+
+  const currentSelection = window.getSelection();
+  if (!currentSelection) return;
+  currentSelection.removeAllRanges();
+  currentSelection.addRange(range);
+
+  if (
+    typeof range.getBoundingClientRect !== 'function' ||
+    typeof editor.getBoundingClientRect !== 'function'
+  ) {
+    return;
+  }
+
+  const caretRect = range.getBoundingClientRect();
+  const editorRect = editor.getBoundingClientRect();
+  if (
+    !Number.isFinite(caretRect.top) ||
+    !Number.isFinite(caretRect.bottom) ||
+    !Number.isFinite(editorRect.top) ||
+    editor.clientHeight <= 0
+  ) {
+    return;
+  }
+
+  const caretTop = caretRect.top - editorRect.top + editor.scrollTop;
+  const caretBottom = caretTop + Math.max(caretRect.height, 1);
+  const visibleTop = editor.scrollTop;
+  const visibleBottom = visibleTop + editor.clientHeight;
+
+  if (caretBottom > visibleBottom) {
+    editor.scrollTop = caretBottom - editor.clientHeight;
+    return;
+  }
+
+  if (caretTop < visibleTop) {
+    editor.scrollTop = Math.max(0, caretTop);
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderEditorHtml(
+  segments: SessionComposerStructuredTokenSegment[]
+): string {
+  return segments
+    .map((segment) => {
+      if (segment.kind === 'text') {
+        return escapeHtml(segment.text);
+      }
+
+      const title = getSessionComposerTokenChipTitle(segment.token);
+      const titleAttribute =
+        typeof title === 'string' ? ` title="${escapeHtml(title)}"` : '';
+
+      return `<span class="${escapeHtml(
+        getSessionComposerTokenChipClassName(segment.token)
+      )}" data-testid="session-composer-token-chip" data-token-kind="${escapeHtml(
+        segment.token.kind
+      )}" data-structured-token-atomic="true" data-command-raw="${escapeHtml(
+        segment.token.raw
+      )}" data-source-start="${segment.start}" data-source-end="${
+        segment.end
+      }" contenteditable="false"${titleAttribute}><span class="truncate font-medium">${escapeHtml(
+        segment.token.label
+      )}</span></span>`;
+    })
+    .join('');
+}
+
 export function SessionComposerInput({
   value,
   disabled = false,
@@ -227,11 +522,18 @@ export function SessionComposerInput({
     projectId,
     executorProfile,
   } = context ?? {};
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
   const blurTimerRef = useRef<number | null>(null);
+  const selectionRef = useRef<ComposerSelection>({
+    start: value.length,
+    end: value.length,
+  });
+  const pendingSelectionRef = useRef<ComposerSelection | null>(null);
   const [typeaheadState, setTypeaheadState] =
     useState<TextareaTypeaheadState | null>(null);
   const [selectedTypeaheadIndex, setSelectedTypeaheadIndex] = useState(0);
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const typeaheadTrigger = typeaheadState?.trigger ?? null;
   const typeaheadQuery = typeaheadState?.match.matchingString ?? '';
   const executor = executorProfile?.executor ?? null;
@@ -241,6 +543,10 @@ export function SessionComposerInput({
     return repoId ? [repoId] : [];
   }, [repoId, repoIds]);
   const primaryRepoId = effectiveRepoIds[0] ?? null;
+  const structuredSegments = useMemo(
+    () => getSessionComposerStructuredTokenSegments(value),
+    [value]
+  );
 
   const slashCommandsQuery = useSlashCommands(executorProfile, {
     workspaceId,
@@ -373,19 +679,80 @@ export function SessionComposerInput({
   }, [isTypeaheadLoading, typeaheadTrigger]);
 
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 100)}px`;
-  }, [value]);
-
-  useEffect(() => {
     return () => {
       if (blurTimerRef.current !== null) {
         window.clearTimeout(blurTimerRef.current);
       }
     };
   }, []);
+
+  const syncTypeaheadFromSelection = useCallback(
+    (
+      nextValue: string = value,
+      nextSegments: SessionComposerStructuredTokenSegment[] = structuredSegments,
+      nextSelection: ComposerSelection = selectionRef.current
+    ) => {
+      if (disabled || nextSelection.start !== nextSelection.end) {
+        setTypeaheadState(null);
+        return;
+      }
+
+      setTypeaheadState(
+        getTextareaTypeaheadState(nextValue, nextSelection.end, nextSegments)
+      );
+    },
+    [disabled, structuredSegments, value]
+  );
+
+  const insertDroppedFileReference = useCallback(
+    (payload: FileReferencePayload | null) => {
+      if (!payload || disabled) return;
+
+      const editor = editorRef.current;
+      const hasActiveEditor = !!editor && document.activeElement === editor;
+      const selection = hasActiveEditor
+        ? getEditorSelection(editor) ?? selectionRef.current
+        : { start: value.length, end: value.length };
+      const next = insertFileReferenceToken({
+        value,
+        selectionStart: selection.start,
+        selectionEnd: selection.end,
+        relativePath: payload.relativePath,
+      });
+      pendingSelectionRef.current = {
+        start: next.caretOffset,
+        end: next.caretOffset,
+      };
+      onChange(next.value);
+      clearCurrentDraggedFileReference();
+      window.requestAnimationFrame(() => {
+        editorRef.current?.focus();
+      });
+    },
+    [disabled, onChange, value]
+  );
+
+  useEffect(() => {
+    const dropZone = dropZoneRef.current;
+    if (!dropZone) return;
+
+    const handleCustomDrop = (event: Event) => {
+      const customEvent = event as CustomEvent<FileReferencePayload | null>;
+      insertDroppedFileReference(customEvent.detail ?? null);
+    };
+
+    dropZone.addEventListener(
+      'vibe-file-reference-drop',
+      handleCustomDrop as EventListener
+    );
+
+    return () => {
+      dropZone.removeEventListener(
+        'vibe-file-reference-drop',
+        handleCustomDrop as EventListener
+      );
+    };
+  }, [insertDroppedFileReference]);
 
   useEffect(() => {
     setSelectedTypeaheadIndex(0);
@@ -402,25 +769,63 @@ export function SessionComposerInput({
     );
   }, [typeaheadOptions.length]);
 
-  const syncTypeaheadFromTextarea = useCallback(
-    (nextValue?: string) => {
-      const textarea = textareaRef.current;
-      if (!textarea || disabled) {
-        setTypeaheadState(null);
-        return;
-      }
-
-      const currentValue = nextValue ?? textarea.value;
-      const caretOffset = textarea.selectionStart ?? currentValue.length;
-      setTypeaheadState(getTextareaTypeaheadState(currentValue, caretOffset));
-    },
-    [disabled]
-  );
-
   const closeTypeahead = useCallback(() => {
     setTypeaheadState(null);
     setSelectedTypeaheadIndex(0);
   }, []);
+
+  const renderedEditorHtml = useMemo(
+    () => renderEditorHtml(structuredSegments),
+    [structuredSegments]
+  );
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    const didSyncDom = readEditorValue(editor) !== value;
+    if (didSyncDom) {
+      editor.innerHTML = renderedEditorHtml;
+    }
+    if (!isInputFocused) return;
+    if (!didSyncDom && pendingSelectionRef.current === null) return;
+
+    const nextSelection = pendingSelectionRef.current ?? selectionRef.current;
+    const normalized = {
+      start: Math.max(0, Math.min(nextSelection.start, value.length)),
+      end: Math.max(0, Math.min(nextSelection.end, value.length)),
+    };
+
+    setEditorSelection(editor, normalized);
+    selectionRef.current = normalized;
+    pendingSelectionRef.current = null;
+    syncTypeaheadFromSelection(value, structuredSegments, normalized);
+  }, [
+    isInputFocused,
+    renderedEditorHtml,
+    structuredSegments,
+    syncTypeaheadFromSelection,
+    value,
+  ]);
+
+  const syncSelectionState = useCallback(
+    (nextValue: string = value) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      const nextSelection = getEditorSelection(editor) ?? {
+        start: nextValue.length,
+        end: nextValue.length,
+      };
+      selectionRef.current = nextSelection;
+      syncTypeaheadFromSelection(
+        nextValue,
+        getSessionComposerStructuredTokenSegments(nextValue),
+        nextSelection
+      );
+    },
+    [syncTypeaheadFromSelection, value]
+  );
 
   const commitTypeaheadOption = useCallback(
     (option: ComposerTypeaheadOption) => {
@@ -431,21 +836,18 @@ export function SessionComposerInput({
         typeaheadState.match,
         option.insertText
       );
+      pendingSelectionRef.current = {
+        start: next.caretOffset,
+        end: next.caretOffset,
+      };
       onChange(next.value);
       closeTypeahead();
-
-      window.requestAnimationFrame(() => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        textarea.focus();
-        textarea.setSelectionRange(next.caretOffset, next.caretOffset);
-      });
     },
     [closeTypeahead, onChange, typeaheadState, value]
   );
 
   const handlePaste = useCallback(
-    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    (event: ClipboardEvent<HTMLDivElement>) => {
       const files = extractImageFilesFromClipboardData(event.clipboardData);
       if (files.length > 0) {
         event.preventDefault();
@@ -454,6 +856,25 @@ export function SessionComposerInput({
       }
 
       if (clipboardDataHasTextPayload(event.clipboardData)) {
+        const pastedText = event.clipboardData.getData('text/plain');
+        if (pastedText) {
+          event.preventDefault();
+          const editor = editorRef.current;
+          const selection = editor
+            ? getEditorSelection(editor) ?? selectionRef.current
+            : selectionRef.current;
+          const nextValue =
+            value.slice(0, selection.start) +
+            pastedText +
+            value.slice(selection.end);
+          const caretOffset = selection.start + pastedText.length;
+          pendingSelectionRef.current = {
+            start: caretOffset,
+            end: caretOffset,
+          };
+          onChange(nextValue);
+          closeTypeahead();
+        }
         return;
       }
 
@@ -468,11 +889,19 @@ export function SessionComposerInput({
           console.warn('Failed to read image from clipboard:', error);
         });
     },
-    [onAttachImages]
+    [closeTypeahead, onAttachImages, onChange, value]
   );
 
   const handleDrop = useCallback(
-    (event: DragEvent<HTMLTextAreaElement>) => {
+    (event: DragEvent<HTMLDivElement>) => {
+      const fileReference = getDroppedFileReference(event.dataTransfer);
+      if (fileReference) {
+        event.preventDefault();
+        event.stopPropagation();
+        insertDroppedFileReference(fileReference);
+        return;
+      }
+
       const files = imageFilesFromFileList(event.dataTransfer.files);
       if (files.length === 0) {
         return;
@@ -481,11 +910,35 @@ export function SessionComposerInput({
       event.preventDefault();
       onAttachImages(files);
     },
-    [onAttachImages]
+    [insertDroppedFileReference, onAttachImages]
   );
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      syncSelectionState();
+
+      if (event.key === 'Backspace' || event.key === 'Delete') {
+        const selection =
+          getEditorSelection(event.currentTarget) ?? selectionRef.current;
+        const deletion = deleteSessionComposerStructuredToken({
+          value,
+          selectionStart: selection.start,
+          selectionEnd: selection.end,
+          direction: event.key === 'Backspace' ? 'backward' : 'forward',
+        });
+
+        if (deletion) {
+          event.preventDefault();
+          pendingSelectionRef.current = {
+            start: deletion.caretOffset,
+            end: deletion.caretOffset,
+          };
+          onChange(deletion.value);
+          closeTypeahead();
+          return;
+        }
+      }
+
       if (typeaheadState) {
         if (event.key === 'ArrowDown') {
           event.preventDefault();
@@ -543,6 +996,23 @@ export function SessionComposerInput({
           : (event.metaKey || event.ctrlKey) && !event.shiftKey;
 
       if (!shouldSubmit) {
+        const selection =
+          getEditorSelection(event.currentTarget) ?? selectionRef.current;
+        const currentValue = readEditorValue(event.currentTarget);
+        const nextSelection = {
+          start: selection.start + 1,
+          end: selection.start + 1,
+        };
+        event.preventDefault();
+        event.stopPropagation();
+        pendingSelectionRef.current = nextSelection;
+        selectionRef.current = nextSelection;
+        onChange(
+          currentValue.slice(0, selection.start) +
+            '\n' +
+            currentValue.slice(selection.end)
+        );
+        closeTypeahead();
         return;
       }
 
@@ -555,16 +1025,47 @@ export function SessionComposerInput({
       commitTypeaheadOption,
       disabled,
       isTypeaheadLoading,
+      onChange,
       onSubmit,
       selectedTypeaheadIndex,
       sendShortcut,
+      syncSelectionState,
       typeaheadOptions,
       typeaheadState,
+      value,
     ]
   );
 
+  const handleInput = useCallback(
+    (event: FormEvent<HTMLDivElement>) => {
+      if (disabled) return;
+
+      const editor = event.currentTarget;
+      const nextValue = readEditorValue(editor);
+      const nextSelection = getEditorSelection(editor) ?? {
+        start: nextValue.length,
+        end: nextValue.length,
+      };
+
+      selectionRef.current = nextSelection;
+      pendingSelectionRef.current = null;
+      onChange(nextValue);
+      syncTypeaheadFromSelection(
+        nextValue,
+        getSessionComposerStructuredTokenSegments(nextValue),
+        nextSelection
+      );
+    },
+    [disabled, onChange, syncTypeaheadFromSelection]
+  );
+
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      ref={dropZoneRef}
+      className="flex flex-col gap-2"
+      data-file-reference-drop-zone
+      data-testid="session-composer-file-drop-zone"
+    >
       {images.length > 0 ? (
         <div className="flex flex-wrap gap-2 px-1">
           {images.map((image) => (
@@ -580,42 +1081,77 @@ export function SessionComposerInput({
         </div>
       ) : null}
 
-      <textarea
-        ref={textareaRef}
-        value={value}
-        disabled={disabled}
-        rows={1}
+      <div
         className={cn(
-          'min-h-[40px] max-h-[100px] resize-none overflow-y-auto bg-transparent px-1 py-1 text-[13px] leading-5 tracking-[0.005em] text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60',
-          className
+          'min-h-[40px] rounded-lg bg-background/35 px-1.5 py-1 transition-colors focus-within:bg-background/50',
+          disabled && 'opacity-60'
         )}
-        onChange={(event) => {
-          onChange(event.target.value);
-          syncTypeaheadFromTextarea(event.target.value);
-        }}
-        onKeyDown={handleKeyDown}
-        onKeyUp={() => syncTypeaheadFromTextarea()}
-        onClick={() => syncTypeaheadFromTextarea()}
-        onSelect={() => syncTypeaheadFromTextarea()}
-        onFocus={() => {
-          if (blurTimerRef.current !== null) {
-            window.clearTimeout(blurTimerRef.current);
-            blurTimerRef.current = null;
-          }
-          syncTypeaheadFromTextarea();
-        }}
-        onBlur={() => {
-          blurTimerRef.current = window.setTimeout(() => {
-            closeTypeahead();
-          }, 120);
-        }}
-        onPaste={handlePaste}
-        onDrop={handleDrop}
-        onDragOver={(event) => event.preventDefault()}
-      />
-      {shouldShowTypeahead && textareaRef.current
+        data-testid="session-composer-input-surface"
+      >
+        <div
+          ref={editorRef}
+          role="textbox"
+          aria-multiline="true"
+          contentEditable={!disabled}
+          suppressContentEditableWarning
+          spellCheck={false}
+          data-testid="session-composer-editor"
+          className={cn(
+            'max-h-[100px] min-h-[32px] w-full overflow-y-auto whitespace-pre-wrap break-words px-0.5 py-1 text-[13px] leading-5 tracking-[0.005em] text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground disabled:cursor-not-allowed',
+            disabled && 'cursor-not-allowed opacity-60',
+            className
+          )}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onKeyUp={() => syncSelectionState()}
+          onMouseUp={() => syncSelectionState()}
+          onClick={() => syncSelectionState()}
+          onFocus={() => {
+            setIsInputFocused(true);
+            if (blurTimerRef.current !== null) {
+              window.clearTimeout(blurTimerRef.current);
+              blurTimerRef.current = null;
+            }
+            const editor = editorRef.current;
+            const pendingSelection = pendingSelectionRef.current;
+            if (editor && pendingSelection) {
+              setEditorSelection(editor, pendingSelection);
+              selectionRef.current = pendingSelection;
+              pendingSelectionRef.current = null;
+              syncTypeaheadFromSelection(
+                value,
+                structuredSegments,
+                pendingSelection
+              );
+              return;
+            }
+
+            syncSelectionState();
+          }}
+          onBlur={() => {
+            setIsInputFocused(false);
+            blurTimerRef.current = window.setTimeout(() => {
+              closeTypeahead();
+            }, 120);
+          }}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={(event) => {
+            if (hasFileReferenceDrag(event.dataTransfer)) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'copy';
+              return;
+            }
+
+            if (Array.from(event.dataTransfer.types).includes('Files')) {
+              event.preventDefault();
+            }
+          }}
+        />
+      </div>
+      {shouldShowTypeahead && editorRef.current
         ? createPortal(
-            <TypeaheadMenu anchorEl={textareaRef.current}>
+            <TypeaheadMenu anchorEl={editorRef.current}>
               {typeaheadOptions.length > 0 ? (
                 <TypeaheadMenu.ScrollArea>
                   {typeaheadOptions.map((option, index) => (

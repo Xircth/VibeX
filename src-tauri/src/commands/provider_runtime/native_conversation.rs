@@ -20,27 +20,16 @@ use super::{
     push_native_log_msg,
 };
 
+const CONTEXT_COMPACT_RUNNING_TEXT: &str = "正在执行上下文压缩...";
+const CONTEXT_COMPACT_SUCCESS_TEXT: &str = "上下文已压缩";
+const CONTEXT_COMPACT_FAILED_TEXT: &str = "上下文压缩失败";
+
 pub(super) async fn push_native_provider_event_to_conversation(
     sink: &NativeConversationSink,
     event: &Value,
 ) {
-    if provider_event_is_codex_auto_compacting(event) {
-        let mut state = sink.state.lock().await;
-        close_native_assistant_segment(&mut state);
-        let index = state.next_entry_index;
-        state.next_entry_index += 1;
-        drop(state);
-
-        let entry = native_normalized_entry(
-            NormalizedEntryType::SystemMessage,
-            "正在自动压缩上下文...",
-            Some(event.clone()),
-        );
-        push_native_log_msg(
-            sink,
-            LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
-        )
-        .await;
+    if let Some(status_text) = codex_context_compaction_status_text(event) {
+        push_native_context_compaction_status(sink, event, status_text).await;
         return;
     }
 
@@ -204,6 +193,29 @@ async fn push_native_tool_update_to_conversation(
     push_native_log_msg(sink, LogMsg::JsonPatch(patch)).await;
 }
 
+async fn push_native_context_compaction_status(
+    sink: &NativeConversationSink,
+    event: &Value,
+    content: &str,
+) {
+    let mut state = sink.state.lock().await;
+    close_native_assistant_segment(&mut state);
+    let index = state.next_entry_index;
+    state.next_entry_index += 1;
+    drop(state);
+
+    let entry = native_normalized_entry(
+        NormalizedEntryType::SystemMessage,
+        content,
+        Some(event.clone()),
+    );
+    push_native_log_msg(
+        sink,
+        LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
+    )
+    .await;
+}
+
 pub(super) fn close_native_assistant_segment(state: &mut NativeConversationState) {
     state.active_assistant_entry_id = None;
 }
@@ -310,6 +322,19 @@ pub(super) fn is_codex_context_compaction_completed(value: &Value) -> bool {
         .is_some_and(|item_type| matches!(item_type, "contextCompaction" | "context_compaction"))
 }
 
+fn is_codex_context_compaction_item_event(value: &Value, method: &str) -> bool {
+    if value.get("method").and_then(Value::as_str) != Some(method) {
+        return false;
+    }
+
+    value
+        .get("params")
+        .and_then(|params| params.get("item"))
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        .is_some_and(|item_type| matches!(item_type, "contextCompaction" | "context_compaction"))
+}
+
 fn provider_event_is_codex_auto_compacting(value: &Value) -> bool {
     value.get("method").and_then(Value::as_str) == Some("thread/compacting")
         && value
@@ -319,14 +344,53 @@ fn provider_event_is_codex_auto_compacting(value: &Value) -> bool {
             .unwrap_or(false)
 }
 
+fn provider_event_is_codex_context_compaction_started(value: &Value) -> bool {
+    provider_event_is_codex_auto_compacting(value)
+        || is_codex_context_compaction_item_event(value, "item/started")
+}
+
+fn provider_event_is_codex_context_compaction_completed(value: &Value) -> bool {
+    value.get("method").and_then(Value::as_str) == Some("thread/compacted")
+        || is_codex_context_compaction_completed(value)
+}
+
+fn provider_event_is_codex_context_compaction_failed(value: &Value) -> bool {
+    value.get("method").and_then(Value::as_str) == Some("thread/compactionFailed")
+}
+
+fn provider_event_is_codex_turn_started(value: &Value) -> bool {
+    value.get("method").and_then(Value::as_str) == Some("turn/started")
+}
+
+fn provider_event_is_codex_context_compaction_lifecycle(value: &Value) -> bool {
+    provider_event_is_codex_context_compaction_started(value)
+        || provider_event_is_codex_context_compaction_completed(value)
+        || provider_event_is_codex_context_compaction_failed(value)
+}
+
+pub(super) fn codex_context_compaction_status_text(value: &Value) -> Option<&'static str> {
+    if provider_event_is_codex_context_compaction_started(value) {
+        return Some(CONTEXT_COMPACT_RUNNING_TEXT);
+    }
+    if provider_event_is_codex_context_compaction_completed(value) {
+        return Some(CONTEXT_COMPACT_SUCCESS_TEXT);
+    }
+    if provider_event_is_codex_context_compaction_failed(value) {
+        return Some(CONTEXT_COMPACT_FAILED_TEXT);
+    }
+    None
+}
+
 pub(super) async fn route_codex_event_to_native_conversation(value: &Value) {
     let turn_id = extract_turn_id(value);
     let thread_id = extract_thread_id(value);
     let mut sink = None;
+    let mut used_thread_fallback = false;
     if let Some(turn_id) = turn_id.as_deref() {
         sink = CODEX_NATIVE_TURN_SINKS.lock().await.get(turn_id).cloned();
     }
     if sink.is_none()
+        && codex_event_can_fallback_to_thread_sink(value)
         && let Some(thread_id) = thread_id.as_deref()
     {
         sink = CODEX_NATIVE_THREAD_SINKS
@@ -334,10 +398,21 @@ pub(super) async fn route_codex_event_to_native_conversation(value: &Value) {
             .await
             .get(thread_id)
             .cloned();
+        used_thread_fallback = sink.is_some();
     }
     let Some(sink) = sink else {
         return;
     };
+
+    if used_thread_fallback
+        && provider_event_is_codex_turn_started(value)
+        && let Some(turn_id) = turn_id.as_deref()
+    {
+        CODEX_NATIVE_TURN_SINKS
+            .lock()
+            .await
+            .insert(turn_id.to_string(), sink.clone());
+    }
 
     push_native_provider_event_to_conversation(&sink, value).await;
 
@@ -357,22 +432,28 @@ pub(super) async fn route_codex_event_to_native_conversation(value: &Value) {
         return;
     }
 
-    if method == "turn/completed"
-        || method == "thread/compacted"
-        || method == "thread/compactionFailed"
-        || is_codex_context_compaction_completed(value)
-        || method == "turn/error"
-        || method == "error"
-    {
-        let status = if method == "turn/completed"
-            || method == "thread/compacted"
-            || method == "thread/compactionFailed"
-            || is_codex_context_compaction_completed(value)
-        {
+    if codex_event_completes_native_sink(value) {
+        let status = if method == "turn/completed" || method == "thread/compacted" {
             ExecutionProcessStatus::Completed
         } else {
             ExecutionProcessStatus::Failed
         };
         complete_codex_native_sink(sink, turn_id, thread_id, status).await;
     }
+}
+
+pub(super) fn codex_event_can_fallback_to_thread_sink(value: &Value) -> bool {
+    extract_turn_id(value).is_none()
+        || provider_event_is_codex_turn_started(value)
+        || provider_event_is_codex_context_compaction_lifecycle(value)
+}
+
+pub(super) fn codex_event_completes_native_sink(value: &Value) -> bool {
+    matches!(
+        value
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        "turn/completed" | "thread/compacted" | "thread/compactionFailed" | "turn/error" | "error"
+    )
 }

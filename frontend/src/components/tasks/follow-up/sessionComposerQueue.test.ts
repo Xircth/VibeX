@@ -82,27 +82,13 @@ describe('session composer queue helpers', () => {
     });
   });
 
-  it('derives image attachment seed data from queued messages', () => {
+  it('derives image attachment seed data from the local draft only', () => {
     expect(
       getAttachImageQueueSeed({
-        queueStatus: queuedStatus({ message: 'queued base', images: ['a', 'b'] }),
         fallbackMessage: 'local draft',
       })
     ).toEqual({
-      shouldCancelQueue: true,
-      scratchMessage: 'queued base',
-      queuedImagePaths: ['a', 'b'],
-    });
-
-    expect(
-      getAttachImageQueueSeed({
-        queueStatus: { status: 'empty' },
-        fallbackMessage: 'local draft',
-      })
-    ).toEqual({
-      shouldCancelQueue: false,
       scratchMessage: 'local draft',
-      queuedImagePaths: [],
     });
   });
 
@@ -151,7 +137,7 @@ describe('session composer queue helpers', () => {
         hasFollowUpError: true,
       })
     ).toEqual({
-      shouldCancelQueue: true,
+      shouldPersistDraft: false,
       shouldClearError: true,
     });
 
@@ -161,7 +147,7 @@ describe('session composer queue helpers', () => {
         hasFollowUpError: false,
       })
     ).toEqual({
-      shouldCancelQueue: false,
+      shouldPersistDraft: true,
       shouldClearError: false,
     });
   });

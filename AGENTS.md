@@ -139,7 +139,6 @@ Not-tested: <known gaps>
 ```
 
 ## Shared Types and API Contracts
-
 - Do not manually edit `shared/types.ts`.
 - Change Rust source types first, derive or update `TS` annotations as needed,
   then run `pnpm run generate-types`.

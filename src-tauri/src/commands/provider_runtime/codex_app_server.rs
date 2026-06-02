@@ -32,11 +32,11 @@ use super::{
     ProviderRuntimeEvent, ProviderTurnRequest, app_error_from_native, codex_input_items,
     codex_runtime_key, codex_turn_from_response, codex_turn_status, codex_turn_status_is_complete,
     codex_turn_status_is_terminal, complete_codex_native_sink, complete_native_conversation_sink,
-    create_native_execution_process, extract_thread_id, extract_turn_id, is_context_compact_prompt,
-    new_provider_hidden_command, provider_option_bool, provider_option_string,
-    push_native_provider_event_to_conversation, push_provider_event,
-    register_native_conversation_sink, repo_root_path, resolve_codex_runtime_options,
-    resolve_native_provider_request, resolve_provider_workspace_dir,
+    create_native_execution_process, extract_thread_id, extract_turn_id,
+    is_codex_context_compaction_completed, is_context_compact_prompt, new_provider_hidden_command,
+    provider_option_bool, provider_option_string, push_native_provider_event_to_conversation,
+    push_provider_event, register_native_conversation_sink, repo_root_path,
+    resolve_codex_runtime_options, resolve_native_provider_request, resolve_provider_workspace_dir,
     route_codex_event_to_native_conversation, should_force_acp_fallback,
 };
 use crate::{error::AppError, state::AppState};
@@ -262,18 +262,25 @@ pub(super) fn evaluate_codex_auto_compaction_state(
     state: &mut CodexAutoCompactionThreadState,
     method: &str,
     usage_percent: Option<f64>,
+    context_compaction_completed: bool,
     now: u64,
 ) -> bool {
-    match method {
-        "turn/started" => state.is_processing = true,
-        "turn/completed" | "turn/error" => state.is_processing = false,
-        "thread/compacted" => {
-            state.is_processing = false;
-            state.in_flight = false;
-            state.last_usage_percent = None;
+    if context_compaction_completed {
+        state.is_processing = false;
+        state.in_flight = false;
+        state.last_usage_percent = None;
+    } else {
+        match method {
+            "turn/started" => state.is_processing = true,
+            "turn/completed" | "turn/error" => state.is_processing = false,
+            "thread/compacted" => {
+                state.is_processing = false;
+                state.in_flight = false;
+                state.last_usage_percent = None;
+            }
+            "thread/compactionFailed" => state.in_flight = false,
+            _ => {}
         }
-        "thread/compactionFailed" => state.in_flight = false,
-        _ => {}
     }
 
     if let Some(percent) = usage_percent {
@@ -332,6 +339,7 @@ async fn maybe_trigger_codex_auto_compaction(
     method: &str,
     thread_id: Option<&str>,
     usage_percent: Option<f64>,
+    context_compaction_completed: bool,
 ) {
     let Some(thread_id) = thread_id else {
         return;
@@ -340,7 +348,13 @@ async fn maybe_trigger_codex_auto_compaction(
     let should_trigger = {
         let mut states = server.auto_compaction_thread_state.lock().await;
         let state = states.entry(thread_id.to_string()).or_default();
-        evaluate_codex_auto_compaction_state(state, method, usage_percent, codex_now_millis())
+        evaluate_codex_auto_compaction_state(
+            state,
+            method,
+            usage_percent,
+            context_compaction_completed,
+            codex_now_millis(),
+        )
     };
     if !should_trigger {
         return;
@@ -896,11 +910,17 @@ pub async fn interrupt_codex_native_execution_process(
     if sink.is_none()
         && let Some(thread_id) = thread_id.as_deref()
     {
-        sink = CODEX_NATIVE_THREAD_SINKS
+        let thread_sink = CODEX_NATIVE_THREAD_SINKS
             .lock()
             .await
             .get(thread_id)
             .cloned();
+        if thread_sink
+            .as_ref()
+            .is_some_and(|sink| sink.process_id == process_id)
+        {
+            sink = thread_sink;
+        }
     }
 
     if let Some(sink) = sink {
@@ -979,6 +999,7 @@ fn spawn_codex_app_server_readers(
                     method,
                     thread_id.as_deref(),
                     usage_percent,
+                    is_codex_context_compaction_completed(&value),
                 )
                 .await;
                 push_provider_event(

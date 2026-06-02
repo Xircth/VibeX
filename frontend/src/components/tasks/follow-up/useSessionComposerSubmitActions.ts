@@ -17,6 +17,7 @@ export function useSessionComposerSubmitActions({
   cancelDebouncedSave,
   saveToScratch,
   queueMessage,
+  onAfterQueueCleanup,
   onSendFollowUp,
 }: {
   localMessage: string;
@@ -37,6 +38,7 @@ export function useSessionComposerSubmitActions({
     executorProfileId: ExecutorProfileId,
     images?: string[]
   ) => Promise<void> | void;
+  onAfterQueueCleanup: () => void | Promise<void>;
   onSendFollowUp: () => void;
 }) {
   const handleQueueMessage = useCallback(async () => {
@@ -57,6 +59,7 @@ export function useSessionComposerSubmitActions({
       queuedFollowUp.executorProfile,
       queuedFollowUp.images
     );
+    await onAfterQueueCleanup();
   }, [
     attachedImagePaths,
     cancelDebouncedSave,
@@ -64,6 +67,7 @@ export function useSessionComposerSubmitActions({
     conflictResolutionInstructions,
     effectiveExecutorProfile,
     localMessage,
+    onAfterQueueCleanup,
     queueMessage,
     reviewMarkdown,
     saveToScratch,

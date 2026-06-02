@@ -391,6 +391,26 @@
     box-shadow: none !important;
   }
 
+  :where(.legacy-design) [data-sonner-toast].vu-local-dependency-toast-shell {
+    --width: auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :where(.legacy-design)
+    [data-sonner-toast].vu-local-dependency-toast-shell::before {
+    content: none !important;
+    display: none !important;
+  }
+
   :where(.legacy-design)
     [data-sonner-toast].vu-sonner-toast
     [data-close-button] {
@@ -819,6 +839,18 @@
 
   .kanban-shell {
     background: var(--surface-page-solid);
+  }
+
+  .kanban-overlay,
+  .kanban-loading-state {
+    color: var(--text-muted);
+    background:
+      radial-gradient(
+        circle at 50% 36%,
+        hsl(var(--primary) / 0.1),
+        transparent 34%
+      ),
+      var(--surface-page-solid);
   }
 
   .kanban-nav-arrow {

@@ -41,7 +41,7 @@ import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { OpenInIdeButton } from '@/components/ide/OpenInIdeButton';
 import { useProjectRepos } from '@/hooks';
 import { useProjectWorktrees } from '@/hooks/useProjectWorktrees';
-import { useLayoutStore } from '@/stores/useLayoutStore';
+import { PANEL_IDS, useLayoutStore } from '@/stores/useLayoutStore';
 import type { WorkspaceTab } from '@/stores/useLayoutStore';
 import { usePanelActions } from '@/hooks/usePanelActions';
 import { cn } from '@/lib/utils';
@@ -318,11 +318,12 @@ export function Toolbar() {
     toggleEditorArea,
   } = useLayoutStore();
 
-  const { toggleFileTree, openNewTerminal } = usePanelActions();
+  const { toggleFileTree, openNewTerminal, isPanelOpen } = usePanelActions();
   const recentProjects = useMemo(
     () => projects.slice(0, RECENT_PROJECT_MENU_LIMIT),
     [projects]
   );
+  const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
 
   const handleCreateSession = () => {
     if (!projectId) return;
@@ -434,6 +435,7 @@ export function Toolbar() {
                     className="workspace-toolbar-button h-7 w-7"
                     onClick={openNewTerminal}
                     aria-label="Toggle terminal"
+                    aria-pressed={isTerminalOpen}
                     tabIndex={isWorkspaceTab ? 0 : -1}
                   >
                     <Terminal className="h-3.5 w-3.5" />

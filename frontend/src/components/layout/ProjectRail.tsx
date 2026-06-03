@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FolderOpen, Plus, X } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, X } from 'lucide-react';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
+import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { useProjects } from '@/hooks/useProjects';
 import { useProject } from '@/contexts/ProjectContext';
@@ -9,12 +10,22 @@ import { cn } from '@/lib/utils';
 import { desktopApi, projectsApi } from '@/lib/api';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
+import { toast } from 'sonner';
 import {
   deriveProjectVisualState,
   ProjectRecentSessionsPopover,
   resolveProjectVisualStateMeta,
 } from '@/components/layout/ProjectActivityUi';
-import { mergeProjectsById } from '@/components/layout/projectRailProjects';
+import {
+  buildProjectRailOrderedIds,
+  capProjectRailVisibleCount,
+  mergeProjectsById,
+} from '@/components/layout/projectRailProjects';
+import {
+  PROJECT_DELETE_CONFIRM_CLASSNAME,
+  PROJECT_DELETE_CONFIRM_STYLE,
+  PROJECT_DELETE_TOAST_OPTIONS,
+} from '@/lib/projectDeleteUi';
 
 export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
   const { projects, isLoading: isProjectsLoading } = useProjects();
@@ -177,27 +188,27 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
   );
   const orderedProjectIds = useMemo(
     () =>
-      Array.from(
-        new Set([
-          ...openProjectIds,
-          ...(projectId ? [projectId] : []),
-          ...Object.keys(projectSnapshots),
-          ...effectiveProjects.map((project) => project.id),
-        ])
-      ),
-    [effectiveProjects, openProjectIds, projectId, projectSnapshots]
+      buildProjectRailOrderedIds({
+        openProjectIds,
+        currentProjectId: projectId,
+        projectSnapshotIds: Object.keys(projectSnapshots),
+        projectIds: effectiveProjects.map((project) => project.id),
+        preferProjectListOrder: standalone,
+      }),
+    [effectiveProjects, openProjectIds, projectId, projectSnapshots, standalone]
   );
   const shouldShowPlaceholderProjects =
     standalone &&
     effectiveProjects.length === 0 &&
     isResolvingStandaloneProjects &&
     hasStoredProjectSignals;
-  const projectRailItemCount =
+  const projectRailItemCount = capProjectRailVisibleCount(
     effectiveProjects.length > 0
       ? effectiveProjects.length
       : shouldShowPlaceholderProjects
         ? orderedProjectIds.length
-        : 0;
+        : 0
+  );
 
   useEffect(() => {
     if (!standalone) {
@@ -423,6 +434,39 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     );
   };
 
+  const handleDeleteProject = async (
+    targetProject: { id: string; name: string },
+    event?: React.MouseEvent
+  ) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const result = await ConfirmDialog.show({
+      title: `删除项目“${targetProject.name}”？`,
+      message: '删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。',
+      confirmText: '删除',
+      cancelText: '取消',
+      variant: 'destructive',
+      contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
+      contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
+    });
+
+    if (result !== 'confirmed') {
+      return;
+    }
+
+    try {
+      await projectsApi.delete(targetProject.id);
+      toast.success(
+        `已删除项目“${targetProject.name}”`,
+        PROJECT_DELETE_TOAST_OPTIONS
+      );
+    } catch (error) {
+      console.error('Failed to delete project from project rail:', error);
+      toast.error('删除项目失败', PROJECT_DELETE_TOAST_OPTIONS);
+    }
+  };
+
   if (!standalone && !railVisible) {
     return null;
   }
@@ -440,7 +484,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
         ref={projectListRef}
         className={cn(
           'project-rail-scroll flex max-h-[292px] w-full flex-col items-center gap-2 overflow-y-auto px-0 py-2',
-          standalone && 'max-h-none min-h-0 py-3',
+          standalone && 'max-h-[432px] min-h-0 py-3',
           isDragging && 'is-dragging'
         )}
         onPointerDown={handleProjectListPointerDown}
@@ -460,7 +504,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
           return (
             <div
               key={project.id}
-              className="relative"
+              className="group relative"
               onMouseEnter={(event) =>
                 handleProjectMouseEnter(project.id, event)
               }
@@ -496,9 +540,30 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
                       meta.dotClassName,
                       meta.pulseClassName
                     )}
-                  />
+                    />
                 )}
               </button>
+
+              {standalone ? (
+                <button
+                  type="button"
+                  className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-border/80 bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive group-hover:opacity-100"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    dragStateRef.current = null;
+                  }}
+                  onClick={(event) =>
+                    void handleDeleteProject(
+                      { id: project.id, name: project.name },
+                      event
+                    )
+                  }
+                  aria-label={`删除项目 ${project.name}`}
+                  title={`删除项目 ${project.name}`}
+                >
+                  <Trash2 className="h-2.5 w-2.5" />
+                </button>
+              ) : null}
 
               {isHovered && snapshot ? (
                 <ProjectRecentSessionsPopover

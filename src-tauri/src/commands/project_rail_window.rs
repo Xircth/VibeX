@@ -7,6 +7,7 @@ const PROJECT_RAIL_PROJECT_DIALOG_REQUEST_EVENT: &str = "project-rail-project-di
 const PROJECT_RAIL_VISIBILITY_EVENT: &str = "project-rail-visibility";
 const PROJECT_RAIL_WIDTH: i32 = 82;
 const PROJECT_RAIL_MIN_VISIBLE_ITEMS: usize = 4;
+const PROJECT_RAIL_MAX_VISIBLE_ITEMS: usize = 8;
 const PROJECT_RAIL_MIN_HEIGHT: i32 = 362;
 const PROJECT_RAIL_BASE_HEIGHT: i32 = 170;
 const PROJECT_RAIL_ITEM_HEIGHT: i32 = 48;
@@ -242,7 +243,10 @@ fn clamp_project_rail_height(window_height: i32, context: ProjectRailContext) ->
 }
 
 fn compute_project_rail_height(item_count: usize, context: ProjectRailContext) -> i32 {
-    let visible_item_count = item_count.max(PROJECT_RAIL_MIN_VISIBLE_ITEMS);
+    let visible_item_count = item_count.clamp(
+        PROJECT_RAIL_MIN_VISIBLE_ITEMS,
+        PROJECT_RAIL_MAX_VISIBLE_ITEMS,
+    );
     let base_height =
         PROJECT_RAIL_BASE_HEIGHT + PROJECT_RAIL_ITEM_HEIGHT * visible_item_count as i32;
     let desired_height =

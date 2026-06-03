@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
@@ -10,20 +10,21 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import {
   attemptsApi,
   configApi,
-  projectsApi,
   sessionsApi,
   type SessionSummary,
 } from '@/lib/api';
 import { showDesktopToast } from '@/lib/desktopToast';
 import { paths } from '@/lib/paths';
-import { tauriListen } from '@/lib/tauriApi';
+import { tauriEmit, tauriListen } from '@/lib/tauriApi';
 import { desktopApi } from '@/lib/api';
 import { dateTimestamp } from '@/utils/date';
-import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
+import {
+  useWindowProjectsStore,
+  type ProjectWindowTrackingState,
+} from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
-import { mergeProjectsById } from '@/components/layout/projectRailProjects';
 
 function getSessionStatusLabel(session: KanbanProjectSessionRecord) {
   if (session.isRunning) {
@@ -58,6 +59,25 @@ type ProjectRailNavigationTarget = {
 type ProjectRailProjectDialogRequest = {
   mode: 'create' | 'open';
 };
+
+const PROJECT_WINDOW_TRACKING_EVENT = 'project-window-tracking-state';
+const PROJECT_WINDOW_TRACKING_REQUEST_EVENT =
+  'project-window-tracking-request';
+
+function buildTrackedProjectIds(
+  currentProjectId: string | undefined,
+  openProjectIds: string[],
+  projectsById: Record<string, { id: string }>,
+  includeAllProjects: boolean
+) {
+  return Array.from(
+    new Set([
+      ...(currentProjectId ? [currentProjectId] : []),
+      ...openProjectIds,
+      ...(includeAllProjects ? Object.keys(projectsById) : []),
+    ])
+  ).filter((trackedProjectId) => Boolean(projectsById[trackedProjectId]));
+}
 
 function ProjectActivityTracker({
   projectId,
@@ -376,6 +396,13 @@ export function ProjectWindowManager() {
   const openProjectIds = useWindowProjectsStore(
     (state) => state.openProjectIds
   );
+  const lastRouteByProject = useWindowProjectsStore(
+    (state) => state.lastRouteByProject
+  );
+  const projectSnapshots = useWindowProjectsStore(
+    (state) => state.projectSnapshots
+  );
+  const projectAlerts = useWindowProjectsStore((state) => state.projectAlerts);
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
   const setRailVisible = useWindowProjectsStore(
     (state) => state.setRailVisible
@@ -383,41 +410,12 @@ export function ProjectWindowManager() {
   const pruneProjectState = useWindowProjectsStore(
     (state) => state.pruneProjectState
   );
+  const replaceProjectTrackingState = useWindowProjectsStore(
+    (state) => state.replaceProjectTrackingState
+  );
   const isProjectRailWindow = location.pathname === '/project-rail';
   const isSettingsWindowRoute = location.pathname.startsWith('/settings');
   const shouldManageProjectWindows = !isSettingsWindowRoute;
-  const [standaloneFallbackProjects, setStandaloneFallbackProjects] = useState(
-    projects
-  );
-
-  useEffect(() => {
-    if (!isProjectRailWindow) {
-      setStandaloneFallbackProjects([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    void projectsApi
-      .getAll()
-      .then((data) => {
-        if (!cancelled) {
-          setStandaloneFallbackProjects(data);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.error(
-            'Failed to load standalone project rail tracking list:',
-            error
-          );
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isProjectRailWindow]);
 
   useEffect(() => {
     if (!shouldManageProjectWindows || !projectId) {
@@ -474,9 +472,7 @@ export function ProjectWindowManager() {
       return [];
     }
 
-    return Array.from(
-      new Set([...(projectId ? [projectId] : []), ...openProjectIds])
-    ).filter((trackedProjectId) => Boolean(projectsById[trackedProjectId]));
+    return buildTrackedProjectIds(projectId, openProjectIds, projectsById, false);
   }, [
     isProjectRailWindow,
     openProjectIds,
@@ -487,16 +483,23 @@ export function ProjectWindowManager() {
 
   const effectiveTrackedProjectIds = useMemo(() => {
     if (isProjectRailWindow) {
-      return mergeProjectsById(projects, standaloneFallbackProjects).map(
-        (project) => project.id
-      );
+      return [];
     }
 
-    return trackedProjectIds;
+    if (!shouldManageProjectWindows) {
+      return trackedProjectIds;
+    }
+
+    return railVisible
+      ? buildTrackedProjectIds(projectId, openProjectIds, projectsById, true)
+      : trackedProjectIds;
   }, [
     isProjectRailWindow,
-    projects,
-    standaloneFallbackProjects,
+    openProjectIds,
+    projectId,
+    projectsById,
+    railVisible,
+    shouldManageProjectWindows,
     trackedProjectIds,
   ]);
 
@@ -513,6 +516,88 @@ export function ProjectWindowManager() {
       unlisten?.();
     };
   }, [setRailVisible]);
+
+  useEffect(() => {
+    if (!shouldManageProjectWindows) {
+      return;
+    }
+
+    if (isProjectRailWindow) {
+      let unlisten: (() => void) | undefined;
+
+      tauriListen<ProjectWindowTrackingState>(
+        PROJECT_WINDOW_TRACKING_EVENT,
+        (payload) => {
+          replaceProjectTrackingState(payload);
+        }
+      ).then((dispose) => {
+        unlisten = dispose;
+        void tauriEmit(PROJECT_WINDOW_TRACKING_REQUEST_EVENT).catch((error) => {
+          console.error(
+            'Failed to request project tracking state from main window:',
+            error
+          );
+        });
+      });
+
+      return () => {
+        unlisten?.();
+      };
+    }
+
+    void tauriEmit(PROJECT_WINDOW_TRACKING_EVENT, {
+      openProjectIds,
+      lastRouteByProject,
+      projectSnapshots,
+      projectAlerts,
+    } satisfies ProjectWindowTrackingState).catch((error) => {
+      console.error('Failed to sync project tracking state to project rail:', error);
+    });
+  }, [
+    isProjectRailWindow,
+    lastRouteByProject,
+    openProjectIds,
+    projectAlerts,
+    projectSnapshots,
+    railVisible,
+    replaceProjectTrackingState,
+    shouldManageProjectWindows,
+  ]);
+
+  useEffect(() => {
+    if (!shouldManageProjectWindows || isProjectRailWindow) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+
+    tauriListen(PROJECT_WINDOW_TRACKING_REQUEST_EVENT, () => {
+      void tauriEmit(PROJECT_WINDOW_TRACKING_EVENT, {
+        openProjectIds,
+        lastRouteByProject,
+        projectSnapshots,
+        projectAlerts,
+      } satisfies ProjectWindowTrackingState).catch((error) => {
+        console.error(
+          'Failed to answer project tracking state request:',
+          error
+        );
+      });
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [
+    isProjectRailWindow,
+    lastRouteByProject,
+    openProjectIds,
+    projectAlerts,
+    projectSnapshots,
+    shouldManageProjectWindows,
+  ]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

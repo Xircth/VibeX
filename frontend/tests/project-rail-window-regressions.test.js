@@ -24,19 +24,46 @@ test('设置窗口不会再参与项目栏窗口同步', () => {
 test('独立项目栏窗口在解析项目列表期间不会直接掉进空状态', () => {
   const source = readFile('src/components/layout/ProjectRail.tsx');
   const helperSource = readFile('src/components/layout/projectRailProjects.ts');
+  const projectRailWindowSource = readFile(
+    '../src-tauri/src/commands/project_rail_window.rs'
+  );
 
   assert.match(source, /isResolvingStandaloneProjects/);
   assert.match(source, /mergeProjectsById/);
   assert.match(source, /syncProjectRailWindowBounds\(projectRailItemCount\)/);
+  assert.match(source, /max-h-\[432px\]/);
+  assert.match(helperSource, /MAX_PROJECT_RAIL_VISIBLE_PROJECTS = 8/);
+  assert.match(helperSource, /capProjectRailVisibleCount/);
+  assert.match(projectRailWindowSource, /PROJECT_RAIL_MAX_VISIBLE_ITEMS: usize = 8/);
   assert.match(helperSource, /export function mergeProjectsById/);
 });
 
 test('project rail status tracking covers standalone fallback projects', () => {
   const source = readFile('src/components/layout/ProjectWindowManager.tsx');
 
-  assert.match(source, /standaloneFallbackProjects/);
-  assert.match(source, /mergeProjectsById/);
-  assert.match(source, /projectsApi[\s\S]*?\.getAll\(\)/);
+  assert.match(source, /buildTrackedProjectIds\(projectId, openProjectIds, projectsById, true\)/);
+  assert.match(source, /if \(isProjectRailWindow\) {\s*return \[\];/);
+});
+
+test('project rail window syncs project tracking state from the main window', () => {
+  const source = readFile('src/components/layout/ProjectWindowManager.tsx');
+  const storeSource = readFile('src/stores/useWindowProjectsStore.ts');
+
+  assert.match(source, /project-window-tracking-state/);
+  assert.match(source, /tauriEmit\(PROJECT_WINDOW_TRACKING_EVENT/);
+  assert.match(source, /tauriListen<.*>\(\s*PROJECT_WINDOW_TRACKING_EVENT/);
+  assert.match(source, /replaceProjectTrackingState/);
+  assert.match(source, /PROJECT_WINDOW_TRACKING_REQUEST_EVENT/);
+  assert.match(storeSource, /replaceProjectTrackingState:/);
+});
+
+test('project rail exposes a direct delete action for each standalone project item', () => {
+  const source = readFile('src/components/layout/ProjectRail.tsx');
+
+  assert.match(source, /handleDeleteProject/);
+  assert.match(source, /projectsApi\.delete/);
+  assert.match(source, /ConfirmDialog\.show/);
+  assert.match(source, /Trash2/);
 });
 
 test('项目栏默认隐藏，且可见性不再跨窗口持久化', () => {

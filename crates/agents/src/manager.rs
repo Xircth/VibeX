@@ -475,7 +475,7 @@ impl AgentConnectionRunner {
                                     session_id,
                                     prompt_id,
                                     blocks,
-                                    cmd_rx,
+                                    &mut cmd_rx,
                                 )
                                 .await?;
                         }

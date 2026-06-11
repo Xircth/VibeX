@@ -447,7 +447,7 @@ impl AgentRuntime {
     pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
         let now = Utc::now();
         let mut state = self.state.write().await;
-        let workspace_id = state
+        let _workspace_id = state
             .connections
             .get(&input.connection_id)
             .map(|connection| connection.snapshot.workspace_id)

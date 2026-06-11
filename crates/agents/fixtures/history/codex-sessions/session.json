@@ -1,0 +1,14 @@
+[
+  {
+    "id": "codex-session-1",
+    "role": "user",
+    "content": "Inspect the repo",
+    "timestamp": "2026-06-11T00:00:00Z"
+  },
+  {
+    "id": "codex-session-1",
+    "role": "assistant",
+    "content": "I found the agent runtime.",
+    "timestamp": "2026-06-11T00:00:01Z"
+  }
+]

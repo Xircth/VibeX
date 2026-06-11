@@ -9,6 +9,7 @@ pub mod error;
 pub mod events;
 pub mod filesystem;
 pub mod host;
+pub mod history;
 pub mod ids;
 pub mod installer;
 pub mod manager;
@@ -36,6 +37,10 @@ pub use events::{
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use host::{AgentHost, HostRequestError};
+pub use history::{
+    AgentHistoryError, AgentHistorySource, ImportedAgentMessage, ImportedAgentMessageRole,
+    ImportedAgentSession, default_history_sources, import_history_source,
+};
 pub use ids::{
     AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId,
 };

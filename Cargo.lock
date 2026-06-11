@@ -60,6 +60,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "agents"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "async-trait",
+ "chrono",
+ "dirs 5.0.1",
+ "futures",
+ "jsonc-parser",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.2",
+ "tracing",
+ "ts-rs",
+ "utils",
+ "uuid",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1234,17 +1256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "derivative"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcc3dd5e9e9c0b295d6e1e4d811fb6f157d5ffd784b8d202fc62eac8035a770b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "derive_more"
 version = "0.99.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1670,22 +1681,17 @@ dependencies = [
 name = "executors"
 version = "0.1.8"
 dependencies = [
- "agent-client-protocol",
  "async-trait",
  "chrono",
  "command-group",
  "convert_case 0.6.0",
- "derivative",
- "dirs 5.0.1",
  "enum_dispatch",
  "futures",
  "futures-io",
  "git",
  "json-patch 2.0.0",
- "jsonc-parser",
  "lru",
  "os_pipe",
- "rand 0.8.6",
  "regex",
  "schemars 1.2.1",
  "serde",
@@ -1698,14 +1704,11 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
- "toml 0.8.2",
  "tracing",
  "ts-rs",
  "utils",
  "uuid",
- "walkdir",
  "winsplit",
- "xdg",
 ]
 
 [[package]]
@@ -3305,6 +3308,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 name = "local-deployment"
 version = "0.1.8"
 dependencies = [
+ "agents",
  "anyhow",
  "api-types",
  "async-trait",
@@ -5581,6 +5585,7 @@ dependencies = [
 name = "services"
 version = "0.1.8"
 dependencies = [
+ "agents",
  "anyhow",
  "api-types",
  "async-trait",
@@ -7428,6 +7433,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vibex"
 version = "0.1.0"
 dependencies = [
+ "agents",
  "anyhow",
  "api-types",
  "axum",
@@ -8584,12 +8590,6 @@ dependencies = [
  "libc",
  "rustix",
 ]
-
-[[package]]
-name = "xdg"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "yoke"

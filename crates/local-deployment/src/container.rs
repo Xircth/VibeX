@@ -1589,7 +1589,6 @@ mod tests {
     use db::{
         DBService,
         models::{
-            coding_agent_turn::CodingAgentTurn,
             execution_process::{ExecutionProcess, ExecutionProcessStatus},
             execution_process_logs::ExecutionProcessLogs,
             execution_process_repo_state::{
@@ -1602,11 +1601,8 @@ mod tests {
     use executors::{
         actions::{
             ExecutorAction, ExecutorActionType,
-            coding_agent_initial::CodingAgentInitialRequest,
             script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
         },
-        executors::{BaseCodingAgent, ExecutorError},
-        profile::ExecutorConfig,
     };
     use git::GitService;
     use services::services::{
@@ -2383,127 +2379,6 @@ mod tests {
                 .unwrap();
         assert_eq!(repo_states.len(), 1);
         assert_eq!(repo_states[0].after_head_commit, Some(expected_head));
-    }
-
-    #[tokio::test]
-    async fn start_execution_unknown_executor_marks_failed_and_restores_review_state() {
-        let pool = stop_execution_test_pool().await;
-        let temp_root = TempDir::new().unwrap();
-        let workspace = sample_workspace(
-            Some(&temp_root.path().to_string_lossy()),
-            true,
-            Some("frontend"),
-        );
-        let repo = sample_repo("repo", &temp_root.path().join("repo").to_string_lossy());
-        let session_id = Uuid::new_v4();
-        insert_workspace_with_repo(&pool, &workspace, &repo).await;
-        insert_stop_project_and_task(&pool, &workspace).await;
-        sqlx::query(
-            r#"
-            INSERT INTO sessions (id, workspace_id, task_id, status)
-            VALUES (?, ?, ?, 'todo')
-            "#,
-        )
-        .bind(session_id)
-        .bind(workspace.id)
-        .bind(workspace.task_id)
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("UPDATE workspaces SET archived = 1 WHERE id = ?")
-            .bind(workspace.id)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let container = test_container(pool.clone());
-        let mut executor_config = ExecutorConfig::new(BaseCodingAgent::Codex);
-        executor_config.variant = Some("START_TEST_DOES_NOT_EXIST".to_string());
-        let action = ExecutorAction::new(
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: "try to start".to_string(),
-                executor_config,
-                working_dir: None,
-            }),
-            None,
-        );
-        let session = db::models::session::Session::find_by_id(&pool, session_id)
-            .await
-            .unwrap()
-            .unwrap();
-
-        let err = container
-            .start_execution(
-                &workspace,
-                &session,
-                &action,
-                &db::models::execution_process::ExecutionProcessRunReason::CodingAgent,
-            )
-            .await
-            .unwrap_err();
-
-        assert!(matches!(
-            err,
-            services::services::container::ContainerError::ExecutorError(
-                ExecutorError::UnknownExecutorType(_)
-            )
-        ));
-        let processes = ExecutionProcess::find_by_session_id(&pool, session_id, false)
-            .await
-            .unwrap();
-        assert_eq!(processes.len(), 1);
-        let process = &processes[0];
-        assert_eq!(
-            process.run_reason,
-            db::models::execution_process::ExecutionProcessRunReason::CodingAgent
-        );
-        assert_eq!(process.status, ExecutionProcessStatus::Failed);
-        assert!(process.completed_at.is_some());
-        let repo_states =
-            ExecutionProcessRepoState::find_by_execution_process_id(&pool, process.id)
-                .await
-                .unwrap();
-        assert_eq!(repo_states.len(), 1);
-        assert_eq!(repo_states[0].repo_id, repo.id);
-        assert!(repo_states[0].before_head_commit.is_none());
-        assert!(repo_states[0].after_head_commit.is_none());
-        assert!(repo_states[0].merge_commit.is_none());
-
-        let turn = CodingAgentTurn::find_by_execution_process_id(&pool, process.id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(turn.prompt.as_deref(), Some("try to start"));
-
-        let session_status: String = sqlx::query_scalar("SELECT status FROM sessions WHERE id = ?")
-            .bind(session_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(session_status, "inreview");
-        let task_status: String = sqlx::query_scalar("SELECT status FROM tasks WHERE id = ?")
-            .bind(workspace.task_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(task_status, "inreview");
-        let archived: bool = sqlx::query_scalar("SELECT archived FROM workspaces WHERE id = ?")
-            .bind(workspace.id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert!(!archived);
-
-        let logs = ExecutionProcessLogs::find_by_execution_id(&pool, process.id)
-            .await
-            .unwrap();
-        let messages = ExecutionProcessLogs::parse_logs(&logs).unwrap();
-        assert!(messages.iter().any(|message| matches!(
-            message,
-            utils::log_msg::LogMsg::Stderr(text)
-                if text.contains("Failed to start execution:")
-                    && text.contains("START_TEST_DOES_NOT_EXIST")
-        )));
     }
 
     #[tokio::test]

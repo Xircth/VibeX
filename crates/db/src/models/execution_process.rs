@@ -1,10 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use executors::{
-    actions::{ExecutorAction, ExecutorActionType},
-    profile::ExecutorProfileId,
-};
+use executors::{actions::ExecutorAction, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool, Type};
@@ -624,57 +621,13 @@ impl ExecutionProcess {
     }
 
     /// Fetch the latest CodingAgent executor profile for a session.
-    /// Returns None if no CodingAgent execution process exists for this session.
+    /// Agent sessions are now owned by the ACP-native agents runtime, not by
+    /// execution_processes. This legacy lookup intentionally returns None.
     pub async fn latest_executor_profile_for_session(
-        pool: &SqlitePool,
-        session_id: Uuid,
+        _pool: &SqlitePool,
+        _session_id: Uuid,
     ) -> Result<Option<ExecutorProfileId>, ExecutionProcessError> {
-        // Find the latest CodingAgent execution process for this session
-        let latest_execution_process = sqlx::query_as!(
-            ExecutionProcess,
-            r#"SELECT
-                    ep.id as "id!: Uuid",
-                    ep.session_id as "session_id!: Uuid",
-                    ep.run_reason as "run_reason!: ExecutionProcessRunReason",
-                    ep.executor_action as "executor_action!: sqlx::types::Json<ExecutorActionField>",
-                    ep.status as "status!: ExecutionProcessStatus",
-                    ep.exit_code,
-                    ep.dropped as "dropped!: bool",
-                    ep.started_at as "started_at!: DateTime<Utc>",
-                    ep.completed_at as "completed_at?: DateTime<Utc>",
-                    ep.created_at as "created_at!: DateTime<Utc>",
-                    ep.updated_at as "updated_at!: DateTime<Utc>"
-               FROM execution_processes ep
-               WHERE ep.session_id = ? AND ep.run_reason = ? AND ep.dropped = FALSE
-               ORDER BY ep.created_at DESC LIMIT 1"#,
-            session_id,
-            ExecutionProcessRunReason::CodingAgent
-        )
-        .fetch_optional(pool)
-        .await?;
-
-        let Some(latest_execution_process) = latest_execution_process else {
-            return Ok(None);
-        };
-
-        let action = latest_execution_process
-            .executor_action()
-            .map_err(|e| ExecutionProcessError::ValidationError(e.to_string()))?;
-
-        match &action.typ {
-            ExecutorActionType::CodingAgentInitialRequest(request) => {
-                Ok(Some(request.executor_config.profile_id()))
-            }
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                Ok(Some(request.executor_config.profile_id()))
-            }
-            ExecutorActionType::ReviewRequest(request) => {
-                Ok(Some(request.executor_config.profile_id()))
-            }
-            _ => Err(ExecutionProcessError::ValidationError(
-                "Couldn't find profile from initial request".to_string(),
-            )),
-        }
+        Ok(None)
     }
 
     /// Fetch latest execution process info for all workspaces with the given archived status.

@@ -16,7 +16,7 @@ use workspace_utils::msg_store::MsgStore;
 #[cfg(feature = "qa-mode")]
 use crate::executors::qa_mock::QaMockExecutor;
 use crate::{
-    actions::{ExecutorAction, review::RepoReviewContext},
+    actions::ExecutorAction,
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     env::ExecutionEnv,
@@ -321,6 +321,12 @@ impl AppendPrompt {
             AppendPrompt(None) => prompt.to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+pub struct RepoReviewContext {
+    pub repo_name: String,
+    pub base_commit: String,
 }
 
 pub fn build_review_prompt(

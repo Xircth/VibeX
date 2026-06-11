@@ -6,24 +6,12 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    actions::{
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest, review::ReviewRequest,
-        script::ScriptRequest,
-    },
+    actions::script::ScriptRequest,
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
-    executors::{
-        BaseCodingAgent, CodingAgent, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-    },
-    profile::{ExecutorConfig, ExecutorConfigs},
+    executors::{BaseCodingAgent, ExecutorError, SpawnedChild},
 };
-pub mod coding_agent_follow_up;
-pub mod coding_agent_initial;
-pub mod review;
 pub mod script;
-
-pub use review::RepoReviewContext;
 
 pub(crate) fn effective_working_dir(
     current_dir: &Path,
@@ -35,31 +23,11 @@ pub(crate) fn effective_working_dir(
     }
 }
 
-pub(crate) fn configured_coding_agent(
-    executor_config: &ExecutorConfig,
-    approvals: Arc<dyn ExecutorApprovalService>,
-) -> Result<CodingAgent, ExecutorError> {
-    let profile_id = executor_config.profile_id();
-    let mut agent = ExecutorConfigs::get_cached()
-        .get_coding_agent(&profile_id)
-        .ok_or(ExecutorError::UnknownExecutorType(profile_id.to_string()))?;
-
-    if executor_config.has_overrides() {
-        agent.apply_overrides(executor_config);
-    }
-    agent.use_approvals(approvals);
-
-    Ok(agent)
-}
-
 #[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
 pub enum ExecutorActionType {
-    CodingAgentInitialRequest,
-    CodingAgentFollowUpRequest,
     ScriptRequest,
-    ReviewRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -91,11 +59,6 @@ impl ExecutorAction {
 
     pub fn base_executor(&self) -> Option<BaseCodingAgent> {
         match self.typ() {
-            ExecutorActionType::CodingAgentInitialRequest(request) => Some(request.base_executor()),
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => {
-                Some(request.base_executor())
-            }
-            ExecutorActionType::ReviewRequest(request) => Some(request.base_executor()),
             ExecutorActionType::ScriptRequest(_) => None,
         }
     }
@@ -126,21 +89,9 @@ impl Executable for ExecutorAction {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        path::{Path, PathBuf},
-        sync::Arc,
-    };
+    use std::path::{Path, PathBuf};
 
-    use super::{configured_coding_agent, effective_working_dir};
-    use crate::{
-        approvals::NoopExecutorApprovalService,
-        executors::{
-            BaseCodingAgent, CodingAgent,
-            codex::{AskForApproval, ReasoningEffort},
-        },
-        model_selector::PermissionPolicy,
-        profile::ExecutorConfig,
-    };
+    use super::effective_working_dir;
 
     #[test]
     fn effective_working_dir_uses_current_dir_without_override() {
@@ -164,44 +115,5 @@ mod tests {
             effective_working_dir(Path::new("/workspace"), Some("apps/web")),
             PathBuf::from("/workspace").join("apps").join("web")
         );
-    }
-
-    #[test]
-    fn configured_coding_agent_applies_executor_overrides() {
-        let config = ExecutorConfig {
-            executor: BaseCodingAgent::Codex,
-            variant: None,
-            model_id: Some("gpt-test-model".to_string()),
-            agent_id: None,
-            reasoning_id: Some("high".to_string()),
-            permission_policy: Some(PermissionPolicy::Plan),
-        };
-
-        let agent = configured_coding_agent(&config, Arc::new(NoopExecutorApprovalService))
-            .expect("codex default profile should resolve");
-
-        let CodingAgent::Codex(agent) = agent else {
-            panic!("expected codex agent");
-        };
-        assert_eq!(agent.model.as_deref(), Some("gpt-test-model"));
-        assert_eq!(agent.model_reasoning_effort, Some(ReasoningEffort::High));
-        assert_eq!(agent.ask_for_approval, Some(AskForApproval::OnRequest));
-    }
-
-    #[test]
-    fn configured_coding_agent_reports_unknown_profile_id() {
-        let config = ExecutorConfig {
-            executor: BaseCodingAgent::Codex,
-            variant: Some("MISSING_VARIANT".to_string()),
-            model_id: None,
-            agent_id: None,
-            reasoning_id: None,
-            permission_policy: None,
-        };
-
-        let err = configured_coding_agent(&config, Arc::new(NoopExecutorApprovalService))
-            .expect_err("missing variant should fail");
-
-        assert!(err.to_string().contains("CODEX:MISSING_VARIANT"));
     }
 }

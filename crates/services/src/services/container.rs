@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use db::{
     DBService,
     models::{
-        coding_agent_turn::{CodingAgentTurn, CreateCodingAgentTurn},
+        coding_agent_turn::CodingAgentTurn,
         execution_process::{
             CreateExecutionProcess, ExecutionContext, ExecutionProcess, ExecutionProcessError,
             ExecutionProcessRunReason, ExecutionProcessStatus,
@@ -851,57 +851,10 @@ pub trait ContainerService {
         Ok(())
     }
 
-    async fn create_start_coding_agent_turn(
-        &self,
-        execution_process_id: Uuid,
-        executor_action: &ExecutorAction,
-    ) -> Result<(), ContainerError> {
-        if let Some(prompt) = container_workflow::coding_agent_turn_prompt(executor_action) {
-            let create_coding_agent_turn = CreateCodingAgentTurn {
-                execution_process_id,
-                prompt: Some(prompt.to_string()),
-            };
-
-            CodingAgentTurn::create(&self.db().pool, &create_coding_agent_turn, Uuid::new_v4())
-                .await?;
-        }
-
-        Ok(())
-    }
-
     async fn start_success_log_streaming(
         &self,
-        workspace: &Workspace,
         execution_process_id: Uuid,
-        executor_action: &ExecutorAction,
     ) -> Result<(), ContainerError> {
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-        let workspace_root = self.workspace_to_current_dir(workspace, &repos);
-        #[cfg_attr(feature = "qa-mode", allow(unused_variables))]
-        if let Some(msg_store) = self.get_msg_store_by_id(&execution_process_id).await
-            && let Some(normalization_target) =
-                container_workflow::log_normalization_target(executor_action, &workspace_root)
-        {
-            #[cfg(feature = "qa-mode")]
-            {
-                let executor = QaMockExecutor;
-                executor.normalize_logs(msg_store, &normalization_target.working_dir);
-            }
-            #[cfg(not(feature = "qa-mode"))]
-            {
-                if let Some(executor) = ExecutorConfigs::get_cached()
-                    .get_coding_agent(&normalization_target.executor_profile_id)
-                {
-                    executor.normalize_logs(msg_store, &normalization_target.working_dir);
-                } else {
-                    tracing::error!(
-                        "Failed to resolve profile '{:?}' for normalization",
-                        normalization_target.executor_profile_id
-                    );
-                }
-            }
-        }
-
         let db_stream_handle = self.spawn_stream_raw_logs_to_db(&execution_process_id);
         self.store_db_stream_handle(execution_process_id, db_stream_handle)
             .await;
@@ -1069,106 +1022,11 @@ pub trait ContainerService {
                 );
             }
 
-            // Create temporary store and populate
-            // Include JsonPatch messages (already normalized) and Stdout/Stderr (need normalization)
-            let temp_store = Arc::new(MsgStore::new());
-            for msg in raw_messages {
-                if matches!(
-                    msg,
-                    LogMsg::Stdout(_) | LogMsg::Stderr(_) | LogMsg::JsonPatch(_)
-                ) {
-                    temp_store.push(msg);
-                }
-            }
-            temp_store.push_finished();
-
-            let process = match ExecutionProcess::find_by_id(&self.db().pool, *id).await {
-                Ok(Some(process)) => process,
-                Ok(None) => {
-                    tracing::error!("No execution process found for ID: {}", id);
-                    return None;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch execution process {}: {}", id, e);
-                    return None;
-                }
-            };
-
-            // Get the workspace to determine correct directory
-            let (workspace, _session) =
-                match process.parent_workspace_and_session(&self.db().pool).await {
-                    Ok(Some((workspace, session))) => (workspace, session),
-                    Ok(None) => {
-                        tracing::error!(
-                            "No workspace/session found for session ID: {}",
-                            process.session_id
-                        );
-                        return None;
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to fetch workspace for session {}: {}",
-                            process.session_id,
-                            e
-                        );
-                        return None;
-                    }
-                };
-
-            if let Err(err) = self.ensure_container_exists(&workspace).await {
-                tracing::warn!(
-                    "Failed to recreate worktree before log normalization for workspace {}: {}",
-                    workspace.id,
-                    err
-                );
-            }
-
-            let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id)
-                .await
-                .unwrap_or_default();
-            let current_dir = self.workspace_to_current_dir(&workspace, &repos);
-
-            let executor_action = if let Ok(executor_action) = process.executor_action() {
-                executor_action
-            } else {
-                tracing::error!(
-                    "Failed to parse executor action: {:?}",
-                    process.executor_action()
-                );
-                return None;
-            };
-
-            let Some(normalization_target) =
-                container_workflow::log_normalization_target(executor_action, &current_dir)
-            else {
-                tracing::debug!(
-                    "Executor action doesn't support log normalization: {:?}",
-                    process.executor_action()
-                );
-                return None;
-            };
-
-            #[cfg(feature = "qa-mode")]
-            {
-                let executor = QaMockExecutor;
-                executor.normalize_logs(temp_store.clone(), &normalization_target.working_dir);
-            }
-            #[cfg(not(feature = "qa-mode"))]
-            {
-                let executor = ExecutorConfigs::get_cached()
-                    .get_coding_agent_or_default(&normalization_target.executor_profile_id);
-                executor.normalize_logs(temp_store.clone(), &normalization_target.working_dir);
-            }
-
-            Some(
-                temp_store
-                    .history_plus_stream()
-                    .filter(|msg| future::ready(matches!(msg, Ok(LogMsg::JsonPatch(..)))))
-                    .chain(futures::stream::once(async {
-                        Ok::<_, std::io::Error>(LogMsg::Finished)
-                    }))
-                    .boxed(),
-            )
+            tracing::debug!(
+                "Skipping legacy execution-process log normalization for process {}",
+                id
+            );
+            None
         }
     }
 
@@ -1293,9 +1151,6 @@ pub trait ContainerService {
             Workspace::set_archived(&self.db().pool, workspace.id, false).await?;
         }
 
-        self.create_start_coding_agent_turn(execution_process.id, executor_action)
-            .await?;
-
         if let Err(start_error) = self
             .start_execution_inner(workspace, &execution_process, executor_action)
             .await
@@ -1310,8 +1165,7 @@ pub trait ContainerService {
             return Err(start_error);
         }
 
-        self.start_success_log_streaming(workspace, execution_process.id, executor_action)
-            .await?;
+        self.start_success_log_streaming(execution_process.id).await?;
         Ok(execution_process)
     }
 

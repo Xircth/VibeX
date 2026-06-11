@@ -37,41 +37,6 @@ pub fn dev_server_action_for_repo(
         .map(|script| script_action(script, ScriptContext::DevServer, working_dir, None))
 }
 
-pub fn build_sequential_setup_chain(
-    repos: &[&Repo],
-    next_action: ExecutorAction,
-) -> ExecutorAction {
-    let mut chained = next_action;
-    for repo in repos.iter().rev() {
-        if let Some(script) = &repo.setup_script {
-            chained = repo_script_action(repo, script, ScriptContext::SetupScript, Some(chained));
-        }
-    }
-    chained
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkspaceSetupStartMode {
-    DirectCoding,
-    ParallelSetupsThenCoding,
-    SequentialSetupChain,
-}
-
-pub fn workspace_setup_start_mode(repos_with_setup: &[&Repo]) -> WorkspaceSetupStartMode {
-    if repos_with_setup.is_empty() {
-        return WorkspaceSetupStartMode::DirectCoding;
-    }
-
-    if repos_with_setup
-        .iter()
-        .all(|repo| repo.parallel_setup_script)
-    {
-        WorkspaceSetupStartMode::ParallelSetupsThenCoding
-    } else {
-        WorkspaceSetupStartMode::SequentialSetupChain
-    }
-}
-
 pub fn script_action(
     script: impl Into<String>,
     context: ScriptContext,
@@ -127,19 +92,15 @@ mod tests {
     use db::models::repo::Repo;
     use executors::{
         actions::{
-            ExecutorAction, ExecutorActionType,
-            coding_agent_initial::CodingAgentInitialRequest,
+            ExecutorActionType,
             script::{ScriptContext, ScriptRequestLanguage},
         },
-        executors::BaseCodingAgent,
-        profile::ExecutorConfig,
     };
     use uuid::Uuid;
 
     use super::{
-        WorkspaceSetupStartMode, archive_actions_for_repos, build_sequential_setup_chain,
-        cleanup_actions_for_repos, dev_server_action_for_repo, script_action,
-        setup_action_for_repo, setup_actions_for_repos, workspace_setup_start_mode,
+        archive_actions_for_repos, cleanup_actions_for_repos, dev_server_action_for_repo,
+        script_action, setup_action_for_repo, setup_actions_for_repos,
     };
 
     fn repo(
@@ -164,23 +125,6 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
-    }
-
-    fn repo_with_parallel_setup(name: &str, setup_script: Option<&str>, parallel: bool) -> Repo {
-        let mut repo = repo(name, setup_script, None, None);
-        repo.parallel_setup_script = parallel;
-        repo
-    }
-
-    fn coding_action() -> ExecutorAction {
-        ExecutorAction::new(
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: "implement".to_string(),
-                executor_config: ExecutorConfig::new(BaseCodingAgent::Codex),
-                working_dir: None,
-            }),
-            None,
-        )
     }
 
     fn collect_script_chain(action: &ExecutorAction) -> Vec<(String, ScriptContext, String)> {
@@ -303,7 +247,12 @@ mod tests {
 
     #[test]
     fn generic_script_action_preserves_context_working_dir_and_next_action() {
-        let next = coding_action();
+        let next = script_action(
+            "echo next",
+            ScriptContext::CleanupScript,
+            Some("web".to_string()),
+            None,
+        );
         let action = script_action(
             "npm run dev",
             ScriptContext::DevServer,
@@ -321,7 +270,7 @@ mod tests {
         );
         assert!(matches!(
             action.next_action().expect("next action").typ(),
-            ExecutorActionType::CodingAgentInitialRequest(_)
+            ExecutorActionType::ScriptRequest(_)
         ));
     }
 
@@ -352,72 +301,4 @@ mod tests {
         assert!(dev_server_action_for_repo(&repo, Some("apps/web".to_string())).is_none());
     }
 
-    #[test]
-    fn sequential_setup_chain_runs_setups_in_repo_order_before_next_action() {
-        let alpha = repo("alpha", Some("setup alpha"), None, None);
-        let beta = repo("beta", None, None, None);
-        let gamma = repo("gamma", Some("setup gamma"), None, None);
-        let chain = build_sequential_setup_chain(&[&alpha, &beta, &gamma], coding_action());
-
-        assert_eq!(
-            collect_script_chain(&chain),
-            vec![
-                (
-                    "setup alpha".to_string(),
-                    ScriptContext::SetupScript,
-                    "alpha".to_string(),
-                ),
-                (
-                    "setup gamma".to_string(),
-                    ScriptContext::SetupScript,
-                    "gamma".to_string(),
-                ),
-            ],
-        );
-
-        let mut current = &chain;
-        while let Some(next) = current.next_action() {
-            current = next;
-        }
-        assert!(matches!(
-            current.typ(),
-            ExecutorActionType::CodingAgentInitialRequest(_)
-        ));
-    }
-
-    #[test]
-    fn workspace_start_mode_uses_direct_coding_without_setup_scripts() {
-        let alpha = repo_with_parallel_setup("alpha", None, false);
-        let repos_with_setup: Vec<&Repo> = [&alpha]
-            .into_iter()
-            .filter(|repo| repo.setup_script.is_some())
-            .collect();
-
-        assert_eq!(
-            workspace_setup_start_mode(&repos_with_setup),
-            WorkspaceSetupStartMode::DirectCoding
-        );
-    }
-
-    #[test]
-    fn workspace_start_mode_uses_parallel_when_all_setups_are_parallel() {
-        let alpha = repo_with_parallel_setup("alpha", Some("setup alpha"), true);
-        let beta = repo_with_parallel_setup("beta", Some("setup beta"), true);
-
-        assert_eq!(
-            workspace_setup_start_mode(&[&alpha, &beta]),
-            WorkspaceSetupStartMode::ParallelSetupsThenCoding
-        );
-    }
-
-    #[test]
-    fn workspace_start_mode_uses_sequential_when_any_setup_is_not_parallel() {
-        let alpha = repo_with_parallel_setup("alpha", Some("setup alpha"), true);
-        let beta = repo_with_parallel_setup("beta", Some("setup beta"), false);
-
-        assert_eq!(
-            workspace_setup_start_mode(&[&alpha, &beta]),
-            WorkspaceSetupStartMode::SequentialSetupChain
-        );
-    }
 }

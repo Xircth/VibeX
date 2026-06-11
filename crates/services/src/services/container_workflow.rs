@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use db::models::{
     execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus},
     task::TaskStatus,
@@ -7,15 +5,8 @@ use db::models::{
 use executors::{
     actions::{ExecutorAction, ExecutorActionType},
     logs::{NormalizedEntry, NormalizedEntryError, NormalizedEntryType},
-    profile::ExecutorProfileId,
 };
 use git::WorktreeResetOptions;
-
-#[derive(Debug, PartialEq)]
-pub(super) struct LogNormalizationTarget {
-    pub executor_profile_id: ExecutorProfileId,
-    pub working_dir: PathBuf,
-}
 
 pub(super) fn should_finalize_execution(
     status: &ExecutionProcessStatus,
@@ -49,18 +40,6 @@ pub(super) fn next_action_run_reason(
         (ExecutorActionType::ScriptRequest(_), ExecutorActionType::ScriptRequest(_)) => {
             ExecutionProcessRunReason::SetupScript
         }
-        (
-            ExecutorActionType::CodingAgentInitialRequest(_)
-            | ExecutorActionType::CodingAgentFollowUpRequest(_)
-            | ExecutorActionType::ReviewRequest(_),
-            ExecutorActionType::ScriptRequest(_),
-        ) => ExecutionProcessRunReason::CleanupScript,
-        (
-            _,
-            ExecutorActionType::CodingAgentFollowUpRequest(_)
-            | ExecutorActionType::CodingAgentInitialRequest(_)
-            | ExecutorActionType::ReviewRequest(_),
-        ) => ExecutionProcessRunReason::CodingAgent,
     }
 }
 
@@ -96,19 +75,8 @@ pub(super) fn should_mark_session_in_review_after_orphan_cleanup(
 ) -> bool {
     matches!(
         run_reason,
-        ExecutionProcessRunReason::CodingAgent
-            | ExecutionProcessRunReason::SetupScript
-            | ExecutionProcessRunReason::CleanupScript
+        ExecutionProcessRunReason::SetupScript | ExecutionProcessRunReason::CleanupScript
     )
-}
-
-pub(super) fn coding_agent_turn_prompt(action: &ExecutorAction) -> Option<&str> {
-    match action.typ() {
-        ExecutorActionType::CodingAgentInitialRequest(request) => Some(request.prompt.as_str()),
-        ExecutorActionType::CodingAgentFollowUpRequest(request) => Some(request.prompt.as_str()),
-        ExecutorActionType::ReviewRequest(request) => Some(request.prompt.as_str()),
-        ExecutorActionType::ScriptRequest(_) => None,
-    }
 }
 
 pub(super) fn missing_executable_start_error_entry(program: &str) -> NormalizedEntry {
@@ -122,27 +90,6 @@ pub(super) fn missing_executable_start_error_entry(program: &str) -> NormalizedE
     }
 }
 
-pub(super) fn log_normalization_target(
-    action: &ExecutorAction,
-    workspace_root: &Path,
-) -> Option<LogNormalizationTarget> {
-    match action.typ() {
-        ExecutorActionType::CodingAgentInitialRequest(request) => Some(LogNormalizationTarget {
-            executor_profile_id: request.executor_config.profile_id(),
-            working_dir: request.effective_dir(workspace_root),
-        }),
-        ExecutorActionType::CodingAgentFollowUpRequest(request) => Some(LogNormalizationTarget {
-            executor_profile_id: request.executor_config.profile_id(),
-            working_dir: request.effective_dir(workspace_root),
-        }),
-        ExecutorActionType::ReviewRequest(request) => Some(LogNormalizationTarget {
-            executor_profile_id: request.executor_config.profile_id(),
-            working_dir: request.effective_dir(workspace_root),
-        }),
-        ExecutorActionType::ScriptRequest(_) => None,
-    }
-}
-
 pub(super) fn completion_notification(
     status: &ExecutionProcessStatus,
     task_title: &str,
@@ -152,11 +99,11 @@ pub(super) fn completion_notification(
     let title = format!("Task Complete: {task_title}");
     let message = match status {
         ExecutionProcessStatus::Completed => format!(
-            "✅ '{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
+            "'{}' completed successfully\nBranch: {:?}\nExecutor: {:?}",
             task_title, workspace_branch, session_executor
         ),
         ExecutionProcessStatus::Failed => format!(
-            "❌ '{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
+            "'{}' execution failed\nBranch: {:?}\nExecutor: {:?}",
             task_title, workspace_branch, session_executor
         ),
         _ => return None,
@@ -189,123 +136,39 @@ pub(super) fn reset_options(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-
     use db::models::{
         execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus},
         task::TaskStatus,
     };
-    use executors::{
-        actions::{
-            ExecutorAction, ExecutorActionType,
-            coding_agent_follow_up::CodingAgentFollowUpRequest,
-            coding_agent_initial::CodingAgentInitialRequest,
-            review::ReviewRequest,
-            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
-        },
-        executors::BaseCodingAgent,
-        logs::{NormalizedEntryError, NormalizedEntryType},
-        profile::ExecutorConfig,
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     };
+    use git::WorktreeResetOptions;
 
     use super::{
-        coding_agent_turn_prompt, completion_notification, log_normalization_target,
-        missing_executable_start_error_entry, next_action_run_reason, reset_options,
-        reset_target_oid, should_finalize_execution, should_mark_session_in_progress_on_start,
-        should_mark_session_in_review_after_orphan_cleanup, should_mark_task_in_progress_on_start,
-        should_stop_execution, should_unarchive_workspace_on_start,
+        completion_notification, missing_executable_start_error_entry, next_action_run_reason,
+        reset_options, reset_target_oid, should_finalize_execution,
+        should_mark_session_in_progress_on_start, should_mark_session_in_review_after_orphan_cleanup,
+        should_mark_task_in_progress_on_start, should_stop_execution,
+        should_unarchive_workspace_on_start,
     };
 
-    fn script_action(next_action: Option<ExecutorAction>) -> ExecutorAction {
+    fn script_action(context: ScriptContext, next_action: Option<ExecutorAction>) -> ExecutorAction {
         ExecutorAction::new(
             ExecutorActionType::ScriptRequest(ScriptRequest {
                 script: "echo ok".to_string(),
                 language: ScriptRequestLanguage::Bash,
-                context: ScriptContext::SetupScript,
+                context,
                 working_dir: None,
             }),
             next_action.map(Box::new),
         )
-    }
-
-    fn initial_action(next_action: Option<ExecutorAction>) -> ExecutorAction {
-        ExecutorAction::new(
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: "implement".to_string(),
-                executor_config: ExecutorConfig::new(BaseCodingAgent::Codex),
-                working_dir: None,
-            }),
-            next_action.map(Box::new),
-        )
-    }
-
-    fn follow_up_action(next_action: Option<ExecutorAction>) -> ExecutorAction {
-        ExecutorAction::new(
-            ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-                prompt: "continue".to_string(),
-                session_id: "session-1".to_string(),
-                reset_to_message_id: None,
-                executor_config: ExecutorConfig::new(BaseCodingAgent::Codex),
-                working_dir: None,
-            }),
-            next_action.map(Box::new),
-        )
-    }
-
-    fn review_action(next_action: Option<ExecutorAction>) -> ExecutorAction {
-        ExecutorAction::new(
-            ExecutorActionType::ReviewRequest(ReviewRequest {
-                executor_config: ExecutorConfig::new(BaseCodingAgent::Codex),
-                context: None,
-                prompt: "review".to_string(),
-                session_id: None,
-                working_dir: None,
-            }),
-            next_action.map(Box::new),
-        )
-    }
-
-    fn action_with_working_dir(action: ExecutorAction, working_dir: &str) -> ExecutorAction {
-        match action.typ() {
-            ExecutorActionType::CodingAgentInitialRequest(request) => ExecutorAction::new(
-                ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                    working_dir: Some(working_dir.to_string()),
-                    ..request.clone()
-                }),
-                action.next_action().cloned().map(Box::new),
-            ),
-            ExecutorActionType::CodingAgentFollowUpRequest(request) => ExecutorAction::new(
-                ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-                    working_dir: Some(working_dir.to_string()),
-                    ..request.clone()
-                }),
-                action.next_action().cloned().map(Box::new),
-            ),
-            ExecutorActionType::ReviewRequest(request) => ExecutorAction::new(
-                ExecutorActionType::ReviewRequest(ReviewRequest {
-                    working_dir: Some(working_dir.to_string()),
-                    ..request.clone()
-                }),
-                action.next_action().cloned().map(Box::new),
-            ),
-            ExecutorActionType::ScriptRequest(_) => action,
-        }
-    }
-
-    fn assert_normalization_target(action: &ExecutorAction, expected_dir: PathBuf) {
-        let root = Path::new("workspace-root");
-        let target = log_normalization_target(action, root).expect("normalization target");
-
-        assert_eq!(
-            target.executor_profile_id,
-            ExecutorConfig::new(BaseCodingAgent::Codex).profile_id(),
-        );
-        assert_eq!(target.working_dir, expected_dir);
     }
 
     #[test]
     fn dev_server_never_finalizes() {
-        let action = initial_action(None);
+        let action = script_action(ScriptContext::DevServer, None);
 
         assert!(!should_finalize_execution(
             &ExecutionProcessStatus::Completed,
@@ -321,7 +184,7 @@ mod tests {
 
     #[test]
     fn setup_script_without_next_action_never_finalizes() {
-        let action = script_action(None);
+        let action = script_action(ScriptContext::SetupScript, None);
 
         assert!(!should_finalize_execution(
             &ExecutionProcessStatus::Completed,
@@ -337,33 +200,39 @@ mod tests {
 
     #[test]
     fn failed_and_killed_processes_finalize_even_with_next_action() {
-        let action = initial_action(Some(script_action(None)));
+        let action = script_action(
+            ScriptContext::CleanupScript,
+            Some(script_action(ScriptContext::CleanupScript, None)),
+        );
 
         assert!(should_finalize_execution(
             &ExecutionProcessStatus::Failed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::CleanupScript,
             &action,
         ));
         assert!(should_finalize_execution(
             &ExecutionProcessStatus::Killed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::CleanupScript,
             &action,
         ));
     }
 
     #[test]
     fn completed_processes_finalize_only_without_next_action() {
-        let action_without_next = initial_action(None);
-        let action_with_next = initial_action(Some(script_action(None)));
+        let action_without_next = script_action(ScriptContext::CleanupScript, None);
+        let action_with_next = script_action(
+            ScriptContext::CleanupScript,
+            Some(script_action(ScriptContext::CleanupScript, None)),
+        );
 
         assert!(should_finalize_execution(
             &ExecutionProcessStatus::Completed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::CleanupScript,
             &action_without_next,
         ));
         assert!(!should_finalize_execution(
             &ExecutionProcessStatus::Completed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::CleanupScript,
             &action_with_next,
         ));
     }
@@ -371,46 +240,11 @@ mod tests {
     #[test]
     fn script_to_script_next_action_runs_as_setup_script() {
         assert_eq!(
-            next_action_run_reason(&script_action(None), &script_action(None)),
+            next_action_run_reason(
+                &script_action(ScriptContext::SetupScript, None),
+                &script_action(ScriptContext::SetupScript, None),
+            ),
             ExecutionProcessRunReason::SetupScript,
-        );
-    }
-
-    #[test]
-    fn coding_or_review_to_script_next_action_runs_as_cleanup_script() {
-        let next = script_action(None);
-
-        assert_eq!(
-            next_action_run_reason(&initial_action(None), &next),
-            ExecutionProcessRunReason::CleanupScript,
-        );
-        assert_eq!(
-            next_action_run_reason(&follow_up_action(None), &next),
-            ExecutionProcessRunReason::CleanupScript,
-        );
-        assert_eq!(
-            next_action_run_reason(&review_action(None), &next),
-            ExecutionProcessRunReason::CleanupScript,
-        );
-    }
-
-    #[test]
-    fn coding_and_review_next_actions_run_as_coding_agent() {
-        let initial = initial_action(None);
-        let follow_up = follow_up_action(None);
-        let review = review_action(None);
-
-        assert_eq!(
-            next_action_run_reason(&script_action(None), &initial),
-            ExecutionProcessRunReason::CodingAgent,
-        );
-        assert_eq!(
-            next_action_run_reason(&initial_action(None), &follow_up),
-            ExecutionProcessRunReason::CodingAgent,
-        );
-        assert_eq!(
-            next_action_run_reason(&review_action(None), &review),
-            ExecutionProcessRunReason::CodingAgent,
         );
     }
 
@@ -418,22 +252,12 @@ mod tests {
     fn only_running_processes_are_stop_candidates() {
         assert!(should_stop_execution(
             &ExecutionProcessStatus::Running,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             false,
         ));
         assert!(!should_stop_execution(
             &ExecutionProcessStatus::Completed,
-            &ExecutionProcessRunReason::CodingAgent,
-            true,
-        ));
-        assert!(!should_stop_execution(
-            &ExecutionProcessStatus::Failed,
-            &ExecutionProcessRunReason::CodingAgent,
-            true,
-        ));
-        assert!(!should_stop_execution(
-            &ExecutionProcessStatus::Killed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             true,
         ));
     }
@@ -455,9 +279,6 @@ mod tests {
     #[test]
     fn non_dev_starts_mark_session_in_progress() {
         assert!(should_mark_session_in_progress_on_start(
-            &ExecutionProcessRunReason::CodingAgent,
-        ));
-        assert!(should_mark_session_in_progress_on_start(
             &ExecutionProcessRunReason::SetupScript,
         ));
         assert!(should_mark_session_in_progress_on_start(
@@ -474,11 +295,11 @@ mod tests {
     #[test]
     fn start_task_status_update_skips_dev_server_and_existing_in_progress() {
         assert!(should_mark_task_in_progress_on_start(
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             &TaskStatus::Todo,
         ));
         assert!(!should_mark_task_in_progress_on_start(
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             &TaskStatus::InProgress,
         ));
         assert!(!should_mark_task_in_progress_on_start(
@@ -493,24 +314,12 @@ mod tests {
             &ExecutionProcessRunReason::ArchiveScript,
         ));
         assert!(should_unarchive_workspace_on_start(
-            &ExecutionProcessRunReason::CodingAgent,
-        ));
-        assert!(should_unarchive_workspace_on_start(
             &ExecutionProcessRunReason::SetupScript,
-        ));
-        assert!(should_unarchive_workspace_on_start(
-            &ExecutionProcessRunReason::CleanupScript,
-        ));
-        assert!(should_unarchive_workspace_on_start(
-            &ExecutionProcessRunReason::DevServer,
         ));
     }
 
     #[test]
-    fn orphan_cleanup_in_review_eligibility_is_limited_to_task_runs() {
-        assert!(should_mark_session_in_review_after_orphan_cleanup(
-            &ExecutionProcessRunReason::CodingAgent,
-        ));
+    fn orphan_cleanup_in_review_eligibility_is_script_only() {
         assert!(should_mark_session_in_review_after_orphan_cleanup(
             &ExecutionProcessRunReason::SetupScript,
         ));
@@ -526,23 +335,6 @@ mod tests {
     }
 
     #[test]
-    fn coding_agent_turn_prompt_comes_from_agent_and_review_actions() {
-        assert_eq!(
-            coding_agent_turn_prompt(&initial_action(None)),
-            Some("implement"),
-        );
-        assert_eq!(
-            coding_agent_turn_prompt(&follow_up_action(None)),
-            Some("continue"),
-        );
-        assert_eq!(
-            coding_agent_turn_prompt(&review_action(None)),
-            Some("review")
-        );
-        assert_eq!(coding_agent_turn_prompt(&script_action(None)), None);
-    }
-
-    #[test]
     fn missing_executable_start_error_entry_requests_setup() {
         let entry = missing_executable_start_error_entry("codex");
 
@@ -552,29 +344,6 @@ mod tests {
             "The required executable `codex` is not installed."
         );
         assert_eq!(entry.metadata, None);
-        match entry.entry_type {
-            NormalizedEntryType::ErrorMessage { error_type } => {
-                assert_eq!(error_type, NormalizedEntryError::SetupRequired);
-            }
-            other => panic!("unexpected entry type: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn log_normalization_target_uses_agent_and_review_profiles_and_dirs() {
-        assert_normalization_target(&initial_action(None), PathBuf::from("workspace-root"));
-        assert_normalization_target(
-            &action_with_working_dir(follow_up_action(None), "repo-a"),
-            PathBuf::from("workspace-root").join("repo-a"),
-        );
-        assert_normalization_target(
-            &action_with_working_dir(review_action(None), "repo-b"),
-            PathBuf::from("workspace-root").join("repo-b"),
-        );
-        assert_eq!(
-            log_normalization_target(&script_action(None), Path::new("workspace-root")),
-            None
-        );
     }
 
     #[test]
@@ -588,24 +357,7 @@ mod tests {
             ),
             Some((
                 "Task Complete: Ship feature".to_string(),
-                "✅ 'Ship feature' completed successfully\nBranch: \"feature/test\"\nExecutor: Some(\"codex\")"
-                    .to_string(),
-            ))
-        );
-    }
-
-    #[test]
-    fn completion_notification_formats_failed_message() {
-        assert_eq!(
-            completion_notification(
-                &ExecutionProcessStatus::Failed,
-                "Ship feature",
-                "feature/test",
-                None
-            ),
-            Some((
-                "Task Complete: Ship feature".to_string(),
-                "❌ 'Ship feature' execution failed\nBranch: \"feature/test\"\nExecutor: None"
+                "'Ship feature' completed successfully\nBranch: \"feature/test\"\nExecutor: Some(\"codex\")"
                     .to_string(),
             ))
         );
@@ -616,15 +368,6 @@ mod tests {
         assert_eq!(
             completion_notification(
                 &ExecutionProcessStatus::Killed,
-                "Ship feature",
-                "feature/test",
-                Some("codex")
-            ),
-            None
-        );
-        assert_eq!(
-            completion_notification(
-                &ExecutionProcessStatus::Running,
                 "Ship feature",
                 "feature/test",
                 Some("codex")
@@ -642,30 +385,11 @@ mod tests {
     }
 
     #[test]
-    fn reset_target_falls_back_to_previous_after_head() {
-        assert_eq!(
-            reset_target_oid(None, Some("previous-after")),
-            Some("previous-after".to_string())
-        );
-    }
-
-    #[test]
-    fn reset_target_is_absent_without_before_or_previous_after_head() {
-        assert_eq!(reset_target_oid(None, None), None);
-    }
-
-    #[test]
     fn reset_options_preserve_dirty_skip_logging_policy() {
-        let reset = reset_options(true, false, true);
+        let reset: WorktreeResetOptions = reset_options(true, false, true);
         assert!(reset.perform_reset);
         assert!(!reset.force_when_dirty);
         assert!(reset.is_dirty);
         assert!(reset.log_skip_when_dirty);
-
-        let no_reset = reset_options(false, true, true);
-        assert!(!no_reset.perform_reset);
-        assert!(no_reset.force_when_dirty);
-        assert!(no_reset.is_dirty);
-        assert!(!no_reset.log_skip_when_dirty);
     }
 }

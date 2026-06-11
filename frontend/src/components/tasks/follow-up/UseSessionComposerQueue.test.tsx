@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type QueueStatus } from 'shared/types';
-import { getQueueStatusQueryKey } from './sessionComposerQueue';
+import { BaseCodingAgent } from 'shared/types';
+import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
 import { useSessionComposerQueue } from './useSessionComposerQueue';
 
 const { sendAgentRuntimeTurnMock } = vi.hoisted(() => ({
@@ -24,12 +24,11 @@ function queuedStatus(message = 'queued text'): Extract<
     status: 'queued',
     message: {
       session_id: 'session-1',
-      queued_at: '2026-05-25T00:00:00.000Z',
+      created_at: '2026-05-25T00:00:00.000Z',
+      updated_at: '2026-05-25T00:00:00.000Z',
       data: {
         message,
         images: ['vibe://queued'],
-        executor_config: profile,
-        queued: true,
       },
     },
   };
@@ -97,12 +96,13 @@ describe('useSessionComposerQueue', () => {
       {
         status: 'queued',
         message: {
+          id: 'prompt-1',
           session_id: 'session-1',
+          created_at: '2026-05-25T00:00:00.000Z',
+          updated_at: '2026-05-25T00:00:00.000Z',
           data: {
             message: 'next message',
             images: ['vibe://next-image'],
-            executor_config: profile,
-            queued: true,
           },
         },
       }

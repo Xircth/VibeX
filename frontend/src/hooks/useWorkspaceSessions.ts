@@ -5,8 +5,9 @@ import type {
   SessionStatus,
   SessionSummary as SessionSummaryRecord,
 } from '@/lib/api';
-import type { QueueStatus, Session, SessionContinuityMode } from 'shared/types';
+import type { Session, SessionContinuityMode } from 'shared/types';
 import { getContinuityActionCopy } from '@/utils/sessionContinuity';
+import type { QueueStatus } from '@/components/tasks/follow-up/sessionComposerQueue';
 
 interface UseWorkspaceSessionsOptions {
   enabled?: boolean;

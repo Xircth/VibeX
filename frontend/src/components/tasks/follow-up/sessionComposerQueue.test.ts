@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent, type QueueStatus } from 'shared/types';
+import { BaseCodingAgent } from 'shared/types';
 import {
   buildCancelQueueMutationInput,
   buildQueueMutationInput,
@@ -10,6 +10,7 @@ import {
   getQueueStatusQueryKey,
   getVisibleQueuedMessage,
   shouldRefreshQueueStatus,
+  type QueueStatus,
 } from './sessionComposerQueue';
 
 const profile = { executor: BaseCodingAgent.CODEX };
@@ -25,12 +26,11 @@ function queuedStatus({
     status: 'queued',
     message: {
       session_id: 'session-1',
-      queued_at: '2026-05-25T00:00:00.000Z',
+      created_at: '2026-05-25T00:00:00.000Z',
+      updated_at: '2026-05-25T00:00:00.000Z',
       data: {
         message,
         images,
-        executor_config: profile,
-        queued: true,
       },
     },
   };

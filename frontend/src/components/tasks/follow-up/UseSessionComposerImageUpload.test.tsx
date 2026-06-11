@@ -2,9 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { type Dispatch, type ReactNode, type SetStateAction, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type QueueStatus } from 'shared/types';
+import { BaseCodingAgent } from 'shared/types';
 import type { SessionComposerImage } from './SessionComposerInput';
-import { getQueueStatusQueryKey } from './sessionComposerQueue';
+import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
 import { useSessionComposerImageUpload } from './useSessionComposerImageUpload';
 
 const { uploadForAttemptMock } = vi.hoisted(() => ({
@@ -24,12 +24,11 @@ function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
     status: 'queued',
     message: {
       session_id: 'session-1',
-      queued_at: '2026-05-25T00:00:00.000Z',
+      created_at: '2026-05-25T00:00:00.000Z',
+      updated_at: '2026-05-25T00:00:00.000Z',
       data: {
         message: 'queued draft',
         images: ['.vibe-images/queued.png', '.vibe-images/shared.png'],
-        executor_config: profile,
-        queued: true,
       },
     },
   };

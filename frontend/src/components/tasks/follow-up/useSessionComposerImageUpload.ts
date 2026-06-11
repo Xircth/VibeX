@@ -1,13 +1,17 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ExecutorProfileId, QueueStatus } from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import { imagesApi } from '@/lib/api';
 import type { SessionComposerImage } from './SessionComposerInput';
 import {
   getUploadedImageApplication,
   revokeComposerImagePreviewUrl,
 } from './sessionComposerImages';
-import { getQueueSnapshot, getQueueStatusQueryKey } from './sessionComposerQueue';
+import {
+  getQueueSnapshot,
+  getQueueStatusQueryKey,
+  type QueueStatus,
+} from './sessionComposerQueue';
 
 export function useSessionComposerImageUpload({
   workspaceId,

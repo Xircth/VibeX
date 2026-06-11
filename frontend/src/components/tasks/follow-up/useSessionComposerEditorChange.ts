@@ -6,10 +6,10 @@ import {
   type SetStateAction,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { QueueStatus } from 'shared/types';
 import {
   getEditorChangeSideEffects,
   getQueueStatusQueryKey,
+  type QueueStatus,
 } from './sessionComposerQueue';
 
 export function useSessionComposerEditorChange({

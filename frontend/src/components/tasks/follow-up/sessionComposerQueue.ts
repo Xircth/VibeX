@@ -1,8 +1,4 @@
-import type {
-  ExecutorProfileId,
-  QueuedMessage,
-  QueueStatus,
-} from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 
 export const QUEUE_STATUS_QUERY_KEY = 'queue-status';
 
@@ -21,6 +17,27 @@ export type QueueMutationInput = {
 export type CancelQueueMutationInput = {
   sessionId: string;
 };
+
+export type QueuedMessage = {
+  id?: string;
+  session_id?: string;
+  sequence?: number;
+  created_at?: string;
+  updated_at?: string;
+  data: {
+    message: string;
+    images: string[];
+  };
+};
+
+export type QueueStatus =
+  | {
+      status: 'queued';
+      message: QueuedMessage;
+    }
+  | {
+      status: 'empty';
+    };
 
 export function getQueueStatusQueryKey(
   sessionId: string | undefined

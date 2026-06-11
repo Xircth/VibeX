@@ -156,7 +156,7 @@ describe('useSessionComposerContextCompact', () => {
     expect(result.current.isCompactingContext).toBe(false);
   });
 
-  it('maps provider runtime failures to follow-up errors', async () => {
+  it('maps ACP runtime failures to follow-up errors', async () => {
     const setFollowUpError = vi.fn();
     sendAgentRuntimeTurnMock.mockRejectedValue(new Error('network down'));
 

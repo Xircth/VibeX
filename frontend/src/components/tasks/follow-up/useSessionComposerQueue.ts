@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ExecutorProfileId, QueueStatus } from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   buildCancelQueueMutationInput,
@@ -8,6 +8,7 @@ import {
   getQueueIndicatorState,
   getQueueSnapshot,
   getQueueStatusQueryKey,
+  type QueueStatus,
   shouldRefreshQueueStatus,
 } from './sessionComposerQueue';
 
@@ -82,20 +83,17 @@ export function useSessionComposerQueue({
         images,
         executorProfileId,
       }),
-    onSuccess: (_prompt, variables) => {
+    onSuccess: (prompt, variables) => {
       const status: QueueStatus = {
         status: 'queued',
         message: {
+          id: prompt.id,
           session_id: variables.sessionId,
-          queued_at: new Date().toISOString(),
+          created_at: prompt.created_at,
+          updated_at: prompt.updated_at,
           data: {
             message: variables.message,
             images: variables.images,
-            executor_config: {
-              executor: variables.executorProfileId.executor,
-              variant: variables.executorProfileId.variant ?? null,
-            },
-            queued: true,
           },
         },
       };

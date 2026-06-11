@@ -111,7 +111,7 @@ export function useFollowUpSend({
         throw new Error('No target session available for follow-up');
       }
       if (!targetWorkspaceId) {
-        throw new Error('No workspace available for provider runtime turn');
+        throw new Error('No workspace available for ACP agent turn');
       }
       await sendAgentRuntimeTurn({
         workspaceId: targetWorkspaceId,

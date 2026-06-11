@@ -2,23 +2,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { type ReactNode, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type QueueStatus } from 'shared/types';
-import { getQueueStatusQueryKey } from './sessionComposerQueue';
+import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
 import { useSessionComposerEditorChange } from './useSessionComposerEditorChange';
-
-const profile = { executor: BaseCodingAgent.CODEX };
 
 function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
   return {
     status: 'queued',
     message: {
       session_id: 'session-1',
-      queued_at: '2026-05-25T00:00:00.000Z',
+      created_at: '2026-05-25T00:00:00.000Z',
+      updated_at: '2026-05-25T00:00:00.000Z',
       data: {
         message: 'queued draft',
         images: [],
-        executor_config: profile,
-        queued: true,
       },
     },
   };

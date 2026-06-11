@@ -3,6 +3,7 @@ use std::{
     str::FromStr,
 };
 
+use agents::{AgentCapability, AgentType, agent_capabilities};
 use db::models::{
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
@@ -14,7 +15,7 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::executors::{BaseAgentCapability, BaseCodingAgent};
+use executors::executors::BaseCodingAgent;
 use serde::Serialize;
 use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
@@ -58,16 +59,23 @@ fn derive_session_continuity_mode(
 
     if executor
         .and_then(|value| BaseCodingAgent::from_str(value).ok())
-        .map(|agent| {
-            agent
-                .capabilities()
-                .contains(&BaseAgentCapability::SessionFork)
-        })
+        .and_then(agent_type_from_executor)
+        .map(|agent_type| agent_capabilities(agent_type).contains(&AgentCapability::SessionFork))
         .unwrap_or(false)
     {
         SessionContinuityMode::ForkSnapshot
     } else {
         SessionContinuityMode::ResumeInPlace
+    }
+}
+
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Option<AgentType> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => Some(AgentType::ClaudeCode),
+        BaseCodingAgent::Codex => Some(AgentType::Codex),
+        BaseCodingAgent::Opencode => Some(AgentType::OpenCode),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => None,
     }
 }
 

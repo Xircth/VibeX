@@ -1,12 +1,13 @@
 use std::{collections::HashMap, path::Path};
 
+use agents::{
+    AgentAvailabilityInfo, AgentCapability, AgentType, agent_availability, agent_capabilities,
+};
 use db::models::execution_process::ExecutionProcess;
 use deployment::Deployment;
 use executors::{
-    executors::{
-        AvailabilityInfo, BaseAgentCapability, BaseCodingAgent, StandardCodingAgentExecutor,
-    },
-    profile::{ExecutorConfigs, ExecutorProfileId},
+    executors::BaseCodingAgent,
+    profile::ExecutorConfigs,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -63,13 +64,25 @@ impl Default for Environment {
     }
 }
 
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<AgentType, AppError> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => Ok(AgentType::ClaudeCode),
+        BaseCodingAgent::Codex => Ok(AgentType::Codex),
+        BaseCodingAgent::Opencode => Ok(AgentType::OpenCode),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => Err(AppError::BadRequest(
+            "QA mock does not have an ACP registry entry".to_string(),
+        )),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserSystemInfo {
     pub config: Config,
     #[serde(flatten)]
     pub profiles: ExecutorConfigs,
     pub environment: Environment,
-    pub capabilities: HashMap<String, Vec<BaseAgentCapability>>,
+    pub capabilities: HashMap<String, Vec<AgentCapability>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -97,11 +110,11 @@ pub async fn get_user_system_info(
 
     let profiles = ExecutorConfigs::get_cached();
     let capabilities = {
-        let mut caps: HashMap<String, Vec<BaseAgentCapability>> = HashMap::new();
+        let mut caps: HashMap<String, Vec<AgentCapability>> = HashMap::new();
         let profs = ExecutorConfigs::get_cached();
         for key in profs.executors.keys() {
-            if let Some(agent) = profs.get_coding_agent(&ExecutorProfileId::new(*key)) {
-                caps.insert(key.to_string(), agent.capabilities());
+            if let Ok(agent_type) = agent_type_from_executor(*key) {
+                caps.insert(key.to_string(), agent_capabilities(agent_type));
             }
         }
         caps
@@ -336,18 +349,10 @@ pub async fn check_editor_availability(
 pub async fn check_agent_availability(
     state: tauri::State<'_, AppState>,
     executor: BaseCodingAgent,
-) -> Result<AvailabilityInfo, AppError> {
+) -> Result<AgentAvailabilityInfo, AppError> {
     let _ = state;
 
-    let profiles = ExecutorConfigs::get_cached();
-    let profile_id = ExecutorProfileId::new(executor);
-
-    let info = match profiles.get_coding_agent(&profile_id) {
-        Some(agent) => agent.get_availability_info(),
-        None => AvailabilityInfo::NotFound,
-    };
-
-    Ok(info)
+    Ok(agent_availability(agent_type_from_executor(executor)?))
 }
 
 #[tauri::command]

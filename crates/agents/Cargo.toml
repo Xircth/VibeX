@@ -17,3 +17,6 @@ tracing = { workspace = true }
 ts-rs = { workspace = true }
 uuid = { workspace = true }
 workspace_utils = { path = "../utils", package = "utils" }
+dirs = { workspace = true }
+jsonc-parser = { version = "0.29", features = ["cst", "serde"] }
+toml = "0.8"

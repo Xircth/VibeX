@@ -1,21 +1,32 @@
 use std::collections::HashMap;
 
-use executors::{
-    executors::{BaseCodingAgent, StandardCodingAgentExecutor},
-    mcp_config::{McpConfig, read_agent_config, write_agent_config},
-    profile::{ExecutorConfigs, ExecutorProfileId},
+use agents::{
+    AgentMcpConfig, AgentType, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
+    write_agent_mcp_config,
 };
+use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use services::services::config::ConfigError;
 use tokio::fs;
 
 use crate::{error::AppError, state::AppState};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetMcpServerResponse {
-    pub mcp_config: McpConfig,
+    pub mcp_config: AgentMcpConfig,
     pub config_path: String,
+}
+
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<AgentType, AppError> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => Ok(AgentType::ClaudeCode),
+        BaseCodingAgent::Codex => Ok(AgentType::Codex),
+        BaseCodingAgent::Opencode => Ok(AgentType::OpenCode),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => Err(AppError::BadRequest(
+            "QA mock does not have an ACP registry entry".to_string(),
+        )),
+    }
 }
 
 pub(crate) async fn get_mcp_servers(
@@ -24,29 +35,23 @@ pub(crate) async fn get_mcp_servers(
 ) -> Result<GetMcpServerResponse, AppError> {
     let _ = state;
 
-    let coding_agent = ExecutorConfigs::get_cached()
-        .get_coding_agent(&ExecutorProfileId::new(executor))
-        .ok_or(ConfigError::ValidationError(
-            "Executor not found".to_string(),
-        ))?;
+    let agent_type = agent_type_from_executor(executor)?;
 
-    if !coding_agent.supports_mcp() {
-        return Err(AppError::BadRequest(
-            "MCP not supported by this executor".to_string(),
-        ));
-    }
-
-    let config_path = match coding_agent.default_mcp_config_path() {
+    let config_path = match default_mcp_config_path(agent_type) {
         Some(path) => path,
         None => {
             return Err(AppError::BadRequest(
-                "Could not determine config file path".to_string(),
+                "This agent does not support file-based MCP configuration".to_string(),
             ));
         }
     };
 
-    let mut mcpc = coding_agent.get_mcp_config();
-    let raw_config = read_agent_config(&config_path, &mcpc).await?;
+    let mut mcpc = mcp_file_config(agent_type).ok_or_else(|| {
+        AppError::BadRequest("This agent does not support file-based MCP configuration".to_string())
+    })?;
+    let raw_config = read_agent_mcp_config(&config_path, &mcpc)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
     let servers = get_mcp_servers_from_config_path(&raw_config, &mcpc.servers_path);
     mcpc.set_servers(servers);
 
@@ -63,29 +68,20 @@ pub(crate) async fn update_mcp_servers(
 ) -> Result<String, AppError> {
     let _ = state;
 
-    let profiles = ExecutorConfigs::get_cached();
-    let agent = profiles
-        .get_coding_agent(&ExecutorProfileId::new(executor))
-        .ok_or(ConfigError::ValidationError(
-            "Executor not found".to_string(),
-        ))?;
+    let agent_type = agent_type_from_executor(executor)?;
 
-    if !agent.supports_mcp() {
-        return Err(AppError::BadRequest(
-            "This executor does not support MCP servers".to_string(),
-        ));
-    }
-
-    let config_path = match agent.default_mcp_config_path() {
-        Some(path) => path.to_path_buf(),
+    let config_path = match default_mcp_config_path(agent_type) {
+        Some(path) => path,
         None => {
             return Err(AppError::BadRequest(
-                "Could not determine config file path".to_string(),
+                "This agent does not support file-based MCP configuration".to_string(),
             ));
         }
     };
 
-    let mcpc = agent.get_mcp_config();
+    let mcpc = mcp_file_config(agent_type).ok_or_else(|| {
+        AppError::BadRequest("This agent does not support file-based MCP configuration".to_string())
+    })?;
     update_mcp_servers_in_config(&config_path, &mcpc, servers)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to update MCP servers: {}", e)))
@@ -162,18 +158,18 @@ fn set_mcp_servers_in_config_path(
 
 async fn update_mcp_servers_in_config(
     config_path: &std::path::Path,
-    mcpc: &McpConfig,
+    mcpc: &AgentMcpConfig,
     new_servers: HashMap<String, Value>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).await?;
     }
 
-    let mut config = read_agent_config(config_path, mcpc).await?;
+    let mut config = read_agent_mcp_config(config_path, mcpc).await?;
     let old_servers = get_mcp_servers_from_config_path(&config, &mcpc.servers_path).len();
 
     set_mcp_servers_in_config_path(&mut config, &mcpc.servers_path, &new_servers)?;
-    write_agent_config(config_path, mcpc, &config).await?;
+    write_agent_mcp_config(config_path, mcpc, &config).await?;
 
     let new_count = new_servers.len();
     let message = match (old_servers, new_count) {

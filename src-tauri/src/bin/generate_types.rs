@@ -1,18 +1,19 @@
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
 
 use agents::{
-    AgentConfigStrategy, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
-    AgentConnectionStatus, AgentContentBlock, AgentDistribution, AgentErrorEvent, AgentEvent,
-    AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentInstallPlan,
-    AgentInstallStatus, AgentMcpStrategy, AgentMcpSurface, AgentPermissionId,
-    AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
-    AgentPreflight, AgentPreflightIssue, AgentPreflightSeverity, AgentPromptFinished,
-    AgentPromptId, AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry,
-    AgentSessionId, AgentSessionSnapshot, AgentSessionStatus, AgentSkillsStrategy,
-    AgentSkillsSurface, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
-    AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
-    AgentToolCall, AgentToolCallUpdate, AgentType, AgentUsage, CommandParts, PathTemplate,
-    PlatformBinary, QueueTransition, RuntimeSnapshot, SystemCommand,
+    AgentAvailabilityInfo, AgentCapability, AgentConfigStrategy, AgentConfigSurface,
+    AgentConnectionId, AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock,
+    AgentDistribution, AgentErrorEvent, AgentEvent, AgentEventEnvelope, AgentFileReadRequest,
+    AgentFileWriteRequest, AgentInstallPlan, AgentInstallStatus, AgentMcpConfig,
+    AgentMcpStrategy, AgentMcpSurface, AgentPermissionId, AgentPermissionOption,
+    AgentPermissionRequest, AgentPermissionResponse, AgentPlan, AgentPreflight,
+    AgentPreflightIssue, AgentPreflightSeverity, AgentPromptFinished, AgentPromptId,
+    AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentSessionId,
+    AgentSessionSnapshot, AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface,
+    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId,
+    AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall,
+    AgentToolCallUpdate, AgentType, AgentUsage, CommandParts, PathTemplate, PlatformBinary,
+    QueueTransition, RuntimeSnapshot, SystemCommand,
 };
 use db::models::{
     scratch::DraftFollowUpData,
@@ -201,6 +202,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<RepoWithTargetBranch>(&mut decls);
     insert_declaration::<GitBranch>(&mut decls);
     insert_declaration::<AgentType>(&mut decls);
+    insert_declaration::<AgentCapability>(&mut decls);
+    insert_declaration::<AgentAvailabilityInfo>(&mut decls);
     insert_declaration::<AgentRegistryEntry>(&mut decls);
     insert_declaration::<AgentDistribution>(&mut decls);
     insert_declaration::<PlatformBinary>(&mut decls);
@@ -211,6 +214,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<PathTemplate>(&mut decls);
     insert_declaration::<AgentMcpSurface>(&mut decls);
     insert_declaration::<AgentMcpStrategy>(&mut decls);
+    insert_declaration::<AgentMcpConfig>(&mut decls);
     insert_declaration::<AgentSkillsSurface>(&mut decls);
     insert_declaration::<AgentSkillsStrategy>(&mut decls);
     insert_declaration::<AgentConnectionId>(&mut decls);

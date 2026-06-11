@@ -13,6 +13,8 @@ pub mod ids;
 pub mod installer;
 pub mod manager;
 pub mod mcp;
+pub mod mcp_file;
+pub mod metadata;
 pub mod permissions;
 pub mod config;
 pub mod registry;
@@ -47,6 +49,14 @@ pub use manager::{
     ManagedAgentConnectionSnapshot,
 };
 pub use mcp::{AgentMcpStrategy, AgentMcpSurface, mcp_surface};
+pub use mcp_file::{
+    AgentMcpConfig, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
+    write_agent_mcp_config,
+};
+pub use metadata::{
+    AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities,
+    claude_config_path, codex_auth_path, codex_config_path, codex_home, opencode_config_path,
+};
 pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};
 pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate, config_surface};
 pub use registry::{AgentRegistryEntry, AgentType, all_agent_types, registry_entry};

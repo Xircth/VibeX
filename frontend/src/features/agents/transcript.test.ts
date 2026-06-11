@@ -78,4 +78,39 @@ describe('agent transcript adapter', () => {
       '[image] .vibe-images/screen.png'
     );
   });
+
+  it('maps ACP terminal and permission events into visible entries', () => {
+    const entries = buildAgentTranscriptEntries([
+      event(1, {
+        kind: 'permission_requested',
+        permission_id: 'perm-1',
+      }),
+      event(2, {
+        kind: 'terminal_created',
+        terminal: {
+          id: 'term-1',
+          command: 'pnpm',
+          args: ['test'],
+          cwd: 'C:/repo',
+        },
+      }),
+      event(3, {
+        kind: 'terminal_output',
+        output: {
+          terminal_id: 'term-1',
+          output: 'ok',
+          truncated: false,
+          exit_status: 0,
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(3);
+    expect(normalized(entries[0]!).entry_type.type).toBe('system_message');
+    expect(normalized(entries[0]!).content).toBe('Permission requested: perm-1');
+    expect(normalized(entries[1]!).entry_type.type).toBe('tool_use');
+    expect(normalized(entries[1]!).content).toBe('pnpm test');
+    expect(normalized(entries[2]!).entry_type.type).toBe('tool_use');
+    expect(normalized(entries[2]!).content).toBe('ok');
+  });
 });

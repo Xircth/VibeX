@@ -163,6 +163,69 @@ export function buildAgentTranscriptEntries(
           )
         );
         break;
+      case 'permission_requested':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Permission requested: ${envelope.event.permission_id}`
+          )
+        );
+        break;
+      case 'terminal_created': {
+        const command = [
+          envelope.event.terminal.command,
+          ...envelope.event.terminal.args,
+        ].join(' ');
+        entries.push(
+          normalizedEntry(
+            envelope,
+            {
+              type: 'tool_use',
+              tool_name: 'terminal',
+              action_type: {
+                action: 'command_run',
+                command,
+                result: null,
+              },
+              status: { status: 'created' },
+            },
+            command
+          )
+        );
+        break;
+      }
+      case 'terminal_output':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            {
+              type: 'tool_use',
+              tool_name: 'terminal',
+              action_type: {
+                action: 'command_run',
+                command: envelope.event.output.terminal_id,
+                result: {
+                  exit_status:
+                    envelope.event.output.exit_status == null
+                      ? null
+                      : {
+                          type: 'exit_code',
+                          code: envelope.event.output.exit_status,
+                        },
+                  output: envelope.event.output.output,
+                },
+              },
+              status:
+                envelope.event.output.exit_status == null ||
+                envelope.event.output.exit_status === 0
+                  ? { status: 'success' }
+                  : { status: 'failed' },
+            },
+            envelope.event.output.output
+          )
+        );
+        break;
       case 'error':
         entries.push(
           normalizedEntry(
@@ -183,9 +246,6 @@ export function buildAgentTranscriptEntries(
         break;
       case 'connection_status_changed':
       case 'session_created':
-      case 'permission_requested':
-      case 'terminal_created':
-      case 'terminal_output':
       case 'prompt_finished':
         break;
     }

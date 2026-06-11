@@ -23,8 +23,8 @@ pub mod state;
 pub mod terminal;
 
 pub use distribution::{
-    AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
-    SystemCommand,
+    current_platform, AgentDistribution, CommandBuildInput, CommandParts, DistributionError,
+    PlatformBinary, SystemCommand,
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -43,6 +43,7 @@ pub use installer::{
 };
 pub use manager::{
     AgentConnectionCommand, AgentConnectionLaunch, AgentConnectionManager,
+    AgentConnectionManagerEvent,
     ManagedAgentConnectionSnapshot,
 };
 pub use mcp::{AgentMcpStrategy, AgentMcpSurface, mcp_surface};

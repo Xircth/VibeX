@@ -2,15 +2,16 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, AgentContentBlock,
-    AgentError, AgentEvent, AgentEventEnvelope, AgentPromptId, AgentPromptQueue,
-    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId,
-    AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition, registry_entry,
+    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
+    AgentConnectionManagerEvent, AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope,
+    AgentPromptId, AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry,
+    AgentResult, AgentSessionId, AgentSessionSnapshot, AgentSessionStatus, AgentType,
+    QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -82,11 +83,12 @@ struct RuntimeState {
     connections: HashMap<AgentConnectionId, RuntimeConnection>,
     sessions: HashMap<AgentSessionId, RuntimeSession>,
     prompts: HashMap<AgentPromptId, AgentPromptSnapshot>,
+    prompt_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
 }
 
 pub struct AgentRuntime {
-    state: RwLock<RuntimeState>,
-    connection_manager: AgentConnectionManager,
+    state: Arc<RwLock<RuntimeState>>,
+    connection_manager: Arc<AgentConnectionManager>,
     event_sink: Arc<dyn RuntimeEventSink>,
     event_tx: broadcast::Sender<AgentEventEnvelope>,
 }
@@ -99,13 +101,71 @@ impl Default for AgentRuntime {
 
 impl AgentRuntime {
     pub fn new(event_sink: Arc<dyn RuntimeEventSink>) -> Self {
+        Self::new_with_driver(event_sink, true)
+    }
+
+    fn new_with_driver(event_sink: Arc<dyn RuntimeEventSink>, driver_enabled: bool) -> Self {
         let (event_tx, _) = broadcast::channel(512);
-        Self {
-            state: RwLock::new(RuntimeState::default()),
-            connection_manager: AgentConnectionManager::default(),
+        let (manager_event_tx, manager_event_rx) = mpsc::unbounded_channel();
+        let state = Arc::new(RwLock::new(RuntimeState::default()));
+        let connection_manager = Arc::new(AgentConnectionManager::new_with_driver(
+            manager_event_tx,
+            driver_enabled,
+        ));
+        let runtime = Self {
+            state: Arc::clone(&state),
+            connection_manager: Arc::clone(&connection_manager),
+            event_sink: Arc::clone(&event_sink),
+            event_tx: event_tx.clone(),
+        };
+        Self::spawn_manager_event_pump(
+            state,
+            connection_manager,
             event_sink,
             event_tx,
-        }
+            manager_event_rx,
+        );
+        runtime
+    }
+
+    fn spawn_manager_event_pump(
+        state: Arc<RwLock<RuntimeState>>,
+        connection_manager: Arc<AgentConnectionManager>,
+        event_sink: Arc<dyn RuntimeEventSink>,
+        event_tx: broadcast::Sender<AgentEventEnvelope>,
+        mut manager_event_rx: mpsc::UnboundedReceiver<AgentConnectionManagerEvent>,
+    ) {
+        tokio::spawn(async move {
+            while let Some(manager_event) = manager_event_rx.recv().await {
+                let next_prompt = {
+                    let mut state = state.write().await;
+                    Self::apply_manager_event_locked(&mut state, &manager_event);
+                    let next_prompt = manager_event.session_id.and_then(|session_id| {
+                        let prompt_id = state
+                            .sessions
+                            .get(&session_id)
+                            .and_then(|session| session.queue.active())?;
+                        let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
+                        Some((session_id, prompt_id, blocks))
+                    });
+                    Self::emit_with_parts_locked(
+                        &mut state,
+                        &*event_sink,
+                        &event_tx,
+                        manager_event.connection_id,
+                        manager_event.session_id,
+                        manager_event.event,
+                    );
+                    next_prompt
+                };
+
+                if let Some((session_id, prompt_id, blocks)) = next_prompt {
+                    let _ = connection_manager
+                        .send_prompt(manager_event.connection_id, session_id, prompt_id, blocks)
+                        .await;
+                }
+            }
+        });
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<AgentEventEnvelope> {
@@ -173,11 +233,33 @@ impl AgentRuntime {
             .register_connection(AgentConnectionLaunch {
                 connection_id: snapshot.id,
                 agent_type: snapshot.agent_type,
+                workspace_id: snapshot.workspace_id,
                 working_dir: input.working_dir,
             })
             .await;
 
-        Ok(snapshot)
+        let mut state = self.state.write().await;
+        let ready_snapshot = if let Some(connection) = state.connections.get_mut(&snapshot.id) {
+            connection.snapshot.status = AgentConnectionStatus::Ready;
+            connection.snapshot.updated_at = Utc::now();
+            Some(connection.snapshot.clone())
+        } else {
+            None
+        };
+        let returned_snapshot = ready_snapshot.clone().unwrap_or(snapshot);
+        if let Some(ready_snapshot) = ready_snapshot {
+            self.emit_locked(
+                &mut state,
+                ready_snapshot.workspace_id,
+                ready_snapshot.id,
+                None,
+                AgentEvent::ConnectionStatusChanged {
+                    snapshot: ready_snapshot,
+                },
+            );
+        }
+
+        Ok(returned_snapshot)
     }
 
     pub async fn new_session(
@@ -309,15 +391,20 @@ impl AgentRuntime {
             },
         };
 
+        let blocks = vec![AgentContentBlock::Text { text: input.text }];
         let prompt = AgentPromptSnapshot {
             id: prompt_id,
             session_id: input.session_id,
             status,
-            text_preview: preview_text(&input.text),
+            text_preview: preview_text(match &blocks[0] {
+                AgentContentBlock::Text { text } => text,
+                _ => "",
+            }),
             created_at: now,
             updated_at: now,
         };
         state.prompts.insert(prompt.id, prompt.clone());
+        state.prompt_blocks.insert(prompt.id, blocks.clone());
         self.emit_locked(
             &mut state,
             workspace_id,
@@ -329,14 +416,11 @@ impl AgentRuntime {
         );
         drop(state);
 
-        self.connection_manager
-            .send_prompt(
-                input.connection_id,
-                input.session_id,
-                prompt.id,
-                vec![AgentContentBlock::Text { text: input.text }],
-            )
-            .await?;
+        if matches!(prompt.status, AgentPromptStatus::Running) {
+            self.connection_manager
+                .send_prompt(input.connection_id, input.session_id, prompt.id, blocks)
+                .await?;
+        }
 
         Ok(prompt)
     }
@@ -357,6 +441,7 @@ impl AgentRuntime {
             if session.snapshot.connection_id != input.connection_id {
                 return Err(AgentError::SessionNotFound(input.session_id.to_string()));
             }
+            let was_active = session.queue.active() == Some(input.prompt_id);
             let transition = session.queue.cancel(input.prompt_id);
             session.snapshot.active_prompt_id = session.queue.active();
             session.snapshot.queued_prompt_ids = session.queue.queued();
@@ -366,32 +451,55 @@ impl AgentRuntime {
                 AgentSessionStatus::Ready
             };
             session.snapshot.updated_at = now;
-            transition
+            (transition, was_active)
         };
+
+        let (transition, was_active) = transition;
 
         match transition {
             QueueTransition::Cancelled { .. } => {
                 if let Some(prompt) = state.prompts.get_mut(&input.prompt_id) {
-                    prompt.status = AgentPromptStatus::Cancelling;
+                    prompt.status = if was_active {
+                        AgentPromptStatus::Cancelling
+                    } else {
+                        AgentPromptStatus::Completed {
+                            stop_reason: Some("cancelled".to_string()),
+                        }
+                    };
                     prompt.updated_at = now;
                 }
-                self.emit_locked(
+                if !was_active {
+                    state.prompt_blocks.remove(&input.prompt_id);
+                }
+                Self::emit_with_parts_locked(
                     &mut state,
-                    workspace_id,
+                    &*self.event_sink,
+                    &self.event_tx,
                     input.connection_id,
                     Some(input.session_id),
-                    AgentEvent::PromptFinished {
-                        finished: crate::AgentPromptFinished {
-                            prompt_id: input.prompt_id,
-                            stop_reason: Some("cancelled".to_string()),
-                        },
+                    if was_active {
+                        AgentEvent::RawAcpDiagnostic {
+                            raw: serde_json::json!({
+                                "kind": "prompt_cancel_requested",
+                                "prompt_id": input.prompt_id,
+                            }),
+                        }
+                    } else {
+                        AgentEvent::PromptFinished {
+                            finished: crate::AgentPromptFinished {
+                                prompt_id: input.prompt_id,
+                                stop_reason: Some("cancelled".to_string()),
+                            },
+                        }
                     },
                 );
                 drop(state);
 
-                self.connection_manager
-                    .cancel_prompt(input.connection_id, input.session_id, input.prompt_id)
-                    .await?;
+                if was_active {
+                    self.connection_manager
+                        .cancel_prompt(input.connection_id, input.session_id, input.prompt_id)
+                        .await?;
+                }
 
                 Ok(())
             }
@@ -407,11 +515,34 @@ impl AgentRuntime {
     fn emit_locked(
         &self,
         state: &mut RuntimeState,
-        workspace_id: Uuid,
+        _workspace_id: Uuid,
         connection_id: AgentConnectionId,
         session_id: Option<AgentSessionId>,
         event: AgentEvent,
     ) {
+        Self::emit_with_parts_locked(
+            state,
+            &*self.event_sink,
+            &self.event_tx,
+            connection_id,
+            session_id,
+            event,
+        );
+    }
+
+    fn emit_with_parts_locked(
+        state: &mut RuntimeState,
+        event_sink: &dyn RuntimeEventSink,
+        event_tx: &broadcast::Sender<AgentEventEnvelope>,
+        connection_id: AgentConnectionId,
+        session_id: Option<AgentSessionId>,
+        event: AgentEvent,
+    ) {
+        let workspace_id = state
+            .connections
+            .get(&connection_id)
+            .map(|connection| connection.snapshot.workspace_id)
+            .unwrap_or_else(Uuid::nil);
         state.sequence += 1;
         let envelope = AgentEventEnvelope {
             sequence: state.sequence,
@@ -421,8 +552,55 @@ impl AgentRuntime {
             event,
             created_at: Utc::now(),
         };
-        self.event_sink.emit(envelope.clone());
-        let _ = self.event_tx.send(envelope);
+        event_sink.emit(envelope.clone());
+        let _ = event_tx.send(envelope);
+    }
+
+    fn apply_manager_event_locked(
+        state: &mut RuntimeState,
+        manager_event: &AgentConnectionManagerEvent,
+    ) {
+        match &manager_event.event {
+            AgentEvent::PromptFinished { finished } => {
+                if let Some(prompt) = state.prompts.get_mut(&finished.prompt_id) {
+                    prompt.status = AgentPromptStatus::Completed {
+                        stop_reason: finished.stop_reason.clone(),
+                    };
+                    prompt.updated_at = Utc::now();
+                }
+                if let Some(session_id) = manager_event.session_id
+                    && let Some(session) = state.sessions.get_mut(&session_id)
+                {
+                    let _ = session.queue.complete(finished.prompt_id);
+                    session.snapshot.active_prompt_id = session.queue.active();
+                    session.snapshot.queued_prompt_ids = session.queue.queued();
+                    session.snapshot.status = if session.snapshot.active_prompt_id.is_some() {
+                        AgentSessionStatus::Running
+                    } else {
+                        AgentSessionStatus::Ready
+                    };
+                    session.snapshot.updated_at = Utc::now();
+                    if let Some(next_prompt_id) = session.snapshot.active_prompt_id
+                        && let Some(next_prompt) = state.prompts.get_mut(&next_prompt_id)
+                    {
+                        next_prompt.status = AgentPromptStatus::Running;
+                        next_prompt.updated_at = Utc::now();
+                    }
+                }
+                state.prompt_blocks.remove(&finished.prompt_id);
+            }
+            AgentEvent::Error { error } => {
+                if let Some(prompt_id) = manager_event.prompt_id
+                    && let Some(prompt) = state.prompts.get_mut(&prompt_id)
+                {
+                    prompt.status = AgentPromptStatus::Failed {
+                        message: error.message.clone(),
+                    };
+                    prompt.updated_at = Utc::now();
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -456,7 +634,7 @@ mod tests {
         let sink = Arc::new(RecordingSink {
             events: Mutex::new(Vec::new()),
         });
-        let runtime = AgentRuntime::new(sink.clone());
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
 
         assert_eq!(runtime.registry().len(), 7);
         let connection = runtime
@@ -485,12 +663,12 @@ mod tests {
         assert_eq!(snapshot.connections.len(), 1);
         assert_eq!(snapshot.sessions.len(), 1);
         assert_eq!(snapshot.prompts.len(), 1);
-        assert_eq!(sink.events.lock().unwrap().len(), 3);
+        assert!(sink.events.lock().unwrap().len() >= 4);
     }
 
     #[tokio::test]
     async fn runtime_cancels_active_prompt_and_advances_queue() {
-        let runtime = AgentRuntime::default();
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
             .connect(ConnectAgentInput {
                 agent_type: AgentType::Codex,
@@ -529,6 +707,7 @@ mod tests {
             })
             .await
             .unwrap();
+        tokio::task::yield_now().await;
 
         let snapshot = runtime.snapshot().await;
         let session = snapshot

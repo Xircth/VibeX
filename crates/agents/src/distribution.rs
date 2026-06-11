@@ -69,6 +69,21 @@ pub struct CommandParts {
 
 pub type DistributionError = AgentError;
 
+pub fn current_platform() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "windows",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        "x86_64" => "x86_64",
+        "x86" => "x86",
+        other => other,
+    };
+    format!("{os}-{arch}")
+}
+
 impl AgentDistribution {
     pub fn command_parts(&self, input: &CommandBuildInput) -> Result<CommandParts, AgentError> {
         match self {

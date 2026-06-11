@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { tauriListen } from '@/lib/tauriApi';
 import { agentsApi } from './api';
+import { listenToAgentEvents } from './events';
 import {
   emptyAgentWorkbenchState,
   hydrateAgentSnapshot,
@@ -17,8 +17,6 @@ import type {
   AgentEventEnvelope,
   AgentRuntimeSnapshot,
 } from './types';
-
-export const AGENT_EVENTS_CHANNEL = 'agent-events';
 
 type AgentWorkbenchAction =
   | { type: 'hydrate'; snapshot: AgentRuntimeSnapshot }
@@ -60,7 +58,7 @@ export function useAgentWorkbench() {
     let active = true;
     let unlisten: (() => void) | undefined;
 
-    tauriListen<AgentEventEnvelope>(AGENT_EVENTS_CHANNEL, (envelope) => {
+    listenToAgentEvents((envelope) => {
       dispatch({ type: 'event', envelope });
     })
       .then((unlistenAgentEvents) => {

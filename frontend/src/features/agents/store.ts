@@ -1,10 +1,12 @@
 import type {
   AgentConnectionSnapshot,
   AgentEventEnvelope,
+  AgentPermissionRequest,
   AgentPromptSnapshot,
   AgentRegistryEntry,
   AgentRuntimeSnapshot,
   AgentSessionSnapshot,
+  AgentTerminalSnapshot,
 } from './types';
 
 export type AgentWorkbenchState = {
@@ -12,6 +14,10 @@ export type AgentWorkbenchState = {
   connections: Record<string, AgentConnectionSnapshot>;
   sessions: Record<string, AgentSessionSnapshot>;
   prompts: Record<string, AgentPromptSnapshot>;
+  permissions: Record<string, AgentPermissionRequest>;
+  terminals: Record<string, AgentTerminalSnapshot>;
+  usageByScope: Record<string, { used: number; limit?: number | null }>;
+  errorsByScope: Record<string, string[]>;
   eventsByScope: Record<string, AgentEventEnvelope[]>;
   lastSequence: number;
 };
@@ -22,6 +28,10 @@ export function emptyAgentWorkbenchState(): AgentWorkbenchState {
     connections: {},
     sessions: {},
     prompts: {},
+    permissions: {},
+    terminals: {},
+    usageByScope: {},
+    errorsByScope: {},
     eventsByScope: {},
     lastSequence: 0,
   };
@@ -43,6 +53,10 @@ export function stateFromAgentSnapshot(
     prompts: Object.fromEntries(
       snapshot.prompts.map((prompt) => [prompt.id, prompt])
     ),
+    permissions: {},
+    terminals: {},
+    usageByScope: {},
+    errorsByScope: {},
     eventsByScope: snapshot.events.reduce(
       (eventsByScope, envelope) => appendEvent(eventsByScope, envelope),
       {} as Record<string, AgentEventEnvelope[]>
@@ -75,6 +89,10 @@ export function reduceAgentEvent(
     connections: state.connections,
     sessions: state.sessions,
     prompts: state.prompts,
+    permissions: state.permissions,
+    terminals: state.terminals,
+    usageByScope: state.usageByScope,
+    errorsByScope: state.errorsByScope,
     eventsByScope: appendEvent(state.eventsByScope, envelope),
     lastSequence: envelope.sequence,
   };
@@ -113,18 +131,57 @@ export function reduceAgentEvent(
       };
       return next;
     }
+    case 'permission_requested':
+      next.permissions = {
+        ...state.permissions,
+        [envelope.event.request.id]: envelope.event.request,
+      };
+      return next;
+    case 'permission_responded': {
+      const { [envelope.event.permission_id]: _removed, ...permissions } =
+        state.permissions;
+      next.permissions = permissions;
+      return next;
+    }
+    case 'terminal_created':
+      next.terminals = {
+        ...state.terminals,
+        [envelope.event.terminal.id]: envelope.event.terminal,
+      };
+      return next;
+    case 'usage':
+      next.usageByScope = {
+        ...state.usageByScope,
+        [scopeId(envelope)]: envelope.event.usage,
+      };
+      return next;
+    case 'error':
+      next.errorsByScope = {
+        ...state.errorsByScope,
+        [scopeId(envelope)]: [
+          ...(state.errorsByScope[scopeId(envelope)] ?? []),
+          envelope.event.error.message,
+        ],
+      };
+      return next;
     default:
       return next;
   }
+}
+
+function scopeId(envelope: AgentEventEnvelope): string {
+  return envelope.session_id ?? envelope.connection_id;
 }
 
 function appendEvent(
   eventsByScope: Record<string, AgentEventEnvelope[]>,
   envelope: AgentEventEnvelope
 ): Record<string, AgentEventEnvelope[]> {
-  const scopeId = envelope.session_id ?? envelope.connection_id;
   return {
     ...eventsByScope,
-    [scopeId]: [...(eventsByScope[scopeId] ?? []), envelope],
+    [scopeId(envelope)]: [
+      ...(eventsByScope[scopeId(envelope)] ?? []),
+      envelope,
+    ],
   };
 }

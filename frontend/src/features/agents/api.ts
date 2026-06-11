@@ -2,6 +2,7 @@ import { tauriInvoke } from '@/lib/tauriApi';
 import type {
   AgentConfigSurface,
   AgentConnectionSnapshot,
+  AgentHistorySource,
   AgentInstallPlan,
   AgentMcpSurface,
   AgentPermissionResponse,
@@ -10,7 +11,9 @@ import type {
   AgentRuntimeSnapshot,
   AgentSessionSnapshot,
   AgentSkillsSurface,
+  AgentTerminalOutputSnapshot,
   AgentType,
+  ImportedAgentSession,
 } from './types';
 
 export type AgentConnectRequest = {
@@ -50,6 +53,38 @@ export type AgentRespondPermissionRequest = {
   response: AgentPermissionResponse;
 };
 
+export type AgentConnectionRequest = {
+  connectionId: string;
+};
+
+export type AgentSessionRequest = {
+  sessionId: string;
+};
+
+export type AgentTerminalSnapshotRequest = {
+  terminalId: string;
+};
+
+export type AgentTypeRequest = {
+  agentType: AgentType;
+};
+
+export type AgentHistoryImportRequest = {
+  agentType: AgentType;
+  path?: string | null;
+};
+
+export type AgentConfigFile = {
+  path: string;
+  content: string;
+};
+
+export type AgentMcpConfigFile = {
+  path: string;
+  config: unknown;
+  surface: unknown;
+};
+
 export const agentsApi = {
   listRegistry: (): Promise<AgentRegistryEntry[]> =>
     tauriInvoke('agent_registry_list'),
@@ -68,6 +103,14 @@ export const agentsApi = {
 
   snapshot: (): Promise<AgentRuntimeSnapshot> =>
     tauriInvoke('agent_runtime_snapshot'),
+
+  connectionSnapshot: (
+    request: AgentConnectionRequest
+  ): Promise<AgentConnectionSnapshot> =>
+    tauriInvoke('agent_connection_snapshot', { request }),
+
+  loadSession: (request: AgentSessionRequest): Promise<AgentSessionSnapshot> =>
+    tauriInvoke('agent_load_session', { request }),
 
   connect: (request: AgentConnectRequest): Promise<AgentConnectionSnapshot> =>
     tauriInvoke('agent_connect', { request }),
@@ -90,6 +133,34 @@ export const agentsApi = {
   cancelPrompt: (request: AgentCancelPromptRequest): Promise<void> =>
     tauriInvoke('agent_cancel_prompt', { request }),
 
+  disconnect: (request: AgentConnectionRequest): Promise<AgentConnectionSnapshot> =>
+    tauriInvoke('agent_disconnect', { request }),
+
   respondPermission: (request: AgentRespondPermissionRequest): Promise<void> =>
     tauriInvoke('agent_respond_permission', { request }),
+
+  terminalSnapshot: (
+    request: AgentTerminalSnapshotRequest
+  ): Promise<AgentTerminalOutputSnapshot | null> =>
+    tauriInvoke('agent_terminal_snapshot', { request }),
+
+  historySources: (request: AgentTypeRequest): Promise<AgentHistorySource[]> =>
+    tauriInvoke('agent_history_sources', { request }),
+
+  importHistory: (
+    request: AgentHistoryImportRequest
+  ): Promise<ImportedAgentSession[]> =>
+    tauriInvoke('agent_history_import', { request }),
+
+  readConfig: (request: AgentTypeRequest): Promise<AgentConfigFile | null> =>
+    tauriInvoke('agent_config_read', { request }),
+
+  writeConfig: (request: AgentTypeRequest & { content: string }): Promise<void> =>
+    tauriInvoke('agent_config_write', { request }),
+
+  readMcp: (request: AgentTypeRequest): Promise<AgentMcpConfigFile | null> =>
+    tauriInvoke('agent_mcp_list', { request }),
+
+  writeMcp: (request: AgentTypeRequest & { config: unknown }): Promise<void> =>
+    tauriInvoke('agent_mcp_write', { request }),
 };

@@ -256,3 +256,42 @@ export type AgentEventEnvelope = {
   event: AgentEvent;
   created_at: string;
 };
+
+export type AgentTerminalSnapshot = Extract<
+  AgentEvent,
+  { kind: 'terminal_created' }
+>['terminal'];
+
+export type AgentTerminalOutputSnapshot = {
+  terminal_id: string;
+  output: string;
+  truncated: boolean;
+  exit?: { kind: 'code'; code: number } | { kind: 'signal'; signal: string } | { kind: 'unknown' } | null;
+};
+
+export type AgentHistorySource = {
+  agent_type: AgentType;
+  path: string;
+};
+
+export type ImportedAgentMessageRole =
+  | 'user'
+  | 'assistant'
+  | 'system'
+  | 'tool'
+  | 'unknown';
+
+export type ImportedAgentMessage = {
+  role: ImportedAgentMessageRole;
+  content: string;
+  created_at?: string | null;
+};
+
+export type ImportedAgentSession = {
+  source_agent: AgentType;
+  external_session_id: string;
+  title?: string | null;
+  workspace_path?: string | null;
+  messages: ImportedAgentMessage[];
+  raw_source_path?: string | null;
+};

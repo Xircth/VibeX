@@ -592,6 +592,17 @@ impl AgentConnectionRunner {
                         {
                             self.cancel_pending_permissions(session_id).await;
                             conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
+                            self.emit(
+                                Some(session_id),
+                                Some(prompt_id),
+                                AgentEvent::PromptFinished {
+                                    finished: AgentPromptFinished {
+                                        prompt_id,
+                                        stop_reason: Some("cancelled".to_string()),
+                                    },
+                                },
+                            );
+                            return Ok(());
                         }
                         Some(AgentConnectionCommand::Disconnect) | None => {
                             self.cancel_pending_permissions(session_id).await;

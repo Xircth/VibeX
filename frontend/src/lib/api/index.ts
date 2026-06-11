@@ -30,7 +30,7 @@ export { attemptsApi } from './attempts';
 // Repos
 export { repoApi } from './repos';
 
-// Config, Settings, MCP, Profiles, Agent Settings, Queue, Settings Window
+// Config, Settings, MCP, Profiles, Agent Settings, Settings Window
 export {
   configApi,
   claudeSettingsApi,
@@ -38,7 +38,6 @@ export {
   profilesApi,
   agentSettingsApi,
   settingsWindowApi,
-  queueApi,
 } from './config';
 export type {
   ClaudeSettings,

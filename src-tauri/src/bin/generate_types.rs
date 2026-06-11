@@ -26,10 +26,7 @@ use executors::{
     profile::ExecutorProfileId,
 };
 use git::GitBranch;
-use services::services::{
-    config::Config,
-    queued_message::{QueueStatus, QueuedMessage},
-};
+use services::services::config::Config;
 use ts_rs::TS;
 use vibex::commands::sessions::{SessionContinuityMode, SessionSummary};
 
@@ -188,8 +185,6 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
-    insert_declaration::<QueuedMessage>(&mut decls);
-    insert_declaration::<QueueStatus>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
     insert_declaration::<SlashCommandKind>(&mut decls);
     insert_declaration::<SlashCommandDescription>(&mut decls);

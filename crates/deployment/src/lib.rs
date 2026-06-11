@@ -25,7 +25,6 @@ use services::services::{
     filesystem_watcher::FilesystemWatcherError,
     image::{ImageError, ImageService},
     project::ProjectService,
-    queued_message::QueuedMessageService,
     repo::RepoService,
     worktree_manager::WorktreeError,
 };
@@ -92,8 +91,6 @@ pub trait Deployment: Clone + Send + Sync + 'static {
     fn file_search_cache(&self) -> &Arc<FileSearchCache>;
 
     fn approvals(&self) -> &Approvals;
-
-    fn queued_message_service(&self) -> &QueuedMessageService;
 
     /// Trigger background auto-setup of default projects for new users
     async fn trigger_auto_project_setup(&self) {

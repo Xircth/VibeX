@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ExecutorProfileId, QueueStatus } from 'shared/types';
-import { queueApi } from '@/lib/api';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   buildCancelQueueMutationInput,
   buildQueueMutationInput,
@@ -25,16 +25,23 @@ export function useSessionComposerQueue({
   processCount?: number;
 }) {
   const queryClient = useQueryClient();
-  const {
-    data: queueStatus = EMPTY_QUEUE_STATUS,
-    refetch: refreshQueueStatus,
-  } = useQuery<QueueStatus>({
+  const prevProcessCountRef = useRef(processCount);
+  const { data: queueStatus = EMPTY_QUEUE_STATUS } = useQuery<QueueStatus>({
     queryKey: getQueueStatusQueryKey(sessionId),
     queryFn: () =>
-      sessionId ? queueApi.getStatus(sessionId) : Promise.resolve(EMPTY_QUEUE_STATUS),
+      Promise.resolve(
+        queryClient.getQueryData<QueueStatus>(getQueueStatusQueryKey(sessionId)) ??
+          EMPTY_QUEUE_STATUS
+      ),
     enabled: Boolean(sessionId),
   });
-  const prevProcessCountRef = useRef(processCount);
+  const refreshQueueStatus = useCallback(async () => {
+    if (!sessionId) return { data: EMPTY_QUEUE_STATUS } as const;
+    const status =
+      queryClient.getQueryData<QueueStatus>(getQueueStatusQueryKey(sessionId)) ??
+      EMPTY_QUEUE_STATUS;
+    return { data: status } as const;
+  }, [queryClient, sessionId]);
 
   useEffect(() => {
     const prevCount = prevProcessCountRef.current;
@@ -68,26 +75,42 @@ export function useSessionComposerQueue({
       images: string[];
       executorProfileId: ExecutorProfileId;
     }) =>
-      queueApi.queue(sessionId, {
-        message,
+      sendAgentRuntimeTurn({
+        workspaceId: workspaceId ?? '',
+        sessionId,
+        text: message,
         images,
-        executor_profile_id: executorProfileId,
+        executorProfileId,
       }),
-    onSuccess: (status, variables) => {
-      queryClient.setQueryData(
-        getQueueStatusQueryKey(variables.sessionId),
-        status
-      );
+    onSuccess: (_prompt, variables) => {
+      const status: QueueStatus = {
+        status: 'queued',
+        message: {
+          session_id: variables.sessionId,
+          queued_at: new Date().toISOString(),
+          data: {
+            message: variables.message,
+            images: variables.images,
+            executor_config: {
+              executor: variables.executorProfileId.executor,
+              variant: variables.executorProfileId.variant ?? null,
+            },
+            queued: true,
+          },
+        },
+      };
+      queryClient.setQueryData(getQueueStatusQueryKey(variables.sessionId), status);
     },
   });
 
   const cancelMutation = useMutation({
-    mutationFn: ({ sessionId }: { sessionId: string }) =>
-      queueApi.cancel(sessionId),
-    onSuccess: (status, variables) => {
+    mutationFn: async ({ sessionId }: { sessionId: string }) => {
+      return { sessionId };
+    },
+    onSuccess: (_result, variables) => {
       queryClient.setQueryData(
         getQueueStatusQueryKey(variables.sessionId),
-        status
+        EMPTY_QUEUE_STATUS
       );
     },
   });
@@ -104,10 +127,10 @@ export function useSessionComposerQueue({
         images,
         executorProfileId,
       });
-      if (!queueInput) return;
+      if (!queueInput || !workspaceId) return;
       await queueMutation.mutateAsync(queueInput);
     },
-    [sessionId, queueMutation]
+    [sessionId, workspaceId, queueMutation]
   );
 
   const cancelQueue = useCallback(async () => {

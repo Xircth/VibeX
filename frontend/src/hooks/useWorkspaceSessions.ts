@@ -1,6 +1,6 @@
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { queueApi, sessionsApi } from '@/lib/api';
+import { sessionsApi } from '@/lib/api';
 import type {
   SessionStatus,
   SessionSummary as SessionSummaryRecord,
@@ -129,19 +129,9 @@ export function useWorkspaceSessions(
     enabled: enabled && !!workspaceId,
   });
 
-  const queueStatusQueries = useQueries({
-    queries: sessionSummaries.map((session) => ({
-      queryKey: ['sessionQueueStatus', session.id],
-      queryFn: () => queueApi.getStatus(session.id),
-      enabled: enabled && !!workspaceId && !!session.id,
-    })),
-  });
-
   const sessions: WorkspaceSessionSummary[] = useMemo(
     () =>
-      sessionSummaries.map((session, index) => {
-        const queueStatus = queueStatusQueries[index]?.data ?? null;
-
+      sessionSummaries.map((session) => {
         return {
           id: session.id,
           workspace_id: session.workspace_id,
@@ -153,20 +143,20 @@ export function useWorkspaceSessions(
           updated_at: session.updated_at,
           firstPrompt: session.first_prompt,
           isRunning: session.is_running,
-          queueStatus,
+          queueStatus: null,
           displayName: session.display_name,
           workspaceName: session.workspace_name,
           workspaceBranch: session.workspace_branch,
           statusLabel: getSessionStatusLabel(
             session.status,
             session.is_running,
-            queueStatus
+            null
           ),
           continuityMode: session.continuity_mode,
           continuityLabel: getContinuityLabel(session.continuity_mode),
         } as WorkspaceSessionSummary;
       }),
-    [queueStatusQueries, sessionSummaries]
+    [sessionSummaries]
   );
 
   useEffect(() => {

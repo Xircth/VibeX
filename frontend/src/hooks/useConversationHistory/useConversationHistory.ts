@@ -1,12 +1,8 @@
 import {
   ExecutionProcess,
   ExecutionProcessStatus,
-  NormalizedEntry,
   PatchType,
-  QueueStatus,
 } from 'shared/types';
-import { useQuery } from '@tanstack/react-query';
-import { queueApi } from '@/lib/api';
 import { dateTimestamp } from '@/utils/date';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
@@ -48,8 +44,6 @@ import {
 import { getConversationRemovalPlan } from './conversationRemovalPlan';
 export { clearConversationRuntimeForTests } from './conversationRuntimeStore';
 export { stripPreviouslyDisplayedAssistantPrefix } from './conversationCodingAgentDisplay';
-
-const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
 
 function stripDisplayEntryMetadata(entry: PatchTypeWithKey): PatchType {
   return {
@@ -97,15 +91,6 @@ export const useConversationHistory = ({
       { clone: true }
     );
   }, []);
-  const { data: queueStatus } = useQuery({
-    queryKey: ['queue-status', sessionId],
-    queryFn: () =>
-      sessionId
-        ? queueApi.getStatus(sessionId)
-        : Promise.resolve(EMPTY_QUEUE_STATUS),
-    enabled: !!sessionId,
-  });
-
   const mergeIntoDisplayed = (
     mutator: (state: ExecutionProcessStateStore) => void
   ) => {
@@ -264,29 +249,9 @@ export const useConversationHistory = ({
         );
       }
 
-      if (
-        queueStatus?.status === 'queued' &&
-        queueStatus.message.data.message
-      ) {
-        const queuedEntry: NormalizedEntry = {
-          entry_type: {
-            type: 'user_message',
-          },
-          content: queueStatus.message.data.message,
-          timestamp: null,
-        };
-
-        allEntries.push({
-          type: 'NORMALIZED_ENTRY',
-          content: queuedEntry,
-          patchKey: `queued:${queueStatus.message.session_id}`,
-          executionProcessId: `queued:${queueStatus.message.session_id}`,
-        });
-      }
-
       return allEntries;
     },
-    [queueStatus]
+    []
   );
 
   const emitEntries = useCallback(

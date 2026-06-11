@@ -114,13 +114,6 @@ pub(crate) fn should_inspect_commits_from_execution(
     matches!(run_reason, ExecutionProcessRunReason::CodingAgent)
 }
 
-pub(crate) fn should_execute_queued_message(status: &ExecutionProcessStatus) -> bool {
-    !matches!(
-        status,
-        ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed
-    )
-}
-
 pub(crate) fn commit_message_for_execution(
     run_reason: &ExecutionProcessRunReason,
     coding_agent_summary: Option<&str>,
@@ -140,29 +133,6 @@ pub(crate) fn commit_message_for_execution(
     }
 }
 
-pub(crate) fn prompt_with_queued_images(message: &str, images: &[String]) -> String {
-    if images.is_empty() {
-        return message.to_string();
-    }
-
-    let image_markdown = images
-        .iter()
-        .filter(|image| !image.trim().is_empty())
-        .map(|image| format!("![]({})", image.trim()))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    if image_markdown.is_empty() {
-        return message.to_string();
-    }
-
-    if message.trim().is_empty() {
-        image_markdown
-    } else {
-        format!("{message}\n\n{image_markdown}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io;
@@ -173,8 +143,7 @@ mod tests {
 
     use super::{
         commit_message_for_execution, execution_result_from_exit, executor_signal_exit_status,
-        prompt_with_queued_images, should_commit_and_consider_next,
-        should_create_executor_approval_bridge, should_execute_queued_message,
+        should_commit_and_consider_next, should_create_executor_approval_bridge,
         should_inspect_commits_from_execution, should_mark_task_in_review_after_stop,
         should_start_next_after_commit, should_try_commit_changes, stop_exit_code_for_status,
         success_exit_status,
@@ -388,22 +357,6 @@ mod tests {
     }
 
     #[test]
-    fn queued_messages_execute_only_after_non_terminal_failure_statuses() {
-        assert!(should_execute_queued_message(
-            &ExecutionProcessStatus::Completed
-        ));
-        assert!(should_execute_queued_message(
-            &ExecutionProcessStatus::Running
-        ));
-        assert!(!should_execute_queued_message(
-            &ExecutionProcessStatus::Failed
-        ));
-        assert!(!should_execute_queued_message(
-            &ExecutionProcessStatus::Killed
-        ));
-    }
-
-    #[test]
     fn commit_message_uses_coding_agent_summary_verbatim_when_present() {
         let exec_id = Uuid::new_v4();
         let workspace_id = Uuid::new_v4();
@@ -469,34 +422,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn queued_prompt_without_images_keeps_original_message() {
-        assert_eq!(
-            prompt_with_queued_images("Continue work", &[]),
-            "Continue work"
-        );
-    }
-
-    #[test]
-    fn queued_prompt_filters_blank_images_and_trims_paths() {
-        assert_eq!(
-            prompt_with_queued_images(
-                "Continue work",
-                &[
-                    "  ".to_string(),
-                    " C:/tmp/a.png ".to_string(),
-                    "\nC:/tmp/b.png\t".to_string(),
-                ],
-            ),
-            "Continue work\n\n![](C:/tmp/a.png)\n![](C:/tmp/b.png)"
-        );
-    }
-
-    #[test]
-    fn queued_prompt_blank_message_returns_only_image_markdown() {
-        assert_eq!(
-            prompt_with_queued_images("  ", &["C:/tmp/a.png".to_string()]),
-            "![](C:/tmp/a.png)"
-        );
-    }
 }

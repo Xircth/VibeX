@@ -8,53 +8,20 @@ use db::models::{
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
-    scratch::{DraftFollowUpData, Scratch, ScratchType},
+    scratch::{Scratch, ScratchType},
     session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskStatus},
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::{
-    executors::{BaseAgentCapability, BaseCodingAgent},
-    profile::{ExecutorConfig, ExecutorProfileId},
-};
+use executors::executors::{BaseAgentCapability, BaseCodingAgent};
 use serde::Serialize;
-use services::services::queued_message::QueueStatus;
 use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
-
-fn queue_status_from_scratch(scratch: Scratch) -> Result<QueueStatus, AppError> {
-    let Scratch {
-        id,
-        payload,
-        updated_at,
-        ..
-    } = scratch;
-
-    match payload {
-        db::models::scratch::ScratchPayload::DraftFollowUp(data) => {
-            if !data.queued {
-                return Ok(QueueStatus::Empty);
-            }
-
-            Ok(QueueStatus::Queued {
-                message: services::services::queued_message::QueuedMessage {
-                    session_id: id,
-                    data,
-                    queued_at: updated_at,
-                },
-            })
-        }
-        other => Err(AppError::Internal(format!(
-            "Invalid scratch payload for queued follow-up: {:?}",
-            other.scratch_type()
-        ))),
-    }
-}
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct SessionSummary {
@@ -795,11 +762,6 @@ pub async fn delete_session(
         )));
     }
 
-    state
-        .deployment
-        .queued_message_service()
-        .cancel_queued(session_id);
-
     Ok(())
 }
 
@@ -827,108 +789,4 @@ pub async fn reset_session_process(
         .await?;
 
     Ok(())
-}
-
-/// Queue a follow-up message to be executed when the current execution finishes.
-#[tauri::command]
-pub async fn queue_message(
-    state: tauri::State<'_, AppState>,
-    session_id: Uuid,
-    message: String,
-    images: Option<Vec<String>>,
-    executor_profile_id: ExecutorProfileId,
-) -> Result<QueueStatus, AppError> {
-    // Look up session (validate it exists)
-    let pool = &state.deployment.db().pool;
-    let _session = Session::find_by_id(pool, session_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
-
-    let data = DraftFollowUpData {
-        message,
-        images: images.unwrap_or_default(),
-        executor_config: ExecutorConfig::from(executor_profile_id),
-        queued: true,
-    };
-
-    let scratch = Scratch::update(
-        pool,
-        session_id,
-        &ScratchType::DraftFollowUp,
-        &db::models::scratch::UpdateScratch {
-            payload: db::models::scratch::ScratchPayload::DraftFollowUp(data.clone()),
-        },
-    )
-    .await?;
-
-    let queued = state
-        .deployment
-        .queued_message_service()
-        .queue_message(session_id, data);
-
-    Ok(QueueStatus::Queued {
-        message: services::services::queued_message::QueuedMessage {
-            queued_at: scratch.updated_at,
-            ..queued
-        },
-    })
-}
-
-/// Cancel a queued follow-up message.
-#[tauri::command]
-pub async fn cancel_queued_message(
-    state: tauri::State<'_, AppState>,
-    session_id: Uuid,
-) -> Result<QueueStatus, AppError> {
-    // Look up session (validate it exists)
-    let pool = &state.deployment.db().pool;
-    let _session = Session::find_by_id(pool, session_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
-
-    let _ = Scratch::delete(pool, session_id, &ScratchType::DraftFollowUp).await?;
-
-    state
-        .deployment
-        .queued_message_service()
-        .cancel_queued(session_id);
-
-    Ok(QueueStatus::Empty)
-}
-
-/// Get the current queue status for a session.
-#[tauri::command]
-pub async fn get_queue_status(
-    state: tauri::State<'_, AppState>,
-    session_id: Uuid,
-) -> Result<QueueStatus, AppError> {
-    // Look up session (validate it exists)
-    let pool = &state.deployment.db().pool;
-    let _session = Session::find_by_id(pool, session_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
-
-    let in_memory_status = state
-        .deployment
-        .queued_message_service()
-        .get_status(session_id);
-
-    if matches!(in_memory_status, QueueStatus::Queued { .. }) {
-        return Ok(in_memory_status);
-    }
-
-    if let Some(scratch) =
-        Scratch::find_by_id(pool, session_id, &ScratchType::DraftFollowUp).await?
-    {
-        let status = queue_status_from_scratch(scratch.clone())?;
-        if let QueueStatus::Queued { message } = &status {
-            state
-                .deployment
-                .queued_message_service()
-                .insert_restored(message.clone());
-        }
-        return Ok(status);
-    }
-
-    Ok(QueueStatus::Empty)
 }

@@ -4,9 +4,8 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::anyhow;
 use async_trait::async_trait;
-use db::{DBService, models::scratch::Scratch};
+use db::DBService;
 use deployment::{Deployment, DeploymentError};
 use executors::profile::ExecutorConfigs;
 use git::GitService;
@@ -20,7 +19,6 @@ use services::services::{
     image::ImageService,
     pr_monitor::PrMonitorService,
     project::ProjectService,
-    queued_message::QueuedMessageService,
     repo::RepoService,
     worktree_manager::WorktreeManager,
 };
@@ -48,7 +46,6 @@ pub struct LocalDeployment {
     events: EventService,
     file_search_cache: Arc<FileSearchCache>,
     approvals: Approvals,
-    queued_message_service: QueuedMessageService,
     pty: PtyService,
 }
 
@@ -119,12 +116,6 @@ impl Deployment for LocalDeployment {
         }
 
         let approvals = Approvals::new(msg_stores.clone());
-        let queued_message_service = QueuedMessageService::new();
-        let scratches = Scratch::find_all(&db.pool)
-            .await
-            .map_err(|e| anyhow!("failed to load scratch state for queue restore: {e}"))?;
-        queued_message_service.restore_from_scratches(&scratches);
-
         let container = LocalContainerService::new(
             db.clone(),
             msg_stores.clone(),
@@ -132,7 +123,6 @@ impl Deployment for LocalDeployment {
             git.clone(),
             image.clone(),
             approvals.clone(),
-            queued_message_service.clone(),
         )
         .await;
 
@@ -160,7 +150,6 @@ impl Deployment for LocalDeployment {
             events,
             file_search_cache,
             approvals,
-            queued_message_service,
             pty,
         };
 
@@ -215,9 +204,6 @@ impl Deployment for LocalDeployment {
         &self.approvals
     }
 
-    fn queued_message_service(&self) -> &QueuedMessageService {
-        &self.queued_message_service
-    }
 }
 
 impl LocalDeployment {

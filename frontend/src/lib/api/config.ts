@@ -8,8 +8,6 @@ import type {
   McpServerQuery,
   UpdateMcpServersBody,
   GetMcpServerResponse,
-  ExecutorProfileId,
-  QueueStatus,
   SoundFile,
 } from 'shared/types';
 
@@ -300,43 +298,5 @@ export const agentSettingsApi = {
 export const settingsWindowApi = {
   open: async (): Promise<void> => {
     return tauriInvoke<void>('open_settings_window');
-  },
-};
-
-// Queue API for session follow-up messages
-export const queueApi = {
-  /**
-   * Queue a follow-up message to be executed when current execution finishes
-   */
-  queue: async (
-    sessionId: string,
-    data: {
-      message: string;
-      images?: string[];
-      executor_profile_id: ExecutorProfileId;
-    }
-  ): Promise<QueueStatus> => {
-    return tauriInvoke<QueueStatus>('queue_message', {
-      sessionId,
-      message: data.message,
-      images: data.images ?? [],
-      executorProfileId: data.executor_profile_id,
-    });
-  },
-
-  /**
-   * Cancel a queued follow-up message
-   */
-  cancel: async (sessionId: string): Promise<QueueStatus> => {
-    if (!sessionId) throw new Error('cancel: sessionId is required');
-    return tauriInvoke<QueueStatus>('cancel_queued_message', { sessionId });
-  },
-
-  /**
-   * Get the current queue status for a session
-   */
-  getStatus: async (sessionId: string): Promise<QueueStatus> => {
-    if (!sessionId) throw new Error('getStatus: sessionId is required');
-    return tauriInvoke<QueueStatus>('get_queue_status', { sessionId });
   },
 };

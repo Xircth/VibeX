@@ -18,7 +18,6 @@ use db::{
         },
         execution_process_repo_state::ExecutionProcessRepoState,
         repo::Repo,
-        scratch::{Scratch, ScratchType},
         session::Session,
         task::{Task, TaskStatus},
         workspace::Workspace,
@@ -43,7 +42,6 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     image::ImageService,
     notification::NotificationService,
-    queued_message::QueuedMessageService,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
     workspace_paths,
 };
@@ -72,7 +70,6 @@ pub struct LocalContainerService {
     git: GitService,
     image_service: ImageService,
     approvals: Approvals,
-    queued_message_service: QueuedMessageService,
     notification_service: NotificationService,
 }
 
@@ -187,7 +184,6 @@ impl LocalContainerService {
         git: GitService,
         image_service: ImageService,
         approvals: Approvals,
-        queued_message_service: QueuedMessageService,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let cancellation_tokens = Arc::new(RwLock::new(HashMap::new()));
@@ -206,7 +202,6 @@ impl LocalContainerService {
             git,
             image_service,
             approvals,
-            queued_message_service,
             notification_service,
         };
 
@@ -712,52 +707,7 @@ impl LocalContainerService {
                 }
 
                 if container.should_finalize(&ctx) {
-                    // Only execute queued messages if the execution succeeded
-                    // If it failed or was killed, just clear the queue and finalize
-                    let should_execute_queued = process_completion::should_execute_queued_message(
-                        &ctx.execution_process.status,
-                    );
-
-                    if let Some(queued_msg) =
-                        container.queued_message_service.take_queued(ctx.session.id)
-                    {
-                        if should_execute_queued {
-                            tracing::info!(
-                                "Found queued message for session {}, starting follow-up execution",
-                                ctx.session.id
-                            );
-
-                            // Delete the scratch since we're consuming the queued message
-                            if let Err(e) = Scratch::delete(
-                                &db.pool,
-                                ctx.session.id,
-                                &ScratchType::DraftFollowUp,
-                            )
-                            .await
-                            {
-                                tracing::warn!(
-                                    "Failed to delete scratch after consuming queued message: {}",
-                                    e
-                                );
-                            }
-
-                            tracing::warn!(
-                                "Discarding legacy queued follow-up for session {}; ACP-native prompts are queued by crates/agents",
-                                ctx.session.id
-                            );
-                            container.finalize_task(&ctx).await;
-                        } else {
-                            // Execution failed or was killed - discard the queued message and finalize
-                            tracing::info!(
-                                "Discarding queued message for session {} due to execution status {:?}",
-                                ctx.session.id,
-                                ctx.execution_process.status
-                            );
-                            container.finalize_task(&ctx).await;
-                        }
-                    } else {
-                        container.finalize_task(&ctx).await;
-                    }
+                    container.finalize_task(&ctx).await;
                 }
             }
 
@@ -1661,8 +1611,8 @@ mod tests {
     use git::GitService;
     use services::services::{
         approvals::Approvals, config::Config, image::ImageService,
-        notification::NotificationService, queued_message::QueuedMessageService,
-        workspace_manager::WorkspaceManager, worktree_manager::WorktreeManager,
+        notification::NotificationService, workspace_manager::WorkspaceManager,
+        worktree_manager::WorktreeManager,
     };
     use sqlx::{SqlitePool, types::chrono::Utc};
     use tempfile::TempDir;
@@ -1991,7 +1941,6 @@ mod tests {
             git: GitService::new(),
             image_service: ImageService::new(pool).unwrap(),
             approvals: Approvals::new(msg_stores),
-            queued_message_service: QueuedMessageService::new(),
             notification_service: NotificationService::new(config),
         }
     }
@@ -2210,7 +2159,6 @@ mod tests {
             GitService::new(),
             ImageService::new(pool.clone()).unwrap(),
             Approvals::new(msg_stores),
-            QueuedMessageService::new(),
         )
         .await;
 
@@ -2887,7 +2835,6 @@ mod tests {
             GitService::new(),
             ImageService::new(pool.clone()).unwrap(),
             Approvals::new(msg_stores),
-            QueuedMessageService::new(),
         )
         .await;
 

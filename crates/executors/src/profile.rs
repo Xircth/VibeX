@@ -11,7 +11,7 @@ use thiserror::Error;
 use ts_rs::TS;
 
 use crate::{
-    executors::{AvailabilityInfo, BaseCodingAgent, CodingAgent, StandardCodingAgentExecutor},
+    executors::{BaseCodingAgent, CodingAgent},
     model_selector::PermissionPolicy,
 };
 
@@ -48,8 +48,6 @@ pub enum ProfileError {
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
 
-    #[error("No available executor profile")]
-    NoAvailableExecutorProfile,
 }
 
 static EXECUTOR_PROFILES_CACHE: LazyLock<RwLock<ExecutorConfigs>> =
@@ -536,67 +534,6 @@ impl ExecutorConfigs {
                 self.get_coding_agent(&default_executor_profile_id)
                     .expect("No default variant found")
             })
-    }
-    pub async fn get_recommended_executor_profile(
-        &self,
-    ) -> Result<ExecutorProfileId, ProfileError> {
-        let mut agents_with_info: Vec<(BaseCodingAgent, AvailabilityInfo)> = Vec::new();
-
-        for &base_agent in self.executors.keys() {
-            let profile_id = ExecutorProfileId::new(base_agent);
-            if let Some(coding_agent) = self.get_coding_agent(&profile_id) {
-                let info = coding_agent.get_availability_info();
-                if info.is_available() {
-                    agents_with_info.push((base_agent, info));
-                }
-            }
-        }
-
-        if agents_with_info.is_empty() {
-            return Err(ProfileError::NoAvailableExecutorProfile);
-        }
-
-        agents_with_info.sort_by(|a, b| {
-            use crate::executors::AvailabilityInfo;
-            match (&a.1, &b.1) {
-                // Both have login detected - compare timestamps (most recent first)
-                (
-                    AvailabilityInfo::LoginDetected {
-                        last_auth_timestamp: time_a,
-                    },
-                    AvailabilityInfo::LoginDetected {
-                        last_auth_timestamp: time_b,
-                    },
-                ) => time_b.cmp(time_a),
-                // LoginDetected > InstallationFound
-                (AvailabilityInfo::LoginDetected { .. }, AvailabilityInfo::InstallationFound) => {
-                    std::cmp::Ordering::Less
-                }
-                (AvailabilityInfo::InstallationFound, AvailabilityInfo::LoginDetected { .. }) => {
-                    std::cmp::Ordering::Greater
-                }
-                // LoginDetected > NotFound
-                (AvailabilityInfo::LoginDetected { .. }, AvailabilityInfo::NotFound) => {
-                    std::cmp::Ordering::Less
-                }
-                (AvailabilityInfo::NotFound, AvailabilityInfo::LoginDetected { .. }) => {
-                    std::cmp::Ordering::Greater
-                }
-                // InstallationFound > NotFound
-                (AvailabilityInfo::InstallationFound, AvailabilityInfo::NotFound) => {
-                    std::cmp::Ordering::Less
-                }
-                (AvailabilityInfo::NotFound, AvailabilityInfo::InstallationFound) => {
-                    std::cmp::Ordering::Greater
-                }
-                // Same state - equal
-                _ => std::cmp::Ordering::Equal,
-            }
-        });
-
-        let selected = agents_with_info[0].0;
-        tracing::info!("Recommended executor: {}", selected);
-        Ok(ExecutorProfileId::new(selected))
     }
 }
 

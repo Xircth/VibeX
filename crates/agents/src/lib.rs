@@ -65,7 +65,7 @@ pub use registry::{
 };
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
-    RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
+    RespondAgentPermissionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};

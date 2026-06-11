@@ -4,6 +4,7 @@ import {
   buildProcessChangeItems,
   collapsedAssistantMessagesLabel,
   findPreviousUserMessageKey,
+  pendingAgentPermissionsFromEvents,
 } from './VirtualizedList';
 import { buildProcessChangeFileGroups } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
 import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
@@ -368,5 +369,51 @@ describe('buildDisplayEntries agent creation groups', () => {
 describe('collapsedAssistantMessagesLabel', () => {
   it('shows the hidden process-message count', () => {
     expect(collapsedAssistantMessagesLabel(3)).toBe('已折叠 3 条过程消息');
+  });
+});
+
+describe('pendingAgentPermissionsFromEvents', () => {
+  it('keeps permission requests pending until a response event arrives', () => {
+    const requested = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: '2026-06-11T00:00:01.000Z',
+      event: {
+        kind: 'permission_requested' as const,
+        request: {
+          id: 'permission-1',
+          session_id: 'session',
+          title: 'Run tests',
+          options: [{ id: 'allow', label: 'Allow once' }],
+        },
+      },
+    };
+
+    expect(pendingAgentPermissionsFromEvents([requested])).toEqual([
+      {
+        connectionId: 'connection',
+        request: requested.event.request,
+      },
+    ]);
+
+    expect(
+      pendingAgentPermissionsFromEvents([
+        requested,
+        {
+          sequence: 2,
+          workspace_id: 'workspace',
+          connection_id: 'connection',
+          session_id: 'session',
+          created_at: '2026-06-11T00:00:02.000Z',
+          event: {
+            kind: 'permission_responded',
+            permission_id: 'permission-1',
+            response: { kind: 'selected', option_id: 'allow' },
+          },
+        },
+      ])
+    ).toEqual([]);
   });
 });

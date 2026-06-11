@@ -306,6 +306,7 @@ pub fn run() {
             commands::agents::agent_send_prompt,
             commands::agents::agent_send_workspace_prompt,
             commands::agents::agent_cancel_prompt,
+            commands::agents::agent_respond_permission,
             // Execution process commands
             commands::execution_processes::get_execution_process,
             commands::execution_processes::stop_execution_process,

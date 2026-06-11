@@ -4,6 +4,7 @@ import type {
   AgentConnectionSnapshot,
   AgentInstallPlan,
   AgentMcpSurface,
+  AgentPermissionResponse,
   AgentPromptSnapshot,
   AgentRegistryEntry,
   AgentRuntimeSnapshot,
@@ -41,6 +42,12 @@ export type AgentCancelPromptRequest = {
   connectionId: string;
   sessionId: string;
   promptId: string;
+};
+
+export type AgentRespondPermissionRequest = {
+  connectionId: string;
+  permissionId: string;
+  response: AgentPermissionResponse;
 };
 
 export const agentsApi = {
@@ -82,4 +89,7 @@ export const agentsApi = {
 
   cancelPrompt: (request: AgentCancelPromptRequest): Promise<void> =>
     tauriInvoke('agent_cancel_prompt', { request }),
+
+  respondPermission: (request: AgentRespondPermissionRequest): Promise<void> =>
+    tauriInvoke('agent_respond_permission', { request }),
 };

@@ -13,9 +13,9 @@ use uuid::Uuid;
 use crate::{
     AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
     AgentConnectionManagerEvent, AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope,
-    AgentPromptId, AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry,
-    AgentResult, AgentSessionId, AgentSessionSnapshot, AgentSessionStatus, AgentType,
-    QueueTransition, registry_entry,
+    AgentPermissionId, AgentPermissionResponse, AgentPromptId, AgentPromptQueue,
+    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId,
+    AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -49,6 +49,13 @@ pub struct CancelAgentPromptInput {
     pub connection_id: AgentConnectionId,
     pub session_id: AgentSessionId,
     pub prompt_id: AgentPromptId,
+}
+
+#[derive(Debug, Clone)]
+pub struct RespondAgentPermissionInput {
+    pub connection_id: AgentConnectionId,
+    pub permission_id: AgentPermissionId,
+    pub response: AgentPermissionResponse,
 }
 
 #[derive(Debug, Clone)]
@@ -522,6 +529,12 @@ impl AgentRuntime {
                 "invalid prompt cancel transition".to_string(),
             )),
         }
+    }
+
+    pub async fn respond_permission(&self, input: RespondAgentPermissionInput) -> AgentResult<()> {
+        self.connection_manager
+            .respond_permission(input.connection_id, input.permission_id, input.response)
+            .await
     }
 
     fn emit_locked(

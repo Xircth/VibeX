@@ -184,6 +184,24 @@ export type AgentRuntimeSnapshot = {
   events: AgentEventEnvelope[];
 };
 
+export type AgentPermissionOption = {
+  id: string;
+  label: string;
+  description?: string | null;
+};
+
+export type AgentPermissionRequest = {
+  id: string;
+  session_id: string;
+  title: string;
+  details?: unknown;
+  options: AgentPermissionOption[];
+};
+
+export type AgentPermissionResponse =
+  | { kind: 'selected'; option_id: string }
+  | { kind: 'cancelled' };
+
 export type AgentContentBlock =
   | { kind: 'text'; text: string }
   | {
@@ -207,7 +225,12 @@ export type AgentEvent =
     }
   | { kind: 'plan'; plan: { entries: string[] } }
   | { kind: 'usage'; usage: { used: number; limit?: number | null } }
-  | { kind: 'permission_requested'; permission_id: string }
+  | { kind: 'permission_requested'; request: AgentPermissionRequest }
+  | {
+      kind: 'permission_responded';
+      permission_id: string;
+      response: AgentPermissionResponse;
+    }
   | {
       kind: 'terminal_created';
       terminal: { id: string; command: string; args: string[]; cwd?: string | null };

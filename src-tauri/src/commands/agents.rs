@@ -6,8 +6,9 @@ use agents::{
     AgentContentBlock,
     AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentInstallPlan,
     AgentMcpSurface, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
-    AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentType,
-    CancelAgentPromptInput, ConnectAgentInput, RuntimeSnapshot, SendAgentPromptInput,
+    AgentPermissionId, AgentPermissionResponse, AgentSessionId, AgentSessionSnapshot,
+    AgentSkillsSurface, AgentType, CancelAgentPromptInput, ConnectAgentInput,
+    RespondAgentPermissionInput, RuntimeSnapshot, SendAgentPromptInput,
     all_agent_types, config_surface, mcp_surface, registry_entry, skills_surface,
     EnsureAgentSessionInput,
 };
@@ -65,6 +66,14 @@ pub struct AgentCancelPromptRequest {
     pub connection_id: String,
     pub session_id: String,
     pub prompt_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRespondPermissionRequest {
+    pub connection_id: String,
+    pub permission_id: String,
+    pub response: AgentPermissionResponse,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,6 +233,22 @@ pub async fn agent_cancel_prompt(
         .map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn agent_respond_permission(
+    state: tauri::State<'_, AppState>,
+    request: AgentRespondPermissionRequest,
+) -> Result<(), AppError> {
+    state
+        .agent_runtime
+        .respond_permission(RespondAgentPermissionInput {
+            connection_id: parse_agent_connection_id(&request.connection_id)?,
+            permission_id: parse_agent_permission_id(&request.permission_id)?,
+            response: request.response,
+        })
+        .await
+        .map_err(Into::into)
+}
+
 fn parse_uuid(label: &str, value: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(value).map_err(|_| AppError::BadRequest(format!("Invalid {label}: {value}")))
 }
@@ -238,6 +263,10 @@ fn parse_agent_session_id(value: &str) -> Result<AgentSessionId, AppError> {
 
 fn parse_agent_prompt_id(value: &str) -> Result<AgentPromptId, AppError> {
     parse_uuid("prompt_id", value).map(AgentPromptId)
+}
+
+fn parse_agent_permission_id(value: &str) -> Result<AgentPermissionId, AppError> {
+    parse_uuid("permission_id", value).map(AgentPermissionId)
 }
 
 fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {

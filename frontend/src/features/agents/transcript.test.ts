@@ -83,7 +83,15 @@ describe('agent transcript adapter', () => {
     const entries = buildAgentTranscriptEntries([
       event(1, {
         kind: 'permission_requested',
-        permission_id: 'perm-1',
+        request: {
+          id: 'perm-1',
+          session_id: 'session',
+          title: 'Run pnpm test',
+          options: [
+            { id: 'allow', label: 'Allow once', description: 'AllowOnce' },
+            { id: 'reject', label: 'Reject once', description: 'RejectOnce' },
+          ],
+        },
       }),
       event(2, {
         kind: 'terminal_created',
@@ -107,7 +115,9 @@ describe('agent transcript adapter', () => {
 
     expect(entries).toHaveLength(3);
     expect(normalized(entries[0]!).entry_type.type).toBe('system_message');
-    expect(normalized(entries[0]!).content).toBe('Permission requested: perm-1');
+    expect(normalized(entries[0]!).content).toBe(
+      'Permission requested: Run pnpm test (2 options)'
+    );
     expect(normalized(entries[1]!).entry_type.type).toBe('tool_use');
     expect(normalized(entries[1]!).content).toBe('pnpm test');
     expect(normalized(entries[2]!).entry_type.type).toBe('tool_use');

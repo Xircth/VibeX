@@ -168,7 +168,7 @@ export function buildAgentTranscriptEntries(
           normalizedEntry(
             envelope,
             { type: 'system_message' },
-            `Permission requested: ${envelope.event.permission_id}`
+            `Permission requested: ${envelope.event.request.title} (${envelope.event.request.options.length} option${envelope.event.request.options.length === 1 ? '' : 's'})`
           )
         );
         break;
@@ -246,6 +246,7 @@ export function buildAgentTranscriptEntries(
         break;
       case 'connection_status_changed':
       case 'session_created':
+      case 'permission_responded':
       case 'prompt_finished':
         break;
     }

@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { ChevronDown, KeyRound, Loader2 } from 'lucide-react';
 import {
   BaseCodingAgent,
   ExecutionProcessStatus,
@@ -28,6 +28,7 @@ import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesConte
 import { useEntries } from '@/contexts/EntriesContext';
 import { buildAgentTranscriptEntries } from '@/features/agents/transcript';
 import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
+import type { AgentEventEnvelope, AgentPermissionRequest } from '@/features/agents/types';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
 import type {
   AddEntryType,
@@ -37,6 +38,7 @@ import type {
 } from '@/hooks/useConversationHistory/types';
 import { isCollapsedAssistantMessagesGroup } from '@/hooks/useConversationHistory/types';
 import { useUserSystem } from '@/components/ConfigProvider';
+import { Button } from '@/components/ui/button';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
 
@@ -61,6 +63,11 @@ function isUserMessageEntry(entry: PatchTypeWithKey): boolean {
 type UserMessagePosition = {
   patchKey: string;
   top: number;
+};
+
+type PendingAgentPermission = {
+  connectionId: string;
+  request: AgentPermissionRequest;
 };
 
 const conversationScrollPositions = new Map<string, number>();
@@ -122,6 +129,27 @@ export function buildProcessChangeItems(
       change,
     }));
   });
+}
+
+export function pendingAgentPermissionsFromEvents(
+  events: AgentEventEnvelope[]
+): PendingAgentPermission[] {
+  const pending = new Map<string, PendingAgentPermission>();
+
+  for (const envelope of events) {
+    if (envelope.event.kind === 'permission_requested') {
+      pending.set(envelope.event.request.id, {
+        connectionId: envelope.connection_id,
+        request: envelope.event.request,
+      });
+    }
+
+    if (envelope.event.kind === 'permission_responded') {
+      pending.delete(envelope.event.permission_id);
+    }
+  }
+
+  return [...pending.values()];
 }
 
 export function collapsedAssistantMessagesLabel(hiddenCount: number): string {
@@ -188,15 +216,21 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
     const agentSession = agentSessionId
       ? agentWorkbench.sessions[agentSessionId]
       : undefined;
-    const agentTranscriptEntries = useMemo(
-      () =>
-        agentSessionId
-          ? buildAgentTranscriptEntries(
-              agentWorkbench.eventsByScope[agentSessionId] ?? []
-            )
-          : [],
+    const agentSessionEvents = useMemo(
+      () => (agentSessionId ? agentWorkbench.eventsByScope[agentSessionId] ?? [] : []),
       [agentSessionId, agentWorkbench.eventsByScope]
     );
+    const agentTranscriptEntries = useMemo(
+      () => buildAgentTranscriptEntries(agentSessionEvents),
+      [agentSessionEvents]
+    );
+    const pendingPermissions = useMemo(
+      () => pendingAgentPermissionsFromEvents(agentSessionEvents),
+      [agentSessionEvents]
+    );
+    const [respondingPermissionId, setRespondingPermissionId] = useState<
+      string | null
+    >(null);
     const usesAgentTranscript = Boolean(agentSession);
 
     useEffect(() => {
@@ -305,6 +339,26 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       [attempt, task]
     );
 
+    const respondToPermission = useCallback(
+      async (permission: PendingAgentPermission, optionId: string | null) => {
+        setRespondingPermissionId(permission.request.id);
+        try {
+          await agentWorkbench.respondPermission({
+            connectionId: permission.connectionId,
+            permissionId: permission.request.id,
+            response: optionId
+              ? { kind: 'selected', option_id: optionId }
+              : { kind: 'cancelled' },
+          });
+        } finally {
+          setRespondingPermissionId((current) =>
+            current === permission.request.id ? null : current
+          );
+        }
+      },
+      [agentWorkbench]
+    );
+
     useLayoutEffect(() => {
       if (restoredScrollRef.current === conversationScrollKey) return;
       if (displayEntries.length === 0) return;
@@ -396,6 +450,14 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
           </div>
         ) : (
           <div className="mx-auto flex max-w-4xl flex-col gap-3">
+            {pendingPermissions.map((permission) => (
+              <AgentPermissionCard
+                key={permission.request.id}
+                permission={permission}
+                disabled={respondingPermissionId === permission.request.id}
+                onRespond={respondToPermission}
+              />
+            ))}
             {displayEntries.map((entry) => (
               <div
                 key={entry.patchKey}
@@ -462,6 +524,56 @@ function CollapsedAssistantMessagesBlock({
             <div key={entry.patchKey}>{renderEntry(entry)}</div>
           ))
         : null}
+    </div>
+  );
+}
+
+function AgentPermissionCard({
+  permission,
+  disabled,
+  onRespond,
+}: {
+  permission: PendingAgentPermission;
+  disabled: boolean;
+  onRespond: (permission: PendingAgentPermission, optionId: string | null) => void;
+}) {
+  return (
+    <div className="rounded-lg border bg-background px-4 py-3 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 rounded-md border bg-muted/50 p-1.5 text-muted-foreground">
+          <KeyRound className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">
+            {permission.request.title}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {permission.request.options.map((option) => (
+              <Button
+                key={option.id}
+                type="button"
+                size="sm"
+                variant={
+                  option.description?.includes('Reject') ? 'outline' : 'default'
+                }
+                disabled={disabled}
+                onClick={() => onRespond(permission, option.id)}
+              >
+                {option.label}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={disabled}
+              onClick={() => onRespond(permission, null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

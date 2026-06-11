@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::ids::{
     AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId,
 };
+use crate::permissions::{AgentPermissionRequest, AgentPermissionResponse};
 use crate::state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -121,7 +122,11 @@ pub enum AgentEvent {
         usage: AgentUsage,
     },
     PermissionRequested {
+        request: AgentPermissionRequest,
+    },
+    PermissionResponded {
         permission_id: AgentPermissionId,
+        response: AgentPermissionResponse,
     },
     TerminalCreated {
         terminal: AgentTerminalSnapshot,

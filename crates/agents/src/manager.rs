@@ -6,15 +6,15 @@ use agent_client_protocol::schema::{
     AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
     ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
     InitializeRequest, KillTerminalRequest, KillTerminalResponse, NewSessionRequest,
-    PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    PromptRequest, ProtocolVersion, ReleaseTerminalResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TerminalId,
     TerminalOutputResponse, TextContent, WaitForTerminalExitResponse,
 };
 use futures::StreamExt;
 use tokio::{
     io::AsyncWriteExt,
-    sync::{Mutex, RwLock, mpsc},
+    sync::{Mutex, RwLock, mpsc, oneshot},
 };
 use tokio_util::{
     compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt},
@@ -24,6 +24,7 @@ use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_
 
 use crate::{
     AgentConnectionId, AgentContentBlock, AgentError, AgentErrorEvent, AgentEvent,
+    AgentPermissionId, AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionId, AgentTerminalCreateRequest,
     AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType,
     AgentUsage, CommandBuildInput, current_platform, registry_entry,
@@ -51,7 +52,7 @@ pub enum AgentConnectionCommand {
     },
     RespondPermission {
         permission_id: String,
-        option_id: String,
+        response: AgentPermissionResponse,
     },
     Disconnect,
 }
@@ -176,6 +177,22 @@ impl AgentConnectionManager {
         .await
     }
 
+    pub async fn respond_permission(
+        &self,
+        connection_id: AgentConnectionId,
+        permission_id: AgentPermissionId,
+        response: AgentPermissionResponse,
+    ) -> AgentResult<()> {
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::RespondPermission {
+                permission_id: permission_id.to_string(),
+                response,
+            },
+        )
+        .await
+    }
+
     pub async fn disconnect(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
         let connection = self.connections.lock().await.remove(&connection_id);
         let Some(connection) = connection else {
@@ -223,6 +240,14 @@ struct AgentConnectionRunner {
     snapshot: ManagedAgentConnectionSnapshot,
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+    pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+}
+
+#[derive(Debug)]
+struct PendingPermission {
+    permission_id: AgentPermissionId,
+    session_id: AgentSessionId,
+    tx: oneshot::Sender<AgentPermissionResponse>,
 }
 
 impl AgentConnectionRunner {
@@ -234,6 +259,7 @@ impl AgentConnectionRunner {
             snapshot,
             event_tx,
             session_map: Arc::new(RwLock::new(HashMap::new())),
+            pending_permissions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -292,7 +318,10 @@ impl AgentConnectionRunner {
                         },
                     },
                 ),
-                AgentConnectionCommand::RespondPermission { .. } => {}
+                AgentConnectionCommand::RespondPermission {
+                    permission_id,
+                    response,
+                } => self.respond_pending_permission(&permission_id, response).await,
                 AgentConnectionCommand::Disconnect => break,
             }
         }
@@ -393,6 +422,7 @@ impl AgentConnectionRunner {
             self.snapshot.connection_id,
             self.event_tx.clone(),
             Arc::clone(&self.session_map),
+            Arc::clone(&self.pending_permissions),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -464,7 +494,12 @@ impl AgentConnectionRunner {
                                 },
                             );
                         }
-                        AgentConnectionCommand::RespondPermission { .. } => {}
+                        AgentConnectionCommand::RespondPermission {
+                            permission_id,
+                            response,
+                        } => {
+                            runner.respond_pending_permission(&permission_id, response).await;
+                        }
                         AgentConnectionCommand::Disconnect => break,
                     }
                 }
@@ -555,11 +590,16 @@ impl AgentConnectionRunner {
                         Some(AgentConnectionCommand::Cancel { session_id: cancel_session, prompt_id: cancel_prompt })
                             if cancel_session == session_id && cancel_prompt == prompt_id =>
                         {
+                            self.cancel_pending_permissions(session_id).await;
                             conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
                         }
                         Some(AgentConnectionCommand::Disconnect) | None => {
+                            self.cancel_pending_permissions(session_id).await;
                             conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
                             return Ok(());
+                        }
+                        Some(AgentConnectionCommand::RespondPermission { permission_id, response }) => {
+                            self.respond_pending_permission(&permission_id, response).await;
                         }
                         Some(other) => {
                             self.emit(
@@ -576,6 +616,66 @@ impl AgentConnectionRunner {
                     }
                 }
             }
+        }
+    }
+
+    async fn respond_pending_permission(
+        &self,
+        permission_id: &str,
+        response: AgentPermissionResponse,
+    ) {
+        let pending = self.pending_permissions.lock().await.remove(permission_id);
+        if let Some(pending) = pending {
+            let _ = pending.tx.send(response.clone());
+            self.emit(
+                Some(pending.session_id),
+                None,
+                AgentEvent::PermissionResponded {
+                    permission_id: pending.permission_id,
+                    response,
+                },
+            );
+        } else {
+            self.emit(
+                None,
+                None,
+                AgentEvent::RawAcpDiagnostic {
+                    raw: serde_json::json!({
+                        "kind": "unknown_permission_response",
+                        "permission_id": permission_id,
+                    }),
+                },
+            );
+        }
+    }
+
+    async fn cancel_pending_permissions(&self, session_id: AgentSessionId) {
+        let pending = {
+            let mut pending_permissions = self.pending_permissions.lock().await;
+            let permission_ids = pending_permissions
+                .iter()
+                .filter_map(|(permission_id, pending)| {
+                    (pending.session_id == session_id).then(|| permission_id.clone())
+                })
+                .collect::<Vec<_>>();
+
+            permission_ids
+                .into_iter()
+                .filter_map(|permission_id| pending_permissions.remove(&permission_id))
+                .collect::<Vec<_>>()
+        };
+
+        for pending in pending {
+            let response = AgentPermissionResponse::Cancelled;
+            let _ = pending.tx.send(response.clone());
+            self.emit(
+                Some(pending.session_id),
+                None,
+                AgentEvent::PermissionResponded {
+                    permission_id: pending.permission_id,
+                    response,
+                },
+            );
         }
     }
 
@@ -599,6 +699,7 @@ struct AcpClientBridge {
     connection_id: AgentConnectionId,
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+    pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
 }
 
 impl AcpClientBridge {
@@ -606,11 +707,13 @@ impl AcpClientBridge {
         connection_id: AgentConnectionId,
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+        pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     ) -> Self {
         Self {
             connection_id,
             event_tx,
             session_map,
+            pending_permissions,
         }
     }
 
@@ -691,22 +794,55 @@ impl AcpClientBridge {
         &self,
         args: RequestPermissionRequest,
     ) -> Result<RequestPermissionResponse, acp::Error> {
-        let outcome =
-            selected_permission_outcome_for_kind(&args.options, PermissionOptionKind::AllowAlways)
-                .or_else(|| {
-                    selected_permission_outcome_for_kind(
-                        &args.options,
-                        PermissionOptionKind::AllowOnce,
-                    )
+        let permission_id = AgentPermissionId::new();
+        let session_id = self
+            .agent_session_for_acp(args.session_id.0.to_string())
+            .await
+            .unwrap_or_default();
+        let request = AgentPermissionRequest {
+            id: permission_id,
+            session_id,
+            title: args
+                .tool_call
+                .fields
+                .title
+                .clone()
+                .unwrap_or_else(|| "Permission requested".to_string()),
+            details: serde_json::to_value(&args.tool_call).ok(),
+            options: args
+                .options
+                .iter()
+                .map(|option| AgentPermissionOption {
+                    id: option.option_id.to_string(),
+                    label: option.name.clone(),
+                    description: Some(format!("{:?}", option.kind)),
                 })
-                .or_else(|| {
-                    args.options.first().map(|option| {
-                        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                            option.option_id.clone(),
-                        ))
-                    })
-                })
-                .unwrap_or(RequestPermissionOutcome::Cancelled);
+                .collect(),
+        };
+        let (tx, rx) = oneshot::channel();
+        self.pending_permissions.lock().await.insert(
+            permission_id.to_string(),
+            PendingPermission {
+                permission_id,
+                session_id,
+                tx,
+            },
+        );
+
+        let _ = self.event_tx.send(AgentConnectionManagerEvent {
+            connection_id: self.connection_id,
+            session_id: Some(session_id),
+            prompt_id: None,
+            event: AgentEvent::PermissionRequested { request },
+        });
+
+        let response = rx.await.unwrap_or(AgentPermissionResponse::Cancelled);
+        let outcome = match response {
+            AgentPermissionResponse::Selected { option_id } => {
+                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
+            }
+            AgentPermissionResponse::Cancelled => RequestPermissionOutcome::Cancelled,
+        };
         Ok(RequestPermissionResponse::new(outcome))
     }
 
@@ -819,20 +955,6 @@ impl AcpClientBridge {
         }
         Ok(KillTerminalResponse::new())
     }
-}
-
-fn selected_permission_outcome_for_kind(
-    options: &[agent_client_protocol::schema::PermissionOption],
-    kind: PermissionOptionKind,
-) -> Option<RequestPermissionOutcome> {
-    options
-        .iter()
-        .find(|option| option.kind == kind)
-        .map(|option| {
-            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                option.option_id.clone(),
-            ))
-        })
 }
 
 fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {

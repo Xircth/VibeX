@@ -10,6 +10,7 @@ import type {
   AgentCancelPromptRequest,
   AgentConnectRequest,
   AgentNewSessionRequest,
+  AgentRespondPermissionRequest,
   AgentSendPromptRequest,
 } from './api';
 import type {
@@ -99,6 +100,13 @@ export function useAgentWorkbench() {
     return agentsApi.cancelPrompt(request);
   }, []);
 
+  const respondPermission = useCallback(
+    (request: AgentRespondPermissionRequest) => {
+      return agentsApi.respondPermission(request);
+    },
+    []
+  );
+
   return {
     ...state,
     loadState,
@@ -108,5 +116,6 @@ export function useAgentWorkbench() {
     newSession,
     sendPrompt,
     cancelPrompt,
+    respondPermission,
   };
 }

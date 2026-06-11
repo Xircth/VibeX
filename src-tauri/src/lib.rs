@@ -302,21 +302,6 @@ pub fn run() {
             commands::approvals::respond_to_approval,
             // Codex account commands
             commands::codex_account::get_codex_account_rate_limits,
-            // Provider runtime facade commands
-            commands::provider_runtime::provider_runtime_get_capabilities,
-            commands::provider_runtime::provider_runtime_get_status,
-            commands::provider_runtime::provider_runtime_get_commands,
-            commands::provider_runtime::provider_runtime_list_models,
-            commands::provider_runtime::provider_runtime_send_turn,
-            commands::provider_runtime::provider_runtime_interrupt,
-            commands::provider_runtime::provider_runtime_list_sessions,
-            commands::provider_runtime::provider_runtime_load_history,
-            commands::provider_runtime::provider_runtime_respond_to_request,
-            commands::provider_runtime::provider_runtime_codex_list_skills,
-            commands::provider_runtime::provider_runtime_codex_configure_skill,
-            commands::provider_runtime::provider_runtime_codex_list_hooks,
-            commands::provider_runtime::provider_runtime_codex_set_hook_enabled,
-            commands::provider_runtime::provider_runtime_codex_list_apps,
             // ACP-native agent platform commands
             commands::agents::agent_registry_list,
             commands::agents::agent_config_surfaces,

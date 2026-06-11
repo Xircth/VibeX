@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
 use agents::{
-    AgentConnectionId, AgentConnectionSnapshot, AgentPromptId, AgentPromptSnapshot,
-    AgentRegistryEntry, AgentRuntime, AgentSessionId, AgentSessionSnapshot, AgentType,
+    AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentInstallPlan,
+    AgentMcpSurface, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
+    AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentType,
     CancelAgentPromptInput, ConnectAgentInput, RuntimeSnapshot, SendAgentPromptInput,
+    all_agent_types, config_surface, mcp_surface, registry_entry, skills_surface,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -60,6 +62,30 @@ pub struct AgentCancelPromptRequest {
 #[tauri::command]
 pub async fn agent_registry_list() -> Result<Vec<AgentRegistryEntry>, AppError> {
     Ok(AgentRuntime::default().registry())
+}
+
+#[tauri::command]
+pub async fn agent_config_surfaces() -> Result<Vec<AgentConfigSurface>, AppError> {
+    Ok(all_agent_types().into_iter().map(config_surface).collect())
+}
+
+#[tauri::command]
+pub async fn agent_mcp_surfaces() -> Result<Vec<AgentMcpSurface>, AppError> {
+    Ok(all_agent_types().into_iter().map(mcp_surface).collect())
+}
+
+#[tauri::command]
+pub async fn agent_skills_surfaces() -> Result<Vec<AgentSkillsSurface>, AppError> {
+    Ok(all_agent_types().into_iter().map(skills_surface).collect())
+}
+
+#[tauri::command]
+pub async fn agent_install_plans() -> Result<Vec<AgentInstallPlan>, AppError> {
+    Ok(all_agent_types()
+        .into_iter()
+        .map(registry_entry)
+        .map(|entry| AgentInstallPlan::from_registry_entry(&entry))
+        .collect())
 }
 
 #[tauri::command]
@@ -151,4 +177,3 @@ fn parse_agent_session_id(value: &str) -> Result<AgentSessionId, AppError> {
 fn parse_agent_prompt_id(value: &str) -> Result<AgentPromptId, AppError> {
     parse_uuid("prompt_id", value).map(AgentPromptId)
 }
-

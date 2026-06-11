@@ -1,10 +1,14 @@
 import { tauriInvoke } from '@/lib/tauriApi';
 import type {
+  AgentConfigSurface,
   AgentConnectionSnapshot,
+  AgentInstallPlan,
+  AgentMcpSurface,
   AgentPromptSnapshot,
   AgentRegistryEntry,
   AgentRuntimeSnapshot,
   AgentSessionSnapshot,
+  AgentSkillsSurface,
   AgentType,
 } from './types';
 
@@ -34,6 +38,18 @@ export type AgentCancelPromptRequest = {
 export const agentsApi = {
   listRegistry: (): Promise<AgentRegistryEntry[]> =>
     tauriInvoke('agent_registry_list'),
+
+  listConfigSurfaces: (): Promise<AgentConfigSurface[]> =>
+    tauriInvoke('agent_config_surfaces'),
+
+  listMcpSurfaces: (): Promise<AgentMcpSurface[]> =>
+    tauriInvoke('agent_mcp_surfaces'),
+
+  listSkillsSurfaces: (): Promise<AgentSkillsSurface[]> =>
+    tauriInvoke('agent_skills_surfaces'),
+
+  listInstallPlans: (): Promise<AgentInstallPlan[]> =>
+    tauriInvoke('agent_install_plans'),
 
   snapshot: (): Promise<AgentRuntimeSnapshot> =>
     tauriInvoke('agent_runtime_snapshot'),

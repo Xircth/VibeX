@@ -117,12 +117,16 @@ export type {
   AgentSendPromptRequest,
 } from '@/features/agents/api';
 export type {
+  AgentConfigSurface,
   AgentConnectionSnapshot,
   AgentEvent,
   AgentEventEnvelope,
+  AgentInstallPlan,
+  AgentMcpSurface,
   AgentPromptSnapshot,
   AgentRegistryEntry,
   AgentRuntimeSnapshot,
   AgentSessionSnapshot,
+  AgentSkillsSurface,
   AgentType,
 } from '@/features/agents/types';

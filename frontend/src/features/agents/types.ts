@@ -60,6 +60,82 @@ export type AgentDistribution =
       args: string[];
     };
 
+export type AgentConfigStrategy =
+  | 'unsupported'
+  | 'file_json'
+  | 'file_toml'
+  | 'directory'
+  | 'agent_command'
+  | 'acp_extension';
+
+export type AgentMcpStrategy =
+  | 'unsupported'
+  | 'file_json'
+  | 'file_toml'
+  | 'agent_command'
+  | 'acp_extension';
+
+export type AgentSkillsStrategy =
+  | 'unsupported'
+  | 'directory'
+  | 'agent_command'
+  | 'acp_extension';
+
+export type AgentInstallStatus =
+  | 'ready'
+  | 'missing_prerequisite'
+  | 'missing_agent'
+  | 'unsupported_platform'
+  | 'auth_missing'
+  | 'unknown';
+
+export type AgentPreflightSeverity = 'info' | 'warning' | 'error';
+
+export type AgentPathTemplate = {
+  env_var?: string | null;
+  unix: string;
+  windows: string;
+};
+
+export type AgentConfigSurface = {
+  agent_type: AgentType;
+  auth_paths: AgentPathTemplate[];
+  config_paths: AgentPathTemplate[];
+  strategy: AgentConfigStrategy;
+};
+
+export type AgentMcpSurface = {
+  agent_type: AgentType;
+  strategy: AgentMcpStrategy;
+  user_visible: boolean;
+};
+
+export type AgentSkillsSurface = {
+  agent_type: AgentType;
+  strategy: AgentSkillsStrategy;
+  global_supported: boolean;
+  project_supported: boolean;
+};
+
+export type AgentPreflightIssue = {
+  code: string;
+  severity: AgentPreflightSeverity;
+  message: string;
+};
+
+export type AgentPreflight = {
+  agent_type: AgentType;
+  status: AgentInstallStatus;
+  issues: AgentPreflightIssue[];
+};
+
+export type AgentInstallPlan = {
+  agent_type: AgentType;
+  distribution: AgentDistribution;
+  required_tools: string[];
+  user_visible_summary: string;
+};
+
 export type AgentRegistryEntry = {
   agent_type: AgentType;
   registry_id: string;

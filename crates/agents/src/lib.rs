@@ -44,16 +44,16 @@ pub use manager::{
     AgentConnectionCommand, AgentConnectionLaunch, AgentConnectionManager,
     ManagedAgentConnectionSnapshot,
 };
-pub use mcp::{AgentMcpStrategy, AgentMcpSurface};
+pub use mcp::{AgentMcpStrategy, AgentMcpSurface, mcp_surface};
 pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};
-pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate};
+pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate, config_surface};
 pub use registry::{AgentRegistryEntry, AgentType, all_agent_types, registry_entry};
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, RuntimeEventSink, RuntimeSnapshot,
     SendAgentPromptInput,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
-pub use skills::{AgentSkillsStrategy, AgentSkillsSurface};
+pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};
 pub use state::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentPromptSnapshot, AgentPromptStatus,
     AgentSessionSnapshot, AgentSessionStatus,

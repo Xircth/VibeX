@@ -319,6 +319,10 @@ pub fn run() {
             commands::provider_runtime::provider_runtime_codex_list_apps,
             // ACP-native agent platform commands
             commands::agents::agent_registry_list,
+            commands::agents::agent_config_surfaces,
+            commands::agents::agent_mcp_surfaces,
+            commands::agents::agent_skills_surfaces,
+            commands::agents::agent_install_plans,
             commands::agents::agent_runtime_snapshot,
             commands::agents::agent_connect,
             commands::agents::agent_new_session,

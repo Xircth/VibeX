@@ -296,7 +296,7 @@ async fn trigger_pr_description_follow_up(
     let agent_session = state
         .agent_runtime
         .ensure_session(EnsureAgentSessionInput {
-            agent_type: agent_type_from_executor(executor_profile_id.executor)?,
+                agent_type: agent_type_from_executor(executor_profile_id.executor.clone())?,
             workspace_id: workspace.id,
             working_dir: PathBuf::from(working_dir),
             session_id: agent_session_id,

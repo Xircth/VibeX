@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use agents::{AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use db::models::{
     image::{Image, TaskImage},
@@ -10,7 +11,7 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::profile::{ExecutorConfig, ExecutorProfileId};
+use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
 use git::GitService;
 use services::services::{container::ContainerService, workspace_manager::WorkspaceManager};
 use uuid::Uuid;
@@ -18,6 +19,18 @@ use uuid::Uuid;
 use crate::{
     error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
 };
+
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<AgentType, AppError> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => Ok(AgentType::ClaudeCode),
+        BaseCodingAgent::Codex => Ok(AgentType::Codex),
+        BaseCodingAgent::Opencode => Ok(AgentType::OpenCode),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => Err(AppError::BadRequest(
+            "QA mock is not available through the ACP-native agent runtime".to_string(),
+        )),
+    }
+}
 
 // --- Query / Input types ---
 
@@ -466,18 +479,45 @@ pub async fn create_task_and_start(
     )
     .await?;
 
-    // Start the workspace
-    let is_attempt_running = state
-        .deployment
-        .container()
-        .start_workspace_with_session(
-            &workspace,
-            &session,
-            ExecutorConfig::from(payload.executor_profile_id.clone()),
-        )
-        .await
-        .inspect_err(|err| tracing::error!("Failed to start task attempt: {}", err))
-        .is_ok();
+    let is_attempt_running = async {
+        let container_ref = state
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
+            .unwrap_or_else(|| container_ref.clone());
+        let agent_session_id = AgentSessionId(session.id);
+        let agent_session = state
+            .agent_runtime
+            .ensure_session(EnsureAgentSessionInput {
+                agent_type: agent_type_from_executor(payload.executor_profile_id.executor.clone())?,
+                workspace_id: workspace.id,
+                working_dir: PathBuf::from(working_dir),
+                session_id: agent_session_id,
+                acp_session_id: session.id.to_string(),
+            })
+            .await?;
+
+        state
+            .agent_runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: agent_session.connection_id,
+                session_id: agent_session.id,
+                text: session
+                    .initial_prompt
+                    .clone()
+                    .filter(|prompt| !prompt.trim().is_empty())
+                    .unwrap_or_else(|| task.to_prompt()),
+            })
+            .await?;
+
+        Ok::<(), AppError>(())
+    }
+    .await
+    .inspect_err(|err| tracing::error!("Failed to start ACP-native task attempt: {}", err))
+    .is_ok();
 
     let task = Task::find_by_id(pool, task.id)
         .await?

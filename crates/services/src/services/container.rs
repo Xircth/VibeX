@@ -30,12 +30,10 @@ use executors::executors::qa_mock::QaMockExecutor;
 #[cfg(not(feature = "qa-mode"))]
 use executors::profile::ExecutorConfigs;
 use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_initial::CodingAgentInitialRequest,
-    },
+    actions::{ExecutorAction, ExecutorActionType},
     executors::{ExecutorError, StandardCodingAgentExecutor},
     logs::utils::ConversationPatch,
-    profile::{ExecutorConfig, ExecutorProfileId},
+    profile::ExecutorProfileId,
 };
 use futures::{StreamExt, future, stream::BoxStream};
 use git::{GitService, GitServiceError};
@@ -1262,142 +1260,6 @@ pub trait ContainerService {
                 }
             }
         })
-    }
-
-    async fn start_workspace(
-        &self,
-        workspace: &Workspace,
-        executor_config: ExecutorConfig,
-    ) -> Result<ExecutionProcess, ContainerError> {
-        // Get parent task
-        let task = workspace
-            .parent_task(&self.db().pool)
-            .await?
-            .ok_or(SqlxError::RowNotFound)?;
-
-        let workspace = Workspace::find_by_id(&self.db().pool, workspace.id)
-            .await?
-            .ok_or(SqlxError::RowNotFound)?;
-
-        let session = Session::create(
-            &self.db().pool,
-            &CreateSession {
-                executor: Some(executor_config.executor.to_string()),
-                task_id: Some(task.id),
-                name: Some(task.title.clone()),
-                initial_prompt: task.description.clone(),
-                status: Some(SessionStatus::Todo),
-            },
-            Uuid::new_v4(),
-            workspace.id,
-        )
-        .await?;
-
-        self.start_workspace_with_session(&workspace, &session, executor_config)
-            .await
-    }
-
-    async fn start_workspace_with_session(
-        &self,
-        workspace: &Workspace,
-        session: &Session,
-        executor_config: ExecutorConfig,
-    ) -> Result<ExecutionProcess, ContainerError> {
-        let container_ref = self.create(workspace).await?;
-        let mut runnable_workspace = workspace.clone();
-        runnable_workspace.container_ref = Some(container_ref);
-
-        let repos = WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-
-        let task = if let Some(task_id) = session.task_id {
-            Task::find_by_id(&self.db().pool, task_id)
-                .await?
-                .ok_or(SqlxError::RowNotFound)?
-        } else {
-            workspace
-                .parent_task(&self.db().pool)
-                .await?
-                .ok_or(SqlxError::RowNotFound)?
-        };
-
-        let prompt = session
-            .initial_prompt
-            .as_ref()
-            .filter(|prompt| !prompt.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| task.to_prompt());
-
-        let repos_with_setup: Vec<_> = repos.iter().filter(|r| r.setup_script.is_some()).collect();
-        let setup_start_mode = container_actions::workspace_setup_start_mode(&repos_with_setup);
-
-        let cleanup_action = container_actions::cleanup_actions_for_repos(&repos);
-
-        let container_ref = match runnable_workspace.container_ref.as_deref() {
-            Some(container_ref) if !container_ref.is_empty() => container_ref.to_string(),
-            _ => self.ensure_container_exists(&runnable_workspace).await?,
-        };
-        let working_dir =
-            normalized_workspace_agent_working_dir(&runnable_workspace, &container_ref, &repos);
-
-        let coding_action = ExecutorAction::new(
-            ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt,
-                executor_config: executor_config.clone(),
-                working_dir,
-            }),
-            cleanup_action.map(Box::new),
-        );
-
-        let execution_process = match setup_start_mode {
-            container_actions::WorkspaceSetupStartMode::DirectCoding => {
-                self.start_execution(
-                    &runnable_workspace,
-                    session,
-                    &coding_action,
-                    &ExecutionProcessRunReason::CodingAgent,
-                )
-                .await?
-            }
-            container_actions::WorkspaceSetupStartMode::ParallelSetupsThenCoding => {
-                for repo in &repos_with_setup {
-                    if let Some(action) = container_actions::setup_action_for_repo(repo)
-                        && let Err(e) = self
-                            .start_execution(
-                                &runnable_workspace,
-                                session,
-                                &action,
-                                &ExecutionProcessRunReason::SetupScript,
-                            )
-                            .await
-                    {
-                        tracing::warn!(?e, "Failed to start setup script in parallel mode");
-                    }
-                }
-                self.start_execution(
-                    &runnable_workspace,
-                    session,
-                    &coding_action,
-                    &ExecutionProcessRunReason::CodingAgent,
-                )
-                .await?
-            }
-            container_actions::WorkspaceSetupStartMode::SequentialSetupChain => {
-                // Any sequential setup chain must end in the coding agent action.
-                let main_action = container_actions::build_sequential_setup_chain(
-                    &repos_with_setup,
-                    coding_action,
-                );
-                self.start_execution(
-                    &runnable_workspace,
-                    session,
-                    &main_action,
-                    &ExecutionProcessRunReason::SetupScript,
-                )
-                .await?
-            }
-        };
-
-        Ok(execution_process)
     }
 
     async fn start_execution(

@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use executors::executors::codex::codex_home;
+use agents::codex_home;
 use serde::Serialize;
 use tokio::fs;
 

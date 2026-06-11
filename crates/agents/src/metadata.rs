@@ -108,35 +108,47 @@ pub fn codex_auth_path() -> Option<std::path::PathBuf> {
 }
 
 pub fn opencode_config_path() -> Option<std::path::PathBuf> {
+    let dir = opencode_config_dir()?;
+    let json = dir.join("opencode.json");
+    if json.exists() {
+        Some(json)
+    } else {
+        Some(dir.join("opencode.jsonc"))
+    }
+}
+
+pub fn opencode_config_dir() -> Option<std::path::PathBuf> {
     #[cfg(not(windows))]
     {
-        let home = dirs::home_dir()?;
-        let config_home = std::env::var_os("XDG_CONFIG_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| home.join(".config"));
-        let dir = config_home.join("opencode");
-        let json = dir.join("opencode.json");
-        if json.exists() {
-            Some(json)
-        } else {
-            Some(dir.join("opencode.jsonc"))
-        }
+        dirs::home_dir().map(|path| path.join(".config").join("opencode"))
     }
     #[cfg(windows)]
     {
-        let config_dir = std::env::var("XDG_CONFIG_HOME")
+        std::env::var("XDG_CONFIG_HOME")
             .map(std::path::PathBuf::from)
             .ok()
             .or_else(|| dirs::home_dir().map(|home| home.join("AppData").join("Roaming")))
-            .map(|base| base.join("opencode"));
-        config_dir.map(|dir| {
-            let json = dir.join("opencode.json");
-            if json.exists() {
-                json
-            } else {
-                dir.join("opencode.jsonc")
-            }
+            .map(|base| base.join("opencode"))
+    }
+}
+
+pub fn opencode_auth_path() -> Option<std::path::PathBuf> {
+    #[cfg(not(windows))]
+    {
+        dirs::home_dir().map(|path| {
+            path.join(".local")
+                .join("share")
+                .join("opencode")
+                .join("auth.json")
         })
+    }
+    #[cfg(windows)]
+    {
+        std::env::var("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|path| path.join(".local").join("share")))
+            .map(|path| path.join("opencode").join("auth.json"))
     }
 }
 

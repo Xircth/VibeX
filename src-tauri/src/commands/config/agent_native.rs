@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
-use executors::executors::{BaseCodingAgent, codex::codex_home};
+use agents::{codex_home, opencode_auth_path, opencode_config_dir};
+use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use ts_rs::TS;
@@ -26,41 +25,6 @@ fn empty_configs() -> AgentNativeConfigs {
         opencode_config_json: None,
         opencode_auth_json: None,
         opencode_config_path: None,
-    }
-}
-
-fn opencode_config_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .ok()
-            .or_else(|| dirs::home_dir().map(|path| path.join(".config")))
-            .map(|path| path.join("opencode"))
-    }
-    #[cfg(not(windows))]
-    {
-        dirs::home_dir().map(|path| path.join(".config").join("opencode"))
-    }
-}
-
-fn opencode_auth_path() -> Option<PathBuf> {
-    #[cfg(windows)]
-    {
-        std::env::var("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .ok()
-            .or_else(|| dirs::home_dir().map(|path| path.join(".local").join("share")))
-            .map(|path| path.join("opencode").join("auth.json"))
-    }
-    #[cfg(not(windows))]
-    {
-        dirs::home_dir().map(|path| {
-            path.join(".local")
-                .join("share")
-                .join("opencode")
-                .join("auth.json")
-        })
     }
 }
 

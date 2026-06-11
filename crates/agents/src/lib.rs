@@ -55,7 +55,8 @@ pub use mcp_file::{
 };
 pub use metadata::{
     AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities,
-    claude_config_path, codex_auth_path, codex_config_path, codex_home, opencode_config_path,
+    claude_config_path, codex_auth_path, codex_config_path, codex_home, opencode_auth_path,
+    opencode_config_dir, opencode_config_path,
 };
 pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};
 pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate, config_surface};

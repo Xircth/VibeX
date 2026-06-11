@@ -13,6 +13,7 @@ api-types = { path = "../api-types" }
 utils = { path = "../utils" }
 git = { path = "../git" }
 executors = { path = "../executors" }
+agents = { path = "../agents" }
 db = { path = "../db" }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["io"] }

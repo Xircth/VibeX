@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use agents::AgentType;
 use anyhow::{Error as AnyhowError, anyhow};
 use async_trait::async_trait;
 use db::{
@@ -24,13 +25,9 @@ use db::{
         workspace_repo::WorkspaceRepo,
     },
 };
-#[cfg(feature = "qa-mode")]
-use executors::executors::qa_mock::QaMockExecutor;
-#[cfg(not(feature = "qa-mode"))]
-use executors::profile::ExecutorConfigs;
 use executors::{
     actions::{ExecutorAction, ExecutorActionType},
-    executors::{ExecutorError, StandardCodingAgentExecutor},
+    executors::{BaseCodingAgent, ExecutorError, SlashCommandDescription, SlashCommandKind},
     logs::utils::ConversationPatch,
     profile::ExecutorProfileId,
 };
@@ -164,34 +161,52 @@ mod tests {
     }
 }
 
-fn workspace_base_dir(workspace: &Workspace, container_ref: &str, repos: &[Repo]) -> PathBuf {
-    let container_path = std::path::Path::new(container_ref);
-    let repo = match repos {
-        [repo] => Some(WorkspacePathRepo {
-            name: &repo.name,
-            path: &repo.path,
-        }),
-        _ => None,
-    };
-
-    workspace_paths::workspace_base_dir(container_path, workspace.use_worktree, repo)
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Option<AgentType> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => Some(AgentType::ClaudeCode),
+        BaseCodingAgent::Codex => Some(AgentType::Codex),
+        BaseCodingAgent::Opencode => Some(AgentType::OpenCode),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => None,
+    }
 }
 
-fn normalized_workspace_agent_working_dir(
-    workspace: &Workspace,
-    container_ref: &str,
-    repos: &[Repo],
-) -> Option<String> {
-    let repo_name = match repos {
-        [repo] => Some(repo.name.as_str()),
-        _ => None,
-    };
-    workspace_paths::normalize_agent_working_dir(
-        workspace.agent_working_dir.as_deref(),
-        workspace.use_worktree,
-        std::path::Path::new(container_ref),
-        repo_name,
-    )
+fn slash_command(name: &str, description: &str) -> SlashCommandDescription {
+    SlashCommandDescription {
+        name: name.to_string(),
+        description: Some(description.to_string()),
+        kind: Some(SlashCommandKind::Command),
+    }
+}
+
+fn acp_slash_command_catalog(agent_type: AgentType) -> Vec<SlashCommandDescription> {
+    match agent_type {
+        AgentType::ClaudeCode => vec![
+            slash_command("compact", "Compact conversation with an optional focus"),
+            slash_command(
+                "goal",
+                "Set, inspect, pause, resume, or clear a long-running goal",
+            ),
+            slash_command("init", "Initialize a CLAUDE.md file"),
+            slash_command("resume", "Resume a Claude Code conversation"),
+            slash_command("review", "Review a pull request"),
+            slash_command("context", "Show Claude Code context usage"),
+        ],
+        AgentType::Codex => vec![
+            slash_command("compact", "Compact conversation with an optional focus"),
+            slash_command(
+                "goal",
+                "Set, inspect, pause, resume, or clear a long-running goal",
+            ),
+            slash_command("init", "Create an AGENTS.md file with repository instructions"),
+            slash_command("plan", "Switch to planning-oriented Codex behavior"),
+            slash_command("review", "Review code with optional instructions"),
+        ],
+        AgentType::OpenCode => vec![slash_command("compact", "Compact the current session")],
+        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
+            Vec::new()
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -235,56 +250,14 @@ pub trait ContainerService {
     async fn available_agent_slash_commands(
         &self,
         executor_profile_id: ExecutorProfileId,
-        workspace_id: Option<Uuid>,
-        repo_id: Option<Uuid>,
+        _workspace_id: Option<Uuid>,
+        _repo_id: Option<Uuid>,
     ) -> Result<Option<BoxStream<'static, Patch>>, ContainerError> {
-        let agent_workdir = if let Some(workspace_id) = workspace_id {
-            let workspace = Workspace::find_by_id(&self.db().pool, workspace_id)
-                .await?
-                .ok_or(SqlxError::RowNotFound)?;
-
-            let container_ref = match workspace.container_ref.as_deref() {
-                Some(container_ref) if !container_ref.is_empty() => container_ref,
-                _ => &self.ensure_container_exists(&workspace).await?,
-            };
-
-            if container_ref.is_empty() {
-                return Err(ContainerError::Other(anyhow!("Workspace path is empty")));
-            }
-
-            let repos =
-                WorkspaceRepo::find_repos_for_workspace(&self.db().pool, workspace.id).await?;
-            let workspace_path = workspace_base_dir(&workspace, container_ref, &repos);
-            match normalized_workspace_agent_working_dir(&workspace, container_ref, &repos) {
-                Some(dir) => Some(workspace_path.join(dir)),
-                None => Some(workspace_path),
-            }
-        } else if let Some(repo_id) = repo_id {
-            Repo::find_by_id(&self.db().pool, repo_id)
-                .await
-                .ok()
-                .flatten()
-                .map(|repo| repo.path)
-        } else {
-            None
-        }
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-        #[cfg(feature = "qa-mode")]
-        {
-            let _ = executor_profile_id;
-            let agent = QaMockExecutor;
-            let stream = agent.available_slash_commands(&agent_workdir).await?;
-            return Ok(Some(stream));
-        }
-        #[cfg(not(feature = "qa-mode"))]
-        {
-            let executor =
-                ExecutorConfigs::get_cached().get_coding_agent_or_default(&executor_profile_id);
-
-            let stream = executor.available_slash_commands(&agent_workdir).await?;
-            Ok(Some(stream))
-        }
+        let commands = agent_type_from_executor(executor_profile_id.executor)
+            .map(acp_slash_command_catalog)
+            .unwrap_or_default();
+        let patch = executors::logs::utils::patch::slash_commands(commands, false, None);
+        Ok(Some(Box::pin(futures::stream::once(async move { patch }))))
     }
 
     async fn store_db_stream_handle(&self, id: Uuid, handle: JoinHandle<()>);

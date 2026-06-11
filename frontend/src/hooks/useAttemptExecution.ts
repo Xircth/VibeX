@@ -8,15 +8,24 @@ import {
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import type { AttemptData } from '@/lib/types';
 import type { ExecutionProcess } from 'shared/types';
+import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
 
-export function useAttemptExecution(attemptId?: string, taskId?: string) {
+export function useAttemptExecution(
+  attemptId?: string,
+  taskId?: string,
+  sessionId?: string | null
+) {
   const { isStopping, setIsStopping } = useTaskStopping(taskId || '');
   const { markStopToastSuppressed, clearStopToastSuppression } =
     useStopToastSuppression();
+  const { sessions: agentSessions, cancelPrompt } = useAgentWorkbench();
+  const agentSession = sessionId ? agentSessions[sessionId] : undefined;
+  const activeAgentPromptId = agentSession?.active_prompt_id ?? null;
+  const isAgentPromptRunning = Boolean(activeAgentPromptId);
 
   const {
     executionProcessesVisible: executionProcesses,
-    isAttemptRunningVisible: isAttemptRunning,
+    isAttemptRunningVisible: isExecutionProcessRunning,
     isLoading: streamLoading,
   } = useExecutionProcessesContext();
 
@@ -58,20 +67,39 @@ export function useAttemptExecution(attemptId?: string, taskId?: string) {
   }, [executionProcesses, setupProcesses, processDetailQueries]);
 
   const stopExecution = useCallback(async () => {
-    if (!attemptId || isStopping) return;
+    if ((!attemptId && !agentSession) || isStopping) return;
 
     try {
       setIsStopping(true);
-      markStopToastSuppressed(attemptId);
-      await attemptsApi.stop(attemptId);
+      if (attemptId) {
+        markStopToastSuppressed(attemptId);
+      }
+
+      if (agentSession && activeAgentPromptId) {
+        await cancelPrompt({
+          connectionId: agentSession.connection_id,
+          sessionId: agentSession.id,
+          promptId: activeAgentPromptId,
+        });
+        return;
+      }
+
+      if (attemptId) {
+        await attemptsApi.stop(attemptId);
+      }
     } catch (error) {
       setIsStopping(false);
-      clearStopToastSuppression(attemptId);
+      if (attemptId) {
+        clearStopToastSuppression(attemptId);
+      }
       console.error('Failed to stop executions:', error);
       throw error;
     }
   }, [
+    activeAgentPromptId,
+    agentSession,
     attemptId,
+    cancelPrompt,
     clearStopToastSuppression,
     isStopping,
     markStopToastSuppressed,
@@ -83,15 +111,18 @@ export function useAttemptExecution(attemptId?: string, taskId?: string) {
   }, [setIsStopping]);
 
   useEffect(() => {
+    const isAttemptRunning = isExecutionProcessRunning || isAgentPromptRunning;
     if (isStopping && !isAttemptRunning) {
       setIsStopping(false);
     }
-  }, [isAttemptRunning, isStopping, setIsStopping]);
+  }, [isAgentPromptRunning, isExecutionProcessRunning, isStopping, setIsStopping]);
 
   const isLoading =
     streamLoading || processDetailQueries.some((q) => q.isLoading);
   const isFetching =
     streamLoading || processDetailQueries.some((q) => q.isFetching);
+
+  const isAttemptRunning = isExecutionProcessRunning || isAgentPromptRunning;
 
   return {
     // Data

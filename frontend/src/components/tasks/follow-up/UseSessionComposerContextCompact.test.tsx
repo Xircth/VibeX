@@ -86,7 +86,7 @@ describe('useSessionComposerContextCompact', () => {
     expect(clearStopping).toHaveBeenCalledOnce();
   });
 
-  it('sends compact turns and clears pending state when the process appears', async () => {
+  it('sends compact turns and keeps pending state independent from old processes', async () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
     sendAgentRuntimeTurnMock.mockResolvedValue({
@@ -123,7 +123,7 @@ describe('useSessionComposerContextCompact', () => {
 
     rerender({ processes: [{ id: 'process-1', status: 'running' }] });
 
-    expect(result.current.isCompactingContext).toBe(false);
+    expect(result.current.isCompactingContext).toBe(true);
   });
 
   it('clears pending compact state after the timeout window', async () => {

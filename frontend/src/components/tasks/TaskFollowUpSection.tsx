@@ -149,7 +149,7 @@ export function TaskFollowUpSection({
     clearStopping,
     isStopping,
     processes,
-  } = useAttemptExecution(workspaceIdValue, taskId ?? undefined);
+  } = useAttemptExecution(workspaceIdValue, taskId ?? undefined, sessionId);
 
   const { data: branchStatus, refetch: refetchBranchStatus } =
     useBranchStatus(workspaceIdValue);

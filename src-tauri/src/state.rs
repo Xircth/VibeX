@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use agents::AgentRuntime;
 use deployment::Deployment;
 use local_deployment::LocalDeployment;
 use tokio::sync::Mutex;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub conversation_streams: Arc<Mutex<HashSet<String>>>,
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
     pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
+    pub agent_runtime: Arc<AgentRuntime>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
             local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
+            agent_runtime: Arc::new(AgentRuntime::default()),
         })
     }
 }

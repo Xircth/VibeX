@@ -1,4 +1,5 @@
 pub mod agent_settings;
+pub mod agents;
 pub mod approvals;
 pub mod codex_account;
 pub mod config;

@@ -316,6 +316,13 @@ pub fn run() {
             commands::provider_runtime::provider_runtime_codex_list_hooks,
             commands::provider_runtime::provider_runtime_codex_set_hook_enabled,
             commands::provider_runtime::provider_runtime_codex_list_apps,
+            // ACP-native agent platform commands
+            commands::agents::agent_registry_list,
+            commands::agents::agent_runtime_snapshot,
+            commands::agents::agent_connect,
+            commands::agents::agent_new_session,
+            commands::agents::agent_send_prompt,
+            commands::agents::agent_cancel_prompt,
             // Execution process commands
             commands::execution_processes::get_execution_process,
             commands::execution_processes::stop_execution_process,

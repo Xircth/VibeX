@@ -1,7 +1,9 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
@@ -37,7 +39,15 @@ pub struct SendAgentPromptInput {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
+pub struct CancelAgentPromptInput {
+    pub connection_id: AgentConnectionId,
+    pub session_id: AgentSessionId,
+    pub prompt_id: AgentPromptId,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct RuntimeSnapshot {
     pub registry: Vec<AgentRegistryEntry>,
     pub connections: Vec<AgentConnectionSnapshot>,
@@ -193,16 +203,26 @@ impl AgentRuntime {
             .get(&input.connection_id)
             .map(|connection| connection.snapshot.workspace_id)
             .ok_or_else(|| AgentError::ConnectionNotFound(input.connection_id.to_string()))?;
-        let session = state
-            .sessions
-            .get_mut(&input.session_id)
-            .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?;
-        if session.snapshot.connection_id != input.connection_id {
-            return Err(AgentError::SessionNotFound(input.session_id.to_string()));
-        }
-
         let prompt_id = AgentPromptId::new();
-        let transition = session.queue.submit(prompt_id);
+        let transition = {
+            let session = state
+                .sessions
+                .get_mut(&input.session_id)
+                .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?;
+            if session.snapshot.connection_id != input.connection_id {
+                return Err(AgentError::SessionNotFound(input.session_id.to_string()));
+            }
+            let transition = session.queue.submit(prompt_id);
+            session.snapshot.active_prompt_id = session.queue.active();
+            session.snapshot.queued_prompt_ids = session.queue.queued();
+            session.snapshot.status = if session.snapshot.active_prompt_id.is_some() {
+                AgentSessionStatus::Running
+            } else {
+                AgentSessionStatus::Ready
+            };
+            session.snapshot.updated_at = now;
+            transition
+        };
         let status = match transition {
             QueueTransition::Started { .. } => AgentPromptStatus::Running,
             QueueTransition::Queued { .. } => AgentPromptStatus::Queued,
@@ -210,14 +230,6 @@ impl AgentRuntime {
                 message: "invalid prompt queue transition".to_string(),
             },
         };
-        session.snapshot.active_prompt_id = session.queue.active();
-        session.snapshot.queued_prompt_ids = session.queue.queued();
-        session.snapshot.status = if session.snapshot.active_prompt_id.is_some() {
-            AgentSessionStatus::Running
-        } else {
-            AgentSessionStatus::Ready
-        };
-        session.snapshot.updated_at = now;
 
         let prompt = AgentPromptSnapshot {
             id: prompt_id,
@@ -238,6 +250,63 @@ impl AgentRuntime {
             },
         );
         Ok(prompt)
+    }
+
+    pub async fn cancel_prompt(&self, input: CancelAgentPromptInput) -> AgentResult<()> {
+        let now = Utc::now();
+        let mut state = self.state.write().await;
+        let workspace_id = state
+            .connections
+            .get(&input.connection_id)
+            .map(|connection| connection.snapshot.workspace_id)
+            .ok_or_else(|| AgentError::ConnectionNotFound(input.connection_id.to_string()))?;
+        let transition = {
+            let session = state
+                .sessions
+                .get_mut(&input.session_id)
+                .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?;
+            if session.snapshot.connection_id != input.connection_id {
+                return Err(AgentError::SessionNotFound(input.session_id.to_string()));
+            }
+            let transition = session.queue.cancel(input.prompt_id);
+            session.snapshot.active_prompt_id = session.queue.active();
+            session.snapshot.queued_prompt_ids = session.queue.queued();
+            session.snapshot.status = if session.snapshot.active_prompt_id.is_some() {
+                AgentSessionStatus::Running
+            } else {
+                AgentSessionStatus::Ready
+            };
+            session.snapshot.updated_at = now;
+            transition
+        };
+
+        match transition {
+            QueueTransition::Cancelled { .. } => {
+                if let Some(prompt) = state.prompts.get_mut(&input.prompt_id) {
+                    prompt.status = AgentPromptStatus::Cancelling;
+                    prompt.updated_at = now;
+                }
+                self.emit_locked(
+                    &mut state,
+                    workspace_id,
+                    input.connection_id,
+                    Some(input.session_id),
+                    AgentEvent::PromptFinished {
+                        finished: crate::AgentPromptFinished {
+                            prompt_id: input.prompt_id,
+                            stop_reason: Some("cancelled".to_string()),
+                        },
+                    },
+                );
+                Ok(())
+            }
+            QueueTransition::Missing { .. } => {
+                Err(AgentError::PromptNotFound(input.prompt_id.to_string()))
+            }
+            _ => Err(AgentError::Runtime(
+                "invalid prompt cancel transition".to_string(),
+            )),
+        }
     }
 
     fn emit_locked(
@@ -320,6 +389,58 @@ mod tests {
         assert_eq!(snapshot.sessions.len(), 1);
         assert_eq!(snapshot.prompts.len(), 1);
         assert_eq!(sink.events.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn runtime_cancels_active_prompt_and_advances_queue() {
+        let runtime = AgentRuntime::default();
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_type: AgentType::Codex,
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+        let first = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                text: "first".to_string(),
+            })
+            .await
+            .unwrap();
+        let second = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                text: "second".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(second.status, AgentPromptStatus::Queued));
+        runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                prompt_id: first.id,
+            })
+            .await
+            .unwrap();
+
+        let snapshot = runtime.snapshot().await;
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|candidate| candidate.id == session.id)
+            .unwrap();
+        assert_eq!(session.active_prompt_id, Some(second.id));
+        assert!(session.queued_prompt_ids.is_empty());
     }
 
     #[test]

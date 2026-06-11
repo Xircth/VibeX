@@ -10,6 +10,7 @@ use crate::state::AppState;
 
 pub mod channels {
     pub const GLOBAL_EVENTS: &str = "global-events";
+    pub const AGENT_EVENTS: &str = "agent-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
 }
 
@@ -53,6 +54,25 @@ pub fn start_event_forwarding(app: &AppHandle, state: &AppState) {
                     }
                 }
                 Err(_) => break,
+            }
+        }
+    });
+}
+
+pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
+    let app_handle = app.clone();
+    let mut agent_events = state.agent_runtime.subscribe_events();
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match agent_events.recv().await {
+                Ok(event) => {
+                    if app_handle.emit(channels::AGENT_EVENTS, &event).is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });

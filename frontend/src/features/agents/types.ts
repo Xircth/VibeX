@@ -100,6 +100,7 @@ export type AgentPromptSnapshot = {
 };
 
 export type AgentRuntimeSnapshot = {
+  sequence: number;
   registry: AgentRegistryEntry[];
   connections: AgentConnectionSnapshot[];
   sessions: AgentSessionSnapshot[];
@@ -129,4 +130,3 @@ export type AgentEventEnvelope = {
   event: AgentEvent;
   created_at: string;
 };
-

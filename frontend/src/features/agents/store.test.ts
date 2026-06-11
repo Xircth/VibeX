@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   emptyAgentWorkbenchState,
+  hydrateAgentSnapshot,
   reduceAgentEvent,
   stateFromAgentSnapshot,
 } from './store';
@@ -9,6 +10,7 @@ import type { AgentEventEnvelope, AgentRuntimeSnapshot } from './types';
 describe('agent workbench store', () => {
   it('hydrates from runtime snapshot', () => {
     const snapshot: AgentRuntimeSnapshot = {
+      sequence: 4,
       registry: [
         {
           agent_type: 'codex',
@@ -32,7 +34,23 @@ describe('agent workbench store', () => {
     const state = stateFromAgentSnapshot(snapshot);
 
     expect(state.registry['codex-acp']?.name).toBe('Codex CLI');
-    expect(state.lastSequence).toBe(0);
+    expect(state.lastSequence).toBe(4);
+  });
+
+  it('does not hydrate an older snapshot over newer events', () => {
+    const state = {
+      ...emptyAgentWorkbenchState(),
+      lastSequence: 10,
+    };
+    const snapshot: AgentRuntimeSnapshot = {
+      sequence: 9,
+      registry: [],
+      connections: [],
+      sessions: [],
+      prompts: [],
+    };
+
+    expect(hydrateAgentSnapshot(state, snapshot)).toBe(state);
   });
 
   it('ignores duplicate or stale events by backend sequence', () => {
@@ -102,4 +120,3 @@ describe('agent workbench store', () => {
     });
   });
 });
-

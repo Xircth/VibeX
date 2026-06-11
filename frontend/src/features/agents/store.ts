@@ -41,8 +41,19 @@ export function stateFromAgentSnapshot(
     prompts: Object.fromEntries(
       snapshot.prompts.map((prompt) => [prompt.id, prompt])
     ),
-    lastSequence: 0,
+    lastSequence: snapshot.sequence,
   };
+}
+
+export function hydrateAgentSnapshot(
+  state: AgentWorkbenchState,
+  snapshot: AgentRuntimeSnapshot
+): AgentWorkbenchState {
+  if (snapshot.sequence < state.lastSequence) {
+    return state;
+  }
+
+  return stateFromAgentSnapshot(snapshot);
 }
 
 export function reduceAgentEvent(
@@ -99,4 +110,3 @@ export function reduceAgentEvent(
       return next;
   }
 }
-

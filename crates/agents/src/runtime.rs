@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -49,6 +49,7 @@ pub struct CancelAgentPromptInput {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct RuntimeSnapshot {
+    pub sequence: i64,
     pub registry: Vec<AgentRegistryEntry>,
     pub connections: Vec<AgentConnectionSnapshot>,
     pub sessions: Vec<AgentSessionSnapshot>,
@@ -77,6 +78,7 @@ struct RuntimeState {
 pub struct AgentRuntime {
     state: RwLock<RuntimeState>,
     event_sink: Arc<dyn RuntimeEventSink>,
+    event_tx: broadcast::Sender<AgentEventEnvelope>,
 }
 
 impl Default for AgentRuntime {
@@ -87,10 +89,16 @@ impl Default for AgentRuntime {
 
 impl AgentRuntime {
     pub fn new(event_sink: Arc<dyn RuntimeEventSink>) -> Self {
+        let (event_tx, _) = broadcast::channel(512);
         Self {
             state: RwLock::new(RuntimeState::default()),
             event_sink,
+            event_tx,
         }
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<AgentEventEnvelope> {
+        self.event_tx.subscribe()
     }
 
     pub fn registry(&self) -> Vec<AgentRegistryEntry> {
@@ -103,6 +111,7 @@ impl AgentRuntime {
     pub async fn snapshot(&self) -> RuntimeSnapshot {
         let state = self.state.read().await;
         RuntimeSnapshot {
+            sequence: state.sequence,
             registry: self.registry(),
             connections: state
                 .connections
@@ -318,14 +327,16 @@ impl AgentRuntime {
         event: AgentEvent,
     ) {
         state.sequence += 1;
-        self.event_sink.emit(AgentEventEnvelope {
+        let envelope = AgentEventEnvelope {
             sequence: state.sequence,
             workspace_id,
             connection_id,
             session_id,
             event,
             created_at: Utc::now(),
-        });
+        };
+        self.event_sink.emit(envelope.clone());
+        let _ = self.event_tx.send(envelope);
     }
 }
 

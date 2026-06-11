@@ -61,6 +61,7 @@ pub fn run() {
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
             events::start_event_forwarding(&app.handle().clone(), &state);
+            events::start_agent_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
             app.manage(state);
 

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -64,6 +68,7 @@ pub struct RuntimeSnapshot {
     pub connections: Vec<AgentConnectionSnapshot>,
     pub sessions: Vec<AgentSessionSnapshot>,
     pub prompts: Vec<AgentPromptSnapshot>,
+    pub events: Vec<AgentEventEnvelope>,
 }
 
 #[derive(Debug)]
@@ -84,7 +89,10 @@ struct RuntimeState {
     sessions: HashMap<AgentSessionId, RuntimeSession>,
     prompts: HashMap<AgentPromptId, AgentPromptSnapshot>,
     prompt_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
+    recent_events: VecDeque<AgentEventEnvelope>,
 }
+
+const MAX_RECENT_EVENTS: usize = 2_000;
 
 pub struct AgentRuntime {
     state: Arc<RwLock<RuntimeState>>,
@@ -195,6 +203,7 @@ impl AgentRuntime {
                 .map(|session| session.snapshot.clone())
                 .collect(),
             prompts: state.prompts.values().cloned().collect(),
+            events: state.recent_events.iter().cloned().collect(),
         }
     }
 
@@ -552,6 +561,10 @@ impl AgentRuntime {
             event,
             created_at: Utc::now(),
         };
+        state.recent_events.push_back(envelope.clone());
+        while state.recent_events.len() > MAX_RECENT_EVENTS {
+            state.recent_events.pop_front();
+        }
         event_sink.emit(envelope.clone());
         let _ = event_tx.send(envelope);
     }

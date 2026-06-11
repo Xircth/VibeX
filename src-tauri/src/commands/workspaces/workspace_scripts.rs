@@ -10,11 +10,7 @@ use db::models::{
 use deployment::Deployment;
 #[cfg(target_os = "macos")]
 use executors::actions::script::ScriptContext;
-use executors::{
-    actions::ExecutorAction,
-    executors::{ExecutorError, StandardCodingAgentExecutor},
-    profile::{ExecutorConfigs, ExecutorProfileId},
-};
+use executors::actions::ExecutorAction;
 use services::services::{container::ContainerService, container_actions};
 use utils::shell::resolve_executable_path;
 use uuid::Uuid;
@@ -222,86 +218,6 @@ pub async fn install_web_companion(
         "Failed to install vibex-web-companion: {}",
         message
     )))
-}
-
-#[tauri::command]
-pub async fn run_agent_setup(
-    state: tauri::State<'_, AppState>,
-    workspace_id: Uuid,
-    executor_profile_id: ExecutorProfileId,
-) -> Result<(), AppError> {
-    let pool = &state.deployment.db().pool;
-
-    let workspace = Workspace::find_by_id(pool, workspace_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
-
-    let config = ExecutorConfigs::get_cached();
-    let coding_agent = config.get_coding_agent_or_default(&executor_profile_id);
-
-    let setup_action = coding_agent
-        .get_setup_helper_action()
-        .await
-        .map_err(|err| match err {
-            ExecutorError::SetupHelperNotSupported => AppError::BadRequest(
-                "当前代理不支持自动设置，请在终端中完成登录或安装后重试。".to_string(),
-            ),
-            other => AppError::Internal(other.to_string()),
-        })?;
-
-    let latest_process = ExecutionProcess::find_latest_by_workspace_and_run_reason(
-        pool,
-        workspace.id,
-        &ExecutionProcessRunReason::CodingAgent,
-    )
-    .await?;
-
-    let executor_action = if let Some(latest_process) = latest_process {
-        let latest_action = latest_process
-            .executor_action()
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-        setup_action.append_action(latest_action.to_owned())
-    } else {
-        setup_action
-    };
-
-    state
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await?;
-
-    let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
-        Some(s) => s,
-        None => {
-            Session::create(
-                pool,
-                &CreateSession {
-                    executor: Some(executor_profile_id.executor.to_string()),
-                    task_id: None,
-                    name: None,
-                    initial_prompt: None,
-                    status: Some(SessionStatus::Todo),
-                },
-                Uuid::new_v4(),
-                workspace.id,
-            )
-            .await?
-        }
-    };
-
-    state
-        .deployment
-        .container()
-        .start_execution(
-            &workspace,
-            &session,
-            &executor_action,
-            &ExecutionProcessRunReason::SetupScript,
-        )
-        .await?;
-
-    Ok(())
 }
 
 #[tauri::command]

@@ -26,6 +26,8 @@ import {
 import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
+import { buildAgentTranscriptEntries } from '@/features/agents/transcript';
+import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
 import type {
   AddEntryType,
@@ -130,6 +132,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
 function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
     const { entries, setEntries } = useEntries();
     const { executionProcessesVisible } = useExecutionProcessesContext();
+    const agentWorkbench = useAgentWorkbench();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
@@ -181,23 +184,53 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       onEntriesUpdated: handleEntriesUpdated,
     });
 
+    const agentSessionId = attempt.session?.id ?? null;
+    const agentSession = agentSessionId
+      ? agentWorkbench.sessions[agentSessionId]
+      : undefined;
+    const agentTranscriptEntries = useMemo(
+      () =>
+        agentSessionId
+          ? buildAgentTranscriptEntries(
+              agentWorkbench.eventsByScope[agentSessionId] ?? []
+            )
+          : [],
+      [agentSessionId, agentWorkbench.eventsByScope]
+    );
+    const usesAgentTranscript = Boolean(agentSession);
+
+    useEffect(() => {
+      if (!usesAgentTranscript) return;
+      setEntries(agentTranscriptEntries);
+      setIsLoadingEntries(
+        agentWorkbench.loadState === 'loading' && agentTranscriptEntries.length === 0
+      );
+    }, [
+      agentTranscriptEntries,
+      agentWorkbench.loadState,
+      setEntries,
+      usesAgentTranscript,
+    ]);
+
     const normalizedEntries = useMemo(
       () =>
-        entries.filter(
+        (usesAgentTranscript ? agentTranscriptEntries : entries).filter(
           (entry): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } =>
             entry.type === 'NORMALIZED_ENTRY'
         ),
-      [entries]
+      [agentTranscriptEntries, entries, usesAgentTranscript]
     );
 
     const displayEntries = useMemo<DisplayEntry[]>(() => {
-      const completedExecutionProcessIds = new Set(
-        executionProcessesVisible
-          .filter(
-            (process) => process.status !== ExecutionProcessStatus.running
-          )
-          .map((process) => process.id)
-      );
+      const completedExecutionProcessIds = usesAgentTranscript
+        ? new Set<string>()
+        : new Set(
+            executionProcessesVisible
+              .filter(
+                (process) => process.status !== ExecutionProcessStatus.running
+              )
+              .map((process) => process.id)
+          );
 
       return buildDisplayEntries(normalizedEntries, {
         aggregateThinking: attempt.session?.executor === BaseCodingAgent.CODEX,
@@ -207,6 +240,7 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       });
     }, [
       attempt.session?.executor,
+      usesAgentTranscript,
       config?.ai_message_default_collapsed,
       executionProcessesVisible,
       normalizedEntries,

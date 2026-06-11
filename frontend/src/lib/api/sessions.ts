@@ -1,11 +1,4 @@
-import type {
-  CreateFollowUpAttempt,
-  ResetProcessRequest,
-  ExecutionProcess,
-  Session,
-  StartReviewRequest,
-  Workspace,
-} from 'shared/types';
+import type { ResetProcessRequest, Session, Workspace } from 'shared/types';
 
 import { tauriInvoke } from './base';
 import type { SessionStatus, SessionSummary } from './base';
@@ -109,32 +102,6 @@ export const sessionsApi = {
 
   delete: async (sessionId: string): Promise<void> => {
     return tauriInvoke<void>('delete_session', { sessionId });
-  },
-
-  followUp: async (
-    sessionId: string,
-    data: CreateFollowUpAttempt
-  ): Promise<ExecutionProcess> => {
-    return tauriInvoke<ExecutionProcess>('follow_up', {
-      sessionId,
-      prompt: data.prompt,
-      executorProfileId: data.executor_profile_id,
-      retryProcessId: data.retry_process_id ?? null,
-      forceWhenDirty: data.force_when_dirty ?? null,
-      performGitReset: data.perform_git_reset ?? null,
-    });
-  },
-
-  startReview: async (
-    sessionId: string,
-    data: StartReviewRequest
-  ): Promise<ExecutionProcess> => {
-    return tauriInvoke<ExecutionProcess>('start_review', {
-      sessionId,
-      executorProfileId: data.executor_profile_id,
-      additionalPrompt: data.additional_prompt ?? null,
-      useAllWorkspaceCommits: data.use_all_workspace_commits ?? null,
-    });
   },
 
   reset: async (

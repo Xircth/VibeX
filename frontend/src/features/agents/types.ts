@@ -181,6 +181,7 @@ export type AgentRuntimeSnapshot = {
   connections: AgentConnectionSnapshot[];
   sessions: AgentSessionSnapshot[];
   prompts: AgentPromptSnapshot[];
+  events: AgentEventEnvelope[];
 };
 
 export type AgentContentBlock =
@@ -194,6 +195,27 @@ export type AgentEvent =
   | { kind: 'prompt_started'; snapshot: AgentPromptSnapshot }
   | { kind: 'message_chunk'; content: AgentContentBlock }
   | { kind: 'thought_chunk'; content: AgentContentBlock }
+  | { kind: 'tool_call'; tool_call: { id: string; title: string; kind?: string | null } }
+  | {
+      kind: 'tool_call_update';
+      update: { id: string; status?: string | null; content?: string | null };
+    }
+  | { kind: 'plan'; plan: { entries: string[] } }
+  | { kind: 'usage'; usage: { used: number; limit?: number | null } }
+  | { kind: 'permission_requested'; permission_id: string }
+  | {
+      kind: 'terminal_created';
+      terminal: { id: string; command: string; args: string[]; cwd?: string | null };
+    }
+  | {
+      kind: 'terminal_output';
+      output: {
+        terminal_id: string;
+        output: string;
+        truncated: boolean;
+        exit_status?: number | null;
+      };
+    }
   | { kind: 'prompt_finished'; finished: { prompt_id: string; stop_reason?: string | null } }
   | { kind: 'error'; error: { message: string; raw?: unknown } }
   | { kind: 'raw_acp_diagnostic'; raw: unknown };

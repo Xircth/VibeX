@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { sessionsApi } from '@/lib/api';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   RestoreLogsDialog,
   type RestoreLogsDialogResult,
@@ -27,6 +27,7 @@ class RetryDialogCancelledError extends Error {
 }
 
 export function useRetryProcess(
+  workspaceId: string,
   sessionId: string,
   onSuccess?: () => void,
   onError?: (err: unknown) => void
@@ -55,13 +56,11 @@ export function useRetryProcess(
         throw new RetryDialogCancelledError();
       }
 
-      // Send the retry request
-      await sessionsApi.followUp(sessionId, {
-        prompt: message,
-        executor_profile_id: { executor, variant },
-        retry_process_id: executionProcessId,
-        force_when_dirty: modalResult.forceWhenDirty ?? false,
-        perform_git_reset: modalResult.performGitReset ?? true,
+      await sendAgentRuntimeTurn({
+        workspaceId,
+        sessionId,
+        text: message,
+        executorProfileId: { executor, variant },
       });
     },
     onSuccess: () => {

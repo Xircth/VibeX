@@ -43,7 +43,10 @@ export function stateFromAgentSnapshot(
     prompts: Object.fromEntries(
       snapshot.prompts.map((prompt) => [prompt.id, prompt])
     ),
-    eventsByScope: {},
+    eventsByScope: snapshot.events.reduce(
+      (eventsByScope, envelope) => appendEvent(eventsByScope, envelope),
+      {} as Record<string, AgentEventEnvelope[]>
+    ),
     lastSequence: snapshot.sequence,
   };
 }

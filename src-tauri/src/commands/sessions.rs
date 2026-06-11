@@ -5,7 +5,7 @@ use std::{
 
 use db::models::{
     coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
     scratch::{DraftFollowUpData, Scratch, ScratchType},
@@ -16,26 +16,16 @@ use db::models::{
 };
 use deployment::Deployment;
 use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType,
-        coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest,
-        review::{RepoReviewContext as ExecutorRepoReviewContext, ReviewRequest as ReviewAction},
-    },
-    executors::{BaseAgentCapability, BaseCodingAgent, build_review_prompt},
+    executors::{BaseAgentCapability, BaseCodingAgent},
     profile::{ExecutorConfig, ExecutorProfileId},
 };
 use serde::Serialize;
-use services::services::{
-    container::ContainerService, container_actions, queued_message::QueueStatus,
-};
+use services::services::queued_message::QueueStatus;
 use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::{
-    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
-};
+use crate::{error::AppError, state::AppState};
 
 fn queue_status_from_scratch(scratch: Scratch) -> Result<QueueStatus, AppError> {
     let Scratch {
@@ -813,137 +803,6 @@ pub async fn delete_session(
     Ok(())
 }
 
-/// Send a follow-up (or initial) prompt to the coding agent within a session.
-#[tauri::command]
-pub async fn follow_up(
-    state: tauri::State<'_, AppState>,
-    session_id: Uuid,
-    prompt: String,
-    executor_profile_id: ExecutorProfileId,
-    retry_process_id: Option<Uuid>,
-    force_when_dirty: Option<bool>,
-    perform_git_reset: Option<bool>,
-) -> Result<ExecutionProcess, AppError> {
-    let pool = &state.deployment.db().pool;
-
-    // Look up session
-    let session = Session::find_by_id(pool, session_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
-
-    // Load workspace from session
-    let workspace = Workspace::find_by_id(pool, session.workspace_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("Workspace {} not found", session.workspace_id))
-        })?;
-
-    tracing::info!("{:?}", workspace);
-
-    // Ensure container exists
-    state
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await?;
-
-    // Validate executor matches session if session has prior executions
-    let expected_executor: Option<String> =
-        ExecutionProcess::latest_executor_profile_for_session(pool, session.id)
-            .await?
-            .map(|profile| profile.executor.to_string())
-            .or_else(|| session.executor.clone());
-
-    if let Some(expected) = expected_executor {
-        let actual = executor_profile_id.executor.to_string();
-        if expected != actual {
-            return Err(AppError::BadRequest(format!(
-                "Executor mismatch: expected {}, got {}",
-                expected, actual
-            )));
-        }
-    }
-
-    // Update session executor if not set
-    if session.executor.is_none() {
-        Session::update_executor(pool, session.id, &executor_profile_id.executor.to_string())
-            .await?;
-    }
-
-    // Handle retry (optional git reset)
-    if let Some(proc_id) = retry_process_id {
-        let force = force_when_dirty.unwrap_or(false);
-        let git_reset = perform_git_reset.unwrap_or(true);
-        state
-            .deployment
-            .container()
-            .reset_session_to_process(session.id, proc_id, git_reset, force)
-            .await?;
-    }
-
-    // Get latest session info after any reset has been applied.
-    //
-    // ACP-backed agents fork from the latest retained snapshot. After reset,
-    // the latest remaining agent_session_id already represents the context
-    // before the retried message.
-    let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
-
-    let container_ref = state
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await?;
-
-    // Get repos for cleanup action
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let cleanup_action = container_actions::cleanup_actions_for_repos(&repos);
-
-    let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos);
-
-    // Build action type (FollowUp vs Initial)
-    let action_type = if let Some(info) = latest_session_info {
-        let is_reset = retry_process_id.is_some();
-        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt: prompt.clone(),
-            session_id: info.session_id,
-            reset_to_message_id: if is_reset { info.message_id } else { None },
-            executor_config: ExecutorConfig::from(executor_profile_id.clone()),
-            working_dir: working_dir.clone(),
-        })
-    } else {
-        ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-            prompt,
-            executor_config: ExecutorConfig::from(executor_profile_id.clone()),
-            working_dir,
-        })
-    };
-
-    // Create and start execution
-    let action = ExecutorAction::new(action_type, cleanup_action.map(Box::new));
-
-    let execution_process = state
-        .deployment
-        .container()
-        .start_execution(
-            &workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
-        .await?;
-
-    // Clear the draft follow-up scratch on successful spawn (best-effort)
-    if let Err(e) = Scratch::delete(pool, session.id, &ScratchType::DraftFollowUp).await {
-        tracing::debug!(
-            "Failed to delete draft follow-up scratch for session {}: {}",
-            session.id,
-            e
-        );
-    }
-
-    Ok(execution_process)
-}
-
 /// Reset a session to a specific execution process (undo/retry).
 #[tauri::command]
 pub async fn reset_session_process(
@@ -968,110 +827,6 @@ pub async fn reset_session_process(
         .await?;
 
     Ok(())
-}
-
-/// Start a code review within a session.
-#[tauri::command]
-pub async fn start_review(
-    state: tauri::State<'_, AppState>,
-    session_id: Uuid,
-    executor_profile_id: ExecutorProfileId,
-    additional_prompt: Option<String>,
-    use_all_workspace_commits: Option<bool>,
-) -> Result<ExecutionProcess, AppError> {
-    let pool = &state.deployment.db().pool;
-
-    // Look up session
-    let session = Session::find_by_id(pool, session_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
-
-    // Load workspace from session
-    let workspace = Workspace::find_by_id(pool, session.workspace_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("Workspace {} not found", session.workspace_id))
-        })?;
-
-    // Check no running processes within the same session
-    if ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id).await? {
-        return Err(AppError::Conflict("Process already running".to_string()));
-    }
-
-    // Ensure container
-    let container_ref = state
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await?;
-
-    // Get agent session info
-    let agent_session_id = CodingAgentTurn::find_latest_session_info(pool, session.id)
-        .await?
-        .map(|info| info.session_id);
-
-    // Build review context (if use_all_workspace_commits)
-    let use_all = use_all_workspace_commits.unwrap_or(false);
-    let context: Option<Vec<ExecutorRepoReviewContext>> = if use_all {
-        let repos =
-            WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace.id).await?;
-        let workspace_path = PathBuf::from(container_ref.as_str());
-
-        let mut contexts = Vec::new();
-        for repo in repos {
-            let worktree_path = workspace
-                .repo_path(&repo.repo)
-                .unwrap_or_else(|| workspace_path.clone());
-            if let Ok(base_commit) = state.deployment.git().get_fork_point(
-                &worktree_path,
-                &repo.target_branch,
-                &workspace.branch,
-            ) {
-                contexts.push(ExecutorRepoReviewContext {
-                    repo_id: repo.repo.id,
-                    repo_name: repo.repo.display_name,
-                    base_commit,
-                });
-            }
-        }
-        if contexts.is_empty() {
-            None
-        } else {
-            Some(contexts)
-        }
-    } else {
-        None
-    };
-
-    // Build prompt
-    let prompt = build_review_prompt(context.as_deref(), additional_prompt.as_deref());
-
-    // Create action and start
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-
-    let action = ExecutorAction::new(
-        ExecutorActionType::ReviewRequest(ReviewAction {
-            executor_config: ExecutorConfig::from(executor_profile_id.clone()),
-            context,
-            prompt,
-            session_id: agent_session_id,
-            working_dir: resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos),
-        }),
-        None,
-    );
-
-    let execution_process = state
-        .deployment
-        .container()
-        .start_execution(
-            &workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
-        .await?;
-
-    Ok(execution_process)
 }
 
 /// Queue a follow-up message to be executed when the current execution finishes.

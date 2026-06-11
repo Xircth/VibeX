@@ -41,6 +41,7 @@ export function RetryEditorInline({
   }, [attemptData.processes, executionProcessId]);
 
   const retryMutation = useRetryProcess(
+    attemptId,
     sessionId ?? '',
     () => onCancelled?.(),
     (err) => setSendError((err as Error)?.message || 'Failed to send retry')

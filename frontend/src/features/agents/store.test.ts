@@ -29,6 +29,7 @@ describe('agent workbench store', () => {
       connections: [],
       sessions: [],
       prompts: [],
+      events: [],
     };
 
     const state = stateFromAgentSnapshot(snapshot);
@@ -48,6 +49,7 @@ describe('agent workbench store', () => {
       connections: [],
       sessions: [],
       prompts: [],
+      events: [],
     };
 
     expect(hydrateAgentSnapshot(state, snapshot)).toBe(state);

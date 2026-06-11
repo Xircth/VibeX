@@ -25,6 +25,7 @@ import {
   getLatestProfileFromProcesses,
 } from '@/utils/executor';
 import { sessionsApi } from '@/lib/api';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { useQueryClient } from '@tanstack/react-query';
 
 export interface GitConflictResolutionDialogProps {
@@ -130,12 +131,11 @@ const GitConflictResolutionDialogImpl =
             sessionId = session.id;
           }
 
-          await sessionsApi.followUp(sessionId, {
-            prompt: instructions,
-            executor_profile_id: executorProfile,
-            retry_process_id: null,
-            force_when_dirty: null,
-            perform_git_reset: null,
+          await sendAgentRuntimeTurn({
+            workspaceId,
+            sessionId,
+            text: instructions,
+            executorProfileId: executorProfile,
           });
 
           await Promise.all([

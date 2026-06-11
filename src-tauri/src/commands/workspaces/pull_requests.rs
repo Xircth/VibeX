@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
+use agents::{AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput};
 use db::models::{
-    coding_agent_turn::CodingAgentTurn,
-    execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+    execution_process::ExecutionProcess,
     merge::{Merge, MergeStatus},
     repo::{Repo, RepoError},
     session::{CreateSession, Session, SessionStatus},
@@ -11,13 +11,7 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use executors::{
-    actions::{
-        ExecutorAction, ExecutorActionType, coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest,
-    },
-    profile::ExecutorConfig,
-};
+use executors::executors::BaseCodingAgent;
 use git::{GitCliError, GitServiceError};
 use services::services::{
     config::DEFAULT_PR_DESCRIPTION_PROMPT,
@@ -33,6 +27,18 @@ use super::{
 use crate::{
     error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
 };
+
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<AgentType, AppError> {
+    match executor {
+        BaseCodingAgent::ClaudeCode => Ok(AgentType::ClaudeCode),
+        BaseCodingAgent::Codex => Ok(AgentType::Codex),
+        BaseCodingAgent::Opencode => Ok(AgentType::OpenCode),
+        #[cfg(feature = "qa-mode")]
+        BaseCodingAgent::QaMock => Err(AppError::BadRequest(
+            "QA mock is not available through the ACP-native agent runtime".to_string(),
+        )),
+    }
+}
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -277,43 +283,34 @@ async fn trigger_pr_description_follow_up(
         return Ok(());
     };
 
-    let latest_session_info = CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
-
     let container_ref = state
         .deployment
         .container()
         .ensure_container_exists(workspace)
         .await?;
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let working_dir = resolve_workspace_agent_working_dir(workspace, &container_ref, &repos);
-
-    let action_type = if let Some(info) = latest_session_info {
-        ExecutorActionType::CodingAgentFollowUpRequest(CodingAgentFollowUpRequest {
-            prompt,
-            session_id: info.session_id,
-            reset_to_message_id: None,
-            executor_config: ExecutorConfig::from(executor_profile_id.clone()),
-            working_dir: working_dir.clone(),
+    let working_dir =
+        resolve_workspace_agent_working_dir(workspace, &container_ref, &repos)
+            .unwrap_or_else(|| container_ref.clone());
+    let agent_session_id = AgentSessionId(session.id);
+    let agent_session = state
+        .agent_runtime
+        .ensure_session(EnsureAgentSessionInput {
+            agent_type: agent_type_from_executor(executor_profile_id.executor)?,
+            workspace_id: workspace.id,
+            working_dir: PathBuf::from(working_dir),
+            session_id: agent_session_id,
+            acp_session_id: session.id.to_string(),
         })
-    } else {
-        ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-            prompt,
-            executor_config: ExecutorConfig::from(executor_profile_id.clone()),
-            working_dir,
-        })
-    };
-
-    let action = ExecutorAction::new(action_type, None);
+        .await?;
 
     state
-        .deployment
-        .container()
-        .start_execution(
-            workspace,
-            &session,
-            &action,
-            &ExecutionProcessRunReason::CodingAgent,
-        )
+        .agent_runtime
+        .send_prompt(SendAgentPromptInput {
+            connection_id: agent_session.connection_id,
+            session_id: agent_session.id,
+            text: prompt,
+        })
         .await?;
 
     Ok(())

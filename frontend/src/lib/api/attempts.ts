@@ -5,7 +5,6 @@ import type {
   RepoWithTargetBranch,
   OpenEditorRequest,
   OpenEditorResponse,
-  RunAgentSetupRequest,
   RunScriptError,
   PushError,
   PrError,
@@ -118,16 +117,6 @@ export const attemptsApi = {
     return tauriInvoke<void>('delete_workspace', {
       workspaceId: attemptId,
       deleteBranches: deleteBranches ?? null,
-    });
-  },
-
-  runAgentSetup: async (
-    attemptId: string,
-    data: RunAgentSetupRequest
-  ): Promise<ExecutionProcess> => {
-    return tauriInvoke<ExecutionProcess>('run_agent_setup', {
-      workspaceId: attemptId,
-      executorProfileId: data.executor_profile_id,
     });
   },
 

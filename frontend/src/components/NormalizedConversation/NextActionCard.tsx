@@ -8,13 +8,8 @@ import { Button } from '@/components/ui/button';
 import { IdeIcon, getIdeName } from '@/components/ide/IdeIcon';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useQuery } from '@tanstack/react-query';
-import { attemptsApi } from '@/lib/api';
-import {
-  BaseAgentCapability,
-  type BaseCodingAgent,
-  type EditorType,
-  type TaskWithAttemptStatus,
-} from 'shared/types';
+import { attemptsApi, settingsWindowApi } from '@/lib/api';
+import { type EditorType, type TaskWithAttemptStatus } from 'shared/types';
 import {
   Tooltip,
   TooltipContent,
@@ -240,7 +235,7 @@ export function NextActionCard({
   needsSetup,
   setupHelpText: initialSetupHelpText,
 }: NextActionCardProps) {
-  const { config, capabilities } = useUserSystem();
+  const { config } = useUserSystem();
   const panelActions = useOptionalPanelActionsContext();
   const navigateWithSearch = useNavigateWithSearch();
   const [copied, triggerCopied] = useTemporaryFlag(2000);
@@ -291,31 +286,14 @@ export function NextActionCard({
   }, [attemptId, task]);
 
   const handleRunSetup = useCallback(async () => {
-    if (!attemptId || !attempt?.session?.executor) return;
     try {
-      await attemptsApi.runAgentSetup(attemptId, {
-        executor_profile_id: {
-          executor: attempt.session.executor as BaseCodingAgent,
-          variant: null,
-        },
-      });
+      await settingsWindowApi.open();
     } catch (error) {
-      console.error('Failed to run setup:', error);
+      console.error('Failed to open agent settings:', error);
     }
-  }, [attemptId, attempt]);
+  }, []);
 
-  const canAutoSetup = !!(
-    attempt?.session?.executor &&
-    capabilities?.[attempt.session.executor]?.includes(
-      BaseAgentCapability.SETUP_HELPER
-    )
-  );
-
-  const setupHelpText =
-    initialSetupHelpText ??
-    (canAutoSetup
-      ? `${attempt?.session?.executor} 未正确设置。点击运行设置以安装并登录。`
-      : null);
+  const setupHelpText = initialSetupHelpText ?? null;
 
   const editorName = getIdeName(config?.editor?.editor_type);
   const hasDiffs = fileCount > 0 && !error;

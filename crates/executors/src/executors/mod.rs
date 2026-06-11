@@ -11,7 +11,6 @@ use ts_rs::TS;
 use crate::executors::qa_mock::QaMockExecutor;
 use crate::{
     command::CommandBuildError,
-    executors::{claude::ClaudeCode, codex::Codex, opencode::Opencode},
 };
 
 pub mod claude;

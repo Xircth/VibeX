@@ -26,7 +26,7 @@ use db::{
     },
 };
 use executors::{
-    actions::{ExecutorAction, ExecutorActionType},
+    actions::ExecutorAction,
     executors::{ExecutorError, SlashCommandDescription, SlashCommandKind},
     logs::utils::ConversationPatch,
     profile::ExecutorProfileId,
@@ -50,7 +50,7 @@ use crate::services::{
     container_actions, container_workflow,
     notification::NotificationService,
     workspace_manager::WorkspaceError as WorkspaceManagerError,
-    workspace_paths::{self, WorkspacePathRepo},
+    workspace_paths,
     worktree_manager::WorktreeError,
 };
 pub type ContainerRef = String;

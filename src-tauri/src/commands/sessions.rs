@@ -8,7 +8,7 @@ use db::models::{
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
-    scratch::{Scratch, ScratchType},
+    scratch::Scratch,
     session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskStatus},
     workspace::{CreateWorkspace, Workspace},

@@ -13,11 +13,10 @@ use db::{
     DBService,
     models::{
         execution_process::{
-            ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
+            ExecutionContext, ExecutionProcess, ExecutionProcessStatus,
         },
         execution_process_repo_state::ExecutionProcessRepoState,
         repo::Repo,
-        session::Session,
         task::{Task, TaskStatus},
         workspace::Workspace,
         workspace_repo::WorkspaceRepo,
@@ -25,11 +24,10 @@ use db::{
 };
 use deployment::DeploymentError;
 use executors::{
-    actions::{Executable, ExecutorAction, ExecutorActionType},
+    actions::{Executable, ExecutorAction},
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
     executors::{CancellationToken, ExecutorExitSignal, SpawnedChild},
-    logs::utils::ConversationPatch,
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
@@ -37,7 +35,6 @@ use services::services::{
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
     container::{ContainerError, ContainerRef, ContainerService},
-    container_actions,
     diff_stream::{self, DiffStreamHandle},
     image::ImageService,
     notification::NotificationService,

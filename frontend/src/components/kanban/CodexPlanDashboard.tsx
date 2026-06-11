@@ -8,7 +8,7 @@ export function CodexPlanDashboard() {
           Codex Account
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Account and rate-limit data is not read through Codex app-server in
+          Account and rate-limit data is not read through Codex ACP in
           the ACP-native agent platform.
         </p>
       </div>
@@ -22,7 +22,7 @@ export function CodexPlanDashboard() {
           <div className="mt-1">
             Codex live sessions now run through the ACP agent runtime. Any
             future account surface should be added through the registry-driven
-            agent settings flow instead of starting Codex app-server.
+            agent settings flow instead of starting Codex directly.
           </div>
         </div>
       </div>

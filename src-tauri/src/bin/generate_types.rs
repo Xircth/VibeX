@@ -160,6 +160,10 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "CapabilityState",
             "CapabilityStatus",
             "ProviderCapabilityState",
+            "AvailabilityInfo",
+            "BaseAgentCapability",
+            "GetMcpServerResponse",
+            "McpConfig",
             "ProviderCommand",
             "ProviderHistorySnapshot",
             "ProviderId",
@@ -173,6 +177,7 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "ProviderRuntimeStatus",
             "ProviderSessionSummary",
             "ProviderTurnRequest",
+            "UserSystemInfo",
         ])
     })
 }

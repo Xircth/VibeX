@@ -1,4 +1,5 @@
-import type { McpConfig, JsonValue } from 'shared/types';
+import type { JsonValue } from 'shared/types';
+import type { AgentMcpConfig } from '@/lib/api/config';
 
 type JsonObject = Record<string, JsonValue>;
 
@@ -42,7 +43,7 @@ function ensureObjectPath(root: JsonObject, path: string[]): JsonObject {
 }
 
 export class McpConfigStrategyGeneral {
-  static createFullConfig(cfg: McpConfig): JsonObject {
+  static createFullConfig(cfg: AgentMcpConfig): JsonObject {
     const fullConfig = cloneJsonObject(cfg.template);
     if (cfg.servers_path.length > 0) {
       const current = ensureObjectPath(fullConfig, cfg.servers_path.slice(0, -1));
@@ -52,7 +53,7 @@ export class McpConfigStrategyGeneral {
     return fullConfig;
   }
   static validateFullConfig(
-    mcp_config: McpConfig,
+    mcp_config: AgentMcpConfig,
     full_config: JsonValue
   ): void {
     const current = readValueAtPath(full_config, mcp_config.servers_path);
@@ -61,7 +62,7 @@ export class McpConfigStrategyGeneral {
     }
   }
   static extractServersForApi(
-    mcp_config: McpConfig,
+    mcp_config: AgentMcpConfig,
     full_config: JsonValue
   ): JsonObject {
     const current = readValueAtPath(full_config, mcp_config.servers_path);
@@ -72,7 +73,7 @@ export class McpConfigStrategyGeneral {
   }
 
   static addPreconfiguredToConfig(
-    mcp_config: McpConfig,
+    mcp_config: AgentMcpConfig,
     existingConfig: JsonValue,
     serverKey: string
   ): JsonObject {

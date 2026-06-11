@@ -2,13 +2,13 @@ import type {
   Config,
   EditorType,
   CheckEditorAvailabilityResponse,
-  AvailabilityInfo,
   BaseCodingAgent,
-  UserSystemInfo,
   McpServerQuery,
   UpdateMcpServersBody,
-  GetMcpServerResponse,
   SoundFile,
+  Environment,
+  ExecutorConfig,
+  JsonValue,
 } from 'shared/types';
 
 import { tauriInvoke } from './base';
@@ -87,6 +87,42 @@ export interface InstallSystemDependenciesResult {
   status: SystemMaintenanceStatus;
 }
 
+export type AgentCapability =
+  | 'SESSION_FORK'
+  | 'SETUP_HELPER'
+  | 'CONTEXT_USAGE';
+
+export const AgentCapability = {
+  SESSION_FORK: 'SESSION_FORK',
+  SETUP_HELPER: 'SETUP_HELPER',
+  CONTEXT_USAGE: 'CONTEXT_USAGE',
+} as const satisfies Record<AgentCapability, AgentCapability>;
+
+export type AgentAvailabilityInfo =
+  | { type: 'LOGIN_DETECTED'; last_auth_timestamp: bigint }
+  | { type: 'INSTALLATION_FOUND' }
+  | { type: 'NOT_FOUND' };
+
+export type AgentMcpConfig = {
+  servers: Record<string, JsonValue>;
+  servers_path: string[];
+  template: JsonValue;
+  preconfigured: JsonValue;
+  is_toml_config: boolean;
+};
+
+export type GetMcpServerResponse = {
+  mcp_config: AgentMcpConfig;
+  config_path: string;
+};
+
+export type UserSystemInfo = {
+  config: Config;
+  environment: Environment;
+  capabilities: Record<string, AgentCapability[]>;
+  executors: Record<string, ExecutorConfig>;
+};
+
 // Config APIs
 export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
@@ -105,8 +141,8 @@ export const configApi = {
   },
   checkAgentAvailability: async (
     agent: BaseCodingAgent
-  ): Promise<AvailabilityInfo> => {
-    return tauriInvoke<AvailabilityInfo>('check_agent_availability', {
+  ): Promise<AgentAvailabilityInfo> => {
+    return tauriInvoke<AgentAvailabilityInfo>('check_agent_availability', {
       executor: agent,
     });
   },

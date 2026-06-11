@@ -509,32 +509,6 @@ impl ExecutorConfigs {
         })
     }
 
-    pub fn get_coding_agent(&self, executor_profile_id: &ExecutorProfileId) -> Option<CodingAgent> {
-        self.executors
-            .get(&executor_profile_id.executor)
-            .and_then(|executor| {
-                executor.get_variant(
-                    &executor_profile_id
-                        .variant
-                        .clone()
-                        .unwrap_or("DEFAULT".to_string()),
-                )
-            })
-            .cloned()
-    }
-
-    pub fn get_coding_agent_or_default(
-        &self,
-        executor_profile_id: &ExecutorProfileId,
-    ) -> CodingAgent {
-        self.get_coding_agent(executor_profile_id)
-            .unwrap_or_else(|| {
-                let mut default_executor_profile_id = executor_profile_id.clone();
-                default_executor_profile_id.variant = Some("DEFAULT".to_string());
-                self.get_coding_agent(&default_executor_profile_id)
-                    .expect("No default variant found")
-            })
-    }
 }
 
 pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {

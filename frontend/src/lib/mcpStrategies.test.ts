@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { McpConfig } from 'shared/types';
+import type { AgentMcpConfig } from '@/lib/api/config';
 
 import { McpConfigStrategyGeneral } from './mcpStrategies';
 
-function mcpConfig(overrides: Partial<McpConfig> = {}): McpConfig {
+function mcpConfig(overrides: Partial<AgentMcpConfig> = {}): AgentMcpConfig {
   return {
     servers: {},
     servers_path: ['mcp', 'servers'],

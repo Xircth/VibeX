@@ -1,9 +1,4 @@
-use std::{path::Path, sync::Arc};
-
-use async_trait::async_trait;
 use command_group::AsyncGroupChild;
-use enum_dispatch::enum_dispatch;
-use futures::stream::BoxStream;
 use futures_io::Error as FuturesIoError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,19 +6,12 @@ use sqlx::Type;
 use strum_macros::{Display, EnumDiscriminants, EnumString, VariantNames};
 use thiserror::Error;
 use ts_rs::TS;
-use workspace_utils::msg_store::MsgStore;
 
 #[cfg(feature = "qa-mode")]
 use crate::executors::qa_mock::QaMockExecutor;
 use crate::{
-    actions::ExecutorAction,
-    approvals::ExecutorApprovalService,
     command::CommandBuildError,
-    env::ExecutionEnv,
     executors::{claude::ClaudeCode, codex::Codex, opencode::Opencode},
-    logs::utils::patch,
-    mcp_config::McpConfig,
-    profile::ExecutorConfig,
 };
 
 pub mod claude;
@@ -50,17 +38,6 @@ pub enum SlashCommandKind {
     Skill,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-#[ts(use_ts_enum)]
-pub enum BaseAgentCapability {
-    SessionFork,
-    /// Agent requires a setup script before it can run (e.g., login, installation)
-    SetupHelper,
-    /// Agent reports context/token usage information
-    ContextUsage,
-}
-
 #[derive(Debug, Error)]
 pub enum ExecutorError {
     #[error("Follow-up is not supported: {0}")]
@@ -73,10 +50,6 @@ pub enum ExecutorError {
     Io(std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    #[error(transparent)]
-    TomlSerialize(#[from] toml::ser::Error),
-    #[error(transparent)]
-    TomlDeserialize(#[from] toml::de::Error),
     #[error(transparent)]
     ExecutorApprovalError(#[from] crate::approvals::ExecutorApprovalError),
     #[error(transparent)]
@@ -91,7 +64,6 @@ pub enum ExecutorError {
     UnsupportedExecutorConfig(String),
 }
 
-#[enum_dispatch]
 #[derive(
     Debug, Clone, Serialize, Deserialize, PartialEq, TS, Display, EnumDiscriminants, VariantNames,
 )]
@@ -99,7 +71,6 @@ pub enum ExecutorError {
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 #[strum_discriminants(
     name(BaseCodingAgent),
-    // Only add Hash; Eq/PartialEq are already provided by EnumDiscriminants.
     derive(EnumString, Hash, strum_macros::Display, Serialize, Deserialize, TS, Type),
     strum(serialize_all = "SCREAMING_SNAKE_CASE"),
     ts(use_ts_enum),
@@ -114,161 +85,12 @@ pub enum CodingAgent {
     QaMock(QaMockExecutor),
 }
 
-impl CodingAgent {
-    pub fn get_mcp_config(&self) -> McpConfig {
-        match self {
-            Self::Codex(_) => McpConfig::new(
-                vec!["mcp_servers".to_string()],
-                serde_json::json!({
-                    "mcp_servers": {}
-                }),
-                self.preconfigured_mcp(),
-                true,
-            ),
-            Self::Opencode(_) => McpConfig::new(
-                vec!["mcp".to_string()],
-                serde_json::json!({
-                    "mcp": {},
-                    "$schema": "https://opencode.ai/config.json"
-                }),
-                self.preconfigured_mcp(),
-                false,
-            ),
-            _ => McpConfig::new(
-                vec!["mcpServers".to_string()],
-                serde_json::json!({
-                    "mcpServers": {}
-                }),
-                self.preconfigured_mcp(),
-                false,
-            ),
-        }
-    }
-
-    pub fn supports_mcp(&self) -> bool {
-        self.default_mcp_config_path().is_some()
-    }
-
-    pub fn capabilities(&self) -> Vec<BaseAgentCapability> {
-        let base_agent = BaseCodingAgent::from(self);
-        base_agent.capabilities()
-    }
-}
-
-impl BaseCodingAgent {
-    pub fn capabilities(self) -> Vec<BaseAgentCapability> {
-        match self {
-            Self::ClaudeCode | Self::Opencode => vec![
-                BaseAgentCapability::SessionFork,
-                BaseAgentCapability::ContextUsage,
-            ],
-            Self::Codex => vec![
-                BaseAgentCapability::SessionFork,
-                BaseAgentCapability::SetupHelper,
-                BaseAgentCapability::ContextUsage,
-            ],
-            #[cfg(feature = "qa-mode")]
-            Self::QaMock => vec![],
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-#[ts(export)]
-pub enum AvailabilityInfo {
-    LoginDetected { last_auth_timestamp: i64 },
-    InstallationFound,
-    NotFound,
-}
-
-impl AvailabilityInfo {
-    pub fn is_available(&self) -> bool {
-        matches!(
-            self,
-            AvailabilityInfo::LoginDetected { .. } | AvailabilityInfo::InstallationFound
-        )
-    }
-}
-
-#[async_trait]
-#[enum_dispatch(CodingAgent)]
-pub trait StandardCodingAgentExecutor {
-    fn apply_overrides(&mut self, _executor_config: &ExecutorConfig) {}
-
-    fn use_approvals(&mut self, _approvals: Arc<dyn ExecutorApprovalService>) {}
-
-    async fn available_slash_commands(
-        &self,
-        _workdir: &Path,
-    ) -> Result<BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        Ok(Box::pin(futures::stream::once(async move {
-            patch::slash_commands(Vec::new(), false, None)
-        })))
-    }
-
-    async fn spawn(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError>;
-
-    /// Continue a session, optionally resetting to a specific message.
-    async fn spawn_follow_up(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: &str,
-        reset_to_message_id: Option<&str>,
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError>;
-
-    async fn spawn_review(
-        &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: Option<&str>,
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError> {
-        match session_id {
-            Some(id) => {
-                self.spawn_follow_up(current_dir, prompt, id, None, env)
-                    .await
-            }
-            None => self.spawn(current_dir, prompt, env).await,
-        }
-    }
-
-    fn normalize_logs(&self, _raw_logs_event_store: Arc<MsgStore>, _worktree_path: &Path);
-
-    // MCP configuration methods
-    fn default_mcp_config_path(&self) -> Option<std::path::PathBuf>;
-
-    async fn get_setup_helper_action(&self) -> Result<ExecutorAction, ExecutorError> {
-        Err(ExecutorError::SetupHelperNotSupported)
-    }
-
-    fn get_availability_info(&self) -> AvailabilityInfo {
-        let config_files_found = self
-            .default_mcp_config_path()
-            .map(|path| path.exists())
-            .unwrap_or(false);
-
-        if config_files_found {
-            AvailabilityInfo::InstallationFound
-        } else {
-            AvailabilityInfo::NotFound
-        }
-    }
-}
-
-/// Result communicated through the exit signal
+/// Result communicated through the exit signal.
 #[derive(Debug, Clone, Copy)]
 pub enum ExecutorExitResult {
-    /// Process completed successfully (exit code 0)
+    /// Process completed successfully (exit code 0).
     Success,
-    /// Process should be marked as failed (non-zero exit)
+    /// Process should be marked as failed (non-zero exit).
     Failure,
 }
 
@@ -284,9 +106,9 @@ pub type CancellationToken = tokio_util::sync::CancellationToken;
 #[derive(Debug)]
 pub struct SpawnedChild {
     pub child: AsyncGroupChild,
-    /// Executor → Container: signals when executor wants to exit
+    /// Executor -> Container: signals when executor wants to exit.
     pub exit_signal: Option<ExecutorExitSignal>,
-    /// Container → Executor: signals when container wants to cancel the execution
+    /// Container -> Executor: signals when container wants to cancel the execution.
     pub cancel: Option<CancellationToken>,
 }
 
@@ -321,38 +143,4 @@ impl AppendPrompt {
             AppendPrompt(None) => prompt.to_string(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
-pub struct RepoReviewContext {
-    pub repo_name: String,
-    pub base_commit: String,
-}
-
-pub fn build_review_prompt(
-    context: Option<&[RepoReviewContext]>,
-    additional_prompt: Option<&str>,
-) -> String {
-    let mut prompt = String::from("请审查当前代码变更。\n\n");
-
-    if let Some(repos) = context {
-        for repo in repos {
-            prompt.push_str(&format!("仓库：{}\n", repo.repo_name));
-            prompt.push_str(&format!(
-                "审查从基础提交 {} 到 HEAD 的全部变更。\n",
-                repo.base_commit
-            ));
-            prompt.push_str(&format!(
-                "请使用 git diff {}..HEAD 查看变更。\n",
-                repo.base_commit
-            ));
-            prompt.push('\n');
-        }
-    }
-
-    if let Some(additional) = additional_prompt {
-        prompt.push_str(additional);
-    }
-
-    prompt
 }

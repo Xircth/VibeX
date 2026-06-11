@@ -33,7 +33,7 @@ import {
   CarouselPrevious,
 } from '@/components/ui/carousel';
 import type { BaseCodingAgent, JsonValue } from 'shared/types';
-import { McpConfig } from 'shared/types';
+import type { AgentMcpConfig } from '@/lib/api/config';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { mcpServersApi } from '@/lib/api';
 import { McpConfigStrategyGeneral } from '@/lib/mcpStrategies';
@@ -61,7 +61,7 @@ export function McpSettings() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
   // MCP state for selected agent
-  const [mcpConfig, setMcpConfig] = useState<McpConfig | null>(null);
+  const [mcpConfig, setMcpConfig] = useState<AgentMcpConfig | null>(null);
   const [mcpServers, setMcpServers] = useState('{}');
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpError, setMcpError] = useState<string | null>(null);
@@ -664,7 +664,7 @@ export function McpSettings() {
 /* ── helpers ──────────────────────────────────────────────── */
 
 function extractServers(
-  mcpConfig: McpConfig,
+  mcpConfig: AgentMcpConfig,
   parsed: unknown
 ): JsonObject | null {
   if (!isJsonObject(parsed)) return null;

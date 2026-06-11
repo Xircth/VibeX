@@ -52,9 +52,14 @@ export type {
   LocalToolStatus,
   SystemMaintenanceStatus,
   InstallSystemDependenciesResult,
+  AgentAvailabilityInfo,
+  AgentCapability,
+  AgentMcpConfig,
+  GetMcpServerResponse,
   PromptEnhancementContextMessage,
   PromptEnhancementRequest,
   PromptEnhancementResponse,
+  UserSystemInfo,
 } from './config';
 
 // Misc: Execution Processes, File Tree, Desktop, File System, Tags, Images, Approvals, Scratch, Search, Skills

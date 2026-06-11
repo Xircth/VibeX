@@ -20,7 +20,7 @@ import WYSIWYGEditor, {
   SESSION_INPUT_TEXT_CLASS_NAME,
 } from '@/components/ui/wysiwyg';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
-import { BaseAgentCapability } from 'shared/types';
+import { AgentCapability } from '@/lib/api/config';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useRetryUi } from '@/contexts/RetryUiContext';
@@ -409,7 +409,7 @@ const UserMessage = ({
   const canFork = !!(
     taskAttempt?.session?.executor &&
     capabilities?.[taskAttempt.session.executor]?.includes(
-      BaseAgentCapability.SESSION_FORK
+      AgentCapability.SESSION_FORK
     )
   );
 

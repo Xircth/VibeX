@@ -9,17 +9,19 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   type Config,
   type Environment,
-  type UserSystemInfo,
-  type BaseAgentCapability,
 } from 'shared/types';
 import type { ExecutorConfig } from 'shared/types';
-import { configApi } from '../lib/api';
+import {
+  configApi,
+  type AgentCapability,
+  type UserSystemInfo,
+} from '../lib/api';
 
 interface UserSystemState {
   config: Config | null;
   environment: Environment | null;
   profiles: Record<string, ExecutorConfig> | null;
-  capabilities: Record<string, BaseAgentCapability[]> | null;
+  capabilities: Record<string, AgentCapability[]> | null;
 }
 
 interface UserSystemContextType {
@@ -35,10 +37,10 @@ interface UserSystemContextType {
   // System data access
   environment: Environment | null;
   profiles: Record<string, ExecutorConfig> | null;
-  capabilities: Record<string, BaseAgentCapability[]> | null;
+  capabilities: Record<string, AgentCapability[]> | null;
   setEnvironment: (env: Environment | null) => void;
   setProfiles: (profiles: Record<string, ExecutorConfig> | null) => void;
-  setCapabilities: (caps: Record<string, BaseAgentCapability[]> | null) => void;
+  setCapabilities: (caps: Record<string, AgentCapability[]> | null) => void;
 
   // Reload system data
   reloadSystem: () => Promise<void>;
@@ -70,10 +72,8 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
     (userSystemInfo?.executors as Record<string, ExecutorConfig> | null) ||
     null;
   const capabilities =
-    (userSystemInfo?.capabilities as Record<
-      string,
-      BaseAgentCapability[]
-    > | null) || null;
+    (userSystemInfo?.capabilities as Record<string, AgentCapability[]> | null) ||
+    null;
 
   const updateConfig = useCallback(
     (updates: Partial<Config>) => {
@@ -153,7 +153,7 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
   );
 
   const setCapabilities = useCallback(
-    (newCapabilities: Record<string, BaseAgentCapability[]> | null) => {
+    (newCapabilities: Record<string, AgentCapability[]> | null) => {
       queryClient.setQueryData<UserSystemInfo>(['user-system'], (old) => {
         if (!old || !newCapabilities) return old;
         return { ...old, capabilities: newCapabilities };

@@ -11,6 +11,7 @@ pub mod filesystem;
 pub mod host;
 pub mod ids;
 pub mod installer;
+pub mod manager;
 pub mod mcp;
 pub mod permissions;
 pub mod config;
@@ -38,6 +39,10 @@ pub use ids::{
 pub use installer::{
     AgentInstallPlan, AgentInstallStatus, AgentPreflight, AgentPreflightIssue,
     AgentPreflightSeverity,
+};
+pub use manager::{
+    AgentConnectionCommand, AgentConnectionLaunch, AgentConnectionManager,
+    ManagedAgentConnectionSnapshot,
 };
 pub use mcp::{AgentMcpStrategy, AgentMcpSurface};
 pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};

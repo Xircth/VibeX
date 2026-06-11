@@ -7,10 +7,10 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    AgentConnectionId, AgentError, AgentEvent, AgentEventEnvelope, AgentPromptId,
-    AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult,
-    AgentSessionId, AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition,
-    registry_entry,
+    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, AgentContentBlock,
+    AgentError, AgentEvent, AgentEventEnvelope, AgentPromptId, AgentPromptQueue,
+    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId,
+    AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -77,6 +77,7 @@ struct RuntimeState {
 
 pub struct AgentRuntime {
     state: RwLock<RuntimeState>,
+    connection_manager: AgentConnectionManager,
     event_sink: Arc<dyn RuntimeEventSink>,
     event_tx: broadcast::Sender<AgentEventEnvelope>,
 }
@@ -92,6 +93,7 @@ impl AgentRuntime {
         let (event_tx, _) = broadcast::channel(512);
         Self {
             state: RwLock::new(RuntimeState::default()),
+            connection_manager: AgentConnectionManager::default(),
             event_sink,
             event_tx,
         }
@@ -156,6 +158,16 @@ impl AgentRuntime {
                 snapshot: snapshot.clone(),
             },
         );
+        drop(state);
+
+        self.connection_manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: snapshot.id,
+                agent_type: snapshot.agent_type,
+                working_dir: input.working_dir,
+            })
+            .await;
+
         Ok(snapshot)
     }
 
@@ -258,6 +270,17 @@ impl AgentRuntime {
                 snapshot: prompt.clone(),
             },
         );
+        drop(state);
+
+        self.connection_manager
+            .send_prompt(
+                input.connection_id,
+                input.session_id,
+                prompt.id,
+                vec![AgentContentBlock::Text { text: input.text }],
+            )
+            .await?;
+
         Ok(prompt)
     }
 
@@ -307,6 +330,12 @@ impl AgentRuntime {
                         },
                     },
                 );
+                drop(state);
+
+                self.connection_manager
+                    .cancel_prompt(input.connection_id, input.session_id, input.prompt_id)
+                    .await?;
+
                 Ok(())
             }
             QueueTransition::Missing { .. } => {

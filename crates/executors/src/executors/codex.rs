@@ -11,18 +11,36 @@ use strum_macros::AsRefStr;
 use ts_rs::TS;
 use workspace_utils::msg_store::MsgStore;
 
-pub use crate::executors::acp::{codex_config_model_context_window, codex_home};
 use crate::{
     approvals::ExecutorApprovalService,
     command::CmdOverrides,
     env::ExecutionEnv,
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        acp::{AcpBackedExecutor, AcpProvider},
     },
     model_selector::PermissionPolicy,
     profile::ExecutorConfig,
 };
+
+pub fn codex_home() -> Option<PathBuf> {
+    if let Ok(codex_home) = std::env::var("CODEX_HOME")
+        && !codex_home.trim().is_empty()
+    {
+        return Some(PathBuf::from(codex_home));
+    }
+    dirs::home_dir().map(|home| home.join(".codex"))
+}
+
+pub fn codex_config_model_context_window() -> Option<u32> {
+    let path = codex_home()?.join("config.toml");
+    let content = std::fs::read_to_string(path).ok()?;
+    let value = content.parse::<toml::Value>().ok()?;
+    value
+        .get("model_context_window")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, JsonSchema, AsRefStr)]
 #[serde(rename_all = "kebab-case")]
@@ -141,24 +159,6 @@ impl Codex {
         params.extend(["-c".to_string(), format!("{key}={}", value.as_ref())]);
     }
 
-    fn acp_executor(&self) -> Result<AcpBackedExecutor, ExecutorError> {
-        self.validate_acp_config()?;
-
-        Ok(AcpBackedExecutor::new(AcpProvider::Codex)
-            .with_append_prompt(self.append_prompt.clone())
-            .with_model(self.model.clone())
-            .with_mode(
-                self.model_reasoning_effort
-                    .as_ref()
-                    .map(|effort| effort.as_ref().to_string()),
-            )
-            .with_approvals_enabled(!matches!(
-                self.ask_for_approval,
-                None | Some(AskForApproval::Never)
-            ))
-            .with_cmd(self.acp_cmd()))
-    }
-
     fn validate_acp_config(&self) -> Result<(), ExecutorError> {
         let mut unsupported = Vec::new();
 
@@ -265,214 +265,73 @@ impl StandardCodingAgentExecutor for Codex {
         self.approvals = Some(approvals);
     }
 
-    async fn available_slash_commands(
-        &self,
-        workdir: &Path,
-    ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        self.acp_executor()?.available_slash_commands(workdir).await
-    }
-
     async fn spawn(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        env: &ExecutionEnv,
+        _current_dir: &Path,
+        _prompt: &str,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor()?;
-        if let Some(approvals) = self.approvals.clone() {
-            executor.use_approvals(approvals);
-        }
-        executor.spawn(current_dir, prompt, env).await
+        Err(legacy_agent_runtime_removed())
     }
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: &str,
+        _current_dir: &Path,
+        _prompt: &str,
+        _session_id: &str,
         _reset_to_message_id: Option<&str>,
-        env: &ExecutionEnv,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor()?;
-        if let Some(approvals) = self.approvals.clone() {
-            executor.use_approvals(approvals);
-        }
-        executor
-            .spawn_follow_up(current_dir, prompt, session_id, None, env)
-            .await
+        Err(legacy_agent_runtime_removed())
     }
 
     async fn spawn_review(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: Option<&str>,
-        env: &ExecutionEnv,
+        _current_dir: &Path,
+        _prompt: &str,
+        _session_id: Option<&str>,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor()?;
-        if let Some(approvals) = self.approvals.clone() {
-            executor.use_approvals(approvals);
-        }
-        executor
-            .spawn_review(current_dir, prompt, session_id, env)
-            .await
+        Err(legacy_agent_runtime_removed())
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
-        match self.acp_executor() {
-            Ok(executor) => executor.normalize_logs(msg_store, worktree_path),
-            Err(err) => tracing::warn!("Cannot normalize Codex ACP logs: {err}"),
-        }
-    }
+    fn normalize_logs(&self, _msg_store: Arc<MsgStore>, _worktree_path: &Path) {}
 
     fn default_mcp_config_path(&self) -> Option<PathBuf> {
-        AcpBackedExecutor::new(AcpProvider::Codex).default_mcp_config_path()
+        codex_home().map(|home| home.join("config.toml"))
     }
 
     fn get_availability_info(&self) -> AvailabilityInfo {
-        AcpBackedExecutor::new(AcpProvider::Codex).get_availability_info()
+        if let Some(timestamp) = codex_home()
+            .and_then(|home| std::fs::metadata(home.join("auth.json")).ok())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs() as i64)
+        {
+            return AvailabilityInfo::LoginDetected {
+                last_auth_timestamp: timestamp,
+            };
+        }
+
+        let indicator = codex_home()
+            .map(|home| home.join("version.json").exists() || home.join("config.toml").exists())
+            .unwrap_or(false);
+        if indicator {
+            AvailabilityInfo::InstallationFound
+        } else {
+            AvailabilityInfo::NotFound
+        }
     }
 
     async fn get_setup_helper_action(
         &self,
     ) -> Result<crate::actions::ExecutorAction, ExecutorError> {
-        self.acp_executor()?.get_setup_helper_action().await
+        Err(legacy_agent_runtime_removed())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn has_config_override(params: &[String], key: &str, value: &str) -> bool {
-        params
-            .windows(2)
-            .any(|w| w[0] == "-c" && w[1] == format!("{key}={value}"))
-    }
-
-    #[test]
-    fn codex_maps_supported_acp_command_params() {
-        let codex = Codex {
-            append_prompt: AppendPrompt::default(),
-            sandbox: Some(SandboxMode::WorkspaceWrite),
-            ask_for_approval: Some(AskForApproval::UnlessTrusted),
-            oss: None,
-            model: Some("gpt-5.4".to_string()),
-            model_reasoning_effort: Some(ReasoningEffort::High),
-            model_reasoning_summary: None,
-            model_reasoning_summary_format: None,
-            profile: Some("default".to_string()),
-            base_instructions: None,
-            include_apply_patch_tool: None,
-            model_provider: None,
-            compact_prompt: None,
-            developer_instructions: None,
-            cmd: CmdOverrides::default(),
-            approvals: None,
-        };
-
-        let executor = codex.acp_executor().expect("config should be supported");
-        let params = executor.cmd.additional_params.expect("params");
-
-        assert!(has_config_override(
-            &params,
-            "sandbox_mode",
-            "workspace-write"
-        ));
-        assert!(has_config_override(&params, "approval_policy", "untrusted"));
-        assert!(has_config_override(&params, "model", "gpt-5.4"));
-        assert!(has_config_override(&params, "profile", "default"));
-        assert!(has_config_override(
-            &params,
-            "model_reasoning_effort",
-            "high"
-        ));
-        assert!(!params.iter().any(|param| param.starts_with("--")));
-        assert!(executor.approvals_enabled);
-    }
-
-    #[test]
-    fn codex_rejects_unsupported_legacy_fields() {
-        let codex = Codex {
-            append_prompt: AppendPrompt::default(),
-            sandbox: None,
-            ask_for_approval: None,
-            oss: Some(true),
-            model: None,
-            model_reasoning_effort: None,
-            model_reasoning_summary: None,
-            model_reasoning_summary_format: None,
-            profile: None,
-            base_instructions: None,
-            include_apply_patch_tool: None,
-            model_provider: None,
-            compact_prompt: None,
-            developer_instructions: None,
-            cmd: CmdOverrides::default(),
-            approvals: None,
-        };
-
-        assert!(matches!(
-            codex.acp_executor(),
-            Err(ExecutorError::UnsupportedExecutorConfig(_))
-        ));
-    }
-
-    #[test]
-    fn codex_command_params_default_to_full_access_config_override() {
-        let codex = Codex {
-            append_prompt: AppendPrompt::default(),
-            sandbox: None,
-            ask_for_approval: None,
-            oss: None,
-            model: Some("gpt-5.4".to_string()),
-            model_reasoning_effort: None,
-            model_reasoning_summary: None,
-            model_reasoning_summary_format: None,
-            profile: None,
-            base_instructions: None,
-            include_apply_patch_tool: None,
-            model_provider: None,
-            compact_prompt: None,
-            developer_instructions: None,
-            cmd: CmdOverrides::default(),
-            approvals: None,
-        };
-
-        let executor = codex.acp_executor().expect("config should be supported");
-        let params = executor.cmd.additional_params.expect("params");
-
-        assert!(has_config_override(
-            &params,
-            "sandbox_mode",
-            "danger-full-access"
-        ));
-    }
-
-    #[test]
-    fn codex_rejects_unsupported_reasoning_summary_format() {
-        let codex = Codex {
-            append_prompt: AppendPrompt::default(),
-            sandbox: None,
-            ask_for_approval: None,
-            oss: None,
-            model: None,
-            model_reasoning_effort: None,
-            model_reasoning_summary: None,
-            model_reasoning_summary_format: Some(ReasoningSummaryFormat::Experimental),
-            profile: None,
-            base_instructions: None,
-            include_apply_patch_tool: None,
-            model_provider: None,
-            compact_prompt: None,
-            developer_instructions: None,
-            cmd: CmdOverrides::default(),
-            approvals: None,
-        };
-
-        assert!(matches!(
-            codex.acp_executor(),
-            Err(ExecutorError::UnsupportedExecutorConfig(_))
-        ));
-    }
+fn legacy_agent_runtime_removed() -> ExecutorError {
+    ExecutorError::UnsupportedExecutorConfig(
+        "legacy Codex executor runtime was removed; use crates/agents ACP runtime".to_string(),
+    )
 }

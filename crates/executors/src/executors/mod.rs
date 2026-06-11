@@ -20,13 +20,12 @@ use crate::{
     approvals::ExecutorApprovalService,
     command::CommandBuildError,
     env::ExecutionEnv,
-    executors::{acp::AcpProvider, claude::ClaudeCode, codex::Codex, opencode::Opencode},
+    executors::{claude::ClaudeCode, codex::Codex, opencode::Opencode},
     logs::utils::patch,
     mcp_config::McpConfig,
     profile::ExecutorConfig,
 };
 
-pub mod acp;
 pub mod claude;
 pub mod codex;
 pub mod opencode;
@@ -159,9 +158,15 @@ impl CodingAgent {
 impl BaseCodingAgent {
     pub fn capabilities(self) -> Vec<BaseAgentCapability> {
         match self {
-            Self::ClaudeCode => AcpProvider::ClaudeCode.base_capabilities(),
-            Self::Codex => AcpProvider::Codex.base_capabilities(),
-            Self::Opencode => AcpProvider::Opencode.base_capabilities(),
+            Self::ClaudeCode | Self::Opencode => vec![
+                BaseAgentCapability::SessionFork,
+                BaseAgentCapability::ContextUsage,
+            ],
+            Self::Codex => vec![
+                BaseAgentCapability::SessionFork,
+                BaseAgentCapability::SetupHelper,
+                BaseAgentCapability::ContextUsage,
+            ],
             #[cfg(feature = "qa-mode")]
             Self::QaMock => vec![],
         }

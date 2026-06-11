@@ -17,7 +17,6 @@ use crate::{
     env::ExecutionEnv,
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        acp::{AcpBackedExecutor, AcpProvider},
     },
     model_selector::PermissionPolicy,
     profile::ExecutorConfig,
@@ -48,15 +47,6 @@ pub struct Opencode {
 }
 
 impl Opencode {
-    fn acp_executor(&self) -> AcpBackedExecutor {
-        AcpBackedExecutor::new(AcpProvider::Opencode)
-            .with_append_prompt(self.append_prompt.clone())
-            .with_model(self.model.clone())
-            .with_mode(self.agent.clone())
-            .with_approvals_enabled(!self.auto_approve)
-            .with_cmd(self.cmd.clone())
-    }
-
     fn runtime_env(&self, env: &ExecutionEnv) -> ExecutionEnv {
         if !self.auto_compact {
             return env.clone();
@@ -91,57 +81,74 @@ impl StandardCodingAgentExecutor for Opencode {
         self.approvals = Some(approvals);
     }
 
-    async fn available_slash_commands(
-        &self,
-        current_dir: &Path,
-    ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        self.acp_executor()
-            .available_slash_commands(current_dir)
-            .await
-    }
-
     async fn spawn(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        env: &ExecutionEnv,
+        _current_dir: &Path,
+        _prompt: &str,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor();
-        if let Some(approvals) = self.approvals.clone() {
-            executor.use_approvals(approvals);
-        }
-        let env = self.runtime_env(env);
-        executor.spawn(current_dir, prompt, &env).await
+        Err(legacy_agent_runtime_removed())
     }
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: &str,
+        _current_dir: &Path,
+        _prompt: &str,
+        _session_id: &str,
         _reset_to_message_id: Option<&str>,
-        env: &ExecutionEnv,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor();
-        if let Some(approvals) = self.approvals.clone() {
-            executor.use_approvals(approvals);
-        }
-        let env = self.runtime_env(env);
-        executor
-            .spawn_follow_up(current_dir, prompt, session_id, None, &env)
-            .await
+        Err(legacy_agent_runtime_removed())
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, worktree_path: &Path) {
-        self.acp_executor().normalize_logs(msg_store, worktree_path);
-    }
+    fn normalize_logs(&self, _msg_store: Arc<MsgStore>, _worktree_path: &Path) {}
 
     fn default_mcp_config_path(&self) -> Option<PathBuf> {
-        self.acp_executor().default_mcp_config_path()
+        opencode_config_path()
     }
 
     fn get_availability_info(&self) -> AvailabilityInfo {
-        self.acp_executor().get_availability_info()
+        if opencode_config_path()
+            .map(|path| path.exists())
+            .unwrap_or(false)
+        {
+            AvailabilityInfo::InstallationFound
+        } else {
+            AvailabilityInfo::NotFound
+        }
+    }
+}
+
+fn legacy_agent_runtime_removed() -> ExecutorError {
+    ExecutorError::UnsupportedExecutorConfig(
+        "legacy OpenCode executor runtime was removed; use crates/agents ACP runtime".to_string(),
+    )
+}
+
+fn opencode_config_path() -> Option<PathBuf> {
+    #[cfg(not(windows))]
+    {
+        let base_dirs = xdg::BaseDirectories::with_prefix("opencode");
+        base_dirs
+            .get_config_file("opencode.json")
+            .filter(|path| path.exists())
+            .or_else(|| base_dirs.get_config_file("opencode.jsonc"))
+    }
+    #[cfg(windows)]
+    {
+        let config_dir = std::env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|home| home.join("AppData").join("Roaming")))
+            .map(|base| base.join("opencode"));
+        config_dir.and_then(|dir| {
+            let json = dir.join("opencode.json");
+            if json.exists() {
+                Some(json)
+            } else {
+                Some(dir.join("opencode.jsonc"))
+            }
+        })
     }
 }
 
@@ -194,41 +201,5 @@ mod tests {
 
         assert_eq!(value["theme"], "dark");
         assert_eq!(value["compaction"]["auto"], true);
-    }
-
-    #[test]
-    fn opencode_variant_is_not_sent_as_acp_session_mode() {
-        let opencode = Opencode {
-            append_prompt: AppendPrompt::default(),
-            model: None,
-            variant: Some("high".to_string()),
-            agent: None,
-            auto_approve: true,
-            auto_compact: true,
-            cmd: CmdOverrides::default(),
-            approvals: None,
-        };
-
-        let executor = opencode.acp_executor();
-
-        assert_eq!(executor.mode, None);
-    }
-
-    #[test]
-    fn opencode_agent_is_sent_as_acp_session_mode() {
-        let opencode = Opencode {
-            append_prompt: AppendPrompt::default(),
-            model: None,
-            variant: Some("high".to_string()),
-            agent: Some("plan".to_string()),
-            auto_approve: true,
-            auto_compact: true,
-            cmd: CmdOverrides::default(),
-            approvals: None,
-        };
-
-        let executor = opencode.acp_executor();
-
-        assert_eq!(executor.mode.as_deref(), Some("plan"));
     }
 }

@@ -17,7 +17,6 @@ use crate::{
     env::ExecutionEnv,
     executors::{
         AppendPrompt, AvailabilityInfo, ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        acp::{AcpBackedExecutor, AcpProvider},
     },
     model_selector::PermissionPolicy,
     profile::ExecutorConfig,
@@ -65,20 +64,6 @@ impl ClaudeCode {
         } else {
             None
         }
-    }
-
-    fn acp_executor(&self) -> Result<AcpBackedExecutor, ExecutorError> {
-        self.validate_acp_config()?;
-
-        Ok(AcpBackedExecutor::new(AcpProvider::ClaudeCode)
-            .with_append_prompt(self.append_prompt.clone())
-            .with_model(self.model_for_acp())
-            .with_mode(self.acp_mode())
-            .with_approvals_enabled(
-                self.approvals.unwrap_or(false)
-                    && !self.dangerously_skip_permissions.unwrap_or(false),
-            )
-            .with_cmd(self.cmd.clone()))
     }
 
     fn validate_acp_config(&self) -> Result<(), ExecutorError> {
@@ -172,140 +157,46 @@ impl StandardCodingAgentExecutor for ClaudeCode {
         self.approvals_service = Some(approvals);
     }
 
-    async fn available_slash_commands(
-        &self,
-        current_dir: &Path,
-    ) -> Result<futures::stream::BoxStream<'static, json_patch::Patch>, ExecutorError> {
-        self.acp_executor()?
-            .available_slash_commands(current_dir)
-            .await
-    }
-
     async fn spawn(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        env: &ExecutionEnv,
+        _current_dir: &Path,
+        _prompt: &str,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor()?;
-        if let Some(approvals) = self.approvals_service.clone() {
-            executor.use_approvals(approvals);
-        }
-        executor.spawn(current_dir, prompt, env).await
+        Err(legacy_agent_runtime_removed())
     }
 
     async fn spawn_follow_up(
         &self,
-        current_dir: &Path,
-        prompt: &str,
-        session_id: &str,
+        _current_dir: &Path,
+        _prompt: &str,
+        _session_id: &str,
         _reset_to_message_id: Option<&str>,
-        env: &ExecutionEnv,
+        _env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        let mut executor = self.acp_executor()?;
-        if let Some(approvals) = self.approvals_service.clone() {
-            executor.use_approvals(approvals);
-        }
-        executor
-            .spawn_follow_up(current_dir, prompt, session_id, None, env)
-            .await
+        Err(legacy_agent_runtime_removed())
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) {
-        match self.acp_executor() {
-            Ok(executor) => executor.normalize_logs(msg_store, current_dir),
-            Err(err) => tracing::warn!("Cannot normalize Claude ACP logs: {err}"),
-        }
-    }
+    fn normalize_logs(&self, _msg_store: Arc<MsgStore>, _current_dir: &Path) {}
 
     fn default_mcp_config_path(&self) -> Option<PathBuf> {
-        AcpBackedExecutor::new(AcpProvider::ClaudeCode).default_mcp_config_path()
+        dirs::home_dir().map(|home| home.join(".claude.json"))
     }
 
     fn get_availability_info(&self) -> AvailabilityInfo {
-        AcpBackedExecutor::new(AcpProvider::ClaudeCode).get_availability_info()
+        self.default_mcp_config_path()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| AvailabilityInfo::LoginDetected {
+                last_auth_timestamp: duration.as_secs() as i64,
+            })
+            .unwrap_or(AvailabilityInfo::NotFound)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn claude_skip_permissions_disables_acp_approvals() {
-        let claude = ClaudeCode {
-            append_prompt: AppendPrompt::default(),
-            claude_code_router: None,
-            plan: None,
-            approvals: Some(true),
-            model: Some("sonnet".to_string()),
-            dangerously_skip_permissions: Some(true),
-            disable_api_key: None,
-            cmd: CmdOverrides::default(),
-            approvals_service: None,
-        };
-
-        let executor = claude.acp_executor().expect("config should be supported");
-        assert!(!executor.approvals_enabled);
-        assert_eq!(executor.mode.as_deref(), Some("bypassPermissions"));
-    }
-
-    #[test]
-    fn claude_non_alias_model_is_passed_through() {
-        let claude = ClaudeCode {
-            append_prompt: AppendPrompt::default(),
-            claude_code_router: None,
-            plan: None,
-            approvals: None,
-            model: Some("claude-sonnet-4-5-20250929".to_string()),
-            dangerously_skip_permissions: None,
-            disable_api_key: None,
-            cmd: CmdOverrides::default(),
-            approvals_service: None,
-        };
-
-        let executor = claude.acp_executor().expect("config should be supported");
-        assert_eq!(
-            executor.model.as_deref(),
-            Some("claude-sonnet-4-5-20250929")
-        );
-    }
-
-    #[test]
-    fn claude_plan_mode_overrides_skip_permissions_mode() {
-        let claude = ClaudeCode {
-            append_prompt: AppendPrompt::default(),
-            claude_code_router: None,
-            plan: Some(true),
-            approvals: Some(true),
-            model: Some("sonnet".to_string()),
-            dangerously_skip_permissions: Some(true),
-            disable_api_key: None,
-            cmd: CmdOverrides::default(),
-            approvals_service: None,
-        };
-
-        let executor = claude.acp_executor().expect("config should be supported");
-        assert_eq!(executor.mode.as_deref(), Some("plan"));
-    }
-
-    #[test]
-    fn claude_rejects_router_legacy_config() {
-        let claude = ClaudeCode {
-            append_prompt: AppendPrompt::default(),
-            claude_code_router: Some(true),
-            plan: None,
-            approvals: None,
-            model: None,
-            dangerously_skip_permissions: None,
-            disable_api_key: None,
-            cmd: CmdOverrides::default(),
-            approvals_service: None,
-        };
-
-        assert!(matches!(
-            claude.acp_executor(),
-            Err(ExecutorError::UnsupportedExecutorConfig(_))
-        ));
-    }
+fn legacy_agent_runtime_removed() -> ExecutorError {
+    ExecutorError::UnsupportedExecutorConfig(
+        "legacy Claude executor runtime was removed; use crates/agents ACP runtime".to_string(),
+    )
 }

@@ -3,7 +3,7 @@
 //! This module provides a mock executor that:
 //! 1. Performs random file operations (create, delete, modify)
 //! 2. Streams 10 mock log entries over 10 seconds
-//! 3. Outputs logs in ACP event format for compatibility with ACP log normalization
+//! 3. Outputs simple JSONL diagnostics for QA inspection.
 
 use std::{path::Path, process::Stdio, sync::Arc};
 
@@ -17,10 +17,7 @@ use workspace_utils::msg_store::MsgStore;
 
 use crate::{
     env::ExecutionEnv,
-    executors::{
-        ExecutorError, SpawnedChild, StandardCodingAgentExecutor,
-        acp::{self, AcpEvent},
-    },
+    executors::{ExecutorError, SpawnedChild, StandardCodingAgentExecutor},
 };
 
 /// Mock executor for QA testing
@@ -98,9 +95,7 @@ impl StandardCodingAgentExecutor for QaMockExecutor {
             .await
     }
 
-    fn normalize_logs(&self, msg_store: Arc<MsgStore>, current_dir: &Path) {
-        acp::normalize_logs(msg_store, current_dir);
-    }
+    fn normalize_logs(&self, _msg_store: Arc<MsgStore>, _current_dir: &Path) {}
 
     fn default_mcp_config_path(&self) -> Option<std::path::PathBuf> {
         None // QA mock doesn't need MCP config
@@ -184,30 +179,30 @@ async fn perform_file_operations(dir: &Path) {
     }
 }
 
-/// Generate mock log entries in ACP event format using strongly-typed structs.
+/// Generate mock log entries as simple JSON diagnostics.
 fn generate_mock_logs(prompt: &str) -> Vec<String> {
     generate_mock_logs_for_session(prompt, uuid::Uuid::new_v4().to_string())
 }
 
 fn generate_mock_logs_for_session(prompt: &str, session_id: String) -> Vec<String> {
     let logs = vec![
-        AcpEvent::SessionStart(session_id),
-        AcpEvent::User(prompt.to_string()),
-        AcpEvent::Thought(agent_client_protocol::schema::ContentBlock::Text(
-            agent_client_protocol::schema::TextContent::new(
-                "Analyzing the QA task and preparing mock execution...",
-            ),
-        )),
-        AcpEvent::Message(agent_client_protocol::schema::ContentBlock::Text(
-            agent_client_protocol::schema::TextContent::new(format!(
+        serde_json::json!({ "kind": "session_start", "session_id": session_id }),
+        serde_json::json!({ "kind": "user", "text": prompt }),
+        serde_json::json!({
+            "kind": "thought",
+            "text": "Analyzing the QA task and preparing mock execution..."
+        }),
+        serde_json::json!({
+            "kind": "message",
+            "text": format!(
                 "QA mode execution completed successfully.\n\nI performed mock file operations.\nOriginal prompt: {prompt}",
-            )),
-        )),
-        AcpEvent::Done("\"end_turn\"".to_string()),
+            )
+        }),
+        serde_json::json!({ "kind": "done", "stop_reason": "end_turn" }),
     ];
 
     logs.into_iter()
-        .map(|log| serde_json::to_string(&log).expect("AcpEvent should serialize"))
+        .map(|log| serde_json::to_string(&log).expect("QA log should serialize"))
         .collect()
 }
 
@@ -236,16 +231,15 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_mock_logs_deserializes_to_acp_event() {
+    fn test_generate_mock_logs_include_kind() {
         let logs = generate_mock_logs("test prompt");
         for (i, log) in logs.iter().enumerate() {
-            let parsed: Result<AcpEvent, _> = serde_json::from_str(log);
+            let parsed: serde_json::Value = serde_json::from_str(log).expect("valid json");
             assert!(
-                parsed.is_ok(),
-                "Log entry {} should deserialize to AcpEvent: {} - error: {:?}",
+                parsed.get("kind").and_then(serde_json::Value::as_str).is_some(),
+                "Log entry {} should include a kind: {}",
                 i,
-                log,
-                parsed.err()
+                log
             );
         }
     }
@@ -254,23 +248,21 @@ mod tests {
     fn test_escape_special_characters() {
         let logs = generate_mock_logs("test with \"quotes\" and\nnewlines");
         let final_log = &logs[3];
-        let parsed: AcpEvent = serde_json::from_str(final_log).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(final_log).unwrap();
 
-        if let AcpEvent::Message(agent_client_protocol::schema::ContentBlock::Text(text)) = parsed {
-            assert!(text.text.contains("test with \"quotes\" and\nnewlines"));
-        } else {
-            panic!("Expected message text event");
-        }
+        assert_eq!(parsed["kind"], "message");
+        assert!(parsed["text"]
+            .as_str()
+            .expect("message text")
+            .contains("test with \"quotes\" and\nnewlines"));
     }
 
     #[test]
     fn test_generate_mock_logs_can_preserve_follow_up_session_id() {
         let logs = generate_mock_logs_for_session("follow up", "existing-session".to_string());
-        let parsed: AcpEvent = serde_json::from_str(&logs[0]).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&logs[0]).unwrap();
 
-        match parsed {
-            AcpEvent::SessionStart(session_id) => assert_eq!(session_id, "existing-session"),
-            _ => panic!("Expected session start event"),
-        }
+        assert_eq!(parsed["kind"], "session_start");
+        assert_eq!(parsed["session_id"], "existing-session");
     }
 }

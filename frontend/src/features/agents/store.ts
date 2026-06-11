@@ -12,6 +12,7 @@ export type AgentWorkbenchState = {
   connections: Record<string, AgentConnectionSnapshot>;
   sessions: Record<string, AgentSessionSnapshot>;
   prompts: Record<string, AgentPromptSnapshot>;
+  eventsByScope: Record<string, AgentEventEnvelope[]>;
   lastSequence: number;
 };
 
@@ -21,6 +22,7 @@ export function emptyAgentWorkbenchState(): AgentWorkbenchState {
     connections: {},
     sessions: {},
     prompts: {},
+    eventsByScope: {},
     lastSequence: 0,
   };
 }
@@ -41,6 +43,7 @@ export function stateFromAgentSnapshot(
     prompts: Object.fromEntries(
       snapshot.prompts.map((prompt) => [prompt.id, prompt])
     ),
+    eventsByScope: {},
     lastSequence: snapshot.sequence,
   };
 }
@@ -69,6 +72,7 @@ export function reduceAgentEvent(
     connections: state.connections,
     sessions: state.sessions,
     prompts: state.prompts,
+    eventsByScope: appendEvent(state.eventsByScope, envelope),
     lastSequence: envelope.sequence,
   };
 
@@ -109,4 +113,15 @@ export function reduceAgentEvent(
     default:
       return next;
   }
+}
+
+function appendEvent(
+  eventsByScope: Record<string, AgentEventEnvelope[]>,
+  envelope: AgentEventEnvelope
+): Record<string, AgentEventEnvelope[]> {
+  const scopeId = envelope.session_id ?? envelope.connection_id;
+  return {
+    ...eventsByScope,
+    [scopeId]: [...(eventsByScope[scopeId] ?? []), envelope],
+  };
 }

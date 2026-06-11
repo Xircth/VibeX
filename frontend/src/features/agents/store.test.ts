@@ -119,4 +119,22 @@ describe('agent workbench store', () => {
       stop_reason: 'end_turn',
     });
   });
+
+  it('keeps transcript events by session scope', () => {
+    const message: AgentEventEnvelope = {
+      sequence: 3,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'message_chunk',
+        content: { kind: 'text', text: 'hello' },
+      },
+    };
+
+    const state = reduceAgentEvent(emptyAgentWorkbenchState(), message);
+
+    expect(state.eventsByScope.session).toEqual([message]);
+  });
 });

@@ -24,15 +24,13 @@
   - Verify: focused component tests and `pnpm run frontend:check`
   - Files: `AgentTranscript`, rendering helpers, tests.
 
-- [ ] Task: Add permission and terminal panels.
+- [x] Task: Add permission and terminal panels.
   - Acceptance: ACP permission choices and terminal output are actionable from
     the new UI.
   - Verify: component tests for permission response and terminal snapshots.
   - Files: `AgentPermissionPanel`, `AgentTerminalPanel`.
-  - Note: Permission choices are currently actionable through the live
-    transcript permission card; a dedicated terminal snapshot panel remains.
 
-- [ ] Task: Replace settings Agent pages.
+- [x] Task: Replace settings Agent pages.
   - Acceptance: Settings show registry-driven install/preflight/config/MCP/skills
     for all target agents.
   - Verify: `pnpm --dir frontend exec vitest run src/pages/settings`

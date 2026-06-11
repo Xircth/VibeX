@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ChevronDown, KeyRound, Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import {
   BaseCodingAgent,
   ExecutionProcessStatus,
@@ -28,7 +28,11 @@ import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesConte
 import { useEntries } from '@/contexts/EntriesContext';
 import { buildAgentTranscriptEntries } from '@/features/agents/transcript';
 import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
-import type { AgentEventEnvelope, AgentPermissionRequest } from '@/features/agents/types';
+import type { AgentEventEnvelope } from '@/features/agents/types';
+import {
+  AgentPermissionPanel,
+  type PendingAgentPermission,
+} from '@/components/agents/AgentPermissionPanel';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
 import type {
   AddEntryType,
@@ -38,7 +42,6 @@ import type {
 } from '@/hooks/useConversationHistory/types';
 import { isCollapsedAssistantMessagesGroup } from '@/hooks/useConversationHistory/types';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Button } from '@/components/ui/button';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
 
@@ -63,11 +66,6 @@ function isUserMessageEntry(entry: PatchTypeWithKey): boolean {
 type UserMessagePosition = {
   patchKey: string;
   top: number;
-};
-
-type PendingAgentPermission = {
-  connectionId: string;
-  request: AgentPermissionRequest;
 };
 
 const conversationScrollPositions = new Map<string, number>();
@@ -450,14 +448,11 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
           </div>
         ) : (
           <div className="mx-auto flex max-w-4xl flex-col gap-3">
-            {pendingPermissions.map((permission) => (
-              <AgentPermissionCard
-                key={permission.request.id}
-                permission={permission}
-                disabled={respondingPermissionId === permission.request.id}
-                onRespond={respondToPermission}
-              />
-            ))}
+            <AgentPermissionPanel
+              permissions={pendingPermissions}
+              respondingPermissionId={respondingPermissionId}
+              onRespond={respondToPermission}
+            />
             {displayEntries.map((entry) => (
               <div
                 key={entry.patchKey}
@@ -524,56 +519,6 @@ function CollapsedAssistantMessagesBlock({
             <div key={entry.patchKey}>{renderEntry(entry)}</div>
           ))
         : null}
-    </div>
-  );
-}
-
-function AgentPermissionCard({
-  permission,
-  disabled,
-  onRespond,
-}: {
-  permission: PendingAgentPermission;
-  disabled: boolean;
-  onRespond: (permission: PendingAgentPermission, optionId: string | null) => void;
-}) {
-  return (
-    <div className="rounded-lg border bg-background px-4 py-3 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-md border bg-muted/50 p-1.5 text-muted-foreground">
-          <KeyRound className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">
-            {permission.request.title}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {permission.request.options.map((option) => (
-              <Button
-                key={option.id}
-                type="button"
-                size="sm"
-                variant={
-                  option.description?.includes('Reject') ? 'outline' : 'default'
-                }
-                disabled={disabled}
-                onClick={() => onRespond(permission, option.id)}
-              >
-                {option.label}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={disabled}
-              onClick={() => onRespond(permission, null)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

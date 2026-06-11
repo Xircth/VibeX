@@ -46,6 +46,15 @@ pub struct CancelAgentPromptInput {
     pub prompt_id: AgentPromptId,
 }
 
+#[derive(Debug, Clone)]
+pub struct EnsureAgentSessionInput {
+    pub agent_type: AgentType,
+    pub workspace_id: Uuid,
+    pub working_dir: PathBuf,
+    pub session_id: AgentSessionId,
+    pub acp_session_id: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct RuntimeSnapshot {
@@ -176,6 +185,16 @@ impl AgentRuntime {
         connection_id: AgentConnectionId,
         acp_session_id: impl Into<String>,
     ) -> AgentResult<AgentSessionSnapshot> {
+        self.new_session_with_id(connection_id, AgentSessionId::new(), acp_session_id)
+            .await
+    }
+
+    pub async fn new_session_with_id(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        acp_session_id: impl Into<String>,
+    ) -> AgentResult<AgentSessionSnapshot> {
         let now = Utc::now();
         let mut state = self.state.write().await;
         let workspace_id = state
@@ -184,7 +203,7 @@ impl AgentRuntime {
             .map(|connection| connection.snapshot.workspace_id)
             .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
         let snapshot = AgentSessionSnapshot {
-            id: AgentSessionId::new(),
+            id: session_id,
             connection_id,
             acp_session_id: acp_session_id.into(),
             status: AgentSessionStatus::Ready,
@@ -211,6 +230,44 @@ impl AgentRuntime {
             },
         );
         Ok(snapshot)
+    }
+
+    pub async fn ensure_session(
+        &self,
+        input: EnsureAgentSessionInput,
+    ) -> AgentResult<AgentSessionSnapshot> {
+        if let Some(existing) = self.state.read().await.sessions.get(&input.session_id) {
+            return Ok(existing.snapshot.clone());
+        }
+
+        let existing_connection = {
+            let state = self.state.read().await;
+            state
+                .connections
+                .values()
+                .find(|connection| {
+                    connection.snapshot.agent_type == input.agent_type
+                        && connection.snapshot.workspace_id == input.workspace_id
+                        && connection.snapshot.working_dir == input.working_dir.display().to_string()
+                })
+                .map(|connection| connection.snapshot.id)
+        };
+
+        let connection_id = match existing_connection {
+            Some(connection_id) => connection_id,
+            None => {
+                self.connect(ConnectAgentInput {
+                    agent_type: input.agent_type,
+                    workspace_id: input.workspace_id,
+                    working_dir: input.working_dir,
+                })
+                .await?
+                .id
+            }
+        };
+
+        self.new_session_with_id(connection_id, input.session_id, input.acp_session_id)
+            .await
     }
 
     pub async fn send_prompt(

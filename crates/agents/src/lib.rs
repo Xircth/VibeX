@@ -49,8 +49,8 @@ pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermis
 pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate, config_surface};
 pub use registry::{AgentRegistryEntry, AgentType, all_agent_types, registry_entry};
 pub use runtime::{
-    AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, RuntimeEventSink, RuntimeSnapshot,
-    SendAgentPromptInput,
+    AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
+    RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};

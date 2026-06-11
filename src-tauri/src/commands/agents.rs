@@ -6,11 +6,15 @@ use agents::{
     AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentType,
     CancelAgentPromptInput, ConnectAgentInput, RuntimeSnapshot, SendAgentPromptInput,
     all_agent_types, config_surface, mcp_surface, registry_entry, skills_surface,
+    EnsureAgentSessionInput,
 };
+use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+};
 
 impl From<agents::AgentError> for AppError {
     fn from(error: agents::AgentError) -> Self {
@@ -57,6 +61,15 @@ pub struct AgentCancelPromptRequest {
     pub connection_id: String,
     pub session_id: String,
     pub prompt_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSendWorkspacePromptRequest {
+    pub agent_type: AgentType,
+    pub workspace_id: String,
+    pub session_id: String,
+    pub text: String,
 }
 
 #[tauri::command]
@@ -140,6 +153,48 @@ pub async fn agent_send_prompt(
         .send_prompt(SendAgentPromptInput {
             connection_id: parse_agent_connection_id(&request.connection_id)?,
             session_id: parse_agent_session_id(&request.session_id)?,
+            text: request.text,
+        })
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_send_workspace_prompt(
+    state: tauri::State<'_, AppState>,
+    request: AgentSendWorkspacePromptRequest,
+) -> Result<AgentPromptSnapshot, AppError> {
+    let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
+    let session_id = parse_agent_session_id(&request.session_id)?;
+    let pool = &state.deployment.db().pool;
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+    let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
+        .unwrap_or_else(|| container_ref.clone());
+
+    let session = state
+        .agent_runtime
+        .ensure_session(EnsureAgentSessionInput {
+            agent_type: request.agent_type,
+            workspace_id,
+            working_dir: PathBuf::from(working_dir),
+            session_id,
+            acp_session_id: request.session_id.clone(),
+        })
+        .await?;
+
+    state
+        .agent_runtime
+        .send_prompt(SendAgentPromptInput {
+            connection_id: session.connection_id,
+            session_id: session.id,
             text: request.text,
         })
         .await

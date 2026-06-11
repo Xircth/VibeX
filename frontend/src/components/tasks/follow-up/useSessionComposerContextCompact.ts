@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ExecutorProfileId } from 'shared/types';
-import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   buildCompactContextTurnInput,
   getCompactContextErrorMessage,
   getIsCompactingContext,
-  getProviderRuntimeExecutionProcessId,
   hasRunningContextCompactProcess,
   shouldClearPendingCompactProcess,
 } from './sessionComposerCompact';
@@ -136,8 +135,8 @@ export function useSessionComposerContextCompact({
       setFollowUpError(null);
       clearStopping();
 
-      const event = await sendProviderRuntimeTurn(compactTurnInput);
-      setPendingCompactProcessId(getProviderRuntimeExecutionProcessId(event));
+      const prompt = await sendAgentRuntimeTurn(compactTurnInput);
+      setPendingCompactProcessId(prompt.id);
     } catch (error) {
       setFollowUpError(getCompactContextErrorMessage(error));
     }

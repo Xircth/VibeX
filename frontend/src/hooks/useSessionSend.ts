@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { BaseCodingAgent } from 'shared/types';
-import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { useCreateSession } from './useCreateSession';
 
 interface UseSessionSendOptions {
@@ -82,7 +82,7 @@ export function useSessionSend({
         if (!sessionId || !workspaceId || !effectiveExecutor) return false;
         setIsSendingFollowUp(true);
         try {
-          await sendProviderRuntimeTurn({
+          await sendAgentRuntimeTurn({
             workspaceId,
             sessionId,
             executorProfileId: { executor: effectiveExecutor, variant },

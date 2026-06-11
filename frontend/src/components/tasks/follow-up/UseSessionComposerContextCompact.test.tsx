@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseCodingAgent } from 'shared/types';
 import { useSessionComposerContextCompact } from './useSessionComposerContextCompact';
 
-const { sendProviderRuntimeTurnMock } = vi.hoisted(() => ({
-  sendProviderRuntimeTurnMock: vi.fn(),
+const { sendAgentRuntimeTurnMock } = vi.hoisted(() => ({
+  sendAgentRuntimeTurnMock: vi.fn(),
 }));
 
-vi.mock('@/features/provider-runtime/sendProviderRuntimeTurn', () => ({
-  sendProviderRuntimeTurn: sendProviderRuntimeTurnMock,
+vi.mock('@/features/agents/sendAgentRuntimeTurn', () => ({
+  sendAgentRuntimeTurn: sendAgentRuntimeTurnMock,
 }));
 
 const profile = { executor: BaseCodingAgent.CODEX };
@@ -25,7 +25,7 @@ const compactEligibility = {
 
 describe('useSessionComposerContextCompact', () => {
   beforeEach(() => {
-    sendProviderRuntimeTurnMock.mockReset();
+    sendAgentRuntimeTurnMock.mockReset();
     vi.useRealTimers();
   });
 
@@ -48,7 +48,7 @@ describe('useSessionComposerContextCompact', () => {
       await result.current.handleCompactContext();
     });
 
-    expect(sendProviderRuntimeTurnMock).not.toHaveBeenCalled();
+    expect(sendAgentRuntimeTurnMock).not.toHaveBeenCalled();
     expect(setFollowUpError).not.toHaveBeenCalled();
     expect(clearStopping).not.toHaveBeenCalled();
     expect(result.current.isCompactingContext).toBe(false);
@@ -57,8 +57,8 @@ describe('useSessionComposerContextCompact', () => {
   it('uses hook-owned compact eligibility when compacting', async () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
-    sendProviderRuntimeTurnMock.mockResolvedValue({
-      event: { execution_process_id: 'process-1' },
+    sendAgentRuntimeTurnMock.mockResolvedValue({
+      id: 'prompt-1',
     });
 
     const { result } = renderHook(() =>
@@ -77,7 +77,7 @@ describe('useSessionComposerContextCompact', () => {
       await result.current.handleCompactContext();
     });
 
-    expect(sendProviderRuntimeTurnMock).toHaveBeenCalledWith({
+    expect(sendAgentRuntimeTurnMock).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
       executorProfileId: profile,
@@ -89,8 +89,8 @@ describe('useSessionComposerContextCompact', () => {
   it('sends compact turns and clears pending state when the process appears', async () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
-    sendProviderRuntimeTurnMock.mockResolvedValue({
-      event: { execution_process_id: 'process-1' },
+    sendAgentRuntimeTurnMock.mockResolvedValue({
+      id: 'process-1',
     });
 
     const { result, rerender } = renderHook(
@@ -113,7 +113,7 @@ describe('useSessionComposerContextCompact', () => {
 
     expect(setFollowUpError).toHaveBeenCalledWith(null);
     expect(clearStopping).toHaveBeenCalledOnce();
-    expect(sendProviderRuntimeTurnMock).toHaveBeenCalledWith({
+    expect(sendAgentRuntimeTurnMock).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
       executorProfileId: profile,
@@ -128,8 +128,8 @@ describe('useSessionComposerContextCompact', () => {
 
   it('clears pending compact state after the timeout window', async () => {
     vi.useFakeTimers();
-    sendProviderRuntimeTurnMock.mockResolvedValue({
-      event: { execution_process_id: 'process-1' },
+    sendAgentRuntimeTurnMock.mockResolvedValue({
+      id: 'prompt-1',
     });
 
     const { result } = renderHook(() =>
@@ -158,7 +158,7 @@ describe('useSessionComposerContextCompact', () => {
 
   it('maps provider runtime failures to follow-up errors', async () => {
     const setFollowUpError = vi.fn();
-    sendProviderRuntimeTurnMock.mockRejectedValue(new Error('network down'));
+    sendAgentRuntimeTurnMock.mockRejectedValue(new Error('network down'));
 
     const { result } = renderHook(() =>
       useSessionComposerContextCompact({

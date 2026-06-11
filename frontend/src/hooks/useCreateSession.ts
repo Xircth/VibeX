@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type { Session, BaseCodingAgent } from 'shared/types';
-import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 
 interface CreateSessionParams {
   workspaceId: string;
@@ -30,7 +30,7 @@ export function useCreateSession() {
         initial_prompt: prompt,
       });
 
-      await sendProviderRuntimeTurn({
+      await sendAgentRuntimeTurn({
         workspaceId,
         sessionId: session.id,
         executorProfileId: { executor, variant },

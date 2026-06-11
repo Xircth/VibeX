@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type { ExecutorProfileId } from 'shared/types';
-import { sendProviderRuntimeTurn } from '@/features/provider-runtime/sendProviderRuntimeTurn';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   buildAgentPrompt,
   isSessionScopedSlashCommand,
@@ -113,7 +113,7 @@ export function useFollowUpSend({
       if (!targetWorkspaceId) {
         throw new Error('No workspace available for provider runtime turn');
       }
-      await sendProviderRuntimeTurn({
+      await sendAgentRuntimeTurn({
         workspaceId: targetWorkspaceId,
         sessionId: targetSessionId,
         executorProfileId,

@@ -29,6 +29,13 @@ export type AgentSendPromptRequest = {
   text: string;
 };
 
+export type AgentSendWorkspacePromptRequest = {
+  agentType: AgentType;
+  workspaceId: string;
+  sessionId: string;
+  text: string;
+};
+
 export type AgentCancelPromptRequest = {
   connectionId: string;
   sessionId: string;
@@ -66,6 +73,11 @@ export const agentsApi = {
     request: AgentSendPromptRequest
   ): Promise<AgentPromptSnapshot> =>
     tauriInvoke('agent_send_prompt', { request }),
+
+  sendWorkspacePrompt: (
+    request: AgentSendWorkspacePromptRequest
+  ): Promise<AgentPromptSnapshot> =>
+    tauriInvoke('agent_send_workspace_prompt', { request }),
 
   cancelPrompt: (request: AgentCancelPromptRequest): Promise<void> =>
     tauriInvoke('agent_cancel_prompt', { request }),

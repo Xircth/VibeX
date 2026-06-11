@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::AgentType;
+use agents::{AgentType, agent_type_from_executor_key};
 use anyhow::{Error as AnyhowError, anyhow};
 use async_trait::async_trait;
 use db::{
@@ -27,7 +27,7 @@ use db::{
 };
 use executors::{
     actions::{ExecutorAction, ExecutorActionType},
-    executors::{BaseCodingAgent, ExecutorError, SlashCommandDescription, SlashCommandKind},
+    executors::{ExecutorError, SlashCommandDescription, SlashCommandKind},
     logs::utils::ConversationPatch,
     profile::ExecutorProfileId,
 };
@@ -161,16 +161,6 @@ mod tests {
     }
 }
 
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Option<AgentType> {
-    match executor {
-        BaseCodingAgent::ClaudeCode => Some(AgentType::ClaudeCode),
-        BaseCodingAgent::Codex => Some(AgentType::Codex),
-        BaseCodingAgent::Opencode => Some(AgentType::OpenCode),
-        #[cfg(feature = "qa-mode")]
-        BaseCodingAgent::QaMock => None,
-    }
-}
-
 fn slash_command(name: &str, description: &str) -> SlashCommandDescription {
     SlashCommandDescription {
         name: name.to_string(),
@@ -253,7 +243,7 @@ pub trait ContainerService {
         _workspace_id: Option<Uuid>,
         _repo_id: Option<Uuid>,
     ) -> Result<Option<BoxStream<'static, Patch>>, ContainerError> {
-        let commands = agent_type_from_executor(executor_profile_id.executor)
+        let commands = agent_type_from_executor_key(&executor_profile_id.executor.to_string())
             .map(acp_slash_command_catalog)
             .unwrap_or_default();
         let patch = executors::logs::utils::patch::slash_commands(commands, false, None);

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use agents::{
-    AgentMcpConfig, AgentType, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
-    write_agent_mcp_config,
+    AgentMcpConfig, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
+    write_agent_mcp_config, agent_type_from_executor_key,
 };
 use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
@@ -17,16 +17,10 @@ pub struct GetMcpServerResponse {
     pub config_path: String,
 }
 
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<AgentType, AppError> {
-    match executor {
-        BaseCodingAgent::ClaudeCode => Ok(AgentType::ClaudeCode),
-        BaseCodingAgent::Codex => Ok(AgentType::Codex),
-        BaseCodingAgent::Opencode => Ok(AgentType::OpenCode),
-        #[cfg(feature = "qa-mode")]
-        BaseCodingAgent::QaMock => Err(AppError::BadRequest(
-            "QA mock does not have an ACP registry entry".to_string(),
-        )),
-    }
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<agents::AgentType, AppError> {
+    agent_type_from_executor_key(&executor.to_string()).ok_or_else(|| {
+        AppError::BadRequest(format!("{executor} does not have an ACP registry entry"))
+    })
 }
 
 pub(crate) async fn get_mcp_servers(

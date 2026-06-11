@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
 };
 
-use agents::{AgentCapability, AgentType, agent_capabilities};
+use agents::{AgentCapability, agent_capabilities, agent_type_from_executor_key};
 use db::models::{
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
@@ -59,23 +59,13 @@ fn derive_session_continuity_mode(
 
     if executor
         .and_then(|value| BaseCodingAgent::from_str(value).ok())
-        .and_then(agent_type_from_executor)
+        .and_then(|executor| agent_type_from_executor_key(&executor.to_string()))
         .map(|agent_type| agent_capabilities(agent_type).contains(&AgentCapability::SessionFork))
         .unwrap_or(false)
     {
         SessionContinuityMode::ForkSnapshot
     } else {
         SessionContinuityMode::ResumeInPlace
-    }
-}
-
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Option<AgentType> {
-    match executor {
-        BaseCodingAgent::ClaudeCode => Some(AgentType::ClaudeCode),
-        BaseCodingAgent::Codex => Some(AgentType::Codex),
-        BaseCodingAgent::Opencode => Some(AgentType::OpenCode),
-        #[cfg(feature = "qa-mode")]
-        BaseCodingAgent::QaMock => None,
     }
 }
 

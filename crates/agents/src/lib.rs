@@ -60,7 +60,9 @@ pub use metadata::{
 };
 pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};
 pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate, config_surface};
-pub use registry::{AgentRegistryEntry, AgentType, all_agent_types, registry_entry};
+pub use registry::{
+    AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, registry_entry,
+};
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,

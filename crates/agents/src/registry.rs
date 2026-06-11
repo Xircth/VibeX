@@ -65,6 +65,16 @@ pub fn agent_type_from_registry_id(id: &str) -> Option<AgentType> {
     }
 }
 
+pub fn agent_type_from_executor_key(key: &str) -> Option<AgentType> {
+    match key {
+        "CLAUDE_CODE" | "claude_code" | "ClaudeCode" => Some(AgentType::ClaudeCode),
+        "CODEX" | "codex" | "Codex" => Some(AgentType::Codex),
+        "OPENCODE" | "open_code" | "opencode" | "Opencode" => Some(AgentType::OpenCode),
+        "GEMINI" | "gemini" | "Gemini" => Some(AgentType::Gemini),
+        _ => None,
+    }
+}
+
 pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
     let (name, description, distribution) = match agent_type {
         AgentType::ClaudeCode => (

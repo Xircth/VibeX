@@ -4,12 +4,11 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentAvailabilityInfo, AgentType, agent_availability};
+use agents::{AgentAvailabilityInfo, agent_availability, agent_type_from_executor_key};
 use async_trait::async_trait;
 use db::DBService;
 use deployment::{Deployment, DeploymentError};
 use executors::{
-    executors::BaseCodingAgent,
     profile::{ExecutorConfigs, ExecutorProfileId},
 };
 use git::GitService;
@@ -36,16 +35,6 @@ mod copy;
 mod process_completion;
 pub mod pty;
 
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Option<AgentType> {
-    match executor {
-        BaseCodingAgent::ClaudeCode => Some(AgentType::ClaudeCode),
-        BaseCodingAgent::Codex => Some(AgentType::Codex),
-        BaseCodingAgent::Opencode => Some(AgentType::OpenCode),
-        #[cfg(feature = "qa-mode")]
-        BaseCodingAgent::QaMock => None,
-    }
-}
-
 fn availability_rank(info: &AgentAvailabilityInfo) -> (u8, i64) {
     match info {
         AgentAvailabilityInfo::LoginDetected {
@@ -61,7 +50,7 @@ fn recommended_executor_profile(profiles: &ExecutorConfigs) -> Option<ExecutorPr
         .executors
         .keys()
         .filter_map(|executor| {
-            let agent_type = agent_type_from_executor(*executor)?;
+            let agent_type = agent_type_from_executor_key(&executor.to_string())?;
             let availability = agent_availability(agent_type);
             if !availability.is_available() {
                 return None;

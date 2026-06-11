@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use agents::{
-    AgentContentBlock, AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput,
+    AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
+    agent_type_from_executor_key,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use db::models::{
@@ -22,16 +23,12 @@ use crate::{
     error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
 };
 
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<AgentType, AppError> {
-    match executor {
-        BaseCodingAgent::ClaudeCode => Ok(AgentType::ClaudeCode),
-        BaseCodingAgent::Codex => Ok(AgentType::Codex),
-        BaseCodingAgent::Opencode => Ok(AgentType::OpenCode),
-        #[cfg(feature = "qa-mode")]
-        BaseCodingAgent::QaMock => Err(AppError::BadRequest(
-            "QA mock is not available through the ACP-native agent runtime".to_string(),
-        )),
-    }
+fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<agents::AgentType, AppError> {
+    agent_type_from_executor_key(&executor.to_string()).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "{executor} is not available through the ACP-native agent runtime"
+        ))
+    })
 }
 
 // --- Query / Input types ---

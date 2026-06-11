@@ -107,3 +107,22 @@ export type {
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
 } from './codexAccount';
+
+// ACP-native agents
+export { agentsApi } from '@/features/agents/api';
+export type {
+  AgentCancelPromptRequest,
+  AgentConnectRequest,
+  AgentNewSessionRequest,
+  AgentSendPromptRequest,
+} from '@/features/agents/api';
+export type {
+  AgentConnectionSnapshot,
+  AgentEvent,
+  AgentEventEnvelope,
+  AgentPromptSnapshot,
+  AgentRegistryEntry,
+  AgentRuntimeSnapshot,
+  AgentSessionSnapshot,
+  AgentType,
+} from '@/features/agents/types';

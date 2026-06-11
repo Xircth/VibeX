@@ -1,0 +1,105 @@
+import { describe, expect, it } from 'vitest';
+import {
+  emptyAgentWorkbenchState,
+  reduceAgentEvent,
+  stateFromAgentSnapshot,
+} from './store';
+import type { AgentEventEnvelope, AgentRuntimeSnapshot } from './types';
+
+describe('agent workbench store', () => {
+  it('hydrates from runtime snapshot', () => {
+    const snapshot: AgentRuntimeSnapshot = {
+      registry: [
+        {
+          agent_type: 'codex',
+          registry_id: 'codex-acp',
+          name: 'Codex CLI',
+          description: 'ACP adapter',
+          distribution: {
+            kind: 'binary',
+            version: '0.16.0',
+            cmd: 'codex-acp',
+            args: [],
+            platforms: [],
+          },
+        },
+      ],
+      connections: [],
+      sessions: [],
+      prompts: [],
+    };
+
+    const state = stateFromAgentSnapshot(snapshot);
+
+    expect(state.registry['codex-acp']?.name).toBe('Codex CLI');
+    expect(state.lastSequence).toBe(0);
+  });
+
+  it('ignores duplicate or stale events by backend sequence', () => {
+    const event: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'connection_status_changed',
+        snapshot: {
+          id: 'connection',
+          agent_type: 'codex',
+          workspace_id: 'workspace',
+          status: 'connecting',
+          working_dir: 'C:/work',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      },
+    };
+    const state = reduceAgentEvent(emptyAgentWorkbenchState(), event);
+    const duplicate = reduceAgentEvent(state, event);
+
+    expect(duplicate).toBe(state);
+  });
+
+  it('stores prompt starts and prompt completion', () => {
+    const started: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'prompt_started',
+        snapshot: {
+          id: 'prompt',
+          session_id: 'session',
+          status: { kind: 'running' },
+          text_preview: 'hello',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      },
+    };
+    const finished: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'prompt_finished',
+        finished: { prompt_id: 'prompt', stop_reason: 'end_turn' },
+      },
+    };
+
+    const state = reduceAgentEvent(
+      reduceAgentEvent(emptyAgentWorkbenchState(), started),
+      finished
+    );
+
+    expect(state.prompts.prompt?.status).toEqual({
+      kind: 'completed',
+      stop_reason: 'end_turn',
+    });
+  });
+});
+

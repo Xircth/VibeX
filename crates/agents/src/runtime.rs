@@ -11,11 +11,11 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
-    AgentConnectionManagerEvent, AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope,
-    AgentPermissionId, AgentPermissionResponse, AgentPromptId, AgentPromptQueue,
-    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId,
-    AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition, registry_entry,
+    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, AgentConnectionManagerEvent,
+    AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope, AgentPermissionId,
+    AgentPermissionResponse, AgentPromptId, AgentPromptQueue, AgentPromptSnapshot,
+    AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId, AgentSessionSnapshot,
+    AgentSessionStatus, AgentType, QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -346,7 +346,8 @@ impl AgentRuntime {
                 .find(|connection| {
                     connection.snapshot.agent_type == input.agent_type
                         && connection.snapshot.workspace_id == input.workspace_id
-                        && connection.snapshot.working_dir == input.working_dir.display().to_string()
+                        && connection.snapshot.working_dir
+                            == input.working_dir.display().to_string()
                 })
                 .map(|connection| connection.snapshot.id)
         };
@@ -537,6 +538,36 @@ impl AgentRuntime {
             .await
     }
 
+    pub async fn disconnect(
+        &self,
+        connection_id: AgentConnectionId,
+    ) -> AgentResult<AgentConnectionSnapshot> {
+        self.connection_manager.disconnect(connection_id).await?;
+
+        let mut state = self.state.write().await;
+        let snapshot = state
+            .connections
+            .get_mut(&connection_id)
+            .map(|connection| {
+                connection.snapshot.status = AgentConnectionStatus::Disconnected;
+                connection.snapshot.updated_at = Utc::now();
+                connection.snapshot.clone()
+            })
+            .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+
+        self.emit_locked(
+            &mut state,
+            snapshot.workspace_id,
+            snapshot.id,
+            None,
+            AgentEvent::ConnectionStatusChanged {
+                snapshot: snapshot.clone(),
+            },
+        );
+
+        Ok(snapshot)
+    }
+
     fn emit_locked(
         &self,
         state: &mut RuntimeState,
@@ -651,7 +682,10 @@ fn preview_text_from_blocks(blocks: &[AgentContentBlock]) -> String {
             _ => None,
         })
         .unwrap_or_else(|| {
-            if blocks.iter().any(|block| matches!(block, AgentContentBlock::Image { .. })) {
+            if blocks
+                .iter()
+                .any(|block| matches!(block, AgentContentBlock::Image { .. }))
+            {
                 "[image]"
             } else {
                 ""
@@ -663,8 +697,9 @@ fn preview_text_from_blocks(blocks: &[AgentContentBlock]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::Mutex;
+
+    use super::*;
 
     struct RecordingSink {
         events: Mutex<Vec<AgentEventEnvelope>>,
@@ -770,6 +805,43 @@ mod tests {
             .unwrap();
         assert_eq!(session.active_prompt_id, Some(second.id));
         assert!(session.queued_prompt_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn runtime_disconnects_connection_and_emits_snapshot() {
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_type: AgentType::Codex,
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+            })
+            .await
+            .unwrap();
+
+        let disconnected = runtime.disconnect(connection.id).await.unwrap();
+
+        assert_eq!(disconnected.status, AgentConnectionStatus::Disconnected);
+        let snapshot = runtime.snapshot().await;
+        assert_eq!(
+            snapshot
+                .connections
+                .iter()
+                .find(|candidate| candidate.id == connection.id)
+                .unwrap()
+                .status,
+            AgentConnectionStatus::Disconnected
+        );
+        assert!(sink.events.lock().unwrap().iter().any(|event| {
+            matches!(
+                event.event,
+                AgentEvent::ConnectionStatusChanged { ref snapshot }
+                    if snapshot.status == AgentConnectionStatus::Disconnected
+            )
+        }));
     }
 
     #[test]

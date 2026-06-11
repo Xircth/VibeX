@@ -8,9 +8,12 @@ use deployment::Deployment;
 use local_deployment::LocalDeployment;
 use tokio::sync::Mutex;
 
-use crate::commands::{
-    desktop_toast::DesktopToastPayload,
-    local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
+use crate::{
+    commands::{
+        desktop_toast::DesktopToastPayload,
+        local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
+    },
+    events::agent_runtime_sink,
 };
 
 #[derive(Default)]
@@ -38,13 +41,14 @@ pub struct AppState {
 impl AppState {
     pub async fn new() -> Result<Self, deployment::DeploymentError> {
         let deployment = LocalDeployment::new().await?;
+        let agent_runtime = AgentRuntime::new(agent_runtime_sink(deployment.db().pool.clone()));
         Ok(Self {
             deployment: Arc::new(deployment),
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
             local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
-            agent_runtime: Arc::new(AgentRuntime::default()),
+            agent_runtime: Arc::new(agent_runtime),
         })
     }
 }

@@ -1,20 +1,27 @@
-use std::{
-    path::{Component, Path, PathBuf},
-};
+use std::path::{Component, Path, PathBuf};
 
 use agents::{
-    AgentContentBlock,
-    AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentInstallPlan,
-    AgentMcpSurface, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
-    AgentPermissionId, AgentPermissionResponse, AgentSessionId, AgentSessionSnapshot,
-    AgentSkillsSurface, AgentType, CancelAgentPromptInput, ConnectAgentInput,
-    RespondAgentPermissionInput, RuntimeSnapshot, SendAgentPromptInput,
-    all_agent_types, config_surface, mcp_surface, registry_entry, skills_surface,
-    EnsureAgentSessionInput,
+    AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
+    AgentHistorySource, AgentInstallPlan, AgentMcpConfig, AgentMcpSurface, AgentPermissionId,
+    AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
+    AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
+    AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
+    EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput, RuntimeSnapshot,
+    SendAgentPromptInput, all_agent_types, claude_config_path, codex_config_path, config_surface,
+    default_history_sources, default_mcp_config_path, import_history_source, mcp_file_config,
+    mcp_surface, opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
+    terminal::agent_terminal_registry, write_agent_mcp_config,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
-use serde::Deserialize;
+use db::models::{
+    agent_runtime::{AgentRuntimeStore, InsertAgentHistoryImport},
+    workspace::Workspace,
+    workspace_repo::WorkspaceRepo,
+};
+use deployment::Deployment;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use services::services::container::ContainerService;
 use uuid::Uuid;
 
 use crate::{
@@ -78,6 +85,85 @@ pub struct AgentRespondPermissionRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentConnectionRequest {
+    pub connection_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionRequest {
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTerminalSnapshotRequest {
+    pub terminal_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTypeRequest {
+    pub agent_type: AgentType,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentHistoryImportRequest {
+    pub agent_type: AgentType,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentConfigReadRequest {
+    pub agent_type: AgentType,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentConfigWriteRequest {
+    pub agent_type: AgentType,
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMcpWriteRequest {
+    pub agent_type: AgentType,
+    pub config: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPermissionRecordDto {
+    pub id: String,
+    pub session_id: String,
+    pub connection_id: String,
+    pub status: String,
+    pub request: Value,
+    pub response: Option<Value>,
+    pub created_at: String,
+    pub responded_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentConfigFileDto {
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMcpConfigDto {
+    pub path: String,
+    pub config: Value,
+    pub surface: AgentMcpConfig,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentSendWorkspacePromptRequest {
     pub agent_type: AgentType,
     pub workspace_id: String,
@@ -121,6 +207,38 @@ pub async fn agent_runtime_snapshot(
     state: tauri::State<'_, AppState>,
 ) -> Result<RuntimeSnapshot, AppError> {
     Ok(state.agent_runtime.snapshot().await)
+}
+
+#[tauri::command]
+pub async fn agent_connection_snapshot(
+    state: tauri::State<'_, AppState>,
+    request: AgentConnectionRequest,
+) -> Result<AgentConnectionSnapshot, AppError> {
+    let connection_id = parse_agent_connection_id(&request.connection_id)?;
+    state
+        .agent_runtime
+        .snapshot()
+        .await
+        .connections
+        .into_iter()
+        .find(|connection| connection.id == connection_id)
+        .ok_or_else(|| AppError::NotFound(format!("Connection {connection_id} not found")))
+}
+
+#[tauri::command]
+pub async fn agent_load_session(
+    state: tauri::State<'_, AppState>,
+    request: AgentSessionRequest,
+) -> Result<AgentSessionSnapshot, AppError> {
+    let session_id = parse_agent_session_id(&request.session_id)?;
+    state
+        .agent_runtime
+        .snapshot()
+        .await
+        .sessions
+        .into_iter()
+        .find(|session| session.id == session_id)
+        .ok_or_else(|| AppError::NotFound(format!("Agent session {session_id} not found")))
 }
 
 #[tauri::command]
@@ -234,6 +352,18 @@ pub async fn agent_cancel_prompt(
 }
 
 #[tauri::command]
+pub async fn agent_disconnect(
+    state: tauri::State<'_, AppState>,
+    request: AgentConnectionRequest,
+) -> Result<AgentConnectionSnapshot, AppError> {
+    state
+        .agent_runtime
+        .disconnect(parse_agent_connection_id(&request.connection_id)?)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn agent_respond_permission(
     state: tauri::State<'_, AppState>,
     request: AgentRespondPermissionRequest,
@@ -247,6 +377,162 @@ pub async fn agent_respond_permission(
         })
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_list_permissions(
+    state: tauri::State<'_, AppState>,
+    request: AgentSessionRequest,
+) -> Result<Vec<AgentPermissionRecordDto>, AppError> {
+    let session_id = parse_agent_session_id(&request.session_id)?;
+    let records = AgentRuntimeStore::list_permissions_for_session(
+        &state.deployment.db().pool,
+        &session_id.to_string(),
+    )
+    .await?;
+
+    records
+        .into_iter()
+        .map(|record| {
+            let request = serde_json::from_str(&record.request_json)
+                .map_err(|error| AppError::Internal(error.to_string()))?;
+            let response = record
+                .response_json
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|error| AppError::Internal(error.to_string()))?;
+            Ok(AgentPermissionRecordDto {
+                id: record.id,
+                session_id: record.session_id,
+                connection_id: record.connection_id,
+                status: record.status,
+                request,
+                response,
+                created_at: record.created_at,
+                responded_at: record.responded_at,
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn agent_terminal_snapshot(
+    request: AgentTerminalSnapshotRequest,
+) -> Result<Option<AgentTerminalOutputSnapshot>, AppError> {
+    Ok(agent_terminal_registry()
+        .snapshot_output(parse_agent_terminal_id(&request.terminal_id)?)
+        .await)
+}
+
+#[tauri::command]
+pub async fn agent_history_sources(
+    request: AgentTypeRequest,
+) -> Result<Vec<AgentHistorySource>, AppError> {
+    Ok(default_history_sources(request.agent_type))
+}
+
+#[tauri::command]
+pub async fn agent_history_import(
+    state: tauri::State<'_, AppState>,
+    request: AgentHistoryImportRequest,
+) -> Result<Vec<ImportedAgentSession>, AppError> {
+    let sources = match request.path {
+        Some(path) => vec![AgentHistorySource {
+            agent_type: request.agent_type,
+            path: PathBuf::from(path),
+        }],
+        None => default_history_sources(request.agent_type)
+            .into_iter()
+            .filter(|source| source.path.exists())
+            .collect(),
+    };
+
+    let mut imported = Vec::new();
+    for source in sources {
+        let sessions = import_history_source(&source).map_err(agent_history_error)?;
+        for session in &sessions {
+            persist_history_import(&state, session).await?;
+        }
+        imported.extend(sessions);
+    }
+    Ok(imported)
+}
+
+#[tauri::command]
+pub async fn agent_config_read(
+    request: AgentConfigReadRequest,
+) -> Result<Option<AgentConfigFileDto>, AppError> {
+    let Some(path) = default_config_path(request.agent_type) else {
+        return Ok(None);
+    };
+    let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    Ok(Some(AgentConfigFileDto {
+        path: path.display().to_string(),
+        content,
+    }))
+}
+
+#[tauri::command]
+pub async fn agent_config_write(request: AgentConfigWriteRequest) -> Result<(), AppError> {
+    let path = default_config_path(request.agent_type).ok_or_else(|| {
+        AppError::NotFound(format!(
+            "No default config file is available for {:?}",
+            request.agent_type
+        ))
+    })?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+    }
+    tokio::fs::write(path, request.content)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn agent_mcp_list(
+    request: AgentTypeRequest,
+) -> Result<Option<AgentMcpConfigDto>, AppError> {
+    let Some(path) = default_mcp_config_path(request.agent_type) else {
+        return Ok(None);
+    };
+    let Some(surface) = mcp_file_config(request.agent_type) else {
+        return Ok(None);
+    };
+    let config = read_agent_mcp_config(&path, &surface)
+        .await
+        .map_err(AppError::from)?;
+    Ok(Some(AgentMcpConfigDto {
+        path: path.display().to_string(),
+        config,
+        surface,
+    }))
+}
+
+#[tauri::command]
+pub async fn agent_mcp_write(request: AgentMcpWriteRequest) -> Result<(), AppError> {
+    let path = default_mcp_config_path(request.agent_type).ok_or_else(|| {
+        AppError::NotFound(format!(
+            "No default MCP config file is available for {:?}",
+            request.agent_type
+        ))
+    })?;
+    let surface = mcp_file_config(request.agent_type).ok_or_else(|| {
+        AppError::NotFound(format!(
+            "No MCP config adapter is available for {:?}",
+            request.agent_type
+        ))
+    })?;
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+    }
+    write_agent_mcp_config(&path, &surface, &request.config)
+        .await
+        .map_err(AppError::from)
 }
 
 fn parse_uuid(label: &str, value: &str) -> Result<Uuid, AppError> {
@@ -269,6 +555,74 @@ fn parse_agent_permission_id(value: &str) -> Result<AgentPermissionId, AppError>
     parse_uuid("permission_id", value).map(AgentPermissionId)
 }
 
+fn parse_agent_terminal_id(value: &str) -> Result<AgentTerminalId, AppError> {
+    parse_uuid("terminal_id", value).map(AgentTerminalId)
+}
+
+async fn persist_history_import(
+    state: &tauri::State<'_, AppState>,
+    session: &ImportedAgentSession,
+) -> Result<(), AppError> {
+    let raw_json =
+        serde_json::to_string(session).map_err(|error| AppError::Internal(error.to_string()))?;
+    let id = Uuid::new_v4().to_string();
+    let source_agent = serde_json::to_value(session.source_agent)
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
+    let workspace_path = session
+        .workspace_path
+        .as_ref()
+        .and_then(|path| path.to_str())
+        .map(str::to_string);
+    let raw_source_path = session
+        .raw_source_path
+        .as_ref()
+        .and_then(|path| path.to_str())
+        .map(str::to_string);
+    let imported_at = chrono::Utc::now().to_rfc3339();
+    AgentRuntimeStore::insert_history_import(
+        &state.deployment.db().pool,
+        InsertAgentHistoryImport {
+            id: &id,
+            source_agent: &source_agent,
+            external_session_id: &session.external_session_id,
+            title: session.title.as_deref(),
+            workspace_path: workspace_path.as_deref(),
+            raw_source_path: raw_source_path.as_deref(),
+            message_count: session.messages.len() as i64,
+            raw_json: &raw_json,
+            imported_at: &imported_at,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
+fn default_config_path(agent_type: AgentType) -> Option<PathBuf> {
+    match agent_type {
+        AgentType::ClaudeCode => claude_config_path(),
+        AgentType::Codex => codex_config_path(),
+        AgentType::OpenCode => opencode_config_path(),
+        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => None,
+    }
+}
+
+fn agent_history_error(error: agents::AgentHistoryError) -> AppError {
+    match error {
+        agents::AgentHistoryError::MissingSource(path) => AppError::NotFound(format!(
+            "Agent history source not found: {}",
+            path.display()
+        )),
+        agents::AgentHistoryError::Read { path, error }
+        | agents::AgentHistoryError::Parse { path, error } => AppError::Internal(format!(
+            "Failed to import agent history from {}: {error}",
+            path.display()
+        )),
+    }
+}
+
 fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
     if text.trim().is_empty() {
         Vec::new()
@@ -287,7 +641,9 @@ fn workspace_prompt_blocks(
         blocks.push(read_workspace_image_block(working_dir, image)?);
     }
     if blocks.is_empty() {
-        return Err(AppError::BadRequest("Prompt must include text or an image".to_string()));
+        return Err(AppError::BadRequest(
+            "Prompt must include text or an image".to_string(),
+        ));
     }
     Ok(blocks)
 }
@@ -299,7 +655,9 @@ fn read_workspace_image_block(
     let relative = relative_agent_asset_path(relative_path)?;
     let file_path = Path::new(working_dir).join(&relative);
     if !file_path.is_file() {
-        return Err(AppError::NotFound(format!("Image not found: {relative_path}")));
+        return Err(AppError::NotFound(format!(
+            "Image not found: {relative_path}"
+        )));
     }
 
     let bytes = std::fs::read(&file_path).map_err(|err| {
@@ -335,7 +693,9 @@ fn relative_agent_asset_path(path: &str) -> Result<PathBuf, AppError> {
     }
 
     if relative.as_os_str().is_empty() {
-        return Err(AppError::BadRequest("Image path cannot be empty".to_string()));
+        return Err(AppError::BadRequest(
+            "Image path cannot be empty".to_string(),
+        ));
     }
 
     Ok(relative)

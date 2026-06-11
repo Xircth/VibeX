@@ -188,19 +188,11 @@ export type InitRepoRequest = { parent_path: string, folder_name: string, };
 
 export type TagSearchParams = { search: string | null, };
 
-export type UserSystemInfo = { config: Config, environment: Environment, 
-/**
- * Capabilities supported per executor (e.g., { "CLAUDE_CODE": ["SESSION_FORK"] })
- */
-capabilities: { [key in string]?: Array<BaseAgentCapability> }, executors: { [key in BaseCodingAgent]?: ExecutorConfig }, };
-
 export type Environment = { os_type: string, os_version: string, os_architecture: string, bitness: string, };
 
 export type McpServerQuery = { executor: BaseCodingAgent, };
 
 export type UpdateMcpServersBody = { servers: { [key in string]?: JsonValue }, };
-
-export type GetMcpServerResponse = { mcp_config: McpConfig, config_path: string, };
 
 export type CheckEditorAvailabilityQuery = { editor_type: EditorType, };
 
@@ -430,8 +422,6 @@ export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
 export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
-export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
-
 export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest | { "type": "ReviewRequest" } & ReviewRequest;
 
 export type ScriptContext = "SetupScript" | "CleanupScript" | "ArchiveScript" | "DevServer" | "ToolInstallScript";
@@ -454,8 +444,6 @@ export type SlashCommandDescription = {
  * Command name without the leading slash, e.g. `help` for `/help`.
  */
 name: string, description?: string | null, kind?: SlashCommandKind | null, };
-
-export type AvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
 export type CommandBuilder = { 
 /**
@@ -492,8 +480,6 @@ reasoning_effort?: string | null, };
 export type ExecutorConfig = { [key in string]?: { "CLAUDE_CODE": ClaudeCode } | { "AMP": Amp } | { "GEMINI": Gemini } | { "CODEX": Codex } | { "OPENCODE": Opencode } | { "CURSOR_AGENT": CursorAgent } | { "QWEN_CODE": QwenCode } | { "COPILOT": Copilot } | { "DROID": Droid } | { "AUGGIE": Auggie } };
 
 export type ExecutorConfigs = { executors: { [key in BaseCodingAgent]?: ExecutorConfig }, };
-
-export enum BaseAgentCapability { SESSION_FORK = "SESSION_FORK", SETUP_HELPER = "SETUP_HELPER", CONTEXT_USAGE = "CONTEXT_USAGE" }
 
 export type ClaudeCode = { append_prompt: AppendPrompt, claude_code_router?: boolean | null, plan?: boolean | null, approvals?: boolean | null, model?: string | null, dangerously_skip_permissions?: boolean | null, disable_api_key?: boolean | null, base_command_override?: string | null, additional_params?: Array<string> | null, env?: { [key in string]?: string } | null, };
 
@@ -695,36 +681,114 @@ export type SessionSummary = { id: string, workspace_id: string, task_id: string
 
 export type SlashCommandKind = "COMMAND" | "SKILL";
 
-export type CapabilitySource = "native" | "sdk" | "app_server" | "cli_json" | "acp_fallback" | "config";
+export type AgentAvailabilityInfo = { "type": "LOGIN_DETECTED", last_auth_timestamp: bigint, } | { "type": "INSTALLATION_FOUND" } | { "type": "NOT_FOUND" };
 
-export type CapabilityState = "available" | "unavailable" | "partial" | "unknown";
+export enum AgentCapability { SESSION_FORK = "SESSION_FORK", SETUP_HELPER = "SETUP_HELPER", CONTEXT_USAGE = "CONTEXT_USAGE" }
 
-export type CapabilityStatus = { state: CapabilityState, source: CapabilitySource, detail?: string | null, };
+export type AgentConfigStrategy = "unsupported" | "file_json" | "file_toml" | "directory" | "agent_command" | "acp_extension";
 
-export type ProviderCapabilityState = { slash_commands: CapabilityStatus, images: CapabilityStatus, session_resume: CapabilityStatus, session_fork: CapabilityStatus, approvals: CapabilityStatus, user_input_requests: CapabilityStatus, reasoning_control: CapabilityStatus, collaboration_mode: CapabilityStatus, mcp: CapabilityStatus, provider_control_panel: CapabilityStatus, };
+export type AgentConfigSurface = { agent_type: AgentType, auth_paths: Array<PathTemplate>, config_paths: Array<PathTemplate>, strategy: AgentConfigStrategy, };
 
-export type ProviderCommand = { provider: ProviderId, name: string, description: string, kind: SlashCommandKind, source: CapabilitySource, };
+export type AgentConnectionId = string;
 
-export type ProviderHistorySnapshot = { provider: ProviderId, session_id: string, events?: Array<ProviderRuntimeEvent>, raw?: JsonValue | null, };
+export type AgentConnectionSnapshot = { id: AgentConnectionId, agent_type: AgentType, workspace_id: string, status: AgentConnectionStatus, working_dir: string, status_message?: string | null, created_at: string, updated_at: string, };
 
-export type ProviderId = "claude" | "codex" | "opencode";
+export type AgentConnectionStatus = "disconnected" | "connecting" | "ready" | "failed";
 
-export type ProviderModel = { provider: ProviderId, id: string, label: string, source: CapabilitySource, };
+export type AgentContentBlock = { "kind": "text", text: string, } | { "kind": "image", data: string, mime_type: string, uri: string | null, } | { "kind": "resource", uri: string, title: string | null, };
 
-export type ProviderRuntimeEvent = { provider: ProviderId, workspace_id: string, thread_id?: string | null, turn_id?: string | null, normalized?: Array<ProviderRuntimeNormalizedEvent>, event: JsonValue, };
+export type AgentDistribution = { "kind": "npx", version: string, package: string, cmd: string, args: Array<string>, node_required?: string | null, } | { "kind": "binary", version: string, cmd: string, args: Array<string>, platforms: Array<PlatformBinary>, } | { "kind": "uvx", version: string, package: string, cmd: string, args: Array<string>, uv_required?: string | null, python_required?: string | null, system_command?: SystemCommand | null, } | { "kind": "system", cmd: string, args: Array<string>, };
 
-export type ProviderSessionSummary = { provider: ProviderId, session_id: string, title?: string | null, };
+export type AgentErrorEvent = { message: string, raw?: JsonValue | null, };
 
-export type ProviderTurnRequest = { provider: ProviderId, workspace_id: string, executor_profile_id?: ExecutorProfileId | null, thread_id?: string | null, session_id?: string | null, text: string, model?: string | null, images?: Array<string>, provider_options?: { [key in string]?: JsonValue }, };
+export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, };
 
-export type ProviderRuntimeStatus = { provider: ProviderId, contract: ProviderRuntimeContract, native: CapabilityStatus, fallback: CapabilityStatus, dependencies?: Array<ProviderRuntimeDependencyStatus>, };
+export type AgentEventEnvelope = { sequence: bigint, workspace_id: string, connection_id: AgentConnectionId, session_id?: AgentSessionId | null, event: AgentEvent, created_at: string, };
 
-export type ProviderRuntimeContract = { provider: ProviderId, primary_runtime: ProviderRuntimeKind, primary_source: CapabilitySource, primary_label: string, dependencies: Array<ProviderRuntimeDependency>, fallback_source: CapabilitySource, fallback_enabled_by_default: boolean, fallback_env: string, global_fallback_env: string, force_fallback_option: string, command_visibility_policy: string, event_history_policy: string, };
+export type AgentFileReadRequest = { session_id: AgentSessionId, path: string, };
 
-export type ProviderRuntimeDependency = { id: string, label: string, source: CapabilitySource, required: boolean, user_visible: boolean, detail: string, };
+export type AgentFileWriteRequest = { session_id: AgentSessionId, path: string, content: string, };
 
-export type ProviderRuntimeKind = "claude_agent_sdk" | "codex_app_server" | "opencode_sdk";
+export type AgentInstallPlan = { agent_type: AgentType, distribution: AgentDistribution, required_tools: Array<string>, user_visible_summary: string, };
 
-export type ProviderRuntimeNormalizedEvent = { "kind": "turn_started", thread_id?: string | null, turn_id?: string | null, } | { "kind": "turn_completed", thread_id?: string | null, turn_id?: string | null, } | { "kind": "turn_error", thread_id?: string | null, turn_id?: string | null, message: string, } | { "kind": "assistant_text_delta", id?: string | null, text: string, } | { "kind": "assistant_text_snapshot", id?: string | null, text: string, } | { "kind": "tool_update", id?: string | null, tool_name?: string | null, status?: string | null, } | { "kind": "token_usage" } | { "kind": "diagnostic", level: string, message: string, };
+export type AgentInstallStatus = "ready" | "missing_prerequisite" | "missing_agent" | "unsupported_platform" | "auth_missing" | "unknown";
 
-export type ProviderRuntimeDependencyStatus = { id: string, label: string, required: boolean, user_visible: boolean, status: CapabilityStatus, };
+export type AgentMcpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
+
+export type AgentMcpStrategy = "unsupported" | "file_json" | "file_toml" | "agent_command" | "acp_extension";
+
+export type AgentMcpSurface = { agent_type: AgentType, strategy: AgentMcpStrategy, user_visible: boolean, };
+
+export type AgentPermissionId = string;
+
+export type AgentPermissionOption = { id: string, label: string, description?: string | null, };
+
+export type AgentPermissionRequest = { id: AgentPermissionId, session_id: AgentSessionId, title: string, details?: JsonValue | null, options: Array<AgentPermissionOption>, };
+
+export type AgentPermissionResponse = { "kind": "selected", option_id: string, } | { "kind": "cancelled" };
+
+export type AgentPlan = { entries: Array<string>, };
+
+export type AgentPreflight = { agent_type: AgentType, status: AgentInstallStatus, issues: Array<AgentPreflightIssue>, };
+
+export type AgentPreflightIssue = { code: string, severity: AgentPreflightSeverity, message: string, };
+
+export type AgentPreflightSeverity = "info" | "warning" | "error";
+
+export type AgentPromptFinished = { prompt_id: AgentPromptId, stop_reason?: string | null, };
+
+export type AgentPromptId = string;
+
+export type AgentPromptSnapshot = { id: AgentPromptId, session_id: AgentSessionId, status: AgentPromptStatus, text_preview: string, created_at: string, updated_at: string, };
+
+export type AgentPromptStatus = { "kind": "queued" } | { "kind": "running" } | { "kind": "cancelling" } | { "kind": "completed", stop_reason?: string | null, } | { "kind": "failed", message: string, };
+
+export type AgentRegistryEntry = { agent_type: AgentType, registry_id: string, name: string, description: string, distribution: AgentDistribution, };
+
+export type AgentSessionId = string;
+
+export type AgentSessionSnapshot = { id: AgentSessionId, connection_id: AgentConnectionId, acp_session_id: string, status: AgentSessionStatus, active_prompt_id?: AgentPromptId | null, queued_prompt_ids?: Array<AgentPromptId>, created_at: string, updated_at: string, };
+
+export type AgentSessionStatus = "creating" | "ready" | "running" | "cancelling" | "completed" | "failed";
+
+export type AgentSkillsStrategy = "unsupported" | "directory" | "agent_command" | "acp_extension";
+
+export type AgentSkillsSurface = { agent_type: AgentType, strategy: AgentSkillsStrategy, global_supported: boolean, project_supported: boolean, };
+
+export type AgentTerminalCreateRequest = { session_id: AgentSessionId, command: string, args: Array<string>, cwd?: string | null, env?: Array<AgentTerminalEnvVar>, output_byte_limit?: bigint | null, };
+
+export type AgentTerminalEnvVar = { name: string, value: string, };
+
+export type AgentTerminalExit = { "kind": "code", code: number, } | { "kind": "signal", signal: string, } | { "kind": "unknown" };
+
+export type AgentTerminalId = string;
+
+export type AgentTerminalOutput = { terminal_id: AgentTerminalId, output: string, truncated: boolean, exit_status?: number | null, };
+
+export type AgentTerminalOutputSnapshot = { terminal_id: AgentTerminalId, output: string, truncated: boolean, exit?: AgentTerminalExit | null, };
+
+export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args: Array<string>, cwd?: string | null, };
+
+export type AgentToolCall = { id: string, title: string, kind?: string | null, };
+
+export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null, };
+
+export type AgentType = "claude_code" | "codex" | "open_code" | "gemini" | "open_claw" | "cline" | "hermes";
+
+export type AgentUsage = { used: bigint, limit: bigint | null, };
+
+export type CommandParts = { program: string, args: Array<string>, };
+
+export type ImportedAgentMessage = { role: ImportedAgentMessageRole, content: string, created_at?: string | null, };
+
+export type ImportedAgentMessageRole = "user" | "assistant" | "system" | "tool" | "unknown";
+
+export type ImportedAgentSession = { source_agent: AgentType, external_session_id: string, title?: string | null, workspace_path?: string | null, messages: Array<ImportedAgentMessage>, raw_source_path?: string | null, };
+
+export type PathTemplate = { env_var: string | null, unix: string, windows: string, };
+
+export type PlatformBinary = { platform: string, url: string, };
+
+export type RuntimeSnapshot = { sequence: bigint, registry: Array<AgentRegistryEntry>, connections: Array<AgentConnectionSnapshot>, sessions: Array<AgentSessionSnapshot>, prompts: Array<AgentPromptSnapshot>, events: Array<AgentEventEnvelope>, };
+
+export type SystemCommand = { cmd: string, args: Array<string>, };

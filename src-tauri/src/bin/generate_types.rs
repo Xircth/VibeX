@@ -4,16 +4,16 @@ use agents::{
     AgentAvailabilityInfo, AgentCapability, AgentConfigStrategy, AgentConfigSurface,
     AgentConnectionId, AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock,
     AgentDistribution, AgentErrorEvent, AgentEvent, AgentEventEnvelope, AgentFileReadRequest,
-    AgentFileWriteRequest, AgentInstallPlan, AgentInstallStatus, AgentMcpConfig,
-    AgentMcpStrategy, AgentMcpSurface, AgentPermissionId, AgentPermissionOption,
-    AgentPermissionRequest, AgentPermissionResponse, AgentPlan, AgentPreflight,
-    AgentPreflightIssue, AgentPreflightSeverity, AgentPromptFinished, AgentPromptId,
-    AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentSessionId,
-    AgentSessionSnapshot, AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface,
-    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId,
-    AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall,
-    AgentToolCallUpdate, AgentType, AgentUsage, CommandParts, PathTemplate, PlatformBinary,
-    QueueTransition, RuntimeSnapshot, SystemCommand,
+    AgentFileWriteRequest, AgentInstallPlan, AgentInstallStatus, AgentMcpConfig, AgentMcpStrategy,
+    AgentMcpSurface, AgentPermissionId, AgentPermissionOption, AgentPermissionRequest,
+    AgentPermissionResponse, AgentPlan, AgentPreflight, AgentPreflightIssue,
+    AgentPreflightSeverity, AgentPromptFinished, AgentPromptId, AgentPromptSnapshot,
+    AgentPromptStatus, AgentRegistryEntry, AgentSessionId, AgentSessionSnapshot,
+    AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest,
+    AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
+    AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
+    AgentType, AgentUsage, CommandParts, ImportedAgentMessage, ImportedAgentMessageRole,
+    ImportedAgentSession, PathTemplate, PlatformBinary, RuntimeSnapshot, SystemCommand,
 };
 use db::models::{
     scratch::DraftFollowUpData,
@@ -166,10 +166,19 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "McpConfig",
             "ProviderCommand",
             "ProviderHistorySnapshot",
+            "ProviderRuntimeContract",
+            "ProviderRuntimeDependency",
+            "ProviderRuntimeDependencyStatus",
+            "ProviderRuntimeEvent",
+            "ProviderRuntimeKind",
+            "ProviderRuntimeNormalizedEvent",
+            "ProviderRuntimeStatus",
             "ProviderId",
             "ProviderModel",
             "ProviderSessionSummary",
             "ProviderTurnRequest",
+            "AgentPromptQueue",
+            "QueueTransition",
             "UserSystemInfo",
         ])
     })
@@ -226,8 +235,6 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentConnectionSnapshot>(&mut decls);
     insert_declaration::<AgentSessionSnapshot>(&mut decls);
     insert_declaration::<AgentPromptSnapshot>(&mut decls);
-    insert_declaration::<AgentPromptQueue>(&mut decls);
-    insert_declaration::<QueueTransition>(&mut decls);
     insert_declaration::<AgentEventEnvelope>(&mut decls);
     insert_declaration::<AgentEvent>(&mut decls);
     insert_declaration::<AgentContentBlock>(&mut decls);
@@ -248,6 +255,9 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentTerminalExit>(&mut decls);
     insert_declaration::<AgentFileReadRequest>(&mut decls);
     insert_declaration::<AgentFileWriteRequest>(&mut decls);
+    insert_declaration::<ImportedAgentMessageRole>(&mut decls);
+    insert_declaration::<ImportedAgentMessage>(&mut decls);
+    insert_declaration::<ImportedAgentSession>(&mut decls);
     insert_declaration::<AgentInstallPlan>(&mut decls);
     insert_declaration::<AgentInstallStatus>(&mut decls);
     insert_declaration::<AgentPreflight>(&mut decls);

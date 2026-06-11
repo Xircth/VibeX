@@ -17,6 +17,7 @@ use db::models::{
 use deployment::Deployment;
 use executors::executors::BaseCodingAgent;
 use serde::Serialize;
+use services::services::container::ContainerService;
 use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
 use uuid::Uuid;
@@ -490,10 +491,7 @@ pub async fn get_session_summaries(
         let is_running =
             ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
                 .await?;
-        let continuity_mode = derive_session_continuity_mode(
-            session.executor.as_deref(),
-            false,
-        );
+        let continuity_mode = derive_session_continuity_mode(session.executor.as_deref(), false);
 
         summaries.push(SessionSummary {
             id: session.id,

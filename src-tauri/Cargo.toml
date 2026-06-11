@@ -46,6 +46,7 @@ git = { path = "../crates/git" }
 git2 = { workspace = true }
 local-deployment = { path = "../crates/local-deployment" }
 api-types = { path = "../crates/api-types" }
+agents = { path = "../crates/agents" }
 utils = { path = "../crates/utils" }
 deployment = { path = "../crates/deployment" }
 # Note: review crate is binary-only (no lib target), cannot be used as dependency

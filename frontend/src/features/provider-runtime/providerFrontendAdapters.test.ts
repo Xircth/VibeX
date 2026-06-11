@@ -276,7 +276,7 @@ describe('provider frontend adapters', () => {
     });
   });
 
-  it('normalizes provider events only at the active provider boundary', () => {
+  it('maps backend-normalized provider status only at the active provider boundary', () => {
     const codex = getProviderFrontendAdapter('codex');
 
     expect(
@@ -285,6 +285,7 @@ describe('provider frontend adapters', () => {
         workspace_id: 'workspace-1',
         thread_id: 'thread-1',
         turn_id: 'turn-1',
+        normalized: [{ kind: 'turn_started' }],
         event: { method: 'turn/started' },
       })
     ).toEqual([
@@ -294,7 +295,7 @@ describe('provider frontend adapters', () => {
         threadId: 'thread-1',
         turnId: 'turn-1',
         status: 'started',
-        raw: { method: 'turn/started' },
+        raw: { kind: 'turn_started' },
       },
     ]);
 
@@ -303,6 +304,7 @@ describe('provider frontend adapters', () => {
         provider: 'codex',
         workspace_id: 'workspace-1',
         turn_id: 'queued-turn-1',
+        normalized: [],
         event: { method: 'turn/queued' },
       })[0]
     ).toMatchObject({
@@ -316,6 +318,7 @@ describe('provider frontend adapters', () => {
       codex.mapRuntimeEvent({
         provider: 'claude',
         workspace_id: 'workspace-1',
+        normalized: [{ kind: 'assistant_text_delta', text: 'wrong boundary' }],
         event: { text: 'wrong boundary' },
       })[0]
     ).toMatchObject({
@@ -325,9 +328,8 @@ describe('provider frontend adapters', () => {
     });
   });
 
-  it('does not map native provider tool output or stderr noise into assistant text', () => {
+  it('maps backend-normalized text, diagnostics, and tool updates', () => {
     const codex = getProviderFrontendAdapter('codex');
-    const claude = getProviderFrontendAdapter('claude');
 
     expect(
       codex.mapRuntimeEvent({
@@ -335,46 +337,13 @@ describe('provider frontend adapters', () => {
         workspace_id: 'workspace-1',
         thread_id: 'thread-1',
         turn_id: 'turn-1',
-        event: {
-          method: 'item/command/output',
-          params: {
-            output:
-              'Set-PSReadLineOption : The predictive suggestion feature cannot be enabled',
+        normalized: [
+          {
+            kind: 'assistant_text_delta',
+            id: 'assistant-1',
+            text: 'assistant text',
           },
-        },
-      })[0]
-    ).toMatchObject({
-      type: 'raw_diagnostic',
-    });
-
-    expect(
-      claude.mapRuntimeEvent({
-        provider: 'claude',
-        workspace_id: 'workspace-1',
-        event: {
-          type: 'sdk_event',
-          text: 'tool stdout should not render',
-          event: {
-            type: 'tool_result',
-            content: [
-              {
-                type: 'text',
-                text: 'tool stdout should not render',
-              },
-            ],
-          },
-        },
-      })[0]
-    ).toMatchObject({
-      type: 'raw_diagnostic',
-    });
-
-    expect(
-      codex.mapRuntimeEvent({
-        provider: 'codex',
-        workspace_id: 'workspace-1',
-        thread_id: 'thread-1',
-        turn_id: 'turn-1',
+        ],
         event: {
           method: 'item/agentMessage/delta',
           params: { delta: 'assistant text' },
@@ -384,9 +353,64 @@ describe('provider frontend adapters', () => {
       type: 'append_text',
       text: 'assistant text',
     });
+
+    expect(
+      codex.mapRuntimeEvent({
+        provider: 'codex',
+        workspace_id: 'workspace-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        normalized: [
+          {
+            kind: 'diagnostic',
+            level: 'warning',
+            message: 'stderr noise',
+          },
+        ],
+        event: {
+          method: 'process/outputDelta',
+          params: { stream: 'stderr', delta: 'stderr noise' },
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'raw_diagnostic',
+      raw: {
+        kind: 'diagnostic',
+        level: 'warning',
+        message: 'stderr noise',
+      },
+    });
+
+    expect(
+      codex.mapRuntimeEvent({
+        provider: 'codex',
+        workspace_id: 'workspace-1',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+        normalized: [
+          {
+            kind: 'tool_update',
+            id: 'tool-1',
+            tool_name: 'shell',
+            status: 'running',
+          },
+        ],
+        event: {
+          method: 'command/exec/started',
+        },
+      })[0]
+    ).toMatchObject({
+      type: 'raw_diagnostic',
+      raw: {
+        kind: 'tool_update',
+        id: 'tool-1',
+        tool_name: 'shell',
+        status: 'running',
+      },
+    });
   });
 
-  it('maps Claude SDK result text without rendering tool-result echoes', () => {
+  it('treats raw Claude SDK payloads as diagnostics unless backend normalizes them', () => {
     const claude = getProviderFrontendAdapter('claude');
 
     expect(
@@ -394,6 +418,7 @@ describe('provider frontend adapters', () => {
         provider: 'claude',
         workspace_id: 'workspace-1',
         thread_id: 'claude-session-1',
+        normalized: [],
         event: {
           type: 'sdk_event',
           text: 'live chunk',
@@ -410,8 +435,7 @@ describe('provider frontend adapters', () => {
         },
       })[0]
     ).toMatchObject({
-      type: 'append_text',
-      text: 'live chunk',
+      type: 'raw_diagnostic',
     });
 
     expect(
@@ -419,6 +443,12 @@ describe('provider frontend adapters', () => {
         provider: 'claude',
         workspace_id: 'workspace-1',
         thread_id: 'claude-session-1',
+        normalized: [
+          {
+            kind: 'assistant_text_snapshot',
+            text: 'final Claude reply',
+          },
+        ],
         event: {
           type: 'sdk_event',
           text: 'final Claude reply',
@@ -438,6 +468,7 @@ describe('provider frontend adapters', () => {
       claude.mapRuntimeEvent({
         provider: 'claude',
         workspace_id: 'workspace-1',
+        normalized: [],
         event: {
           type: 'sdk_event',
           text: 'tool stdout should not render',
@@ -452,7 +483,7 @@ describe('provider frontend adapters', () => {
     });
   });
 
-  it('maps assistant image generation payloads into markdown images', () => {
+  it('does not recursively parse raw assistant payloads in the frontend', () => {
     const codex = getProviderFrontendAdapter('codex');
 
     expect(
@@ -461,6 +492,7 @@ describe('provider frontend adapters', () => {
         workspace_id: 'workspace-1',
         thread_id: 'thread-1',
         turn_id: 'turn-1',
+        normalized: [],
         event: {
           type: 'agentMessage',
           content: [
@@ -472,12 +504,11 @@ describe('provider frontend adapters', () => {
         },
       })[0]
     ).toMatchObject({
-      type: 'append_text',
-      text: '![Generated image](<data:image/png;base64,abc123>)',
+      type: 'raw_diagnostic',
     });
   });
 
-  it('maps only the final OpenCode response into visible text', () => {
+  it('maps OpenCode visible text only from backend-normalized events', () => {
     const opencode = getProviderFrontendAdapter('opencode');
 
     expect(
@@ -485,6 +516,7 @@ describe('provider frontend adapters', () => {
         provider: 'opencode',
         workspace_id: 'workspace-1',
         thread_id: 'session-1',
+        normalized: [],
         event: {
           type: 'opencode_sdk_event',
           event: {
@@ -510,6 +542,7 @@ describe('provider frontend adapters', () => {
         provider: 'opencode',
         workspace_id: 'workspace-1',
         thread_id: 'session-1',
+        normalized: [],
         event: {
           type: 'opencode_sdk_event',
           event: {
@@ -532,6 +565,7 @@ describe('provider frontend adapters', () => {
         provider: 'opencode',
         workspace_id: 'workspace-1',
         thread_id: 'session-1',
+        normalized: [],
         event: {
           type: 'opencode_sdk_event',
           event: {
@@ -554,6 +588,7 @@ describe('provider frontend adapters', () => {
         provider: 'opencode',
         workspace_id: 'workspace-1',
         thread_id: 'session-1',
+        normalized: [],
         event: {
           type: 'opencode_sdk_event',
           event: {
@@ -572,6 +607,7 @@ describe('provider frontend adapters', () => {
         provider: 'opencode',
         workspace_id: 'workspace-1',
         thread_id: 'session-1',
+        normalized: [],
         event: {
           type: 'opencode_sdk_event',
           event: {
@@ -594,6 +630,16 @@ describe('provider frontend adapters', () => {
         provider: 'opencode',
         workspace_id: 'workspace-1',
         thread_id: 'session-1',
+        normalized: [
+          {
+            kind: 'assistant_text_snapshot',
+            text: 'final OpenCode reply',
+          },
+          {
+            kind: 'turn_completed',
+            thread_id: 'session-1',
+          },
+        ],
         event: {
           type: 'opencode_sdk_response',
           sessionID: 'session-1',
@@ -612,6 +658,30 @@ describe('provider frontend adapters', () => {
     ).toMatchObject({
       type: 'append_text',
       text: 'final OpenCode reply',
+    });
+
+    expect(
+      opencode.mapRuntimeEvent({
+        provider: 'opencode',
+        workspace_id: 'workspace-1',
+        thread_id: 'session-1',
+        normalized: [
+          {
+            kind: 'assistant_text_snapshot',
+            text: 'final OpenCode reply',
+          },
+          {
+            kind: 'turn_completed',
+            thread_id: 'session-1',
+          },
+        ],
+        event: {
+          type: 'opencode_sdk_response',
+        },
+      })[1]
+    ).toMatchObject({
+      type: 'set_status',
+      status: 'completed',
     });
   });
 });

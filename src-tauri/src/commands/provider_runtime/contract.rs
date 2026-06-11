@@ -143,7 +143,57 @@ pub struct ProviderRuntimeEvent {
     pub thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub normalized: Vec<ProviderRuntimeNormalizedEvent>,
     pub event: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ProviderRuntimeNormalizedEvent {
+    TurnStarted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+    },
+    TurnCompleted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+    },
+    TurnError {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        message: String,
+    },
+    AssistantTextDelta {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        text: String,
+    },
+    AssistantTextSnapshot {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        text: String,
+    },
+    ToolUpdate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<String>,
+    },
+    TokenUsage,
+    Diagnostic {
+        level: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -208,6 +258,16 @@ pub struct ProviderRuntimeDependency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct ProviderRuntimeDependencyStatus {
+    pub id: String,
+    pub label: String,
+    pub required: bool,
+    pub user_visible: bool,
+    pub status: CapabilityStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct ProviderRuntimeContract {
     pub provider: ProviderId,
     pub primary_runtime: ProviderRuntimeKind,
@@ -230,6 +290,8 @@ pub struct ProviderRuntimeStatus {
     pub contract: ProviderRuntimeContract,
     pub native: CapabilityStatus,
     pub fallback: CapabilityStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<ProviderRuntimeDependencyStatus>,
 }
 
 fn runtime_dependency(
@@ -350,14 +412,14 @@ pub fn provider_runtime_contract(provider: ProviderId) -> ProviderRuntimeContrac
         primary_label: primary_label.to_string(),
         dependencies,
         fallback_source: CapabilitySource::AcpFallback,
-        fallback_enabled_by_default: true,
+        fallback_enabled_by_default: false,
         fallback_env: provider_acp_fallback_env(provider).to_string(),
         global_fallback_env: ACP_FALLBACK_ENV.to_string(),
         force_fallback_option: "force_acp_fallback".to_string(),
         command_visibility_policy:
             "Expose only commands that can produce a visible VibeX chat/result effect; hide TUI-only config/status commands until VibeX owns an equivalent UI."
                 .to_string(),
-        event_history_policy: format!("{event_history_policy} ACP fallback events are labeled as `acp_fallback` with the native failure reason when available."),
+        event_history_policy: format!("{event_history_policy} Native startup failures return `native_runtime_error` by default; ACP fallback events are labeled as `acp_fallback` with the native failure reason when fallback is explicitly requested or enabled."),
     }
 }
 

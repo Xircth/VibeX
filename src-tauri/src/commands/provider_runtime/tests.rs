@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use executors::executors::BaseCodingAgent;
+use tokio::sync::Mutex;
 
 use super::*;
 
@@ -234,6 +237,97 @@ async fn codex_interrupt_does_not_complete_thread_sink_for_another_process() {
     assert!(!interrupted);
     assert_eq!(preserved_sink.process_id, active_process_id);
     assert_eq!(status, "running");
+}
+
+#[tokio::test]
+async fn codex_interrupt_does_not_complete_turn_sink_for_another_process() {
+    let pool = codex_interrupt_test_pool().await;
+    let interrupted_process_id = Uuid::new_v4();
+    let active_process_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let thread_id = format!("thread-{}", Uuid::new_v4());
+    let turn_id = format!("turn-{}", Uuid::new_v4());
+
+    insert_codex_interrupt_process(&pool, interrupted_process_id).await;
+    insert_codex_interrupt_process(&pool, active_process_id).await;
+    insert_codex_interrupt_session(&pool, session_id).await;
+    insert_codex_interrupt_turn(&pool, interrupted_process_id, &thread_id, &turn_id).await;
+
+    let active_sink = codex_interrupt_test_sink(pool.clone(), active_process_id, session_id);
+    CODEX_NATIVE_TURN_SINKS
+        .lock()
+        .await
+        .insert(turn_id.clone(), active_sink);
+    CODEX_NATIVE_THREAD_SINKS.lock().await.remove(&thread_id);
+
+    let interrupted = interrupt_codex_native_execution_process(&pool, interrupted_process_id)
+        .await
+        .expect("interrupt result");
+
+    let preserved_sink = CODEX_NATIVE_TURN_SINKS
+        .lock()
+        .await
+        .remove(&turn_id)
+        .expect("active sink should remain registered");
+    let status = codex_interrupt_process_status(&pool, interrupted_process_id).await;
+
+    assert!(!interrupted);
+    assert_eq!(preserved_sink.process_id, active_process_id);
+    assert_eq!(status, "running");
+}
+
+#[cfg(windows)]
+fn long_running_child() -> tokio::process::Child {
+    let mut command = tokio::process::Command::new("cmd");
+    command.args(["/C", "ping -n 30 127.0.0.1 > NUL"]);
+    command.spawn().expect("spawn long running child")
+}
+
+#[cfg(unix)]
+fn long_running_child() -> tokio::process::Child {
+    let mut command = tokio::process::Command::new("sh");
+    command.args(["-c", "sleep 30"]);
+    command.spawn().expect("spawn long running child")
+}
+
+#[tokio::test]
+async fn active_native_turn_registry_registers_and_removes_by_turn() {
+    let turn_id = format!("turn-{}", Uuid::new_v4());
+    let process_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let child = Arc::new(Mutex::new(long_running_child()));
+
+    register_active_native_turn_for_test(
+        turn_id.clone(),
+        NativeProcessHandle {
+            provider: ProviderId::Claude,
+            process_id,
+            session_id,
+            child: child.clone(),
+        },
+    )
+    .await;
+
+    assert_eq!(
+        active_native_turn_provider(&turn_id).await,
+        Some(ProviderId::Claude)
+    );
+
+    let removed = remove_active_native_turn(&turn_id)
+        .await
+        .expect("active turn should be removed");
+    assert_eq!(removed.provider, ProviderId::Claude);
+    assert_eq!(removed.process_id, process_id);
+    assert_eq!(removed.session_id, session_id);
+    assert_eq!(active_native_turn_provider(&turn_id).await, None);
+
+    let _ = child.lock().await.kill().await;
+}
+
+#[test]
+fn codex_app_server_idle_policy_uses_saturating_time() {
+    assert_eq!(codex_app_server_idle_for_ms_since(1_000, 1_500), 500);
+    assert_eq!(codex_app_server_idle_for_ms_since(1_500, 1_000), 0);
 }
 
 #[path = "tests_events.rs"]

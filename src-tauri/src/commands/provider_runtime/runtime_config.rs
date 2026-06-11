@@ -103,6 +103,68 @@ pub(super) fn should_force_acp_fallback(request: &ProviderTurnRequest) -> bool {
     provider_option_bool(&request.provider_options, "force_acp_fallback")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProviderFallbackPolicy {
+    Disabled,
+    Manual,
+    Auto,
+}
+
+impl ProviderFallbackPolicy {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Manual => "manual",
+            Self::Auto => "auto",
+        }
+    }
+
+    pub(super) fn allows_auto_fallback(self) -> bool {
+        matches!(self, Self::Auto)
+    }
+}
+
+fn parse_provider_fallback_policy(value: &str) -> Option<ProviderFallbackPolicy> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "auto" | "automatic" | "allow" | "allowed" | "enabled" | "true" | "1" => {
+            Some(ProviderFallbackPolicy::Auto)
+        }
+        "manual" | "explicit" | "on_request" | "on-request" => Some(ProviderFallbackPolicy::Manual),
+        "disabled" | "disable" | "off" | "false" | "0" | "none" | "never" => {
+            Some(ProviderFallbackPolicy::Disabled)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn provider_fallback_policy(request: &ProviderTurnRequest) -> ProviderFallbackPolicy {
+    if let Some(policy) = provider_option_string(&request.provider_options, "fallback_policy")
+        .or_else(|| provider_option_string(&request.provider_options, "fallbackPolicy"))
+        .and_then(parse_provider_fallback_policy)
+    {
+        return policy;
+    }
+
+    if let Some(allow_fallback) =
+        provider_option_optional_bool(&request.provider_options, "allow_acp_fallback").or_else(
+            || provider_option_optional_bool(&request.provider_options, "allowAcpFallback"),
+        )
+    {
+        return if allow_fallback {
+            ProviderFallbackPolicy::Auto
+        } else {
+            ProviderFallbackPolicy::Disabled
+        };
+    }
+
+    let fallback = acp_fallback_config(request.provider);
+    match (fallback.env_name, fallback.enabled) {
+        (Some(_), true) => ProviderFallbackPolicy::Auto,
+        (Some(_), false) => ProviderFallbackPolicy::Disabled,
+        (None, _) => ProviderFallbackPolicy::Manual,
+    }
+}
+
 pub(super) async fn apply_native_commit_reminder_to_request(
     state: &tauri::State<'_, AppState>,
     request: &mut ProviderTurnRequest,

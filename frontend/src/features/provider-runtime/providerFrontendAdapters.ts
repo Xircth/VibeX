@@ -6,6 +6,7 @@ import type {
   ProviderHistorySnapshot,
   ProviderId,
   ProviderRuntimeEvent,
+  ProviderRuntimeNormalizedEvent,
   ProviderTurnRequest,
   SlashCommandDescription,
 } from 'shared/types';
@@ -303,221 +304,93 @@ function eventMethod(event: ProviderRuntimeEvent): string | null {
   return null;
 }
 
-function eventText(event: ProviderRuntimeEvent): string | null {
-  if (!event.event || typeof event.event !== 'object') return null;
-  const record = event.event as Record<string, unknown>;
+function threadIdForNormalizedEvent(
+  event: ProviderRuntimeEvent,
+  normalized: ProviderRuntimeNormalizedEvent
+): string | null | undefined {
+  return 'thread_id' in normalized && normalized.thread_id !== undefined
+    ? normalized.thread_id
+    : event.thread_id;
+}
 
-  const sdkStreamText = providerStreamEventText(record);
-  if (sdkStreamText) return sdkStreamText;
+function turnIdForNormalizedEvent(
+  event: ProviderRuntimeEvent,
+  normalized: ProviderRuntimeNormalizedEvent
+): string | null | undefined {
+  return 'turn_id' in normalized && normalized.turn_id !== undefined
+    ? normalized.turn_id
+    : event.turn_id;
+}
 
-  if (record.method === 'item/agentMessage/delta') {
-    const params = record.params;
-    if (params && typeof params === 'object' && 'delta' in params) {
-      const delta = (params as { delta?: unknown }).delta;
-      return typeof delta === 'string' && delta ? delta : null;
+function normalizedOperations(
+  provider: ProviderId,
+  event: ProviderRuntimeEvent
+): ProviderThreadOperation[] {
+  const operations: ProviderThreadOperation[] = [];
+
+  for (const normalized of event.normalized ?? []) {
+    const threadId = threadIdForNormalizedEvent(event, normalized);
+    const turnId = turnIdForNormalizedEvent(event, normalized);
+
+    switch (normalized.kind) {
+      case 'turn_started':
+        operations.push({
+          type: 'set_status',
+          provider,
+          threadId,
+          turnId,
+          status: 'started',
+          raw: normalized,
+        });
+        break;
+      case 'turn_completed':
+        operations.push({
+          type: 'set_status',
+          provider,
+          threadId,
+          turnId,
+          status: 'completed',
+          raw: normalized,
+        });
+        break;
+      case 'turn_error':
+        operations.push({
+          type: 'set_status',
+          provider,
+          threadId,
+          turnId,
+          status: 'failed',
+          raw: normalized,
+        });
+        break;
+      case 'assistant_text_delta':
+      case 'assistant_text_snapshot':
+        if (normalized.text) {
+          operations.push({
+            type: 'append_text',
+            provider,
+            threadId,
+            turnId,
+            text: normalized.text,
+            raw: normalized,
+          });
+        }
+        break;
+      case 'diagnostic':
+      case 'tool_update':
+      case 'token_usage':
+        operations.push({
+          type: 'raw_diagnostic',
+          provider,
+          threadId,
+          turnId,
+          raw: normalized,
+        });
+        break;
     }
   }
 
-  if (record.type === 'text_delta') {
-    const text = record.text;
-    return typeof text === 'string' && text ? text : null;
-  }
-
-  if (record.type === 'sdk_event') {
-    if (isUserEchoEvent(record)) return null;
-    const assistantText = assistantPayloadText(record.event);
-    if (assistantText) return assistantText;
-
-    if (isSdkResultEvent(record.event)) {
-      const text = record.text;
-      return typeof text === 'string' && text.trim() ? text : null;
-    }
-
-    return null;
-  }
-
-  if (record.type === 'opencode_sdk_event') {
-    return opencodeEventText(record);
-  }
-
-  if (record.type === 'opencode_sdk_response') {
-    return opencodeResponseText(record.response);
-  }
-
-  return assistantPayloadText(record);
-}
-
-function providerStreamEventText(value: unknown): string | null {
-  const record = objectRecord(value);
-  if (!record) return null;
-
-  if (record.type === 'sdk_event') {
-    return providerStreamEventText(record.event);
-  }
-
-  if (record.type !== 'stream_event') return null;
-
-  const event = objectRecord(record.event);
-  if (event?.type !== 'content_block_delta') return null;
-
-  const delta = objectRecord(event.delta);
-  if (delta?.type !== 'text_delta') return null;
-
-  return typeof delta.text === 'string' && delta.text ? delta.text : null;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object'
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function isSdkResultEvent(value: unknown): boolean {
-  const record = objectRecord(value);
-  return record?.type === 'result';
-}
-
-function opencodeEventPayload(value: unknown): unknown {
-  const record = objectRecord(value);
-  return record?.event ?? record?.payload ?? value;
-}
-
-function opencodeEventText(value: unknown): string | null {
-  const payload = opencodeEventPayload(value);
-  const record = objectRecord(payload);
-  if (!record) return null;
-  if (opencodeEventIsUserEcho(record)) return null;
-
-  const eventType = typeof record.type === 'string' ? record.type : null;
-  if (eventType?.startsWith('message.part.')) {
-    return null;
-  }
-  if (eventType?.startsWith('session.next.text.')) {
-    return null;
-  }
-
-  return assistantPayloadText(payload);
-}
-
-function opencodeEventIsUserEcho(record: Record<string, unknown>): boolean {
-  const properties = objectRecord(record.properties);
-  const info = objectRecord(properties?.info) ?? objectRecord(record.info);
-  const message = objectRecord(record.message);
-  const role =
-    properties?.partRole ?? info?.role ?? message?.role ?? record.role;
-  return typeof role === 'string' && role.toLowerCase() === 'user';
-}
-
-function opencodeResponseText(value: unknown): string | null {
-  const record = objectRecord(value);
-  if (!record) return null;
-  return assistantPayloadText(record) ?? textBlockContent(record.parts);
-}
-
-function textBlockContent(value: unknown): string | null {
-  if (typeof value === 'string') return value.trim() ? value : null;
-
-  if (Array.isArray(value)) {
-    const text = value
-      .map(textBlockContent)
-      .filter((part): part is string => !!part)
-      .join('');
-    return text.trim() ? text : null;
-  }
-
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  const blockType = typeof record.type === 'string' ? record.type : null;
-
-  const imageMarkdown = imageBlockMarkdown(record, blockType);
-  if (imageMarkdown) {
-    return imageMarkdown;
-  }
-
-  if (blockType && blockType !== 'text') return null;
-
-  if (typeof record.text === 'string' && record.text.trim()) {
-    return record.text;
-  }
-  return textBlockContent(record.content) ?? textBlockContent(record.parts);
-}
-
-function imageBlockMarkdown(
-  record: Record<string, unknown>,
-  blockType: string | null
-): string | null {
-  const imageUrl =
-    (typeof record.url === 'string' && record.url) ||
-    (typeof record.image_url === 'string' && record.image_url) ||
-    null;
-  if (
-    imageUrl &&
-    (blockType === 'image' ||
-      blockType === 'output_image' ||
-      blockType === 'input_image')
-  ) {
-    return `![Generated image](${imageUrl})`;
-  }
-
-  if (
-    blockType === 'image_generation_call' &&
-    typeof record.result === 'string' &&
-    record.result.trim()
-  ) {
-    const mimeType =
-      typeof record.mime_type === 'string' && record.mime_type.trim()
-        ? record.mime_type.trim()
-        : 'image/png';
-    return `![Generated image](<data:${mimeType};base64,${record.result.trim()}>)`;
-  }
-
-  return null;
-}
-
-function assistantPayloadText(value: unknown): string | null {
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  const info = objectRecord(record.info);
-  const rawRole = record.role ?? info?.role;
-  const role = typeof rawRole === 'string' ? rawRole : null;
-  if (role?.toLowerCase() === 'user') return null;
-
-  const eventType = typeof record.type === 'string' ? record.type : null;
-  const isAssistant =
-    role?.toLowerCase() === 'assistant' ||
-    eventType?.toLowerCase() === 'assistant' ||
-    eventType === 'agentMessage' ||
-    eventType === 'agent_message' ||
-    eventType === 'assistantMessage' ||
-    eventType === 'assistant_message';
-  if (isAssistant) {
-    if (typeof record.text === 'string' && record.text.trim()) {
-      return record.text;
-    }
-    return textBlockContent(record.content) ?? textBlockContent(record.parts);
-  }
-
-  return (
-    assistantPayloadText(record.message) ??
-    assistantPayloadText(record.event) ??
-    assistantPayloadText(record.payload) ??
-    assistantPayloadText(record.response) ??
-    assistantPayloadText(record.params) ??
-    assistantPayloadText(record.properties) ??
-    assistantPayloadText(record.result) ??
-    assistantPayloadText(record.item) ??
-    assistantPayloadText(record.part)
-  );
-}
-
-function isUserEchoEvent(record: Record<string, unknown>): boolean {
-  const event = record.event;
-  if (!event || typeof event !== 'object') return false;
-  const eventRecord = event as Record<string, unknown>;
-  const message = eventRecord.message;
-  if (!message || typeof message !== 'object') return false;
-  const role = (message as { role?: unknown }).role;
-  return typeof role === 'string' && role.toLowerCase() === 'user';
+  return operations;
 }
 
 function mapProviderRuntimeEvent(
@@ -538,6 +411,11 @@ function mapProviderRuntimeEvent(
         },
       },
     ];
+  }
+
+  const normalized = normalizedOperations(provider, event);
+  if (normalized.length > 0) {
+    return normalized;
   }
 
   const method = eventMethod(event);
@@ -577,20 +455,6 @@ function mapProviderRuntimeEvent(
         threadId: event.thread_id,
         turnId: event.turn_id,
         status: 'failed',
-        raw: event.event,
-      },
-    ];
-  }
-
-  const text = eventText(event);
-  if (text) {
-    return [
-      {
-        type: 'append_text',
-        provider,
-        threadId: event.thread_id,
-        turnId: event.turn_id,
-        text,
         raw: event.event,
       },
     ];

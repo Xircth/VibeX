@@ -4,3 +4,6 @@ packages:
 onlyBuiltDependencies:
   - core-js
   - esbuild
+
+overrides:
+  caniuse-lite: 1.0.30001792

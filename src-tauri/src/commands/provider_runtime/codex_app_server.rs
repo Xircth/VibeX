@@ -34,9 +34,10 @@ use super::{
     codex_turn_status_is_terminal, complete_codex_native_sink, complete_native_conversation_sink,
     create_native_execution_process, extract_thread_id, extract_turn_id,
     is_codex_context_compaction_completed, is_context_compact_prompt, new_provider_hidden_command,
-    provider_option_bool, provider_option_string, push_native_provider_event_to_conversation,
-    push_provider_event, register_native_conversation_sink, repo_root_path,
-    resolve_codex_runtime_options, resolve_native_provider_request, resolve_provider_workspace_dir,
+    normalize_provider_runtime_event, provider_option_bool, provider_option_string,
+    push_native_provider_event_to_conversation, push_provider_event,
+    register_native_conversation_sink, repo_root_path, resolve_codex_runtime_options,
+    resolve_native_provider_request, resolve_provider_workspace_dir,
     route_codex_event_to_native_conversation, should_force_acp_fallback,
 };
 use crate::{error::AppError, state::AppState};
@@ -47,6 +48,9 @@ pub(super) async fn send_codex_request(
     params: Value,
     timeout_duration: Duration,
 ) -> Result<Value, String> {
+    server
+        .last_used_at_ms
+        .store(codex_now_millis(), Ordering::SeqCst);
     let id = server.next_id.fetch_add(1, Ordering::SeqCst);
     let (tx, rx) = oneshot::channel();
     server.pending.lock().await.insert(id, tx);
@@ -90,6 +94,9 @@ async fn send_codex_notification(
     method: &str,
     params: Option<Value>,
 ) -> Result<(), String> {
+    server
+        .last_used_at_ms
+        .store(codex_now_millis(), Ordering::SeqCst);
     let mut stdin = server.stdin.lock().await;
     let mut message = serde_json::Map::new();
     message.insert("method".to_string(), json!(method));
@@ -109,6 +116,9 @@ async fn send_codex_fire_and_forget_request(
     method: &str,
     params: Value,
 ) -> Result<(), String> {
+    server
+        .last_used_at_ms
+        .store(codex_now_millis(), Ordering::SeqCst);
     let id = server.next_id.fetch_add(1, Ordering::SeqCst);
     let mut stdin = server.stdin.lock().await;
     let mut line = serde_json::to_string(&json!({
@@ -395,6 +405,7 @@ async fn maybe_trigger_codex_auto_compaction(
             workspace_id: server.workspace_id.clone(),
             thread_id: Some(thread_id.to_string()),
             turn_id: None,
+            normalized: Vec::new(),
             event: event.clone(),
         },
     )
@@ -827,11 +838,12 @@ pub(super) async fn try_steer_active_codex_turn(
             send_codex_turn_steer(&thread_id, &turn_id, codex_input_items(&resolved_request))
                 .await
                 .map_err(|error| app_error_from_native(ProviderId::Codex, error))?;
-        let event = ProviderRuntimeEvent {
+        let event = normalize_provider_runtime_event(ProviderRuntimeEvent {
             provider: ProviderId::Codex,
             workspace_id: workspace_id.to_string(),
             thread_id: Some(thread_id),
             turn_id: Some(turn_id),
+            normalized: Vec::new(),
             event: json!({
                 "method": "turn/steered",
                 "runtime_source": "native_app_server",
@@ -839,7 +851,7 @@ pub(super) async fn try_steer_active_codex_turn(
                 "session_id": session.id,
                 "response": response,
             }),
-        };
+        });
         push_provider_event(&session.id.to_string(), event.clone()).await;
         return Ok(Some(event));
     }
@@ -891,21 +903,15 @@ pub async fn interrupt_codex_native_execution_process(
     let thread_id = turn.agent_session_id;
     let turn_id = turn.agent_message_id;
 
-    if let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref())
-        && let Err(error) = send_codex_turn_interrupt(thread_id, turn_id).await
-    {
-        tracing::debug!(
-            "Failed to interrupt Codex app-server turn process_id={} thread_id={} turn_id={}: {}",
-            process_id,
-            thread_id,
-            turn_id,
-            error
-        );
-    }
-
     let mut sink = None;
     if let Some(turn_id) = turn_id.as_deref() {
-        sink = CODEX_NATIVE_TURN_SINKS.lock().await.get(turn_id).cloned();
+        let turn_sink = CODEX_NATIVE_TURN_SINKS.lock().await.get(turn_id).cloned();
+        if turn_sink
+            .as_ref()
+            .is_some_and(|sink| sink.process_id == process_id)
+        {
+            sink = turn_sink;
+        }
     }
     if sink.is_none()
         && let Some(thread_id) = thread_id.as_deref()
@@ -924,6 +930,18 @@ pub async fn interrupt_codex_native_execution_process(
     }
 
     if let Some(sink) = sink {
+        if let (Some(thread_id), Some(turn_id)) = (thread_id.as_deref(), turn_id.as_deref())
+            && let Err(error) = send_codex_turn_interrupt(thread_id, turn_id).await
+        {
+            tracing::debug!(
+                "Failed to interrupt Codex app-server turn process_id={} thread_id={} turn_id={}: {}",
+                process_id,
+                thread_id,
+                turn_id,
+                error
+            );
+        }
+
         complete_codex_native_sink(sink, turn_id, thread_id, ExecutionProcessStatus::Killed).await;
         return Ok(true);
     }
@@ -966,6 +984,7 @@ fn spawn_codex_app_server_readers(
                             workspace_id: stdout_server.workspace_id.clone(),
                             thread_id: None,
                             turn_id: None,
+                            normalized: Vec::new(),
                             event: json!({
                                 "method": "codex/parse_error",
                                 "params": { "error": error.to_string(), "raw": line },
@@ -1009,6 +1028,7 @@ fn spawn_codex_app_server_readers(
                         workspace_id: stdout_server.workspace_id.clone(),
                         thread_id,
                         turn_id: extract_turn_id(&value),
+                        normalized: Vec::new(),
                         event: value.clone(),
                     },
                 )
@@ -1032,6 +1052,7 @@ fn spawn_codex_app_server_readers(
                     workspace_id: stderr_server.workspace_id.clone(),
                     thread_id: None,
                     turn_id: None,
+                    normalized: Vec::new(),
                     event: json!({
                         "method": "codex/stderr",
                         "params": { "message": line },
@@ -1043,6 +1064,29 @@ fn spawn_codex_app_server_readers(
     });
 }
 
+async fn codex_app_server_process_alive(server: &Arc<CodexAppServer>) -> bool {
+    server
+        .child
+        .lock()
+        .await
+        .try_wait()
+        .map(|status| status.is_none())
+        .unwrap_or(false)
+}
+
+pub(super) async fn codex_app_server_healthy(server: &Arc<CodexAppServer>) -> bool {
+    codex_app_server_process_alive(server).await
+        && send_codex_request(server, "model/list", json!({}), Duration::from_secs(4))
+            .await
+            .and_then(|response| codex_response_success("model/list", &response).map(|_| ()))
+            .is_ok()
+}
+
+#[cfg(test)]
+pub(super) fn codex_app_server_idle_for_ms_since(last_used_at_ms: u64, now_ms: u64) -> u64 {
+    now_ms.saturating_sub(last_used_at_ms)
+}
+
 async fn ensure_codex_app_server(
     request: &ProviderTurnRequest,
     workspace_id: Uuid,
@@ -1051,24 +1095,8 @@ async fn ensure_codex_app_server(
 ) -> Result<Arc<CodexAppServer>, String> {
     let key = codex_runtime_key(&workspace_id.to_string(), workspace_dir);
     if let Some(server) = CODEX_APP_SERVERS.lock().await.get(&key).cloned() {
-        let process_alive = server
-            .child
-            .lock()
-            .await
-            .try_wait()
-            .map(|status| status.is_none())
-            .unwrap_or(false);
-        if process_alive {
-            let is_healthy =
-                send_codex_request(&server, "model/list", json!({}), Duration::from_secs(4))
-                    .await
-                    .and_then(|response| {
-                        codex_response_success("model/list", &response).map(|_| ())
-                    })
-                    .is_ok();
-            if is_healthy {
-                return Ok(server);
-            }
+        if codex_app_server_healthy(&server).await {
+            return Ok(server);
         }
         CODEX_APP_SERVERS.lock().await.remove(&key);
     }
@@ -1099,6 +1127,7 @@ async fn ensure_codex_app_server(
         stdin: Arc::new(Mutex::new(stdin)),
         pending: Arc::new(Mutex::new(HashMap::new())),
         next_id: AtomicU64::new(1),
+        last_used_at_ms: AtomicU64::new(codex_now_millis()),
         auto_compaction_thread_state: Arc::new(Mutex::new(HashMap::new())),
     });
 
@@ -1157,18 +1186,19 @@ pub(super) async fn start_codex_native_turn(
         .await
         .insert(queued_turn_id.clone(), conversation_sink.clone());
 
-    let event = ProviderRuntimeEvent {
+    let event = normalize_provider_runtime_event(ProviderRuntimeEvent {
         provider: ProviderId::Codex,
         workspace_id: workspace_id.to_string(),
         thread_id: request.thread_id.clone(),
         turn_id: Some(queued_turn_id.clone()),
+        normalized: Vec::new(),
         event: json!({
             "method": "turn/queued",
             "runtime_source": "native_app_server",
             "execution_process_id": process.id,
             "session_id": session.id,
         }),
-    };
+    });
     push_provider_event(&session.id.to_string(), event.clone()).await;
 
     let pool = state.deployment.db().pool.clone();
@@ -1206,6 +1236,7 @@ pub(super) async fn start_codex_native_turn(
                         workspace_id: workspace_id_string.clone(),
                         thread_id: final_thread_id.clone(),
                         turn_id: Some(final_turn_id.clone()),
+                        normalized: Vec::new(),
                         event: event.clone(),
                     },
                 )
@@ -1243,6 +1274,7 @@ pub(super) async fn start_codex_native_turn(
                     workspace_id: workspace_id_string.clone(),
                     thread_id: final_thread_id.clone(),
                     turn_id: Some(final_turn_id.clone()),
+                    normalized: Vec::new(),
                     event: event.clone(),
                 },
             )
@@ -1344,6 +1376,7 @@ pub(super) async fn start_codex_native_turn(
                         workspace_id: workspace_id_string.clone(),
                         thread_id: final_thread_id.clone(),
                         turn_id: Some(final_turn_id.clone()),
+                        normalized: Vec::new(),
                         event: event.clone(),
                     },
                 )
@@ -1407,6 +1440,7 @@ pub(super) async fn start_codex_native_turn(
                             workspace_id: workspace_id_string.clone(),
                             thread_id: final_thread_id.clone(),
                             turn_id: Some(final_turn_id.clone()),
+                            normalized: Vec::new(),
                             event: event.clone(),
                         },
                     )
@@ -1432,6 +1466,7 @@ pub(super) async fn start_codex_native_turn(
                             workspace_id: workspace_id_string.clone(),
                             thread_id: final_thread_id.clone(),
                             turn_id: Some(final_turn_id.clone()),
+                            normalized: Vec::new(),
                             event: event.clone(),
                         },
                     )
@@ -1454,6 +1489,7 @@ pub(super) async fn start_codex_native_turn(
                 workspace_id: workspace_id.to_string(),
                 thread_id: final_thread_id.clone(),
                 turn_id: Some(final_turn_id),
+                normalized: Vec::new(),
                 event: json!({
                     "method": "thread/compact/started",
                     "runtime_source": "native_app_server",
@@ -1515,6 +1551,7 @@ pub(super) async fn start_codex_native_turn(
                         workspace_id: workspace_id_string.clone(),
                         thread_id: final_thread_id.clone(),
                         turn_id: Some(final_turn_id.clone()),
+                        normalized: Vec::new(),
                         event: event.clone(),
                     },
                 )
@@ -1542,6 +1579,7 @@ pub(super) async fn start_codex_native_turn(
                         workspace_id: workspace_id_string.clone(),
                         thread_id: final_thread_id.clone(),
                         turn_id: Some(final_turn_id.clone()),
+                        normalized: Vec::new(),
                         event: event.clone(),
                     },
                 )
@@ -1596,6 +1634,7 @@ pub(super) async fn start_codex_native_turn(
             workspace_id: workspace_id.to_string(),
             thread_id: final_thread_id.clone(),
             turn_id: Some(final_turn_id.clone()),
+            normalized: Vec::new(),
             event: json!({
                 "method": "turn/started",
                 "runtime_source": "native_app_server",
@@ -1636,6 +1675,7 @@ pub(super) async fn start_codex_native_turn(
                         .and_then(Value::as_str)
                         .map(ToString::to_string),
                     turn_id: Some(final_turn_id.clone()),
+                    normalized: Vec::new(),
                     event: terminal_event.clone(),
                 },
             )

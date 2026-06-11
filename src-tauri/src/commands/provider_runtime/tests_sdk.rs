@@ -4,6 +4,8 @@ use std::os::unix::process::ExitStatusExt;
 use std::os::windows::process::ExitStatusExt;
 use std::process::{ExitStatus, Output};
 
+use db::models::execution_process::ExecutionProcessStatus;
+
 use super::*;
 
 #[cfg(unix)]
@@ -57,6 +59,74 @@ fn provider_sdk_metadata_failure_error_keeps_generic_fallback_without_output() {
     assert_eq!(
         error.to_string(),
         "Bad request: Claude Code native runtime failed: SDK metadata discovery failed"
+    );
+}
+
+#[test]
+fn runtime_dependency_probe_distinguishes_missing_node_sdk_and_clis() {
+    let (native, dependencies) = dependency_statuses_for_probe_output_for_test(
+        ProviderId::Claude,
+        "node",
+        "claude-agent-sdk-provider:ok",
+        Err("program not found: node".to_string()),
+    );
+    assert_eq!(native.state, CapabilityState::Unavailable);
+    assert!(dependencies.iter().any(|dependency| {
+        dependency.id == "node" && dependency.status.state == CapabilityState::Unavailable
+    }));
+
+    let (_, dependencies) = dependency_statuses_for_probe_output_for_test(
+        ProviderId::Claude,
+        "node",
+        "claude-agent-sdk-provider:ok",
+        Ok(command_output(
+            b"",
+            b"Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@anthropic-ai/claude-agent-sdk'",
+        )),
+    );
+    assert!(dependencies.iter().any(|dependency| {
+        dependency.id == "claude_agent_sdk"
+            && dependency.status.state == CapabilityState::Unavailable
+    }));
+
+    let (_, dependencies) = dependency_statuses_for_probe_output_for_test(
+        ProviderId::Codex,
+        "codex",
+        "Run the app server",
+        Err("No such file or directory (os error 2)".to_string()),
+    );
+    assert!(dependencies.iter().any(|dependency| {
+        dependency.id == "codex_cli" && dependency.status.state == CapabilityState::Unavailable
+    }));
+
+    let (_, dependencies) = dependency_statuses_for_probe_output_for_test(
+        ProviderId::Opencode,
+        "node",
+        "opencode-sdk-provider:ok",
+        Ok(command_output(
+            b"",
+            b"'opencode' is not recognized as an internal or external command",
+        )),
+    );
+    assert!(dependencies.iter().any(|dependency| {
+        dependency.id == "opencode_cli" && dependency.status.state == CapabilityState::Unavailable
+    }));
+}
+
+#[test]
+fn bridge_runner_completion_events_map_exit_statuses() {
+    let success = bridge_completion_status_for_test("native_test", Ok(ExitStatus::from_raw(0)));
+    assert_eq!(success.1, ExecutionProcessStatus::Completed);
+    assert_eq!(
+        success.0.get("method").and_then(Value::as_str),
+        Some("turn/completed")
+    );
+
+    let failure = bridge_completion_status_for_test("native_test", Ok(failed_exit_status()));
+    assert_eq!(failure.1, ExecutionProcessStatus::Failed);
+    assert_eq!(
+        failure.0.get("method").and_then(Value::as_str),
+        Some("turn/error")
     );
 }
 
@@ -346,6 +416,98 @@ fn force_acp_fallback_is_provider_scoped_option() {
         .provider_options
         .insert("force_acp_fallback".to_string(), json!(true));
     assert!(should_force_acp_fallback(&request));
+}
+
+#[test]
+fn fallback_policy_is_manual_by_default_and_auto_only_when_explicit() {
+    let mut request = turn_request(ProviderId::Codex);
+    assert_eq!(
+        provider_fallback_policy(&request),
+        ProviderFallbackPolicy::Manual
+    );
+
+    request
+        .provider_options
+        .insert("allow_acp_fallback".to_string(), json!(true));
+    assert_eq!(
+        provider_fallback_policy(&request),
+        ProviderFallbackPolicy::Auto
+    );
+
+    request
+        .provider_options
+        .insert("allow_acp_fallback".to_string(), json!(false));
+    assert_eq!(
+        provider_fallback_policy(&request),
+        ProviderFallbackPolicy::Disabled
+    );
+
+    request.provider_options.remove("allow_acp_fallback");
+    request
+        .provider_options
+        .insert("fallback_policy".to_string(), json!("auto"));
+    assert_eq!(
+        provider_fallback_policy(&request),
+        ProviderFallbackPolicy::Auto
+    );
+
+    request
+        .provider_options
+        .insert("fallback_policy".to_string(), json!("manual"));
+    assert_eq!(
+        provider_fallback_policy(&request),
+        ProviderFallbackPolicy::Manual
+    );
+
+    request
+        .provider_options
+        .insert("fallback_policy".to_string(), json!("disabled"));
+    assert_eq!(
+        provider_fallback_policy(&request),
+        ProviderFallbackPolicy::Disabled
+    );
+}
+
+#[test]
+fn native_provider_error_event_documents_manual_fallback_policy() {
+    let request = turn_request(ProviderId::Claude);
+    let workspace_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+    let error = app_error_from_native(ProviderId::Claude, "node is missing");
+
+    let event = native_provider_error_event(
+        &request,
+        workspace_id,
+        session_id,
+        &error,
+        ProviderFallbackPolicy::Manual.as_str(),
+    );
+
+    assert_eq!(event.provider, ProviderId::Claude);
+    assert_eq!(event.workspace_id, workspace_id.to_string());
+    assert_eq!(
+        event.event.get("type").and_then(Value::as_str),
+        Some("native_runtime_error")
+    );
+    assert_eq!(
+        event.event.get("method").and_then(Value::as_str),
+        Some("turn/error")
+    );
+    assert_eq!(
+        event.event.get("runtime_source").and_then(Value::as_str),
+        Some("native")
+    );
+    assert_eq!(
+        event.event.get("fallback_policy").and_then(Value::as_str),
+        Some("manual")
+    );
+    assert!(
+        event
+            .event
+            .get("error")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.contains("node is missing"))
+    );
 }
 
 #[test]

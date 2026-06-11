@@ -51,7 +51,7 @@ fn provider_runtime_contract_documents_primary_and_fallback_paths() {
     assert_eq!(claude.primary_runtime, ProviderRuntimeKind::ClaudeAgentSdk);
     assert_eq!(claude.primary_source, CapabilitySource::Sdk);
     assert_eq!(claude.fallback_env, CLAUDE_ACP_FALLBACK_ENV);
-    assert!(claude.fallback_enabled_by_default);
+    assert!(!claude.fallback_enabled_by_default);
     assert!(claude.dependencies.iter().any(|dependency| {
         dependency.id == "claude_agent_sdk" && dependency.required && !dependency.user_visible
     }));
@@ -81,7 +81,320 @@ fn provider_runtime_contract_documents_primary_and_fallback_paths() {
         assert_eq!(contract.force_fallback_option, "force_acp_fallback");
         assert!(contract.command_visibility_policy.contains("visible VibeX"));
         assert!(contract.event_history_policy.contains("acp_fallback"));
+        assert!(
+            contract
+                .event_history_policy
+                .contains("native_runtime_error")
+        );
     }
+}
+
+#[test]
+fn provider_history_retention_marker_documents_live_only_raw_events() {
+    let marker = provider_history_retention_marker();
+
+    assert_eq!(
+        marker.get("raw_provider_events").and_then(Value::as_str),
+        Some("live_only")
+    );
+    assert_eq!(
+        marker.get("persisted_history").and_then(Value::as_str),
+        Some("normalized_logs_only")
+    );
+}
+
+#[test]
+fn codex_event_adapter_maps_lifecycle_text_usage_errors_and_tools() {
+    let adapter = CodexEventAdapter::new(Some(128_000));
+    let turn_started = json!({
+        "method": "turn/started",
+        "params": {
+            "threadId": "thread-1",
+            "turn": { "id": "turn-1" }
+        }
+    });
+    let text_delta = json!({
+        "method": "item/agentMessage/delta",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "itemId": "msg-1",
+            "delta": "hello"
+        }
+    });
+    let token_usage = json!({
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "tokenUsage": {
+                "last": { "inputTokens": 42 },
+                "modelContextWindow": null
+            }
+        }
+    });
+    let command_started = json!({
+        "method": "item/started",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "item": {
+                "type": "commandExecution",
+                "id": "cmd-1",
+                "command": "pnpm test",
+                "status": "inProgress"
+            }
+        }
+    });
+    let file_patch = json!({
+        "method": "item/fileChange/patchUpdated",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "itemId": "patch-1",
+            "changes": [{
+                "path": "src/App.tsx",
+                "kind": { "type": "update" },
+                "diff": "@@\n-old\n+new"
+            }]
+        }
+    });
+    let turn_completed = json!({
+        "method": "turn/completed",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1"
+        }
+    });
+    let turn_error = json!({
+        "method": "turn/error",
+        "params": {
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "message": "failed"
+        }
+    });
+
+    assert!(
+        adapter
+            .normalize_event(&turn_started)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::TurnStarted {
+                    thread_id: Some(thread_id),
+                    turn_id: Some(turn_id),
+                } if thread_id == "thread-1" && turn_id == "turn-1"
+            ))
+    );
+    assert!(
+        adapter
+            .normalize_event(&text_delta)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::AssistantTextDelta {
+                    id: Some(id),
+                    text,
+                } if id == "msg-1" && text == "hello"
+            ))
+    );
+    assert!(
+        adapter
+            .normalize_event(&token_usage)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::TokenUsage(info)
+                    if info.total_tokens == 42 && info.model_context_window == 128_000
+            ))
+    );
+    assert!(adapter.normalize_event(&command_started).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::ToolUpdate(update)
+                if update.tool_name.as_deref() == Some("shell_command"))
+    ));
+    assert!(adapter.normalize_event(&file_patch).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::ToolUpdate(update)
+                if update.tool_name.as_deref() == Some("file_change"))
+    ));
+    assert!(
+        adapter
+            .normalize_event(&turn_completed)
+            .iter()
+            .any(|event| matches!(event, NormalizedProviderEvent::TurnCompleted { .. }))
+    );
+    assert!(adapter.normalize_event(&turn_error).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::TurnError { message, .. }
+                if message.contains("failed"))
+    ));
+}
+
+#[test]
+fn claude_event_adapter_maps_sdk_events_usage_and_errors() {
+    let adapter = ClaudeEventAdapter;
+    let stream_event = json!({
+        "type": "sdk_event",
+        "event": {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "delta": {
+                    "type": "text_delta",
+                    "text": "hello"
+                }
+            }
+        }
+    });
+    let tool_event = json!({
+        "type": "sdk_event",
+        "event": {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "Bash",
+                    "input": { "command": "pnpm test" }
+                }]
+            }
+        }
+    });
+    let usage_event = json!({
+        "type": "sdk_context_usage",
+        "session_id": "claude-session-id",
+        "contextUsage": {
+            "totalTokens": 321,
+            "maxTokens": 200000
+        }
+    });
+    let error_event = json!({
+        "type": "sdk_error",
+        "message": "Claude failed"
+    });
+    let result_event = json!({
+        "type": "sdk_event",
+        "session_id": "claude-session-id",
+        "event": {
+            "type": "result",
+            "subtype": "success",
+            "result": "done"
+        }
+    });
+
+    assert!(
+        adapter
+            .normalize_event(&stream_event)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::AssistantTextDelta { text, .. } if text == "hello"
+            ))
+    );
+    assert!(adapter.normalize_event(&tool_event).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::ToolUpdate(update)
+                if update.tool_name.as_deref() == Some("Bash"))
+    ));
+    assert!(
+        adapter
+            .normalize_event(&usage_event)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::TokenUsage(info)
+                    if info.total_tokens == 321 && info.model_context_window == 200000
+            ))
+    );
+    assert!(adapter.normalize_event(&error_event).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::TurnError { message, .. }
+                if message.contains("Claude failed"))
+    ));
+    assert!(
+        adapter
+            .normalize_event(&result_event)
+            .iter()
+            .any(|event| matches!(event, NormalizedProviderEvent::TurnCompleted { .. }))
+    );
+}
+
+#[test]
+fn opencode_event_adapter_maps_sdk_events_response_and_errors() {
+    let adapter = OpencodeEventAdapter;
+    let response_event = json!({
+        "type": "opencode_sdk_response",
+        "sessionID": "session-1",
+        "response": {
+            "info": { "role": "assistant" },
+            "parts": [
+                { "type": "text", "text": "final reply" }
+            ]
+        }
+    });
+    let tool_event = json!({
+        "type": "opencode_sdk_event",
+        "event": {
+            "type": "session.next.tool.called",
+            "properties": {
+                "sessionID": "session-1",
+                "callID": "call-1",
+                "tool": "bash",
+                "input": { "command": "pnpm test" }
+            }
+        }
+    });
+    let part_delta = json!({
+        "type": "opencode_sdk_event",
+        "event": {
+            "type": "message.part.delta",
+            "properties": {
+                "sessionID": "session-1",
+                "messageID": "assistant-message-1",
+                "partID": "part-1",
+                "partType": "text",
+                "field": "text",
+                "delta": "stream"
+            }
+        }
+    });
+    let error_event = json!({
+        "type": "opencode_sdk_error",
+        "message": "OpenCode failed"
+    });
+
+    assert!(
+        adapter
+            .normalize_event(&response_event)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::AssistantTextSnapshot { text, .. }
+                    if text == "final reply"
+            ))
+    );
+    assert!(
+        adapter
+            .normalize_event(&response_event)
+            .iter()
+            .any(|event| matches!(event, NormalizedProviderEvent::TurnCompleted { .. }))
+    );
+    assert!(adapter.normalize_event(&tool_event).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::ToolUpdate(update)
+                if update.tool_name.as_deref() == Some("bash"))
+    ));
+    assert!(
+        !adapter
+            .normalize_event(&part_delta)
+            .iter()
+            .any(|event| matches!(
+                event,
+                NormalizedProviderEvent::AssistantTextDelta { .. }
+                    | NormalizedProviderEvent::AssistantTextSnapshot { .. }
+            ))
+    );
+    assert!(adapter.normalize_event(&error_event).iter().any(
+        |event| matches!(event, NormalizedProviderEvent::TurnError { message, .. }
+                if message.contains("OpenCode failed"))
+    ));
 }
 
 #[test]

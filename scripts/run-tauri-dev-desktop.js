@@ -3,6 +3,7 @@
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { withNativeBuildEnv } = require('./cargo-path');
 const { getPorts } = require('./setup-dev-environment');
 
 const GENERATED_TAURI_DEV_CONFIG = 'src-tauri/tauri.dev.generated.conf.json';
@@ -20,12 +21,12 @@ function runCommand(command, args, options = {}) {
 }
 
 function createCargoLeanDevEnv(ports) {
-  return {
+  return withNativeBuildEnv({
     ...process.env,
     CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL || '0',
     FRONTEND_PORT: String(ports.frontend),
     BACKEND_PORT: String(ports.backend),
-  };
+  });
 }
 
 function clearIncrementalCacheIfDisabled(env) {

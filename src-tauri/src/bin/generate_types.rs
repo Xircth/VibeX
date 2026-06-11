@@ -21,8 +21,9 @@ use vibex::commands::{
     provider_runtime::{
         CapabilitySource, CapabilityState, CapabilityStatus, ProviderCapabilityState,
         ProviderCommand, ProviderHistorySnapshot, ProviderId, ProviderModel,
-        ProviderRuntimeContract, ProviderRuntimeDependency, ProviderRuntimeEvent,
-        ProviderRuntimeKind, ProviderRuntimeStatus, ProviderSessionSummary, ProviderTurnRequest,
+        ProviderRuntimeContract, ProviderRuntimeDependency, ProviderRuntimeDependencyStatus,
+        ProviderRuntimeEvent, ProviderRuntimeKind, ProviderRuntimeNormalizedEvent,
+        ProviderRuntimeStatus, ProviderSessionSummary, ProviderTurnRequest,
     },
     sessions::{SessionContinuityMode, SessionSummary},
 };
@@ -163,8 +164,10 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ProviderCapabilityState>(&mut decls);
     insert_declaration::<ProviderTurnRequest>(&mut decls);
     insert_declaration::<ProviderRuntimeEvent>(&mut decls);
+    insert_declaration::<ProviderRuntimeNormalizedEvent>(&mut decls);
     insert_declaration::<ProviderRuntimeKind>(&mut decls);
     insert_declaration::<ProviderRuntimeDependency>(&mut decls);
+    insert_declaration::<ProviderRuntimeDependencyStatus>(&mut decls);
     insert_declaration::<ProviderRuntimeContract>(&mut decls);
     insert_declaration::<ProviderRuntimeStatus>(&mut decls);
     insert_declaration::<ProviderCommand>(&mut decls);

@@ -711,16 +711,20 @@ export type ProviderId = "claude" | "codex" | "opencode";
 
 export type ProviderModel = { provider: ProviderId, id: string, label: string, source: CapabilitySource, };
 
-export type ProviderRuntimeEvent = { provider: ProviderId, workspace_id: string, thread_id?: string | null, turn_id?: string | null, event: JsonValue, };
+export type ProviderRuntimeEvent = { provider: ProviderId, workspace_id: string, thread_id?: string | null, turn_id?: string | null, normalized?: Array<ProviderRuntimeNormalizedEvent>, event: JsonValue, };
 
 export type ProviderSessionSummary = { provider: ProviderId, session_id: string, title?: string | null, };
 
 export type ProviderTurnRequest = { provider: ProviderId, workspace_id: string, executor_profile_id?: ExecutorProfileId | null, thread_id?: string | null, session_id?: string | null, text: string, model?: string | null, images?: Array<string>, provider_options?: { [key in string]?: JsonValue }, };
 
-export type ProviderRuntimeStatus = { provider: ProviderId, contract: ProviderRuntimeContract, native: CapabilityStatus, fallback: CapabilityStatus, };
+export type ProviderRuntimeStatus = { provider: ProviderId, contract: ProviderRuntimeContract, native: CapabilityStatus, fallback: CapabilityStatus, dependencies?: Array<ProviderRuntimeDependencyStatus>, };
 
 export type ProviderRuntimeContract = { provider: ProviderId, primary_runtime: ProviderRuntimeKind, primary_source: CapabilitySource, primary_label: string, dependencies: Array<ProviderRuntimeDependency>, fallback_source: CapabilitySource, fallback_enabled_by_default: boolean, fallback_env: string, global_fallback_env: string, force_fallback_option: string, command_visibility_policy: string, event_history_policy: string, };
 
 export type ProviderRuntimeDependency = { id: string, label: string, source: CapabilitySource, required: boolean, user_visible: boolean, detail: string, };
 
 export type ProviderRuntimeKind = "claude_agent_sdk" | "codex_app_server" | "opencode_sdk";
+
+export type ProviderRuntimeNormalizedEvent = { "kind": "turn_started", thread_id?: string | null, turn_id?: string | null, } | { "kind": "turn_completed", thread_id?: string | null, turn_id?: string | null, } | { "kind": "turn_error", thread_id?: string | null, turn_id?: string | null, message: string, } | { "kind": "assistant_text_delta", id?: string | null, text: string, } | { "kind": "assistant_text_snapshot", id?: string | null, text: string, } | { "kind": "tool_update", id?: string | null, tool_name?: string | null, status?: string | null, } | { "kind": "token_usage" } | { "kind": "diagnostic", level: string, message: string, };
+
+export type ProviderRuntimeDependencyStatus = { id: string, label: string, required: boolean, user_visible: boolean, status: CapabilityStatus, };

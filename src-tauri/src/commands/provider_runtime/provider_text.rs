@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::{
     NativeConversationSink, NativeConversationState, PROVIDER_EVENT_HISTORY, ProviderRuntimeEvent,
-    ProviderTurnRequest,
+    ProviderTurnRequest, normalize_provider_runtime_event,
 };
 use crate::state::AppState;
 
@@ -250,7 +250,8 @@ pub(super) fn codex_runtime_key(workspace_id: &str, workspace_dir: &Path) -> Str
     format!("codex:{workspace_id}:{}", workspace_dir.display())
 }
 
-pub(super) async fn push_provider_event(session_id: &str, event: ProviderRuntimeEvent) {
+pub(super) async fn push_provider_event(session_id: &str, mut event: ProviderRuntimeEvent) {
+    event = normalize_provider_runtime_event(event);
     let key = event.provider.history_key(session_id);
     PROVIDER_EVENT_HISTORY
         .lock()

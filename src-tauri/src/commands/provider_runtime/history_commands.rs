@@ -10,20 +10,30 @@ use utils::log_msg::LogMsg;
 use uuid::Uuid;
 
 use super::{
-    CODEX_APP_SERVERS, CODEX_REQUEST_TIMEOUT_SECS, CodexAppServer, NATIVE_ACTIVE_TURNS,
-    PROVIDER_EVENT_HISTORY, ProviderCapabilityState, ProviderCommand, ProviderHistorySnapshot,
-    ProviderId, ProviderModel, ProviderRuntimeEvent, ProviderRuntimeStatus, ProviderSessionSummary,
-    ProviderTurnRequest, app_error_from_native, codex_response_success, codex_workspace_cwd_param,
+    CODEX_APP_SERVERS, CODEX_REQUEST_TIMEOUT_SECS, CodexAppServer, PROVIDER_EVENT_HISTORY,
+    ProviderCapabilityState, ProviderCommand, ProviderHistorySnapshot, ProviderId, ProviderModel,
+    ProviderRuntimeEvent, ProviderRuntimeStatus, ProviderSessionSummary, ProviderTurnRequest,
+    app_error_from_native, codex_response_success, codex_workspace_cwd_param,
     ensure_codex_app_server_for_workspace, ensure_provider_session, fallback_acp_turn,
-    load_claude_sdk_commands, load_claude_sdk_models, load_codex_app_server_models,
-    load_opencode_sdk_commands, load_opencode_sdk_models, load_provider_workspace,
-    probe_native_runtime, provider_capabilities, provider_fallback_status,
+    kill_active_native_turn, load_claude_sdk_commands, load_claude_sdk_models,
+    load_codex_app_server_models, load_opencode_sdk_commands, load_opencode_sdk_models,
+    load_provider_workspace, native_provider_error_event, probe_native_runtime_with_dependencies,
+    provider_capabilities, provider_fallback_policy, provider_fallback_status,
     provider_runtime_contract, provider_slash_commands, repo_root_path,
     resolve_provider_workspace_dir, send_codex_app_server_workspace_request, send_codex_request,
     send_codex_response, send_codex_turn_interrupt, session_executor_matches_provider,
-    try_native_provider_turn, try_steer_active_codex_turn, validate_provider_executor_profile,
+    should_force_acp_fallback, try_native_provider_turn, try_steer_active_codex_turn,
+    validate_provider_executor_profile,
 };
 use crate::{error::AppError, state::AppState};
+
+pub(super) fn provider_history_retention_marker() -> Value {
+    json!({
+        "raw_provider_events": "live_only",
+        "persisted_history": "normalized_logs_only",
+        "description": "In-memory provider events are available only for the current app process; persisted history is reconstructed from execution logs.",
+    })
+}
 
 async fn load_provider_history_from_db(
     state: &tauri::State<'_, AppState>,
@@ -80,6 +90,7 @@ async fn load_provider_history_from_db(
         events: in_memory_events,
         raw: Some(json!({
             "source": loader,
+            "history_retention": provider_history_retention_marker(),
             "provider": provider,
             "session": {
                 "id": session.id,
@@ -131,11 +142,13 @@ pub async fn provider_runtime_get_capabilities(
 pub async fn provider_runtime_get_status(
     provider: ProviderId,
 ) -> Result<ProviderRuntimeStatus, AppError> {
+    let (native, dependencies) = probe_native_runtime_with_dependencies(provider).await;
     Ok(ProviderRuntimeStatus {
         provider,
         contract: provider_runtime_contract(provider),
-        native: probe_native_runtime(provider).await,
+        native,
         fallback: provider_fallback_status(provider),
+        dependencies,
     })
 }
 
@@ -204,24 +217,46 @@ pub async fn provider_runtime_send_turn(
     {
         return Ok(event);
     }
+    if should_force_acp_fallback(&request) {
+        return fallback_acp_turn(
+            state,
+            request,
+            workspace_id,
+            session,
+            Some("native runtime bypassed by provider option `force_acp_fallback`".to_string()),
+        )
+        .await;
+    }
+    let fallback_policy = provider_fallback_policy(&request);
     match try_native_provider_turn(&state, request.clone(), workspace_id, &session).await {
         Ok(event) => Ok(event),
         Err(native_error) => {
             let native_error_message = native_error.to_string();
-            fallback_acp_turn(
-                state,
-                request,
-                workspace_id,
-                session,
-                Some(native_error_message),
-            )
-            .await
+            if fallback_policy.allows_auto_fallback() {
+                fallback_acp_turn(
+                    state,
+                    request,
+                    workspace_id,
+                    session,
+                    Some(native_error_message),
+                )
+                .await
+            } else {
+                Ok(native_provider_error_event(
+                    &request,
+                    workspace_id,
+                    session.id,
+                    &native_error,
+                    fallback_policy.as_str(),
+                ))
+            }
         }
     }
 }
 
 #[tauri::command]
 pub async fn provider_runtime_interrupt(
+    state: tauri::State<'_, AppState>,
     provider: ProviderId,
     thread_id: Option<String>,
     turn_id: Option<String>,
@@ -241,22 +276,7 @@ pub async fn provider_runtime_interrupt(
             provider.label()
         )));
     };
-    let Some(handle) = NATIVE_ACTIVE_TURNS.lock().await.remove(&turn_id) else {
-        return Err(AppError::NotFound(format!("Turn {turn_id} is not active")));
-    };
-    if handle.provider != provider {
-        return Err(AppError::BadRequest(format!(
-            "Turn {turn_id} belongs to a different provider"
-        )));
-    }
-    handle
-        .child
-        .lock()
-        .await
-        .kill()
-        .await
-        .map_err(|error| app_error_from_native(provider, error.to_string()))?;
-    Ok(())
+    kill_active_native_turn(&state, provider, turn_id).await
 }
 
 #[tauri::command]

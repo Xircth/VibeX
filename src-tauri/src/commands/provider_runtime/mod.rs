@@ -52,6 +52,8 @@ static PROVIDER_EVENT_HISTORY: LazyLock<Mutex<HashMap<String, Vec<ProviderRuntim
 #[derive(Clone)]
 struct NativeProcessHandle {
     provider: ProviderId,
+    process_id: Uuid,
+    session_id: Uuid,
     child: Arc<Mutex<Child>>,
 }
 
@@ -114,6 +116,7 @@ struct CodexAppServer {
     stdin: Arc<Mutex<ChildStdin>>,
     pending: CodexPendingRequests,
     next_id: AtomicU64,
+    last_used_at_ms: AtomicU64,
     auto_compaction_thread_state: Arc<Mutex<HashMap<String, CodexAutoCompactionThreadState>>>,
 }
 
@@ -122,24 +125,25 @@ mod contract;
 pub use contract::{
     CapabilitySource, CapabilityState, CapabilityStatus, ProviderCapabilityState, ProviderCommand,
     ProviderHistorySnapshot, ProviderId, ProviderModel, ProviderRuntimeContract,
-    ProviderRuntimeDependency, ProviderRuntimeEvent, ProviderRuntimeKind, ProviderRuntimeStatus,
+    ProviderRuntimeDependency, ProviderRuntimeDependencyStatus, ProviderRuntimeEvent,
+    ProviderRuntimeKind, ProviderRuntimeNormalizedEvent, ProviderRuntimeStatus,
     ProviderSessionSummary, ProviderTurnRequest, provider_capabilities, provider_runtime_contract,
     provider_slash_commands,
 };
 
 mod runtime_config;
+#[cfg(test)]
+use runtime_config::{
+    ProviderFallbackPolicy, native_commit_reminder_prompt_text,
+    native_commit_reminder_status_has_changes, parse_acp_fallback_enabled_value,
+};
 use runtime_config::{
     acp_fallback_config, apply_native_commit_reminder_to_request,
     apply_profile_defaults_to_request, new_provider_hidden_command, provider_acp_fallback_env,
-    provider_executor_config, provider_executor_profile_id, provider_option_bool,
-    provider_option_string, resolve_codex_runtime_options, session_executor_matches_provider,
-    should_force_acp_fallback, should_hide_provider_slash_command,
-    validate_provider_executor_profile,
-};
-#[cfg(test)]
-use runtime_config::{
-    native_commit_reminder_prompt_text, native_commit_reminder_status_has_changes,
-    parse_acp_fallback_enabled_value,
+    provider_executor_config, provider_executor_profile_id, provider_fallback_policy,
+    provider_option_bool, provider_option_string, resolve_codex_runtime_options,
+    session_executor_matches_provider, should_force_acp_fallback,
+    should_hide_provider_slash_command, validate_provider_executor_profile,
 };
 mod claude_sdk;
 use claude_sdk::{
@@ -180,6 +184,27 @@ use token_usage::extract_provider_token_usage_info;
 use token_usage::{
     extract_provider_error, extract_provider_token_usage_info_with_codex_context_window,
 };
+mod provider_events;
+use provider_events::{
+    NormalizedProviderEvent, ProviderDiagnosticLevel, ProviderEventAdapter,
+    normalize_provider_runtime_event,
+};
+mod codex_events;
+use codex_events::CodexEventAdapter;
+mod claude_events;
+use claude_events::ClaudeEventAdapter;
+mod opencode_events;
+use opencode_events::OpencodeEventAdapter;
+mod bridge_runner;
+#[cfg(test)]
+use bridge_runner::bridge_completion_status_for_test;
+use bridge_runner::{BridgeRunSpec, start_bridge_native_turn};
+mod runtime_registry;
+use runtime_registry::kill_active_native_turn;
+#[cfg(test)]
+use runtime_registry::{
+    active_native_turn_provider, register_active_native_turn_for_test, remove_active_native_turn,
+};
 mod native_conversation;
 #[cfg(test)]
 use native_conversation::{
@@ -188,24 +213,28 @@ use native_conversation::{
 };
 use native_conversation::{
     complete_codex_native_sink, complete_native_conversation_sink,
-    is_codex_context_compaction_completed, push_native_provider_event_to_conversation,
+    is_codex_context_compaction_completed, push_claude_provider_event_to_conversation,
+    push_native_provider_event_to_conversation, push_opencode_provider_event_to_conversation,
     route_codex_event_to_native_conversation,
 };
 mod runtime_core;
-#[cfg(test)]
-use runtime_core::provider_request_with_resolved_thread_id;
 use runtime_core::{
     app_error_from_native, create_native_execution_process, ensure_provider_session,
-    load_provider_workspace, probe_native_runtime, prompt_with_display_images,
+    load_provider_workspace, probe_native_runtime_with_dependencies, prompt_with_display_images,
     provider_fallback_status, provider_sdk_metadata_failure_error, resolve_native_provider_request,
     resolve_provider_workspace_dir,
+};
+#[cfg(test)]
+use runtime_core::{
+    dependency_statuses_for_probe_output_for_test, provider_request_with_resolved_thread_id,
 };
 mod codex_app_server;
 pub use codex_app_server::interrupt_codex_native_execution_process;
 #[cfg(test)]
 use codex_app_server::{
-    CODEX_AUTO_COMPACTION_COOLDOWN_MS, codex_app_server_command_args, codex_models_from_response,
-    codex_request_turn_id, codex_steer_is_allowed, codex_turn_start_error_is_active_turn,
+    CODEX_AUTO_COMPACTION_COOLDOWN_MS, codex_app_server_command_args,
+    codex_app_server_idle_for_ms_since, codex_models_from_response, codex_request_turn_id,
+    codex_steer_is_allowed, codex_turn_start_error_is_active_turn,
     evaluate_codex_auto_compaction_state, extract_codex_compaction_usage_percent,
 };
 use codex_app_server::{
@@ -215,8 +244,10 @@ use codex_app_server::{
     send_codex_turn_interrupt, start_codex_native_turn, try_steer_active_codex_turn,
 };
 mod provider_turns;
-use provider_turns::{fallback_acp_turn, try_native_provider_turn};
+use provider_turns::{fallback_acp_turn, native_provider_error_event, try_native_provider_turn};
 mod history_commands;
+#[cfg(test)]
+use history_commands::provider_history_retention_marker;
 pub use history_commands::*;
 
 #[cfg(test)]

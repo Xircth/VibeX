@@ -9,20 +9,128 @@ use serde_json::Value;
 use utils::log_msg::LogMsg;
 
 use super::{
-    CODEX_NATIVE_THREAD_SINKS, CODEX_NATIVE_TURN_SINKS, NativeAssistantEntryState,
-    NativeConversationSink, NativeConversationState, NativeToolEntryState, NativeToolUpdate,
-    append_provider_assistant_text, codex_auto_compaction_is_in_flight,
-    codex_config_model_context_window, extract_provider_assistant_entry_id, extract_provider_error,
-    extract_provider_stream_text, extract_provider_text,
-    extract_provider_token_usage_info_with_codex_context_window, extract_provider_tool_updates,
-    extract_thread_id, extract_turn_id, merge_tool_result, native_normalized_entry,
-    provider_event_is_codex_turn_snapshot, provider_event_is_user_echo, provider_tool_content,
-    push_native_log_msg,
+    CODEX_NATIVE_THREAD_SINKS, CODEX_NATIVE_TURN_SINKS, ClaudeEventAdapter, CodexEventAdapter,
+    NativeAssistantEntryState, NativeConversationSink, NativeConversationState,
+    NativeToolEntryState, NativeToolUpdate, NormalizedProviderEvent, OpencodeEventAdapter,
+    ProviderDiagnosticLevel, ProviderEventAdapter, append_provider_assistant_text,
+    codex_auto_compaction_is_in_flight, codex_config_model_context_window,
+    extract_provider_assistant_entry_id, extract_provider_error, extract_provider_stream_text,
+    extract_provider_text, extract_provider_token_usage_info_with_codex_context_window,
+    extract_provider_tool_updates, extract_thread_id, extract_turn_id, merge_tool_result,
+    native_normalized_entry, provider_event_is_codex_turn_snapshot, provider_event_is_user_echo,
+    provider_tool_content, push_native_log_msg,
 };
 
 const CONTEXT_COMPACT_RUNNING_TEXT: &str = "正在执行上下文压缩...";
 const CONTEXT_COMPACT_SUCCESS_TEXT: &str = "上下文已压缩";
 const CONTEXT_COMPACT_FAILED_TEXT: &str = "上下文压缩失败";
+
+pub(super) async fn push_codex_provider_event_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+) {
+    let adapter = CodexEventAdapter::new(codex_config_model_context_window());
+    push_provider_adapter_event_to_conversation(sink, event, &adapter).await;
+}
+
+pub(super) async fn push_claude_provider_event_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+) {
+    let adapter = ClaudeEventAdapter;
+    push_provider_adapter_event_to_conversation(sink, event, &adapter).await;
+}
+
+pub(super) async fn push_opencode_provider_event_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+) {
+    let adapter = OpencodeEventAdapter;
+    push_provider_adapter_event_to_conversation(sink, event, &adapter).await;
+}
+
+async fn push_provider_adapter_event_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+    adapter: &dyn ProviderEventAdapter,
+) {
+    let events = adapter.normalize_event(event);
+    let mut handled = false;
+    for normalized in events {
+        handled |= push_normalized_provider_event_to_conversation(sink, event, normalized).await;
+    }
+    if !handled {
+        push_native_provider_event_to_conversation(sink, event).await;
+    }
+}
+
+async fn push_normalized_provider_event_to_conversation(
+    sink: &NativeConversationSink,
+    raw_event: &Value,
+    event: NormalizedProviderEvent,
+) -> bool {
+    match event {
+        NormalizedProviderEvent::TokenUsage(token_usage) => {
+            let mut state = sink.state.lock().await;
+            let index = state.next_entry_index;
+            state.next_entry_index += 1;
+            drop(state);
+
+            let entry = native_normalized_entry(
+                NormalizedEntryType::TokenUsageInfo(token_usage),
+                "",
+                Some(raw_event.clone()),
+            );
+            push_native_log_msg(
+                sink,
+                LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
+            )
+            .await;
+            true
+        }
+        NormalizedProviderEvent::TurnError {
+            thread_id,
+            turn_id,
+            message,
+        } => {
+            let _ = (thread_id, turn_id);
+            push_native_error_to_conversation(sink, raw_event, message).await;
+            true
+        }
+        NormalizedProviderEvent::Diagnostic {
+            level: ProviderDiagnosticLevel::Error,
+            message,
+        } => {
+            push_native_error_to_conversation(sink, raw_event, message).await;
+            true
+        }
+        NormalizedProviderEvent::ToolUpdate(tool_update) => {
+            push_native_tool_update_to_conversation(sink, raw_event, &tool_update).await;
+            true
+        }
+        NormalizedProviderEvent::AssistantTextDelta { id, text } => {
+            push_native_assistant_text_to_conversation(sink, raw_event, id, text, true).await;
+            true
+        }
+        NormalizedProviderEvent::AssistantTextSnapshot { id, text } => {
+            push_native_assistant_text_to_conversation(sink, raw_event, id, text, false).await;
+            true
+        }
+        NormalizedProviderEvent::TurnStarted { thread_id, turn_id }
+        | NormalizedProviderEvent::TurnCompleted { thread_id, turn_id } => {
+            let _ = (thread_id, turn_id);
+            false
+        }
+        NormalizedProviderEvent::Diagnostic { level, message } => {
+            let _ = (level, message);
+            false
+        }
+        NormalizedProviderEvent::Raw { event } => {
+            let _ = event;
+            false
+        }
+    }
+}
 
 pub(super) async fn push_native_provider_event_to_conversation(
     sink: &NativeConversationSink,
@@ -56,28 +164,12 @@ pub(super) async fn push_native_provider_event_to_conversation(
     }
 
     if let Some(error) = extract_provider_error(event) {
-        let mut state = sink.state.lock().await;
-        let index = state.next_entry_index;
-        state.next_entry_index += 1;
-        drop(state);
-
-        let entry = native_normalized_entry(
-            NormalizedEntryType::ErrorMessage {
-                error_type: NormalizedEntryError::Other,
-            },
-            error,
-            Some(event.clone()),
-        );
-        push_native_log_msg(
-            sink,
-            LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
-        )
-        .await;
+        push_native_error_to_conversation(sink, event, error).await;
         return;
     }
 
     for tool_update in extract_provider_tool_updates(event) {
-        push_native_tool_update_to_conversation(sink, event, tool_update).await;
+        push_native_tool_update_to_conversation(sink, event, &tool_update).await;
     }
 
     if provider_event_is_user_echo(event) {
@@ -92,13 +184,47 @@ pub(super) async fn push_native_provider_event_to_conversation(
         return;
     };
 
+    push_native_assistant_text_to_conversation(sink, event, None, text, is_stream_delta).await;
+}
+
+async fn push_native_error_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+    error: String,
+) {
+    let mut state = sink.state.lock().await;
+    let index = state.next_entry_index;
+    state.next_entry_index += 1;
+    drop(state);
+
+    let entry = native_normalized_entry(
+        NormalizedEntryType::ErrorMessage {
+            error_type: NormalizedEntryError::Other,
+        },
+        error,
+        Some(event.clone()),
+    );
+    push_native_log_msg(
+        sink,
+        LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(index, entry)),
+    )
+    .await;
+}
+
+async fn push_native_assistant_text_to_conversation(
+    sink: &NativeConversationSink,
+    event: &Value,
+    entry_id: Option<String>,
+    text: String,
+    is_stream_delta: bool,
+) {
     let mut state = sink.state.lock().await;
     if should_skip_provider_text_snapshot(&state, event, is_stream_delta) {
         return;
     }
 
     let (index, is_new, content) =
-        upsert_native_assistant_entry(&mut state, event, &text, is_stream_delta);
+        upsert_native_assistant_entry_with_id(&mut state, event, entry_id, &text, is_stream_delta);
     let entry = native_normalized_entry(
         NormalizedEntryType::AssistantMessage,
         content,
@@ -117,7 +243,7 @@ pub(super) async fn push_native_provider_event_to_conversation(
 async fn push_native_tool_update_to_conversation(
     sink: &NativeConversationSink,
     event: &Value,
-    update: NativeToolUpdate,
+    update: &NativeToolUpdate,
 ) {
     let mut state = sink.state.lock().await;
     close_native_assistant_segment(&mut state);
@@ -131,7 +257,7 @@ async fn push_native_tool_update_to_conversation(
             {
                 existing.action_type = action_type.clone();
             }
-            merge_tool_result(&mut existing.action_type, &update);
+            merge_tool_result(&mut existing.action_type, update);
             if let Some(content) = update.content.as_ref() {
                 existing.content = content.clone();
             }
@@ -157,7 +283,7 @@ async fn push_native_tool_update_to_conversation(
                     arguments: None,
                     result: update.result.clone(),
                 });
-            merge_tool_result(&mut action_type, &update);
+            merge_tool_result(&mut action_type, update);
             let content = update
                 .content
                 .clone()
@@ -178,7 +304,7 @@ async fn push_native_tool_update_to_conversation(
         NormalizedEntryType::ToolUse {
             tool_name,
             action_type,
-            status: update.status,
+            status: update.status.clone(),
         },
         content,
         Some(event.clone()),
@@ -230,14 +356,26 @@ pub(super) fn should_skip_provider_text_snapshot(
         && provider_event_is_codex_turn_snapshot(event)
 }
 
+#[cfg(test)]
 pub(super) fn upsert_native_assistant_entry(
     state: &mut NativeConversationState,
     event: &Value,
     text: &str,
     is_stream_delta: bool,
 ) -> (usize, bool, String) {
-    let entry_id = extract_provider_assistant_entry_id(event)
+    upsert_native_assistant_entry_with_id(state, event, None, text, is_stream_delta)
+}
+
+fn upsert_native_assistant_entry_with_id(
+    state: &mut NativeConversationState,
+    event: &Value,
+    entry_id: Option<String>,
+    text: &str,
+    is_stream_delta: bool,
+) -> (usize, bool, String) {
+    let entry_id = entry_id
         .map(|id| format!("assistant:{id}"))
+        .or_else(|| extract_provider_assistant_entry_id(event).map(|id| format!("assistant:{id}")))
         .or_else(|| state.active_assistant_entry_id.clone())
         .unwrap_or_else(|| format!("assistant:{}", state.next_entry_index));
 
@@ -414,7 +552,7 @@ pub(super) async fn route_codex_event_to_native_conversation(value: &Value) {
             .insert(turn_id.to_string(), sink.clone());
     }
 
-    push_native_provider_event_to_conversation(&sink, value).await;
+    push_codex_provider_event_to_conversation(&sink, value).await;
 
     let method = value
         .get("method")

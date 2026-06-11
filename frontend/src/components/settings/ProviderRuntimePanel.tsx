@@ -4,6 +4,7 @@ import type {
   CapabilityStatus,
   ProviderId,
   ProviderRuntimeDependency,
+  ProviderRuntimeDependencyStatus,
   ProviderRuntimeStatus,
 } from 'shared/types';
 import { Button } from '@/components/ui/button';
@@ -81,6 +82,36 @@ function DependencyLine({
   );
 }
 
+function DependencyStatusLine({
+  dependency,
+}: {
+  dependency: ProviderRuntimeDependencyStatus;
+}) {
+  const Icon =
+    dependency.status.state === 'available' ? CheckCircle2 : AlertTriangle;
+  return (
+    <div className="flex items-start gap-2 text-[11px]">
+      <Icon
+        className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${statusTone(dependency.status)}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-foreground">
+          {dependency.label}: {dependency.status.state} /{' '}
+          {dependency.status.source}
+        </div>
+        {dependency.status.detail ? (
+          <div className="mt-0.5 break-words text-muted-foreground">
+            {dependency.status.detail}
+          </div>
+        ) : null}
+      </div>
+      <div className="shrink-0 text-right text-muted-foreground">
+        {dependency.required ? 'required' : 'optional'}
+      </div>
+    </div>
+  );
+}
+
 export function ProviderRuntimePanel({ agentType }: { agentType: string }) {
   const provider = useMemo(
     () => providerIdFromAgentType(agentType),
@@ -111,6 +142,7 @@ export function ProviderRuntimePanel({ agentType }: { agentType: string }) {
   }, [loadStatus]);
 
   if (!provider) return null;
+  const runtimeDependencies = status?.dependencies ?? [];
 
   return (
     <div className="space-y-2 rounded-md border bg-muted/10 p-3">
@@ -160,9 +192,16 @@ export function ProviderRuntimePanel({ agentType }: { agentType: string }) {
           <StatusLine label="Native" status={status.native} />
           <StatusLine label="Fallback" status={status.fallback} />
           <div className="space-y-1.5 border-t pt-2">
-            {status.contract.dependencies.map((dependency) => (
-              <DependencyLine key={dependency.id} dependency={dependency} />
-            ))}
+            {runtimeDependencies.length > 0
+              ? runtimeDependencies.map((dependency) => (
+                  <DependencyStatusLine
+                    key={dependency.id}
+                    dependency={dependency}
+                  />
+                ))
+              : status.contract.dependencies.map((dependency) => (
+                  <DependencyLine key={dependency.id} dependency={dependency} />
+                ))}
           </div>
           <div className="border-t pt-2 text-[11px] text-muted-foreground">
             Fallback env: {status.contract.fallback_env}

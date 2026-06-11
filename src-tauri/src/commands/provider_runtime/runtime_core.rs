@@ -19,9 +19,10 @@ use tokio::time::Duration;
 use uuid::Uuid;
 
 use super::{
-    CapabilityStatus, ProviderId, ProviderTurnRequest, acp_fallback_config,
-    claude_sdk_bridge_script_path, new_provider_hidden_command, opencode_sdk_bridge_script_path,
-    provider_executor_config, provider_runtime_contract, session_executor_matches_provider,
+    CapabilitySource, CapabilityStatus, ProviderId, ProviderRuntimeDependencyStatus,
+    ProviderTurnRequest, acp_fallback_config, claude_sdk_bridge_script_path,
+    new_provider_hidden_command, opencode_sdk_bridge_script_path, provider_executor_config,
+    provider_runtime_contract, session_executor_matches_provider,
 };
 use crate::{
     error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
@@ -78,8 +79,430 @@ impl CapabilityStatus {
     }
 }
 
-pub(super) async fn probe_native_runtime(provider: ProviderId) -> CapabilityStatus {
+struct RuntimeProbe {
+    program: &'static str,
+    expected_marker: &'static str,
+    output: Result<Output, String>,
+}
+
+fn dependency_status(
+    id: &str,
+    label: &str,
+    required: bool,
+    user_visible: bool,
+    status: CapabilityStatus,
+) -> ProviderRuntimeDependencyStatus {
+    ProviderRuntimeDependencyStatus {
+        id: id.to_string(),
+        label: label.to_string(),
+        required,
+        user_visible,
+        status,
+    }
+}
+
+fn output_text(output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    format!("{stdout}\n{stderr}")
+}
+
+fn text_mentions_any(text: &str, needles: &[&str]) -> bool {
+    let lower = text.to_ascii_lowercase();
+    needles.iter().any(|needle| lower.contains(needle))
+}
+
+fn launch_error_mentions_missing_program(error: &str, program: &str) -> bool {
+    text_mentions_any(
+        error,
+        &[
+            "not found",
+            "no such file",
+            "os error 2",
+            "cannot find",
+            "could not find",
+            "enoent",
+        ],
+    ) || error.to_ascii_lowercase().contains(program)
+}
+
+fn sdk_package_missing(output: &Output, package_name: &str) -> bool {
+    let text = output_text(output);
+    text_mentions_any(&text, &["err_module_not_found", "cannot find package"])
+        && text.contains(package_name)
+}
+
+fn opencode_cli_missing(output: &Output) -> bool {
+    let text = output_text(output);
+    text_mentions_any(
+        &text,
+        &["opencode", "enoent", "not recognized", "not found"],
+    ) && !text.contains("@opencode-ai/sdk")
+}
+
+fn auth_or_config_missing(output: &Output) -> bool {
+    text_mentions_any(
+        &output_text(output),
+        &[
+            "auth",
+            "authentication",
+            "login",
+            "not logged in",
+            "api key",
+            "token",
+            "config",
+            "permission denied",
+        ],
+    )
+}
+
+fn provider_dependency_statuses(
+    provider: ProviderId,
+    probe: &RuntimeProbe,
+) -> Vec<ProviderRuntimeDependencyStatus> {
+    match provider {
+        ProviderId::Claude => claude_dependency_statuses(probe),
+        ProviderId::Codex => codex_dependency_statuses(probe),
+        ProviderId::Opencode => opencode_dependency_statuses(probe),
+    }
+}
+
+fn claude_dependency_statuses(probe: &RuntimeProbe) -> Vec<ProviderRuntimeDependencyStatus> {
+    let mut statuses = Vec::new();
+    match &probe.output {
+        Ok(output) if output_text(output).contains(probe.expected_marker) => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                CapabilityStatus::available(CapabilitySource::Native)
+                    .with_detail("Node can run the Claude SDK bridge."),
+            ));
+            statuses.push(dependency_status(
+                "claude_agent_sdk",
+                "@anthropic-ai/claude-agent-sdk",
+                true,
+                false,
+                CapabilityStatus::available(CapabilitySource::Sdk)
+                    .with_detail("Claude Agent SDK bridge package resolved."),
+            ));
+        }
+        Ok(output) if sdk_package_missing(output, "@anthropic-ai/claude-agent-sdk") => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                CapabilityStatus::available(CapabilitySource::Native)
+                    .with_detail("Node launched, but the Claude SDK package did not resolve."),
+            ));
+            statuses.push(dependency_status(
+                "claude_agent_sdk",
+                "@anthropic-ai/claude-agent-sdk",
+                true,
+                false,
+                CapabilityStatus::unavailable(
+                    CapabilitySource::Sdk,
+                    "Missing bridge package `@anthropic-ai/claude-agent-sdk`.",
+                ),
+            ));
+        }
+        Ok(output) if auth_or_config_missing(output) => {
+            statuses.push(dependency_status(
+                "claude_auth_config",
+                "Claude auth/config",
+                true,
+                true,
+                CapabilityStatus::unavailable(
+                    CapabilitySource::Config,
+                    "Claude bridge launched but reported an auth or configuration problem.",
+                ),
+            ));
+        }
+        Ok(output) => {
+            statuses.push(dependency_status(
+                "claude_probe",
+                "Claude SDK bridge",
+                true,
+                true,
+                CapabilityStatus::partial(
+                    CapabilitySource::Sdk,
+                    format!(
+                        "Claude bridge ran, but expected marker `{}` was missing: {}",
+                        probe.expected_marker,
+                        utils::process::command_output_detail(output)
+                            .unwrap_or_else(|| "no output".to_string())
+                    ),
+                ),
+            ));
+        }
+        Err(error) => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                if launch_error_mentions_missing_program(error, probe.program) {
+                    CapabilityStatus::unavailable(
+                        CapabilitySource::Native,
+                        format!("Missing `node` executable: {error}"),
+                    )
+                } else {
+                    CapabilityStatus::partial(
+                        CapabilitySource::Native,
+                        format!("Failed to launch `node`: {error}"),
+                    )
+                },
+            ));
+        }
+    }
+    statuses
+}
+
+fn codex_dependency_statuses(probe: &RuntimeProbe) -> Vec<ProviderRuntimeDependencyStatus> {
+    let status = match &probe.output {
+        Ok(output) if output_text(output).contains(probe.expected_marker) => {
+            CapabilityStatus::available(CapabilitySource::AppServer)
+                .with_detail("Codex CLI exposes `codex app-server`.")
+        }
+        Ok(output) if auth_or_config_missing(output) => CapabilityStatus::unavailable(
+            CapabilitySource::Config,
+            "Codex CLI was found but reported an auth or configuration problem.",
+        ),
+        Ok(output) => CapabilityStatus::partial(
+            CapabilitySource::AppServer,
+            format!(
+                "Codex CLI ran, but expected app-server marker `{}` was missing: {}",
+                probe.expected_marker,
+                utils::process::command_output_detail(output)
+                    .unwrap_or_else(|| "no output".to_string())
+            ),
+        ),
+        Err(error) => {
+            if launch_error_mentions_missing_program(error, probe.program) {
+                CapabilityStatus::unavailable(
+                    CapabilitySource::AppServer,
+                    format!("Missing `codex` executable: {error}"),
+                )
+            } else {
+                CapabilityStatus::partial(
+                    CapabilitySource::AppServer,
+                    format!("Failed to launch `codex`: {error}"),
+                )
+            }
+        }
+    };
+    vec![dependency_status(
+        "codex_cli",
+        "Codex CLI",
+        true,
+        true,
+        status,
+    )]
+}
+
+fn opencode_dependency_statuses(probe: &RuntimeProbe) -> Vec<ProviderRuntimeDependencyStatus> {
+    let mut statuses = Vec::new();
+    match &probe.output {
+        Ok(output) if output_text(output).contains(probe.expected_marker) => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                CapabilityStatus::available(CapabilitySource::Native)
+                    .with_detail("Node can run the OpenCode SDK bridge."),
+            ));
+            statuses.push(dependency_status(
+                "opencode_sdk",
+                "@opencode-ai/sdk",
+                true,
+                false,
+                CapabilityStatus::available(CapabilitySource::Sdk)
+                    .with_detail("OpenCode SDK bridge package resolved."),
+            ));
+            statuses.push(dependency_status(
+                "opencode_cli",
+                "OpenCode CLI/server",
+                true,
+                true,
+                CapabilityStatus::available(CapabilitySource::Native)
+                    .with_detail("OpenCode CLI responded to `opencode --version`."),
+            ));
+        }
+        Ok(output) if sdk_package_missing(output, "@opencode-ai/sdk") => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                CapabilityStatus::available(CapabilitySource::Native)
+                    .with_detail("Node launched, but the OpenCode SDK package did not resolve."),
+            ));
+            statuses.push(dependency_status(
+                "opencode_sdk",
+                "@opencode-ai/sdk",
+                true,
+                false,
+                CapabilityStatus::unavailable(
+                    CapabilitySource::Sdk,
+                    "Missing bridge package `@opencode-ai/sdk`.",
+                ),
+            ));
+        }
+        Ok(output) if opencode_cli_missing(output) => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                CapabilityStatus::available(CapabilitySource::Native)
+                    .with_detail("Node can run the OpenCode SDK bridge."),
+            ));
+            statuses.push(dependency_status(
+                "opencode_sdk",
+                "@opencode-ai/sdk",
+                true,
+                false,
+                CapabilityStatus::available(CapabilitySource::Sdk)
+                    .with_detail("OpenCode SDK bridge package resolved."),
+            ));
+            statuses.push(dependency_status(
+                "opencode_cli",
+                "OpenCode CLI/server",
+                true,
+                true,
+                CapabilityStatus::unavailable(
+                    CapabilitySource::Native,
+                    "Missing `opencode` executable required by the SDK bridge.",
+                ),
+            ));
+        }
+        Ok(output) if auth_or_config_missing(output) => {
+            statuses.push(dependency_status(
+                "opencode_auth_config",
+                "OpenCode auth/config",
+                true,
+                true,
+                CapabilityStatus::unavailable(
+                    CapabilitySource::Config,
+                    "OpenCode bridge launched but reported an auth or configuration problem.",
+                ),
+            ));
+        }
+        Ok(output) => {
+            statuses.push(dependency_status(
+                "opencode_probe",
+                "OpenCode SDK bridge",
+                true,
+                true,
+                CapabilityStatus::partial(
+                    CapabilitySource::Sdk,
+                    format!(
+                        "OpenCode bridge ran, but expected marker `{}` was missing: {}",
+                        probe.expected_marker,
+                        utils::process::command_output_detail(output)
+                            .unwrap_or_else(|| "no output".to_string())
+                    ),
+                ),
+            ));
+        }
+        Err(error) => {
+            statuses.push(dependency_status(
+                "node",
+                "Node.js",
+                true,
+                true,
+                if launch_error_mentions_missing_program(error, probe.program) {
+                    CapabilityStatus::unavailable(
+                        CapabilitySource::Native,
+                        format!("Missing `node` executable: {error}"),
+                    )
+                } else {
+                    CapabilityStatus::partial(
+                        CapabilitySource::Native,
+                        format!("Failed to launch `node`: {error}"),
+                    )
+                },
+            ));
+        }
+    }
+    statuses
+}
+
+fn aggregate_native_status(
+    provider: ProviderId,
+    dependencies: &[ProviderRuntimeDependencyStatus],
+) -> CapabilityStatus {
     let contract = provider_runtime_contract(provider);
+    if let Some(dependency) = dependencies.iter().find(|dependency| {
+        dependency.required && dependency.status.state == super::CapabilityState::Unavailable
+    }) {
+        return CapabilityStatus::unavailable(
+            contract.primary_source,
+            format!(
+                "{} primary runtime is unavailable because `{}` is unavailable: {}",
+                provider.label(),
+                dependency.label,
+                dependency.status.detail.as_deref().unwrap_or("no detail")
+            ),
+        );
+    }
+    if let Some(dependency) = dependencies.iter().find(|dependency| {
+        dependency.required && dependency.status.state == super::CapabilityState::Partial
+    }) {
+        return CapabilityStatus::partial(
+            contract.primary_source,
+            format!(
+                "{} primary runtime is partially available because `{}` needs attention: {}",
+                provider.label(),
+                dependency.label,
+                dependency.status.detail.as_deref().unwrap_or("no detail")
+            ),
+        );
+    }
+
+    CapabilityStatus::available(contract.primary_source).with_detail(format!(
+        "{} primary runtime probe passed ({}).",
+        provider.label(),
+        contract.primary_label
+    ))
+}
+
+async fn run_runtime_probe(
+    provider: ProviderId,
+    program: &'static str,
+    args: Vec<String>,
+    expected_marker: &'static str,
+) -> RuntimeProbe {
+    let output = tokio::time::timeout(Duration::from_secs(4), async move {
+        new_provider_hidden_command(program, args)
+            .await
+            .output()
+            .await
+    })
+    .await;
+
+    let output = match output {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(error.to_string()),
+        Err(_) => Err(format!(
+            "Timed out probing `{program}` for {} primary runtime.",
+            provider.label()
+        )),
+    };
+
+    RuntimeProbe {
+        program,
+        expected_marker,
+        output,
+    }
+}
+
+pub(super) async fn probe_native_runtime_with_dependencies(
+    provider: ProviderId,
+) -> (CapabilityStatus, Vec<ProviderRuntimeDependencyStatus>) {
     let (program, args, expected) = match provider {
         ProviderId::Claude => (
             "node",
@@ -108,52 +531,27 @@ pub(super) async fn probe_native_runtime(provider: ProviderId) -> CapabilityStat
         ),
     };
 
-    let output = tokio::time::timeout(Duration::from_secs(4), async move {
-        new_provider_hidden_command(program, args)
-            .await
-            .output()
-            .await
-    })
-    .await;
+    let probe = run_runtime_probe(provider, program, args, expected).await;
+    let dependencies = provider_dependency_statuses(provider, &probe);
+    let native = aggregate_native_status(provider, &dependencies);
+    (native, dependencies)
+}
 
-    match output {
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let combined = format!("{stdout}\n{stderr}");
-            if combined.contains(expected) {
-                CapabilityStatus::available(contract.primary_source).with_detail(format!(
-                    "{} primary runtime probe passed via `{program}` ({}).",
-                    provider.label(),
-                    contract.primary_label
-                ))
-            } else {
-                CapabilityStatus::partial(
-                    contract.primary_source,
-                    format!(
-                        "{} was found, but expected primary runtime marker `{expected}` was not present.",
-                        provider.label()
-                    ),
-                )
-            }
-        }
-        Ok(Err(error)) => CapabilityStatus::unavailable(
-            contract.primary_source,
-            format!(
-                "Failed to launch `{program}` for {} primary runtime {}: {error}",
-                provider.label(),
-                contract.primary_label
-            ),
-        ),
-        Err(_) => CapabilityStatus::unavailable(
-            contract.primary_source,
-            format!(
-                "Timed out probing `{program}` for {} primary runtime {}.",
-                provider.label(),
-                contract.primary_label
-            ),
-        ),
-    }
+#[cfg(test)]
+pub(super) fn dependency_statuses_for_probe_output_for_test(
+    provider: ProviderId,
+    program: &'static str,
+    expected_marker: &'static str,
+    output: Result<Output, String>,
+) -> (CapabilityStatus, Vec<ProviderRuntimeDependencyStatus>) {
+    let probe = RuntimeProbe {
+        program,
+        expected_marker,
+        output,
+    };
+    let dependencies = provider_dependency_statuses(provider, &probe);
+    let native = aggregate_native_status(provider, &dependencies);
+    (native, dependencies)
 }
 
 pub(super) async fn ensure_provider_session(

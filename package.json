@@ -28,7 +28,7 @@
     "prepare-db:check": "node scripts/prepare-db.js --check",
     "tauri:dev": "pnpm run tauri:dev:desktop",
     "tauri:dev:desktop": "node scripts/run-tauri-dev-desktop.js",
-    "tauri:build": "tauri build"
+    "tauri:build": "node scripts/run-tauri-build.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",
@@ -40,11 +40,6 @@
     "pnpm": ">=8"
   },
   "packageManager": "pnpm@10.13.1",
-  "pnpm": {
-    "overrides": {
-      "caniuse-lite": "1.0.30001792"
-    }
-  },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.143",
     "@opencode-ai/sdk": "^1.15.4",

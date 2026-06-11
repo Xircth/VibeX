@@ -13,7 +13,11 @@ use crate::state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSna
 #[ts(export)]
 pub enum AgentContentBlock {
     Text { text: String },
-    Image { uri: String },
+    Image {
+        data: String,
+        mime_type: String,
+        uri: Option<String>,
+    },
     Resource { uri: String, title: Option<String> },
 }
 
@@ -172,4 +176,3 @@ mod tests {
         assert_eq!(value["event"]["content"]["kind"], "text");
     }
 }
-

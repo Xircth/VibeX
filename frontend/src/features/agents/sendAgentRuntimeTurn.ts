@@ -34,14 +34,11 @@ export async function sendAgentRuntimeTurn({
   displayText,
   images,
 }: AgentRuntimeTurnInput): Promise<AgentPromptSnapshot> {
-  if (images && images.length > 0) {
-    throw new Error('ACP-native image prompt blocks are not wired yet');
-  }
-
   return agentsApi.sendWorkspacePrompt({
     agentType: agentTypeFromExecutor(executorProfileId.executor),
     workspaceId,
     sessionId,
     text: displayText ?? text,
+    images,
   });
 }

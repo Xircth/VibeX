@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use agents::{AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput};
+use agents::{
+    AgentContentBlock, AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput,
+};
 use db::models::{
     execution_process::ExecutionProcess,
     merge::{Merge, MergeStatus},
@@ -309,7 +311,7 @@ async fn trigger_pr_description_follow_up(
         .send_prompt(SendAgentPromptInput {
             connection_id: agent_session.connection_id,
             session_id: agent_session.id,
-            text: prompt,
+            blocks: vec![AgentContentBlock::Text { text: prompt }],
         })
         .await?;
 

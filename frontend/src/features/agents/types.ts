@@ -186,7 +186,12 @@ export type AgentRuntimeSnapshot = {
 
 export type AgentContentBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'image'; uri: string }
+  | {
+      kind: 'image';
+      data: string;
+      mime_type: string;
+      uri?: string | null;
+    }
   | { kind: 'resource'; uri: string; title?: string | null };
 
 export type AgentEvent =

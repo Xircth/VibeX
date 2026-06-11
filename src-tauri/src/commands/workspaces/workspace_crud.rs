@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use agents::{AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput};
+use agents::{
+    AgentContentBlock, AgentSessionId, AgentType, EnsureAgentSessionInput, SendAgentPromptInput,
+};
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     repo::{Repo, RepoError},
@@ -192,11 +194,13 @@ pub async fn create_workspace(
             .send_prompt(SendAgentPromptInput {
                 connection_id: agent_session.connection_id,
                 session_id: agent_session.id,
-                text: session
-                    .initial_prompt
-                    .clone()
-                    .filter(|prompt| !prompt.trim().is_empty())
-                    .unwrap_or_else(|| task.to_prompt()),
+                blocks: vec![AgentContentBlock::Text {
+                    text: session
+                        .initial_prompt
+                        .clone()
+                        .filter(|prompt| !prompt.trim().is_empty())
+                        .unwrap_or_else(|| task.to_prompt()),
+                }],
             })
             .await?;
 

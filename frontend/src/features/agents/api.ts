@@ -34,6 +34,7 @@ export type AgentSendWorkspacePromptRequest = {
   workspaceId: string;
   sessionId: string;
   text: string;
+  images?: string[];
 };
 
 export type AgentCancelPromptRequest = {

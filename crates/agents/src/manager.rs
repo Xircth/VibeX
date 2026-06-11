@@ -4,12 +4,12 @@ use agent_client_protocol as acp;
 use agent_client_protocol::{Agent, ConnectionTo};
 use agent_client_protocol::schema::{
     AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
-    ContentBlock, CreateTerminalResponse, ErrorCode, Implementation, InitializeRequest,
-    KillTerminalRequest, KillTerminalResponse, NewSessionRequest, PermissionOptionKind,
-    PromptRequest, ProtocolVersion, ReleaseTerminalResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
-    SessionNotification, SessionUpdate, TerminalId, TerminalOutputResponse, TextContent,
-    WaitForTerminalExitResponse,
+    ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
+    InitializeRequest, KillTerminalRequest, KillTerminalResponse, NewSessionRequest,
+    PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TerminalId,
+    TerminalOutputResponse, TextContent, WaitForTerminalExitResponse,
 };
 use futures::StreamExt;
 use tokio::{
@@ -264,8 +264,10 @@ impl AgentConnectionRunner {
                         .into_iter()
                         .map(|block| match block {
                             AgentContentBlock::Text { text } => text,
-                            AgentContentBlock::Image { uri }
-                            | AgentContentBlock::Resource { uri, .. } => uri,
+                            AgentContentBlock::Image { uri, .. } => {
+                                uri.as_deref().unwrap_or("[image]").to_string()
+                            }
+                            AgentContentBlock::Resource { uri, .. } => uri,
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
@@ -840,7 +842,10 @@ fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
 fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
     match block {
         AgentContentBlock::Text { text } => ContentBlock::Text(TextContent::new(text)),
-        AgentContentBlock::Image { uri } | AgentContentBlock::Resource { uri, .. } => {
+        AgentContentBlock::Image { data, mime_type, uri } => {
+            ContentBlock::Image(ImageContent::new(data, mime_type).uri(uri))
+        }
+        AgentContentBlock::Resource { uri, .. } => {
             ContentBlock::Text(TextContent::new(uri))
         }
     }
@@ -849,6 +854,11 @@ fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
 fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
     match block {
         ContentBlock::Text(text) => AgentContentBlock::Text { text: text.text },
+        ContentBlock::Image(image) => AgentContentBlock::Image {
+            data: image.data,
+            mime_type: image.mime_type,
+            uri: image.uri,
+        },
         #[allow(unreachable_patterns)]
         other => AgentContentBlock::Text {
             text: serde_json::to_string(&other).unwrap_or_default(),

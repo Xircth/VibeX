@@ -41,7 +41,7 @@ pub struct ConnectAgentInput {
 pub struct SendAgentPromptInput {
     pub connection_id: AgentConnectionId,
     pub session_id: AgentSessionId,
-    pub text: String,
+    pub blocks: Vec<AgentContentBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -365,6 +365,12 @@ impl AgentRuntime {
         &self,
         input: SendAgentPromptInput,
     ) -> AgentResult<AgentPromptSnapshot> {
+        if input.blocks.is_empty() {
+            return Err(AgentError::Runtime(
+                "prompt must include at least one content block".to_string(),
+            ));
+        }
+
         let now = Utc::now();
         let mut state = self.state.write().await;
         let workspace_id = state
@@ -400,15 +406,12 @@ impl AgentRuntime {
             },
         };
 
-        let blocks = vec![AgentContentBlock::Text { text: input.text }];
+        let blocks = input.blocks;
         let prompt = AgentPromptSnapshot {
             id: prompt_id,
             session_id: input.session_id,
             status,
-            text_preview: preview_text(match &blocks[0] {
-                AgentContentBlock::Text { text } => text,
-                _ => "",
-            }),
+            text_preview: preview_text_from_blocks(&blocks),
             created_at: now,
             updated_at: now,
         };
@@ -627,6 +630,24 @@ fn preview_text(text: &str) -> String {
     preview
 }
 
+fn preview_text_from_blocks(blocks: &[AgentContentBlock]) -> String {
+    let text = blocks
+        .iter()
+        .find_map(|block| match block {
+            AgentContentBlock::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            if blocks.iter().any(|block| matches!(block, AgentContentBlock::Image { .. })) {
+                "[image]"
+            } else {
+                ""
+            }
+        });
+
+    preview_text(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,7 +687,9 @@ mod tests {
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
                 session_id: session.id,
-                text: "hello".to_string(),
+                blocks: vec![AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
             })
             .await
             .unwrap();
@@ -698,7 +721,9 @@ mod tests {
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
                 session_id: session.id,
-                text: "first".to_string(),
+                blocks: vec![AgentContentBlock::Text {
+                    text: "first".to_string(),
+                }],
             })
             .await
             .unwrap();
@@ -706,7 +731,9 @@ mod tests {
             .send_prompt(SendAgentPromptInput {
                 connection_id: connection.id,
                 session_id: session.id,
-                text: "second".to_string(),
+                blocks: vec![AgentContentBlock::Text {
+                    text: "second".to_string(),
+                }],
             })
             .await
             .unwrap();

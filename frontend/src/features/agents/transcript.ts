@@ -7,7 +7,7 @@ function textFromContentBlock(content: AgentContentBlock): string {
     case 'text':
       return content.text;
     case 'image':
-      return `[image] ${content.uri}`;
+      return content.uri ? `[image] ${content.uri}` : '[image]';
     case 'resource':
       return content.title ? `[resource] ${content.title}: ${content.uri}` : `[resource] ${content.uri}`;
   }

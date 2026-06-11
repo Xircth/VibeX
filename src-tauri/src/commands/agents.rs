@@ -1,6 +1,9 @@
-use std::path::PathBuf;
+use std::{
+    path::{Component, Path, PathBuf},
+};
 
 use agents::{
+    AgentContentBlock,
     AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentInstallPlan,
     AgentMcpSurface, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
     AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentType,
@@ -8,6 +11,7 @@ use agents::{
     all_agent_types, config_surface, mcp_surface, registry_entry, skills_surface,
     EnsureAgentSessionInput,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -70,6 +74,8 @@ pub struct AgentSendWorkspacePromptRequest {
     pub workspace_id: String,
     pub session_id: String,
     pub text: String,
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 #[tauri::command]
@@ -153,7 +159,7 @@ pub async fn agent_send_prompt(
         .send_prompt(SendAgentPromptInput {
             connection_id: parse_agent_connection_id(&request.connection_id)?,
             session_id: parse_agent_session_id(&request.session_id)?,
-            text: request.text,
+            blocks: text_prompt_blocks(request.text),
         })
         .await
         .map_err(Into::into)
@@ -178,6 +184,7 @@ pub async fn agent_send_workspace_prompt(
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
         .unwrap_or_else(|| container_ref.clone());
+    let blocks = workspace_prompt_blocks(&working_dir, request.text, &request.images)?;
 
     let session = state
         .agent_runtime
@@ -195,7 +202,7 @@ pub async fn agent_send_workspace_prompt(
         .send_prompt(SendAgentPromptInput {
             connection_id: session.connection_id,
             session_id: session.id,
-            text: request.text,
+            blocks,
         })
         .await
         .map_err(Into::into)
@@ -231,4 +238,96 @@ fn parse_agent_session_id(value: &str) -> Result<AgentSessionId, AppError> {
 
 fn parse_agent_prompt_id(value: &str) -> Result<AgentPromptId, AppError> {
     parse_uuid("prompt_id", value).map(AgentPromptId)
+}
+
+fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
+    if text.trim().is_empty() {
+        Vec::new()
+    } else {
+        vec![AgentContentBlock::Text { text }]
+    }
+}
+
+fn workspace_prompt_blocks(
+    working_dir: &str,
+    text: String,
+    images: &[String],
+) -> Result<Vec<AgentContentBlock>, AppError> {
+    let mut blocks = text_prompt_blocks(text);
+    for image in images {
+        blocks.push(read_workspace_image_block(working_dir, image)?);
+    }
+    if blocks.is_empty() {
+        return Err(AppError::BadRequest("Prompt must include text or an image".to_string()));
+    }
+    Ok(blocks)
+}
+
+fn read_workspace_image_block(
+    working_dir: &str,
+    relative_path: &str,
+) -> Result<AgentContentBlock, AppError> {
+    let relative = relative_agent_asset_path(relative_path)?;
+    let file_path = Path::new(working_dir).join(&relative);
+    if !file_path.is_file() {
+        return Err(AppError::NotFound(format!("Image not found: {relative_path}")));
+    }
+
+    let bytes = std::fs::read(&file_path).map_err(|err| {
+        AppError::Internal(format!("Failed to read image {relative_path}: {err}"))
+    })?;
+
+    Ok(AgentContentBlock::Image {
+        data: BASE64.encode(bytes),
+        mime_type: mime_type_for_agent_asset(&file_path).to_string(),
+        uri: Some(relative.to_string_lossy().replace('\\', "/")),
+    })
+}
+
+fn relative_agent_asset_path(path: &str) -> Result<PathBuf, AppError> {
+    let candidate = Path::new(path);
+    if candidate.is_absolute() {
+        return Err(AppError::BadRequest(format!(
+            "Image path must be workspace-relative: {path}"
+        )));
+    }
+
+    let mut relative = PathBuf::new();
+    for component in candidate.components() {
+        match component {
+            Component::Normal(segment) => relative.push(segment),
+            Component::CurDir => {}
+            _ => {
+                return Err(AppError::BadRequest(format!(
+                    "Image path must stay inside the workspace: {path}"
+                )));
+            }
+        }
+    }
+
+    if relative.as_os_str().is_empty() {
+        return Err(AppError::BadRequest("Image path cannot be empty".to_string()));
+    }
+
+    Ok(relative)
+}
+
+fn mime_type_for_agent_asset(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        Some("avif") => "image/avif",
+        Some("heic") => "image/heic",
+        Some("heif") => "image/heif",
+        _ => "application/octet-stream",
+    }
 }

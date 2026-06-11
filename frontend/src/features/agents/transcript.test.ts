@@ -59,4 +59,23 @@ describe('agent transcript adapter', () => {
     expect(normalized(entries[1]!).content).toBe('hi there');
     expect(normalized(entries[2]!).entry_type.type).toBe('thinking');
   });
+
+  it('renders ACP image chunks with their source uri when available', () => {
+    const entries = buildAgentTranscriptEntries([
+      event(1, {
+        kind: 'message_chunk',
+        content: {
+          kind: 'image',
+          data: 'base64',
+          mime_type: 'image/png',
+          uri: '.vibe-images/screen.png',
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(normalized(entries[0]!).content).toBe(
+      '[image] .vibe-images/screen.png'
+    );
+  });
 });

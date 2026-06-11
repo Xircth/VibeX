@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use agents::{ids::AgentTerminalId, terminal::agent_terminal_registry};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
 use deployment::Deployment;
 use services::services::container::ContainerService;

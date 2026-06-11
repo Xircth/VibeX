@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::distribution::{AgentDistribution, PlatformBinary, SystemCommand};
-use crate::error::AgentError;
+use crate::{
+    distribution::{AgentDistribution, PlatformBinary, SystemCommand},
+    error::AgentError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -176,22 +178,55 @@ pub fn registry_entry_from_id(id: &str) -> Result<AgentRegistryEntry, AgentError
 
 fn codex_platforms() -> Vec<PlatformBinary> {
     vec![
-        platform("darwin-aarch64", "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-apple-darwin.tar.gz"),
-        platform("darwin-x86_64", "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-apple-darwin.tar.gz"),
-        platform("linux-aarch64", "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-unknown-linux-gnu.tar.gz"),
-        platform("linux-x86_64", "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-unknown-linux-gnu.tar.gz"),
-        platform("windows-aarch64", "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-pc-windows-msvc.zip"),
-        platform("windows-x86_64", "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-pc-windows-msvc.zip"),
+        platform(
+            "darwin-aarch64",
+            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-apple-darwin.tar.gz",
+        ),
+        platform(
+            "darwin-x86_64",
+            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-apple-darwin.tar.gz",
+        ),
+        platform(
+            "linux-aarch64",
+            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-unknown-linux-gnu.tar.gz",
+        ),
+        platform(
+            "linux-x86_64",
+            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-unknown-linux-gnu.tar.gz",
+        ),
+        platform(
+            "windows-aarch64",
+            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-pc-windows-msvc.zip",
+        ),
+        platform(
+            "windows-x86_64",
+            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-pc-windows-msvc.zip",
+        ),
     ]
 }
 
 fn opencode_platforms() -> Vec<PlatformBinary> {
     vec![
-        platform("darwin-aarch64", "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-darwin-arm64.zip"),
-        platform("darwin-x86_64", "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-darwin-x64.zip"),
-        platform("linux-aarch64", "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-linux-arm64.zip"),
-        platform("linux-x86_64", "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-linux-x64.zip"),
-        platform("windows-x86_64", "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-windows-x64.zip"),
+        platform(
+            "darwin-aarch64",
+            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-darwin-arm64.zip",
+        ),
+        platform(
+            "darwin-x86_64",
+            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-darwin-x64.zip",
+        ),
+        platform(
+            "linux-aarch64",
+            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-linux-arm64.zip",
+        ),
+        platform(
+            "linux-x86_64",
+            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-linux-x64.zip",
+        ),
+        platform(
+            "windows-x86_64",
+            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-windows-x64.zip",
+        ),
     ]
 }
 

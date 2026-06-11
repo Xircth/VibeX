@@ -8,9 +8,9 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
+use executors::actions::ExecutorAction;
 #[cfg(target_os = "macos")]
 use executors::actions::script::ScriptContext;
-use executors::actions::ExecutorAction;
 use services::services::{container::ContainerService, container_actions};
 use utils::shell::resolve_executable_path;
 use uuid::Uuid;

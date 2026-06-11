@@ -75,12 +75,7 @@ pub fn current_platform() -> String {
         "windows" => "windows",
         other => other,
     };
-    let arch = match std::env::consts::ARCH {
-        "aarch64" => "aarch64",
-        "x86_64" => "x86_64",
-        "x86" => "x86",
-        other => other,
-    };
+    let arch = std::env::consts::ARCH;
     format!("{os}-{arch}")
 }
 

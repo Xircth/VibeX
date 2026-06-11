@@ -30,4 +30,3 @@ pub enum AgentPermissionResponse {
     Selected { option_id: String },
     Cancelled,
 }
-

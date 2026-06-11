@@ -7,11 +7,9 @@ use strum_macros::{Display, EnumDiscriminants, EnumString, VariantNames};
 use thiserror::Error;
 use ts_rs::TS;
 
+use crate::command::CommandBuildError;
 #[cfg(feature = "qa-mode")]
 use crate::executors::qa_mock::QaMockExecutor;
-use crate::{
-    command::CommandBuildError,
-};
 
 pub mod claude;
 pub mod codex;
@@ -70,16 +68,24 @@ pub enum ExecutorError {
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 #[strum_discriminants(
     name(BaseCodingAgent),
-    derive(EnumString, Hash, strum_macros::Display, Serialize, Deserialize, TS, Type),
+    derive(
+        EnumString,
+        Hash,
+        strum_macros::Display,
+        Serialize,
+        Deserialize,
+        TS,
+        Type
+    ),
     strum(serialize_all = "SCREAMING_SNAKE_CASE"),
     ts(use_ts_enum),
     serde(rename_all = "SCREAMING_SNAKE_CASE"),
     sqlx(type_name = "TEXT", rename_all = "SCREAMING_SNAKE_CASE")
 )]
 pub enum CodingAgent {
-    ClaudeCode,
-    Codex,
-    Opencode,
+    ClaudeCode(claude::ClaudeCode),
+    Codex(codex::Codex),
+    Opencode(opencode::Opencode),
     #[cfg(feature = "qa-mode")]
     QaMock(QaMockExecutor),
 }

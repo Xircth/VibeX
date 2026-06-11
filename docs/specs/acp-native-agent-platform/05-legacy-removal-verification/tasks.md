@@ -28,7 +28,7 @@
   - Verify: `pnpm run generate-types:check`; `cargo test --workspace`
   - Files: tests across Rust and frontend.
 
-- [ ] Task: Final full verification.
+- [x] Task: Final full verification.
   - Acceptance: Static search gates and full check/lint/build gates pass.
   - Verify: commands listed in `design.md`.
   - Files: entire repository.

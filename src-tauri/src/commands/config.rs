@@ -6,10 +6,7 @@ use agents::{
 };
 use db::models::execution_process::ExecutionProcess;
 use deployment::Deployment;
-use executors::{
-    executors::BaseCodingAgent,
-    profile::ExecutorConfigs,
-};
+use executors::{executors::BaseCodingAgent, profile::ExecutorConfigs};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use services::services::{

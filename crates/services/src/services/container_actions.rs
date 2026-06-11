@@ -90,11 +90,9 @@ mod tests {
 
     use chrono::Utc;
     use db::models::repo::Repo;
-    use executors::{
-        actions::{
-            ExecutorActionType,
-            script::{ScriptContext, ScriptRequestLanguage},
-        },
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequestLanguage},
     };
     use uuid::Uuid;
 
@@ -131,18 +129,14 @@ mod tests {
         let mut chain = Vec::new();
         let mut current = Some(action);
         while let Some(action) = current {
-            match action.typ() {
-                ExecutorActionType::ScriptRequest(request) => {
-                    assert_eq!(request.language, ScriptRequestLanguage::Bash);
-                    chain.push((
-                        request.script.clone(),
-                        request.context.clone(),
-                        request.working_dir.clone().expect("script working dir"),
-                    ));
-                    current = action.next_action();
-                }
-                _ => break,
-            }
+            let ExecutorActionType::ScriptRequest(request) = action.typ();
+            assert_eq!(request.language, ScriptRequestLanguage::Bash);
+            chain.push((
+                request.script.clone(),
+                request.context.clone(),
+                request.working_dir.clone().expect("script working dir"),
+            ));
+            current = action.next_action();
         }
         chain
     }
@@ -262,11 +256,18 @@ mod tests {
 
         assert_eq!(
             collect_script_chain(&action),
-            vec![(
-                "npm run dev".to_string(),
-                ScriptContext::DevServer,
-                "web".to_string(),
-            )],
+            vec![
+                (
+                    "npm run dev".to_string(),
+                    ScriptContext::DevServer,
+                    "web".to_string(),
+                ),
+                (
+                    "echo next".to_string(),
+                    ScriptContext::CleanupScript,
+                    "web".to_string(),
+                ),
+            ],
         );
         assert!(matches!(
             action.next_action().expect("next action").typ(),
@@ -300,5 +301,4 @@ mod tests {
         repo.dev_server_script = Some(String::new());
         assert!(dev_server_action_for_repo(&repo, Some("apps/web".to_string())).is_none());
     }
-
 }

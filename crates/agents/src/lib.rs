@@ -4,12 +4,13 @@
 //! does not depend on VibeX's legacy executor, provider-runtime, `MsgStore`, or
 //! `ExecutionProcess` systems.
 
+pub mod config;
 pub mod distribution;
 pub mod error;
 pub mod events;
 pub mod filesystem;
-pub mod host;
 pub mod history;
+pub mod host;
 pub mod ids;
 pub mod installer;
 pub mod manager;
@@ -17,7 +18,6 @@ pub mod mcp;
 pub mod mcp_file;
 pub mod metadata;
 pub mod permissions;
-pub mod config;
 pub mod registry;
 pub mod runtime;
 pub mod session;
@@ -25,9 +25,10 @@ pub mod skills;
 pub mod state;
 pub mod terminal;
 
+pub use config::{AgentConfigStrategy, AgentConfigSurface, PathTemplate, config_surface};
 pub use distribution::{
-    current_platform, AgentDistribution, CommandBuildInput, CommandParts, DistributionError,
-    PlatformBinary, SystemCommand,
+    AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
+    SystemCommand, current_platform,
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -36,11 +37,11 @@ pub use events::{
     AgentToolCallUpdate, AgentUsage,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
-pub use host::{AgentHost, HostRequestError};
 pub use history::{
     AgentHistoryError, AgentHistorySource, ImportedAgentMessage, ImportedAgentMessageRole,
     ImportedAgentSession, default_history_sources, import_history_source,
 };
+pub use host::{AgentHost, HostRequestError};
 pub use ids::{
     AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId,
 };
@@ -50,8 +51,7 @@ pub use installer::{
 };
 pub use manager::{
     AgentConnectionCommand, AgentConnectionLaunch, AgentConnectionManager,
-    AgentConnectionManagerEvent,
-    ManagedAgentConnectionSnapshot,
+    AgentConnectionManagerEvent, ManagedAgentConnectionSnapshot,
 };
 pub use mcp::{AgentMcpStrategy, AgentMcpSurface, mcp_surface};
 pub use mcp_file::{
@@ -64,7 +64,6 @@ pub use metadata::{
     opencode_config_dir, opencode_config_path,
 };
 pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};
-pub use config::{AgentConfigSurface, AgentConfigStrategy, PathTemplate, config_surface};
 pub use registry::{
     AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, registry_entry,
 };

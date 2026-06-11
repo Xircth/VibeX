@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::ids::{AgentConnectionId, AgentPromptId, AgentSessionId};
-use crate::registry::AgentType;
+use crate::{
+    ids::{AgentConnectionId, AgentPromptId, AgentSessionId},
+    registry::AgentType,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -101,4 +103,3 @@ mod tests {
         assert_eq!(json["stop_reason"], "end_turn");
     }
 }
-

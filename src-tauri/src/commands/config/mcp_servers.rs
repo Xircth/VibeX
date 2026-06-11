@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use agents::{
-    AgentMcpConfig, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
-    write_agent_mcp_config, agent_type_from_executor_key,
+    AgentMcpConfig, agent_type_from_executor_key, default_mcp_config_path, mcp_file_config,
+    read_agent_mcp_config, write_agent_mcp_config,
 };
 use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};

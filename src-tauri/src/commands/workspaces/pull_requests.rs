@@ -189,7 +189,7 @@ pub async fn create_workspace_pr(
 
             // Trigger auto-description follow-up if enabled
             if auto_generate_description.unwrap_or(false)
-                && let Err(e) = trigger_pr_description_follow_up(
+                && let Err(e) = trigger_pr_description_continuation(
                     &state,
                     &workspace,
                     pr_info.number,
@@ -233,7 +233,7 @@ pub async fn create_workspace_pr(
     }
 }
 
-async fn trigger_pr_description_follow_up(
+async fn trigger_pr_description_continuation(
     state: &tauri::State<'_, AppState>,
     workspace: &Workspace,
     pr_number: i64,
@@ -288,14 +288,13 @@ async fn trigger_pr_description_follow_up(
         .ensure_container_exists(workspace)
         .await?;
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let working_dir =
-        resolve_workspace_agent_working_dir(workspace, &container_ref, &repos)
-            .unwrap_or_else(|| container_ref.clone());
+    let working_dir = resolve_workspace_agent_working_dir(workspace, &container_ref, &repos)
+        .unwrap_or_else(|| container_ref.clone());
     let agent_session_id = AgentSessionId(session.id);
     let agent_session = state
         .agent_runtime
         .ensure_session(EnsureAgentSessionInput {
-                agent_type: agent_type_from_executor(executor_profile_id.executor.clone())?,
+            agent_type: agent_type_from_executor(executor_profile_id.executor)?,
             workspace_id: workspace.id,
             working_dir: PathBuf::from(working_dir),
             session_id: agent_session_id,

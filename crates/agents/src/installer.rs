@@ -132,11 +132,7 @@ pub fn preflight_from_detected_state(
     }
 }
 
-fn issue(
-    code: &str,
-    severity: AgentPreflightSeverity,
-    message: &str,
-) -> AgentPreflightIssue {
+fn issue(code: &str, severity: AgentPreflightSeverity, message: &str) -> AgentPreflightIssue {
     AgentPreflightIssue {
         code: code.to_string(),
         severity,
@@ -147,7 +143,7 @@ fn issue(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{registry_entry, AgentType};
+    use crate::{AgentType, registry_entry};
 
     #[test]
     fn install_plan_reports_npx_prerequisites() {
@@ -158,14 +154,11 @@ mod tests {
 
     #[test]
     fn preflight_distinguishes_auth_missing_from_missing_agent() {
-        let preflight =
-            preflight_from_detected_state(AgentType::Codex, true, true, false, true);
+        let preflight = preflight_from_detected_state(AgentType::Codex, true, true, false, true);
         assert_eq!(preflight.status, AgentInstallStatus::AuthMissing);
         assert_eq!(preflight.issues[0].code, "auth_missing");
 
-        let missing =
-            preflight_from_detected_state(AgentType::Codex, true, false, false, true);
+        let missing = preflight_from_detected_state(AgentType::Codex, true, false, false, true);
         assert_eq!(missing.status, AgentInstallStatus::MissingAgent);
     }
 }
-

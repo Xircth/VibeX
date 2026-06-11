@@ -149,12 +149,15 @@ mod tests {
     use super::{
         completion_notification, missing_executable_start_error_entry, next_action_run_reason,
         reset_options, reset_target_oid, should_finalize_execution,
-        should_mark_session_in_progress_on_start, should_mark_session_in_review_after_orphan_cleanup,
-        should_mark_task_in_progress_on_start, should_stop_execution,
-        should_unarchive_workspace_on_start,
+        should_mark_session_in_progress_on_start,
+        should_mark_session_in_review_after_orphan_cleanup, should_mark_task_in_progress_on_start,
+        should_stop_execution, should_unarchive_workspace_on_start,
     };
 
-    fn script_action(context: ScriptContext, next_action: Option<ExecutorAction>) -> ExecutorAction {
+    fn script_action(
+        context: ScriptContext,
+        next_action: Option<ExecutorAction>,
+    ) -> ExecutorAction {
         ExecutorAction::new(
             ExecutorActionType::ScriptRequest(ScriptRequest {
                 script: "echo ok".to_string(),

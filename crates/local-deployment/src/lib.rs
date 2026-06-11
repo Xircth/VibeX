@@ -8,9 +8,7 @@ use agents::{AgentAvailabilityInfo, agent_availability, agent_type_from_executor
 use async_trait::async_trait;
 use db::DBService;
 use deployment::{Deployment, DeploymentError};
-use executors::{
-    profile::{ExecutorConfigs, ExecutorProfileId},
-};
+use executors::profile::{ExecutorConfigs, ExecutorProfileId};
 use git::GitService;
 use services::services::{
     approvals::Approvals,
@@ -232,7 +230,6 @@ impl Deployment for LocalDeployment {
     fn approvals(&self) -> &Approvals {
         &self.approvals
     }
-
 }
 
 impl LocalDeployment {

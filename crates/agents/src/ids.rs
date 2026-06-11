@@ -55,4 +55,3 @@ mod tests {
         assert_eq!(decoded, connection);
     }
 }
-

@@ -57,15 +57,9 @@ pub enum AgentHistoryError {
     #[error("history source does not exist: {0}")]
     MissingSource(PathBuf),
     #[error("failed to read history source {path}: {error}")]
-    Read {
-        path: PathBuf,
-        error: String,
-    },
+    Read { path: PathBuf, error: String },
     #[error("failed to parse history source {path}: {error}")]
-    Parse {
-        path: PathBuf,
-        error: String,
-    },
+    Parse { path: PathBuf, error: String },
 }
 
 pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource> {
@@ -92,12 +86,14 @@ pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource>
             })
             .collect(),
         AgentType::Gemini => env_or_home_sources(agent_type, "GEMINI_CLI_HOME", ".gemini"),
-        AgentType::OpenClaw => home_source(agent_type, ".openclaw").map_or_else(Vec::new, |source| {
-            vec![AgentHistorySource {
-                path: source.path.join("agents"),
-                ..source
-            }]
-        }),
+        AgentType::OpenClaw => {
+            home_source(agent_type, ".openclaw").map_or_else(Vec::new, |source| {
+                vec![AgentHistorySource {
+                    path: source.path.join("agents"),
+                    ..source
+                }]
+            })
+        }
         AgentType::Cline => env_or_home_sources(agent_type, "CLINE_DIR", ".cline")
             .into_iter()
             .map(|source| AgentHistorySource {
@@ -138,7 +134,11 @@ pub fn import_history_source(
     Ok(grouped.into_values().collect())
 }
 
-fn env_or_home_sources(agent_type: AgentType, env_var: &str, home_relative: &str) -> Vec<AgentHistorySource> {
+fn env_or_home_sources(
+    agent_type: AgentType,
+    env_var: &str,
+    home_relative: &str,
+) -> Vec<AgentHistorySource> {
     let mut sources = Vec::new();
     if let Ok(value) = std::env::var(env_var)
         && !value.trim().is_empty()
@@ -290,11 +290,18 @@ fn imported_session_from_value(
     value: &serde_json::Value,
 ) -> Option<ImportedAgentSession> {
     let content = content_from_value(value)?;
-    let external_session_id = string_at_any(value, &["sessionId", "session_id", "conversation_id", "id"])
-        .unwrap_or_else(|| path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("unknown").to_string());
+    let external_session_id =
+        string_at_any(value, &["sessionId", "session_id", "conversation_id", "id"]).unwrap_or_else(
+            || {
+                path.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            },
+        );
     let title = string_at_any(value, &["title", "summary"]);
-    let workspace_path = string_at_any(value, &["cwd", "workspace", "workspace_path"])
-        .map(PathBuf::from);
+    let workspace_path =
+        string_at_any(value, &["cwd", "workspace", "workspace_path"]).map(PathBuf::from);
     let role = role_from_value(value);
     let created_at = string_at_any(value, &["timestamp", "created_at", "createdAt"])
         .and_then(|value| DateTime::parse_from_rfc3339(&value).ok())
@@ -316,7 +323,11 @@ fn imported_session_from_value(
 
 fn role_from_value(value: &serde_json::Value) -> ImportedAgentMessageRole {
     let role = string_at_any(value, &["role", "type"])
-        .or_else(|| value.get("message").and_then(|message| string_at_any(message, &["role", "type"])))
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(|message| string_at_any(message, &["role", "type"]))
+        })
         .unwrap_or_default()
         .to_ascii_lowercase();
     match role.as_str() {
@@ -330,8 +341,16 @@ fn role_from_value(value: &serde_json::Value) -> ImportedAgentMessageRole {
 
 fn content_from_value(value: &serde_json::Value) -> Option<String> {
     string_at_any(value, &["content", "text", "message"])
-        .or_else(|| value.get("message").and_then(|message| string_at_any(message, &["content", "text"])))
-        .or_else(|| value.get("item").and_then(|item| string_at_any(item, &["content", "text"])))
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(|message| string_at_any(message, &["content", "text"]))
+        })
+        .or_else(|| {
+            value
+                .get("item")
+                .and_then(|item| string_at_any(item, &["content", "text"]))
+        })
         .or_else(|| content_from_blocks(value.get("content")?))
 }
 
@@ -351,7 +370,9 @@ fn string_at_any(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
             serde_json::Value::String(value) => Some(value.clone()),
             serde_json::Value::Array(_) => content_from_blocks(value),
             serde_json::Value::Object(_) => None,
-            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => None,
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+                None
+            }
         })
 }
 
@@ -390,7 +411,10 @@ mod tests {
         assert_eq!(sessions[0].workspace_path, Some(PathBuf::from("C:/repo")));
         assert_eq!(sessions[0].messages.len(), 2);
         assert_eq!(sessions[0].messages[0].role, ImportedAgentMessageRole::User);
-        assert_eq!(sessions[0].messages[1].role, ImportedAgentMessageRole::Assistant);
+        assert_eq!(
+            sessions[0].messages[1].role,
+            ImportedAgentMessageRole::Assistant
+        );
     }
 
     #[test]

@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
-use crate::ids::{AgentPermissionId, AgentTerminalId};
-use crate::permissions::{AgentPermissionRequest, AgentPermissionResponse};
-use crate::terminal::{
-    AgentTerminalCreateRequest, AgentTerminalExit, AgentTerminalOutputSnapshot,
+use crate::{
+    filesystem::{AgentFileReadRequest, AgentFileWriteRequest},
+    ids::{AgentPermissionId, AgentTerminalId},
+    permissions::{AgentPermissionRequest, AgentPermissionResponse},
+    terminal::{AgentTerminalCreateRequest, AgentTerminalExit, AgentTerminalOutputSnapshot},
 };
 
 #[derive(Debug, Error)]
@@ -38,20 +38,15 @@ pub trait AgentHost: Send + Sync + 'static {
         terminal_id: AgentTerminalId,
     ) -> Result<Option<AgentTerminalExit>, HostRequestError>;
 
-    async fn kill_terminal(
-        &self,
-        terminal_id: AgentTerminalId,
-    ) -> Result<(), HostRequestError>;
+    async fn kill_terminal(&self, terminal_id: AgentTerminalId) -> Result<(), HostRequestError>;
 
     async fn read_text_file(
         &self,
         request: AgentFileReadRequest,
     ) -> Result<String, HostRequestError>;
 
-    async fn write_text_file(
-        &self,
-        request: AgentFileWriteRequest,
-    ) -> Result<(), HostRequestError>;
+    async fn write_text_file(&self, request: AgentFileWriteRequest)
+    -> Result<(), HostRequestError>;
 
     async fn respond_permission(
         &self,
@@ -199,7 +194,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(host.terminal_output(terminal_id).await.unwrap().output, "ok");
+        assert_eq!(
+            host.terminal_output(terminal_id).await.unwrap().output,
+            "ok"
+        );
         assert_eq!(
             host.wait_terminal_exit(terminal_id).await.unwrap(),
             Some(AgentTerminalExit::Code { code: 0 })

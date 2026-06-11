@@ -10,8 +10,12 @@ use crate::ids::AgentPromptId;
 #[ts(rename_all = "snake_case")]
 #[ts(export)]
 pub enum QueueTransition {
-    Started { prompt_id: AgentPromptId },
-    Queued { prompt_id: AgentPromptId },
+    Started {
+        prompt_id: AgentPromptId,
+    },
+    Queued {
+        prompt_id: AgentPromptId,
+    },
     Completed {
         completed: AgentPromptId,
         next: Option<AgentPromptId>,
@@ -20,7 +24,9 @@ pub enum QueueTransition {
         cancelled: AgentPromptId,
         next: Option<AgentPromptId>,
     },
-    Missing { prompt_id: AgentPromptId },
+    Missing {
+        prompt_id: AgentPromptId,
+    },
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -102,12 +108,18 @@ mod tests {
         let second = AgentPromptId::new();
         let third = AgentPromptId::new();
 
-        assert_eq!(queue.submit(first), QueueTransition::Started { prompt_id: first });
+        assert_eq!(
+            queue.submit(first),
+            QueueTransition::Started { prompt_id: first }
+        );
         assert_eq!(
             queue.submit(second),
             QueueTransition::Queued { prompt_id: second }
         );
-        assert_eq!(queue.submit(third), QueueTransition::Queued { prompt_id: third });
+        assert_eq!(
+            queue.submit(third),
+            QueueTransition::Queued { prompt_id: third }
+        );
         assert_eq!(queue.active(), Some(first));
         assert_eq!(queue.queued(), vec![second, third]);
 

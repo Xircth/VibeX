@@ -12,9 +12,7 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
-        execution_process::{
-            ExecutionContext, ExecutionProcess, ExecutionProcessStatus,
-        },
+        execution_process::{ExecutionContext, ExecutionProcess, ExecutionProcessStatus},
         execution_process_repo_state::ExecutionProcessRepoState,
         repo::Repo,
         task::{Task, TaskStatus},
@@ -1500,7 +1498,6 @@ mod tests {
         DBService,
         models::{
             execution_process::{ExecutionProcess, ExecutionProcessStatus},
-            execution_process_logs::ExecutionProcessLogs,
             execution_process_repo_state::{
                 CreateExecutionProcessRepoState, ExecutionProcessRepoState,
             },
@@ -1508,11 +1505,9 @@ mod tests {
             workspace::Workspace,
         },
     };
-    use executors::{
-        actions::{
-            ExecutorAction, ExecutorActionType,
-            script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
-        },
+    use executors::actions::{
+        ExecutorAction, ExecutorActionType,
+        script::{ScriptContext, ScriptRequest, ScriptRequestLanguage},
     };
     use git::GitService;
     use services::services::{

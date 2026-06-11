@@ -47,7 +47,6 @@ pub enum ProfileError {
 
     #[error(transparent)]
     Serde(#[from] serde_json::Error),
-
 }
 
 static EXECUTOR_PROFILES_CACHE: LazyLock<RwLock<ExecutorConfigs>> =
@@ -508,7 +507,6 @@ impl ExecutorConfigs {
             panic!("Default profiles v3 JSON is invalid")
         })
     }
-
 }
 
 pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {

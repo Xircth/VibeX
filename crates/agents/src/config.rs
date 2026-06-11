@@ -42,7 +42,11 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
                 "~/.claude/projects",
                 "%USERPROFILE%\\.claude\\projects",
             )],
-            config_paths: vec![path_template(None, "~/.claude.json", "%USERPROFILE%\\.claude.json")],
+            config_paths: vec![path_template(
+                None,
+                "~/.claude.json",
+                "%USERPROFILE%\\.claude.json",
+            )],
             strategy: AgentConfigStrategy::FileJson,
         },
         AgentType::Codex => AgentConfigSurface {
@@ -115,4 +119,3 @@ mod tests {
         assert_eq!(surface.auth_paths[0].env_var.as_deref(), Some("CODEX_HOME"));
     }
 }
-

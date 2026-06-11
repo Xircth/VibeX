@@ -9,8 +9,7 @@ use serde_json::{Map, Value};
 use ts_rs::TS;
 
 use crate::{
-    AgentError, AgentResult, AgentType, claude_config_path, codex_config_path,
-    opencode_config_path,
+    AgentError, AgentResult, AgentType, claude_config_path, codex_config_path, opencode_config_path,
 };
 
 static DEFAULT_MCP_JSON: &str = include_str!("../default_mcp.json");
@@ -128,11 +127,11 @@ pub async fn write_agent_mcp_config(
     config: &Value,
 ) -> AgentResult<()> {
     if mcp_config.is_toml_config {
-        let toml_value: toml::Value =
-            serde_json::from_str(&serde_json::to_string(config).map_err(|error| {
-                AgentError::Runtime(error.to_string())
-            })?)
-            .map_err(|error| AgentError::Runtime(error.to_string()))?;
+        let toml_value: toml::Value = serde_json::from_str(
+            &serde_json::to_string(config)
+                .map_err(|error| AgentError::Runtime(error.to_string()))?,
+        )
+        .map_err(|error| AgentError::Runtime(error.to_string()))?;
         let toml_content = toml::to_string_pretty(&toml_value)
             .map_err(|error| AgentError::Runtime(error.to_string()))?;
         tokio::fs::write(config_path, toml_content)
@@ -185,11 +184,7 @@ fn deep_merge_cst_object(cst_obj: &CstObject, new_obj: &Map<String, Value>) {
     let existing_keys: Vec<String> = cst_obj
         .properties()
         .iter()
-        .filter_map(|property| {
-            property
-                .name()
-                .and_then(|name| name.decoded_value().ok())
-        })
+        .filter_map(|property| property.name().and_then(|name| name.decoded_value().ok()))
         .collect();
 
     for key in &existing_keys {

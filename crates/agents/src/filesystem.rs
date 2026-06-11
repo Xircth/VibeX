@@ -17,4 +17,3 @@ pub struct AgentFileWriteRequest {
     pub path: String,
     pub content: String,
 }
-

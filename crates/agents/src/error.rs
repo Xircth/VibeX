@@ -19,4 +19,3 @@ pub enum AgentError {
     #[error("agent runtime error: {0}")]
     Runtime(String),
 }
-

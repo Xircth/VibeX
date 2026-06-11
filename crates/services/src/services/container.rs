@@ -47,10 +47,8 @@ use utils::{
 use uuid::Uuid;
 
 use crate::services::{
-    container_actions, container_workflow,
-    notification::NotificationService,
-    workspace_manager::WorkspaceError as WorkspaceManagerError,
-    workspace_paths,
+    container_actions, container_workflow, notification::NotificationService,
+    workspace_manager::WorkspaceError as WorkspaceManagerError, workspace_paths,
     worktree_manager::WorktreeError,
 };
 pub type ContainerRef = String;
@@ -188,7 +186,10 @@ fn acp_slash_command_catalog(agent_type: AgentType) -> Vec<SlashCommandDescripti
                 "goal",
                 "Set, inspect, pause, resume, or clear a long-running goal",
             ),
-            slash_command("init", "Create an AGENTS.md file with repository instructions"),
+            slash_command(
+                "init",
+                "Create an AGENTS.md file with repository instructions",
+            ),
             slash_command("plan", "Switch to planning-oriented Codex behavior"),
             slash_command("review", "Review code with optional instructions"),
         ],
@@ -1095,7 +1096,8 @@ pub trait ContainerService {
             return Err(start_error);
         }
 
-        self.start_success_log_streaming(execution_process.id).await?;
+        self.start_success_log_streaming(execution_process.id)
+            .await?;
         Ok(execution_process)
     }
 

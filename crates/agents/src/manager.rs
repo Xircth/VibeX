@@ -1,15 +1,21 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use agent_client_protocol as acp;
-use agent_client_protocol::{Agent, ConnectionTo};
-use agent_client_protocol::schema::{
-    AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
-    ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
-    InitializeRequest, KillTerminalRequest, KillTerminalResponse, NewSessionRequest,
-    PromptRequest, ProtocolVersion, ReleaseTerminalResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TerminalId,
-    TerminalOutputResponse, TextContent, WaitForTerminalExitResponse,
+use agent_client_protocol::{
+    Agent, ConnectionTo,
+    schema::{
+        AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
+        ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
+        InitializeRequest, KillTerminalRequest, KillTerminalResponse, NewSessionRequest,
+        PromptRequest, ProtocolVersion, ReleaseTerminalResponse, RequestPermissionOutcome,
+        RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
+        SessionNotification, SessionUpdate, TerminalId, TerminalOutputResponse, TextContent,
+        WaitForTerminalExitResponse,
+    },
 };
 use futures::StreamExt;
 use tokio::{
@@ -321,16 +327,16 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::RespondPermission {
                     permission_id,
                     response,
-                } => self.respond_pending_permission(&permission_id, response).await,
+                } => {
+                    self.respond_pending_permission(&permission_id, response)
+                        .await
+                }
                 AgentConnectionCommand::Disconnect => break,
             }
         }
     }
 
-    async fn run_acp(
-        &self,
-        mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
-    ) -> AgentResult<()> {
+    async fn run_acp(&self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) -> AgentResult<()> {
         let _ = refresh_process_path().await;
         let entry = registry_entry(self.snapshot.agent_type);
         let command_parts = entry.distribution.command_parts(&CommandBuildInput {
@@ -498,7 +504,9 @@ impl AgentConnectionRunner {
                             permission_id,
                             response,
                         } => {
-                            runner.respond_pending_permission(&permission_id, response).await;
+                            runner
+                                .respond_pending_permission(&permission_id, response)
+                                .await;
                         }
                         AgentConnectionCommand::Disconnect => break,
                     }
@@ -515,16 +523,15 @@ impl AgentConnectionRunner {
     async fn ensure_acp_session(
         &self,
         conn: &ConnectionTo<Agent>,
-        working_dir: &PathBuf,
+        working_dir: &Path,
         session_id: AgentSessionId,
-    ) -> Result<String, acp::Error>
-    {
+    ) -> Result<String, acp::Error> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
             return Ok(existing);
         }
 
         let response = conn
-            .send_request(NewSessionRequest::new(working_dir.clone()))
+            .send_request(NewSessionRequest::new(working_dir.to_path_buf()))
             .block_task()
             .await?;
         let acp_session_id = response.session_id.0.to_string();
@@ -543,8 +550,7 @@ impl AgentConnectionRunner {
         prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
         cmd_rx: &mut mpsc::Receiver<AgentConnectionCommand>,
-    ) -> Result<(), acp::Error>
-    {
+    ) -> Result<(), acp::Error> {
         let request = PromptRequest::new(
             SessionId::new(acp_session_id.clone()),
             blocks.into_iter().map(agent_block_to_acp).collect(),
@@ -665,9 +671,8 @@ impl AgentConnectionRunner {
             let mut pending_permissions = self.pending_permissions.lock().await;
             let permission_ids = pending_permissions
                 .iter()
-                .filter_map(|(permission_id, pending)| {
-                    (pending.session_id == session_id).then(|| permission_id.clone())
-                })
+                .filter(|(_, pending)| pending.session_id == session_id)
+                .map(|(permission_id, _)| permission_id.clone())
                 .collect::<Vec<_>>();
 
             permission_ids
@@ -747,9 +752,8 @@ impl AcpClientBridge {
                     .ok_or_else(acp::Error::invalid_params)?;
                 let mut response = TerminalOutputResponse::new(snapshot.output, snapshot.truncated);
                 if let Some(AgentTerminalExit::Code { code }) = snapshot.exit {
-                    let exit_status =
-                        agent_client_protocol::schema::TerminalExitStatus::new()
-                            .exit_code(code as u32);
+                    let exit_status = agent_client_protocol::schema::TerminalExitStatus::new()
+                        .exit_code(code as u32);
                     response = response.exit_status(exit_status);
                 }
                 Ok(ClientResponse::TerminalOutputResponse(response))
@@ -780,9 +784,9 @@ impl AcpClientBridge {
                     WaitForTerminalExitResponse::new(exit_status),
                 ))
             }
-            AgentRequest::KillTerminalRequest(args) => {
-                Ok(ClientResponse::KillTerminalResponse(self.kill_terminal(args).await?))
-            }
+            AgentRequest::KillTerminalRequest(args) => Ok(ClientResponse::KillTerminalResponse(
+                self.kill_terminal(args).await?,
+            )),
             AgentRequest::ReadTextFileRequest(_)
             | AgentRequest::WriteTextFileRequest(_)
             | AgentRequest::ExtMethodRequest(_) => Err(acp::Error::method_not_found()),
@@ -859,7 +863,9 @@ impl AcpClientBridge {
 
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         let raw_notification = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
-        let session_id = self.agent_session_for_acp(args.session_id.0.to_string()).await;
+        let session_id = self
+            .agent_session_for_acp(args.session_id.0.to_string())
+            .await;
         let event = match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => Some(AgentEvent::MessageChunk {
                 content: acp_content_to_agent(chunk.content),
@@ -975,12 +981,12 @@ fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
 fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
     match block {
         AgentContentBlock::Text { text } => ContentBlock::Text(TextContent::new(text)),
-        AgentContentBlock::Image { data, mime_type, uri } => {
-            ContentBlock::Image(ImageContent::new(data, mime_type).uri(uri))
-        }
-        AgentContentBlock::Resource { uri, .. } => {
-            ContentBlock::Text(TextContent::new(uri))
-        }
+        AgentContentBlock::Image {
+            data,
+            mime_type,
+            uri,
+        } => ContentBlock::Image(ImageContent::new(data, mime_type).uri(uri)),
+        AgentContentBlock::Resource { uri, .. } => ContentBlock::Text(TextContent::new(uri)),
     }
 }
 

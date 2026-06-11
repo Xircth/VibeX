@@ -178,7 +178,7 @@ pub async fn create_workspace(
         let agent_session = state
             .agent_runtime
             .ensure_session(EnsureAgentSessionInput {
-                agent_type: agent_type_from_executor(payload.executor_profile_id.executor.clone())?,
+                agent_type: agent_type_from_executor(payload.executor_profile_id.executor)?,
                 workspace_id: workspace.id,
                 working_dir: PathBuf::from(working_dir),
                 session_id: agent_session_id,

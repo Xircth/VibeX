@@ -344,6 +344,81 @@ fn status_kind(status: &AgentPromptStatus) -> &'static str {
     }
 }
 
+fn terminal_title(source: AgentTerminalSource, command: &str) -> String {
+    let name = command
+        .split_whitespace()
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Terminal");
+    match source {
+        AgentTerminalSource::Acp => format!("ACP {name}"),
+    }
+}
+
+pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
+    let acp_app_handle = app.clone();
+    let acp_pool = state.deployment.db().pool.clone();
+    let mut acp_lifecycle_rx = agent_terminal_registry().subscribe_lifecycle();
+
+    tauri::async_runtime::spawn(async move {
+        let mut workspace_by_session: std::collections::HashMap<Uuid, Option<Uuid>> =
+            std::collections::HashMap::new();
+
+        loop {
+            match acp_lifecycle_rx.recv().await {
+                Ok(AgentTerminalLifecycleEvent::Created(event)) => {
+                    let workspace_id = match event.cwd.as_ref().and_then(|cwd| cwd.to_str()) {
+                        Some(path) => Workspace::resolve_container_ref_by_prefix(&acp_pool, path)
+                            .await
+                            .ok()
+                            .map(|info| info.workspace_id),
+                        None => None,
+                    };
+
+                    workspace_by_session.insert(event.terminal_id.0, workspace_id);
+
+                    let command = if event.args.is_empty() {
+                        event.command
+                    } else {
+                        format!("{} {}", event.command, event.args.join(" "))
+                    };
+                    let payload = AgentTerminalUiEvent::Created {
+                        source: AgentTerminalSource::Acp,
+                        session_id: event.terminal_id.0,
+                        workspace_id,
+                        title: terminal_title(AgentTerminalSource::Acp, &command),
+                        command,
+                        cwd: event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
+                    };
+
+                    if acp_app_handle
+                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
+                    let workspace_id = workspace_by_session.remove(&terminal_id.0).flatten();
+                    let payload = AgentTerminalUiEvent::Released {
+                        source: AgentTerminalSource::Acp,
+                        session_id: terminal_id.0,
+                        workspace_id,
+                    };
+                    if acp_app_handle
+                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use agents::{
@@ -468,79 +543,4 @@ mod tests {
         assert!(session_json.contains("acp-session"));
         assert_eq!(latest_kinds, vec!["raw_acp_diagnostic", "session_created"]);
     }
-}
-
-fn terminal_title(source: AgentTerminalSource, command: &str) -> String {
-    let name = command
-        .split_whitespace()
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("Terminal");
-    match source {
-        AgentTerminalSource::Acp => format!("ACP {name}"),
-    }
-}
-
-pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
-    let acp_app_handle = app.clone();
-    let acp_pool = state.deployment.db().pool.clone();
-    let mut acp_lifecycle_rx = agent_terminal_registry().subscribe_lifecycle();
-
-    tauri::async_runtime::spawn(async move {
-        let mut workspace_by_session: std::collections::HashMap<Uuid, Option<Uuid>> =
-            std::collections::HashMap::new();
-
-        loop {
-            match acp_lifecycle_rx.recv().await {
-                Ok(AgentTerminalLifecycleEvent::Created(event)) => {
-                    let workspace_id = match event.cwd.as_ref().and_then(|cwd| cwd.to_str()) {
-                        Some(path) => Workspace::resolve_container_ref_by_prefix(&acp_pool, path)
-                            .await
-                            .ok()
-                            .map(|info| info.workspace_id),
-                        None => None,
-                    };
-
-                    workspace_by_session.insert(event.terminal_id.0, workspace_id);
-
-                    let command = if event.args.is_empty() {
-                        event.command
-                    } else {
-                        format!("{} {}", event.command, event.args.join(" "))
-                    };
-                    let payload = AgentTerminalUiEvent::Created {
-                        source: AgentTerminalSource::Acp,
-                        session_id: event.terminal_id.0,
-                        workspace_id,
-                        title: terminal_title(AgentTerminalSource::Acp, &command),
-                        command,
-                        cwd: event.cwd.and_then(|cwd| cwd.to_str().map(str::to_string)),
-                    };
-
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
-                    let workspace_id = workspace_by_session.remove(&terminal_id.0).flatten();
-                    let payload = AgentTerminalUiEvent::Released {
-                        source: AgentTerminalSource::Acp,
-                        session_id: terminal_id.0,
-                        workspace_id,
-                    };
-                    if acp_app_handle
-                        .emit(channels::AGENT_TERMINAL_EVENTS, &payload)
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
 }

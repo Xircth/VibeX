@@ -24,10 +24,7 @@ pub enum AgentAvailabilityInfo {
 
 impl AgentAvailabilityInfo {
     pub fn is_available(&self) -> bool {
-        matches!(
-            self,
-            Self::LoginDetected { .. } | Self::InstallationFound
-        )
+        matches!(self, Self::LoginDetected { .. } | Self::InstallationFound)
     }
 }
 
@@ -63,9 +60,7 @@ pub fn agent_availability(agent_type: AgentType) -> AgentAvailabilityInfo {
             }
 
             let has_codex_files = codex_home()
-                .map(|home| {
-                    home.join("version.json").exists() || home.join("config.toml").exists()
-                })
+                .map(|home| home.join("version.json").exists() || home.join("config.toml").exists())
                 .unwrap_or(false);
             if has_codex_files {
                 AgentAvailabilityInfo::InstallationFound

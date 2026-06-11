@@ -3,23 +3,28 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::ids::{
-    AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId,
+use crate::{
+    ids::{AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId},
+    permissions::{AgentPermissionRequest, AgentPermissionResponse},
+    state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot},
 };
-use crate::permissions::{AgentPermissionRequest, AgentPermissionResponse};
-use crate::state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
 pub enum AgentContentBlock {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     Image {
         data: String,
         mime_type: String,
         uri: Option<String>,
     },
-    Resource { uri: String, title: Option<String> },
+    Resource {
+        uri: String,
+        title: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

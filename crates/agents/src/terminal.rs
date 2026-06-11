@@ -158,15 +158,15 @@ impl AgentTerminalRegistry {
         self.spawn_reader(stderr, Arc::clone(&session), args.output_byte_limit);
         self.spawn_waiter(Arc::clone(&session));
 
-        let _ =
-            self.lifecycle_tx
-                .send(AgentTerminalLifecycleEvent::Created(AgentTerminalCreateEvent {
-                    terminal_id,
-                    session_id: args.session_id,
-                    cwd,
-                    command: args.command.clone(),
-                    args: args.args.clone(),
-                }));
+        let _ = self.lifecycle_tx.send(AgentTerminalLifecycleEvent::Created(
+            AgentTerminalCreateEvent {
+                terminal_id,
+                session_id: args.session_id,
+                cwd,
+                command: args.command.clone(),
+                args: args.args.clone(),
+            },
+        ));
 
         Ok(terminal_id)
     }

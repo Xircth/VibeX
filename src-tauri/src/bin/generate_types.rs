@@ -1,5 +1,19 @@
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
 
+use agents::{
+    AgentConfigStrategy, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
+    AgentConnectionStatus, AgentContentBlock, AgentDistribution, AgentErrorEvent, AgentEvent,
+    AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentInstallPlan,
+    AgentInstallStatus, AgentMcpStrategy, AgentMcpSurface, AgentPermissionId,
+    AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
+    AgentPreflight, AgentPreflightIssue, AgentPreflightSeverity, AgentPromptFinished,
+    AgentPromptId, AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry,
+    AgentSessionId, AgentSessionSnapshot, AgentSessionStatus, AgentSkillsStrategy,
+    AgentSkillsSurface, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
+    AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
+    AgentToolCall, AgentToolCallUpdate, AgentType, AgentUsage, CommandParts, PathTemplate,
+    PlatformBinary, QueueTransition, RuntimeSnapshot, SystemCommand,
+};
 use db::models::{
     scratch::DraftFollowUpData,
     session::{CreateSession, Session, SessionStatus},
@@ -191,6 +205,58 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<WorkspaceRepo>(&mut decls);
     insert_declaration::<RepoWithTargetBranch>(&mut decls);
     insert_declaration::<GitBranch>(&mut decls);
+    insert_declaration::<AgentType>(&mut decls);
+    insert_declaration::<AgentRegistryEntry>(&mut decls);
+    insert_declaration::<AgentDistribution>(&mut decls);
+    insert_declaration::<PlatformBinary>(&mut decls);
+    insert_declaration::<SystemCommand>(&mut decls);
+    insert_declaration::<CommandParts>(&mut decls);
+    insert_declaration::<AgentConfigSurface>(&mut decls);
+    insert_declaration::<AgentConfigStrategy>(&mut decls);
+    insert_declaration::<PathTemplate>(&mut decls);
+    insert_declaration::<AgentMcpSurface>(&mut decls);
+    insert_declaration::<AgentMcpStrategy>(&mut decls);
+    insert_declaration::<AgentSkillsSurface>(&mut decls);
+    insert_declaration::<AgentSkillsStrategy>(&mut decls);
+    insert_declaration::<AgentConnectionId>(&mut decls);
+    insert_declaration::<AgentSessionId>(&mut decls);
+    insert_declaration::<AgentPromptId>(&mut decls);
+    insert_declaration::<AgentPermissionId>(&mut decls);
+    insert_declaration::<AgentTerminalId>(&mut decls);
+    insert_declaration::<AgentConnectionStatus>(&mut decls);
+    insert_declaration::<AgentSessionStatus>(&mut decls);
+    insert_declaration::<AgentPromptStatus>(&mut decls);
+    insert_declaration::<AgentConnectionSnapshot>(&mut decls);
+    insert_declaration::<AgentSessionSnapshot>(&mut decls);
+    insert_declaration::<AgentPromptSnapshot>(&mut decls);
+    insert_declaration::<AgentPromptQueue>(&mut decls);
+    insert_declaration::<QueueTransition>(&mut decls);
+    insert_declaration::<AgentEventEnvelope>(&mut decls);
+    insert_declaration::<AgentEvent>(&mut decls);
+    insert_declaration::<AgentContentBlock>(&mut decls);
+    insert_declaration::<AgentToolCall>(&mut decls);
+    insert_declaration::<AgentToolCallUpdate>(&mut decls);
+    insert_declaration::<AgentPlan>(&mut decls);
+    insert_declaration::<AgentUsage>(&mut decls);
+    insert_declaration::<AgentPromptFinished>(&mut decls);
+    insert_declaration::<AgentErrorEvent>(&mut decls);
+    insert_declaration::<AgentTerminalOutput>(&mut decls);
+    insert_declaration::<AgentTerminalSnapshot>(&mut decls);
+    insert_declaration::<AgentPermissionOption>(&mut decls);
+    insert_declaration::<AgentPermissionRequest>(&mut decls);
+    insert_declaration::<AgentPermissionResponse>(&mut decls);
+    insert_declaration::<AgentTerminalCreateRequest>(&mut decls);
+    insert_declaration::<AgentTerminalEnvVar>(&mut decls);
+    insert_declaration::<AgentTerminalOutputSnapshot>(&mut decls);
+    insert_declaration::<AgentTerminalExit>(&mut decls);
+    insert_declaration::<AgentFileReadRequest>(&mut decls);
+    insert_declaration::<AgentFileWriteRequest>(&mut decls);
+    insert_declaration::<AgentInstallPlan>(&mut decls);
+    insert_declaration::<AgentInstallStatus>(&mut decls);
+    insert_declaration::<AgentPreflight>(&mut decls);
+    insert_declaration::<AgentPreflightIssue>(&mut decls);
+    insert_declaration::<AgentPreflightSeverity>(&mut decls);
+    insert_declaration::<RuntimeSnapshot>(&mut decls);
     decls
 }
 

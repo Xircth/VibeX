@@ -15,8 +15,8 @@ pub mod manager;
 pub mod mcp;
 pub mod permissions;
 pub mod config;
-pub mod runtime;
 pub mod registry;
+pub mod runtime;
 pub mod session;
 pub mod skills;
 pub mod state;
@@ -24,6 +24,7 @@ pub mod terminal;
 
 pub use distribution::{
     AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
+    SystemCommand,
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -58,4 +59,6 @@ pub use state::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentPromptSnapshot, AgentPromptStatus,
     AgentSessionSnapshot, AgentSessionStatus,
 };
-pub use terminal::{AgentTerminalCreateRequest, AgentTerminalExit, AgentTerminalOutputSnapshot};
+pub use terminal::{
+    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalOutputSnapshot,
+};

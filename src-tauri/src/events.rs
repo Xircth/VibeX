@@ -1,6 +1,6 @@
 use db::models::workspace::Workspace;
 use deployment::Deployment;
-use executors::executors::acp::{AcpTerminalLifecycleEvent, acp_terminal_registry};
+use agents::terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry};
 use futures::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -92,7 +92,7 @@ fn terminal_title(source: AgentTerminalSource, command: &str) -> String {
 pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
     let acp_app_handle = app.clone();
     let acp_pool = state.deployment.db().pool.clone();
-    let mut acp_lifecycle_rx = acp_terminal_registry().subscribe_lifecycle();
+    let mut acp_lifecycle_rx = agent_terminal_registry().subscribe_lifecycle();
 
     tauri::async_runtime::spawn(async move {
         let mut workspace_by_session: std::collections::HashMap<Uuid, Option<Uuid>> =
@@ -100,7 +100,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
 
         loop {
             match acp_lifecycle_rx.recv().await {
-                Ok(AcpTerminalLifecycleEvent::Created(event)) => {
+                Ok(AgentTerminalLifecycleEvent::Created(event)) => {
                     let workspace_id = match event.cwd.as_ref().and_then(|cwd| cwd.to_str()) {
                         Some(path) => Workspace::resolve_container_ref_by_prefix(&acp_pool, path)
                             .await
@@ -109,7 +109,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         None => None,
                     };
 
-                    workspace_by_session.insert(event.session_id, workspace_id);
+                    workspace_by_session.insert(event.terminal_id.0, workspace_id);
 
                     let command = if event.args.is_empty() {
                         event.command
@@ -118,7 +118,7 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                     };
                     let payload = AgentTerminalUiEvent::Created {
                         source: AgentTerminalSource::Acp,
-                        session_id: event.session_id,
+                        session_id: event.terminal_id.0,
                         workspace_id,
                         title: terminal_title(AgentTerminalSource::Acp, &command),
                         command,
@@ -132,11 +132,11 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
                         break;
                     }
                 }
-                Ok(AcpTerminalLifecycleEvent::Released { session_id }) => {
-                    let workspace_id = workspace_by_session.remove(&session_id).flatten();
+                Ok(AgentTerminalLifecycleEvent::Released { terminal_id }) => {
+                    let workspace_id = workspace_by_session.remove(&terminal_id.0).flatten();
                     let payload = AgentTerminalUiEvent::Released {
                         source: AgentTerminalSource::Acp,
-                        session_id,
+                        session_id: terminal_id.0,
                         workspace_id,
                     };
                     if acp_app_handle

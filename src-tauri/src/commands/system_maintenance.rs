@@ -84,18 +84,6 @@ const TOOL_SPECS: &[ToolSpec] = &[
         minimum_supported_version: Some("2.1.143"),
     },
     ToolSpec {
-        id: "claude_agent_sdk",
-        label: "Claude Agent SDK",
-        kind: "sdk",
-        group_id: "claude",
-        user_visible: false,
-        executable: "",
-        npm_package: "@anthropic-ai/claude-agent-sdk",
-        version_args: &[],
-        use_package_metadata_version: true,
-        minimum_supported_version: Some("0.3.143"),
-    },
-    ToolSpec {
         id: "claude_acp",
         label: "Claude Code ACP",
         kind: "acp",
@@ -141,18 +129,6 @@ const TOOL_SPECS: &[ToolSpec] = &[
         npm_package: "opencode-ai",
         version_args: &["--version"],
         use_package_metadata_version: false,
-        minimum_supported_version: Some("1.15.4"),
-    },
-    ToolSpec {
-        id: "opencode_sdk",
-        label: "OpenCode SDK",
-        kind: "sdk",
-        group_id: "opencode",
-        user_visible: false,
-        executable: "",
-        npm_package: "@opencode-ai/sdk",
-        version_args: &[],
-        use_package_metadata_version: true,
         minimum_supported_version: Some("1.15.4"),
     },
 ];
@@ -738,60 +714,13 @@ mod tests {
                     update_available: false,
                     error: None,
                 },
-                LocalToolStatus {
-                    id: "opencode_sdk".to_string(),
-                    label: "OpenCode SDK".to_string(),
-                    kind: "sdk".to_string(),
-                    group_id: "opencode".to_string(),
-                    user_visible: false,
-                    executable: "".to_string(),
-                    npm_package: "@opencode-ai/sdk".to_string(),
-                    installed: false,
-                    executable_path: None,
-                    installed_version: None,
-                    latest_version: None,
-                    minimum_supported_version: Some("1.15.4".to_string()),
-                    supported: false,
-                    update_available: false,
-                    error: None,
-                },
             ],
         };
         let groups = selected_tool_groups(Some(&["opencode_cli_acp".to_string()])).unwrap();
 
         assert_eq!(
             installable_packages_for_status(&status, Some(&groups), false),
-            vec!["@opencode-ai/sdk".to_string()]
+            Vec::<String>::new()
         );
-    }
-
-    #[test]
-    fn claude_sdk_is_checked_as_hidden_global_dependency() {
-        let sdk = TOOL_SPECS
-            .iter()
-            .find(|spec| spec.id == "claude_agent_sdk")
-            .expect("Claude Agent SDK spec should exist");
-
-        assert_eq!(sdk.group_id, "claude");
-        assert!(!sdk.user_visible);
-        assert!(sdk.use_package_metadata_version);
-        assert!(sdk.executable.is_empty());
-        assert_eq!(sdk.npm_package, "@anthropic-ai/claude-agent-sdk");
-        assert_eq!(sdk.minimum_supported_version, Some("0.3.143"));
-    }
-
-    #[test]
-    fn opencode_sdk_is_checked_as_hidden_global_dependency() {
-        let sdk = TOOL_SPECS
-            .iter()
-            .find(|spec| spec.id == "opencode_sdk")
-            .expect("OpenCode SDK spec should exist");
-
-        assert_eq!(sdk.group_id, "opencode");
-        assert!(!sdk.user_visible);
-        assert!(sdk.use_package_metadata_version);
-        assert!(sdk.executable.is_empty());
-        assert_eq!(sdk.npm_package, "@opencode-ai/sdk");
-        assert_eq!(sdk.minimum_supported_version, Some("1.15.4"));
     }
 }

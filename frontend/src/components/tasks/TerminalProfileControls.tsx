@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Brain, ChevronDown, Cpu, Shield, Workflow } from 'lucide-react';
 import type {
   BaseCodingAgent,
@@ -47,7 +47,6 @@ import {
   mergeModelOptions,
   type CodexModelOption,
 } from '@/utils/executor';
-import { providerRuntimeApi } from '@/lib/providerRuntime';
 
 interface TerminalProfileControlsProps {
   profiles: ExecutorConfigs['executors'] | null;
@@ -272,36 +271,6 @@ export function TerminalProfileControls({
   const isCodex = executor === BaseCodingAgentEnum.CODEX;
   const isOpencode = executor === BaseCodingAgentEnum.OPENCODE;
   const { settings: claudeSettings } = useClaudeSettings();
-  const [openCodeSdkModelOptions, setOpenCodeSdkModelOptions] = useState<
-    CodexModelOption[]
-  >([]);
-
-  useEffect(() => {
-    if (!isOpencode) {
-      setOpenCodeSdkModelOptions([]);
-      return;
-    }
-
-    let cancelled = false;
-    providerRuntimeApi
-      .listModels('opencode')
-      .then((models) => {
-        if (cancelled) return;
-        setOpenCodeSdkModelOptions(
-          models.map((model) => ({
-            value: model.id,
-            label: model.label || model.id,
-          }))
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setOpenCodeSdkModelOptions([]);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpencode]);
 
   const contentClassName = className || 'flex flex-col gap-2 w-full';
 
@@ -523,7 +492,7 @@ export function TerminalProfileControls({
     const currentModel = selectedProfile.model ?? currentConfig.model;
     const modelOptions = mergeModelOptions(
       getOpenCodeModelOptions(profiles),
-      openCodeSdkModelOptions,
+      [],
       currentModel
     );
     const permissionOptions = getOpenCodePermissionOptions(profiles);

@@ -31,7 +31,7 @@ describe('local dependency maintenance helpers', () => {
   it('maps each agent card to its visible maintenance tool', () => {
     const tools = [
       tool({
-        id: 'claude_agent_sdk',
+        id: 'claude_acp',
         group_id: 'claude',
         user_visible: false,
       }),

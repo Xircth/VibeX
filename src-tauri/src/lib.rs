@@ -300,8 +300,6 @@ pub fn run() {
             commands::tags::delete_tag,
             // Approval commands
             commands::approvals::respond_to_approval,
-            // Codex account commands
-            commands::codex_account::get_codex_account_rate_limits,
             // ACP-native agent platform commands
             commands::agents::agent_registry_list,
             commands::agents::agent_config_surfaces,

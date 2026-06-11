@@ -99,15 +99,6 @@ export type {
   GetProjectUsageStatisticsParams,
 } from './localUsage';
 
-// Codex account quota
-export { codexAccountApi } from './codexAccount';
-export type {
-  CodexAccountRateLimitsResponse,
-  CodexCreditsSnapshot,
-  CodexRateLimitSnapshot,
-  CodexRateLimitWindow,
-} from './codexAccount';
-
 // ACP-native agents
 export { agentsApi } from '@/features/agents/api';
 export type {

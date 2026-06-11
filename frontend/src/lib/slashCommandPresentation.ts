@@ -1,13 +1,11 @@
 import { BaseCodingAgent, type SlashCommandDescription } from 'shared/types';
-import { getProviderFrontendAdapterByExecutor } from '@/features/provider-runtime/providerFrontendAdapters';
+import {
+  agentSlashCommandCatalog,
+  isAgentSlashCommandVisible,
+  type AgentSlashCommandIconKey,
+} from '@/features/agents/slashCommands';
 
-export type SlashCommandIconKey =
-  | 'compact'
-  | 'goal'
-  | 'review'
-  | 'init'
-  | 'mcp'
-  | 'command';
+export type SlashCommandIconKey = AgentSlashCommandIconKey;
 
 export type SlashCommandPresentation = {
   label: string;
@@ -20,11 +18,7 @@ export function isCoreSlashCommand(
   command: SlashCommandDescription,
   executor: BaseCodingAgent | null | undefined
 ): boolean {
-  return (
-    getProviderFrontendAdapterByExecutor(executor)?.isSlashCommandVisible(
-      command
-    ) ?? false
-  );
+  return isAgentSlashCommandVisible(command, executor);
 }
 
 export function isSlashCommandSkill(command: SlashCommandDescription): boolean {
@@ -35,10 +29,17 @@ export function getSlashCommandPresentation(
   command: SlashCommandDescription,
   executor: BaseCodingAgent | null | undefined
 ): SlashCommandPresentation {
-  const providerPresentation =
-    getProviderFrontendAdapterByExecutor(executor)?.getSlashCommandPresentation(
-      command
-    );
+  const providerCommand = agentSlashCommandCatalog(executor).find(
+    (item) => item.name === command.name
+  );
+  const providerPresentation = providerCommand
+    ? {
+        label: providerCommand.label ?? providerCommand.name,
+        description: providerCommand.description ?? null,
+        iconKey: providerCommand.iconKey ?? 'command',
+        isSkill: false,
+      }
+    : null;
 
   if (providerPresentation) {
     return providerPresentation;

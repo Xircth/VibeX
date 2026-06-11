@@ -9,7 +9,7 @@ import {
   isCoreSlashCommand,
   isSlashCommandSkill,
 } from '@/lib/slashCommandPresentation';
-import { getProviderFrontendAdapterByExecutor } from '@/features/provider-runtime/providerFrontendAdapters';
+import { agentSlashCommandCatalog } from '@/features/agents/slashCommands';
 
 type SlashCommandsStreamState = {
   commands: SlashCommandDescription[];
@@ -110,9 +110,7 @@ export function useSlashCommands(
 
   const error = data?.error ?? streamError;
   const streamedCommands = data?.commands ?? [];
-  const fallbackCommands =
-    getProviderFrontendAdapterByExecutor(executor)?.getFallbackSlashCommands() ??
-    [];
+  const fallbackCommands = agentSlashCommandCatalog(executor);
   const commands = mergeSlashCommands(
     executor ?? null,
     fallbackCommands,

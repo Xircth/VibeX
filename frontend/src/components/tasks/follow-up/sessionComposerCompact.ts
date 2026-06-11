@@ -1,7 +1,4 @@
-import type {
-  ExecutorProfileId,
-  ProviderRuntimeEvent,
-} from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import { isContextCompactPrompt } from '@/lib/contextCompact';
 
 export const CONTEXT_COMPACT_PROMPT = '/compact';
@@ -40,15 +37,6 @@ export function buildCompactContextTurnInput({
     executorProfileId: executorProfile,
     text: CONTEXT_COMPACT_PROMPT,
   };
-}
-
-export function getProviderRuntimeExecutionProcessId(
-  event: Pick<ProviderRuntimeEvent, 'event'>
-): string | null {
-  if (!event.event || typeof event.event !== 'object') return null;
-
-  const value = (event.event as Record<string, unknown>).execution_process_id;
-  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 export function shouldClearPendingCompactProcess(

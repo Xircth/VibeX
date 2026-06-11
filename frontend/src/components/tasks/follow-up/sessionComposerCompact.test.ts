@@ -4,7 +4,6 @@ import {
   buildCompactContextTurnInput,
   getCompactContextErrorMessage,
   getIsCompactingContext,
-  getProviderRuntimeExecutionProcessId,
   hasRunningContextCompactProcess,
   shouldClearPendingCompactProcess,
 } from './sessionComposerCompact';
@@ -80,20 +79,6 @@ describe('session composer compact helpers', () => {
         canCompact: false,
       })
     ).toBeNull();
-  });
-
-  it('extracts provider runtime execution process ids defensively', () => {
-    expect(
-      getProviderRuntimeExecutionProcessId({
-        event: { execution_process_id: 'process-1' },
-      })
-    ).toBe('process-1');
-    expect(
-      getProviderRuntimeExecutionProcessId({
-        event: { execution_process_id: '   ' },
-      })
-    ).toBeNull();
-    expect(getProviderRuntimeExecutionProcessId({ event: null })).toBeNull();
   });
 
   it('clears pending compact state when the process appears', () => {

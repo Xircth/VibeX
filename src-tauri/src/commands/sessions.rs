@@ -4,7 +4,6 @@ use std::{
 };
 
 use db::models::{
-    coding_agent_turn::CodingAgentTurn,
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
@@ -489,16 +488,13 @@ pub async fn get_session_summaries(
 
     let mut summaries = Vec::with_capacity(sessions.len());
     for session in sessions {
-        let first_prompt =
-            CodingAgentTurn::find_first_prompt_by_session_id(pool, session.id).await?;
-        let latest_resume_info =
-            CodingAgentTurn::find_latest_session_info(pool, session.id).await?;
+        let first_prompt = session.initial_prompt.clone();
         let is_running =
             ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
                 .await?;
         let continuity_mode = derive_session_continuity_mode(
             session.executor.as_deref(),
-            latest_resume_info.is_some(),
+            false,
         );
 
         summaries.push(SessionSummary {

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use db::models::{
-    coding_agent_turn::CodingAgentTurn,
     repo::{Repo, RepoError},
     task::{Task, TaskRelationships},
     workspace::Workspace,
@@ -85,8 +84,8 @@ pub async fn mark_workspace_seen(
     state: tauri::State<'_, AppState>,
     workspace_id: Uuid,
 ) -> Result<(), AppError> {
-    let pool = &state.deployment.db().pool;
-    CodingAgentTurn::mark_seen_by_workspace_id(pool, workspace_id).await?;
+    let _ = state;
+    let _ = workspace_id;
     Ok(())
 }
 

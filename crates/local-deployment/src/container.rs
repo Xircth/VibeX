@@ -12,7 +12,6 @@ use command_group::AsyncGroupChild;
 use db::{
     DBService,
     models::{
-        coding_agent_turn::CodingAgentTurn,
         execution_process::{
             ExecutionContext, ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus,
         },
@@ -30,7 +29,7 @@ use executors::{
     approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
     env::{ExecutionEnv, RepoContext},
     executors::{CancellationToken, ExecutorExitSignal, SpawnedChild},
-    logs::{NormalizedEntryType, utils::patch::extract_normalized_entry_from_patch},
+    logs::utils::ConversationPatch,
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
@@ -50,7 +49,7 @@ use tokio_util::io::ReaderStream;
 use utils::{
     log_msg::LogMsg,
     msg_store::MsgStore,
-    text::{git_branch_id, short_uuid, truncate_to_char_boundary},
+    text::{git_branch_id, short_uuid},
 };
 use uuid::Uuid;
 
@@ -468,40 +467,9 @@ impl LocalContainerService {
 
     /// Get the commit message based on the execution run reason.
     async fn get_commit_message(&self, ctx: &ExecutionContext) -> String {
-        let coding_agent_summary = if matches!(
-            ctx.execution_process.run_reason,
-            ExecutionProcessRunReason::CodingAgent
-        ) {
-            match CodingAgentTurn::find_by_execution_process_id(
-                &self.db().pool,
-                ctx.execution_process.id,
-            )
-            .await
-            {
-                Ok(Some(turn)) if turn.summary.is_some() => turn.summary,
-                Ok(_) => {
-                    tracing::debug!(
-                        "No summary found for execution process {}, using default message",
-                        ctx.execution_process.id
-                    );
-                    None
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "Failed to retrieve summary for execution process {}: {}",
-                        ctx.execution_process.id,
-                        e
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
         process_completion::commit_message_for_execution(
             &ctx.execution_process.run_reason,
-            coding_agent_summary.as_deref(),
+            None,
             ctx.execution_process.id,
             ctx.workspace.id,
         )
@@ -653,11 +621,6 @@ impl LocalContainerService {
             }
 
             if let Ok(ctx) = ExecutionProcess::load_context(&db.pool, exec_id).await {
-                // Update executor session summary if available
-                if let Err(e) = container.update_executor_session_summary(&exec_id).await {
-                    tracing::warn!("Failed to update executor session summary: {}", e);
-                }
-
                 if process_completion::should_commit_and_consider_next(
                     &ctx.execution_process.status,
                     &ctx.execution_process.run_reason,
@@ -804,56 +767,6 @@ impl LocalContainerService {
         diff_stream::create(args)
             .await
             .map_err(|e| ContainerError::Other(anyhow!("{e}")))
-    }
-
-    /// Extract the last assistant message from the MsgStore history
-    fn extract_last_assistant_message(&self, exec_id: &Uuid) -> Option<String> {
-        // Get the MsgStore for this execution
-        let msg_stores = self.msg_stores.try_read().ok()?;
-        let msg_store = msg_stores.get(exec_id)?;
-
-        // Get the history and scan in reverse for the last assistant message
-        let history = msg_store.get_history();
-
-        for msg in history.iter().rev() {
-            if let LogMsg::JsonPatch(patch) = msg {
-                // Try to extract a NormalizedEntry from the patch
-                if let Some((_, entry)) = extract_normalized_entry_from_patch(patch)
-                    && matches!(entry.entry_type, NormalizedEntryType::AssistantMessage)
-                {
-                    let content = entry.content.trim();
-                    if !content.is_empty() {
-                        const MAX_SUMMARY_LENGTH: usize = 4096;
-                        if content.len() > MAX_SUMMARY_LENGTH {
-                            let truncated = truncate_to_char_boundary(content, MAX_SUMMARY_LENGTH);
-                            return Some(format!("{truncated}..."));
-                        }
-                        return Some(content.to_string());
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Update the coding agent turn summary with the final assistant message
-    async fn update_executor_session_summary(&self, exec_id: &Uuid) -> Result<(), anyhow::Error> {
-        // Check if there's a coding agent turn for this execution process
-        let turn = CodingAgentTurn::find_by_execution_process_id(&self.db.pool, *exec_id).await?;
-
-        if let Some(turn) = turn {
-            // Only update if summary is not already set
-            if turn.summary.is_none() {
-                if let Some(summary) = self.extract_last_assistant_message(exec_id) {
-                    CodingAgentTurn::update_summary(&self.db.pool, *exec_id, &summary).await?;
-                } else {
-                    tracing::debug!("No assistant message found for execution {}", exec_id);
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// Copy project files and images to the workspace.
@@ -2135,7 +2048,7 @@ mod tests {
             INSERT INTO execution_processes (
                 id, session_id, run_reason, executor_action, status,
                 exit_code, dropped, started_at, completed_at, created_at, updated_at
-            ) VALUES (?, ?, 'codingagent', '{}', 'running', NULL, 0,
+            ) VALUES (?, ?, 'setupscript', '{}', 'running', NULL, 0,
                 '2026-05-20T00:00:00Z', NULL,
                 '2026-05-20T00:00:00Z', '2026-05-20T00:00:00Z'
             )
@@ -2184,7 +2097,7 @@ mod tests {
         let session_id = Uuid::new_v4();
         let process_id = Uuid::new_v4();
         insert_workspace_with_repo(&pool, &workspace, &repo).await;
-        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "codingagent")
+        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "setupscript")
             .await;
         ExecutionProcessRepoState::create_many(
             &pool,
@@ -2228,7 +2141,7 @@ mod tests {
         let session_id = Uuid::new_v4();
         let process_id = Uuid::new_v4();
         insert_workspace_with_repo(&pool, &workspace, &repo).await;
-        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "codingagent")
+        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "setupscript")
             .await;
         let container = test_container(pool.clone());
         let store = Arc::new(MsgStore::new());
@@ -2348,7 +2261,7 @@ mod tests {
         let session_id = Uuid::new_v4();
         let process_id = Uuid::new_v4();
         insert_workspace_with_repo(&pool, &workspace, &repo).await;
-        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "codingagent")
+        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "setupscript")
             .await;
         ExecutionProcessRepoState::create_many(
             &pool,
@@ -2497,7 +2410,7 @@ mod tests {
             &workspace,
             coding_session_id,
             coding_process_id,
-            "codingagent",
+            "setupscript",
         )
         .await;
         insert_stop_session_execution(
@@ -2514,7 +2427,7 @@ mod tests {
             &workspace,
             completed_session_id,
             completed_process_id,
-            "codingagent",
+            "setupscript",
             "completed",
         )
         .await;
@@ -2574,7 +2487,7 @@ mod tests {
             &pool,
             target_session_id,
             previous_process_id,
-            "codingagent",
+            "setupscript",
             "completed",
             "2026-05-20T00:00:00Z",
         )
@@ -2583,7 +2496,7 @@ mod tests {
             &pool,
             target_session_id,
             target_process_id,
-            "codingagent",
+            "setupscript",
             "completed",
             "2026-05-20T00:01:00Z",
         )
@@ -2592,7 +2505,7 @@ mod tests {
             &pool,
             target_session_id,
             running_process_id,
-            "codingagent",
+            "setupscript",
             "running",
             "2026-05-20T00:02:00Z",
         )
@@ -2656,7 +2569,7 @@ mod tests {
         let session_id = Uuid::new_v4();
         let process_id = Uuid::new_v4();
         insert_workspace_with_repo(&pool, &workspace, &repo).await;
-        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "codingagent")
+        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "setupscript")
             .await;
         ExecutionProcess::update_completion(
             &pool,
@@ -2700,7 +2613,7 @@ mod tests {
         let session_id = Uuid::new_v4();
         let process_id = Uuid::new_v4();
         insert_workspace_with_repo(&pool, &workspace, &repo).await;
-        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "codingagent")
+        insert_stop_execution_context(&pool, &workspace, session_id, process_id, "setupscript")
             .await;
         let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
         let _container = LocalContainerService::new(

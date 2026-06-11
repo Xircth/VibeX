@@ -709,20 +709,18 @@ impl Workspace {
         workspace_id: Uuid,
     ) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query!(
-            r#"SELECT cat.prompt
+            r#"SELECT s.initial_prompt
                FROM sessions s
-               JOIN execution_processes ep ON ep.session_id = s.id
-               JOIN coding_agent_turns cat ON cat.execution_process_id = ep.id
                WHERE s.workspace_id = $1
                  AND s.executor IS NOT NULL
-                 AND cat.prompt IS NOT NULL
-               ORDER BY s.created_at ASC, ep.created_at ASC
+                 AND s.initial_prompt IS NOT NULL
+               ORDER BY s.created_at ASC
                LIMIT 1"#,
             workspace_id
         )
         .fetch_optional(pool)
         .await?;
-        Ok(result.and_then(|r| r.prompt))
+        Ok(result.and_then(|r| r.initial_prompt))
     }
 
     pub fn truncate_to_name(prompt: &str, max_len: usize) -> String {
@@ -768,7 +766,7 @@ impl Workspace {
                     JOIN execution_processes ep ON ep.session_id = s.id
                     WHERE s.workspace_id = w.id
                       AND ep.status = 'running'
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                      AND ep.run_reason IN ('setupscript','cleanupscript')
                     LIMIT 1
                 ) THEN 1 ELSE 0 END AS is_running,
 
@@ -777,7 +775,7 @@ impl Workspace {
                     FROM sessions s
                     JOIN execution_processes ep ON ep.session_id = s.id
                     WHERE s.workspace_id = w.id
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                      AND ep.run_reason IN ('setupscript','cleanupscript')
                     ORDER BY ep.created_at DESC
                     LIMIT 1
                 ) IN ('failed','killed') THEN 1 ELSE 0 END AS is_errored
@@ -900,7 +898,7 @@ impl Workspace {
                     JOIN execution_processes ep ON ep.session_id = s.id
                     WHERE s.workspace_id = w.id
                       AND ep.status = 'running'
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                      AND ep.run_reason IN ('setupscript','cleanupscript')
                     LIMIT 1
                 ) THEN 1 ELSE 0 END AS is_running,
 
@@ -909,7 +907,7 @@ impl Workspace {
                     FROM sessions s
                     JOIN execution_processes ep ON ep.session_id = s.id
                     WHERE s.workspace_id = w.id
-                      AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                      AND ep.run_reason IN ('setupscript','cleanupscript')
                     ORDER BY ep.created_at DESC
                     LIMIT 1
                 ) IN ('failed','killed') THEN 1 ELSE 0 END AS is_errored

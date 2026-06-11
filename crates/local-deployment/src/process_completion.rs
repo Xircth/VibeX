@@ -75,10 +75,7 @@ pub(crate) fn should_commit_and_consider_next(
 }
 
 pub(crate) fn should_try_commit_changes(run_reason: &ExecutionProcessRunReason) -> bool {
-    matches!(
-        run_reason,
-        ExecutionProcessRunReason::CodingAgent | ExecutionProcessRunReason::CleanupScript
-    )
+    matches!(run_reason, ExecutionProcessRunReason::CleanupScript)
 }
 
 pub(crate) fn should_mark_task_in_review_after_stop(
@@ -98,34 +95,25 @@ pub(crate) fn should_create_executor_approval_bridge(
 
 pub(crate) fn should_start_next_after_commit(
     run_reason: &ExecutionProcessRunReason,
-    changes_committed: bool,
-    has_commits_from_execution: bool,
+    _changes_committed: bool,
+    _has_commits_from_execution: bool,
 ) -> bool {
-    if matches!(run_reason, ExecutionProcessRunReason::CodingAgent) {
-        changes_committed || has_commits_from_execution
-    } else {
-        true
-    }
+    !matches!(run_reason, ExecutionProcessRunReason::DevServer)
 }
 
 pub(crate) fn should_inspect_commits_from_execution(
-    run_reason: &ExecutionProcessRunReason,
+    _run_reason: &ExecutionProcessRunReason,
 ) -> bool {
-    matches!(run_reason, ExecutionProcessRunReason::CodingAgent)
+    false
 }
 
 pub(crate) fn commit_message_for_execution(
     run_reason: &ExecutionProcessRunReason,
-    coding_agent_summary: Option<&str>,
+    _coding_agent_summary: Option<&str>,
     execution_process_id: Uuid,
     workspace_id: Uuid,
 ) -> String {
     match run_reason {
-        ExecutionProcessRunReason::CodingAgent => {
-            coding_agent_summary.map(str::to_string).unwrap_or_else(|| {
-                format!("Commit changes from coding agent for workspace {workspace_id}")
-            })
-        }
         ExecutionProcessRunReason::CleanupScript => {
             format!("Cleanup script changes for workspace {workspace_id}")
         }
@@ -197,12 +185,12 @@ mod tests {
     fn successful_processes_commit_and_consider_next() {
         assert!(should_commit_and_consider_next(
             &ExecutionProcessStatus::Completed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             Some(0),
         ));
         assert!(!should_commit_and_consider_next(
             &ExecutionProcessStatus::Completed,
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             Some(2),
         ));
     }
@@ -232,10 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn only_coding_agent_and_cleanup_script_try_commits() {
-        assert!(should_try_commit_changes(
-            &ExecutionProcessRunReason::CodingAgent
-        ));
+    fn only_cleanup_script_tries_commits() {
         assert!(should_try_commit_changes(
             &ExecutionProcessRunReason::CleanupScript
         ));
@@ -256,9 +241,6 @@ mod tests {
 
     #[test]
     fn stopped_non_dev_server_processes_mark_task_in_review() {
-        assert!(should_mark_task_in_review_after_stop(
-            &ExecutionProcessRunReason::CodingAgent
-        ));
         assert!(should_mark_task_in_review_after_stop(
             &ExecutionProcessRunReason::SetupScript
         ));
@@ -305,29 +287,26 @@ mod tests {
     }
 
     #[test]
-    fn coding_agent_next_action_requires_changes_or_commits() {
+    fn script_next_action_is_not_commit_gated() {
         assert!(should_start_next_after_commit(
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             true,
             false,
         ));
         assert!(should_start_next_after_commit(
-            &ExecutionProcessRunReason::CodingAgent,
+            &ExecutionProcessRunReason::SetupScript,
             false,
             true,
         ));
-        assert!(!should_start_next_after_commit(
-            &ExecutionProcessRunReason::CodingAgent,
+        assert!(should_start_next_after_commit(
+            &ExecutionProcessRunReason::SetupScript,
             false,
             false,
         ));
     }
 
     #[test]
-    fn only_coding_agent_runs_inspect_execution_commit_deltas() {
-        assert!(should_inspect_commits_from_execution(
-            &ExecutionProcessRunReason::CodingAgent
-        ));
+    fn no_execution_process_inspects_agent_commit_deltas() {
         assert!(!should_inspect_commits_from_execution(
             &ExecutionProcessRunReason::SetupScript
         ));
@@ -340,61 +319,6 @@ mod tests {
         assert!(!should_inspect_commits_from_execution(
             &ExecutionProcessRunReason::ArchiveScript
         ));
-    }
-
-    #[test]
-    fn non_coding_agent_next_action_is_not_commit_gated() {
-        assert!(should_start_next_after_commit(
-            &ExecutionProcessRunReason::SetupScript,
-            false,
-            false,
-        ));
-        assert!(should_start_next_after_commit(
-            &ExecutionProcessRunReason::CleanupScript,
-            false,
-            false,
-        ));
-    }
-
-    #[test]
-    fn commit_message_uses_coding_agent_summary_verbatim_when_present() {
-        let exec_id = Uuid::new_v4();
-        let workspace_id = Uuid::new_v4();
-
-        assert_eq!(
-            commit_message_for_execution(
-                &ExecutionProcessRunReason::CodingAgent,
-                Some("Reviewed widget flow"),
-                exec_id,
-                workspace_id,
-            ),
-            "Reviewed widget flow"
-        );
-        assert_eq!(
-            commit_message_for_execution(
-                &ExecutionProcessRunReason::CodingAgent,
-                Some(""),
-                exec_id,
-                workspace_id,
-            ),
-            ""
-        );
-    }
-
-    #[test]
-    fn commit_message_falls_back_for_coding_agent_without_summary() {
-        let exec_id = Uuid::new_v4();
-        let workspace_id = Uuid::new_v4();
-
-        assert_eq!(
-            commit_message_for_execution(
-                &ExecutionProcessRunReason::CodingAgent,
-                None,
-                exec_id,
-                workspace_id,
-            ),
-            format!("Commit changes from coding agent for workspace {workspace_id}")
-        );
     }
 
     #[test]

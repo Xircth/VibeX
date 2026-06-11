@@ -14,11 +14,7 @@ import { useKeySubmitTask } from '@/keyboard/hooks';
 import { Scope } from '@/keyboard/registry';
 import { executionProcessesApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import {
-  isCodingAgent,
-  PROCESS_RUN_REASONS,
-  shouldShowInLogs,
-} from '@/constants/processes';
+import { PROCESS_RUN_REASONS, shouldShowInLogs } from '@/constants/processes';
 import type {
   ExecutionProcess,
   ExecutionProcessRepoState,
@@ -165,7 +161,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
     // Compute processes to be deleted
     // For retry mode: only processes AFTER target (target itself will be retried)
     // For reset mode: target process AND all processes after it
-    const { deletedCount, deletedCoding, deletedSetup, deletedCleanup } =
+    const { deletedCount, deletedSetup, deletedCleanup } =
       useMemo(() => {
         const procs = (processes || []).filter(
           (p) => !p.dropped && shouldShowInLogs(p.run_reason)
@@ -176,8 +172,6 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
         const toDelete = idx >= 0 ? procs.slice(startIdx) : [];
         return {
           deletedCount: toDelete.length,
-          deletedCoding: toDelete.filter((p) => isCodingAgent(p.run_reason))
-            .length,
           deletedSetup: toDelete.filter(
             (p) => p.run_reason === PROCESS_RUN_REASONS.SETUP_SCRIPT
           ).length,
@@ -310,9 +304,6 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                             {'从历史记录中删除。'}
                           </p>
                           <ul className="mt-1 text-xs text-muted-foreground list-disc pl-5">
-                            {deletedCoding > 0 && (
-                              <li>{`${deletedCoding} 个编程代理运行`}</li>
-                            )}
                             {deletedSetup + deletedCleanup > 0 && (
                               <li>
                                 {`${deletedSetup + deletedCleanup} 个脚本进程`}

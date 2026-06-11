@@ -148,14 +148,14 @@ impl Task {
                        JOIN execution_processes ep ON ep.session_id = s.id
                        WHERE s.task_id = t.id
                          AND ep.status = 'running'
-                         AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                         AND ep.run_reason IN ('setupscript','cleanupscript')
                    ) AS has_in_progress_attempt,
                    CASE WHEN (
                        SELECT ep.status
                        FROM sessions s
                        JOIN execution_processes ep ON ep.session_id = s.id
                        WHERE s.task_id = t.id
-                         AND ep.run_reason IN ('setupscript','cleanupscript','codingagent')
+                         AND ep.run_reason IN ('setupscript','cleanupscript')
                        ORDER BY ep.created_at DESC
                        LIMIT 1
                    ) IN ('failed', 'killed') THEN TRUE ELSE FALSE END AS last_attempt_failed,

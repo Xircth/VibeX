@@ -98,7 +98,7 @@ impl Session {
         .await
     }
 
-    /// Find all sessions for a workspace, ordered by most recently used coding session first.
+    /// Find all sessions for a workspace, ordered by recent session activity.
     pub async fn find_by_workspace_id(
         pool: &SqlitePool,
         workspace_id: Uuid,
@@ -114,15 +114,8 @@ impl Session {
                       s.created_at,
                       s.updated_at
                FROM sessions s
-               LEFT JOIN (
-                   SELECT ep.session_id, MAX(ep.created_at) as last_used
-                   FROM execution_processes ep
-                   WHERE ep.run_reason = 'codingagent' AND ep.dropped = FALSE
-                   GROUP BY ep.session_id
-               ) latest_ep ON s.id = latest_ep.session_id
                WHERE s.workspace_id = ?
-               ORDER BY latest_ep.last_used IS NULL ASC,
-                        COALESCE(latest_ep.last_used, s.updated_at) DESC,
+               ORDER BY s.updated_at DESC,
                         s.created_at DESC"#,
         )
         .bind(workspace_id)
@@ -145,15 +138,8 @@ impl Session {
                       s.created_at,
                       s.updated_at
                FROM sessions s
-               LEFT JOIN (
-                   SELECT ep.session_id, MAX(ep.created_at) as last_used
-                   FROM execution_processes ep
-                   WHERE ep.run_reason = 'codingagent' AND ep.dropped = FALSE
-                   GROUP BY ep.session_id
-               ) latest_ep ON s.id = latest_ep.session_id
                WHERE s.workspace_id = ?
-               ORDER BY latest_ep.last_used IS NULL ASC,
-                        COALESCE(latest_ep.last_used, s.updated_at) DESC,
+               ORDER BY s.updated_at DESC,
                         s.created_at DESC
                LIMIT 1"#,
         )

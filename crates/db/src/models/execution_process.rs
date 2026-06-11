@@ -650,14 +650,14 @@ impl ExecutionProcess {
             JOIN sessions s ON ep.session_id = s.id
             JOIN workspaces w ON s.workspace_id = w.id
             WHERE w.archived = $1
-              AND ep.run_reason IN ('codingagent', 'setupscript', 'cleanupscript')
+              AND ep.run_reason IN ('setupscript', 'cleanupscript')
               AND ep.dropped = FALSE
               AND ep.created_at = (
                   SELECT MAX(ep2.created_at)
                   FROM execution_processes ep2
                   JOIN sessions s2 ON ep2.session_id = s2.id
                   WHERE s2.workspace_id = s.workspace_id
-                    AND ep2.run_reason IN ('codingagent', 'setupscript', 'cleanupscript')
+                    AND ep2.run_reason IN ('setupscript', 'cleanupscript')
                     AND ep2.dropped = FALSE
               )
             "#,

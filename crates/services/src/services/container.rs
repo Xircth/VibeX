@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use db::{
     DBService,
     models::{
-        coding_agent_turn::CodingAgentTurn,
         execution_process::{
             CreateExecutionProcess, ExecutionContext, ExecutionProcess, ExecutionProcessError,
             ExecutionProcessRunReason, ExecutionProcessStatus,
@@ -1077,39 +1076,7 @@ pub trait ContainerService {
                                 }
                             }
                         }
-                        LogMsg::SessionId(agent_session_id) => {
-                            // Append this line to the database
-                            if let Err(e) = CodingAgentTurn::update_agent_session_id(
-                                &db.pool,
-                                execution_id,
-                                agent_session_id,
-                            )
-                            .await
-                            {
-                                tracing::error!(
-                                    "Failed to update agent_session_id {} for execution process {}: {}",
-                                    agent_session_id,
-                                    execution_id,
-                                    e
-                                );
-                            }
-                        }
-                        LogMsg::MessageId(agent_message_id) => {
-                            if let Err(e) = CodingAgentTurn::update_agent_message_id(
-                                &db.pool,
-                                execution_id,
-                                agent_message_id,
-                            )
-                            .await
-                            {
-                                tracing::error!(
-                                    "Failed to update agent_message_id {} for execution process {}: {}",
-                                    agent_message_id,
-                                    execution_id,
-                                    e
-                                );
-                            }
-                        }
+                        LogMsg::SessionId(_) | LogMsg::MessageId(_) => continue,
                         LogMsg::Finished => {
                             break;
                         }

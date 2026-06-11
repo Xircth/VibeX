@@ -99,49 +99,45 @@ describe('Markdown', () => {
   });
 
   it('opens relative file hrefs in the workspace editor instead of navigating the page', () => {
-    renderMarkdown(
-      '[provider_text.rs](src-tauri/src/commands/provider_runtime/provider_text.rs)'
-    );
+    renderMarkdown('[manager.rs](crates/agents/src/manager.rs)');
 
-    fireEvent.click(screen.getByRole('link', { name: 'provider_text.rs' }));
+    fireEvent.click(screen.getByRole('link', { name: 'manager.rs' }));
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
-      'C:/workspace/project/src-tauri/src/commands/provider_runtime/provider_text.rs',
+      'C:/workspace/project/crates/agents/src/manager.rs',
       {
-        displayPath: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
-        title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+        displayPath: 'crates/agents/src/manager.rs',
+        title: 'crates/agents/src/manager.rs',
       }
     );
   });
 
   it('opens same-origin URL paths as workspace files instead of browser URLs', () => {
     renderMarkdown(
-      '[provider_text.rs](http://127.0.0.1:3002/src-tauri/src/commands/provider_runtime/provider_text.rs)'
+      '[manager.rs](http://127.0.0.1:3002/crates/agents/src/manager.rs)'
     );
 
-    fireEvent.click(screen.getByRole('link', { name: 'provider_text.rs' }));
+    fireEvent.click(screen.getByRole('link', { name: 'manager.rs' }));
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
-      'C:/workspace/project/src-tauri/src/commands/provider_runtime/provider_text.rs',
+      'C:/workspace/project/crates/agents/src/manager.rs',
       {
-        displayPath: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
-        title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+        displayPath: 'crates/agents/src/manager.rs',
+        title: 'crates/agents/src/manager.rs',
       }
     );
   });
 
   it('opens web-root file paths as workspace-relative files on Windows', () => {
-    renderMarkdown(
-      '[provider_text.rs](/src-tauri/src/commands/provider_runtime/provider_text.rs)'
-    );
+    renderMarkdown('[manager.rs](/crates/agents/src/manager.rs)');
 
-    fireEvent.click(screen.getByRole('link', { name: 'provider_text.rs' }));
+    fireEvent.click(screen.getByRole('link', { name: 'manager.rs' }));
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
-      'C:/workspace/project/src-tauri/src/commands/provider_runtime/provider_text.rs',
+      'C:/workspace/project/crates/agents/src/manager.rs',
       {
-        displayPath: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
-        title: 'src-tauri/src/commands/provider_runtime/provider_text.rs',
+        displayPath: 'crates/agents/src/manager.rs',
+        title: 'crates/agents/src/manager.rs',
       }
     );
   });

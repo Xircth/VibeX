@@ -34,21 +34,14 @@ function readWorkspaceCommandSource() {
     .join('\n');
 }
 
-function readProviderRuntimeSource() {
+function readAgentsRuntimeSource() {
   return [
-    'src-tauri/src/commands/provider_runtime/mod.rs',
-    'src-tauri/src/commands/provider_runtime/contract.rs',
-    'src-tauri/src/commands/provider_runtime/runtime_config.rs',
-    'src-tauri/src/commands/provider_runtime/claude_sdk.rs',
-    'src-tauri/src/commands/provider_runtime/opencode_sdk.rs',
-    'src-tauri/src/commands/provider_runtime/provider_text.rs',
-    'src-tauri/src/commands/provider_runtime/provider_tools.rs',
-    'src-tauri/src/commands/provider_runtime/token_usage.rs',
-    'src-tauri/src/commands/provider_runtime/native_conversation.rs',
-    'src-tauri/src/commands/provider_runtime/runtime_core.rs',
-    'src-tauri/src/commands/provider_runtime/codex_app_server.rs',
-    'src-tauri/src/commands/provider_runtime/provider_turns.rs',
-    'src-tauri/src/commands/provider_runtime/history_commands.rs',
+    'crates/agents/src/lib.rs',
+    'crates/agents/src/manager.rs',
+    'crates/agents/src/runtime.rs',
+    'crates/agents/src/session.rs',
+    'crates/agents/src/terminal.rs',
+    'src-tauri/src/commands/agents.rs',
   ]
     .map(readRepoFile)
     .join('\n');
@@ -89,33 +82,6 @@ test('tab context menu uses the current Chinese label and keeps the panel split 
   assert.match(panelActions, /referencePanel:\s*panel,/);
 });
 
-test('native SDK provider turns drain stdout and stderr before finishing the message stream', () => {
-  const source = readRepoFile(
-    'src-tauri/src/commands/provider_runtime/provider_turns.rs'
-  );
-  const firstFinishIndex = source.indexOf('msg_store.push_finished()');
-
-  assert.match(source, /let stdout_reader = tokio::spawn/);
-  assert.match(source, /let stderr_reader = tokio::spawn/);
-  assert.match(source, /let _ = stdout_reader\.await;/);
-  assert.match(source, /let _ = stderr_reader\.await;/);
-  assert.notEqual(firstFinishIndex, -1);
-  assert.ok(source.indexOf('let _ = stdout_reader.await;') < firstFinishIndex);
-  assert.ok(source.indexOf('let _ = stderr_reader.await;') < firstFinishIndex);
-});
-
-test('claude sdk bridge keeps provider events on stdout', () => {
-  const bridge = readRepoFile('scripts/claude-agent-sdk-provider.mjs');
-  const buildOptionsIndex = bridge.indexOf('function buildOptions(input)');
-  const optionsIndex = bridge.indexOf('const options = {', buildOptionsIndex);
-  const optionsEndIndex = bridge.indexOf('};', optionsIndex);
-  const optionsBlock = bridge.slice(optionsIndex, optionsEndIndex);
-
-  assert.match(bridge, /Object\.assign\(process\.env, profileEnv/);
-  assert.match(bridge, /writeEvent\(\{/);
-  assert.doesNotMatch(optionsBlock, /\benv:/);
-});
-
 test('dev preview resolves workspace outside route params', () => {
   const previewPanel = readFrontendFile(
     'src/components/panels/PreviewPanel.tsx'
@@ -141,19 +107,12 @@ test('dev preview resolves workspace outside route params', () => {
 
 test('windows hidden cli helper wraps batch-based agent commands', () => {
   const processUtils = readRepoFile('crates/utils/src/process.rs');
-  const acpTerminal = readRepoFile(
-    'crates/executors/src/executors/acp/terminal.rs'
-  );
-  const acpHarness = readRepoFile(
-    'crates/executors/src/executors/acp/harness.rs'
-  );
-  const codexAccount = readRepoFile('src-tauri/src/commands/codex_account.rs');
+  const agentsTerminal = readRepoFile('crates/agents/src/terminal.rs');
+  const agentsManager = readRepoFile('crates/agents/src/manager.rs');
   const agentSettings = readRepoFile(
     'src-tauri/src/commands/agent_settings.rs'
   );
   const workspaces = readWorkspaceCommandSource();
-  const providerRuntime = readProviderRuntimeSource();
-  const opencodeBridge = readRepoFile('scripts/opencode-sdk-provider.mjs');
   const filesystemCommands = readRepoFile('src-tauri/src/commands/filesystem.rs');
   const fileTreePanel = readFrontendFile(
     'src/components/file-tree/FileTreePanel.tsx'
@@ -163,17 +122,10 @@ test('windows hidden cli helper wraps batch-based agent commands', () => {
   assert.match(processUtils, /new_hidden_tokio_command/);
   assert.match(processUtils, /is_windows_batch_script/);
   assert.match(processUtils, /cmd\.exe/);
-  assert.match(acpTerminal, /new_hidden_tokio_command/);
-  assert.match(acpHarness, /new_hidden_tokio_command/);
-  assert.match(codexAccount, /new_hidden_tokio_command/);
+  assert.match(agentsTerminal, /new_hidden_tokio_command/);
+  assert.match(agentsManager, /new_hidden_tokio_command/);
   assert.match(agentSettings, /new_hidden_tokio_command/);
   assert.match(workspaces, /new_hidden_tokio_command/);
-  assert.match(providerRuntime, /new_provider_hidden_command/);
-  assert.doesNotMatch(providerRuntime, /Command::new\(/);
-  assert.match(opencodeBridge, /windowsHide:\s*true/);
-  assert.match(opencodeBridge, /taskkill/);
-  assert.match(opencodeBridge, /partMetadata/);
-  assert.match(opencodeBridge, /partType:\s*metadata\.type/);
   assert.match(filesystemCommands, /new_hidden_std_command/);
   assert.doesNotMatch(filesystemCommands, /Command::new\(/);
   assert.match(fileTreePanel, /desktopApi\.revealInFileManager/);
@@ -186,7 +138,7 @@ test('codex profile controls preserve explicit model overrides', () => {
   const terminalProfileControls = readFrontendFile(
     'src/components/tasks/TerminalProfileControls.tsx'
   );
-  const providerRuntime = readProviderRuntimeSource();
+  const agentsRuntime = readAgentsRuntimeSource();
 
   assert.match(
     terminalProfileControls,
@@ -199,10 +151,10 @@ test('codex profile controls preserve explicit model overrides', () => {
   assert.match(terminalProfileControls, /value=\{currentModel\}/);
   assert.match(terminalProfileControls, /model: modelOverride/);
 
-  assert.match(providerRuntime, /"method": "turn\/queued"/);
-  assert.match(providerRuntime, /CODEX_NATIVE_THREAD_SINKS/);
-  assert.match(providerRuntime, /result\.get\("turn"\)/);
-  assert.match(providerRuntime, /params\.get\("turn"\)/);
+  assert.match(agentsRuntime, /AgentPromptStatus::Queued/);
+  assert.match(agentsRuntime, /CancelAgentPromptInput/);
+  assert.match(agentsRuntime, /QueueTransition::Cancelled/);
+  assert.match(agentsRuntime, /new_hidden_tokio_command/);
 });
 
 test('sent user message bubbles preserve mention and command chip styling', () => {
@@ -222,10 +174,10 @@ test('sent user message bubbles preserve mention and command chip styling', () =
 
   assert.match(userMessage, /stripTagReferenceAppendix/);
   assert.match(userMessage, /const displayContent =/);
-  assert.match(userMessage, /value=\{displayContent\}/);
+  assert.match(userMessage, /value=\{displayText\}/);
   assert.match(userMessage, /initialContent=\{displayContent\}/);
 
-  assert.match(wysiwyg, /SLASH_COMMAND_DISPLAY_TRANSFORMER/);
+  assert.match(wysiwyg, /getWysiwygMarkdownTransformers/);
   assert.match(slashCommandNode, /SLASH_COMMAND_DISPLAY_TRANSFORMER/);
   assert.match(slashCommandNode, /\/\(\[A-Za-z\]\[A-Za-z0-9:_-\]\*\)/);
   assert.match(dollarCommandNode, /\\\$\(\[A-Za-z\]\[A-Za-z0-9:_-\]\*\)/);

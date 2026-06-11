@@ -88,8 +88,26 @@ function resolveWixBin(env) {
   );
 }
 
+function resolveDatabaseUrl(env) {
+  if (env.DATABASE_URL) {
+    return null;
+  }
+
+  const devDatabase = path.join(process.cwd(), 'dev_assets', 'db.sqlite');
+  return fs.existsSync(devDatabase) ? `sqlite://${devDatabase}` : null;
+}
+
 function withNativeBuildEnv(env = process.env) {
   let nextEnv = withCargoBinOnPath(env);
+  const databaseUrl = resolveDatabaseUrl(nextEnv);
+
+  if (databaseUrl) {
+    nextEnv = {
+      ...nextEnv,
+      DATABASE_URL: databaseUrl,
+    };
+  }
+
   const libclangPath = resolveLibclangPath(nextEnv);
 
   if (libclangPath) {

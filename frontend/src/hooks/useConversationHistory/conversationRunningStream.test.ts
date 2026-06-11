@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  BaseCodingAgent,
   ExecutionProcessStatus,
   type ExecutionProcess,
   type PatchType,
@@ -16,19 +15,17 @@ vi.mock('@/utils/streamJsonPatchEntries', () => ({
   streamJsonPatchEntries: vi.fn(),
 }));
 
-function codingProcess(status = ExecutionProcessStatus.running): ExecutionProcess {
+function scriptProcess(status = ExecutionProcessStatus.running): ExecutionProcess {
   return {
     id: 'process-running',
     session_id: 'session-1',
-    run_reason: 'codingagent',
+    run_reason: 'setupscript',
     executor_action: {
       typ: {
-        type: 'CodingAgentInitialRequest',
-        prompt: 'keep streaming',
-        executor_profile_id: {
-          executor: BaseCodingAgent.CODEX,
-          variant: null,
-        },
+        type: 'ScriptRequest',
+        script: 'pnpm install',
+        language: 'Bash',
+        context: 'SetupScript',
         working_dir: null,
       },
       next_action: null,
@@ -88,7 +85,7 @@ function mockStream() {
 
 function defaultOptions(overrides = {}) {
   return {
-    executionProcess: codingProcess(),
+    executionProcess: scriptProcess(),
     initialEntries: [],
     createStreamId: vi.fn((processId: string) => `stream:${processId}`),
     getLiveProcessStatus: vi.fn(() => ExecutionProcessStatus.completed),
@@ -124,7 +121,7 @@ describe('conversationRunningStream', () => {
     expect(streamJsonPatchEntries).toHaveBeenCalledWith(
       {
         executionProcessId: 'process-running',
-        normalized: true,
+        normalized: false,
         streamId: 'stream:process-running',
       },
       expect.objectContaining({

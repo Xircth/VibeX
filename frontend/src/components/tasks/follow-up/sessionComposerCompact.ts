@@ -1,15 +1,6 @@
 import type { ExecutorProfileId } from 'shared/types';
-import { isContextCompactPrompt } from '@/lib/contextCompact';
 
 export const CONTEXT_COMPACT_PROMPT = '/compact';
-
-type CompactProcessCandidate = {
-  id: string;
-  status: string;
-  executor_action?: {
-    typ?: unknown;
-  } | null;
-};
 
 export function buildCompactContextTurnInput({
   sessionId,
@@ -39,39 +30,12 @@ export function buildCompactContextTurnInput({
   };
 }
 
-export function shouldClearPendingCompactProcess(
-  pendingProcessId: string | null,
-  processes: Array<{ id: string }>
-): boolean {
-  return Boolean(
-    pendingProcessId &&
-      processes.some((process) => process.id === pendingProcessId)
-  );
-}
-
-export function hasRunningContextCompactProcess(
-  processes: CompactProcessCandidate[]
-): boolean {
-  return processes.some(
-    (process) => process.status === 'running' && isContextCompactPrompt(
-      process.executor_action?.typ &&
-        typeof process.executor_action.typ === 'object' &&
-        'prompt' in process.executor_action.typ &&
-        typeof process.executor_action.typ.prompt === 'string'
-        ? process.executor_action.typ.prompt
-        : null
-    )
-  );
-}
-
 export function getIsCompactingContext({
   pendingCompactProcessId,
-  isCompactProcessRunning,
 }: {
   pendingCompactProcessId: string | null;
-  isCompactProcessRunning: boolean;
 }): boolean {
-  return pendingCompactProcessId !== null || isCompactProcessRunning;
+  return pendingCompactProcessId !== null;
 }
 
 export function getCompactContextErrorMessage(error: unknown): string {

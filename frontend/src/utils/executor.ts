@@ -14,14 +14,6 @@ import type {
 
 const RESERVED_KEYS = new Set(['recently_used_models']);
 
-type RuntimeExecutorConfigLike = {
-  executor: BaseCodingAgent;
-  variant?: string | null;
-  model?: string | null;
-  model_id?: string | null;
-  fast_mode?: boolean | null;
-};
-
 type ExecutorVariantRecord<T extends Record<string, unknown>> = {
   variant: string | null;
   record: T;
@@ -891,54 +883,9 @@ export function formatOpenCodePermissionLabel(
   return mode === 'auto' ? 'Auto Approve' : 'Ask';
 }
 
-function toProfileId(
-  value: RuntimeExecutorConfigLike | ExecutorProfileId | null | undefined
-): ExecutorProfileId | null {
-  if (!value?.executor) return null;
-  const modelId = 'model_id' in value ? value.model_id : null;
-
-  return {
-    executor: value.executor,
-    variant: value.variant ?? null,
-    model: value.model ?? modelId ?? null,
-    fast_mode: value.fast_mode ?? null,
-  };
-}
-
-/**
- * Extract ExecutorProfileId from an ExecutorAction chain.
- * Traverses the action chain to find the first coding agent request.
- */
 export function extractProfileFromAction(
-  action: ExecutorAction | null
+  _action: ExecutorAction | null
 ): ExecutorProfileId | null {
-  let curr: ExecutorAction | null = action;
-  while (curr) {
-    const typ = curr.typ;
-    switch (typ.type) {
-      case 'CodingAgentInitialRequest':
-      case 'CodingAgentFollowUpRequest':
-      case 'ReviewRequest':
-        return toProfileId(
-          (
-            typ as {
-              executor_profile_id?: ExecutorProfileId;
-              executor_config?: RuntimeExecutorConfigLike;
-            }
-          ).executor_profile_id ??
-            (
-              typ as {
-                executor_profile_id?: ExecutorProfileId;
-                executor_config?: RuntimeExecutorConfigLike;
-              }
-            ).executor_config
-        );
-      case 'ScriptRequest':
-      default:
-        curr = curr.next_action;
-        continue;
-    }
-  }
   return null;
 }
 

@@ -32,7 +32,6 @@ import {
 import { getLatestConversationTokenUsage } from './conversationTokenUsage';
 import { getConversationEmitAddType } from './conversationEmitAddType';
 import { getConversationScriptDisplay } from './conversationScriptDisplay';
-import { getConversationCodingAgentDisplay } from './conversationCodingAgentDisplay';
 import { loadHistoricExecutionProcessEntries } from './conversationHistoricEntriesLoader';
 import { getConversationReloadPlan } from './conversationReloadPlan';
 import { loadRunningConversationStream } from './conversationRunningStream';
@@ -153,14 +152,13 @@ export const useConversationHistory = ({
   const flattenEntriesForEmit = useCallback(
     (executionProcessState: ExecutionProcessStateStore): PatchTypeWithKey[] => {
       // Flags to control Next Action bar emit
-      let hasPendingApproval = false;
+      const hasPendingApproval = false;
       let hasRunningProcess = false;
       let lastProcessFailedOrKilled = false;
-      let needsSetup = false;
+      const needsSetup = false;
       let setupHelpText: string | undefined;
 
-      // Create user messages + tool calls for setup/cleanup scripts
-      let previousAssistantTranscript = '';
+      // Create entries for setup/cleanup/archive script execution processes.
       const allEntries = Object.values(executionProcessState)
         .sort(
           (a, b) =>
@@ -169,48 +167,7 @@ export const useConversationHistory = ({
         )
         .flatMap((p, index) => {
           const entries: PatchTypeWithKey[] = [];
-          if (
-            p.executionProcess.executor_action.typ.type ===
-              'CodingAgentInitialRequest' ||
-            p.executionProcess.executor_action.typ.type ===
-              'CodingAgentFollowUpRequest' ||
-            p.executionProcess.executor_action.typ.type === 'ReviewRequest'
-          ) {
-            const agentDisplay = getConversationCodingAgentDisplay(p, {
-              previousAssistantTranscript,
-              liveProcessStatus: getLiveExecutionProcess(p.executionProcess.id)
-                ?.status,
-            });
-
-            if (!agentDisplay) {
-              return entries;
-            }
-
-            if (agentDisplay.hasPendingApproval) {
-              hasPendingApproval = true;
-            }
-
-            entries.push(...agentDisplay.entries);
-            previousAssistantTranscript = agentDisplay.nextAssistantTranscript;
-
-            if (agentDisplay.isRunning) {
-              hasRunningProcess = true;
-            }
-
-            if (
-              agentDisplay.isFailedOrKilled &&
-              index === Object.keys(executionProcessState).length - 1
-            ) {
-              lastProcessFailedOrKilled = true;
-
-              if (agentDisplay.setupHelpText) {
-                needsSetup = true;
-                setupHelpText = agentDisplay.setupHelpText;
-              }
-            }
-          } else if (
-            p.executionProcess.executor_action.typ.type === 'ScriptRequest'
-          ) {
+          if (p.executionProcess.executor_action.typ.type === 'ScriptRequest') {
             const scriptDisplay = getConversationScriptDisplay(
               p,
               getLiveExecutionProcess(p.executionProcess.id)

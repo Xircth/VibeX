@@ -5,8 +5,6 @@ import {
   buildCompactContextTurnInput,
   getCompactContextErrorMessage,
   getIsCompactingContext,
-  hasRunningContextCompactProcess,
-  shouldClearPendingCompactProcess,
 } from './sessionComposerCompact';
 import {
   canCompactContext as getCanCompactContext,
@@ -53,17 +51,7 @@ export function useSessionComposerContextCompact({
   const [pendingCompactProcessId, setPendingCompactProcessId] = useState<
     string | null
   >(null);
-  const isCompactProcessRunning = useMemo(
-    () => hasRunningContextCompactProcess(processes),
-    [processes]
-  );
-
-  useEffect(() => {
-    if (!pendingCompactProcessId) return;
-    if (shouldClearPendingCompactProcess(pendingCompactProcessId, processes)) {
-      setPendingCompactProcessId(null);
-    }
-  }, [pendingCompactProcessId, processes]);
+  void processes;
 
   useEffect(() => {
     if (!pendingCompactProcessId) return;
@@ -81,7 +69,6 @@ export function useSessionComposerContextCompact({
 
   const isCompactingContext = getIsCompactingContext({
     pendingCompactProcessId,
-    isCompactProcessRunning,
   });
   const canTypeForCompact = useMemo(
     () =>

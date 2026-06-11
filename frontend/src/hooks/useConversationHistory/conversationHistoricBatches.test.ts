@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BaseCodingAgent,
   ExecutionProcessStatus,
   type ExecutionProcess,
   type PatchType,
@@ -19,15 +18,13 @@ function process(
   return {
     id,
     session_id: 'session-1',
-    run_reason: 'codingagent',
+    run_reason: 'setupscript',
     executor_action: {
       typ: {
-        type: 'CodingAgentInitialRequest',
-        prompt: id,
-        executor_profile_id: {
-          executor: BaseCodingAgent.CODEX,
-          variant: null,
-        },
+        type: 'ScriptRequest',
+        script: `echo ${id}`,
+        language: 'Bash',
+        context: 'SetupScript',
         working_dir: null,
       },
       next_action: null,

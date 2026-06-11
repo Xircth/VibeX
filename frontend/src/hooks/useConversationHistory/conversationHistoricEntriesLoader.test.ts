@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  BaseCodingAgent,
   ExecutionProcessStatus,
   type ExecutionProcess,
   type PatchType,
@@ -15,19 +14,17 @@ vi.mock('@/utils/streamJsonPatchEntries', () => ({
   streamJsonPatchEntries: vi.fn(),
 }));
 
-function codingProcess(status: ExecutionProcessStatus): ExecutionProcess {
+function scriptProcess(status: ExecutionProcessStatus): ExecutionProcess {
   return {
-    id: 'coding-1',
+    id: 'script-1',
     session_id: 'session-1',
-    run_reason: 'codingagent',
+    run_reason: 'setupscript',
     executor_action: {
       typ: {
-        type: 'CodingAgentInitialRequest',
-        prompt: 'historic prompt',
-        executor_profile_id: {
-          executor: BaseCodingAgent.CODEX,
-          variant: null,
-        },
+        type: 'ScriptRequest',
+        script: 'echo setup',
+        language: 'Bash',
+        context: 'SetupScript',
         working_dir: null,
       },
       next_action: null,
@@ -42,24 +39,6 @@ function codingProcess(status: ExecutionProcessStatus): ExecutionProcess {
         : null,
     created_at: '2026-05-26T00:00:00.000Z',
     updated_at: '2026-05-26T00:00:05.000Z',
-  };
-}
-
-function scriptProcess(): ExecutionProcess {
-  return {
-    ...codingProcess(ExecutionProcessStatus.completed),
-    id: 'script-1',
-    run_reason: 'setupscript',
-    executor_action: {
-      typ: {
-        type: 'ScriptRequest',
-        script: 'echo setup',
-        language: 'Bash',
-        context: 'SetupScript',
-        working_dir: null,
-      },
-      next_action: null,
-    },
   };
 }
 
@@ -109,30 +88,12 @@ describe('conversationHistoricEntriesLoader', () => {
     vi.useRealTimers();
   });
 
-  it('loads completed coding-agent entries through the normalized stream', async () => {
+  it('loads completed script entries through the raw stream', async () => {
     const stream = mockStream();
     const loadPromise = loadHistoricExecutionProcessEntries(
-      codingProcess(ExecutionProcessStatus.completed)
+      scriptProcess(ExecutionProcessStatus.completed)
     );
     const entries = [assistantPatch('done')];
-
-    stream.options.onFinished?.(entries);
-
-    await expect(loadPromise).resolves.toEqual(entries);
-    expect(streamJsonPatchEntries).toHaveBeenCalledWith(
-      {
-        executionProcessId: 'coding-1',
-        normalized: true,
-      },
-      expect.any(Object)
-    );
-    expect(stream.close).toHaveBeenCalledTimes(1);
-  });
-
-  it('loads script entries through the raw stream', async () => {
-    const stream = mockStream();
-    const loadPromise = loadHistoricExecutionProcessEntries(scriptProcess());
-    const entries = [assistantPatch('raw output')];
 
     stream.options.onFinished?.(entries);
 
@@ -144,13 +105,14 @@ describe('conversationHistoricEntriesLoader', () => {
       },
       expect.any(Object)
     );
+    expect(stream.close).toHaveBeenCalledTimes(1);
   });
 
   it('settles running snapshots after the short idle timeout', async () => {
     vi.useFakeTimers();
     const stream = mockStream();
     const loadPromise = loadHistoricExecutionProcessEntries(
-      codingProcess(ExecutionProcessStatus.running)
+      scriptProcess(ExecutionProcessStatus.running)
     );
     const entries = [assistantPatch('partial')];
 
@@ -173,7 +135,7 @@ describe('conversationHistoricEntriesLoader', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const stream = mockStream();
     const loadPromise = loadHistoricExecutionProcessEntries(
-      codingProcess(ExecutionProcessStatus.completed)
+      scriptProcess(ExecutionProcessStatus.completed)
     );
     const entries = [assistantPatch('before error')];
 
@@ -183,7 +145,7 @@ describe('conversationHistoricEntriesLoader', () => {
     await expect(loadPromise).resolves.toEqual(entries);
     expect(stream.close).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
-      'Error loading entries for historic execution process coding-1',
+      'Error loading entries for historic execution process script-1',
       expect.any(Error)
     );
     warnSpy.mockRestore();

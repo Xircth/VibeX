@@ -137,13 +137,15 @@
   - Files: `docs/specs/codeg-alignment/02-conversation-rendering/renderer-entry-audit.md`,
     会话视图容器、`DisplayConversationEntry.tsx`
 
-- [ ] T2.17 视觉、性能与构建验收
+- [x] T2.17 视觉、性能与构建验收
   - Acceptance: impeccable 无新增违规；桌面截图覆盖 10 类状态；长会话无明显卡顿；
-    build chunk 无异常膨胀。
+    build chunk 无异常膨胀。验收记录见 `visual-build-validation.md`。
   - Verify: `pnpm run frontend:check`, `pnpm run frontend:lint`,
     `cd frontend && pnpm vitest run`, `pnpm run frontend:build`,
-    `npx impeccable detect --fast --json frontend/src/components frontend/src/styles`
-  - Files: 无特定文件；修复所有发现问题
+    `npx impeccable detect --fast --json frontend/src/components frontend/src/styles` 全部通过；
+    Playwright Chromium 截图产物覆盖桌面/移动 Phase 2 conversation fixture。
+  - Files: `docs/specs/codeg-alignment/02-conversation-rendering/visual-build-validation.md`,
+    `docs/specs/codeg-alignment/02-conversation-rendering/screenshots/*`
 
 - [ ] T2.18 五轴审查 → 修复 → 全门验证 → 合并回 master
   - Acceptance: review findings 关闭；traceability 中 C1-C16 全部标记为完成/裁剪。

@@ -64,7 +64,10 @@ pub use metadata::{
     claude_config_path, codex_auth_path, codex_config_path, codex_home, opencode_auth_path,
     opencode_config_dir, opencode_config_path,
 };
-pub use permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse};
+pub use permissions::{
+    AgentAutoApproveMode, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
+    AgentPermissionResponse, decide_auto_permission_response,
+};
 pub use registry::{
     AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, registry_entry,
 };

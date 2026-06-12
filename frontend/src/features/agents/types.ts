@@ -187,6 +187,7 @@ export type AgentRuntimeSnapshot = {
 export type AgentPermissionOption = {
   id: string;
   label: string;
+  kind?: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | 'unknown';
   description?: string | null;
 };
 
@@ -272,6 +273,7 @@ export type AgentEvent =
       kind: 'permission_responded';
       permission_id: string;
       response: AgentPermissionResponse;
+      auto?: boolean;
     }
   | {
       kind: 'terminal_created';

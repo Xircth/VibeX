@@ -7,8 +7,8 @@ use agents::{
 };
 use db::models::{
     agent_runtime::{
-        AgentRuntimeStore, InsertAgentEvent, UpsertAgentConnection, UpsertAgentPermissionRequest,
-        UpsertAgentPrompt, UpsertAgentSession, json_kind,
+        AgentRuntimeStore, InsertAgentEvent, UpsertAgentConnection, UpsertAgentPendingPermission,
+        UpsertAgentPermissionRequest, UpsertAgentPrompt, UpsertAgentSession, json_kind,
     },
     workspace::Workspace,
 };
@@ -136,6 +136,8 @@ async fn persist_agent_event(
         }
         AgentEvent::PermissionRequested { request } => {
             let request_json = serde_json::to_string(request)?;
+            let tool_call_json = serde_json::to_string(&request.details)?;
+            let options_json = serde_json::to_string(&request.options)?;
             let permission_id = request.id.to_string();
             let session_id = request.session_id.to_string();
             let connection_id = envelope.connection_id.to_string();
@@ -151,10 +153,23 @@ async fn persist_agent_event(
                 },
             )
             .await?;
+            AgentRuntimeStore::upsert_pending_permission(
+                pool,
+                UpsertAgentPendingPermission {
+                    id: Uuid::new_v4(),
+                    session_id: request.session_id.0,
+                    request_id: &permission_id,
+                    tool_call_json: &tool_call_json,
+                    options_json: &options_json,
+                    created_at: &created_at,
+                },
+            )
+            .await?;
         }
         AgentEvent::PermissionResponded {
             permission_id,
             response,
+            ..
         } => {
             let response_json = serde_json::to_string(response)?;
             let permission_id = permission_id.to_string();
@@ -166,6 +181,16 @@ async fn persist_agent_event(
                 &responded_at,
             )
             .await?;
+            if let Some(session_id) = envelope.session_id {
+                AgentRuntimeStore::resolve_pending_permission_for_request(
+                    pool,
+                    session_id.0,
+                    &permission_id,
+                    &response_json,
+                    &responded_at,
+                )
+                .await?;
+            }
         }
         AgentEvent::PromptFinished { finished } => {
             let status = AgentPromptStatus::Completed {

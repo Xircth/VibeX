@@ -19,7 +19,7 @@
   - Acceptance: 成功/失败/不支持三条测试通过
   - Verify: `cargo test -p agents runtime`
   - Files: `crates/agents/src/runtime.rs`, `src-tauri/src/commands/agents.rs`
-- [ ] T1.5 权限多选项 + 持久化 + auto-approve/YOLO 决策器
+- [x] T1.5 权限多选项 + 持久化 + auto-approve/YOLO 决策器
   - Acceptance: 三条权限测试通过；重启后未决权限恢复测试通过
   - Verify: `cargo test -p agents permissions`
   - Files: `crates/agents/src/permissions.rs`, db service, commands

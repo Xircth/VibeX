@@ -15,10 +15,11 @@ use agent_client_protocol::{
         AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
         ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
         InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
-        NewSessionRequest, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
-        RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-        SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TerminalId,
-        TerminalOutputResponse, TextContent, WaitForTerminalExitResponse,
+        NewSessionRequest, PermissionOptionKind, PromptRequest, ProtocolVersion,
+        ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
+        RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
+        SessionUpdate, TerminalId, TerminalOutputResponse, TextContent,
+        WaitForTerminalExitResponse,
     },
 };
 use chrono::Utc;
@@ -34,11 +35,12 @@ use tokio_util::{
 use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
 
 use crate::{
-    AgentConnectionId, AgentContentBlock, AgentError, AgentErrorEvent, AgentEvent,
-    AgentPermissionId, AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse,
-    AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionId, AgentTerminalCreateRequest,
-    AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType,
-    AgentUsage, CommandBuildInput, current_platform, registry_entry,
+    AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentError, AgentErrorEvent,
+    AgentEvent, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
+    AgentPermissionRequest, AgentPermissionResponse, AgentPromptFinished, AgentPromptId,
+    AgentResult, AgentSessionId, AgentTerminalCreateRequest, AgentTerminalEnvVar,
+    AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType, AgentUsage,
+    CommandBuildInput, current_platform, decide_auto_permission_response, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -122,6 +124,7 @@ pub struct AgentConnectionLaunch {
     pub agent_type: AgentType,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
+    pub auto_approve_mode: AgentAutoApproveMode,
 }
 
 #[derive(Debug)]
@@ -153,6 +156,7 @@ pub struct ManagedAgentConnectionSnapshot {
     pub agent_type: AgentType,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
+    pub auto_approve_mode: AgentAutoApproveMode,
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +213,7 @@ impl AgentConnectionManager {
             agent_type: launch.agent_type,
             workspace_id: launch.workspace_id,
             working_dir: launch.working_dir,
+            auto_approve_mode: launch.auto_approve_mode,
         };
         let runner = AgentConnectionRunner::new(snapshot.clone(), self.event_tx.clone());
 
@@ -360,6 +365,7 @@ struct AgentConnectionRunner {
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    auto_approve_mode: AgentAutoApproveMode,
 }
 
 #[derive(Debug)]
@@ -374,11 +380,13 @@ impl AgentConnectionRunner {
         snapshot: ManagedAgentConnectionSnapshot,
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     ) -> Self {
+        let auto_approve_mode = snapshot.auto_approve_mode;
         Self {
             snapshot,
             event_tx,
             session_map: Arc::new(RwLock::new(HashMap::new())),
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
+            auto_approve_mode,
         }
     }
 
@@ -553,6 +561,7 @@ impl AgentConnectionRunner {
             self.event_tx.clone(),
             Arc::clone(&self.session_map),
             Arc::clone(&self.pending_permissions),
+            self.auto_approve_mode,
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -870,6 +879,7 @@ impl AgentConnectionRunner {
                 AgentEvent::PermissionResponded {
                     permission_id: pending.permission_id,
                     response,
+                    auto: false,
                 },
             );
         } else {
@@ -910,6 +920,7 @@ impl AgentConnectionRunner {
                 AgentEvent::PermissionResponded {
                     permission_id: pending.permission_id,
                     response,
+                    auto: false,
                 },
             );
         }
@@ -960,6 +971,7 @@ struct AcpClientBridge {
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    auto_approve_mode: AgentAutoApproveMode,
 }
 
 impl AcpClientBridge {
@@ -968,12 +980,14 @@ impl AcpClientBridge {
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+        auto_approve_mode: AgentAutoApproveMode,
     ) -> Self {
         Self {
             connection_id,
             event_tx,
             session_map,
             pending_permissions,
+            auto_approve_mode,
         }
     }
 
@@ -1074,10 +1088,37 @@ impl AcpClientBridge {
                 .map(|option| AgentPermissionOption {
                     id: option.option_id.to_string(),
                     label: option.name.clone(),
-                    description: Some(format!("{:?}", option.kind)),
+                    kind: agent_permission_option_kind(option.kind),
+                    description: None,
                 })
                 .collect(),
         };
+
+        let _ = self.event_tx.send(AgentConnectionManagerEvent {
+            connection_id: self.connection_id,
+            session_id: Some(session_id),
+            prompt_id: None,
+            event: AgentEvent::PermissionRequested {
+                request: request.clone(),
+            },
+        });
+
+        if let Some(response) = decide_auto_permission_response(self.auto_approve_mode, &request) {
+            let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id: Some(session_id),
+                prompt_id: None,
+                event: AgentEvent::PermissionResponded {
+                    permission_id,
+                    response: response.clone(),
+                    auto: true,
+                },
+            });
+            return Ok(RequestPermissionResponse::new(permission_response_outcome(
+                response,
+            )));
+        }
+
         let (tx, rx) = oneshot::channel();
         self.pending_permissions.lock().await.insert(
             permission_id.to_string(),
@@ -1088,21 +1129,10 @@ impl AcpClientBridge {
             },
         );
 
-        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-            connection_id: self.connection_id,
-            session_id: Some(session_id),
-            prompt_id: None,
-            event: AgentEvent::PermissionRequested { request },
-        });
-
         let response = rx.await.unwrap_or(AgentPermissionResponse::Cancelled);
-        let outcome = match response {
-            AgentPermissionResponse::Selected { option_id } => {
-                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
-            }
-            AgentPermissionResponse::Cancelled => RequestPermissionOutcome::Cancelled,
-        };
-        Ok(RequestPermissionResponse::new(outcome))
+        Ok(RequestPermissionResponse::new(permission_response_outcome(
+            response,
+        )))
     }
 
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
@@ -1249,6 +1279,26 @@ fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
     }
 }
 
+fn agent_permission_option_kind(kind: PermissionOptionKind) -> AgentPermissionOptionKind {
+    match kind {
+        PermissionOptionKind::AllowOnce => AgentPermissionOptionKind::AllowOnce,
+        PermissionOptionKind::AllowAlways => AgentPermissionOptionKind::AllowAlways,
+        PermissionOptionKind::RejectOnce => AgentPermissionOptionKind::RejectOnce,
+        PermissionOptionKind::RejectAlways => AgentPermissionOptionKind::RejectAlways,
+        #[allow(unreachable_patterns)]
+        _ => AgentPermissionOptionKind::Unknown,
+    }
+}
+
+fn permission_response_outcome(response: AgentPermissionResponse) -> RequestPermissionOutcome {
+    match response {
+        AgentPermissionResponse::Selected { option_id } => {
+            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
+        }
+        AgentPermissionResponse::Cancelled => RequestPermissionOutcome::Cancelled,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1265,6 +1315,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await;
 
@@ -1304,6 +1355,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await;
 

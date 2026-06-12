@@ -1,12 +1,12 @@
 use std::path::{Component, Path, PathBuf};
 
 use agents::{
-    AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
-    AgentHistorySource, AgentInstallPlan, AgentMcpConfig, AgentMcpSurface, AgentPermissionId,
-    AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
-    AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
-    AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
-    EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput,
+    AgentAutoApproveMode, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
+    AgentContentBlock, AgentHistorySource, AgentInstallPlan, AgentMcpConfig, AgentMcpSurface,
+    AgentPermissionId, AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot,
+    AgentRegistryEntry, AgentRuntime, AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface,
+    AgentTerminalId, AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput,
+    ConnectAgentInput, EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, all_agent_types,
     claude_config_path, codex_config_path, config_surface, default_history_sources,
     default_mcp_config_path, import_history_source, mcp_file_config, mcp_surface,
@@ -16,6 +16,7 @@ use agents::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
     agent_runtime::{AgentRuntimeStore, InsertAgentHistoryImport},
+    agent_setting::AgentSetting,
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
@@ -258,15 +259,43 @@ pub async fn agent_connect(
     request: AgentConnectRequest,
 ) -> Result<AgentConnectionSnapshot, AppError> {
     let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
+    let auto_approve_mode = agent_auto_approve_mode(&state, request.agent_type).await?;
     state
         .agent_runtime
         .connect(ConnectAgentInput {
             agent_type: request.agent_type,
             workspace_id,
             working_dir: PathBuf::from(request.working_dir),
+            auto_approve_mode,
         })
         .await
         .map_err(Into::into)
+}
+
+async fn agent_auto_approve_mode(
+    state: &tauri::State<'_, AppState>,
+    agent_type: AgentType,
+) -> Result<AgentAutoApproveMode, AppError> {
+    let mode = AgentSetting::find_by_type(
+        &state.deployment.db().pool,
+        agent_type_setting_key(agent_type),
+    )
+    .await?
+    .map(|setting| AgentAutoApproveMode::from_setting(&setting.auto_approve_mode))
+    .unwrap_or_default();
+    Ok(mode)
+}
+
+fn agent_type_setting_key(agent_type: AgentType) -> &'static str {
+    match agent_type {
+        AgentType::ClaudeCode => "claude_code",
+        AgentType::Codex => "codex",
+        AgentType::OpenCode => "open_code",
+        AgentType::Gemini => "gemini",
+        AgentType::OpenClaw => "open_claw",
+        AgentType::Cline => "cline",
+        AgentType::Hermes => "hermes",
+    }
 }
 
 #[tauri::command]
@@ -292,6 +321,7 @@ pub async fn agent_resume_session(
     state: tauri::State<'_, AppState>,
     request: AgentResumeSessionRequest,
 ) -> Result<AgentSessionSnapshot, AppError> {
+    let auto_approve_mode = agent_auto_approve_mode(&state, request.agent_type).await?;
     state
         .agent_runtime
         .resume_session(ResumeAgentSessionInput {
@@ -300,6 +330,7 @@ pub async fn agent_resume_session(
             working_dir: PathBuf::from(request.working_dir),
             session_id: parse_agent_session_id(&request.session_id)?,
             external_session_id: request.external_session_id,
+            auto_approve_mode,
         })
         .await
         .map_err(Into::into)
@@ -341,6 +372,7 @@ pub async fn agent_send_workspace_prompt(
     let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
         .unwrap_or_else(|| container_ref.clone());
     let blocks = workspace_prompt_blocks(&working_dir, request.text, &request.images)?;
+    let auto_approve_mode = agent_auto_approve_mode(&state, request.agent_type).await?;
 
     let session = state
         .agent_runtime
@@ -350,6 +382,7 @@ pub async fn agent_send_workspace_prompt(
             working_dir: PathBuf::from(&working_dir),
             session_id,
             acp_session_id: request.session_id.clone(),
+            auto_approve_mode,
         })
         .await?;
 
@@ -372,6 +405,7 @@ pub async fn agent_send_workspace_prompt(
                     working_dir: PathBuf::from(&working_dir),
                     session_id,
                     acp_session_id: request.session_id,
+                    auto_approve_mode,
                 })
                 .await?;
 

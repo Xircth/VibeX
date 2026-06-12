@@ -11,11 +11,11 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, AgentConnectionManagerEvent,
-    AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope, AgentPermissionId,
-    AgentPermissionResponse, AgentPromptId, AgentPromptQueue, AgentPromptSnapshot,
-    AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId, AgentSessionSnapshot,
-    AgentSessionStatus, AgentType, QueueTransition, registry_entry,
+    AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
+    AgentConnectionManagerEvent, AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope,
+    AgentPermissionId, AgentPermissionResponse, AgentPromptId, AgentPromptQueue,
+    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult, AgentSessionId,
+    AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -35,6 +35,7 @@ pub struct ConnectAgentInput {
     pub agent_type: AgentType,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
+    pub auto_approve_mode: AgentAutoApproveMode,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,7 @@ pub struct EnsureAgentSessionInput {
     pub working_dir: PathBuf,
     pub session_id: AgentSessionId,
     pub acp_session_id: String,
+    pub auto_approve_mode: AgentAutoApproveMode,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +76,7 @@ pub struct ResumeAgentSessionInput {
     pub working_dir: PathBuf,
     pub session_id: AgentSessionId,
     pub external_session_id: String,
+    pub auto_approve_mode: AgentAutoApproveMode,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -260,6 +263,7 @@ impl AgentRuntime {
                 agent_type: snapshot.agent_type,
                 workspace_id: snapshot.workspace_id,
                 working_dir: input.working_dir,
+                auto_approve_mode: input.auto_approve_mode,
             })
             .await;
 
@@ -406,6 +410,7 @@ impl AgentRuntime {
                     agent_type: input.agent_type,
                     workspace_id: input.workspace_id,
                     working_dir: input.working_dir,
+                    auto_approve_mode: input.auto_approve_mode,
                 })
                 .await?
                 .id
@@ -435,6 +440,7 @@ impl AgentRuntime {
                 working_dir: input.working_dir,
                 session_id: input.session_id,
                 acp_session_id: input.external_session_id.clone(),
+                auto_approve_mode: input.auto_approve_mode,
             })
             .await?;
         let acp_session_id = self
@@ -891,6 +897,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();
@@ -925,6 +932,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();
@@ -985,6 +993,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();
@@ -1019,6 +1028,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();
@@ -1126,6 +1136,7 @@ mod tests {
                 agent_type: AgentType::Codex,
                 workspace_id,
                 working_dir: working_dir.clone(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();
@@ -1142,6 +1153,7 @@ mod tests {
                 working_dir,
                 session_id: session.id,
                 acp_session_id: session.acp_session_id.clone(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();
@@ -1173,6 +1185,7 @@ mod tests {
                 working_dir: PathBuf::from("C:/work"),
                 session_id,
                 external_session_id: "codex-session-123".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await
             .unwrap();

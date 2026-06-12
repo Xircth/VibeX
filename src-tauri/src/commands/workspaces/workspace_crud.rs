@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use agents::{
-    AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
-    agent_type_from_executor_key,
+    AgentAutoApproveMode, AgentContentBlock, AgentSessionId, EnsureAgentSessionInput,
+    SendAgentPromptInput, agent_type_from_executor_key,
 };
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
@@ -183,6 +183,7 @@ pub async fn create_workspace(
                 working_dir: PathBuf::from(working_dir),
                 session_id: agent_session_id,
                 acp_session_id: session.id.to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await?;
 

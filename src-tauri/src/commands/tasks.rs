@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use agents::{
-    AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
-    agent_type_from_executor_key,
+    AgentAutoApproveMode, AgentContentBlock, AgentSessionId, EnsureAgentSessionInput,
+    SendAgentPromptInput, agent_type_from_executor_key,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use db::models::{
@@ -496,6 +496,7 @@ pub async fn create_task_and_start(
                 working_dir: PathBuf::from(working_dir),
                 session_id: agent_session_id,
                 acp_session_id: session.id.to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
             })
             .await?;
 

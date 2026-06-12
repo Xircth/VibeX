@@ -203,6 +203,8 @@ pub enum AgentEvent {
     PermissionResponded {
         permission_id: AgentPermissionId,
         response: AgentPermissionResponse,
+        #[serde(default)]
+        auto: bool,
     },
     TerminalCreated {
         terminal: AgentTerminalSnapshot,

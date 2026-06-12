@@ -168,6 +168,7 @@ mod tests {
                 options: vec![AgentPermissionOption {
                     id: "allow".to_string(),
                     label: "Allow".to_string(),
+                    kind: crate::AgentPermissionOptionKind::AllowOnce,
                     description: None,
                 }],
             })

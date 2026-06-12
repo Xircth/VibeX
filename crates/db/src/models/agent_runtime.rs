@@ -329,6 +329,28 @@ impl AgentRuntimeStore {
         Ok(())
     }
 
+    pub async fn resolve_pending_permission_for_request(
+        pool: &SqlitePool,
+        session_id: Uuid,
+        request_id: &str,
+        resolution: &str,
+        resolved_at: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE agent_pending_permissions
+               SET resolved_at = $1,
+                   resolution = $2
+               WHERE session_id = $3 AND request_id = $4 AND resolved_at IS NULL"#,
+        )
+        .bind(resolved_at)
+        .bind(resolution)
+        .bind(session_id)
+        .bind(request_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn list_pending_permissions_for_session(
         pool: &SqlitePool,
         session_id: Uuid,
@@ -645,6 +667,34 @@ mod tests {
             permission_id,
             r#"{"kind":"selected","option_id":"allow"}"#,
             "2026-06-13T00:01:00Z",
+        )
+        .await
+        .unwrap();
+
+        let rows = AgentRuntimeStore::list_pending_permissions_for_session(&pool, session_id)
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
+
+        AgentRuntimeStore::upsert_pending_permission(
+            &pool,
+            UpsertAgentPendingPermission {
+                id: Uuid::new_v4(),
+                session_id,
+                request_id: "permission-request-2",
+                tool_call_json: r#"{"name":"edit"}"#,
+                options_json: r#"[{"id":"allow","label":"Allow"}]"#,
+                created_at: "2026-06-13T00:02:00Z",
+            },
+        )
+        .await
+        .unwrap();
+        AgentRuntimeStore::resolve_pending_permission_for_request(
+            &pool,
+            session_id,
+            "permission-request-2",
+            r#"{"kind":"cancelled"}"#,
+            "2026-06-13T00:03:00Z",
         )
         .await
         .unwrap();

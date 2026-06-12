@@ -787,7 +787,7 @@ export const getToolSummary = (
   entryType: Extract<NormalizedEntryType, { type: 'tool_use' }> | undefined,
   content: string
 ): { label: string; detail: string } => {
-  if (!entryType) return { label: 'Tool', detail: content.trim() };
+  if (!entryType) return { label: '工具', detail: content.trim() };
   const at = entryType.action_type;
   switch (at.action) {
     case 'command_run': {
@@ -808,7 +808,7 @@ export const getToolSummary = (
       return { label: '网页抓取', detail: at.url };
     case 'task_create':
       return {
-        label: 'Subagent',
+        label: '子代理',
         detail:
           at.description.length > 60
             ? at.description.slice(0, 57) + '\u2026'
@@ -824,7 +824,7 @@ export const getToolSummary = (
       ) {
         const firstLine = content.trim().split(/\r?\n/)[0] ?? '';
         return {
-          label: 'Subagent status',
+          label: '子代理状态',
           detail:
             firstLine.length > 80
               ? firstLine.slice(0, 77) + '\u2026'
@@ -832,18 +832,18 @@ export const getToolSummary = (
         };
       }
       return {
-        label: at.tool_name || entryType.tool_name || 'Tool',
+        label: at.tool_name || entryType.tool_name || '工具',
         detail: '',
       };
     case 'todo_management':
       return {
-        label: 'Todo',
+        label: '待办',
         detail: `${at.operation}${at.todos.length > 0 ? ` (${at.todos.length})` : ''}`,
       };
     case 'plan_presentation':
-      return { label: 'Plan', detail: '' };
+      return { label: '计划', detail: '' };
     default:
-      return { label: entryType.tool_name || 'Tool', detail: content.trim() };
+      return { label: entryType.tool_name || '工具', detail: content.trim() };
   }
 };
 export const isPendingApprovalStatus = (
@@ -919,13 +919,6 @@ function shouldHideDisplayEntry(data: PatchTypeWithKey): boolean {
     entryType.type === 'token_usage_info' ||
     entryType.type === 'next_action' ||
     shouldHideInitializationNotice(entryType, data.content.content)
-  ) {
-    return true;
-  }
-
-  if (
-    entryType.type === 'tool_use' &&
-    entryType.action_type.action === 'web_fetch'
   ) {
     return true;
   }

@@ -1,6 +1,6 @@
 import type { FileTreeNode, FileTreeBuildNode } from './file-tree-types';
 import type { DirectoryChildrenResponse } from '../../lib/api';
-import { languageFromPath } from '../../utils/syntax';
+import { languageFromPath } from '../../utils/shikiHighlighter';
 import {
   SPECIAL_DEPENDENCY_DIRECTORIES,
   SPECIAL_BUILD_ARTIFACT_DIRECTORIES,
@@ -367,11 +367,7 @@ export function deriveFileTreeContextMenuHeader(
   }
 
   return {
-    title:
-      relativePath
-        .split('/')
-        .filter(Boolean)
-        .pop() ?? relativePath,
+    title: relativePath.split('/').filter(Boolean).pop() ?? relativePath,
     subtitle: relativePath,
   };
 }

@@ -13,13 +13,13 @@
   - Acceptance: `pnpm vitest run` 全量通过
   - Verify: `cd frontend && pnpm vitest run`
   - Files: 视判定而定
-- [ ] T0.4 将在途修改 + 基线修复切分为 ≤3 个原子提交（Lore 记录格式），
+- [x] T0.4 将在途修改 + 基线修复切分为 ≤3 个原子提交（Lore 记录格式），
       不包含 CLAUDE.md/AGENTS.md 删除
   - Acceptance: 每个提交单独通过 `pnpm run check`；`git status --short`
     仅剩两行 D 记录
   - Verify: `git log --stat`、`git status --short`
   - Files: git 历史
-- [ ] T0.5 全门验证：`pnpm run check`、`pnpm run lint`、`cargo test --workspace`、
+- [x] T0.5 全门验证：`pnpm run check`、`pnpm run lint`、`cargo test --workspace`、
       `pnpm vitest run`
   - Acceptance: 全绿
   - Verify: 命令输出

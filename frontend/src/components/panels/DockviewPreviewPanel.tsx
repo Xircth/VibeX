@@ -8,6 +8,7 @@ import {
   useState,
   type ComponentType,
 } from 'react';
+import DOMPurify from 'dompurify';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
@@ -143,6 +144,11 @@ function ReadonlyDocumentPreview({
   content: string;
   format: 'text' | 'html';
 }) {
+  const sanitizedHtml = useMemo(
+    () => (format === 'html' ? DOMPurify.sanitize(content) : ''),
+    [content, format]
+  );
+
   return (
     <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
@@ -154,7 +160,7 @@ function ReadonlyDocumentPreview({
             format === 'html' ? (
               <div
                 className="doc-preview-html text-foreground"
-                dangerouslySetInnerHTML={{ __html: content }}
+                dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
               />
             ) : (
               <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-foreground">

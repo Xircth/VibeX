@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react';
 import { ChevronDown, Loader2 } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   BaseCodingAgent,
   ExecutionProcessStatus,
@@ -45,9 +46,18 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
 
+export type VirtualizedListScrollOptions = {
+  align?: 'start' | 'center' | 'end' | 'auto';
+  behavior?: ScrollBehavior;
+};
+
 export interface VirtualizedListRef {
   scrollToPreviousUserMessage: () => void;
   scrollToBottom: () => void;
+  scrollToIndex: (
+    index: number,
+    options?: VirtualizedListScrollOptions
+  ) => void;
 }
 
 interface VirtualizedListProps {
@@ -56,21 +66,31 @@ interface VirtualizedListProps {
   onAtBottomChange?: (isAtBottom: boolean) => void;
 }
 
-function isUserMessageEntry(entry: PatchTypeWithKey): boolean {
+function isUserMessageEntry(
+  entry: DisplayEntry | PatchTypeWithKey
+): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } {
   return (
     entry.type === 'NORMALIZED_ENTRY' &&
     entry.content.entry_type.type === 'user_message'
   );
 }
 
-type UserMessagePosition = {
-  patchKey: string;
-  top: number;
+type ConversationScrollMetrics = {
+  scrollHeight: number;
+  scrollTop: number;
+  clientHeight: number;
+};
+
+type VirtualItemPosition = {
+  index: number;
+  start: number;
 };
 
 const conversationScrollPositions = new Map<string, number>();
 const MAX_CONVERSATION_SCROLL_POSITIONS = 50;
 const BOTTOM_SCROLL_THRESHOLD_PX = 48;
+const ESTIMATED_CONVERSATION_ROW_HEIGHT = 128;
+const CONVERSATION_OVERSCAN_ROWS = 10;
 
 function rememberConversationScrollPosition(key: string, scrollTop: number) {
   conversationScrollPositions.delete(key);
@@ -83,24 +103,78 @@ function rememberConversationScrollPosition(key: string, scrollTop: number) {
   }
 }
 
-export function findPreviousUserMessageKey(
-  positions: UserMessagePosition[],
+export function findViewportAnchorVirtualIndex(
+  virtualItems: VirtualItemPosition[],
   scrollTop: number,
   viewportHeight: number
-): string | null {
-  if (positions.length === 0) {
+): number | null {
+  if (virtualItems.length === 0) {
     return null;
   }
 
   const anchor = scrollTop + Math.max(24, viewportHeight * 0.25);
+  let anchorIndex = virtualItems[0]!.index;
 
-  for (let index = positions.length - 1; index >= 0; index -= 1) {
-    if (positions[index]!.top < anchor) {
-      return positions[index]!.patchKey;
+  for (const item of virtualItems) {
+    if (item.start > anchor) {
+      break;
+    }
+    anchorIndex = item.index;
+  }
+
+  return anchorIndex;
+}
+
+export function findPreviousUserMessageVirtualIndex(
+  userMessageIndexes: number[],
+  anchorIndex: number | null
+): number | null {
+  if (userMessageIndexes.length === 0) {
+    return null;
+  }
+
+  if (anchorIndex === null) {
+    return userMessageIndexes[0]!;
+  }
+
+  for (let index = userMessageIndexes.length - 1; index >= 0; index -= 1) {
+    const userMessageIndex = userMessageIndexes[index]!;
+    if (userMessageIndex <= anchorIndex) {
+      return userMessageIndex;
     }
   }
 
-  return positions[0]!.patchKey;
+  return userMessageIndexes[0]!;
+}
+
+export function getUserMessageDisplayIndexes(
+  entries: DisplayEntry[]
+): number[] {
+  return entries.flatMap((entry, index) =>
+    isUserMessageEntry(entry) ? [index] : []
+  );
+}
+
+export function getDistanceFromConversationBottom({
+  scrollHeight,
+  scrollTop,
+  clientHeight,
+}: ConversationScrollMetrics): number {
+  return scrollHeight - scrollTop - clientHeight;
+}
+
+export function getVirtualRowTranslateY(
+  start: number,
+  scrollMargin: number
+): string {
+  return `translateY(${start - scrollMargin}px)`;
+}
+
+export function isConversationNearBottom(
+  metrics: ConversationScrollMetrics,
+  thresholdPx = BOTTOM_SCROLL_THRESHOLD_PX
+): boolean {
+  return getDistanceFromConversationBottom(metrics) <= thresholdPx;
 }
 
 export function buildProcessChangeItems(
@@ -155,28 +229,28 @@ export function collapsedAssistantMessagesLabel(hiddenCount: number): string {
 }
 
 const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
-function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
+  function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
     const { entries, setEntries } = useEntries();
     const { executionProcessesVisible } = useExecutionProcessesContext();
     const agentWorkbench = useAgentWorkbench();
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const virtualListRef = useRef<HTMLDivElement | null>(null);
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
+    const [scrollMargin, setScrollMargin] = useState(0);
     const conversationScrollKey = buildSessionConversationKey(
       attempt.id,
       attempt.session?.id
     );
     const restoredScrollRef = useRef<string | null>(null);
     const isAtBottomRef = useRef(true);
+    const stickToBottomFrameRef = useRef<number | null>(null);
     const { config } = useUserSystem();
 
     const updateAtBottomState = useCallback(() => {
       const container = containerRef.current;
       if (!container) return;
 
-      const distanceFromBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight;
-      const nextIsAtBottom = distanceFromBottom <= BOTTOM_SCROLL_THRESHOLD_PX;
+      const nextIsAtBottom = isConversationNearBottom(container);
       if (isAtBottomRef.current === nextIsAtBottom) return;
 
       isAtBottomRef.current = nextIsAtBottom;
@@ -215,7 +289,10 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       ? agentWorkbench.sessions[agentSessionId]
       : undefined;
     const agentSessionEvents = useMemo(
-      () => (agentSessionId ? agentWorkbench.eventsByScope[agentSessionId] ?? [] : []),
+      () =>
+        agentSessionId
+          ? (agentWorkbench.eventsByScope[agentSessionId] ?? [])
+          : [],
       [agentSessionId, agentWorkbench.eventsByScope]
     );
     const agentTranscriptEntries = useMemo(
@@ -235,7 +312,8 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       if (!usesAgentTranscript) return;
       setEntries(agentTranscriptEntries);
       setIsLoadingEntries(
-        agentWorkbench.loadState === 'loading' && agentTranscriptEntries.length === 0
+        agentWorkbench.loadState === 'loading' &&
+          agentTranscriptEntries.length === 0
       );
     }, [
       agentTranscriptEntries,
@@ -277,6 +355,76 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       executionProcessesVisible,
       normalizedEntries,
     ]);
+    const userMessageDisplayIndexes = useMemo(
+      () => getUserMessageDisplayIndexes(displayEntries),
+      [displayEntries]
+    );
+    const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+      count: displayEntries.length,
+      getScrollElement: () => containerRef.current,
+      estimateSize: () => ESTIMATED_CONVERSATION_ROW_HEIGHT,
+      getItemKey: (index) => displayEntries[index]?.patchKey ?? index,
+      overscan: CONVERSATION_OVERSCAN_ROWS,
+      scrollMargin,
+    });
+    const virtualRows = rowVirtualizer.getVirtualItems();
+    const virtualTotalSize = rowVirtualizer.getTotalSize();
+
+    const scrollContainerToBottom = useCallback(
+      (behavior: ScrollBehavior) => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        if (displayEntries.length > 0) {
+          rowVirtualizer.scrollToIndex(displayEntries.length - 1, {
+            align: 'end',
+            behavior,
+          });
+        } else {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior,
+          });
+        }
+
+        isAtBottomRef.current = true;
+        onAtBottomChange?.(true);
+      },
+      [displayEntries.length, onAtBottomChange, rowVirtualizer]
+    );
+
+    const scheduleStickToBottomCorrection = useCallback(() => {
+      if (typeof window === 'undefined') return;
+
+      if (stickToBottomFrameRef.current !== null) {
+        window.cancelAnimationFrame(stickToBottomFrameRef.current);
+      }
+
+      stickToBottomFrameRef.current = window.requestAnimationFrame(() => {
+        stickToBottomFrameRef.current = null;
+        if (!isAtBottomRef.current) return;
+
+        scrollContainerToBottom('auto');
+        updateAtBottomState();
+      });
+    }, [scrollContainerToBottom, updateAtBottomState]);
+
+    const updateVirtualScrollMargin = useCallback(() => {
+      const container = containerRef.current;
+      const virtualList = virtualListRef.current;
+      if (!container || !virtualList) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const virtualListRect = virtualList.getBoundingClientRect();
+      const nextScrollMargin = Math.max(
+        0,
+        virtualListRect.top - containerRect.top + container.scrollTop
+      );
+
+      setScrollMargin((current) =>
+        Math.abs(current - nextScrollMargin) > 1 ? nextScrollMargin : current
+      );
+    }, []);
 
     const renderBaseDisplayEntry = useCallback(
       (entry: BaseDisplayEntry) => {
@@ -359,6 +507,10 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
 
     useLayoutEffect(() => {
       if (restoredScrollRef.current === conversationScrollKey) return;
+
+      isAtBottomRef.current = true;
+      onAtBottomChange?.(true);
+
       if (displayEntries.length === 0) return;
 
       const container = containerRef.current;
@@ -371,14 +523,51 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       container.scrollTop = scrollTop;
       restoredScrollRef.current = conversationScrollKey;
       updateAtBottomState();
-    }, [conversationScrollKey, displayEntries.length, updateAtBottomState]);
+    }, [
+      conversationScrollKey,
+      displayEntries.length,
+      onAtBottomChange,
+      updateAtBottomState,
+    ]);
 
     useLayoutEffect(() => {
+      updateVirtualScrollMargin();
+    }, [
+      displayEntries.length,
+      pendingPermissions.length,
+      updateVirtualScrollMargin,
+    ]);
+
+    useLayoutEffect(() => {
+      if (displayEntries.length === 0) {
+        updateAtBottomState();
+        return;
+      }
+
+      if (isAtBottomRef.current) {
+        scrollContainerToBottom('auto');
+        scheduleStickToBottomCorrection();
+        return;
+      }
+
       updateAtBottomState();
-    }, [displayEntries.length, updateAtBottomState]);
+    }, [
+      displayEntries.length,
+      scrollContainerToBottom,
+      scheduleStickToBottomCorrection,
+      updateAtBottomState,
+      virtualTotalSize,
+    ]);
 
     useEffect(() => {
       return () => {
+        if (
+          typeof window !== 'undefined' &&
+          stickToBottomFrameRef.current !== null
+        ) {
+          window.cancelAnimationFrame(stickToBottomFrameRef.current);
+          stickToBottomFrameRef.current = null;
+        }
         saveScrollPosition();
       };
     }, [saveScrollPosition]);
@@ -387,49 +576,43 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
       ref,
       () => ({
         scrollToBottom() {
-          const container = containerRef.current;
-          if (!container) return;
-
-          container.scrollTo({
-            top: container.scrollHeight,
-            behavior: 'smooth',
+          scrollContainerToBottom('smooth');
+        },
+        scrollToIndex(index, options) {
+          if (index < 0 || index >= displayEntries.length) return;
+          rowVirtualizer.scrollToIndex(index, {
+            align: options?.align ?? 'center',
+            behavior: options?.behavior ?? 'smooth',
           });
-          isAtBottomRef.current = true;
-          onAtBottomChange?.(true);
         },
         scrollToPreviousUserMessage() {
           const container = containerRef.current;
           if (!container) return;
 
-          const positions = normalizedEntries
-            .filter(isUserMessageEntry)
-            .map((entry) => ({
-              patchKey: entry.patchKey,
-              top: userMessageRefs.current.get(entry.patchKey)?.offsetTop,
-            }))
-            .filter(
-              (
-                item
-              ): item is {
-                patchKey: string;
-                top: number;
-              } => typeof item.top === 'number'
-            );
-
-          const targetPatchKey = findPreviousUserMessageKey(
-            positions,
+          const anchorIndex = findViewportAnchorVirtualIndex(
+            rowVirtualizer.getVirtualItems(),
             container.scrollTop,
             container.clientHeight
           );
+          const targetIndex = findPreviousUserMessageVirtualIndex(
+            userMessageDisplayIndexes,
+            anchorIndex
+          );
 
-          if (!targetPatchKey) return;
+          if (targetIndex === null) return;
 
-          userMessageRefs.current
-            .get(targetPatchKey)
-            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          rowVirtualizer.scrollToIndex(targetIndex, {
+            align: 'center',
+            behavior: 'smooth',
+          });
         },
       }),
-      [normalizedEntries, onAtBottomChange]
+      [
+        displayEntries.length,
+        rowVirtualizer,
+        scrollContainerToBottom,
+        userMessageDisplayIndexes,
+      ]
     );
 
     return (
@@ -447,39 +630,48 @@ function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-4xl flex-col gap-3">
+          <div className="mx-auto max-w-4xl">
             <AgentPermissionPanel
               permissions={pendingPermissions}
               respondingPermissionId={respondingPermissionId}
               onRespond={respondToPermission}
             />
-            {displayEntries.map((entry) => (
-              <div
-                key={entry.patchKey}
-                ref={(node) => {
-                  if (
-                    node &&
-                    entry.type === 'NORMALIZED_ENTRY' &&
-                    isUserMessageEntry(entry)
-                  ) {
-                    userMessageRefs.current.set(entry.patchKey, node);
-                  } else {
-                    userMessageRefs.current.delete(entry.patchKey);
-                  }
-                }}
-              >
-                {isCollapsedAssistantMessagesGroup(entry) ? (
-                  <CollapsedAssistantMessagesBlock
-                    hiddenCount={entry.hiddenCount}
-                    entries={entry.entries}
-                    renderEntry={renderBaseDisplayEntry}
-                  />
-                ) : null}
-                {!isCollapsedAssistantMessagesGroup(entry)
-                  ? renderBaseDisplayEntry(entry)
-                  : null}
-              </div>
-            ))}
+            <div
+              ref={virtualListRef}
+              className="relative w-full"
+              style={{ height: `${virtualTotalSize}px` }}
+            >
+              {virtualRows.map((virtualRow) => {
+                const entry = displayEntries[virtualRow.index];
+                if (!entry) return null;
+
+                return (
+                  <div
+                    key={virtualRow.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute left-0 top-0 w-full pb-3"
+                    style={{
+                      transform: getVirtualRowTranslateY(
+                        virtualRow.start,
+                        scrollMargin
+                      ),
+                    }}
+                  >
+                    {isCollapsedAssistantMessagesGroup(entry) ? (
+                      <CollapsedAssistantMessagesBlock
+                        hiddenCount={entry.hiddenCount}
+                        entries={entry.entries}
+                        renderEntry={renderBaseDisplayEntry}
+                      />
+                    ) : null}
+                    {!isCollapsedAssistantMessagesGroup(entry)
+                      ? renderBaseDisplayEntry(entry)
+                      : null}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

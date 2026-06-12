@@ -259,12 +259,7 @@ function KanbanSessionConversationContent({
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('newSession');
     setSearchParams(nextSearchParams, { replace: true });
-  }, [
-    interactive,
-    onCreateSessionRequested,
-    searchParams,
-    setSearchParams,
-  ]);
+  }, [interactive, onCreateSessionRequested, searchParams, setSearchParams]);
 
   const activeSession = interactive
     ? resolveActiveSession(attempt.session, sessionState)
@@ -317,8 +312,8 @@ function KanbanSessionConversationContent({
                 <button
                   type="button"
                   className="pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full border border-border/70 bg-background/65 text-foreground/80 shadow-lg shadow-black/10 backdrop-blur-md transition hover:bg-background/85 hover:text-foreground"
-                  aria-label="回到消息底部"
-                  title="回到消息底部"
+                  aria-label={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
+                  title={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
                   onClick={() => logsRef.current?.scrollToBottom()}
                 >
                   <ChevronDown className="h-4 w-4" />
@@ -382,6 +377,7 @@ function KanbanSessionConversationSurface({
       ) as Promise<SessionRecord>;
     },
     enabled: sessionDetailQuery.enabled,
+    meta: { suppressGlobalError: true },
     placeholderData: (previousData) =>
       previousData?.id === sessionId ? previousData : undefined,
   });

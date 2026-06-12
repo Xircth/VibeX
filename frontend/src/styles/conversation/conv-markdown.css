@@ -1,7 +1,7 @@
 /* ============================================
  * AI Conversation — Markdown Renderer
  * Base markdown styles, code blocks (fenced &
- * single-line), Prism syntax highlighting,
+ * single-line), Shiki token rendering,
  * lists, headings, tables, links, blockquotes
  * ============================================ */
 
@@ -85,11 +85,10 @@
 /* ── Code Block (fenced, multi-line) ── */
 
 .conv-md-codeblock {
-  border: 1.5px solid var(--conv-border-strong);
-  border-radius: 10px;
+  border: 1px solid var(--conv-border-subtle);
+  border-radius: 8px;
   background: var(--conv-surface-card);
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   margin: 6px 0;
 }
 
@@ -98,11 +97,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 10px;
+  min-height: 28px;
+  padding: 3px 6px 3px 10px;
   background: var(--conv-surface-control);
   border-bottom: 1px solid var(--conv-border-subtle);
   font-size: 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--conv-text-tertiary);
 }
@@ -115,13 +115,12 @@
 .conv-md-codeblock-copy {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border: 1px solid var(--conv-border-strong);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0;
   color: var(--conv-text-secondary);
   background: transparent;
   cursor: pointer;
@@ -131,6 +130,7 @@
 }
 
 .conv-md-codeblock-copy:hover {
+  border-color: var(--conv-border-subtle);
   background: var(--conv-surface-control-hover);
 }
 
@@ -145,173 +145,29 @@
   white-space: pre;
   overflow-x: auto;
   font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .conv-md-codeblock code {
   color: var(--conv-code-text);
+  display: block;
 }
 
-/* Prism token colors — Light mode (GitHub-inspired) */
-.conv-md-codeblock
-  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
-.conv-md-codeblock-single
-  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
-  color: #6a737d;
+.conv-md-codeblock-line {
+  display: block;
+  min-height: 1.55em;
 }
 
-.conv-md-codeblock .token.punctuation,
-.conv-md-codeblock-single .token.punctuation {
-  color: #24292f;
+.conv-md-token {
+  color: var(--shiki-token-light, var(--conv-code-text));
 }
 
-.conv-md-codeblock
-  :is(
-    .token.property,
-    .token.tag,
-    .token.constant,
-    .token.symbol,
-    .token.deleted
-  ),
-.conv-md-codeblock-single
-  :is(
-    .token.property,
-    .token.tag,
-    .token.constant,
-    .token.symbol,
-    .token.deleted
-  ) {
-  color: #cf222e;
-}
-
-.conv-md-codeblock :is(.token.boolean, .token.number),
-.conv-md-codeblock-single :is(.token.boolean, .token.number) {
-  color: #0550ae;
-}
-
-.conv-md-codeblock
-  :is(
-    .token.selector,
-    .token.attr-name,
-    .token.string,
-    .token.char,
-    .token.builtin,
-    .token.inserted
-  ),
-.conv-md-codeblock-single
-  :is(
-    .token.selector,
-    .token.attr-name,
-    .token.string,
-    .token.char,
-    .token.builtin,
-    .token.inserted
-  ) {
-  color: #116329;
-}
-
-.conv-md-codeblock
-  :is(.token.operator, .token.entity, .token.url, .token.variable),
-.conv-md-codeblock-single
-  :is(.token.operator, .token.entity, .token.url, .token.variable) {
-  color: #24292f;
-}
-
-.conv-md-codeblock :is(.token.atrule, .token.attr-value, .token.keyword),
-.conv-md-codeblock-single
-  :is(.token.atrule, .token.attr-value, .token.keyword) {
-  color: #cf222e;
-}
-
-.conv-md-codeblock :is(.token.function, .token.class-name),
-.conv-md-codeblock-single :is(.token.function, .token.class-name) {
-  color: #8250df;
-}
-
-/* Prism token colors — Dark mode */
-.dark
-  .conv-md-codeblock
-  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata),
-.dark
-  .conv-md-codeblock-single
-  :is(.token.comment, .token.prolog, .token.doctype, .token.cdata) {
-  color: #8b949e;
-}
-
-.dark .conv-md-codeblock .token.punctuation,
-.dark .conv-md-codeblock-single .token.punctuation {
-  color: #c9d1d9;
-}
-
-.dark
-  .conv-md-codeblock
-  :is(
-    .token.property,
-    .token.tag,
-    .token.constant,
-    .token.symbol,
-    .token.deleted
-  ),
-.dark
-  .conv-md-codeblock-single
-  :is(
-    .token.property,
-    .token.tag,
-    .token.constant,
-    .token.symbol,
-    .token.deleted
-  ) {
-  color: #ff7b72;
-}
-
-.dark .conv-md-codeblock :is(.token.boolean, .token.number),
-.dark .conv-md-codeblock-single :is(.token.boolean, .token.number) {
-  color: #f2cc60;
-}
-
-.dark
-  .conv-md-codeblock
-  :is(
-    .token.selector,
-    .token.attr-name,
-    .token.string,
-    .token.char,
-    .token.builtin,
-    .token.inserted
-  ),
-.dark
-  .conv-md-codeblock-single
-  :is(
-    .token.selector,
-    .token.attr-name,
-    .token.string,
-    .token.char,
-    .token.builtin,
-    .token.inserted
-  ) {
-  color: #7ee787;
-}
-
-.dark
-  .conv-md-codeblock
-  :is(.token.operator, .token.entity, .token.url, .token.variable),
-.dark
-  .conv-md-codeblock-single
-  :is(.token.operator, .token.entity, .token.url, .token.variable) {
-  color: #c9d1d9;
-}
-
-.dark .conv-md-codeblock :is(.token.atrule, .token.attr-value, .token.keyword),
-.dark
-  .conv-md-codeblock-single
-  :is(.token.atrule, .token.attr-value, .token.keyword) {
-  color: #8bd5ff;
-}
-
-.dark .conv-md-codeblock :is(.token.function, .token.class-name),
-.dark .conv-md-codeblock-single :is(.token.function, .token.class-name) {
-  color: #d2a8ff;
+.dark .conv-md-token {
+  color: var(
+    --shiki-token-dark,
+    var(--shiki-token-light, var(--conv-code-text))
+  );
 }
 
 /* ── Single-line code block ── */
@@ -319,21 +175,97 @@
 .conv-md-codeblock-single {
   margin: 6px 0;
   padding: 8px 12px;
-  border: 1.5px solid var(--conv-border-strong);
-  border-radius: 10px;
+  border: 1px solid var(--conv-border-subtle);
+  border-radius: 8px;
   background: var(--conv-surface-card);
   white-space: pre;
   overflow-x: auto;
   font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .conv-md-codeblock-single code {
   color: var(--conv-code-text);
   display: block;
   font-family: inherit;
+}
+
+/* Math */
+
+.conv-markdown .katex {
+  font-size: 1em;
+}
+
+.conv-markdown .katex-display {
+  margin: 8px 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Mermaid diagrams */
+
+.conv-md-mermaid {
+  margin: 6px 0;
+  max-width: 100%;
+  border: 1px solid var(--conv-border-subtle);
+  border-radius: 8px;
+  background: var(--conv-surface-card);
+  overflow: hidden;
+}
+
+.conv-md-mermaid-status {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  color: var(--conv-text-tertiary);
+  font-size: 12px;
+  background: var(--conv-surface-control);
+}
+
+.conv-md-mermaid-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  padding: 12px;
+  background: var(--conv-surface-card);
+}
+
+.conv-md-mermaid-error {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  color: var(--conv-text-secondary);
+  background: var(--conv-surface-control);
+}
+
+.conv-md-mermaid-error-title {
+  color: var(--conv-tool-error);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conv-md-mermaid-error-detail {
+  color: var(--conv-text-tertiary);
+  font-size: 12px;
+}
+
+.conv-md-mermaid-source {
+  margin: 2px 0 0;
+  max-height: 180px;
+  padding: 8px 10px;
+  border: 1px solid var(--conv-border-subtle);
+  border-radius: 6px;
+  overflow: auto;
+  color: var(--conv-code-text);
+  background: var(--conv-code-bg);
+  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* ── Lists ── */
@@ -389,9 +321,9 @@
 .conv-markdown :where(blockquote) {
   margin: 0;
   padding: 6px 10px;
-  border-left: 2.5px solid var(--conv-border-strong);
+  border: 1px solid var(--conv-border-subtle);
   background: var(--conv-surface-control);
-  border-radius: 0 6px 6px 0;
+  border-radius: 6px;
   color: var(--conv-text-secondary);
 }
 

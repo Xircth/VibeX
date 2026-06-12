@@ -10,13 +10,11 @@
 
 .conv-tool-card {
   border: 1px solid var(--conv-border-subtle) !important;
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   background: var(--conv-surface-control) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   transition:
     background 0.15s,
-    border-color 0.15s,
-    box-shadow 0.15s;
+    border-color 0.15s;
   font-size: 13px;
 }
 
@@ -26,21 +24,42 @@
 }
 
 .conv-tool-card-success {
-  box-shadow:
-    inset 3px 0 0 var(--conv-tool-success),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: color-mix(
+    in srgb,
+    var(--conv-tool-success) 45%,
+    var(--conv-border-subtle)
+  ) !important;
+  background: color-mix(
+    in srgb,
+    var(--conv-tool-success) 8%,
+    var(--conv-surface-control)
+  ) !important;
 }
 
 .conv-tool-card-error {
-  box-shadow:
-    inset 3px 0 0 var(--conv-tool-error),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: color-mix(
+    in srgb,
+    var(--conv-tool-error) 48%,
+    var(--conv-border-subtle)
+  ) !important;
+  background: color-mix(
+    in srgb,
+    var(--conv-tool-error) 8%,
+    var(--conv-surface-control)
+  ) !important;
 }
 
 .conv-tool-card-pending {
-  box-shadow:
-    inset 3px 0 0 var(--conv-tool-pending),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border-color: color-mix(
+    in srgb,
+    var(--conv-tool-pending) 48%,
+    var(--conv-border-subtle)
+  ) !important;
+  background: color-mix(
+    in srgb,
+    var(--conv-tool-pending) 8%,
+    var(--conv-surface-control)
+  ) !important;
 }
 
 /* Tool card label */

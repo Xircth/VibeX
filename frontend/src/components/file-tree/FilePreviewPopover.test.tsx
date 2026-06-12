@@ -1,7 +1,55 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FilePreviewPopover } from './FilePreviewPopover';
+
+const shikiMock = vi.hoisted(() => {
+  const loadLanguage = vi.fn(async () => undefined);
+  const codeToTokensWithThemes = vi.fn((code: string) =>
+    code.split('\n').map((line) =>
+      line
+        ? [
+            {
+              content: line,
+              offset: 0,
+              variants: {
+                light: { color: '#111111' },
+                dark: { color: '#eeeeee' },
+              },
+            },
+          ]
+        : []
+    )
+  );
+  const createHighlighter = vi.fn(async () => ({
+    loadLanguage,
+    codeToTokensWithThemes,
+  }));
+
+  return {
+    codeToTokensWithThemes,
+    createHighlighter,
+    loadLanguage,
+  };
+});
+
+vi.mock('shiki', () => ({
+  bundledLanguages: {
+    bash: {},
+    css: {},
+    diff: {},
+    html: {},
+    javascript: {},
+    json: {},
+    markdown: {},
+    python: {},
+    rust: {},
+    tsx: {},
+    typescript: {},
+    yaml: {},
+  },
+  createHighlighter: shikiMock.createHighlighter,
+}));
 
 const CLOSE_PREVIEW_LABEL = '\u5173\u95ed\u9884\u89c8';
 const IMAGE_PREVIEW_LABEL = '\u56fe\u7247\u9884\u89c8';
@@ -24,10 +72,17 @@ const defaultProps = {
 };
 
 describe('FilePreviewPopover', () => {
+  beforeEach(() => {
+    shikiMock.createHighlighter.mockClear();
+    shikiMock.codeToTokensWithThemes.mockClear();
+    shikiMock.loadLanguage.mockClear();
+  });
+
   it('renders readable text preview labels and actions', () => {
     render(
       <FilePreviewPopover
         {...defaultProps}
+        content=""
         selectionHints={['Shift+\u70b9\u51fb\u6269\u5c55\u9009\u62e9']}
       />
     );
@@ -47,7 +102,7 @@ describe('FilePreviewPopover', () => {
 
   it('renders readable loading and image preview labels', () => {
     const { rerender } = render(
-      <FilePreviewPopover {...defaultProps} isLoading={true} />
+      <FilePreviewPopover {...defaultProps} content="" isLoading={true} />
     );
 
     expect(screen.getByText(LOADING_FILE_LABEL)).toBeInTheDocument();
@@ -61,5 +116,27 @@ describe('FilePreviewPopover', () => {
     );
 
     expect(screen.getByText(IMAGE_PREVIEW_LABEL)).toBeInTheDocument();
+  });
+
+  it('renders file preview code through Shiki token spans', async () => {
+    render(<FilePreviewPopover {...defaultProps} />);
+
+    await waitFor(() =>
+      expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledWith(
+        'const value = 1;',
+        expect.objectContaining({
+          lang: 'typescript',
+        })
+      )
+    );
+
+    const token = screen.getByText('const value = 1;');
+    expect(token).toHaveClass('file-preview-token');
+    expect(token.getAttribute('style')).toContain(
+      '--shiki-token-light: #111111'
+    );
+    expect(token.getAttribute('style')).toContain(
+      '--shiki-token-dark: #eeeeee'
+    );
   });
 });

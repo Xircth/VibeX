@@ -5,19 +5,22 @@ import {
   type ReactNode,
   type MouseEvent,
 } from 'react';
-import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
+  type Options as ReactMarkdownOptions,
 } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Check, Copy } from 'lucide-react';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { highlightLine } from '@/utils/syntax';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { CodeBlock, CompactCodeBlock, extractLanguageTag } from './CodeBlock';
+import { MermaidDiagram } from './MermaidDiagram';
 import {
   deriveRelativeFilePath,
   resolveFilePathFromRoot,
@@ -36,11 +39,6 @@ type MarkdownProps = {
   workspacePath?: string | null;
 };
 
-type CodeBlockProps = {
-  className?: string;
-  value: string;
-};
-
 type PreProps = {
   node?: {
     tagName?: string;
@@ -52,12 +50,6 @@ type PreProps = {
   };
   children?: ReactNode;
 };
-
-function extractLanguageTag(className?: string): string | null {
-  if (!className) return null;
-  const match = className.match(/language-([\w-]+)/i);
-  return match ? match[1] : null;
-}
 
 function extractCodeFromPre(node?: PreProps['node']): {
   className: string | undefined;
@@ -92,53 +84,6 @@ function flattenNodeText(node: ReactNode): string {
   return '';
 }
 
-function CodeBlock({ className, value }: CodeBlockProps) {
-  const [copied, triggerCopied] = useTemporaryFlag(1200);
-
-  const languageTag = extractLanguageTag(className);
-  const languageLabel = languageTag ?? 'Code';
-  const highlightedHtml = useMemo(
-    () => highlightLine(value, languageTag),
-    [value, languageTag]
-  );
-
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      triggerCopied();
-    } catch {
-      // Clipboard access is best-effort only.
-    }
-  }, [triggerCopied, value]);
-
-  return (
-    <div className="conv-md-codeblock">
-      <div className="conv-md-codeblock-header">
-        <span className="conv-md-codeblock-language">{languageLabel}</span>
-        <button
-          type="button"
-          className={`conv-md-codeblock-copy${copied ? ' is-copied' : ''}`}
-          onClick={handleCopy}
-          title={copied ? '已复制' : '复制'}
-          aria-label={copied ? '已复制' : '复制'}
-        >
-          {copied ? (
-            <Check className="h-3 w-3" />
-          ) : (
-            <Copy className="h-3 w-3" />
-          )}
-        </button>
-      </div>
-      <pre>
-        <code
-          className={className}
-          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-        />
-      </pre>
-    </div>
-  );
-}
-
 function PreBlock({ node, children }: PreProps) {
   const { className, value } = extractCodeFromPre(node);
 
@@ -146,19 +91,14 @@ function PreBlock({ node, children }: PreProps) {
     return <pre>{children}</pre>;
   }
 
-  const languageTag = extractLanguageTag(className);
+  if (extractLanguageTag(className)?.toLowerCase() === 'mermaid') {
+    return <MermaidDiagram value={value} />;
+  }
+
   const isSingleLine = !value.includes('\n');
 
   if (isSingleLine) {
-    const html = highlightLine(value, languageTag);
-    return (
-      <pre className="conv-md-codeblock-single">
-        <code
-          className={className}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      </pre>
-    );
+    return <CompactCodeBlock className={className} value={value} />;
   }
 
   return <CodeBlock className={className} value={value} />;
@@ -217,9 +157,7 @@ function parseHref(href: string): URL | null {
 
 function isLoopbackHost(hostname: string): boolean {
   return (
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname === '::1'
+    hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
   );
 }
 
@@ -229,7 +167,8 @@ function isInternalProjectRouteHref(href: string): boolean {
 
   return (
     parsed.pathname.startsWith('/local-projects') &&
-    (parsed.origin === window.location.origin || isLoopbackHost(parsed.hostname))
+    (parsed.origin === window.location.origin ||
+      isLoopbackHost(parsed.hostname))
   );
 }
 
@@ -275,7 +214,11 @@ function hrefToWorkspacePathCandidate(
     return decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
   }
 
-  if (raw.startsWith('/') && workspacePath && /^[a-zA-Z]:[\\/]/.test(workspacePath)) {
+  if (
+    raw.startsWith('/') &&
+    workspacePath &&
+    /^[a-zA-Z]:[\\/]/.test(workspacePath)
+  ) {
     return raw.replace(/^\/+/, '');
   }
 
@@ -294,7 +237,10 @@ function trimFilePathCandidate(value: string): string {
 function looksLikeWorkspaceFilePath(value: string): boolean {
   const candidate = trimFilePathCandidate(value);
   if (!candidate || candidate.startsWith('#')) return false;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(candidate) && !isAbsoluteLocalPath(candidate)) {
+  if (
+    /^[a-z][a-z0-9+.-]*:/i.test(candidate) &&
+    !isAbsoluteLocalPath(candidate)
+  ) {
     return false;
   }
   if (candidate.startsWith('/local-projects')) return false;
@@ -315,7 +261,10 @@ function looksLikeWorkspaceDirectoryPath(value: string): boolean {
   if (!candidate || candidate === '.' || candidate.startsWith('#')) {
     return false;
   }
-  if (/^[a-z][a-z0-9+.-]*:/i.test(candidate) && !isAbsoluteLocalPath(candidate)) {
+  if (
+    /^[a-z][a-z0-9+.-]*:/i.test(candidate) &&
+    !isAbsoluteLocalPath(candidate)
+  ) {
     return false;
   }
   if (candidate.startsWith('/local-projects')) {
@@ -354,7 +303,10 @@ function resolveMarkdownWorkspacePathTarget(
 
     const normalizedCandidate =
       nodeType === 'folder' ? candidate.replace(/[\\/]+$/, '') : candidate;
-    const filePath = resolveFilePathFromRoot(normalizedCandidate, workspacePath);
+    const filePath = resolveFilePathFromRoot(
+      normalizedCandidate,
+      workspacePath
+    );
     const displayPath =
       deriveRelativeFilePath(filePath, workspacePath) ?? normalizedCandidate;
     return { path: filePath, displayPath, nodeType };
@@ -382,6 +334,108 @@ function normalizeBareImageReferences(value: string): string {
       return `${line.slice(0, line.indexOf(trimmed))}![${label}](${trimmed})`;
     })
     .join('\n');
+}
+
+function normalizeMathDelimiters(value: string): string {
+  return splitFencedCodeSegments(value)
+    .map((segment) =>
+      segment.protected
+        ? segment.text
+        : normalizeInlineMathSegments(segment.text)
+    )
+    .join('');
+}
+
+function splitFencedCodeSegments(
+  value: string
+): Array<{ text: string; protected: boolean }> {
+  const segments: Array<{ text: string; protected: boolean }> = [];
+  const lines = value.match(/[^\n]*(?:\n|$)/g) ?? [];
+  let buffer = '';
+  let inFence = false;
+  let fenceChar: '`' | '~' | null = null;
+  let fenceLength = 0;
+
+  const flush = (protectedSegment: boolean) => {
+    if (!buffer) return;
+    segments.push({ text: buffer, protected: protectedSegment });
+    buffer = '';
+  };
+
+  for (const line of lines) {
+    if (!line) continue;
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+
+    if (!inFence && fenceMatch) {
+      flush(false);
+      inFence = true;
+      fenceChar = fenceMatch[1][0] as '`' | '~';
+      fenceLength = fenceMatch[1].length;
+      buffer += line;
+      continue;
+    }
+
+    if (inFence) {
+      buffer += line;
+      if (
+        fenceMatch &&
+        fenceChar &&
+        fenceMatch[1][0] === fenceChar &&
+        fenceMatch[1].length >= fenceLength
+      ) {
+        flush(true);
+        inFence = false;
+        fenceChar = null;
+        fenceLength = 0;
+      }
+      continue;
+    }
+
+    buffer += line;
+  }
+
+  flush(inFence);
+  return segments;
+}
+
+function normalizeInlineMathSegments(value: string): string {
+  let result = '';
+  let index = 0;
+
+  while (index < value.length) {
+    if (value[index] !== '`') {
+      const nextTick = value.indexOf('`', index);
+      const textSegment =
+        nextTick === -1 ? value.slice(index) : value.slice(index, nextTick);
+      result += convertTexMathDelimiters(textSegment);
+      index = nextTick === -1 ? value.length : nextTick;
+      continue;
+    }
+
+    const tickRunMatch = value.slice(index).match(/^`+/);
+    const tickRun = tickRunMatch?.[0] ?? '`';
+    const closingIndex = value.indexOf(tickRun, index + tickRun.length);
+
+    if (closingIndex === -1) {
+      result += value.slice(index);
+      break;
+    }
+
+    result += value.slice(index, closingIndex + tickRun.length);
+    index = closingIndex + tickRun.length;
+  }
+
+  return result;
+}
+
+function convertTexMathDelimiters(value: string): string {
+  return value
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_match, content: string) => {
+      return `$$${content}$$`;
+    })
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_match, content: string) => {
+      return `$${content}$`;
+    });
 }
 
 function MarkdownImage({
@@ -480,9 +534,11 @@ export const Markdown = memo(function Markdown({
   const panelActions = useOptionalPanelActionsContext();
   const normalizedValue = useMemo(
     () =>
-      normalizeBareImageReferences(
-        replaceTagReferenceMarkersWithMarkdownLinks(
-          stripTagReferenceAppendix(value)
+      normalizeMathDelimiters(
+        normalizeBareImageReferences(
+          replaceTagReferenceMarkersWithMarkdownLinks(
+            stripTagReferenceAppendix(value)
+          )
         )
       ),
     [value]
@@ -648,12 +704,18 @@ export const Markdown = memo(function Markdown({
     [panelActions, taskAttemptId, taskId, workspacePath]
   );
 
-  const remarkPlugins = useMemo(() => [remarkGfm], []);
+  const remarkPlugins = useMemo<
+    NonNullable<ReactMarkdownOptions['remarkPlugins']>
+  >(() => [remarkGfm, remarkMath], []);
+  const rehypePlugins = useMemo<
+    NonNullable<ReactMarkdownOptions['rehypePlugins']>
+  >(() => [[rehypeKatex, { throwOnError: false, strict: false }]], []);
 
   return (
     <div className={`conv-markdown${className ? ` ${className}` : ''}`}>
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={components}
         urlTransform={markdownUrlTransform}
       >

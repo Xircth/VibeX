@@ -1,8 +1,13 @@
-import { useMemo } from 'react';
-import type { CSSProperties, MouseEvent } from 'react';
+import { useMemo, type CSSProperties, type MouseEvent } from 'react';
 import { X } from 'lucide-react';
-import { highlightLine, languageFromPath } from '../../utils/syntax';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
+import {
+  getShikiTokenStyle,
+  languageFromPath,
+  normalizeShikiLanguage,
+  useShikiTokens,
+  type ShikiTokenLines,
+} from '@/utils/shikiHighlighter';
 
 type FilePreviewPopoverProps = {
   path: string;
@@ -31,6 +36,22 @@ type FilePreviewPopoverProps = {
   error?: string | null;
 };
 
+function renderLineTokens(tokens: ShikiTokenLines[number]) {
+  if (tokens.length === 0) {
+    return '\u00a0';
+  }
+
+  return tokens.map((token, tokenIndex) => (
+    <span
+      className="file-preview-token"
+      key={`${token.offset}-${tokenIndex}`}
+      style={getShikiTokenStyle(token)}
+    >
+      {token.content}
+    </span>
+  ));
+}
+
 export function FilePreviewPopover({
   path,
   absolutePath: _absolutePath,
@@ -56,22 +77,20 @@ export function FilePreviewPopover({
     () => (isImagePreview ? [] : content.split('\n')),
     [content, isImagePreview]
   );
-  const language = useMemo(() => languageFromPath(path), [path]);
+  const previewLanguage = useMemo(() => languageFromPath(path), [path]);
+  const shikiLanguage = useMemo(
+    () => normalizeShikiLanguage(previewLanguage),
+    [previewLanguage]
+  );
+  const tokenLines = useShikiTokens(
+    isImagePreview ? '' : content,
+    shikiLanguage
+  );
   const selectionLabel = selection
     ? `Lines ${selection.start + 1}-${selection.end + 1}`
     : isImagePreview
-      ? '图片预览'
-      : '未选择行';
-  const highlightedLines = useMemo(
-    () =>
-      isImagePreview
-        ? []
-        : lines.map((line) => {
-            const html = highlightLine(line, language);
-            return html || '&nbsp;';
-          }),
-    [lines, language, isImagePreview]
-  );
+      ? '\u56fe\u7247\u9884\u89c8'
+      : '\u672a\u9009\u62e9\u884c';
 
   return (
     <div className="file-preview-popover popover-surface" style={style}>
@@ -84,14 +103,16 @@ export function FilePreviewPopover({
           type="button"
           className="icon-button file-preview-close"
           onClick={onClose}
-          aria-label="关闭预览"
-          title="关闭预览"
+          aria-label={'\u5173\u95ed\u9884\u89c8'}
+          title={'\u5173\u95ed\u9884\u89c8'}
         >
           <X size={14} aria-hidden />
         </button>
       </div>
       {isLoading ? (
-        <div className="file-preview-status">正在加载文件...</div>
+        <div className="file-preview-status">
+          {'\u6b63\u5728\u52a0\u8f7d\u6587\u4ef6...'}
+        </div>
       ) : error ? (
         <div className="file-preview-status file-preview-error">{error}</div>
       ) : isImagePreview ? (
@@ -109,7 +130,7 @@ export function FilePreviewPopover({
             </div>
           ) : (
             <div className="file-preview-status file-preview-error">
-              图片预览不可用
+              {'\u56fe\u7247\u9884\u89c8\u4e0d\u53ef\u7528'}
             </div>
           )}
         </div>
@@ -119,7 +140,10 @@ export function FilePreviewPopover({
             <div className="file-preview-selection-group">
               <span className="file-preview-selection">{selectionLabel}</span>
               {selectionHints.length > 0 ? (
-                <div className="file-preview-hints" aria-label="选择提示">
+                <div
+                  className="file-preview-hints"
+                  aria-label={'\u9009\u62e9\u63d0\u793a'}
+                >
                   {selectionHints.map((hint) => (
                     <span key={hint} className="file-preview-hint">
                       {hint}
@@ -135,7 +159,7 @@ export function FilePreviewPopover({
                 onClick={onClearSelection}
                 disabled={!selection}
               >
-                清除选择
+                {'\u6e05\u9664\u9009\u62e9'}
               </button>
               <button
                 type="button"
@@ -143,17 +167,17 @@ export function FilePreviewPopover({
                 onClick={onAddSelection}
                 disabled={!selection}
               >
-                添加到聊天
+                {'\u6dfb\u52a0\u5230\u804a\u5929'}
               </button>
             </div>
           </div>
           <div className="file-preview-lines" role="list">
             {lines.map((_, index) => {
-              const html = highlightedLines[index] ?? '&nbsp;';
               const isSelected =
                 selection && index >= selection.start && index <= selection.end;
               const isStart = isSelected && selection?.start === index;
               const isEnd = isSelected && selection?.end === index;
+
               return (
                 <button
                   key={`line-${index}`}
@@ -167,10 +191,9 @@ export function FilePreviewPopover({
                   onMouseUp={(event) => onLineMouseUp?.(index, event)}
                 >
                   <span className="file-preview-line-number">{index + 1}</span>
-                  <span
-                    className="file-preview-line-text"
-                    dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }}
-                  />
+                  <span className="file-preview-line-text">
+                    {renderLineTokens(tokenLines[index] ?? [])}
+                  </span>
                 </button>
               );
             })}

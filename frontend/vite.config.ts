@@ -1,9 +1,9 @@
 // vite.config.ts
-import { createLogger, defineConfig, Plugin } from "vite";
-import react from "@vitejs/plugin-react";
-import path from "path";
-import fs from "fs";
-import pkg from "./package.json";
+import { createLogger, defineConfig, Plugin } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+import fs from 'fs';
+import pkg from './package.json';
 
 function createFilteredLogger() {
   const logger = createLogger();
@@ -14,14 +14,14 @@ function createFilteredLogger() {
 
   logger.error = (msg, options) => {
     const isProxyError =
-      msg.includes("ws proxy socket error") ||
-      msg.includes("ws proxy error:") ||
-      msg.includes("http proxy error:");
+      msg.includes('ws proxy socket error') ||
+      msg.includes('ws proxy error:') ||
+      msg.includes('http proxy error:');
 
     if (isProxyError) {
       const now = Date.now();
       if (now - lastRestartLog > DEBOUNCE_MS) {
-        logger.warn("Proxy connection closed, auto-reconnecting...");
+        logger.warn('Proxy connection closed, auto-reconnecting...');
         lastRestartLog = now;
       }
       return;
@@ -99,6 +99,41 @@ function createManualChunks(id: string): string | undefined {
 
   if (!normalizedId.includes('/node_modules/')) {
     return undefined;
+  }
+
+  if (
+    normalizedId.includes('/node_modules/mermaid/') ||
+    normalizedId.includes('/node_modules/@mermaid-js/') ||
+    normalizedId.includes('/node_modules/@braintree/sanitize-url/') ||
+    normalizedId.includes('/node_modules/@iconify/') ||
+    normalizedId.includes('/node_modules/@upsetjs/venn.js/') ||
+    normalizedId.includes('/node_modules/cytoscape') ||
+    normalizedId.includes('/node_modules/cose-base/') ||
+    normalizedId.includes('/node_modules/d3') ||
+    normalizedId.includes('/node_modules/dagre-d3-es/') ||
+    normalizedId.includes('/node_modules/dayjs/') ||
+    normalizedId.includes('/node_modules/delaunator/') ||
+    normalizedId.includes('/node_modules/es-toolkit/') ||
+    normalizedId.includes('/node_modules/internmap/') ||
+    normalizedId.includes('/node_modules/khroma/') ||
+    normalizedId.includes('/node_modules/layout-base/') ||
+    normalizedId.includes('/node_modules/marked/') ||
+    normalizedId.includes('/node_modules/robust-predicates/') ||
+    normalizedId.includes('/node_modules/roughjs/') ||
+    normalizedId.includes('/node_modules/stylis/') ||
+    normalizedId.includes('/node_modules/ts-dedent/') ||
+    normalizedId.includes('/node_modules/uuid/')
+  ) {
+    return 'vendor-mermaid';
+  }
+
+  if (
+    normalizedId.includes('/node_modules/shiki/') ||
+    normalizedId.includes('/node_modules/@shikijs/') ||
+    normalizedId.includes('/node_modules/vscode-oniguruma/') ||
+    normalizedId.includes('/node_modules/vscode-textmate/')
+  ) {
+    return 'vendor-shiki';
   }
 
   if (

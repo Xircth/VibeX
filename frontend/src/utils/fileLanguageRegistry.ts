@@ -29,7 +29,7 @@ export type FileLanguageResolution = LanguageRule & {
 const FILE_NAME_RULES: Array<{ pattern: RegExp; rule: LanguageRule }> = [
   {
     pattern: /^pom\.xml$/i,
-    rule: { previewLanguage: 'markup', editorLanguage: 'xml' },
+    rule: { previewLanguage: 'xml', editorLanguage: 'xml' },
   },
   {
     pattern: /^application(?:-[a-z0-9_.-]+)?\.properties$/i,
@@ -41,7 +41,7 @@ const FILE_NAME_RULES: Array<{ pattern: RegExp; rule: LanguageRule }> = [
   },
   {
     pattern: /^\.gitignore$/i,
-    rule: { previewLanguage: 'git', editorLanguage: 'shell' },
+    rule: { previewLanguage: 'bash', editorLanguage: 'shell' },
   },
   {
     pattern: /^(cargo|uv|poetry)\.lock$/i,
@@ -57,7 +57,7 @@ const EXTENSION_RULES: Record<string, LanguageRule> = {
   go: { previewLanguage: 'go', editorLanguage: null },
   h: { previewLanguage: 'c', editorLanguage: null },
   hpp: { previewLanguage: 'cpp', editorLanguage: null },
-  html: { previewLanguage: 'markup', editorLanguage: 'html' },
+  html: { previewLanguage: 'html', editorLanguage: 'html' },
   java: { previewLanguage: 'java', editorLanguage: 'java' },
   js: { previewLanguage: 'javascript', editorLanguage: 'javascript' },
   json: { previewLanguage: 'json', editorLanguage: 'json' },
@@ -73,13 +73,13 @@ const EXTENSION_RULES: Record<string, LanguageRule> = {
   scss: { previewLanguage: 'scss', editorLanguage: 'css' },
   sh: { previewLanguage: 'bash', editorLanguage: null },
   sql: { previewLanguage: 'sql', editorLanguage: 'sql' },
-  svg: { previewLanguage: null, editorLanguage: 'xml' },
+  svg: { previewLanguage: 'xml', editorLanguage: 'xml' },
   swift: { previewLanguage: 'swift', editorLanguage: null },
   toml: { previewLanguage: 'toml', editorLanguage: 'toml' },
   ts: { previewLanguage: 'typescript', editorLanguage: 'typescript' },
   tsx: { previewLanguage: 'tsx', editorLanguage: 'typescript-jsx' },
   txt: { previewLanguage: 'text', editorLanguage: null },
-  xml: { previewLanguage: 'markup', editorLanguage: 'xml' },
+  xml: { previewLanguage: 'xml', editorLanguage: 'xml' },
   yaml: { previewLanguage: 'yaml', editorLanguage: 'yaml' },
   yml: { previewLanguage: 'yaml', editorLanguage: 'yaml' },
   lock: { previewLanguage: 'yaml', editorLanguage: 'yaml' },

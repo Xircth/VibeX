@@ -1,5 +1,5 @@
 /**
- * Shared code highlight theme classes for Prism token types.
+ * Shared code highlight theme classes for editor token types.
  * Used by both Lexical's codeHighlight theme and InlineCodeNode rendering.
  */
 export const CODE_HIGHLIGHT_CLASSES: Record<string, string> = {

@@ -3,43 +3,85 @@ import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
 import {
   buildProcessChangeItems,
   collapsedAssistantMessagesLabel,
-  findPreviousUserMessageKey,
+  findPreviousUserMessageVirtualIndex,
+  findViewportAnchorVirtualIndex,
+  getDistanceFromConversationBottom,
+  getUserMessageDisplayIndexes,
+  getVirtualRowTranslateY,
+  isConversationNearBottom,
   pendingAgentPermissionsFromEvents,
 } from './VirtualizedList';
 import { buildProcessChangeFileGroups } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
 import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
+import { createLongConversationFixture } from '@/components/NormalizedConversation/__fixtures__/longConversation';
 
-describe('findPreviousUserMessageKey', () => {
-  it('jumps to the latest user turn above the current viewport anchor', () => {
+describe('virtualized user-message navigation', () => {
+  it('finds the visible virtual item nearest the viewport anchor', () => {
     expect(
-      findPreviousUserMessageKey(
+      findViewportAnchorVirtualIndex(
         [
-          { patchKey: 'user-1', top: 120 },
-          { patchKey: 'user-2', top: 520 },
+          { index: 4, start: 480 },
+          { index: 5, start: 600 },
+          { index: 6, start: 780 },
         ],
-        420,
+        500,
         600
       )
-    ).toBe('user-2');
+    ).toBe(5);
   });
 
-  it('keeps walking back through older user turns after the first jump', () => {
-    expect(
-      findPreviousUserMessageKey(
-        [
-          { patchKey: 'user-1', top: 120 },
-          { patchKey: 'user-2', top: 520 },
-        ],
-        280,
-        400
-      )
-    ).toBe('user-1');
+  it('jumps to the latest user turn above the current virtual anchor', () => {
+    expect(findPreviousUserMessageVirtualIndex([0, 4, 9], 6)).toBe(4);
   });
 
   it('falls back to the earliest user turn when already near the top', () => {
+    expect(findPreviousUserMessageVirtualIndex([2, 8], 0)).toBe(2);
+  });
+
+  it('keeps a 1,000-message fixture indexable for virtual navigation', () => {
+    const displayEntries = buildDisplayEntries(
+      createLongConversationFixture(1000)
+    );
+
+    expect(displayEntries).toHaveLength(1000);
+    expect(getUserMessageDisplayIndexes(displayEntries)).toHaveLength(500);
+    expect(findPreviousUserMessageVirtualIndex([0, 2, 4, 6], 5)).toBe(4);
+  });
+});
+
+describe('conversation bottom distance', () => {
+  it('calculates distance from the visible viewport to the scroll bottom', () => {
     expect(
-      findPreviousUserMessageKey([{ patchKey: 'user-1', top: 80 }], 0, 500)
-    ).toBe('user-1');
+      getDistanceFromConversationBottom({
+        scrollHeight: 1200,
+        scrollTop: 700,
+        clientHeight: 400,
+      })
+    ).toBe(100);
+  });
+
+  it('treats near-bottom scroll positions as pinned', () => {
+    expect(
+      isConversationNearBottom({
+        scrollHeight: 1200,
+        scrollTop: 760,
+        clientHeight: 400,
+      })
+    ).toBe(true);
+  });
+
+  it('releases stick-to-bottom once the user scrolls away', () => {
+    expect(
+      isConversationNearBottom({
+        scrollHeight: 1200,
+        scrollTop: 650,
+        clientHeight: 400,
+      })
+    ).toBe(false);
+  });
+
+  it('offsets virtual rows by the measured scroll margin', () => {
+    expect(getVirtualRowTranslateY(512, 96)).toBe('translateY(416px)');
   });
 });
 

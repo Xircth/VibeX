@@ -392,7 +392,7 @@ describe('conversation meta notices', () => {
     );
 
     expect(summary).toEqual({
-      label: 'Subagent status',
+      label: '子代理状态',
       detail: 'agent-7: completed',
     });
   });
@@ -497,7 +497,7 @@ describe('conversation meta notices', () => {
     expect(displayEntries[1]?.type).toBe('NORMALIZED_ENTRY');
   });
 
-  it('hides web fetch tool entries from the conversation display', () => {
+  it('keeps web fetch tool entries visible in the conversation display', () => {
     const entries: PatchTypeWithKey[] = [
       {
         type: 'NORMALIZED_ENTRY',
@@ -531,8 +531,17 @@ describe('conversation meta notices', () => {
 
     const displayEntries = buildDisplayEntries(entries);
 
-    expect(displayEntries).toHaveLength(1);
+    expect(displayEntries).toHaveLength(2);
     expect(displayEntries[0]).toMatchObject({
+      type: 'NORMALIZED_ENTRY',
+      content: {
+        entry_type: {
+          type: 'tool_use',
+          action_type: { action: 'web_fetch' },
+        },
+      },
+    });
+    expect(displayEntries[1]).toMatchObject({
       type: 'NORMALIZED_ENTRY',
       content: {
         entry_type: { type: 'assistant_message' },

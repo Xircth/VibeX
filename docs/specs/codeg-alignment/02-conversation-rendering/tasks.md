@@ -3,7 +3,7 @@
 执行环境：worktree `../VibeX-conversation-rendering`，分支
 `feature/conversation-rendering`。
 
-- [ ] T2.1 Spike：React 18 兼容性矩阵
+- [x] T2.1 Spike：React 18 兼容性矩阵
   - Acceptance: 在最小 demo 中验证 `streamdown`、`@streamdown/*`、`shiki`、
     `use-stick-to-bottom`、`virtua` 与 Vite/React 18 能否同时运行；产出采用/
     备选决策记录。

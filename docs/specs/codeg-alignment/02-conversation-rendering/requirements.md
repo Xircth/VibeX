@@ -42,10 +42,10 @@ Markdown、Shiki 代码高亮、CJK/数学/Mermaid、stick-to-bottom、虚拟滚
 1. 流式 Markdown：WHEN Agent 输出 `message_chunk`，THE SYSTEM SHALL 以块级增量
    更新渲染，不整列重渲染；用户可见文本连续增长，无明显闪烁；现有文件链接、
    tag reference、图片路径转换仍工作。
-2. Streamdown 插件：THE Markdown 管线 SHALL 优先使用 `streamdown` +
+2. Streamdown 插件：THE Markdown 管线 SHOULD 优先评估 `streamdown` +
    `@streamdown/cjk` + `@streamdown/code` + `@streamdown/math` +
-   `@streamdown/mermaid`；若 React 18 spike 失败，须切换到 design.md 的等价备选
-   并保留同等验收语义。
+   `@streamdown/mermaid`；若 React 18 兼容性、首屏 bundle、懒加载边界或 VibeX
+   既有链接/图片能力无法同时满足，须切换到 design.md 的等价备选并保留同等验收语义。
 3. Shiki：THE 代码高亮 SHALL 使用 Shiki token 渲染，支持亮/暗双主题、语言标签、
    复制按钮、可选行号、未知语言降级为 `text`；不得继续通过
    `dangerouslySetInnerHTML` 注入 Prism HTML。
@@ -59,7 +59,8 @@ Markdown、Shiki 代码高亮、CJK/数学/Mermaid、stick-to-bottom、虚拟滚
 7. 线程容器：THE 会话列表 SHALL 集成 stick-to-bottom：位于底部时自动跟随流式
    高度变化；用户上滚后停止跟随并显示“回到底部”按钮；点击按钮平滑回底。
 8. 虚拟滚动：THE 会话列表 SHALL 使用一等虚拟化线程容器。优先验证 Codeg 同款
-   `virtua`；若不兼容 React 18，则使用 `@tanstack/react-virtual` 等价实现。
+   `virtua`；若兼容但不能带来明确收益，或会扩大滚动/测量回归面，则使用
+   `@tanstack/react-virtual` 等价实现。
    `react-virtuoso` 仅在证明可与 stick-to-bottom 稳定协作时保留。
 9. 工具卡片分型：THE renderer SHALL 按内容类型渲染专门卡片：shell/exec、
    apply_patch/edit、file read/write、search/web fetch、todo/plan、agent/delegation、
@@ -120,6 +121,8 @@ Markdown、Shiki 代码高亮、CJK/数学/Mermaid、stick-to-bottom、虚拟滚
 
 ## Open Questions
 
-- `streamdown` 与 React 18/Vite 的兼容性需要 T2.1 spike 实证。
-- `virtua` 是否能在 React 18 + Tauri WebView2 下稳定配合 stick-to-bottom，需要
-  与 `@tanstack/react-virtual` 做同 fixture 对比。
+- T2.1 已确认 `streamdown` 与 React 18/Vite 兼容，但静态全插件栈包体过大；本阶段采用
+  `react-markdown` + Shiki + KaTeX + Mermaid 等价 fallback，后续若启用 Streamdown
+  必须先补 lazy-loading 与 chunk 策略。
+- T2.1 已确认 `virtua` 与 React 18/Vite 兼容；T2.6 已采用
+  `@tanstack/react-virtual` 等价实现，后续替换虚拟器必须先补同 fixture 浏览器滚动回归。

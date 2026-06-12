@@ -40,23 +40,32 @@ Kanban 会话、IDE 会话、Phase 3 导入会话、Phase 6 委托子会话都�
 
 | 包                                              |                          是否强制 | 理由                                                                                                      | 备选 / 裁剪                                                              |
 | ----------------------------------------------- | --------------------------------: | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `streamdown`                                    |                      是，先 spike | Codeg 同款流式 Markdown 管线，自研成本高                                                                  | React 18 不兼容时：`react-markdown` + block parser + shiki/katex/mermaid |
-| `@streamdown/cjk`                               |                                是 | CJK 断行与混排体验差距                                                                                    | 自研 remark 插件，成本高                                                 |
-| `@streamdown/code`                              |                                是 | 与 streamdown 统一代码块接入                                                                              | 直连 Shiki CodeBlock                                                     |
-| `@streamdown/math`                              |                                是 | 数学公式解析                                                                                              | remark-math + rehype-katex                                               |
-| `@streamdown/mermaid`                           |                                是 | Mermaid 图表解析与流式集成                                                                                | 自研 fenced-code renderer + mermaid                                      |
+| `streamdown`                                    |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容，但全插件静态接入会显著膨胀首屏构建；T2.3 采用等价 fallback 层先关闭验收风险             | `react-markdown` + block parser + shiki/katex/mermaid                    |
+| `@streamdown/cjk`                               |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；本阶段先用 CSS/Markdown fallback 覆盖 CJK 软换行与混排，不引入未使用依赖               | 必要时补轻量 remark/CSS 规则                                             |
+| `@streamdown/code`                              |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；当前 Shiki CodeBlock 已经提供统一代码块接入                                            | 直连 Shiki CodeBlock                                                     |
+| `@streamdown/math`                              |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；`remark-math` + `rehype-katex` 已满足公式验收                                           | remark-math + rehype-katex                                               |
+| `@streamdown/mermaid`                           |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；当前 fenced-code renderer + dynamic `mermaid` import 更易控制 bundle 与安全边界         | 自研 fenced-code renderer + mermaid                                      |
 | `shiki`                                         |                                是 | Prism 语言覆盖与样式不够，且当前有 HTML 注入路径                                                          | 无                                                                       |
 | `remark-math`                                   | 是，作为 React 18 fallback 已落地 | 在 Streamdown 主链路完成前解析 `$`/`$$` 数学节点，并与现有 `react-markdown` 管线兼容                      | 不解析数学不满足 C5                                                      |
 | `rehype-katex`                                  | 是，作为 React 18 fallback 已落地 | 把数学节点渲染为 KaTeX HAST；VibeX 组件层不做 HTML 注入                                                   | 手写公式渲染成本高且易错                                                 |
 | `katex`                                         |                                是 | 数学公式渲染                                                                                              | 无                                                                       |
 | `dompurify`                                     |                                是 | 文档/HTML 预览仍存在受控 `dangerouslySetInnerHTML` 入口，需要独立净化；Prism 移除后不能顺带移除该安全边界 | 仅用于非会话 HTML 文档预览；会话 Markdown/代码/Mermaid 仍不走 HTML 注入  |
 | `mermaid`                                       |                        是，懒加载 | 图表渲染                                                                                                  | 无；可只支持代码块降级但不算完成 C6                                      |
-| `use-stick-to-bottom`                           |                                是 | Codeg 同款贴底语义，处理流式高度变化                                                                      | 自研 scroll anchor，风险高                                               |
-| `virtua`                                        |     有条件，T2.6 已裁剪为后续评估 | Codeg 同款虚拟器，与 `use-stick-to-bottom` 已验证                                                         | 当前先复用 VibeX 已有 `@tanstack/react-virtual`，避免重复虚拟器栈        |
+| `use-stick-to-bottom`                           |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；T2.6 已修复自研贴底锚点，后续若替换必须带 DOM/browser 回归                             | 保留当前 scroll anchor                                                   |
+| `virtua`                                        |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；T2.6 已采用 `@tanstack/react-virtual` 等价实现并补齐核心缺陷                           | 当前先复用 VibeX 已有 `@tanstack/react-virtual`，避免重复虚拟器栈        |
 | `cmdk`                                          |                                是 | `/`、`@`、全局命令面板共用键盘/过滤语义                                                                   | 手写 Popover 列表不满足一致性                                            |
 | `overlayscrollbars` + `overlayscrollbars-react` |                            可裁剪 | 桌面滚动条一致性                                                                                          | 若破坏虚拟滚动则延后                                                     |
 
 明确不新增：Monaco 到消息流、第二套 UI 框架、SeaORM、Next.js。
+
+### T2.1 spike 决策
+
+`docs/specs/codeg-alignment/02-conversation-rendering/spike-result.md` 已确认
+`streamdown`、`@streamdown/*`、`use-stick-to-bottom`、`virtua` 均可在
+Vite + React 18 下完成类型检查与生产构建。但静态接入 Streamdown 全插件栈会显著放大
+首屏 chunk，并额外引入大量 Shiki/Mermaid 代码；因此本阶段采用等价 fallback 实现，
+不安装未被生产代码使用的 spike 依赖。后续若重新启用 Streamdown 或 virtua，必须先补
+lazy-loading/chunk 策略与浏览器滚动回归。
 
 ## VibeX 保留与改造点
 

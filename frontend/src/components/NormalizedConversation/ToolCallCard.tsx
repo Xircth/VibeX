@@ -17,6 +17,21 @@ import { CommandToolCard } from './tools/CommandToolCard';
 import { FileToolCard } from './tools/FileToolCard';
 import { GenericToolCard } from './tools/GenericToolCard';
 import { SearchToolCard } from './tools/SearchToolCard';
+import {
+  AskQuestionResultCard,
+  isAskQuestionToolEntry,
+} from './tools/AskQuestionResultCard';
+import {
+  FeedbackCheckResultCard,
+  isFeedbackCheckToolEntry,
+} from './tools/FeedbackCheckResultCard';
+import {
+  GeneratedImagesBlock,
+  isGeneratedImageToolEntry,
+} from './tools/GeneratedImagesBlock';
+import { GoalToolCall, isGoalToolEntry } from './tools/GoalToolCall';
+import { PlanCard, isPlanToolEntry } from './tools/PlanCard';
+import { UnifiedDiffPreview } from './tools/UnifiedDiffPreview';
 
 type ParsedPlanItem = {
   status: string;
@@ -118,6 +133,34 @@ export const ToolCallCard: FC<{
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action = toolEntry?.action_type.action;
 
+  if (isPlanToolEntry(entry)) {
+    return (
+      <PlanCard
+        entry={entry}
+        expansionKey={expansionKey}
+        forceExpanded={forceExpanded}
+        taskAttemptId={taskAttemptId}
+      />
+    );
+  }
+
+  const fileEditAction = toolEntry?.action_type;
+  if (fileEditAction?.action === 'file_edit') {
+    return (
+      <div className="space-y-3">
+        {fileEditAction.changes.map((change, index) => (
+          <UnifiedDiffPreview
+            key={`${fileEditAction.path}:${index}`}
+            path={fileEditAction.path}
+            change={change}
+            expansionKey={`diff:${expansionKey}:${index}`}
+            forceExpanded={forceExpanded}
+          />
+        ))}
+      </div>
+    );
+  }
+
   if (action === 'command_run') {
     return (
       <CommandToolCard
@@ -138,6 +181,24 @@ export const ToolCallCard: FC<{
         forceExpanded={forceExpanded}
       />
     );
+  }
+
+  if (isGeneratedImageToolEntry(entry)) {
+    return <GeneratedImagesBlock entry={entry} />;
+  }
+
+  if (isGoalToolEntry(entry)) {
+    return <GoalToolCall entry={entry} />;
+  }
+
+  if (isAskQuestionToolEntry(entry)) {
+    return (
+      <AskQuestionResultCard entry={entry} expansionKey={expansionKey} />
+    );
+  }
+
+  if (isFeedbackCheckToolEntry(entry)) {
+    return <FeedbackCheckResultCard entry={entry} />;
   }
 
   return (

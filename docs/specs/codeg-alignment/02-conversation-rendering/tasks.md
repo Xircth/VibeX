@@ -79,7 +79,7 @@
     打开/复制、通用 JSON、路由分发，以及非命令成功卡不再新增绿色状态样式。
   - Files: `NormalizedConversation/tools/{CommandToolCard,FileToolCard,SearchToolCard,GenericToolCard}.tsx`
 
-- [ ] T2.9 工具卡分型第二批：plan、inline diff、question、feedback、goal、generated image
+- [x] T2.9 工具卡分型第二批：plan、inline diff、question、feedback、goal、generated image
   - Acceptance: `PlanCard` 支持状态/优先级/流式；apply_patch/edit 内联 diff 预览；
     question/feedback/goal/generated image 专卡可渲染成功、运行、错误态。
   - Verify: diff 统计表驱动测试；各卡 fixture 测试。

@@ -9,7 +9,6 @@ import {
 } from 'shared/types.ts';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import type { ProcessStartPayload } from '@/types/logs';
-import FileChangeRenderer from './FileChangeRenderer';
 import { Markdown } from './Markdown';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
@@ -48,10 +47,11 @@ import { ThinkingEntry } from './ThinkingEntry';
 import {
   ToolCallCard,
   ScriptToolCallCard,
-  PlanPresentationCard,
   LookupToolCallCard,
 } from './ToolCallCard';
 import { LoadingCard, CopyButton } from './LoadingCard';
+import { PlanCard } from './tools/PlanCard';
+import { UnifiedDiffPreview } from './tools/UnifiedDiffPreview';
 
 type Props = {
   entry: NormalizedEntry | ProcessStartPayload;
@@ -200,7 +200,7 @@ function DisplayConversationEntry({
         return (
           <div className="space-y-3">
             {fileEditAction.changes.map((change, idx) => (
-              <FileChangeRenderer
+              <UnifiedDiffPreview
                 key={idx}
                 path={fileEditAction.path}
                 change={change}
@@ -217,11 +217,11 @@ function DisplayConversationEntry({
 
       if (toolEntry.action_type.action === 'plan_presentation') {
         return (
-          <PlanPresentationCard
-            plan={toolEntry.action_type.plan}
+          <PlanCard
+            entry={entry}
             expansionKey={expansionKey}
             defaultExpanded={defaultExpanded}
-            statusAppearance={statusAppearance}
+            forceExpanded={isPendingApproval}
             taskAttemptId={taskAttempt?.id}
           />
         );

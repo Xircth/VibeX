@@ -36,7 +36,7 @@
   - Acceptance: 合并优先级表驱动测试；并发 ensure_session 去重测试
   - Verify: `cargo test -p agents`
   - Files: `crates/agents/src/{manager,runtime}.rs`
-- [ ] T1.9 全 Agent 会话门验证：本机已装 Agent 实测全链路；未装的跑 fixture
+- [x] T1.9 全 Agent 会话门验证：本机已装 Agent 实测全链路；未装的跑 fixture
       集成测试；记录每类结果
   - Acceptance: 七类 Agent 各有「实测通过」或「fixture 测试通过」记录
   - Verify: 手动 + `cargo test -p agents --test integration`

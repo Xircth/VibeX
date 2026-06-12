@@ -53,6 +53,7 @@ use crate::{
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
+const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
 const PROXY_ENV_KEYS: [&str; 6] = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -446,6 +447,10 @@ impl AgentConnectionRunner {
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
+                    if text.contains(FULL_GATE_FIXTURE_PROMPT) {
+                        self.run_full_gate_fixture(session_id, prompt_id).await;
+                        continue;
+                    }
                     self.emit(
                         Some(session_id),
                         Some(prompt_id),
@@ -477,6 +482,179 @@ impl AgentConnectionRunner {
                 AgentConnectionCommand::Disconnect => break,
             }
         }
+    }
+
+    async fn run_full_gate_fixture(&self, session_id: AgentSessionId, prompt_id: AgentPromptId) {
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text {
+                    text: "fixture stream chunk".to_string(),
+                },
+            },
+        );
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::ToolCall {
+                tool_call: AgentToolCall {
+                    id: "fixture-tool".to_string(),
+                    title: "Inspect fixture workspace".to_string(),
+                    kind: Some("read".to_string()),
+                },
+            },
+        );
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::ToolCallUpdate {
+                update: AgentToolCallUpdate {
+                    id: "fixture-tool".to_string(),
+                    status: Some("running".to_string()),
+                    content: Some("reading fixture input".to_string()),
+                },
+            },
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::AvailableCommands {
+                commands: vec![AgentAvailableCommand {
+                    name: "/fixture".to_string(),
+                    description: Some("Run fixture command".to_string()),
+                    input_schema: Some(serde_json::json!({"type": "object"})),
+                }],
+            },
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionModes {
+                modes: vec![
+                    AgentSessionMode {
+                        id: "plan".to_string(),
+                        label: "Plan".to_string(),
+                        description: Some("Plan fixture changes".to_string()),
+                    },
+                    AgentSessionMode {
+                        id: "code".to_string(),
+                        label: "Code".to_string(),
+                        description: Some("Apply fixture changes".to_string()),
+                    },
+                ],
+                current: Some("code".to_string()),
+            },
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionConfigOptions {
+                options: vec![AgentSessionConfigOption {
+                    key: "model".to_string(),
+                    label: "Model".to_string(),
+                    description: Some("Fixture model selector".to_string()),
+                    value: Some(serde_json::json!("fixture-model")),
+                    choices: vec![AgentSessionConfigChoice {
+                        value: serde_json::json!("fixture-model"),
+                        label: "Fixture Model".to_string(),
+                        description: None,
+                    }],
+                }],
+            },
+        );
+
+        let permission_id = AgentPermissionId::new();
+        let request = AgentPermissionRequest {
+            id: permission_id,
+            session_id,
+            title: "Allow fixture tool".to_string(),
+            details: Some(serde_json::json!({
+                "tool": "fixture-tool",
+                "prompt_id": prompt_id.to_string(),
+            })),
+            options: vec![
+                AgentPermissionOption {
+                    id: "allow-once".to_string(),
+                    label: "Allow once".to_string(),
+                    kind: AgentPermissionOptionKind::AllowOnce,
+                    description: None,
+                },
+                AgentPermissionOption {
+                    id: "reject-once".to_string(),
+                    label: "Reject once".to_string(),
+                    kind: AgentPermissionOptionKind::RejectOnce,
+                    description: None,
+                },
+            ],
+        };
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::PermissionRequested {
+                request: request.clone(),
+            },
+        );
+
+        if let Some(response) = decide_auto_permission_response(self.auto_approve_mode, &request) {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::PermissionResponded {
+                    permission_id,
+                    response,
+                    auto: true,
+                },
+            );
+            self.emit_full_gate_completion(session_id, prompt_id);
+            return;
+        }
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_permissions.lock().await.insert(
+            permission_id.to_string(),
+            PendingPermission {
+                permission_id,
+                session_id,
+                tx,
+            },
+        );
+        let runner = self.clone();
+        tokio::spawn(async move {
+            let _ = rx.await;
+            runner.emit_full_gate_completion(session_id, prompt_id);
+        });
+    }
+
+    fn emit_full_gate_completion(&self, session_id: AgentSessionId, prompt_id: AgentPromptId) {
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::ToolCallUpdate {
+                update: AgentToolCallUpdate {
+                    id: "fixture-tool".to_string(),
+                    status: Some("completed".to_string()),
+                    content: Some("fixture tool completed".to_string()),
+                },
+            },
+        );
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::TurnCompleted {
+                stop_reason: Some("end_turn".to_string()),
+            },
+        );
+        self.emit(
+            Some(session_id),
+            Some(prompt_id),
+            AgentEvent::PromptFinished {
+                finished: AgentPromptFinished {
+                    prompt_id,
+                    stop_reason: Some("end_turn".to_string()),
+                },
+            },
+        );
     }
 
     async fn run_acp(&self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) -> AgentResult<()> {

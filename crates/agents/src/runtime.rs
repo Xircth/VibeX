@@ -142,7 +142,8 @@ impl AgentRuntime {
         Self::new_with_driver(event_sink, true)
     }
 
-    fn new_with_driver(event_sink: Arc<dyn RuntimeEventSink>, driver_enabled: bool) -> Self {
+    #[doc(hidden)]
+    pub fn new_with_driver(event_sink: Arc<dyn RuntimeEventSink>, driver_enabled: bool) -> Self {
         let (event_tx, _) = broadcast::channel(512);
         let (manager_event_tx, manager_event_rx) = mpsc::unbounded_channel();
         let state = Arc::new(RwLock::new(RuntimeState::default()));

@@ -690,6 +690,11 @@ impl AgentRuntime {
         manager_event: &AgentConnectionManagerEvent,
     ) {
         match &manager_event.event {
+            AgentEvent::ConnectionStatusChanged { snapshot } => {
+                if let Some(connection) = state.connections.get_mut(&snapshot.id) {
+                    connection.snapshot = snapshot.clone();
+                }
+            }
             AgentEvent::PromptFinished { finished } => {
                 if let Some(prompt) = state.prompts.get_mut(&finished.prompt_id) {
                     prompt.status = AgentPromptStatus::Completed {
@@ -727,8 +732,59 @@ impl AgentRuntime {
                     };
                     prompt.updated_at = Utc::now();
                 }
+                if manager_event.prompt_id.is_none() {
+                    fail_connection_sessions_locked(
+                        state,
+                        manager_event.connection_id,
+                        error.message.clone(),
+                    );
+                }
             }
             _ => {}
+        }
+    }
+}
+
+fn fail_connection_sessions_locked(
+    state: &mut RuntimeState,
+    connection_id: AgentConnectionId,
+    message: String,
+) {
+    let now = Utc::now();
+    let session_ids = state
+        .sessions
+        .iter()
+        .filter_map(|(session_id, session)| {
+            (session.snapshot.connection_id == connection_id).then_some(*session_id)
+        })
+        .collect::<Vec<_>>();
+
+    for session_id in session_ids {
+        if let Some(session) = state.sessions.get_mut(&session_id) {
+            let mut affected_prompt_ids = Vec::new();
+            if let Some(active) = session.queue.active() {
+                affected_prompt_ids.push(active);
+            }
+            affected_prompt_ids.extend(session.queue.queued());
+
+            while let Some(active) = session.queue.active() {
+                let _ = session.queue.complete(active);
+            }
+
+            session.snapshot.active_prompt_id = None;
+            session.snapshot.queued_prompt_ids.clear();
+            session.snapshot.status = AgentSessionStatus::Failed;
+            session.snapshot.updated_at = now;
+
+            for prompt_id in affected_prompt_ids {
+                if let Some(prompt) = state.prompts.get_mut(&prompt_id) {
+                    prompt.status = AgentPromptStatus::Failed {
+                        message: message.clone(),
+                    };
+                    prompt.updated_at = now;
+                }
+                state.prompt_blocks.remove(&prompt_id);
+            }
         }
     }
 }
@@ -769,6 +825,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+    use crate::AgentErrorEvent;
 
     struct RecordingSink {
         events: Mutex<Vec<AgentEventEnvelope>>,
@@ -911,6 +968,111 @@ mod tests {
                     if snapshot.status == AgentConnectionStatus::Disconnected
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn manager_connection_failure_marks_sessions_and_prompts_failed() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_type: AgentType::Codex,
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+        let active_prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "active".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+        let queued_prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "queued".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+        let message = "ACP child exited before handshake".to_string();
+        let failed_snapshot = AgentConnectionSnapshot {
+            status: AgentConnectionStatus::Failed,
+            status_message: Some(message.clone()),
+            updated_at: Utc::now(),
+            ..connection
+        };
+
+        let mut state = runtime.state.write().await;
+        AgentRuntime::apply_manager_event_locked(
+            &mut state,
+            &AgentConnectionManagerEvent {
+                connection_id: failed_snapshot.id,
+                session_id: None,
+                prompt_id: None,
+                event: AgentEvent::ConnectionStatusChanged {
+                    snapshot: failed_snapshot.clone(),
+                },
+            },
+        );
+        AgentRuntime::apply_manager_event_locked(
+            &mut state,
+            &AgentConnectionManagerEvent {
+                connection_id: failed_snapshot.id,
+                session_id: None,
+                prompt_id: None,
+                event: AgentEvent::Error {
+                    error: AgentErrorEvent {
+                        message: message.clone(),
+                        raw: None,
+                    },
+                },
+            },
+        );
+        drop(state);
+
+        let snapshot = runtime.snapshot().await;
+        let connection_snapshot = snapshot
+            .connections
+            .iter()
+            .find(|candidate| candidate.id == failed_snapshot.id)
+            .unwrap();
+        assert_eq!(connection_snapshot.status, AgentConnectionStatus::Failed);
+        assert_eq!(
+            connection_snapshot.status_message.as_deref(),
+            Some(message.as_str())
+        );
+
+        let session_snapshot = snapshot
+            .sessions
+            .iter()
+            .find(|candidate| candidate.id == session.id)
+            .unwrap();
+        assert_eq!(session_snapshot.status, AgentSessionStatus::Failed);
+        assert_eq!(session_snapshot.active_prompt_id, None);
+        assert!(session_snapshot.queued_prompt_ids.is_empty());
+
+        for prompt_id in [active_prompt.id, queued_prompt.id] {
+            let prompt = snapshot
+                .prompts
+                .iter()
+                .find(|candidate| candidate.id == prompt_id)
+                .unwrap();
+            assert!(matches!(
+                prompt.status,
+                AgentPromptStatus::Failed { ref message } if message == "ACP child exited before handshake"
+            ));
+        }
     }
 
     #[tokio::test]

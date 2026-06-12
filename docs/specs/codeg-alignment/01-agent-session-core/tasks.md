@@ -11,7 +11,7 @@
   - Acceptance: 新事件序列化往返测试通过
   - Verify: `cargo test -p agents events`
   - Files: `crates/agents/src/events.rs`, `shared/types.ts`(生成)
-- [ ] T1.3 握手超时 + stderr 环形缓冲 + 进程退出→会话断开事件
+- [x] T1.3 握手超时 + stderr 环形缓冲 + 进程退出→会话断开事件
   - Acceptance: 超时 fixture 测试通过；Windows 无可见窗口（人工冒烟）
   - Verify: `cargo test -p agents manager`
   - Files: `crates/agents/src/{manager,connection相关}.rs`

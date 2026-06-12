@@ -1,7 +1,11 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use agent_client_protocol as acp;
@@ -17,6 +21,7 @@ use agent_client_protocol::{
         WaitForTerminalExitResponse,
     },
 };
+use chrono::Utc;
 use futures::StreamExt;
 use tokio::{
     io::AsyncWriteExt,
@@ -34,8 +39,74 @@ use crate::{
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionId, AgentTerminalCreateRequest,
     AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType,
     AgentUsage, CommandBuildInput, current_platform, registry_entry,
+    state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
+
+const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
+const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
+const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
+
+#[derive(Debug)]
+struct StderrRingBuffer {
+    capacity: usize,
+    bytes: VecDeque<u8>,
+}
+
+impl StderrRingBuffer {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            bytes: VecDeque::with_capacity(capacity),
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        if self.capacity == 0 {
+            return;
+        }
+        for byte in bytes {
+            if self.bytes.len() == self.capacity {
+                self.bytes.pop_front();
+            }
+            self.bytes.push_back(*byte);
+        }
+    }
+
+    fn summary(&self) -> Option<String> {
+        if self.bytes.is_empty() {
+            return None;
+        }
+        Some(
+            String::from_utf8_lossy(&self.bytes.iter().copied().collect::<Vec<_>>())
+                .trim()
+                .to_string(),
+        )
+        .filter(|summary| !summary.is_empty())
+    }
+}
+
+fn handshake_timeout() -> Duration {
+    handshake_timeout_from_env_value(std::env::var(HANDSHAKE_TIMEOUT_ENV).ok().as_deref())
+}
+
+fn handshake_timeout_from_env_value(value: Option<&str>) -> Duration {
+    let seconds = value
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(DEFAULT_HANDSHAKE_TIMEOUT_SECS);
+    Duration::from_secs(seconds)
+}
+
+fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> String {
+    let seconds = timeout.as_secs().max(1);
+    match stderr {
+        Some(stderr) => {
+            format!("ACP handshake timed out after {seconds}s. Recent stderr: {stderr}")
+        }
+        None => format!("ACP handshake timed out after {seconds}s. No stderr captured."),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {
@@ -279,14 +350,13 @@ impl AgentConnectionRunner {
 
     async fn run(self, cmd_rx: mpsc::Receiver<AgentConnectionCommand>) {
         if let Err(error) = self.run_acp(cmd_rx).await {
+            let message = error.to_string();
+            self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()));
             self.emit(
                 None,
                 None,
                 AgentEvent::Error {
-                    error: AgentErrorEvent {
-                        message: error.to_string(),
-                        raw: None,
-                    },
+                    error: AgentErrorEvent { message, raw: None },
                 },
             );
         }
@@ -408,22 +478,27 @@ impl AgentConnectionRunner {
                 }
             }
         });
+        let stderr_buffer = Arc::new(Mutex::new(StderrRingBuffer::new(STDERR_RING_BUFFER_BYTES)));
         if let Some(stderr) = stderr {
             let runner_for_stderr = self.clone();
+            let stderr_buffer_for_task = Arc::clone(&stderr_buffer);
             tokio::spawn(async move {
                 let mut stderr_stream = ReaderStream::new(stderr);
                 while let Some(result) = stderr_stream.next().await {
                     match result {
-                        Ok(bytes) => runner_for_stderr.emit(
-                            None,
-                            None,
-                            AgentEvent::RawAcpDiagnostic {
-                                raw: serde_json::json!({
-                                    "kind": "stderr",
-                                    "text": String::from_utf8_lossy(&bytes).to_string(),
-                                }),
-                            },
-                        ),
+                        Ok(bytes) => {
+                            stderr_buffer_for_task.lock().await.push(&bytes);
+                            runner_for_stderr.emit(
+                                None,
+                                None,
+                                AgentEvent::RawAcpDiagnostic {
+                                    raw: serde_json::json!({
+                                        "kind": "stderr",
+                                        "text": String::from_utf8_lossy(&bytes).to_string(),
+                                    }),
+                                },
+                            );
+                        }
                         Err(_) => break,
                     }
                 }
@@ -442,6 +517,9 @@ impl AgentConnectionRunner {
         let notification_bridge = bridge;
         let runner = self.clone();
         let working_dir = self.snapshot.working_dir.clone();
+        let handshake_timeout_duration = handshake_timeout();
+        let handshake_timed_out = Arc::new(AtomicBool::new(false));
+        let handshake_timed_out_for_connection = Arc::clone(&handshake_timed_out);
 
         let result = acp::Client
             .builder()
@@ -464,13 +542,22 @@ impl AgentConnectionRunner {
                 acp::on_receive_notification!(),
             )
             .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
-                conn.send_request(
-                    InitializeRequest::new(ProtocolVersion::LATEST)
-                        .client_capabilities(ClientCapabilities::new().terminal(true))
-                        .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
-                )
-                .block_task()
-                .await?;
+                let initialize = conn
+                    .send_request(
+                        InitializeRequest::new(ProtocolVersion::LATEST)
+                            .client_capabilities(ClientCapabilities::new().terminal(true))
+                            .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
+                    )
+                    .block_task();
+                match tokio::time::timeout(handshake_timeout_duration, initialize).await {
+                    Ok(result) => {
+                        result?;
+                    }
+                    Err(_) => {
+                        handshake_timed_out_for_connection.store(true, Ordering::SeqCst);
+                        return Err(acp::Error::internal_error());
+                    }
+                }
 
                 while let Some(command) = cmd_rx.recv().await {
                     match command {
@@ -525,6 +612,13 @@ impl AgentConnectionRunner {
             .await;
 
         let _ = child.kill().await;
+        if handshake_timed_out.load(Ordering::SeqCst) {
+            let stderr = stderr_buffer.lock().await.summary();
+            return Err(AgentError::Runtime(format_handshake_timeout_error(
+                handshake_timeout_duration,
+                stderr,
+            )));
+        }
         result.map_err(|error| AgentError::Runtime(format!("ACP connection failed: {error}")))
     }
 
@@ -715,6 +809,30 @@ impl AgentConnectionRunner {
             prompt_id,
             event,
         });
+    }
+
+    fn emit_connection_status(
+        &self,
+        status: AgentConnectionStatus,
+        status_message: Option<String>,
+    ) {
+        let now = Utc::now();
+        self.emit(
+            None,
+            None,
+            AgentEvent::ConnectionStatusChanged {
+                snapshot: AgentConnectionSnapshot {
+                    id: self.snapshot.connection_id,
+                    agent_type: self.snapshot.agent_type,
+                    workspace_id: self.snapshot.workspace_id,
+                    status,
+                    working_dir: self.snapshot.working_dir.display().to_string(),
+                    status_message,
+                    created_at: now,
+                    updated_at: now,
+                },
+            },
+        );
     }
 }
 
@@ -1053,5 +1171,48 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, AgentError::ConnectionNotFound(_)));
+    }
+
+    #[test]
+    fn handshake_timeout_uses_default_for_missing_or_invalid_env() {
+        assert_eq!(
+            handshake_timeout_from_env_value(None),
+            Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            handshake_timeout_from_env_value(Some("0")),
+            Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            handshake_timeout_from_env_value(Some("not-a-number")),
+            Duration::from_secs(DEFAULT_HANDSHAKE_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn handshake_timeout_accepts_positive_env_value() {
+        assert_eq!(
+            handshake_timeout_from_env_value(Some("7")),
+            Duration::from_secs(7)
+        );
+    }
+
+    #[test]
+    fn stderr_ring_buffer_keeps_recent_bytes() {
+        let mut buffer = StderrRingBuffer::new(6);
+
+        buffer.push(b"abc");
+        buffer.push(b"defgh");
+
+        assert_eq!(buffer.summary().as_deref(), Some("cdefgh"));
+    }
+
+    #[test]
+    fn handshake_timeout_error_includes_recent_stderr_when_present() {
+        let message =
+            format_handshake_timeout_error(Duration::from_secs(3), Some("last line".to_string()));
+
+        assert!(message.contains("3s"));
+        assert!(message.contains("last line"));
     }
 }

@@ -11,7 +11,7 @@
     记录截图；删除临时代码，只保留决策文档。
   - Files: `docs/specs/codeg-alignment/02-conversation-rendering/spike-result.md`
 
-- [ ] T2.2 安装依赖与渲染测试 fixture
+- [x] T2.2 安装依赖与渲染测试 fixture
   - Acceptance: `package.json` 新依赖与 design.md 一致；新增长会话 fixture 覆盖
     CJK、代码、数学、Mermaid、工具卡、图片、diff、Thinking。
   - Verify: `cd frontend && pnpm install --lockfile-only` 后 `pnpm run frontend:check`

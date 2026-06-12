@@ -140,6 +140,154 @@ describe('agent workbench store', () => {
     expect(state.eventsByScope.session).toEqual([message]);
   });
 
+  it('hydrates session controls from snapshot events', () => {
+    const modes: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_modes',
+        current: 'ask',
+        modes: [
+          {
+            id: 'ask',
+            label: 'Ask',
+            description: 'Confirm before editing',
+          },
+        ],
+      },
+    };
+    const config: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_config_options',
+        options: [
+          {
+            key: 'model',
+            label: 'Model',
+            value: 'gpt-5',
+            choices: [{ value: 'gpt-5', label: 'GPT-5' }],
+          },
+        ],
+      },
+    };
+    const commands: AgentEventEnvelope = {
+      sequence: 3,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'available_commands',
+        commands: [{ name: 'compact', description: 'Compact context' }],
+      },
+    };
+    const snapshot: AgentRuntimeSnapshot = {
+      sequence: 3,
+      registry: [],
+      connections: [],
+      sessions: [],
+      prompts: [],
+      events: [modes, config, commands],
+    };
+
+    const state = stateFromAgentSnapshot(snapshot);
+
+    expect(state.sessionModesByScope.session?.current).toBe('ask');
+    expect(state.sessionConfigOptionsByScope.session?.[0]?.key).toBe('model');
+    expect(state.availableCommandsByScope.session?.[0]?.name).toBe('compact');
+    expect(state.eventsByScope.session).toEqual([modes, config, commands]);
+  });
+
+  it('reduces live session control updates by session scope', () => {
+    const modes: AgentEventEnvelope = {
+      sequence: 1,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_modes',
+        current: 'ask',
+        modes: [
+          { id: 'ask', label: 'Ask' },
+          { id: 'act', label: 'Act' },
+        ],
+      },
+    };
+    const modeChanged: AgentEventEnvelope = {
+      sequence: 2,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: { kind: 'mode_changed', mode_id: 'act' },
+    };
+    const config: AgentEventEnvelope = {
+      sequence: 3,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'session_config_options',
+        options: [
+          {
+            key: 'model',
+            label: 'Model',
+            value: 'gpt-5',
+            choices: [
+              { value: 'gpt-5', label: 'GPT-5' },
+              { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
+            ],
+          },
+        ],
+      },
+    };
+    const configChanged: AgentEventEnvelope = {
+      sequence: 4,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: { kind: 'config_changed', key: 'model', value: 'gpt-5-codex' },
+    };
+    const commands: AgentEventEnvelope = {
+      sequence: 5,
+      workspace_id: 'workspace',
+      connection_id: 'connection',
+      session_id: 'session',
+      created_at: new Date().toISOString(),
+      event: {
+        kind: 'available_commands',
+        commands: [{ name: 'review' }],
+      },
+    };
+
+    const state = [modes, modeChanged, config, configChanged, commands].reduce(
+      reduceAgentEvent,
+      emptyAgentWorkbenchState()
+    );
+
+    expect(state.sessionModesByScope.session).toMatchObject({
+      current: 'act',
+      modes: [
+        { id: 'ask', label: 'Ask' },
+        { id: 'act', label: 'Act' },
+      ],
+    });
+    expect(state.sessionConfigOptionsByScope.session?.[0]?.value).toBe(
+      'gpt-5-codex'
+    );
+    expect(state.availableCommandsByScope.session).toEqual([{ name: 'review' }]);
+  });
+
   it('tracks permission requests until a response arrives', () => {
     const requested: AgentEventEnvelope = {
       sequence: 1,

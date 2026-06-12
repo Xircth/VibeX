@@ -1,13 +1,21 @@
 import type {
+  AgentAvailableCommand,
   AgentConnectionSnapshot,
   AgentEventEnvelope,
   AgentPermissionRequest,
   AgentPromptSnapshot,
   AgentRegistryEntry,
   AgentRuntimeSnapshot,
+  AgentSessionConfigOption,
+  AgentSessionMode,
   AgentSessionSnapshot,
   AgentTerminalSnapshot,
 } from './types';
+
+export type AgentSessionModesState = {
+  modes: AgentSessionMode[];
+  current?: string | null;
+};
 
 export type AgentWorkbenchState = {
   registry: Record<string, AgentRegistryEntry>;
@@ -16,6 +24,9 @@ export type AgentWorkbenchState = {
   prompts: Record<string, AgentPromptSnapshot>;
   permissions: Record<string, AgentPermissionRequest>;
   terminals: Record<string, AgentTerminalSnapshot>;
+  sessionModesByScope: Record<string, AgentSessionModesState>;
+  sessionConfigOptionsByScope: Record<string, AgentSessionConfigOption[]>;
+  availableCommandsByScope: Record<string, AgentAvailableCommand[]>;
   usageByScope: Record<string, { used: number; limit?: number | null }>;
   errorsByScope: Record<string, string[]>;
   eventsByScope: Record<string, AgentEventEnvelope[]>;
@@ -30,6 +41,9 @@ export function emptyAgentWorkbenchState(): AgentWorkbenchState {
     prompts: {},
     permissions: {},
     terminals: {},
+    sessionModesByScope: {},
+    sessionConfigOptionsByScope: {},
+    availableCommandsByScope: {},
     usageByScope: {},
     errorsByScope: {},
     eventsByScope: {},
@@ -40,7 +54,7 @@ export function emptyAgentWorkbenchState(): AgentWorkbenchState {
 export function stateFromAgentSnapshot(
   snapshot: AgentRuntimeSnapshot
 ): AgentWorkbenchState {
-  return {
+  const snapshotEntities = {
     registry: Object.fromEntries(
       snapshot.registry.map((entry) => [entry.registry_id, entry])
     ),
@@ -53,14 +67,19 @@ export function stateFromAgentSnapshot(
     prompts: Object.fromEntries(
       snapshot.prompts.map((prompt) => [prompt.id, prompt])
     ),
+  };
+  const state = snapshot.events.reduce(reduceAgentEvent, {
+    ...emptyAgentWorkbenchState(),
+    ...snapshotEntities,
+  });
+
+  return {
+    ...state,
+    ...snapshotEntities,
     permissions: {},
     terminals: {},
     usageByScope: {},
     errorsByScope: {},
-    eventsByScope: snapshot.events.reduce(
-      (eventsByScope, envelope) => appendEvent(eventsByScope, envelope),
-      {} as Record<string, AgentEventEnvelope[]>
-    ),
     lastSequence: snapshot.sequence,
   };
 }
@@ -91,6 +110,9 @@ export function reduceAgentEvent(
     prompts: state.prompts,
     permissions: state.permissions,
     terminals: state.terminals,
+    sessionModesByScope: state.sessionModesByScope,
+    sessionConfigOptionsByScope: state.sessionConfigOptionsByScope,
+    availableCommandsByScope: state.availableCommandsByScope,
     usageByScope: state.usageByScope,
     errorsByScope: state.errorsByScope,
     eventsByScope: appendEvent(state.eventsByScope, envelope),
@@ -147,6 +169,50 @@ export function reduceAgentEvent(
       next.terminals = {
         ...state.terminals,
         [envelope.event.terminal.id]: envelope.event.terminal,
+      };
+      return next;
+    case 'session_modes':
+      next.sessionModesByScope = {
+        ...state.sessionModesByScope,
+        [scopeId(envelope)]: {
+          modes: envelope.event.modes,
+          current: envelope.event.current ?? null,
+        },
+      };
+      return next;
+    case 'mode_changed': {
+      const scope = scopeId(envelope);
+      next.sessionModesByScope = {
+        ...state.sessionModesByScope,
+        [scope]: {
+          modes: state.sessionModesByScope[scope]?.modes ?? [],
+          current: envelope.event.mode_id,
+        },
+      };
+      return next;
+    }
+    case 'session_config_options':
+      next.sessionConfigOptionsByScope = {
+        ...state.sessionConfigOptionsByScope,
+        [scopeId(envelope)]: envelope.event.options,
+      };
+      return next;
+    case 'config_changed': {
+      const scope = scopeId(envelope);
+      const { key, value } = envelope.event;
+      const options = state.sessionConfigOptionsByScope[scope] ?? [];
+      next.sessionConfigOptionsByScope = {
+        ...state.sessionConfigOptionsByScope,
+        [scope]: options.map((option) =>
+          option.key === key ? { ...option, value } : option
+        ),
+      };
+      return next;
+    }
+    case 'available_commands':
+      next.availableCommandsByScope = {
+        ...state.availableCommandsByScope,
+        [scopeId(envelope)]: envelope.event.commands,
       };
       return next;
     case 'usage':

@@ -23,7 +23,7 @@
   - Acceptance: 三条权限测试通过；重启后未决权限恢复测试通过
   - Verify: `cargo test -p agents permissions`
   - Files: `crates/agents/src/permissions.rs`, db service, commands
-- [ ] T1.6 SessionModes/ConfigOptions/AvailableCommands 贯通（运行时→事件→
+- [x] T1.6 SessionModes/ConfigOptions/AvailableCommands 贯通（运行时→事件→
       store→命令面）
   - Acceptance: fixture 驱动测试 + store 归约测试通过
   - Verify: `cargo test -p agents` + `pnpm vitest run stores`

@@ -12,12 +12,15 @@ use agent_client_protocol as acp;
 use agent_client_protocol::{
     Agent, ConnectionTo,
     schema::{
-        AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
-        ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
-        InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
-        NewSessionRequest, PermissionOptionKind, PromptRequest, ProtocolVersion,
-        ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
-        RequestPermissionResponse, SelectedPermissionOutcome, SessionId, SessionNotification,
+        AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
+        CancelNotification, ClientCapabilities, ClientResponse, ContentBlock,
+        CreateTerminalResponse, ErrorCode, ImageContent, Implementation, InitializeRequest,
+        KillTerminalRequest, KillTerminalResponse, LoadSessionRequest, NewSessionRequest,
+        PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
+        RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+        SelectedPermissionOutcome, SessionConfigKind,
+        SessionConfigOption as AcpSessionConfigOption, SessionConfigSelectOption,
+        SessionConfigSelectOptions, SessionId, SessionModeState, SessionNotification,
         SessionUpdate, TerminalId, TerminalOutputResponse, TextContent,
         WaitForTerminalExitResponse,
     },
@@ -35,12 +38,14 @@ use tokio_util::{
 use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
 
 use crate::{
-    AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentError, AgentErrorEvent,
-    AgentEvent, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
-    AgentPermissionRequest, AgentPermissionResponse, AgentPromptFinished, AgentPromptId,
-    AgentResult, AgentSessionId, AgentTerminalCreateRequest, AgentTerminalEnvVar,
-    AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType, AgentUsage,
-    CommandBuildInput, current_platform, decide_auto_permission_response, registry_entry,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentError,
+    AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption,
+    AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse,
+    AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
+    AgentSessionConfigOption, AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest,
+    AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType,
+    AgentUsage, CommandBuildInput, current_platform, decide_auto_permission_response,
+    registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -727,11 +732,12 @@ impl AgentConnectionRunner {
                 .block_task()
                 .await;
             match load_result {
-                Ok(_) => {
+                Ok(response) => {
                     self.session_map
                         .write()
                         .await
                         .insert(session_id, external_session_id.clone());
+                    self.emit_session_controls(session_id, response.modes, response.config_options);
                     return Ok(external_session_id);
                 }
                 Err(error) => {
@@ -760,7 +766,34 @@ impl AgentConnectionRunner {
             .write()
             .await
             .insert(session_id, acp_session_id.clone());
+        self.emit_session_controls(session_id, response.modes, response.config_options);
         Ok(acp_session_id)
+    }
+
+    fn emit_session_controls(
+        &self,
+        session_id: AgentSessionId,
+        modes: Option<SessionModeState>,
+        config_options: Option<Vec<AcpSessionConfigOption>>,
+    ) {
+        if let Some(modes) = modes {
+            let (modes, current) = agent_session_modes_from_acp(modes);
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::SessionModes { modes, current },
+            );
+        }
+
+        if let Some(options) = config_options {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::SessionConfigOptions {
+                    options: agent_session_config_options_from_acp(options),
+                },
+            );
+        }
     }
 
     fn emit_session_load_failed(&self, session_id: AgentSessionId, reason: String) {
@@ -1167,6 +1200,15 @@ impl AcpClientBridge {
             SessionUpdate::Plan(plan) => Some(AgentEvent::RawAcpDiagnostic {
                 raw: serde_json::to_value(plan).unwrap_or(serde_json::Value::Null),
             }),
+            SessionUpdate::AvailableCommandsUpdate(update) => Some(AgentEvent::AvailableCommands {
+                commands: agent_available_commands_from_acp(update.available_commands),
+            }),
+            SessionUpdate::CurrentModeUpdate(update) => Some(AgentEvent::ModeChanged {
+                mode_id: update.current_mode_id.0.to_string(),
+            }),
+            SessionUpdate::ConfigOptionUpdate(update) => Some(AgentEvent::SessionConfigOptions {
+                options: agent_session_config_options_from_acp(update.config_options),
+            }),
             SessionUpdate::UsageUpdate(update) => Some(AgentEvent::Usage {
                 usage: AgentUsage {
                     used: update.used,
@@ -1279,6 +1321,97 @@ fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
     }
 }
 
+fn agent_session_modes_from_acp(
+    state: SessionModeState,
+) -> (Vec<AgentSessionMode>, Option<String>) {
+    let current = Some(state.current_mode_id.0.to_string());
+    let modes = state
+        .available_modes
+        .into_iter()
+        .map(|mode| AgentSessionMode {
+            id: mode.id.0.to_string(),
+            label: mode.name,
+            description: mode.description,
+        })
+        .collect();
+    (modes, current)
+}
+
+fn agent_session_config_options_from_acp(
+    options: Vec<AcpSessionConfigOption>,
+) -> Vec<AgentSessionConfigOption> {
+    options
+        .into_iter()
+        .map(agent_session_config_option_from_acp)
+        .collect()
+}
+
+fn agent_session_config_option_from_acp(
+    option: AcpSessionConfigOption,
+) -> AgentSessionConfigOption {
+    let (value, choices) = match option.kind {
+        SessionConfigKind::Select(select) => (
+            Some(serde_json::Value::String(
+                select.current_value.0.to_string(),
+            )),
+            agent_session_config_choices_from_acp(select.options),
+        ),
+        #[allow(unreachable_patterns)]
+        _ => (None, Vec::new()),
+    };
+
+    AgentSessionConfigOption {
+        key: option.id.0.to_string(),
+        label: option.name,
+        description: option.description,
+        value,
+        choices,
+    }
+}
+
+fn agent_session_config_choices_from_acp(
+    options: SessionConfigSelectOptions,
+) -> Vec<AgentSessionConfigChoice> {
+    match options {
+        SessionConfigSelectOptions::Ungrouped(options) => options
+            .into_iter()
+            .map(agent_session_config_choice_from_acp)
+            .collect(),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .into_iter()
+            .flat_map(|group| group.options.into_iter())
+            .map(agent_session_config_choice_from_acp)
+            .collect(),
+        #[allow(unreachable_patterns)]
+        _ => Vec::new(),
+    }
+}
+
+fn agent_session_config_choice_from_acp(
+    option: SessionConfigSelectOption,
+) -> AgentSessionConfigChoice {
+    AgentSessionConfigChoice {
+        value: serde_json::Value::String(option.value.0.to_string()),
+        label: option.name,
+        description: option.description,
+    }
+}
+
+fn agent_available_commands_from_acp(
+    commands: Vec<AcpAvailableCommand>,
+) -> Vec<AgentAvailableCommand> {
+    commands
+        .into_iter()
+        .map(|command| AgentAvailableCommand {
+            name: command.name,
+            description: Some(command.description),
+            input_schema: command
+                .input
+                .and_then(|input| serde_json::to_value(input).ok()),
+        })
+        .collect()
+}
+
 fn agent_permission_option_kind(kind: PermissionOptionKind) -> AgentPermissionOptionKind {
     match kind {
         PermissionOptionKind::AllowOnce => AgentPermissionOptionKind::AllowOnce,
@@ -1365,6 +1498,99 @@ mod tests {
             .unwrap();
 
         assert_eq!(acp_session_id, "external-session");
+    }
+
+    #[test]
+    fn maps_acp_session_modes_to_agent_payload() {
+        let state = SessionModeState::new(
+            "ask",
+            vec![
+                agent_client_protocol::schema::SessionMode::new("ask", "Ask")
+                    .description(Some("Confirm before editing".to_string())),
+                agent_client_protocol::schema::SessionMode::new("act", "Act"),
+            ],
+        );
+
+        let (modes, current) = agent_session_modes_from_acp(state);
+
+        assert_eq!(current.as_deref(), Some("ask"));
+        assert_eq!(modes.len(), 2);
+        assert_eq!(modes[0].id, "ask");
+        assert_eq!(modes[0].label, "Ask");
+        assert_eq!(
+            modes[0].description.as_deref(),
+            Some("Confirm before editing")
+        );
+    }
+
+    #[test]
+    fn maps_acp_session_config_options_to_agent_payload() {
+        let options = vec![
+            AcpSessionConfigOption::select(
+                "model",
+                "Model",
+                "gpt-5",
+                vec![
+                    agent_client_protocol::schema::SessionConfigSelectOption::new("gpt-5", "GPT-5")
+                        .description(Some("Balanced".to_string())),
+                    agent_client_protocol::schema::SessionConfigSelectOption::new(
+                        "gpt-5-codex",
+                        "GPT-5 Codex",
+                    ),
+                ],
+            )
+            .description(Some("Choose a model".to_string())),
+            AcpSessionConfigOption::select(
+                "reasoning",
+                "Reasoning",
+                "high",
+                vec![
+                    agent_client_protocol::schema::SessionConfigSelectGroup::new(
+                        "effort",
+                        "Effort",
+                        vec![
+                            agent_client_protocol::schema::SessionConfigSelectOption::new(
+                                "high", "High",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ];
+
+        let mapped = agent_session_config_options_from_acp(options);
+
+        assert_eq!(mapped[0].key, "model");
+        assert_eq!(mapped[0].label, "Model");
+        assert_eq!(mapped[0].description.as_deref(), Some("Choose a model"));
+        assert_eq!(
+            mapped[0].value.as_ref(),
+            Some(&serde_json::Value::String("gpt-5".to_string()))
+        );
+        assert_eq!(mapped[0].choices.len(), 2);
+        assert_eq!(mapped[0].choices[0].label, "GPT-5");
+        assert_eq!(
+            mapped[0].choices[0].description.as_deref(),
+            Some("Balanced")
+        );
+        assert_eq!(mapped[1].choices[0].value, serde_json::json!("high"));
+    }
+
+    #[test]
+    fn maps_acp_available_commands_to_agent_payload() {
+        let commands = vec![
+            AcpAvailableCommand::new("compact", "Compact context").input(
+                agent_client_protocol::schema::AvailableCommandInput::Unstructured(
+                    agent_client_protocol::schema::UnstructuredCommandInput::new("focus"),
+                ),
+            ),
+        ];
+
+        let mapped = agent_available_commands_from_acp(commands);
+
+        assert_eq!(mapped[0].name, "compact");
+        assert_eq!(mapped[0].description.as_deref(), Some("Compact context"));
+        assert!(mapped[0].input_schema.is_some());
     }
 
     #[test]

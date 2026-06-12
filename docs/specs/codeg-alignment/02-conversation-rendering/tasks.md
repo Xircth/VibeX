@@ -17,7 +17,7 @@
   - Verify: `cd frontend && pnpm install --lockfile-only` 后 `pnpm run frontend:check`
   - Files: `frontend/package.json`, lockfile, `NormalizedConversation/__fixtures__/*`
 
-- [ ] T2.3 Markdown 管线替换为 Streamdown/备选等价层
+- [x] T2.3 Markdown 管线替换为 Streamdown/备选等价层
   - Acceptance: 流式 chunk 增量渲染；保留 tag reference、workspace file/folder
     链接、本地图片、`.vibe-images/` proxy、用户 soft breaks。
   - Verify: `cd frontend && pnpm vitest run src/components/NormalizedConversation/Markdown.test.tsx`

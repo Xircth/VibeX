@@ -27,9 +27,8 @@ import {
 } from '@/utils/filePaths';
 import {
   parseTagReferenceHref,
-  replaceTagReferenceMarkersWithMarkdownLinks,
-  stripTagReferenceAppendix,
 } from '@/lib/tagReferenceMarkers';
+import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
 
 type MarkdownProps = {
   value: string;
@@ -37,6 +36,7 @@ type MarkdownProps = {
   taskAttemptId?: string;
   taskId?: string;
   workspacePath?: string | null;
+  softBreaks?: boolean;
 };
 
 type PreProps = {
@@ -315,129 +315,6 @@ function resolveMarkdownWorkspacePathTarget(
   return null;
 }
 
-function normalizeBareImageReferences(value: string): string {
-  return value
-    .split('\n')
-    .map((line) => {
-      const trimmed = line.trim();
-      if (
-        !trimmed ||
-        trimmed.startsWith('![') ||
-        trimmed.startsWith('[') ||
-        /\s/.test(trimmed) ||
-        !isMarkdownImagePath(trimmed)
-      ) {
-        return line;
-      }
-
-      const label = trimmed.split(/[\\/]/).pop() ?? 'Image';
-      return `${line.slice(0, line.indexOf(trimmed))}![${label}](${trimmed})`;
-    })
-    .join('\n');
-}
-
-function normalizeMathDelimiters(value: string): string {
-  return splitFencedCodeSegments(value)
-    .map((segment) =>
-      segment.protected
-        ? segment.text
-        : normalizeInlineMathSegments(segment.text)
-    )
-    .join('');
-}
-
-function splitFencedCodeSegments(
-  value: string
-): Array<{ text: string; protected: boolean }> {
-  const segments: Array<{ text: string; protected: boolean }> = [];
-  const lines = value.match(/[^\n]*(?:\n|$)/g) ?? [];
-  let buffer = '';
-  let inFence = false;
-  let fenceChar: '`' | '~' | null = null;
-  let fenceLength = 0;
-
-  const flush = (protectedSegment: boolean) => {
-    if (!buffer) return;
-    segments.push({ text: buffer, protected: protectedSegment });
-    buffer = '';
-  };
-
-  for (const line of lines) {
-    if (!line) continue;
-    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
-
-    if (!inFence && fenceMatch) {
-      flush(false);
-      inFence = true;
-      fenceChar = fenceMatch[1][0] as '`' | '~';
-      fenceLength = fenceMatch[1].length;
-      buffer += line;
-      continue;
-    }
-
-    if (inFence) {
-      buffer += line;
-      if (
-        fenceMatch &&
-        fenceChar &&
-        fenceMatch[1][0] === fenceChar &&
-        fenceMatch[1].length >= fenceLength
-      ) {
-        flush(true);
-        inFence = false;
-        fenceChar = null;
-        fenceLength = 0;
-      }
-      continue;
-    }
-
-    buffer += line;
-  }
-
-  flush(inFence);
-  return segments;
-}
-
-function normalizeInlineMathSegments(value: string): string {
-  let result = '';
-  let index = 0;
-
-  while (index < value.length) {
-    if (value[index] !== '`') {
-      const nextTick = value.indexOf('`', index);
-      const textSegment =
-        nextTick === -1 ? value.slice(index) : value.slice(index, nextTick);
-      result += convertTexMathDelimiters(textSegment);
-      index = nextTick === -1 ? value.length : nextTick;
-      continue;
-    }
-
-    const tickRunMatch = value.slice(index).match(/^`+/);
-    const tickRun = tickRunMatch?.[0] ?? '`';
-    const closingIndex = value.indexOf(tickRun, index + tickRun.length);
-
-    if (closingIndex === -1) {
-      result += value.slice(index);
-      break;
-    }
-
-    result += value.slice(index, closingIndex + tickRun.length);
-    index = closingIndex + tickRun.length;
-  }
-
-  return result;
-}
-
-function convertTexMathDelimiters(value: string): string {
-  return value
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_match, content: string) => {
-      return `$$${content}$$`;
-    })
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_match, content: string) => {
-      return `$${content}$`;
-    });
-}
-
 function MarkdownImage({
   src,
   alt,
@@ -512,7 +389,8 @@ function arePropsEqual(prev: MarkdownProps, next: MarkdownProps) {
     prev.className === next.className &&
     prev.taskAttemptId === next.taskAttemptId &&
     prev.taskId === next.taskId &&
-    prev.workspacePath === next.workspacePath
+    prev.workspacePath === next.workspacePath &&
+    prev.softBreaks === next.softBreaks
   );
 }
 
@@ -530,18 +408,12 @@ export const Markdown = memo(function Markdown({
   taskAttemptId,
   taskId,
   workspacePath,
+  softBreaks,
 }: MarkdownProps) {
   const panelActions = useOptionalPanelActionsContext();
   const normalizedValue = useMemo(
-    () =>
-      normalizeMathDelimiters(
-        normalizeBareImageReferences(
-          replaceTagReferenceMarkersWithMarkdownLinks(
-            stripTagReferenceAppendix(value)
-          )
-        )
-      ),
-    [value]
+    () => prepareConversationMarkdown(value, { softBreaks }),
+    [softBreaks, value]
   );
 
   const components = useMemo<Components>(

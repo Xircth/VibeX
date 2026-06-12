@@ -145,6 +145,7 @@ function RenderPart({
           <div className="relative">
             <Markdown
               value={part.text}
+              softBreaks={part.softBreaks}
               taskAttemptId={taskAttempt?.id}
               taskId={task?.id ?? taskAttempt?.task_id}
               workspacePath={workspacePath ?? taskAttempt?.container_ref}

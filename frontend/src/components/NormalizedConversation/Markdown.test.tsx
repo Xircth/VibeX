@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Markdown } from './Markdown';
@@ -85,7 +86,10 @@ vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
   },
 }));
 
-function renderMarkdown(value: string) {
+function renderMarkdown(
+  value: string,
+  props: Partial<ComponentProps<typeof Markdown>> = {}
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -100,6 +104,7 @@ function renderMarkdown(value: string) {
         value={value}
         taskAttemptId="workspace-1"
         workspacePath="C:/workspace/project"
+        {...props}
       />
     </QueryClientProvider>
   );
@@ -364,6 +369,26 @@ $$`);
         expect.objectContaining({ lang: 'typescript' })
       )
     );
+  });
+
+  it('renders user soft breaks without changing paragraph spacing globally', () => {
+    const { container } = renderMarkdown('first line\nsecond line', {
+      softBreaks: true,
+    });
+
+    expect(container.querySelector('br')).toBeInTheDocument();
+  });
+
+  it('keeps incomplete Mermaid fences as readable code while streaming', async () => {
+    renderMarkdown('```mermaid\ngraph TD\nA-->B');
+
+    await waitFor(() =>
+      expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledWith(
+        'graph TD\nA-->B',
+        expect.objectContaining({ lang: 'text' })
+      )
+    );
+    expect(mermaidMock.render).not.toHaveBeenCalled();
   });
 
   it('renders Mermaid fenced blocks as diagrams instead of code blocks', async () => {

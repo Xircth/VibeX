@@ -408,3 +408,73 @@
 .conv-message-nav-target-active {
   box-shadow: inset 2px 0 var(--conv-tool-icon);
 }
+
+/* =========================================
+ * Turn Stats
+ * ========================================= */
+
+.conv-turn-stats {
+  color: var(--conv-text-tertiary);
+  font-size: 11px;
+}
+
+.conv-turn-stats-row {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 8px;
+}
+
+.conv-turn-stats-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.conv-turn-stat-button {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--conv-text-tertiary);
+}
+
+.conv-turn-stat-button:hover {
+  border-color: var(--conv-border-subtle);
+  background: var(--conv-surface-control);
+  color: var(--conv-text-primary);
+}
+
+.conv-turn-stats-items {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.conv-turn-stat-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.conv-turn-stat-label {
+  color: var(--conv-text-tertiary);
+}
+
+.conv-turn-stat-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--conv-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -100,7 +100,7 @@
   - Files: `conversation-thread/ConversationMessageNav.tsx`,
     `conversation-thread/messageNavEntries.ts`
 
-- [ ] T2.12 TurnStats 与 LiveTurnStats
+- [x] T2.12 TurnStats 与 LiveTurnStats
   - Acceptance: 显示复制、模型、token、缓存读写 token、耗时、完成时间、回跳；
     数据缺失隐藏；等待 Phase 1 字段时可用 mock/adapter。
   - Verify: `TurnStats.test.tsx`；Usage 事件 store 归约测试。

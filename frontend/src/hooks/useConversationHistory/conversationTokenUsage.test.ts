@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getLatestConversationTokenUsage } from './conversationTokenUsage';
+import {
+  agentUsageToSnapshot,
+  agentUsageToTokenUsageInfo,
+  getLatestConversationTokenUsage,
+} from './conversationTokenUsage';
 import type { ExecutionProcessStateStore, PatchTypeWithKey } from './types';
 
 const scriptExecutorAction = {
@@ -125,5 +129,17 @@ describe('conversationTokenUsage', () => {
     };
 
     expect(getLatestConversationTokenUsage(store)?.total_tokens).toBe(70);
+  });
+
+  it('normalizes Agent usage events into token usage snapshots', () => {
+    expect(agentUsageToTokenUsageInfo({ used: 42n, limit: 100n })).toEqual({
+      total_tokens: 42,
+      model_context_window: 100,
+    });
+
+    expect(agentUsageToSnapshot({ used: 42, limit: null })).toEqual({
+      totalTokens: 42,
+      contextWindow: 42,
+    });
   });
 });

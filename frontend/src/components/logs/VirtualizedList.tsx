@@ -13,6 +13,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   BaseCodingAgent,
   ExecutionProcessStatus,
+  type ExecutorAction,
   type TaskWithAttemptStatus,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
@@ -39,7 +40,15 @@ import {
   buildConversationMessageNavEntries,
   findActiveConversationMessageNavEntry,
 } from '@/components/conversation-thread/messageNavEntries';
+import { TurnStats } from '@/components/conversation-thread/TurnStats';
+import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
+import {
+  buildTurnStatsByAssistantKey,
+  findLatestAssistantDisplayKey,
+  type TurnStatsData,
+} from '@/components/conversation-thread/turnStatsModel';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
+import { agentUsageToSnapshot } from '@/hooks/useConversationHistory/conversationTokenUsage';
 import type {
   AddEntryType,
   BaseDisplayEntry,
@@ -47,6 +56,7 @@ import type {
   PatchTypeWithKey,
 } from '@/hooks/useConversationHistory/types';
 import { isCollapsedAssistantMessagesGroup } from '@/hooks/useConversationHistory/types';
+import type { AgentSessionConfigOption } from '@/features/agents/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
@@ -77,6 +87,15 @@ function isUserMessageEntry(
   return (
     entry.type === 'NORMALIZED_ENTRY' &&
     entry.content.entry_type.type === 'user_message'
+  );
+}
+
+function isAssistantMessageEntry(
+  entry: BaseDisplayEntry
+): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } {
+  return (
+    entry.type === 'NORMALIZED_ENTRY' &&
+    entry.content.entry_type.type === 'assistant_message'
   );
 }
 
@@ -229,6 +248,57 @@ export function pendingAgentPermissionsFromEvents(
   return [...pending.values()];
 }
 
+export function getExecutorActionModel(
+  executorAction?: ExecutorAction | null
+): string | null {
+  let action = executorAction ?? null;
+
+  while (action) {
+    if ('executor_profile_id' in action.typ) {
+      const model = action.typ.executor_profile_id.model?.trim();
+      if (model) return model;
+    }
+
+    action = action.next_action;
+  }
+
+  return null;
+}
+
+export function getAgentSessionModel(
+  options?: AgentSessionConfigOption[] | null
+): string | null {
+  const modelOption = options?.find((option) => option.key === 'model');
+  const modelValue = modelOption?.value;
+
+  return typeof modelValue === 'string' && modelValue.trim()
+    ? modelValue.trim()
+    : null;
+}
+
+function mergeLiveTurnUsage(
+  stats: TurnStatsData | null | undefined,
+  usage: { used: number; limit?: number | null } | undefined,
+  model: string | null
+): TurnStatsData | null {
+  const usageSnapshot = usage ? agentUsageToSnapshot(usage) : null;
+  const nextStats: TurnStatsData = { ...(stats ?? {}) };
+
+  if (model && !nextStats.model) {
+    nextStats.model = model;
+  }
+
+  if (usageSnapshot) {
+    nextStats.totalTokens = usageSnapshot.totalTokens;
+    nextStats.contextWindow = usageSnapshot.contextWindow;
+  }
+
+  nextStats.completedAt = null;
+  nextStats.elapsedMs = null;
+
+  return Object.keys(nextStats).length > 0 ? nextStats : null;
+}
+
 export function collapsedAssistantMessagesLabel(hiddenCount: number): string {
   return `已折叠 ${hiddenCount} 条过程消息`;
 }
@@ -311,6 +381,15 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
       () => pendingAgentPermissionsFromEvents(agentSessionEvents),
       [agentSessionEvents]
     );
+    const agentModel = useMemo(
+      () =>
+        getAgentSessionModel(
+          agentSessionId
+            ? agentWorkbench.sessionConfigOptionsByScope[agentSessionId]
+            : null
+        ),
+      [agentSessionId, agentWorkbench.sessionConfigOptionsByScope]
+    );
     const [respondingPermissionId, setRespondingPermissionId] = useState<
       string | null
     >(null);
@@ -366,6 +445,48 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const userMessageDisplayIndexes = useMemo(
       () => getUserMessageDisplayIndexes(displayEntries),
       [displayEntries]
+    );
+    const modelByExecutionProcessId = useMemo(() => {
+      const modelById: Record<string, string> = {};
+
+      for (const process of executionProcessesVisible) {
+        const model = getExecutorActionModel(process.executor_action);
+        if (model) {
+          modelById[process.id] = model;
+        }
+      }
+
+      if (agentModel) {
+        if (agentSessionId) {
+          modelById[agentSessionId] = agentModel;
+        }
+        if (agentSession?.connection_id) {
+          modelById[agentSession.connection_id] = agentModel;
+        }
+      }
+
+      return modelById;
+    }, [
+      agentModel,
+      agentSession?.connection_id,
+      agentSessionId,
+      executionProcessesVisible,
+    ]);
+    const turnStatsByAssistantKey = useMemo(
+      () =>
+        buildTurnStatsByAssistantKey(normalizedEntries, {
+          modelByExecutionProcessId,
+        }),
+      [modelByExecutionProcessId, normalizedEntries]
+    );
+    const hasLiveTurn = usesAgentTranscript
+      ? agentSession?.status === 'running'
+      : executionProcessesVisible.some(
+          (process) => process.status === ExecutionProcessStatus.running
+        );
+    const liveAssistantKey = useMemo(
+      () => (hasLiveTurn ? findLatestAssistantDisplayKey(displayEntries) : null),
+      [displayEntries, hasLiveTurn]
     );
     const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
       count: displayEntries.length,
@@ -478,7 +599,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     }, []);
 
     const renderBaseDisplayEntry = useCallback(
-      (entry: BaseDisplayEntry) => {
+      (entry: BaseDisplayEntry, displayIndex: number | null = null) => {
         if (entry.type === 'AGGREGATED_GROUP') {
           return (
             <AggregatedGroupCard
@@ -520,7 +641,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         }
 
         if (entry.type === 'NORMALIZED_ENTRY') {
-          return (
+          const renderedEntry = (
             <DisplayConversationEntry
               entry={entry.content}
               expansionKey={entry.patchKey}
@@ -529,11 +650,70 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
               task={task ?? undefined}
             />
           );
+
+          if (!isAssistantMessageEntry(entry)) {
+            return renderedEntry;
+          }
+
+          const isLive = liveAssistantKey === entry.patchKey;
+          const baseStats = turnStatsByAssistantKey.get(entry.patchKey);
+          const liveUsage = usesAgentTranscript
+            ? agentWorkbench.usageByScope[entry.executionProcessId]
+            : undefined;
+          const stats = isLive
+            ? mergeLiveTurnUsage(baseStats, liveUsage, agentModel)
+            : baseStats;
+          const jumpTargetIndex =
+            displayIndex === null
+              ? null
+              : findPreviousUserMessageVirtualIndex(
+                  userMessageDisplayIndexes,
+                  displayIndex
+                );
+          const onJumpBack =
+            jumpTargetIndex === null
+              ? null
+              : () => {
+                  rowVirtualizer.scrollToIndex(jumpTargetIndex, {
+                    align: 'center',
+                    behavior: 'smooth',
+                  });
+                };
+
+          return (
+            <>
+              {renderedEntry}
+              {isLive ? (
+                <LiveTurnStats
+                  stats={stats}
+                  startedAt={stats?.startedAt ?? entry.content.timestamp}
+                  copyText={entry.content.content}
+                  onJumpBack={onJumpBack}
+                />
+              ) : (
+                <TurnStats
+                  stats={stats}
+                  copyText={entry.content.content}
+                  onJumpBack={onJumpBack}
+                />
+              )}
+            </>
+          );
         }
 
         return null;
       },
-      [attempt, task]
+      [
+        agentModel,
+        agentWorkbench.usageByScope,
+        attempt,
+        liveAssistantKey,
+        rowVirtualizer,
+        task,
+        turnStatsByAssistantKey,
+        userMessageDisplayIndexes,
+        usesAgentTranscript,
+      ]
     );
 
     const respondToPermission = useCallback(
@@ -726,7 +906,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
                         />
                       ) : null}
                       {!isCollapsedAssistantMessagesGroup(entry)
-                        ? renderBaseDisplayEntry(entry)
+                        ? renderBaseDisplayEntry(entry, virtualRow.index)
                         : null}
                     </div>
                   );

@@ -1,5 +1,6 @@
 import type { NormalizedEntry } from 'shared/types';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
+import { agentUsageToTokenUsageInfo } from '@/hooks/useConversationHistory/conversationTokenUsage';
 import type { AgentContentBlock, AgentEventEnvelope } from './types';
 
 function textFromContentBlock(content: AgentContentBlock): string {
@@ -151,17 +152,24 @@ export function buildAgentTranscriptEntries(
         );
         break;
       case 'usage':
-        entries.push(
-          normalizedEntry(
-            envelope,
-            {
-              type: 'token_usage_info',
-              total_tokens: envelope.event.usage.used,
-              model_context_window: envelope.event.usage.limit ?? envelope.event.usage.used,
-            },
-            `${envelope.event.usage.used}`
-          )
-        );
+        {
+          const tokenUsageInfo = agentUsageToTokenUsageInfo(
+            envelope.event.usage
+          );
+
+          if (tokenUsageInfo) {
+            entries.push(
+              normalizedEntry(
+                envelope,
+                {
+                  type: 'token_usage_info',
+                  ...tokenUsageInfo,
+                },
+                `${tokenUsageInfo.total_tokens}`
+              )
+            );
+          }
+        }
         break;
       case 'session_modes':
         entries.push(

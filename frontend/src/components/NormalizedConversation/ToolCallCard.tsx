@@ -184,7 +184,7 @@ export const ToolCallCard: FC<{
   }
 
   if (isGeneratedImageToolEntry(entry)) {
-    return <GeneratedImagesBlock entry={entry} />;
+    return <GeneratedImagesBlock entry={entry} taskAttemptId={taskAttemptId} />;
   }
 
   if (isGoalToolEntry(entry)) {

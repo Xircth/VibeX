@@ -142,6 +142,29 @@
   line-height: 1.5;
 }
 
+.conv-generated-image-preview {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.conv-generated-image-preview img {
+  display: block;
+}
+
+.conv-generated-image-placeholder {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  color: var(--conv-text-tertiary);
+}
+
 /* =========================================
  * Terminal Output (dark terminal style)
  * ========================================= */

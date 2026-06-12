@@ -1,10 +1,15 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   formatSessionComposerCommand,
   insertPreviewElementToken,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import UserMessage from './UserMessage';
+
+const imageMocks = vi.hoisted(() => ({
+  showPreview: vi.fn(),
+  useImageMetadata: vi.fn(),
+}));
 
 vi.mock('@/components/ui/wysiwyg', () => ({
   default: ({ value }: { value: string }) => (
@@ -15,7 +20,7 @@ vi.mock('@/components/ui/wysiwyg', () => ({
 }));
 
 vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
-  ImagePreviewDialog: { show: vi.fn() },
+  ImagePreviewDialog: { show: imageMocks.showPreview },
 }));
 
 vi.mock('@/components/ConfigProvider', () => ({
@@ -39,7 +44,7 @@ vi.mock('@/hooks/useBranchStatus', () => ({
 }));
 
 vi.mock('@/hooks/useImageMetadata', () => ({
-  useImageMetadata: () => ({ data: null, isLoading: false }),
+  useImageMetadata: imageMocks.useImageMetadata,
 }));
 
 vi.mock('@/hooks/useTemporaryFlag', () => ({
@@ -61,6 +66,12 @@ vi.mock('@/vscode/bridge', () => ({
 
 describe('UserMessage', () => {
   beforeEach(() => {
+    imageMocks.showPreview.mockReset();
+    imageMocks.useImageMetadata.mockReset();
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: null,
+      isLoading: false,
+    });
     vi.stubGlobal(
       'ResizeObserver',
       class ResizeObserver {
@@ -120,8 +131,47 @@ describe('UserMessage', () => {
     expect(screen.getByText('SaveButton')).toBeInTheDocument();
     expect(
       screen
-        .getByText('SaveButton')
-        .closest('[data-testid="session-composer-token-chip"]')
+      .getByText('SaveButton')
+      .closest('[data-testid="session-composer-token-chip"]')
     ).toHaveAttribute('title', elementContext);
+  });
+
+  it('renders vibe image attachments as inline thumbnails and opens preview', () => {
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'screen.png',
+        path: '.vibe-images/screen.png',
+        size_bytes: 123n,
+        format: 'png',
+        proxy_url: 'asset://screen.png',
+      },
+      isLoading: false,
+    });
+
+    render(
+      <UserMessage
+        content={'Please inspect this.\n![screen](.vibe-images/screen.png)'}
+        taskAttempt={{ id: 'attempt-1' } as never}
+      />
+    );
+
+    expect(screen.getByTestId('readonly-wysiwyg')).toHaveTextContent(
+      'Please inspect this.'
+    );
+    expect(screen.getByRole('img', { name: 'screen' })).toHaveAttribute(
+      'src',
+      'asset://screen.png'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview image' }));
+
+    expect(imageMocks.showPreview).toHaveBeenCalledWith({
+      imageUrl: 'asset://screen.png',
+      altText: 'screen',
+      fileName: 'screen.png',
+      format: 'png',
+      sizeBytes: 123n,
+    });
   });
 });

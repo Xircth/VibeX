@@ -107,7 +107,7 @@
   - Files: `conversation-thread/TurnStats.tsx`, `LiveTurnStats.tsx`,
     `hooks/useConversationHistory/conversationTokenUsage.ts`
 
-- [ ] T2.13 图片内联展示与生成图片卡
+- [x] T2.13 图片内联展示与生成图片卡
   - Acceptance: 用户附件在消息中缩略展示；点击复用 ImagePreviewDialog；
     generated image 显示状态、revised prompt、错误信息。
   - Verify: 图片 metadata hook mock 测试 + generated image snapshot。

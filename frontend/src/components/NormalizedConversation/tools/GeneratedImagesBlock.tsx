@@ -1,5 +1,8 @@
-import { ImageIcon } from 'lucide-react';
+import { useCallback } from 'react';
+import { ImageIcon, Loader2 } from 'lucide-react';
 import type { JsonValue, NormalizedEntry } from 'shared/types';
+import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
+import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { renderJson } from '../conversation-entry-utils';
 import {
   ToolCardShell,
@@ -27,7 +30,80 @@ function readString(
   return null;
 }
 
+function readFirstRecord(
+  value: JsonValue | null | undefined,
+  keys: string[]
+): JsonValue | null {
+  if (!isRecord(value)) return null;
+
+  for (const key of keys) {
+    const candidate = value[key];
+    if (Array.isArray(candidate) && candidate.length > 0) {
+      return candidate[0] ?? null;
+    }
+    if (isRecord(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function dataUrlFromRecord(value: JsonValue | null | undefined): string | null {
+  if (!isRecord(value)) return null;
+
+  const dataBase64 = readString(value, ['data_base64', 'base64', 'b64_json']);
+  const mimeType =
+    readString(value, ['mime_type', 'mimeType']) || 'image/png';
+
+  return dataBase64 && mimeType.startsWith('image/')
+    ? `data:${mimeType};base64,${dataBase64}`
+    : null;
+}
+
+function readGeneratedImageUrl(
+  value: JsonValue | null | undefined
+): string | null {
+  const directUrl = readString(value, [
+    'url',
+    'image_url',
+    'imageUrl',
+    'image',
+    'path',
+    'file_path',
+  ]);
+
+  if (directUrl) return directUrl;
+
+  const directDataUrl = dataUrlFromRecord(value);
+  if (directDataUrl) return directDataUrl;
+
+  const nestedImage = readFirstRecord(value, [
+    'images',
+    'generated_images',
+    'generatedImages',
+    'output',
+  ]);
+
+  if (nestedImage === null) return null;
+  if (typeof nestedImage === 'string') return nestedImage;
+  return (
+    readGeneratedImageUrl(nestedImage) || dataUrlFromRecord(nestedImage) || null
+  );
+}
+
 function isRenderableImageUrl(value: string | null): value is string {
+  return Boolean(
+    value &&
+      (value.startsWith('http://') ||
+        value.startsWith('https://') ||
+        value.startsWith('data:image/') ||
+        value.startsWith('blob:') ||
+        value.startsWith('.vibe-images/'))
+  );
+}
+
+function isDirectImageUrl(value: string | null): value is string {
   return Boolean(
     value &&
       (value.startsWith('http://') ||
@@ -43,6 +119,35 @@ function isGeneratedImageToolName(toolName: string): boolean {
   );
 }
 
+function getStatusText(status: string, hasError: boolean): string {
+  if (hasError) return '失败';
+
+  const normalized = status.toLowerCase();
+  if (
+    normalized === 'generating' ||
+    normalized === 'running' ||
+    normalized === 'created' ||
+    normalized === 'pending'
+  ) {
+    return '生成中';
+  }
+
+  if (
+    normalized === 'ready' ||
+    normalized === 'success' ||
+    normalized === 'succeeded' ||
+    normalized === 'completed'
+  ) {
+    return '完成';
+  }
+
+  if (normalized === 'failed' || normalized === 'error') {
+    return '失败';
+  }
+
+  return status;
+}
+
 export function isGeneratedImageToolEntry(entry: NormalizedEntry): boolean {
   return (
     entry.entry_type.type === 'tool_use' &&
@@ -51,25 +156,60 @@ export function isGeneratedImageToolEntry(entry: NormalizedEntry): boolean {
   );
 }
 
-export function GeneratedImagesBlock({ entry }: { entry: NormalizedEntry }) {
+export function GeneratedImagesBlock({
+  entry,
+  taskAttemptId,
+}: {
+  entry: NormalizedEntry;
+  taskAttemptId?: string;
+}) {
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action =
     toolEntry?.action_type.action === 'tool' ? toolEntry.action_type : null;
-  if (!toolEntry || !action) return null;
+  const resultValue = action?.result?.value;
+  const imagePath = readGeneratedImageUrl(resultValue);
+  const { data: metadata, isLoading } = useImageMetadata(
+    taskAttemptId,
+    imagePath ?? ''
+  );
 
-  const resultValue = action.result?.value;
-  const prompt = readString(action.arguments, ['prompt', 'description']);
+  const prompt = readString(action?.arguments, ['prompt', 'description']);
   const revisedPrompt = readString(resultValue, [
     'revised_prompt',
     'revisedPrompt',
   ]);
-  const imageUrl = readString(resultValue, ['url', 'image_url', 'image']);
   const status =
     readString(resultValue, ['status', 'state']) ||
-    (toolEntry.status.status === 'created' ? 'generating' : 'ready');
+    (toolEntry?.status.status === 'created' ? 'generating' : 'ready');
   const error = readString(resultValue, ['error', 'message']);
-  const detail = error || revisedPrompt || prompt || status;
+  const statusText = getStatusText(status, Boolean(error));
+  const resolvedImageUrl = metadata?.proxy_url || imagePath;
+  const previewImageUrl = isDirectImageUrl(resolvedImageUrl)
+    ? resolvedImageUrl
+    : metadata?.proxy_url || null;
+  const detail = error || revisedPrompt || prompt || statusText;
+  const label =
+    revisedPrompt ||
+    prompt ||
+    metadata?.file_name ||
+    imagePath ||
+    'Generated image';
+  const showImage = isRenderableImageUrl(imagePath) && previewImageUrl && !error;
+
+  const handlePreview = useCallback(() => {
+    if (!previewImageUrl || error) return;
+
+    ImagePreviewDialog.show({
+      imageUrl: previewImageUrl,
+      altText: label,
+      fileName: metadata?.file_name ?? label,
+      format: metadata?.format ?? undefined,
+      sizeBytes: metadata?.size_bytes,
+    });
+  }, [error, label, metadata, previewImageUrl]);
+
+  if (!toolEntry || !action) return null;
 
   return (
     <ToolCardShell
@@ -82,14 +222,30 @@ export function GeneratedImagesBlock({ entry }: { entry: NormalizedEntry }) {
       expandable={false}
     >
       <div className="space-y-2 font-sans">
-        {isRenderableImageUrl(imageUrl) ? (
-          <img
-            src={imageUrl}
-            alt={revisedPrompt || prompt || 'Generated image'}
-            className="max-h-64 max-w-full rounded-md border border-border object-contain"
-          />
-        ) : imageUrl ? (
-          <div className="conv-tool-details-content font-mono">{imageUrl}</div>
+        <div>
+          <div className="conv-tool-details-section-label">状态</div>
+          <div className="conv-tool-details-content">{statusText}</div>
+        </div>
+        {showImage ? (
+          <button
+            type="button"
+            className="conv-generated-image-preview"
+            onClick={handlePreview}
+            aria-label="预览生成图片"
+            title="预览生成图片"
+          >
+            <img
+              src={previewImageUrl}
+              alt={label}
+              className="max-h-64 max-w-full rounded-md border border-border object-contain"
+            />
+          </button>
+        ) : isLoading ? (
+          <div className="conv-generated-image-placeholder">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </div>
+        ) : imagePath ? (
+          <div className="conv-tool-details-content font-mono">{imagePath}</div>
         ) : null}
         {prompt ? (
           <div>

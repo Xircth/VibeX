@@ -11,6 +11,11 @@ const panelMocks = vi.hoisted(() => ({
   openFilePreview: vi.fn(),
 }));
 
+const imageMocks = vi.hoisted(() => ({
+  showPreview: vi.fn(),
+  useImageMetadata: vi.fn(),
+}));
+
 vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
     openFilePreview: panelMocks.openFilePreview,
@@ -29,6 +34,14 @@ vi.mock('@/components/ui/wysiwyg', () => ({
 
 vi.mock('@/components/ConfigProvider', () => ({
   useUserSystem: () => ({ config: { theme: 'light' } }),
+}));
+
+vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
+  ImagePreviewDialog: { show: imageMocks.showPreview },
+}));
+
+vi.mock('@/hooks/useImageMetadata', () => ({
+  useImageMetadata: imageMocks.useImageMetadata,
 }));
 
 function toolEntry({
@@ -58,13 +71,19 @@ describe('conversation tool cards', () => {
   const clipboardWrite = vi.fn();
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     panelMocks.openFilePreview.mockReset();
     clipboardWrite.mockReset();
+    imageMocks.showPreview.mockReset();
+    imageMocks.useImageMetadata.mockReset();
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: null,
+      isLoading: false,
+    });
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: clipboardWrite },
     });
-    vi.restoreAllMocks();
   });
 
   it('renders command output inside an expandable command card', () => {
@@ -409,7 +428,7 @@ describe('conversation tool cards', () => {
   });
 
   it('routes generated images to an image result card', () => {
-    render(
+    const { container } = render(
       <ToolCallCard
         entry={toolEntry({
           toolName: 'generate_image',
@@ -431,9 +450,104 @@ describe('conversation tool cards', () => {
       />
     );
 
+    expect(screen.getByText('完成')).toBeInTheDocument();
+    expect(screen.getByText('修订提示词')).toBeInTheDocument();
     expect(
       screen.getByRole('img', { name: 'Compact dashboard preview' })
     ).toHaveAttribute('src', 'data:image/png;base64,abc123');
     expect(screen.getAllByText('Dashboard preview')[0]).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '预览生成图片' }));
+
+    expect(imageMocks.showPreview).toHaveBeenCalledWith({
+      imageUrl: 'data:image/png;base64,abc123',
+      altText: 'Compact dashboard preview',
+      fileName: 'Compact dashboard preview',
+      format: undefined,
+      sizeBytes: undefined,
+    });
+    expect(container.querySelector('.conv-generated-image-preview'))
+      .toMatchInlineSnapshot(`
+        <button
+          aria-label="预览生成图片"
+          class="conv-generated-image-preview"
+          title="预览生成图片"
+          type="button"
+        >
+          <img
+            alt="Compact dashboard preview"
+            class="max-h-64 max-w-full rounded-md border border-border object-contain"
+            src="data:image/png;base64,abc123"
+          />
+        </button>
+      `);
+  });
+
+  it('shows generated image failures and metadata-backed local images', () => {
+    const failedEntry = toolEntry({
+      toolName: 'generate_image',
+      actionType: {
+        action: 'tool',
+        tool_name: 'generate_image',
+        arguments: { prompt: 'Dashboard preview' },
+        result: {
+          type: { type: 'json' },
+          value: {
+            status: 'failed',
+            error: 'quota exceeded',
+          },
+        },
+      },
+      status: { status: 'failed' },
+    });
+
+    const { rerender } = render(
+      <ToolCallCard entry={failedEntry} expansionKey="generated-image-failed" />
+    );
+
+    expect(screen.getByText('失败')).toBeInTheDocument();
+    expect(screen.getAllByText('quota exceeded')[0]).toBeInTheDocument();
+
+    imageMocks.useImageMetadata.mockReturnValue({
+      data: {
+        exists: true,
+        file_name: 'generated.png',
+        path: '.vibe-images/generated.png',
+        size_bytes: 456n,
+        format: 'png',
+        proxy_url: 'asset://generated.png',
+      },
+      isLoading: false,
+    });
+
+    rerender(
+      <ToolCallCard
+        entry={toolEntry({
+          toolName: 'generate_image',
+          actionType: {
+            action: 'tool',
+            tool_name: 'generate_image',
+            arguments: { prompt: 'Dashboard preview' },
+            result: {
+              type: { type: 'json' },
+              value: {
+                status: 'ready',
+                image: '.vibe-images/generated.png',
+              },
+            },
+          },
+        })}
+        expansionKey="generated-image-local"
+        taskAttemptId="attempt-1"
+      />
+    );
+
+    expect(imageMocks.useImageMetadata).toHaveBeenLastCalledWith(
+      'attempt-1',
+      '.vibe-images/generated.png'
+    );
+    expect(
+      screen.getByRole('img', { name: 'Dashboard preview' })
+    ).toHaveAttribute('src', 'asset://generated.png');
   });
 });

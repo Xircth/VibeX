@@ -17,6 +17,7 @@
 
 ## 实施记录
 
+- 2026-06-13 / Phase 1 T1.4：完成显式 Agent session resume 管道。新增 manager `ResumeSession` 命令与 runtime `resume_session` 入口；ACP 初始化后按 `agent_capabilities.load_session` 尝试 `session/load`，失败或不支持时发 `SessionLoadFailed` 并回退 `session/new`，fallback 后的新 ACP session id 写回 runtime snapshot；新增 Tauri `agent_resume_session` 与前端 `agentsApi.resumeSession`。验证：`cargo test -p agents runtime`、`cargo test -p agents manager` 通过。
 - 2026-06-13 / Phase 1 T1.3：完成 ACP spawn 健壮性第一批落地。`manager.rs` 对 initialize 握手增加 `VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS` 可配置超时（默认 60s），保留最近 8KB stderr 并在超时错误中输出摘要；连接级异常会先发 `ConnectionStatusChanged(Failed)`，runtime 收到连接级 Error 后将关联 session 与 active/queued prompts 标记为 failed 并保留 transcript。验证：`cargo test -p agents manager`、`cargo test -p agents runtime` 通过。
 - 2026-06-13 / Phase 1 T1.2：完成 Agent runtime 事件合同扩展。新增 `session_modes`、`mode_changed`、`session_config_options`、`config_changed`、`available_commands`、`session_load_failed`、`turn_completed`、`fork_supported`、`session_config_stale` 事件及 ts-rs 导出，保留既有 `prompt_finished.stop_reason` 合同；前端 content-part adapter 对新控制类事件提供 status 兜底。验证：`cargo test -p agents events`、`pnpm run generate-types:check`、`pnpm run frontend:check` 通过。
 - 2026-06-13 / Phase 1 T1.1：完成 Agent session core 持久化地基。`sessions` 新增 `external_session_id`/`agent_type`，新增 `agent_pending_permissions` 表和 DB store 方法，`agent_setting` 增加 `auto_approve_mode`，并修复 `generate-types` 脚本使其稳定使用 `crates/db/.sqlx` 离线缓存。验证：`cargo test -p db`、`pnpm run prepare-db:check`、`pnpm run generate-types:check`、`pnpm run frontend:check`、`pnpm run backend:check` 通过。

@@ -67,6 +67,15 @@ pub struct EnsureAgentSessionInput {
     pub acp_session_id: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResumeAgentSessionInput {
+    pub agent_type: AgentType,
+    pub workspace_id: Uuid,
+    pub working_dir: PathBuf,
+    pub session_id: AgentSessionId,
+    pub external_session_id: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct RuntimeSnapshot {
@@ -413,6 +422,38 @@ impl AgentRuntime {
 
         self.new_session_with_id(connection_id, input.session_id, input.acp_session_id)
             .await
+    }
+
+    pub async fn resume_session(
+        &self,
+        input: ResumeAgentSessionInput,
+    ) -> AgentResult<AgentSessionSnapshot> {
+        let session = self
+            .ensure_session(EnsureAgentSessionInput {
+                agent_type: input.agent_type,
+                workspace_id: input.workspace_id,
+                working_dir: input.working_dir,
+                session_id: input.session_id,
+                acp_session_id: input.external_session_id.clone(),
+            })
+            .await?;
+        let acp_session_id = self
+            .connection_manager
+            .resume_session(
+                session.connection_id,
+                input.session_id,
+                input.external_session_id,
+            )
+            .await?;
+
+        let mut state = self.state.write().await;
+        let Some(session_state) = state.sessions.get_mut(&input.session_id) else {
+            return Err(AgentError::SessionNotFound(input.session_id.to_string()));
+        };
+        session_state.snapshot.acp_session_id = acp_session_id;
+        session_state.snapshot.status = AgentSessionStatus::Ready;
+        session_state.snapshot.updated_at = Utc::now();
+        Ok(session_state.snapshot.clone())
     }
 
     pub async fn send_prompt(
@@ -1117,6 +1158,28 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(prompt.status, AgentPromptStatus::Running));
+    }
+
+    #[tokio::test]
+    async fn resume_session_updates_snapshot_with_external_session_id() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session_id = AgentSessionId::new();
+
+        let resumed = runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_type: AgentType::Codex,
+                workspace_id,
+                working_dir: PathBuf::from("C:/work"),
+                session_id,
+                external_session_id: "codex-session-123".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(resumed.id, session_id);
+        assert_eq!(resumed.acp_session_id, "codex-session-123");
+        assert_eq!(resumed.status, AgentSessionStatus::Ready);
     }
 
     #[test]

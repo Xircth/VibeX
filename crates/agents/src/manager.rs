@@ -14,11 +14,11 @@ use agent_client_protocol::{
     schema::{
         AgentNotification, AgentRequest, CancelNotification, ClientCapabilities, ClientResponse,
         ContentBlock, CreateTerminalResponse, ErrorCode, ImageContent, Implementation,
-        InitializeRequest, KillTerminalRequest, KillTerminalResponse, NewSessionRequest,
-        PromptRequest, ProtocolVersion, ReleaseTerminalResponse, RequestPermissionOutcome,
-        RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
-        SessionNotification, SessionUpdate, TerminalId, TerminalOutputResponse, TextContent,
-        WaitForTerminalExitResponse,
+        InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
+        NewSessionRequest, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
+        RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+        SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TerminalId,
+        TerminalOutputResponse, TextContent, WaitForTerminalExitResponse,
     },
 };
 use chrono::Utc;
@@ -108,6 +108,14 @@ fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> 
     }
 }
 
+fn unsupported_session_load_reason() -> String {
+    "Agent does not support session/load".to_string()
+}
+
+fn failed_session_load_reason(error: &acp::Error) -> String {
+    format!("session/load failed: {error}")
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {
     pub connection_id: AgentConnectionId,
@@ -116,8 +124,13 @@ pub struct AgentConnectionLaunch {
     pub working_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum AgentConnectionCommand {
+    ResumeSession {
+        session_id: AgentSessionId,
+        external_session_id: String,
+        result_tx: oneshot::Sender<AgentResult<String>>,
+    },
     Prompt {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
@@ -270,6 +283,27 @@ impl AgentConnectionManager {
         .await
     }
 
+    pub async fn resume_session(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        external_session_id: impl Into<String>,
+    ) -> AgentResult<String> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::ResumeSession {
+                session_id,
+                external_session_id: external_session_id.into(),
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before session resume completed".into())
+        })?
+    }
+
     pub async fn disconnect(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
         let connection = self.connections.lock().await.remove(&connection_id);
         let Some(connection) = connection else {
@@ -365,6 +399,13 @@ impl AgentConnectionRunner {
     async fn run_in_memory(self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) {
         while let Some(command) = cmd_rx.recv().await {
             match command {
+                AgentConnectionCommand::ResumeSession {
+                    external_session_id,
+                    result_tx,
+                    ..
+                } => {
+                    let _ = result_tx.send(Ok(external_session_id));
+                }
                 AgentConnectionCommand::Prompt {
                     session_id,
                     prompt_id,
@@ -549,18 +590,39 @@ impl AgentConnectionRunner {
                             .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
                     )
                     .block_task();
-                match tokio::time::timeout(handshake_timeout_duration, initialize).await {
-                    Ok(result) => {
-                        result?;
-                    }
-                    Err(_) => {
-                        handshake_timed_out_for_connection.store(true, Ordering::SeqCst);
-                        return Err(acp::Error::internal_error());
-                    }
-                }
+                let initialize_response =
+                    match tokio::time::timeout(handshake_timeout_duration, initialize).await {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            handshake_timed_out_for_connection.store(true, Ordering::SeqCst);
+                            return Err(acp::Error::internal_error());
+                        }
+                    };
+                let supports_load_session = initialize_response.agent_capabilities.load_session;
 
                 while let Some(command) = cmd_rx.recv().await {
                     match command {
+                        AgentConnectionCommand::ResumeSession {
+                            session_id,
+                            external_session_id,
+                            result_tx,
+                        } => {
+                            let result = runner
+                                .load_or_new_acp_session(
+                                    &conn,
+                                    &working_dir,
+                                    session_id,
+                                    external_session_id,
+                                    supports_load_session,
+                                )
+                                .await
+                                .map_err(|error| {
+                                    AgentError::Runtime(format!(
+                                        "ACP session resume failed: {error}"
+                                    ))
+                                });
+                            let _ = result_tx.send(result);
+                        }
                         AgentConnectionCommand::Prompt {
                             session_id,
                             prompt_id,
@@ -632,6 +694,54 @@ impl AgentConnectionRunner {
             return Ok(existing);
         }
 
+        self.new_acp_session(conn, working_dir, session_id).await
+    }
+
+    async fn load_or_new_acp_session(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+        external_session_id: String,
+        supports_load_session: bool,
+    ) -> Result<String, acp::Error> {
+        if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
+            return Ok(existing);
+        }
+
+        if supports_load_session {
+            let load_result = conn
+                .send_request(LoadSessionRequest::new(
+                    SessionId::new(external_session_id.clone()),
+                    working_dir.to_path_buf(),
+                ))
+                .block_task()
+                .await;
+            match load_result {
+                Ok(_) => {
+                    self.session_map
+                        .write()
+                        .await
+                        .insert(session_id, external_session_id.clone());
+                    return Ok(external_session_id);
+                }
+                Err(error) => {
+                    self.emit_session_load_failed(session_id, failed_session_load_reason(&error));
+                }
+            }
+        } else {
+            self.emit_session_load_failed(session_id, unsupported_session_load_reason());
+        }
+
+        self.new_acp_session(conn, working_dir, session_id).await
+    }
+
+    async fn new_acp_session(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+    ) -> Result<String, acp::Error> {
         let response = conn
             .send_request(NewSessionRequest::new(working_dir.to_path_buf()))
             .block_task()
@@ -642,6 +752,14 @@ impl AgentConnectionRunner {
             .await
             .insert(session_id, acp_session_id.clone());
         Ok(acp_session_id)
+    }
+
+    fn emit_session_load_failed(&self, session_id: AgentSessionId, reason: String) {
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionLoadFailed { reason },
+        );
     }
 
     async fn run_prompt(
@@ -1173,6 +1291,30 @@ mod tests {
         assert!(matches!(err, AgentError::ConnectionNotFound(_)));
     }
 
+    #[tokio::test]
+    async fn manager_in_memory_resumes_session_with_external_id() {
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, false);
+        let connection_id = AgentConnectionId::new();
+        let session_id = AgentSessionId::new();
+
+        manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id,
+                agent_type: AgentType::Codex,
+                workspace_id: uuid::Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+            })
+            .await;
+
+        let acp_session_id = manager
+            .resume_session(connection_id, session_id, "external-session")
+            .await
+            .unwrap();
+
+        assert_eq!(acp_session_id, "external-session");
+    }
+
     #[test]
     fn handshake_timeout_uses_default_for_missing_or_invalid_env() {
         assert_eq!(
@@ -1214,5 +1356,17 @@ mod tests {
 
         assert!(message.contains("3s"));
         assert!(message.contains("last line"));
+    }
+
+    #[test]
+    fn session_load_failure_reasons_cover_unsupported_and_failed_load() {
+        assert_eq!(
+            unsupported_session_load_reason(),
+            "Agent does not support session/load"
+        );
+        assert!(
+            failed_session_load_reason(&acp::Error::invalid_params())
+                .contains("session/load failed")
+        );
     }
 }

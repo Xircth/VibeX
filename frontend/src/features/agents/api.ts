@@ -61,6 +61,14 @@ export type AgentSessionRequest = {
   sessionId: string;
 };
 
+export type AgentResumeSessionRequest = {
+  agentType: AgentType;
+  workspaceId: string;
+  workingDir: string;
+  sessionId: string;
+  externalSessionId: string;
+};
+
 export type AgentTerminalSnapshotRequest = {
   terminalId: string;
 };
@@ -119,6 +127,11 @@ export const agentsApi = {
     request: AgentNewSessionRequest
   ): Promise<AgentSessionSnapshot> =>
     tauriInvoke('agent_new_session', { request }),
+
+  resumeSession: (
+    request: AgentResumeSessionRequest
+  ): Promise<AgentSessionSnapshot> =>
+    tauriInvoke('agent_resume_session', { request }),
 
   sendPrompt: (
     request: AgentSendPromptRequest

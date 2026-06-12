@@ -15,7 +15,7 @@
   - Acceptance: 超时 fixture 测试通过；Windows 无可见窗口（人工冒烟）
   - Verify: `cargo test -p agents manager`
   - Files: `crates/agents/src/{manager,connection相关}.rs`
-- [ ] T1.4 session/load 恢复 + SessionLoadFailed 回退 + resume 命令
+- [x] T1.4 session/load 恢复 + SessionLoadFailed 回退 + resume 命令
   - Acceptance: 成功/失败/不支持三条测试通过
   - Verify: `cargo test -p agents runtime`
   - Files: `crates/agents/src/runtime.rs`, `src-tauri/src/commands/agents.rs`

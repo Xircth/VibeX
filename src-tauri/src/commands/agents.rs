@@ -6,10 +6,11 @@ use agents::{
     AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
     AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
     AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
-    EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput, RuntimeSnapshot,
-    SendAgentPromptInput, all_agent_types, claude_config_path, codex_config_path, config_surface,
-    default_history_sources, default_mcp_config_path, import_history_source, mcp_file_config,
-    mcp_surface, opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
+    EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, all_agent_types,
+    claude_config_path, codex_config_path, config_surface, default_history_sources,
+    default_mcp_config_path, import_history_source, mcp_file_config, mcp_surface,
+    opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
     terminal::agent_terminal_registry, write_agent_mcp_config,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -93,6 +94,16 @@ pub struct AgentConnectionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionRequest {
     pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentResumeSessionRequest {
+    pub agent_type: AgentType,
+    pub workspace_id: String,
+    pub working_dir: String,
+    pub session_id: String,
+    pub external_session_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -272,6 +283,24 @@ pub async fn agent_new_session(
                 .acp_session_id
                 .unwrap_or_else(|| format!("pending-{connection_id}")),
         )
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_resume_session(
+    state: tauri::State<'_, AppState>,
+    request: AgentResumeSessionRequest,
+) -> Result<AgentSessionSnapshot, AppError> {
+    state
+        .agent_runtime
+        .resume_session(ResumeAgentSessionInput {
+            agent_type: request.agent_type,
+            workspace_id: parse_uuid("workspace_id", &request.workspace_id)?,
+            working_dir: PathBuf::from(request.working_dir),
+            session_id: parse_agent_session_id(&request.session_id)?,
+            external_session_id: request.external_session_id,
+        })
         .await
         .map_err(Into::into)
 }

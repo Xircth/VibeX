@@ -305,6 +305,7 @@ pub fn run() {
             commands::agents::agent_load_session,
             commands::agents::agent_connect,
             commands::agents::agent_new_session,
+            commands::agents::agent_resume_session,
             commands::agents::agent_send_prompt,
             commands::agents::agent_send_workspace_prompt,
             commands::agents::agent_cancel_prompt,

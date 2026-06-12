@@ -128,12 +128,14 @@
     未接入运行时代码，因此无需新增渲染测试，继续由 T2.6/T2.17 覆盖滚动语义。
   - Files: `docs/specs/codeg-alignment/02-conversation-rendering/overlayscrollbars-decision.md`
 
-- [ ] T2.16 旧路径清理与唯一入口验证
+- [x] T2.16 旧路径清理与唯一入口验证
   - Acceptance: Kanban、IDE、导入会话预览均使用同一 `NormalizedConversation`
-    渲染入口；无第二套新消息渲染实现。
+    渲染入口；无第二套新消息渲染实现。入口审计见 `renderer-entry-audit.md`。
   - Verify: `rg "ReactMarkdown|ToolCallCard|AggregatedThinkingCard|ConversationThread" frontend/src`
-    人工核对；相关路由冒烟。
-  - Files: 会话视图容器、`DisplayConversationEntry.tsx`
+    人工核对；`cd frontend && pnpm exec vitest run src/components/kanban/KanbanSessionConversationView.test.tsx src/components/panels/DockviewLogsPanel.test.tsx src/lib/conversation-rendering/adaptContentParts.test.ts`
+    25 条通过。
+  - Files: `docs/specs/codeg-alignment/02-conversation-rendering/renderer-entry-audit.md`,
+    会话视图容器、`DisplayConversationEntry.tsx`
 
 - [ ] T2.17 视觉、性能与构建验收
   - Acceptance: impeccable 无新增违规；桌面截图覆盖 10 类状态；长会话无明显卡顿；

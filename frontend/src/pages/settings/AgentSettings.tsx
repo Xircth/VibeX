@@ -641,6 +641,9 @@ export function AgentSettings() {
               agentType={selectedRow.entry.agent_type}
               onFix={runFix}
             />
+            {selectedPreflight ? (
+              <PreflightChecklist checks={selectedPreflight.checks} />
+            ) : null}
           </SettingsSection>
 
           <SettingsSection
@@ -803,6 +806,71 @@ function RuntimeCard({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function PreflightChecklist({ checks }: { checks: PreflightCheck[] }) {
+  if (checks.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      {checks.map((check) => {
+        const isFail = check.status === 'fail';
+        const isWarn = check.status === 'warn';
+        const StatusIcon = isFail ? XCircle : isWarn ? AlertCircle : CheckCircle2;
+
+        return (
+          <div
+            key={check.check_id}
+            className="flex gap-3 rounded-md border bg-background/60 p-3"
+          >
+            <StatusIcon
+              className={cn(
+                'mt-0.5 h-4 w-4 shrink-0',
+                isFail && 'text-destructive',
+                isWarn && 'text-warning',
+                !isFail && !isWarn && 'text-success'
+              )}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-foreground">
+                  {check.label}
+                </span>
+                <span
+                  className={cn(
+                    'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                    check.status === 'pass' && 'bg-success/10 text-success',
+                    check.status === 'warn' && 'bg-warning/10 text-warning',
+                    check.status === 'fail' &&
+                      'bg-destructive/10 text-destructive'
+                  )}
+                >
+                  {check.status}
+                </span>
+              </div>
+              <p className="mt-1 break-words text-xs text-muted-foreground">
+                {check.message}
+              </p>
+              {check.fixes.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {check.fixes.map((fix) => (
+                    <span
+                      key={`${check.check_id}:${fix.action}`}
+                      className="rounded border bg-muted/45 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                    >
+                      {fix.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

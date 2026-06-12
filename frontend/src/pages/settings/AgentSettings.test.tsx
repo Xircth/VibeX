@@ -205,6 +205,14 @@ describe('AgentSettings', () => {
           message: 'Found at codex',
           fixes: [],
         },
+        {
+          check_id: 'auth',
+          label: 'Authentication',
+          status: 'warn',
+          message:
+            'Authentication marker was not found at C:/Users/test/.codex/auth.json.',
+          fixes: [],
+        },
       ],
     });
 
@@ -217,6 +225,12 @@ describe('AgentSettings', () => {
       expect(agentSettingsApiMock.preflight).toHaveBeenCalledWith('codex');
     });
     expect(screen.getByText('运行入口可用。')).toBeInTheDocument();
-    expect(screen.getByText('可用')).toBeInTheDocument();
+    expect(screen.getByText('需确认')).toBeInTheDocument();
+    expect(screen.getByText('Authentication')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Authentication marker was not found at C:/Users/test/.codex/auth.json.'
+      )
+    ).toBeInTheDocument();
   });
 });

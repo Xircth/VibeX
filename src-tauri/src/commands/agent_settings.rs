@@ -1,11 +1,18 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
+use agents::{
+    AgentAvailabilityInfo, AgentDistribution, AgentPreflightCheckStatus, AgentPreflightProbe,
+    AgentPreflightReport, AgentRegistryEntry, AgentType, CommandBuildInput, agent_availability,
+    agent_type_from_executor_key, build_preflight_report, claude_config_path, codex_auth_path,
+    current_platform, opencode_auth_path, registry_entry,
+};
 use api_types::{
     AgentSettingInfo, PreflightCheck, PreflightFix, PreflightResult, PreflightStatus,
     ReorderAgentsRequest, UpdateAgentPreferences,
 };
 use db::models::agent_setting::AgentSetting;
 use deployment::Deployment;
+use tokio::{net::TcpStream, time::timeout};
 
 use crate::{error::AppError, state::AppState};
 
@@ -111,83 +118,75 @@ pub async fn reorder_agents(
     Ok(rows.iter().map(to_info).collect())
 }
 
-fn runtime_launcher_for_agent(agent_type: &str) -> Option<&'static str> {
-    match agent_type {
-        "claude_code" => Some("claude"),
-        "codex" => Some(node_runner_program()),
-        "open_code" => Some("opencode"),
+fn parse_agent_type_key(agent_type: &str) -> Result<AgentType, AppError> {
+    agent_type_from_executor_key(agent_type)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))
+}
+
+fn entry_for_agent_key(agent_type: &str) -> Result<AgentRegistryEntry, AppError> {
+    Ok(registry_entry(parse_agent_type_key(agent_type)?))
+}
+
+fn command_parts_for_entry(entry: &AgentRegistryEntry) -> Result<agents::CommandParts, String> {
+    entry
+        .distribution
+        .command_parts(&CommandBuildInput {
+            platform: current_platform(),
+            binary_dir: None,
+            prefer_system_uvx_command: true,
+        })
+        .map_err(|error| error.to_string())
+}
+
+fn install_source_label(entry: &AgentRegistryEntry) -> String {
+    match &entry.distribution {
+        AgentDistribution::Npx { package, .. } => format!("npm -g ({package})"),
+        AgentDistribution::Binary { .. } => format!("{} release download", entry.name),
+        AgentDistribution::Uvx { package, .. } => format!("uvx ({package})"),
+        AgentDistribution::System { cmd, .. } => format!("system command ({cmd})"),
+    }
+}
+
+fn npm_package_for_entry(entry: &AgentRegistryEntry) -> Option<String> {
+    match &entry.distribution {
+        AgentDistribution::Npx { package, .. } => Some(package.clone()),
         _ => None,
     }
 }
 
-fn install_source_label(agent_type: &str) -> Option<&'static str> {
-    match agent_type {
-        "claude_code" => Some("npm -g (@anthropic-ai/claude-code)"),
-        "codex" => Some("npm -g (@zed-industries/codex-acp)"),
-        "open_code" => Some("npm -g (opencode-ai)"),
-        _ => None,
+fn npm_uninstall_name(package: &str) -> String {
+    if let Some(stripped) = package.strip_prefix('@')
+        && let Some(index) = stripped.rfind('@')
+    {
+        return format!("@{}", &stripped[..index]);
     }
+
+    package
+        .split_once('@')
+        .map(|(name, _)| name.to_string())
+        .unwrap_or_else(|| package.to_string())
 }
 
-fn install_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
-    match agent_type {
-        "claude_code" => Some((
-            node_installer_program(),
-            vec!["install", "-g", "@anthropic-ai/claude-code"],
-        )),
-        "codex" => Some((
-            node_installer_program(),
-            vec!["install", "-g", "@zed-industries/codex-acp"],
-        )),
-        "open_code" => Some((
-            node_installer_program(),
-            vec!["install", "-g", "opencode-ai"],
-        )),
-        _ => None,
-    }
+fn install_command_for_agent(agent_type: &str) -> Option<(String, Vec<String>)> {
+    let entry = entry_for_agent_key(agent_type).ok()?;
+    let package = npm_package_for_entry(&entry)?;
+    Some((
+        node_installer_program().to_string(),
+        vec!["install".to_string(), "-g".to_string(), package],
+    ))
 }
 
-fn uninstall_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
-    match agent_type {
-        "claude_code" => Some((
-            node_installer_program(),
-            vec!["uninstall", "-g", "@anthropic-ai/claude-code"],
-        )),
-        "codex" => Some((
-            node_installer_program(),
-            vec!["uninstall", "-g", "@zed-industries/codex-acp"],
-        )),
-        "open_code" => Some((
-            node_installer_program(),
-            vec!["uninstall", "-g", "opencode-ai"],
-        )),
-        _ => None,
-    }
-}
-
-fn version_command_for_agent(agent_type: &str) -> Option<(&'static str, Vec<&'static str>)> {
-    match agent_type {
-        "claude_code" => Some(("claude", vec!["--version"])),
-        "codex" => Some((
-            node_runner_program(),
-            vec!["-y", "@zed-industries/codex-acp", "--version"],
-        )),
-        "open_code" => Some(("opencode", vec!["--version"])),
-        _ => None,
-    }
-}
-
-fn npm_package_for_agent(agent_type: &str) -> Option<&'static str> {
-    match agent_type {
-        "claude_code" => Some("@anthropic-ai/claude-code"),
-        "codex" => Some("@zed-industries/codex-acp"),
-        "open_code" => Some("opencode-ai"),
-        _ => None,
-    }
-}
-
-fn prefer_global_npm_package_version(agent_type: &str) -> bool {
-    matches!(agent_type, "codex")
+fn uninstall_command_for_agent(agent_type: &str) -> Option<(String, Vec<String>)> {
+    let entry = entry_for_agent_key(agent_type).ok()?;
+    let package = npm_package_for_entry(&entry)?;
+    Some((
+        node_installer_program().to_string(),
+        vec![
+            "uninstall".to_string(),
+            "-g".to_string(),
+            npm_uninstall_name(&package),
+        ],
+    ))
 }
 
 #[cfg(windows)]
@@ -200,16 +199,6 @@ fn node_installer_program() -> &'static str {
     "npm"
 }
 
-#[cfg(windows)]
-fn node_runner_program() -> &'static str {
-    "npx.cmd"
-}
-
-#[cfg(not(windows))]
-fn node_runner_program() -> &'static str {
-    "npx"
-}
-
 async fn resolve_program_on_path(program: &str) -> Result<PathBuf, AppError> {
     let program = program.to_string();
     let lookup = program.clone();
@@ -219,40 +208,16 @@ async fn resolve_program_on_path(program: &str) -> Result<PathBuf, AppError> {
         .map_err(|e| AppError::Internal(format!("{} not found in PATH: {}", program, e)))
 }
 
-fn fix_actions(agent_type: &str, source: &str) -> Vec<PreflightFix> {
-    match agent_type {
-        "claude_code" | "codex" | "open_code" => vec![
-            PreflightFix {
-                action: "upgrade_npm".to_string(),
-                label: format!("Update ({})", source),
-            },
-            PreflightFix {
-                action: "uninstall_npm".to_string(),
-                label: format!("Uninstall ({})", source),
-            },
-        ],
-        _ => vec![],
-    }
-}
-
 async fn detect_agent_version_inner(
-    agent_type: &str,
+    entry: &AgentRegistryEntry,
     executable: &PathBuf,
 ) -> Result<Option<String>, AppError> {
-    if prefer_global_npm_package_version(agent_type)
-        && let Some(version) = detect_global_npm_package_version(agent_type).await?
-    {
-        return Ok(Some(version));
-    }
-
-    let (_, args) = version_command_for_agent(agent_type)
-        .ok_or_else(|| AppError::Internal(format!("No ACP version command for {}", agent_type)))?;
-    let arg_strings = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    let arg_strings = version_args_for_entry(entry);
     let mut command = utils::process::new_hidden_tokio_command(executable, &arg_strings);
     let output = command.output().await.map_err(|e| {
         AppError::Internal(format!(
-            "Failed to run ACP version command for {}: {}",
-            agent_type, e
+            "Failed to run ACP version command for {:?}: {}",
+            entry.agent_type, e
         ))
     })?;
 
@@ -263,15 +228,44 @@ async fn detect_agent_version_inner(
         }
     }
 
-    if let Some(version) = detect_global_npm_package_version(agent_type).await? {
+    if let Some(version) = detect_global_npm_package_version(entry).await? {
         return Ok(Some(version));
     }
 
     Ok(None)
 }
 
-async fn detect_global_npm_package_version(agent_type: &str) -> Result<Option<String>, AppError> {
-    let Some(package_name) = npm_package_for_agent(agent_type) else {
+fn version_args_for_entry(entry: &AgentRegistryEntry) -> Vec<String> {
+    match &entry.distribution {
+        AgentDistribution::Npx { package, cmd, .. } => {
+            let mut args = vec!["-y".to_string(), package.clone()];
+            if !cmd.trim().is_empty() {
+                args.push(cmd.clone());
+            }
+            args.push("--version".to_string());
+            args
+        }
+        AgentDistribution::Uvx {
+            package,
+            cmd,
+            system_command,
+            ..
+        } if system_command.is_none() => vec![
+            "--from".to_string(),
+            package.clone(),
+            cmd.clone(),
+            "--version".to_string(),
+        ],
+        AgentDistribution::Uvx { .. }
+        | AgentDistribution::Binary { .. }
+        | AgentDistribution::System { .. } => vec!["--version".to_string()],
+    }
+}
+
+async fn detect_global_npm_package_version(
+    entry: &AgentRegistryEntry,
+) -> Result<Option<String>, AppError> {
+    let Some(package_name) = npm_package_for_entry(entry) else {
         return Ok(None);
     };
 
@@ -279,7 +273,8 @@ async fn detect_global_npm_package_version(agent_type: &str) -> Result<Option<St
     let mut command = utils::process::new_hidden_tokio_command(&npm, ["root", "-g"]);
     let output = command.output().await.map_err(|e| {
         AppError::Internal(format!(
-            "Failed to locate npm global root for {agent_type}: {e}"
+            "Failed to locate npm global root for {:?}: {e}",
+            entry.agent_type
         ))
     })?;
 
@@ -292,6 +287,7 @@ async fn detect_global_npm_package_version(agent_type: &str) -> Result<Option<St
         return Ok(None);
     }
 
+    let package_name = npm_uninstall_name(&package_name);
     let package_path = package_name
         .split('/')
         .fold(PathBuf::from(root), |path, segment| path.join(segment))
@@ -309,101 +305,144 @@ async fn detect_global_npm_package_version(agent_type: &str) -> Result<Option<St
         .map(|version| version.to_string()))
 }
 
+fn auth_probe(agent_type: AgentType) -> (bool, Option<String>) {
+    let auth_path = match agent_type {
+        AgentType::ClaudeCode => claude_config_path(),
+        AgentType::Codex => codex_auth_path(),
+        AgentType::OpenCode => opencode_auth_path(),
+        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => None,
+    };
+
+    if let Some(path) = auth_path {
+        let found = path.exists();
+        return (
+            found,
+            Some(if found {
+                format!("Authentication marker found at {}.", path.display())
+            } else {
+                format!("Authentication marker was not found at {}.", path.display())
+            }),
+        );
+    }
+
+    let availability = agent_availability(agent_type);
+    match availability {
+        AgentAvailabilityInfo::LoginDetected {
+            last_auth_timestamp,
+        } => (
+            true,
+            Some(format!(
+                "Authentication marker detected at Unix timestamp {last_auth_timestamp}."
+            )),
+        ),
+        AgentAvailabilityInfo::InstallationFound => (
+            false,
+            Some("Installation was found, but authentication was not detected.".to_string()),
+        ),
+        AgentAvailabilityInfo::NotFound => (
+            false,
+            Some("No authentication marker is known for this agent.".to_string()),
+        ),
+    }
+}
+
+async fn network_probe(distribution: &AgentDistribution) -> Option<bool> {
+    let endpoint = match distribution {
+        AgentDistribution::Npx { .. } => "registry.npmjs.org:443",
+        AgentDistribution::Binary { .. } => "github.com:443",
+        AgentDistribution::Uvx { .. } => "pypi.org:443",
+        AgentDistribution::System { .. } => return None,
+    };
+
+    Some(matches!(
+        timeout(Duration::from_secs(2), TcpStream::connect(endpoint)).await,
+        Ok(Ok(_))
+    ))
+}
+
+fn preflight_report_to_api(report: AgentPreflightReport) -> PreflightResult {
+    PreflightResult {
+        checks: report
+            .checks
+            .into_iter()
+            .map(|check| PreflightCheck {
+                check_id: check.check_id,
+                label: check.label,
+                status: preflight_status_to_api(check.status),
+                message: check.message,
+                fixes: check
+                    .fixes
+                    .into_iter()
+                    .map(|fix| PreflightFix {
+                        action: fix.action_key(),
+                        label: fix.label().to_string(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn preflight_status_to_api(status: AgentPreflightCheckStatus) -> PreflightStatus {
+    match status {
+        AgentPreflightCheckStatus::Pass => PreflightStatus::Pass,
+        AgentPreflightCheckStatus::Warn => PreflightStatus::Warn,
+        AgentPreflightCheckStatus::Fail => PreflightStatus::Fail,
+    }
+}
+
 #[tauri::command]
 pub async fn agent_preflight(
     state: tauri::State<'_, AppState>,
     agent_type: String,
 ) -> Result<PreflightResult, AppError> {
-    let mut checks = Vec::new();
-    let launcher = match runtime_launcher_for_agent(&agent_type) {
-        Some(cmd) => cmd,
-        None => {
-            checks.push(PreflightCheck {
-                check_id: "unknown_agent".to_string(),
-                label: "Agent type".to_string(),
-                status: PreflightStatus::Fail,
-                message: format!("Unknown agent type: {}", agent_type),
-                fixes: vec![],
-            });
-            return Ok(PreflightResult { checks });
+    let entry = entry_for_agent_key(&agent_type)?;
+    let command_parts = command_parts_for_entry(&entry);
+    let (runtime_program, runtime_path, runtime_lookup_error) = match command_parts {
+        Ok(parts) => {
+            let program = parts.program;
+            match resolve_program_on_path(&program).await {
+                Ok(path) => (Some(program), Some(path), None),
+                Err(error) => (Some(program), None, Some(error.to_string())),
+            }
         }
+        Err(error) => (None, None, Some(error)),
     };
 
-    let which_result = tokio::task::spawn_blocking({
-        let cmd = launcher.to_string();
-        move || which::which(cmd)
-    })
-    .await
-    .ok()
-    .and_then(|r| r.ok());
-
-    let executable = match which_result {
-        Some(path) => {
-            checks.push(PreflightCheck {
-                check_id: "runtime_launcher".to_string(),
-                label: format!("{} runtime launcher", launcher),
-                status: PreflightStatus::Pass,
-                message: format!("Found at {}", path.display()),
-                fixes: vec![],
-            });
-            path
-        }
+    let (adapter_version, adapter_version_error) = match runtime_path.as_ref() {
+        Some(executable) => match detect_agent_version_inner(&entry, executable).await {
+            Ok(Some(version)) if !version.trim().is_empty() => {
+                let pool = &state.deployment.db().pool;
+                let _ =
+                    AgentSetting::update_version(pool, &agent_type, Some(version.as_str())).await;
+                (Some(version), None)
+            }
+            Ok(_) => (None, None),
+            Err(error) => (None, Some(error.to_string())),
+        },
         None => {
-            let source = install_source_label(&agent_type).unwrap_or("manual install");
-            checks.push(PreflightCheck {
-                check_id: "runtime_launcher".to_string(),
-                label: format!("{} runtime launcher", launcher),
-                status: PreflightStatus::Fail,
-                message: format!(
-                    "ACP runtime launcher `{}` was not found in the app PATH. Source: {}",
-                    launcher, source
-                ),
-                fixes: vec![PreflightFix {
-                    action: "install_npm".to_string(),
-                    label: format!("Install ({})", source),
-                }],
-            });
-            return Ok(PreflightResult { checks });
-        }
-    };
-
-    let source = install_source_label(&agent_type).unwrap_or("manual install");
-    match detect_agent_version_inner(&agent_type, &executable).await {
-        Ok(Some(version)) if !version.is_empty() => {
             let pool = &state.deployment.db().pool;
-            let _ = AgentSetting::update_version(pool, &agent_type, Some(&version)).await;
-            checks.push(PreflightCheck {
-                check_id: "adapter_version".to_string(),
-                label: "ACP adapter version".to_string(),
-                status: PreflightStatus::Pass,
-                message: format!("{} - Source: {}", version, source),
-                fixes: fix_actions(&agent_type, source),
-            });
+            let _ = AgentSetting::update_version(pool, &agent_type, None).await;
+            (None, None)
         }
-        Ok(_) => {
-            checks.push(PreflightCheck {
-                check_id: "adapter_version".to_string(),
-                label: "ACP adapter version".to_string(),
-                status: PreflightStatus::Warn,
-                message: format!("Could not determine adapter version. Source: {}", source),
-                fixes: fix_actions(&agent_type, source),
-            });
-        }
-        Err(e) => {
-            checks.push(PreflightCheck {
-                check_id: "adapter_version".to_string(),
-                label: "ACP adapter version".to_string(),
-                status: PreflightStatus::Warn,
-                message: format!(
-                    "Failed to run adapter version command: {}. Source: {}",
-                    e, source
-                ),
-                fixes: fix_actions(&agent_type, source),
-            });
-        }
-    }
+    };
+    let (auth_found, auth_hint) = auth_probe(entry.agent_type);
+    let network_available = network_probe(&entry.distribution).await;
+    let source = install_source_label(&entry);
+    let report = build_preflight_report(AgentPreflightProbe {
+        entry,
+        platform: current_platform(),
+        runtime_program,
+        runtime_path: runtime_path.map(|path| path.display().to_string()),
+        runtime_lookup_error,
+        adapter_version: adapter_version.map(|version| format!("{version} - Source: {source}")),
+        adapter_version_error,
+        auth_found,
+        auth_hint,
+        network_available,
+    });
 
-    Ok(PreflightResult { checks })
+    Ok(preflight_report_to_api(report))
 }
 
 #[tauri::command]
@@ -411,29 +450,22 @@ pub async fn detect_agent_local_version(
     state: tauri::State<'_, AppState>,
     agent_type: String,
 ) -> Result<Option<String>, AppError> {
-    let launcher = match runtime_launcher_for_agent(&agent_type) {
-        Some(cmd) => cmd,
-        None => return Ok(None),
+    let entry = entry_for_agent_key(&agent_type)?;
+    let program = match command_parts_for_entry(&entry) {
+        Ok(parts) => parts.program,
+        Err(_) => return Ok(None),
     };
 
-    let which_result = tokio::task::spawn_blocking({
-        let cmd = launcher.to_string();
-        move || which::which(cmd)
-    })
-    .await
-    .ok()
-    .and_then(|r| r.ok());
-
-    let executable = match which_result {
-        Some(path) => path,
-        None => {
+    let executable = match resolve_program_on_path(&program).await {
+        Ok(path) => path,
+        Err(_) => {
             let pool = &state.deployment.db().pool;
             let _ = AgentSetting::update_version(pool, &agent_type, None).await;
             return Ok(None);
         }
     };
 
-    let version = detect_agent_version_inner(&agent_type, &executable).await?;
+    let version = detect_agent_version_inner(&entry, &executable).await?;
     let pool = &state.deployment.db().pool;
     let _ = AgentSetting::update_version(pool, &agent_type, version.as_deref()).await;
     Ok(version)
@@ -451,9 +483,8 @@ pub async fn run_agent_fix(
                 AppError::Internal(format!("No install action available for {}", agent_type))
             })?;
 
-            let executable = resolve_program_on_path(program).await?;
-            let arg_strings = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
-            let mut command = utils::process::new_hidden_tokio_command(&executable, &arg_strings);
+            let executable = resolve_program_on_path(&program).await?;
+            let mut command = utils::process::new_hidden_tokio_command(&executable, &args);
             let output = command.output().await.map_err(|e| {
                 AppError::Internal(format!(
                     "Failed to run install command for {}: {}",
@@ -476,9 +507,8 @@ pub async fn run_agent_fix(
                 AppError::Internal(format!("No uninstall action available for {}", agent_type))
             })?;
 
-            let executable = resolve_program_on_path(program).await?;
-            let arg_strings = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
-            let mut command = utils::process::new_hidden_tokio_command(&executable, &arg_strings);
+            let executable = resolve_program_on_path(&program).await?;
+            let mut command = utils::process::new_hidden_tokio_command(&executable, &args);
             let output = command.output().await.map_err(|e| {
                 AppError::Internal(format!(
                     "Failed to run uninstall command for {}: {}",
@@ -549,35 +579,47 @@ mod tests {
     }
 
     #[test]
-    fn maps_acp_agents_to_npm_package_names() {
+    fn maps_registry_npx_agents_to_npm_package_specs() {
         assert_eq!(
-            npm_package_for_agent("claude_code"),
-            Some("@anthropic-ai/claude-code")
+            npm_package_for_entry(&registry_entry(AgentType::ClaudeCode)).as_deref(),
+            Some("@agentclientprotocol/claude-agent-acp@0.44.0")
         );
         assert_eq!(
-            npm_package_for_agent("codex"),
-            Some("@zed-industries/codex-acp")
+            npm_package_for_entry(&registry_entry(AgentType::Gemini)).as_deref(),
+            Some("@google/gemini-cli@0.45.2")
         );
-        assert_eq!(npm_package_for_agent("open_code"), Some("opencode-ai"));
+        assert!(npm_package_for_entry(&registry_entry(AgentType::Codex)).is_none());
+        assert_eq!(
+            npm_uninstall_name("@google/gemini-cli@0.45.2"),
+            "@google/gemini-cli"
+        );
     }
 
     #[test]
-    fn prefers_global_npm_metadata_for_adapters_without_reliable_version_flag() {
-        assert!(!prefer_global_npm_package_version("claude_code"));
-        assert!(prefer_global_npm_package_version("codex"));
-        assert!(!prefer_global_npm_package_version("open_code"));
+    fn registry_preflight_helpers_cover_binary_and_npx_agents() {
+        let codex = registry_entry(AgentType::Codex);
+        assert!(install_source_label(&codex).contains("release download"));
+        assert_eq!(version_args_for_entry(&codex), vec!["--version"]);
+
+        let gemini = registry_entry(AgentType::Gemini);
+        assert_eq!(
+            version_args_for_entry(&gemini),
+            vec![
+                "-y".to_string(),
+                "@google/gemini-cli@0.45.2".to_string(),
+                "gemini".to_string(),
+                "--version".to_string()
+            ]
+        );
     }
 
     #[test]
-    fn claude_settings_version_detection_targets_cli_not_acp_or_sdk() {
-        assert_eq!(runtime_launcher_for_agent("claude_code"), Some("claude"));
+    fn parses_all_registry_agent_keys_for_settings_commands() {
         assert_eq!(
-            install_source_label("claude_code"),
-            Some("npm -g (@anthropic-ai/claude-code)")
+            parse_agent_type_key("open_claw").unwrap(),
+            AgentType::OpenClaw
         );
-        assert_eq!(
-            version_command_for_agent("claude_code"),
-            Some(("claude", vec!["--version"]))
-        );
+        assert_eq!(parse_agent_type_key("cline").unwrap(), AgentType::Cline);
+        assert_eq!(parse_agent_type_key("hermes").unwrap(), AgentType::Hermes);
     }
 }

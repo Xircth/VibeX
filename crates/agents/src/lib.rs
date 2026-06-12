@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod mcp_file;
 pub mod metadata;
 pub mod permissions;
+pub mod preflight;
 pub mod registry;
 pub mod runtime;
 pub mod session;
@@ -67,6 +68,10 @@ pub use metadata::{
 pub use permissions::{
     AgentAutoApproveMode, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
     AgentPermissionResponse, decide_auto_permission_response,
+};
+pub use preflight::{
+    AgentPreflightCheckItem, AgentPreflightCheckStatus, AgentPreflightFixAction,
+    AgentPreflightProbe, AgentPreflightReport, build_preflight_report,
 };
 pub use registry::{
     AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, registry_entry,

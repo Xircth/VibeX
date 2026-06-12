@@ -73,6 +73,9 @@ pub fn agent_type_from_executor_key(key: &str) -> Option<AgentType> {
         "CODEX" | "codex" | "Codex" => Some(AgentType::Codex),
         "OPENCODE" | "open_code" | "opencode" | "Opencode" => Some(AgentType::OpenCode),
         "GEMINI" | "gemini" | "Gemini" => Some(AgentType::Gemini),
+        "OPENCLAW" | "open_claw" | "openclaw" | "OpenClaw" => Some(AgentType::OpenClaw),
+        "CLINE" | "cline" | "Cline" => Some(AgentType::Cline),
+        "HERMES" | "hermes" | "Hermes" => Some(AgentType::Hermes),
         _ => None,
     }
 }

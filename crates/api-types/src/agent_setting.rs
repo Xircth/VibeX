@@ -38,6 +38,8 @@ pub struct PreflightFix {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 #[ts(export)]
 pub enum PreflightStatus {
     Pass,

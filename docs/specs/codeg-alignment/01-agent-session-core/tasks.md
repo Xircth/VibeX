@@ -28,7 +28,7 @@
   - Acceptance: fixture 驱动测试 + store 归约测试通过
   - Verify: `cargo test -p agents` + `pnpm vitest run stores`
   - Files: runtime/events/commands + `frontend/src/stores/*`
-- [ ] T1.7 preflight 模块 + 认证检测 + `agent_preflight` 命令 + 设置页接线
+- [x] T1.7 preflight 模块 + 认证检测 + `agent_preflight` 命令 + 设置页接线
   - Acceptance: 表驱动检查器测试；设置页能展示诊断（最小 UI，重美化留 Phase 2/7）
   - Verify: `cargo test -p agents preflight`；手动打开设置页
   - Files: `crates/agents/src/preflight.rs`(新), commands, AgentSettings.tsx

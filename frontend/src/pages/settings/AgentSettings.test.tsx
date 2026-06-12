@@ -132,6 +132,7 @@ function mockRegistry() {
       installed_version: '0.9.0',
       env_json: '{"OPENAI_API_KEY":"sk-test"}',
       config_json: '{"model":"gpt-5"}',
+      auto_approve_mode: 'off',
     },
   ]);
   agentSettingsApiMock.detectVersion.mockResolvedValue('0.9.0');
@@ -173,6 +174,7 @@ describe('AgentSettings', () => {
       installed_version: '0.9.0',
       env_json: '{"OPENAI_API_KEY":"sk-test"}',
       config_json: '{"model":"gpt-5"}',
+      auto_approve_mode: 'off',
     });
 
     render(<AgentSettings />);

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct AgentConnectionRecord {
@@ -62,6 +63,18 @@ pub struct AgentPermissionRecord {
     pub response_json: Option<String>,
     pub created_at: String,
     pub responded_at: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct AgentPendingPermissionRecord {
+    pub id: Uuid,
+    pub session_id: Uuid,
+    pub request_id: String,
+    pub tool_call_json: String,
+    pub options_json: String,
+    pub created_at: String,
+    pub resolved_at: Option<String>,
+    pub resolution: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -270,6 +283,68 @@ impl AgentRuntimeStore {
         Ok(())
     }
 
+    pub async fn upsert_pending_permission(
+        pool: &SqlitePool,
+        record: UpsertAgentPendingPermission<'_>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO agent_pending_permissions (
+                   id, session_id, request_id, tool_call_json, options_json, created_at
+               )
+               VALUES ($1, $2, $3, $4, $5, $6)
+               ON CONFLICT(session_id, request_id) DO UPDATE SET
+                   tool_call_json = excluded.tool_call_json,
+                   options_json = excluded.options_json,
+                   resolved_at = NULL,
+                   resolution = NULL"#,
+        )
+        .bind(record.id)
+        .bind(record.session_id)
+        .bind(record.request_id)
+        .bind(record.tool_call_json)
+        .bind(record.options_json)
+        .bind(record.created_at)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn resolve_pending_permission(
+        pool: &SqlitePool,
+        id: Uuid,
+        resolution: &str,
+        resolved_at: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE agent_pending_permissions
+               SET resolved_at = $1,
+                   resolution = $2
+               WHERE id = $3"#,
+        )
+        .bind(resolved_at)
+        .bind(resolution)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_pending_permissions_for_session(
+        pool: &SqlitePool,
+        session_id: Uuid,
+    ) -> Result<Vec<AgentPendingPermissionRecord>, sqlx::Error> {
+        sqlx::query_as::<_, AgentPendingPermissionRecord>(
+            r#"SELECT id, session_id, request_id, tool_call_json, options_json,
+                      created_at, resolved_at, resolution
+               FROM agent_pending_permissions
+               WHERE session_id = $1 AND resolved_at IS NULL
+               ORDER BY created_at ASC"#,
+        )
+        .bind(session_id)
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn insert_history_import(
         pool: &SqlitePool,
         record: InsertAgentHistoryImport<'_>,
@@ -385,6 +460,15 @@ pub struct UpsertAgentPermissionRequest<'a> {
     pub created_at: &'a str,
 }
 
+pub struct UpsertAgentPendingPermission<'a> {
+    pub id: Uuid,
+    pub session_id: Uuid,
+    pub request_id: &'a str,
+    pub tool_call_json: &'a str,
+    pub options_json: &'a str,
+    pub created_at: &'a str,
+}
+
 pub struct InsertAgentHistoryImport<'a> {
     pub id: &'a str,
     pub source_agent: &'a str,
@@ -418,6 +502,22 @@ mod tests {
         .execute(&pool)
         .await
         .expect("create agent runtime tables");
+        sqlx::query(r#"CREATE TABLE sessions (id BLOB PRIMARY KEY)"#)
+            .execute(&pool)
+            .await
+            .expect("create sessions table");
+        sqlx::query(include_str!(
+            "../../migrations/20260313000000_create_agent_settings.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("create agent settings table");
+        sqlx::query(include_str!(
+            "../../migrations/20260613000000_agent_session_core_foundation.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("create phase 1 foundation tables");
         pool
     }
 
@@ -506,5 +606,52 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn stores_and_resolves_product_session_pending_permissions() {
+        let pool = setup_pool().await;
+        let session_id = Uuid::new_v4();
+        let permission_id = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO sessions (id) VALUES ($1)")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("seed product session");
+
+        AgentRuntimeStore::upsert_pending_permission(
+            &pool,
+            UpsertAgentPendingPermission {
+                id: permission_id,
+                session_id,
+                request_id: "permission-request-1",
+                tool_call_json: r#"{"name":"write_file"}"#,
+                options_json: r#"[{"id":"allow","label":"Allow"}]"#,
+                created_at: "2026-06-13T00:00:00Z",
+            },
+        )
+        .await
+        .unwrap();
+
+        let rows = AgentRuntimeStore::list_pending_permissions_for_session(&pool, session_id)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].request_id, "permission-request-1");
+
+        AgentRuntimeStore::resolve_pending_permission(
+            &pool,
+            permission_id,
+            r#"{"kind":"selected","option_id":"allow"}"#,
+            "2026-06-13T00:01:00Z",
+        )
+        .await
+        .unwrap();
+
+        let rows = AgentRuntimeStore::list_pending_permissions_for_session(&pool, session_id)
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
     }
 }

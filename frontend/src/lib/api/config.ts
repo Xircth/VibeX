@@ -235,6 +235,7 @@ export interface AgentSettingInfo {
   installed_version: string | null;
   env_json: string | null;
   config_json: string | null;
+  auto_approve_mode: 'off' | 'allow_always' | 'yolo';
 }
 
 export interface PreflightCheck {
@@ -277,6 +278,7 @@ export const agentSettingsApi = {
     enabled?: boolean;
     envJson?: string | null;
     configJson?: string | null;
+    autoApproveMode?: AgentSettingInfo['auto_approve_mode'];
   }): Promise<AgentSettingInfo> => {
     return tauriInvoke<AgentSettingInfo>('update_agent_preferences', {
       payload: {
@@ -284,6 +286,7 @@ export const agentSettingsApi = {
         enabled: params.enabled,
         env_json: params.envJson,
         config_json: params.configJson,
+        auto_approve_mode: params.autoApproveMode,
       },
     });
   },

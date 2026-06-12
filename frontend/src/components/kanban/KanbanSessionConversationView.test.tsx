@@ -144,6 +144,8 @@ function createSession(id: string, workspaceId: string): Session {
     initial_prompt: null,
     status: 'todo',
     executor: null,
+    external_session_id: null,
+    agent_type: null,
     created_at: '2026-03-24T00:00:00.000Z',
     updated_at: '2026-03-24T00:00:00.000Z',
   };

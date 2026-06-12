@@ -18,6 +18,7 @@ fn to_info(row: &AgentSetting) -> AgentSettingInfo {
         installed_version: row.installed_version.clone(),
         env_json: row.env_json.clone(),
         config_json: row.config_json.clone(),
+        auto_approve_mode: row.auto_approve_mode.clone(),
     }
 }
 
@@ -36,6 +37,7 @@ pub async fn update_agent_preferences(
     payload: UpdateAgentPreferences,
 ) -> Result<AgentSettingInfo, AppError> {
     validate_agent_config_json(&payload.agent_type, payload.config_json.as_deref())?;
+    validate_auto_approve_mode(payload.auto_approve_mode.as_deref())?;
 
     let pool = &state.deployment.db().pool;
     let updated = AgentSetting::update_preferences(
@@ -44,6 +46,7 @@ pub async fn update_agent_preferences(
         payload.enabled,
         payload.env_json.as_deref(),
         payload.config_json.as_deref(),
+        payload.auto_approve_mode.as_deref(),
     )
     .await
     .map_err(|e| match e {
@@ -55,6 +58,16 @@ pub async fn update_agent_preferences(
         }
     })?;
     Ok(to_info(&updated))
+}
+
+fn validate_auto_approve_mode(mode: Option<&str>) -> Result<(), AppError> {
+    match mode {
+        None | Some("off" | "allow_always" | "yolo") => Ok(()),
+        Some(mode) => Err(AppError::BadRequest(format!(
+            "Unsupported auto approve mode: {}",
+            mode
+        ))),
+    }
 }
 
 fn validate_agent_config_json(agent_type: &str, config_json: Option<&str>) -> Result<(), AppError> {
@@ -520,6 +533,19 @@ mod tests {
         assert!(err.to_string().contains("model_provider"));
         assert!(err.to_string().contains("supports_websockets"));
         assert!(err.to_string().contains("reasoning_effort"));
+    }
+
+    #[test]
+    fn validates_auto_approve_modes() {
+        validate_auto_approve_mode(None).expect("empty auto approve mode is allowed");
+        validate_auto_approve_mode(Some("off")).expect("off is allowed");
+        validate_auto_approve_mode(Some("allow_always")).expect("allow_always is allowed");
+        validate_auto_approve_mode(Some("yolo")).expect("yolo is allowed");
+
+        assert!(matches!(
+            validate_auto_approve_mode(Some("always")),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]

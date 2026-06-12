@@ -87,6 +87,8 @@ describe('DockviewLogsPanel', () => {
       initial_prompt: null,
       status: 'todo',
       executor: null,
+      external_session_id: null,
+      agent_type: null,
       created_at: '2026-05-22T00:00:00.000Z',
       updated_at: '2026-05-22T00:00:00.000Z',
     };

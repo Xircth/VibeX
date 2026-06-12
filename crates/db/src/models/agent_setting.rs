@@ -22,6 +22,7 @@ pub struct AgentSetting {
     pub installed_version: Option<String>,
     pub env_json: Option<String>,
     pub config_json: Option<String>,
+    pub auto_approve_mode: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -47,7 +48,7 @@ impl AgentSetting {
         Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
-                      env_json, config_json, created_at, updated_at
+                      env_json, config_json, auto_approve_mode, created_at, updated_at
                FROM agent_setting
                ORDER BY sort_order ASC"#,
         )
@@ -63,7 +64,7 @@ impl AgentSetting {
         Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
-                      env_json, config_json, created_at, updated_at
+                      env_json, config_json, auto_approve_mode, created_at, updated_at
                FROM agent_setting
                WHERE agent_type = $1"#,
         )
@@ -79,6 +80,7 @@ impl AgentSetting {
         enabled: Option<bool>,
         env_json: Option<&str>,
         config_json: Option<&str>,
+        auto_approve_mode: Option<&str>,
     ) -> Result<Self, AgentSettingError> {
         let existing = Self::find_by_type(pool, agent_type)
             .await?
@@ -87,20 +89,23 @@ impl AgentSetting {
         let new_enabled = enabled.unwrap_or(existing.enabled);
         let new_env_json = env_json.or(existing.env_json.as_deref());
         let new_config_json = config_json.or(existing.config_json.as_deref());
+        let new_auto_approve_mode = auto_approve_mode.unwrap_or(&existing.auto_approve_mode);
 
         sqlx::query_as::<_, AgentSetting>(
             r#"UPDATE agent_setting
                SET enabled = $1,
                    env_json = $2,
                    config_json = $3,
+                   auto_approve_mode = $4,
                    updated_at = datetime('now')
-               WHERE agent_type = $4
+               WHERE agent_type = $5
                RETURNING id, agent_type, enabled, sort_order, installed_version,
-                         env_json, config_json, created_at, updated_at"#,
+                         env_json, config_json, auto_approve_mode, created_at, updated_at"#,
         )
         .bind(new_enabled)
         .bind(new_env_json)
         .bind(new_config_json)
+        .bind(new_auto_approve_mode)
         .bind(agent_type)
         .fetch_one(pool)
         .await
@@ -168,6 +173,8 @@ mod tests {
                 installed_version TEXT,
                 env_json TEXT,
                 config_json TEXT,
+                auto_approve_mode TEXT NOT NULL DEFAULT 'off'
+                    CHECK (auto_approve_mode IN ('off', 'allow_always', 'yolo')),
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"#,

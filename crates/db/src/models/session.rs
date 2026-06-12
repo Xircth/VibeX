@@ -42,6 +42,8 @@ pub struct Session {
     pub initial_prompt: Option<String>,
     pub status: SessionStatus,
     pub executor: Option<String>,
+    pub external_session_id: Option<String>,
+    pub agent_type: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -65,6 +67,8 @@ impl Session {
                       initial_prompt,
                       status,
                       executor,
+                      external_session_id,
+                      agent_type,
                       created_at,
                       updated_at
                FROM sessions
@@ -87,6 +91,8 @@ impl Session {
                       initial_prompt,
                       status,
                       executor,
+                      external_session_id,
+                      agent_type,
                       created_at,
                       updated_at
                FROM sessions
@@ -111,6 +117,8 @@ impl Session {
                       s.initial_prompt,
                       s.status,
                       s.executor,
+                      s.external_session_id,
+                      s.agent_type,
                       s.created_at,
                       s.updated_at
                FROM sessions s
@@ -135,6 +143,8 @@ impl Session {
                       s.initial_prompt,
                       s.status,
                       s.executor,
+                      s.external_session_id,
+                      s.agent_type,
                       s.created_at,
                       s.updated_at
                FROM sessions s
@@ -164,6 +174,8 @@ impl Session {
                          initial_prompt,
                          status,
                          executor,
+                         external_session_id,
+                         agent_type,
                          created_at,
                          updated_at"#,
         )
@@ -194,6 +206,27 @@ impl Session {
                WHERE id = ?"#,
         )
         .bind(executor)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_agent_metadata(
+        pool: &SqlitePool,
+        id: Uuid,
+        external_session_id: Option<&str>,
+        agent_type: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE sessions
+               SET external_session_id = ?,
+                   agent_type = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(external_session_id.filter(|value| !value.trim().is_empty()))
+        .bind(agent_type.filter(|value| !value.trim().is_empty()))
         .bind(id)
         .execute(pool)
         .await?;

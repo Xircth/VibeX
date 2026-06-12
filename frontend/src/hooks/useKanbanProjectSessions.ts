@@ -111,6 +111,8 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         initial_prompt: summary.first_prompt,
         status: summary.status,
         executor: summary.executor,
+        external_session_id: null,
+        agent_type: null,
         created_at: summary.created_at,
         updated_at: summary.updated_at,
       };

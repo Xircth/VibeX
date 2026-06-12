@@ -11,6 +11,7 @@ pub struct AgentSettingInfo {
     pub installed_version: Option<String>,
     pub env_json: Option<String>,
     pub config_json: Option<String>,
+    pub auto_approve_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -54,6 +55,8 @@ pub struct UpdateAgentPreferences {
     pub env_json: Option<String>,
     #[ts(optional)]
     pub config_json: Option<String>,
+    #[ts(optional)]
+    pub auto_approve_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]

@@ -2,7 +2,7 @@
 
 执行环境：worktree `../VibeX-agent-session-core`，分支 `feature/agent-session-core`。
 
-- [ ] T1.1 数据迁移：sessions 增列（external_session_id/agent_type）、
+- [x] T1.1 数据迁移：sessions 增列（external_session_id/agent_type）、
       新表 agent_pending_permissions、auto_approve 字段；prepare-db + 类型生成
   - Acceptance: 迁移可重放；`prepare-db:check`、`generate-types:check` 绿
   - Verify: `cargo test -p db`；两个 check 命令

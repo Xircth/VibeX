@@ -327,3 +327,84 @@
   font-size: 10px;
   font-weight: 600;
 }
+
+/* =========================================
+ * Conversation Message Nav
+ * ========================================= */
+
+.conv-message-nav-rail {
+  position: sticky;
+  top: 8px;
+  display: none;
+  width: 184px;
+  max-height: calc(100vh - 96px);
+  overflow: hidden;
+}
+
+@media (min-width: 1120px) {
+  .conv-message-nav-rail {
+    display: block;
+  }
+}
+
+.conv-message-nav-list {
+  display: grid;
+  gap: 4px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.conv-message-nav-button {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 6px;
+  background: transparent;
+  color: var(--conv-text-tertiary);
+  text-align: left;
+}
+
+.conv-message-nav-button:hover,
+.conv-message-nav-button.is-active {
+  border-color: var(--conv-border-subtle);
+  background: var(--conv-surface-control);
+  color: var(--conv-text-primary);
+}
+
+.conv-message-nav-ordinal {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--conv-text-tertiary);
+}
+
+.conv-message-nav-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.conv-message-nav-stats {
+  grid-column: 3;
+  display: inline-flex;
+  gap: 4px;
+  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+  font-size: 10px;
+}
+
+.conv-message-nav-add {
+  color: var(--conv-tool-success);
+}
+
+.conv-message-nav-del {
+  color: var(--conv-tool-error);
+}
+
+.conv-message-nav-target-active {
+  box-shadow: inset 2px 0 var(--conv-tool-icon);
+}

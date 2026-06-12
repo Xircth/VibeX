@@ -34,6 +34,11 @@ import {
   AgentPermissionPanel,
   type PendingAgentPermission,
 } from '@/components/agents/AgentPermissionPanel';
+import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
+import {
+  buildConversationMessageNavEntries,
+  findActiveConversationMessageNavEntry,
+} from '@/components/conversation-thread/messageNavEntries';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
 import type {
   AddEntryType,
@@ -237,6 +242,9 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const virtualListRef = useRef<HTMLDivElement | null>(null);
     const [isLoadingEntries, setIsLoadingEntries] = useState(false);
     const [scrollMargin, setScrollMargin] = useState(0);
+    const [activeVirtualIndex, setActiveVirtualIndex] = useState<number | null>(
+      null
+    );
     const conversationScrollKey = buildSessionConversationKey(
       attempt.id,
       attempt.session?.id
@@ -369,6 +377,49 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     });
     const virtualRows = rowVirtualizer.getVirtualItems();
     const virtualTotalSize = rowVirtualizer.getTotalSize();
+    const messageNavEntries = useMemo(
+      () => buildConversationMessageNavEntries(displayEntries),
+      [displayEntries]
+    );
+    const activeMessageNavEntry = useMemo(
+      () =>
+        findActiveConversationMessageNavEntry(
+          messageNavEntries,
+          activeVirtualIndex
+        ),
+      [activeVirtualIndex, messageNavEntries]
+    );
+
+    const updateActiveVirtualIndex = useCallback(() => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const nextActiveIndex = findViewportAnchorVirtualIndex(
+        rowVirtualizer.getVirtualItems(),
+        container.scrollTop,
+        container.clientHeight
+      );
+      setActiveVirtualIndex((current) =>
+        current === nextActiveIndex ? current : nextActiveIndex
+      );
+    }, [rowVirtualizer]);
+
+    const handleScroll = useCallback(() => {
+      saveScrollPosition();
+      updateActiveVirtualIndex();
+    }, [saveScrollPosition, updateActiveVirtualIndex]);
+
+    const scrollToMessageNavIndex = useCallback(
+      (index: number) => {
+        if (index < 0 || index >= displayEntries.length) return;
+        rowVirtualizer.scrollToIndex(index, {
+          align: 'center',
+          behavior: 'smooth',
+        });
+        setActiveVirtualIndex(index);
+      },
+      [displayEntries.length, rowVirtualizer]
+    );
 
     const scrollContainerToBottom = useCallback(
       (behavior: ScrollBehavior) => {
@@ -539,6 +590,10 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     ]);
 
     useLayoutEffect(() => {
+      updateActiveVirtualIndex();
+    }, [updateActiveVirtualIndex, virtualRows]);
+
+    useLayoutEffect(() => {
       if (displayEntries.length === 0) {
         updateAtBottomState();
         return;
@@ -620,7 +675,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         ref={containerRef}
         className="h-full overflow-y-auto px-2 py-3"
         data-panel="conversation-logs"
-        onScroll={saveScrollPosition}
+        onScroll={handleScroll}
       >
         {isLoadingEntries && displayEntries.length === 0 ? (
           <div className="flex h-full min-h-[160px] items-center justify-center text-muted-foreground">
@@ -630,48 +685,59 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl">
-            <AgentPermissionPanel
-              permissions={pendingPermissions}
-              respondingPermissionId={respondingPermissionId}
-              onRespond={respondToPermission}
-            />
-            <div
-              ref={virtualListRef}
-              className="relative w-full"
-              style={{ height: `${virtualTotalSize}px` }}
-            >
-              {virtualRows.map((virtualRow) => {
-                const entry = displayEntries[virtualRow.index];
-                if (!entry) return null;
+          <div className="mx-auto flex w-full max-w-6xl items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <AgentPermissionPanel
+                permissions={pendingPermissions}
+                respondingPermissionId={respondingPermissionId}
+                onRespond={respondToPermission}
+              />
+              <div
+                ref={virtualListRef}
+                className="relative w-full"
+                style={{ height: `${virtualTotalSize}px` }}
+              >
+                {virtualRows.map((virtualRow) => {
+                  const entry = displayEntries[virtualRow.index];
+                  if (!entry) return null;
 
-                return (
-                  <div
-                    key={virtualRow.key}
-                    ref={rowVirtualizer.measureElement}
-                    data-index={virtualRow.index}
-                    className="absolute left-0 top-0 w-full pb-3"
-                    style={{
-                      transform: getVirtualRowTranslateY(
-                        virtualRow.start,
-                        scrollMargin
-                      ),
-                    }}
-                  >
-                    {isCollapsedAssistantMessagesGroup(entry) ? (
-                      <CollapsedAssistantMessagesBlock
-                        hiddenCount={entry.hiddenCount}
-                        entries={entry.entries}
-                        renderEntry={renderBaseDisplayEntry}
-                      />
-                    ) : null}
-                    {!isCollapsedAssistantMessagesGroup(entry)
-                      ? renderBaseDisplayEntry(entry)
-                      : null}
-                  </div>
-                );
-              })}
+                  return (
+                    <div
+                      key={virtualRow.key}
+                      ref={rowVirtualizer.measureElement}
+                      data-index={virtualRow.index}
+                      className={cn(
+                        'absolute left-0 top-0 w-full pb-3',
+                        activeMessageNavEntry?.index === virtualRow.index &&
+                          'conv-message-nav-target-active'
+                      )}
+                      style={{
+                        transform: getVirtualRowTranslateY(
+                          virtualRow.start,
+                          scrollMargin
+                        ),
+                      }}
+                    >
+                      {isCollapsedAssistantMessagesGroup(entry) ? (
+                        <CollapsedAssistantMessagesBlock
+                          hiddenCount={entry.hiddenCount}
+                          entries={entry.entries}
+                          renderEntry={renderBaseDisplayEntry}
+                        />
+                      ) : null}
+                      {!isCollapsedAssistantMessagesGroup(entry)
+                        ? renderBaseDisplayEntry(entry)
+                        : null}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+            <ConversationMessageNav
+              entries={messageNavEntries}
+              activeIndex={activeVirtualIndex}
+              onSelect={scrollToMessageNavIndex}
+            />
           </div>
         )}
       </div>

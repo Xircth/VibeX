@@ -93,7 +93,7 @@
   - Files: `NormalizedConversation/AggregatedThinkingCard.tsx`,
     `NormalizedConversation/ThinkingEntry.tsx`
 
-- [ ] T2.11 消息导航轨
+- [x] T2.11 消息导航轨
   - Acceptance: 每条用户消息都有锚点；有文件变更时显示文件数与 +N/-N；点击
     跳转虚拟行；当前可见行高亮。
   - Verify: nav entry 生成纯函数测试 + scroll mock 行为测试。

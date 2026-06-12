@@ -40,7 +40,7 @@
       集成测试；记录每类结果
   - Acceptance: 七类 Agent 各有「实测通过」或「fixture 测试通过」记录
   - Verify: 手动 + `cargo test -p agents --test integration`
-- [ ] T1.10 五轴审查 → 修复 → 全门验证 → 合并回 master
+- [x] T1.10 五轴审查 → 修复 → 全门验证 → 合并回 master
   - Acceptance: A1-A14 与全 Agent 会话门均完成/裁剪记录齐全；review findings 关闭。
   - Verify: `pnpm run check && pnpm run lint && cargo test --workspace &&
     cd frontend && pnpm vitest run`

@@ -1770,6 +1770,8 @@ mod tests {
                 initial_prompt TEXT,
                 status TEXT NOT NULL DEFAULT 'todo',
                 executor TEXT,
+                external_session_id TEXT,
+                agent_type TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
             )

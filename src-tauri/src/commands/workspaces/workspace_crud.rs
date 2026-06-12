@@ -184,6 +184,7 @@ pub async fn create_workspace(
                 session_id: agent_session_id,
                 acp_session_id: session.id.to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: std::collections::HashMap::new(),
             })
             .await?;
 

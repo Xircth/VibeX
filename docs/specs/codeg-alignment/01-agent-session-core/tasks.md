@@ -32,7 +32,7 @@
   - Acceptance: 表驱动检查器测试；设置页能展示诊断（最小 UI，重美化留 Phase 2/7）
   - Verify: `cargo test -p agents preflight`；手动打开设置页
   - Files: `crates/agents/src/preflight.rs`(新), commands, AgentSettings.tsx
-- [ ] T1.8 env 合并优先级 + spawn 去重键收口（与在途修改合流）
+- [x] T1.8 env 合并优先级 + spawn 去重键收口（与在途修改合流）
   - Acceptance: 合并优先级表驱动测试；并发 ensure_session 去重测试
   - Verify: `cargo test -p agents`
   - Files: `crates/agents/src/{manager,runtime}.rs`

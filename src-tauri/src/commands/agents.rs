@@ -1,4 +1,7 @@
-use std::path::{Component, Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Component, Path, PathBuf},
+};
 
 use agents::{
     AgentAutoApproveMode, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
@@ -259,31 +262,79 @@ pub async fn agent_connect(
     request: AgentConnectRequest,
 ) -> Result<AgentConnectionSnapshot, AppError> {
     let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
-    let auto_approve_mode = agent_auto_approve_mode(&state, request.agent_type).await?;
+    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
     state
         .agent_runtime
         .connect(ConnectAgentInput {
             agent_type: request.agent_type,
             workspace_id,
             working_dir: PathBuf::from(request.working_dir),
-            auto_approve_mode,
+            auto_approve_mode: launch_settings.auto_approve_mode,
+            env: launch_settings.env,
         })
         .await
         .map_err(Into::into)
 }
 
-async fn agent_auto_approve_mode(
+struct AgentRuntimeLaunchSettings {
+    auto_approve_mode: AgentAutoApproveMode,
+    env: HashMap<String, String>,
+}
+
+async fn agent_runtime_launch_settings(
     state: &tauri::State<'_, AppState>,
     agent_type: AgentType,
-) -> Result<AgentAutoApproveMode, AppError> {
-    let mode = AgentSetting::find_by_type(
+) -> Result<AgentRuntimeLaunchSettings, AppError> {
+    let setting = AgentSetting::find_by_type(
         &state.deployment.db().pool,
         agent_type_setting_key(agent_type),
     )
-    .await?
-    .map(|setting| AgentAutoApproveMode::from_setting(&setting.auto_approve_mode))
-    .unwrap_or_default();
-    Ok(mode)
+    .await?;
+    let auto_approve_mode = setting
+        .as_ref()
+        .map(|setting| AgentAutoApproveMode::from_setting(&setting.auto_approve_mode))
+        .unwrap_or_default();
+    let env = parse_agent_env_json(
+        setting
+            .as_ref()
+            .and_then(|setting| setting.env_json.as_deref()),
+    )?;
+    Ok(AgentRuntimeLaunchSettings {
+        auto_approve_mode,
+        env,
+    })
+}
+
+fn parse_agent_env_json(value: Option<&str>) -> Result<HashMap<String, String>, AppError> {
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Ok(HashMap::new());
+    };
+    let parsed: Value = serde_json::from_str(value)
+        .map_err(|error| AppError::BadRequest(format!("Invalid env JSON: {error}")))?;
+    let Some(object) = parsed.as_object() else {
+        return Err(AppError::BadRequest(
+            "Agent env JSON must be an object".to_string(),
+        ));
+    };
+
+    let mut env = HashMap::new();
+    for (key, value) in object {
+        if value.is_null() {
+            continue;
+        }
+        let Some(value) = value
+            .as_str()
+            .map(str::to_string)
+            .or_else(|| value.as_bool().map(|value| value.to_string()))
+            .or_else(|| value.as_number().map(|value| value.to_string()))
+        else {
+            return Err(AppError::BadRequest(format!(
+                "Agent env value for {key} must be a string, number, boolean, or null"
+            )));
+        };
+        env.insert(key.clone(), value);
+    }
+    Ok(env)
 }
 
 fn agent_type_setting_key(agent_type: AgentType) -> &'static str {
@@ -321,7 +372,7 @@ pub async fn agent_resume_session(
     state: tauri::State<'_, AppState>,
     request: AgentResumeSessionRequest,
 ) -> Result<AgentSessionSnapshot, AppError> {
-    let auto_approve_mode = agent_auto_approve_mode(&state, request.agent_type).await?;
+    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
     state
         .agent_runtime
         .resume_session(ResumeAgentSessionInput {
@@ -330,7 +381,8 @@ pub async fn agent_resume_session(
             working_dir: PathBuf::from(request.working_dir),
             session_id: parse_agent_session_id(&request.session_id)?,
             external_session_id: request.external_session_id,
-            auto_approve_mode,
+            auto_approve_mode: launch_settings.auto_approve_mode,
+            env: launch_settings.env,
         })
         .await
         .map_err(Into::into)
@@ -372,7 +424,7 @@ pub async fn agent_send_workspace_prompt(
     let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
         .unwrap_or_else(|| container_ref.clone());
     let blocks = workspace_prompt_blocks(&working_dir, request.text, &request.images)?;
-    let auto_approve_mode = agent_auto_approve_mode(&state, request.agent_type).await?;
+    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
 
     let session = state
         .agent_runtime
@@ -382,7 +434,8 @@ pub async fn agent_send_workspace_prompt(
             working_dir: PathBuf::from(&working_dir),
             session_id,
             acp_session_id: request.session_id.clone(),
-            auto_approve_mode,
+            auto_approve_mode: launch_settings.auto_approve_mode,
+            env: launch_settings.env.clone(),
         })
         .await?;
 
@@ -405,7 +458,8 @@ pub async fn agent_send_workspace_prompt(
                     working_dir: PathBuf::from(&working_dir),
                     session_id,
                     acp_session_id: request.session_id,
-                    auto_approve_mode,
+                    auto_approve_mode: launch_settings.auto_approve_mode,
+                    env: launch_settings.env,
                 })
                 .await?;
 
@@ -814,5 +868,45 @@ fn mime_type_for_agent_asset(path: &Path) -> &'static str {
         Some("heic") => "image/heic",
         Some("heif") => "image/heif",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_agent_env_json_accepts_scalar_object_values() {
+        let env = parse_agent_env_json(Some(
+            r#"{
+                "STRING_VALUE": "value",
+                "NUMBER_VALUE": 42,
+                "BOOL_VALUE": true,
+                "NULL_VALUE": null
+            }"#,
+        ))
+        .unwrap();
+
+        assert_eq!(env.get("STRING_VALUE").map(String::as_str), Some("value"));
+        assert_eq!(env.get("NUMBER_VALUE").map(String::as_str), Some("42"));
+        assert_eq!(env.get("BOOL_VALUE").map(String::as_str), Some("true"));
+        assert!(!env.contains_key("NULL_VALUE"));
+    }
+
+    #[test]
+    fn parse_agent_env_json_rejects_non_object_root() {
+        let err = parse_agent_env_json(Some(r#"["HTTP_PROXY"]"#)).unwrap_err();
+
+        assert!(
+            matches!(err, AppError::BadRequest(message) if message == "Agent env JSON must be an object")
+        );
+    }
+
+    #[test]
+    fn parse_agent_env_json_rejects_nested_values() {
+        let err =
+            parse_agent_env_json(Some(r#"{"HTTP_PROXY": {"url": "http://proxy"}}"#)).unwrap_err();
+
+        assert!(matches!(err, AppError::BadRequest(message) if message.contains("HTTP_PROXY")));
     }
 }

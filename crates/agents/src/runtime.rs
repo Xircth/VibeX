@@ -6,7 +6,7 @@ use std::{
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -36,6 +36,7 @@ pub struct ConnectAgentInput {
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,7 @@ pub struct EnsureAgentSessionInput {
     pub session_id: AgentSessionId,
     pub acp_session_id: String,
     pub auto_approve_mode: AgentAutoApproveMode,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +79,7 @@ pub struct ResumeAgentSessionInput {
     pub session_id: AgentSessionId,
     pub external_session_id: String,
     pub auto_approve_mode: AgentAutoApproveMode,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -118,6 +121,14 @@ pub struct AgentRuntime {
     connection_manager: Arc<AgentConnectionManager>,
     event_sink: Arc<dyn RuntimeEventSink>,
     event_tx: broadcast::Sender<AgentEventEnvelope>,
+    session_locks: Arc<Mutex<HashMap<EnsureSessionKey, Arc<Mutex<()>>>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct EnsureSessionKey {
+    agent_type: AgentType,
+    working_dir: PathBuf,
+    session_id: AgentSessionId,
 }
 
 impl Default for AgentRuntime {
@@ -135,6 +146,7 @@ impl AgentRuntime {
         let (event_tx, _) = broadcast::channel(512);
         let (manager_event_tx, manager_event_rx) = mpsc::unbounded_channel();
         let state = Arc::new(RwLock::new(RuntimeState::default()));
+        let session_locks = Arc::new(Mutex::new(HashMap::new()));
         let connection_manager = Arc::new(AgentConnectionManager::new_with_driver(
             manager_event_tx,
             driver_enabled,
@@ -144,6 +156,7 @@ impl AgentRuntime {
             connection_manager: Arc::clone(&connection_manager),
             event_sink: Arc::clone(&event_sink),
             event_tx: event_tx.clone(),
+            session_locks,
         };
         Self::spawn_manager_event_pump(
             state,
@@ -264,6 +277,7 @@ impl AgentRuntime {
                 workspace_id: snapshot.workspace_id,
                 working_dir: input.working_dir,
                 auto_approve_mode: input.auto_approve_mode,
+                env: input.env,
             })
             .await;
 
@@ -347,6 +361,17 @@ impl AgentRuntime {
         &self,
         input: EnsureAgentSessionInput,
     ) -> AgentResult<AgentSessionSnapshot> {
+        let session_lock = {
+            let key = EnsureSessionKey {
+                agent_type: input.agent_type,
+                working_dir: input.working_dir.clone(),
+                session_id: input.session_id,
+            };
+            let mut locks = self.session_locks.lock().await;
+            Arc::clone(locks.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))))
+        };
+        let _session_guard = session_lock.lock().await;
+
         let existing_session = self
             .state
             .read()
@@ -411,6 +436,7 @@ impl AgentRuntime {
                     workspace_id: input.workspace_id,
                     working_dir: input.working_dir,
                     auto_approve_mode: input.auto_approve_mode,
+                    env: input.env,
                 })
                 .await?
                 .id
@@ -441,6 +467,7 @@ impl AgentRuntime {
                 session_id: input.session_id,
                 acp_session_id: input.external_session_id.clone(),
                 auto_approve_mode: input.auto_approve_mode,
+                env: input.env,
             })
             .await?;
         let acp_session_id = self
@@ -898,6 +925,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();
@@ -933,6 +961,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();
@@ -994,6 +1023,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();
@@ -1029,6 +1059,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();
@@ -1137,6 +1168,7 @@ mod tests {
                 workspace_id,
                 working_dir: working_dir.clone(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();
@@ -1154,6 +1186,7 @@ mod tests {
                 session_id: session.id,
                 acp_session_id: session.acp_session_id.clone(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();
@@ -1173,6 +1206,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_ensure_session_reuses_single_connection_and_session() {
+        let runtime = Arc::new(AgentRuntime::new_with_driver(
+            Arc::new(NoopEventSink),
+            false,
+        ));
+        let workspace_id = Uuid::new_v4();
+        let session_id = AgentSessionId::new();
+        let barrier = Arc::new(tokio::sync::Barrier::new(8));
+        let mut tasks = Vec::new();
+
+        for _ in 0..8 {
+            let runtime = Arc::clone(&runtime);
+            let barrier = Arc::clone(&barrier);
+            tasks.push(tokio::spawn(async move {
+                barrier.wait().await;
+                runtime
+                    .ensure_session(EnsureAgentSessionInput {
+                        agent_type: AgentType::Codex,
+                        workspace_id,
+                        working_dir: PathBuf::from("C:/work"),
+                        session_id,
+                        acp_session_id: "shared-acp-session".to_string(),
+                        auto_approve_mode: AgentAutoApproveMode::Off,
+                        env: HashMap::new(),
+                    })
+                    .await
+                    .unwrap()
+            }));
+        }
+
+        let mut connection_ids = Vec::new();
+        for task in tasks {
+            connection_ids.push(task.await.unwrap().connection_id);
+        }
+        connection_ids.sort_by_key(|id| id.to_string());
+        connection_ids.dedup();
+
+        let snapshot = runtime.snapshot().await;
+        assert_eq!(connection_ids.len(), 1);
+        assert_eq!(snapshot.connections.len(), 1);
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].id, session_id);
+    }
+
+    #[tokio::test]
     async fn resume_session_updates_snapshot_with_external_session_id() {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let workspace_id = Uuid::new_v4();
@@ -1186,6 +1264,7 @@ mod tests {
                 session_id,
                 external_session_id: "codex-session-123".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await
             .unwrap();

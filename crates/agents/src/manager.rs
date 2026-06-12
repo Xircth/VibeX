@@ -53,6 +53,14 @@ use crate::{
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
+const PROXY_ENV_KEYS: [&str; 6] = [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+];
 
 #[derive(Debug)]
 struct StderrRingBuffer {
@@ -130,6 +138,7 @@ pub struct AgentConnectionLaunch {
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -162,6 +171,7 @@ pub struct ManagedAgentConnectionSnapshot {
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +229,7 @@ impl AgentConnectionManager {
             workspace_id: launch.workspace_id,
             working_dir: launch.working_dir,
             auto_approve_mode: launch.auto_approve_mode,
+            env: launch.env,
         };
         let runner = AgentConnectionRunner::new(snapshot.clone(), self.event_tx.clone());
 
@@ -484,9 +495,11 @@ impl AgentConnectionRunner {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .current_dir(&self.snapshot.working_dir)
-            .env("NPM_CONFIG_LOGLEVEL", "error")
-            .env("NODE_NO_WARNINGS", "1");
+            .current_dir(&self.snapshot.working_dir);
+
+        for (key, value) in merged_agent_env(&self.snapshot.env) {
+            command.env(key, value);
+        }
 
         let mut child = command
             .spawn()
@@ -1321,6 +1334,26 @@ fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
     }
 }
 
+fn merged_agent_env(configured_env: &HashMap<String, String>) -> HashMap<String, String> {
+    merge_agent_env(
+        configured_env,
+        std::env::vars().filter(|(key, _)| PROXY_ENV_KEYS.contains(&key.as_str())),
+    )
+}
+
+fn merge_agent_env(
+    configured_env: &HashMap<String, String>,
+    proxy_env: impl IntoIterator<Item = (String, String)>,
+) -> HashMap<String, String> {
+    let mut env = HashMap::from([
+        ("NPM_CONFIG_LOGLEVEL".to_string(), "error".to_string()),
+        ("NODE_NO_WARNINGS".to_string(), "1".to_string()),
+    ]);
+    env.extend(configured_env.clone());
+    env.extend(proxy_env);
+    env
+}
+
 fn agent_session_modes_from_acp(
     state: SessionModeState,
 ) -> (Vec<AgentSessionMode>, Option<String>) {
@@ -1449,6 +1482,7 @@ mod tests {
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await;
 
@@ -1489,6 +1523,7 @@ mod tests {
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
             })
             .await;
 
@@ -1591,6 +1626,46 @@ mod tests {
         assert_eq!(mapped[0].name, "compact");
         assert_eq!(mapped[0].description.as_deref(), Some("Compact context"));
         assert!(mapped[0].input_schema.is_some());
+    }
+
+    #[test]
+    fn agent_env_merge_prioritizes_config_then_proxy_over_defaults() {
+        let configured = HashMap::from([
+            ("NPM_CONFIG_LOGLEVEL".to_string(), "silent".to_string()),
+            ("CUSTOM_ENV".to_string(), "from-config".to_string()),
+            ("HTTP_PROXY".to_string(), "http://config-proxy".to_string()),
+        ]);
+        let merged = merge_agent_env(
+            &configured,
+            [
+                ("HTTP_PROXY".to_string(), "http://proxy-setting".to_string()),
+                (
+                    "ALL_PROXY".to_string(),
+                    "socks5://proxy-setting".to_string(),
+                ),
+            ],
+        );
+
+        assert_eq!(
+            merged.get("NODE_NO_WARNINGS").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            merged.get("NPM_CONFIG_LOGLEVEL").map(String::as_str),
+            Some("silent")
+        );
+        assert_eq!(
+            merged.get("CUSTOM_ENV").map(String::as_str),
+            Some("from-config")
+        );
+        assert_eq!(
+            merged.get("HTTP_PROXY").map(String::as_str),
+            Some("http://proxy-setting")
+        );
+        assert_eq!(
+            merged.get("ALL_PROXY").map(String::as_str),
+            Some("socks5://proxy-setting")
+        );
     }
 
     #[test]

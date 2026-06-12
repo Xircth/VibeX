@@ -1,6 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { insertPreviewElementToken } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import {
+  formatSessionComposerCommand,
+  insertPreviewElementToken,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import UserMessage from './UserMessage';
 
 vi.mock('@/components/ui/wysiwyg', () => ({
@@ -68,7 +71,18 @@ describe('UserMessage', () => {
   });
 
   it('keeps structured composer tokens as chips after send', () => {
-    render(<UserMessage content="Review @src/App.tsx with $plan" />);
+    const fileCommand = formatSessionComposerCommand({
+      type: '@',
+      key: 'App.tsx',
+      value: 'src/App.tsx',
+    });
+    const dollarCommand = formatSessionComposerCommand({
+      type: '$',
+      key: 'plan',
+      value: '$plan',
+    });
+
+    render(<UserMessage content={`Review ${fileCommand} with ${dollarCommand}`} />);
 
     expect(screen.queryByTestId('readonly-wysiwyg')).not.toBeInTheDocument();
     expect(

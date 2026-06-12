@@ -108,7 +108,7 @@ describe('session composer typeahead option derivation', () => {
     expect(options[0]).toMatchObject({
       key: 'slash-review',
       label: '/Review',
-      description: 'Review changes',
+      description: 'Review code with optional instructions',
     });
   });
 

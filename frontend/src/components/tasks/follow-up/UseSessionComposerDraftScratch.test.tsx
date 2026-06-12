@@ -77,6 +77,7 @@ describe('useSessionComposerDraftScratch', () => {
       variant: null,
       model: null,
       fast_mode: null,
+      reasoning_effort: null,
     });
     expect(result.current.deleteScratch).toBe(deleteScratchMock);
   });

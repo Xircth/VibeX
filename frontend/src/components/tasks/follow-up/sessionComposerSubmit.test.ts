@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BaseCodingAgent } from 'shared/types';
+import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import {
   buildQueuedFollowUp,
   canCompactContext,
@@ -335,9 +336,15 @@ describe('session composer submit helpers', () => {
   });
 
   it('serializes file reference components before queueing backend text', () => {
+    const fileCommand = formatSessionComposerCommand({
+      type: '@',
+      key: 'App.tsx',
+      value: 'src/App.tsx',
+    });
+
     expect(
       buildQueuedFollowUp({
-        message: 'Review @src/App.tsx with $plan',
+        message: `Review ${fileCommand} with $plan`,
         conflictMarkdown: null,
         reviewMarkdown: '',
         images: [],

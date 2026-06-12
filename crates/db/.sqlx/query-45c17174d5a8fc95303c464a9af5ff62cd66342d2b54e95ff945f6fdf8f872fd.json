@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.initial_prompt\n               FROM sessions s\n               WHERE s.workspace_id = $1\n                 AND s.executor IS NOT NULL\n                 AND s.initial_prompt IS NOT NULL\n               ORDER BY s.created_at ASC\n               LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "initial_prompt",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "45c17174d5a8fc95303c464a9af5ff62cd66342d2b54e95ff945f6fdf8f872fd"
+}

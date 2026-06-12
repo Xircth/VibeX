@@ -274,6 +274,27 @@
   opacity: 0.55;
 }
 
+.conv-thinking-streaming .conv-thinking-icon {
+  color: var(--conv-tool-icon);
+  opacity: 0.9;
+}
+
+.conv-thinking-status,
+.conv-thinking-elapsed {
+  flex: none;
+  color: var(--conv-text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.conv-thinking-status {
+  margin-left: 2px;
+}
+
+.conv-thinking-elapsed {
+  margin-left: auto;
+}
+
 .conv-thinking-content {
   margin-top: 6px;
   opacity: 0.55;

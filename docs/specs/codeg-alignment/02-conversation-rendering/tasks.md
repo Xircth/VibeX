@@ -87,7 +87,7 @@
     `AskQuestionResultCard.tsx`, `FeedbackCheckResultCard.tsx`,
     `GoalToolCall.tsx`, `GeneratedImagesBlock.tsx`
 
-- [ ] T2.10 Thinking 卡升级
+- [x] T2.10 Thinking 卡升级
   - Acceptance: Thinking 流式增长、耗时、结束后自动收起、用户展开不被覆盖。
   - Verify: `AggregatedThinkingCard` 行为测试。
   - Files: `NormalizedConversation/AggregatedThinkingCard.tsx`,

@@ -160,6 +160,8 @@ function RenderPart({
             content={part.content}
             expansionKey={expansionKey}
             taskAttemptId={taskAttempt?.id}
+            isStreaming={part.isStreaming}
+            elapsedMs={part.elapsedMs}
           />
         </div>
       );

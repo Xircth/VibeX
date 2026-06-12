@@ -101,6 +101,7 @@ export function getQueueIndicatorState(
   isAttemptRunning: boolean
 ): {
   isQueued: boolean;
+  queuedMessage: QueuedMessage | null;
   messagePreview: string | null;
   attachmentCount: number;
 } {
@@ -108,6 +109,7 @@ export function getQueueIndicatorState(
 
   return {
     isQueued: Boolean(queuedMessage),
+    queuedMessage,
     messagePreview: queuedMessage?.data.message ?? null,
     attachmentCount: queuedMessage?.data.images.length ?? 0,
   };

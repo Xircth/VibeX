@@ -113,9 +113,10 @@
   - Verify: 图片 metadata hook mock 测试 + generated image snapshot。
   - Files: `NormalizedConversation/UserMessage.tsx`, `tools/GeneratedImagesBlock.tsx`
 
-- [ ] T2.14 Composer：cmdk source registry、`@` 文件、`/` 命令、队列 UI
+- [x] T2.14 Composer：cmdk source registry、`@` 文件、`/` 命令、队列 UI
   - Acceptance: `@` 工作区文件搜索、`/` 内置命令 + Phase 1 AvailableCommands +
-    skills；队列消息可展开、编辑、删除、重排；不破坏 draft scratch。
+    skills；队列消息可展开、编辑、删除；当前后端仅支持单条 queued prompt，重排控件显示为禁用并在
+    traceability 记录为后续多队列模型事项；不破坏 draft scratch。
   - Verify: `cd frontend && pnpm vitest run src/components/tasks/follow-up`
   - Files: `components/tasks/follow-up/*`, `lib/conversation-rendering/commandSources.ts`
 

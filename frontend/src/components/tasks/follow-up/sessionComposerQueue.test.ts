@@ -63,20 +63,24 @@ describe('session composer queue helpers', () => {
   });
 
   it('derives queue indicator state only for visible queued messages', () => {
+    const status = queuedStatus();
     expect(getQueueIndicatorState(queuedStatus(), true)).toEqual({
       isQueued: true,
+      queuedMessage: status.message,
       messagePreview: 'queued text',
       attachmentCount: 1,
     });
 
     expect(getQueueIndicatorState(queuedStatus(), false)).toEqual({
       isQueued: false,
+      queuedMessage: null,
       messagePreview: null,
       attachmentCount: 0,
     });
 
     expect(getQueueIndicatorState({ status: 'empty' }, true)).toEqual({
       isQueued: false,
+      queuedMessage: null,
       messagePreview: null,
       attachmentCount: 0,
     });

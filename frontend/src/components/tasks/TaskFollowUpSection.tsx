@@ -34,6 +34,7 @@ import { SessionComposerInput } from './follow-up/SessionComposerInput';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
   clearComposerImageAttachments,
+  imageAttachmentFromPath,
   revokeComposerImagePreviewUrl,
 } from './follow-up/sessionComposerImages';
 import {
@@ -76,6 +77,7 @@ import { useSessionComposerPreviewElementInsertion } from './follow-up/useSessio
 import { useSessionComposerSubmitActions } from './follow-up/useSessionComposerSubmitActions';
 import { useSessionComposerImageRemoval } from './follow-up/useSessionComposerImageRemoval';
 import { useSessionComposerFocus } from './follow-up/useSessionComposerFocus';
+import type { QueuedMessage } from './follow-up/sessionComposerQueue';
 import {
   useSessionComposerLocalState,
   useSessionComposerProfileSelection,
@@ -317,6 +319,14 @@ export function TaskFollowUpSection({
     isAttemptRunning,
     processCount: processes.length,
   });
+  const handleEditQueuedMessage = useCallback(
+    async (queuedMessage: QueuedMessage) => {
+      setLocalMessage(queuedMessage.data.message);
+      setAttachedImages(queuedMessage.data.images.map(imageAttachmentFromPath));
+      await cancelQueue();
+    },
+    [cancelQueue, setAttachedImages, setLocalMessage]
+  );
 
   const { entries } = useEntries();
   const codexGoalState = useMemo(() => {
@@ -575,8 +585,11 @@ export function TaskFollowUpSection({
 
               <MessageQueueIndicator
                 isQueued={queueIndicatorState.isQueued}
+                queuedMessage={queueIndicatorState.queuedMessage}
                 messagePreview={queueIndicatorState.messagePreview}
                 attachmentCount={queueIndicatorState.attachmentCount}
+                onEditQueuedMessage={handleEditQueuedMessage}
+                onDeleteQueuedMessage={cancelQueue}
               />
             </div>
           </div>
@@ -624,6 +637,7 @@ export function TaskFollowUpSection({
               repoId: summaryRepoId ?? undefined,
               repoIds: repos.map((repo) => repo.id),
               executorProfile: effectiveExecutorProfile,
+              sessionId,
             }}
             images={attachedImages}
             onSubmit={handleSubmitShortcut}

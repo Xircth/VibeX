@@ -20,11 +20,13 @@ import { TypeaheadMenu } from '@/components/ui/wysiwyg/plugins/typeahead-menu-co
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
 import { fileTreeApi, repoApi, skillsApi } from '@/lib/api';
+import { DOLLAR_COMMANDS, mergeDollarCommands } from '@/lib/dollarCommands';
 import {
-  DOLLAR_COMMANDS,
-  mergeDollarCommands,
-  skillsToDollarCommands,
-} from '@/lib/dollarCommands';
+  agentAvailableCommandsToSlashCommands,
+  localSkillsToDollarCommands,
+  localSkillsToSlashCommands,
+  mergeComposerSlashCommands,
+} from '@/lib/conversation-rendering/commandSources';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
 import {
@@ -32,6 +34,7 @@ import {
   parseFileReferencePayload,
   type FileReferencePayload,
 } from '@/utils/fileReferences';
+import type { AgentAvailableCommand } from '@/features/agents/types';
 import {
   clearCurrentDraggedFileReference,
   getCurrentDraggedFileReference,
@@ -75,11 +78,13 @@ export type SessionComposerInputContext = {
   sendShortcut?: SendMessageShortcut;
   taskAttemptId?: string;
   taskId?: string;
+  sessionId?: string;
   workspaceId?: string;
   repoId?: string;
   repoIds?: string[];
   projectId?: string;
   executorProfile?: ExecutorProfileId | null;
+  availableCommands?: AgentAvailableCommand[];
 };
 
 type SessionComposerInputProps = {
@@ -521,6 +526,7 @@ export function SessionComposerInput({
     repoIds,
     projectId,
     executorProfile,
+    availableCommands = [],
   } = context ?? {};
   const editorRef = useRef<HTMLDivElement | null>(null);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
@@ -552,21 +558,30 @@ export function SessionComposerInput({
     workspaceId,
     repoId,
   });
-  const allSlashCommands = useMemo(
-    () => slashCommandsQuery.commands ?? [],
-    [slashCommandsQuery.commands]
-  );
   const { data: localSkills = [] } = useQuery({
     queryKey: ['local-agent-skills', 'CODEX'],
     queryFn: () => skillsApi.listLocal('CODEX'),
-    enabled: typeaheadTrigger === '$',
+    enabled: typeaheadTrigger === '$' || typeaheadTrigger === '/',
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
+  const allSlashCommands = useMemo(
+    () =>
+      mergeComposerSlashCommands({
+        catalogCommands: slashCommandsQuery.commands ?? [],
+        runtimeCommands:
+          agentAvailableCommandsToSlashCommands(availableCommands),
+        skillCommands: localSkillsToSlashCommands(localSkills),
+      }),
+    [availableCommands, localSkills, slashCommandsQuery.commands]
+  );
   const allDollarCommands = useMemo(
     () =>
-      mergeDollarCommands(DOLLAR_COMMANDS, skillsToDollarCommands(localSkills)),
+      mergeDollarCommands(
+        DOLLAR_COMMANDS,
+        localSkillsToDollarCommands(localSkills)
+      ),
     [localSkills]
   );
   const { data: initialRepo } = useQuery({

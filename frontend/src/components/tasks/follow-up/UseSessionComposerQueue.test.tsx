@@ -75,6 +75,12 @@ describe('useSessionComposerQueue', () => {
     await waitFor(() => expect(result.current.isQueued).toBe(true));
     expect(result.current.queueIndicatorState).toEqual({
       isQueued: true,
+      queuedMessage: expect.objectContaining({
+        data: {
+          message: 'loaded',
+          images: ['vibe://queued'],
+        },
+      }),
       messagePreview: 'loaded',
       attachmentCount: 1,
     });

@@ -170,6 +170,23 @@ describe('adaptContentParts', () => {
       }),
       expectedType: 'text',
     },
+    {
+      name: 'session modes',
+      envelope: event(5, {
+        kind: 'session_modes',
+        modes: [{ id: 'plan', label: 'Plan' }],
+        current: 'plan',
+      }),
+      expectedType: 'status',
+    },
+    {
+      name: 'available commands',
+      envelope: event(6, {
+        kind: 'available_commands',
+        commands: [{ name: '/compact', description: 'Compact context' }],
+      }),
+      expectedType: 'status',
+    },
   ])('maps agent event $name to $expectedType parts', (fixture) => {
     expect(adaptAgentEventEnvelope(fixture.envelope)?.type).toBe(
       fixture.expectedType

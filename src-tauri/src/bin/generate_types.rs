@@ -1,14 +1,15 @@
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
 
 use agents::{
-    AgentAvailabilityInfo, AgentCapability, AgentConfigStrategy, AgentConfigSurface,
-    AgentConnectionId, AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock,
-    AgentDistribution, AgentErrorEvent, AgentEvent, AgentEventEnvelope, AgentFileReadRequest,
-    AgentFileWriteRequest, AgentInstallPlan, AgentInstallStatus, AgentMcpConfig, AgentMcpStrategy,
-    AgentMcpSurface, AgentPermissionId, AgentPermissionOption, AgentPermissionRequest,
-    AgentPermissionResponse, AgentPlan, AgentPreflight, AgentPreflightIssue,
-    AgentPreflightSeverity, AgentPromptFinished, AgentPromptId, AgentPromptSnapshot,
-    AgentPromptStatus, AgentRegistryEntry, AgentSessionId, AgentSessionSnapshot,
+    AgentAvailabilityInfo, AgentAvailableCommand, AgentCapability, AgentConfigStrategy,
+    AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot, AgentConnectionStatus,
+    AgentContentBlock, AgentDistribution, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
+    AgentFileReadRequest, AgentFileWriteRequest, AgentInstallPlan, AgentInstallStatus,
+    AgentMcpConfig, AgentMcpStrategy, AgentMcpSurface, AgentPermissionId, AgentPermissionOption,
+    AgentPermissionRequest, AgentPermissionResponse, AgentPlan, AgentPreflight,
+    AgentPreflightIssue, AgentPreflightSeverity, AgentPromptFinished, AgentPromptId,
+    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentSessionConfigChoice,
+    AgentSessionConfigOption, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
     AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest,
     AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
     AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
@@ -235,6 +236,10 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentToolCallUpdate>(&mut decls);
     insert_declaration::<AgentPlan>(&mut decls);
     insert_declaration::<AgentUsage>(&mut decls);
+    insert_declaration::<AgentSessionMode>(&mut decls);
+    insert_declaration::<AgentSessionConfigChoice>(&mut decls);
+    insert_declaration::<AgentSessionConfigOption>(&mut decls);
+    insert_declaration::<AgentAvailableCommand>(&mut decls);
     insert_declaration::<AgentPromptFinished>(&mut decls);
     insert_declaration::<AgentErrorEvent>(&mut decls);
     insert_declaration::<AgentTerminalOutput>(&mut decls);

@@ -202,6 +202,32 @@ export type AgentPermissionResponse =
   | { kind: 'selected'; option_id: string }
   | { kind: 'cancelled' };
 
+export type AgentSessionMode = {
+  id: string;
+  label: string;
+  description?: string | null;
+};
+
+export type AgentSessionConfigChoice = {
+  value: unknown;
+  label: string;
+  description?: string | null;
+};
+
+export type AgentSessionConfigOption = {
+  key: string;
+  label: string;
+  description?: string | null;
+  value?: unknown;
+  choices: AgentSessionConfigChoice[];
+};
+
+export type AgentAvailableCommand = {
+  name: string;
+  description?: string | null;
+  input_schema?: unknown;
+};
+
 export type AgentContentBlock =
   | { kind: 'text'; text: string }
   | {
@@ -225,6 +251,22 @@ export type AgentEvent =
     }
   | { kind: 'plan'; plan: { entries: string[] } }
   | { kind: 'usage'; usage: { used: number; limit?: number | null } }
+  | {
+      kind: 'session_modes';
+      modes: AgentSessionMode[];
+      current?: string | null;
+    }
+  | { kind: 'mode_changed'; mode_id: string }
+  | {
+      kind: 'session_config_options';
+      options: AgentSessionConfigOption[];
+    }
+  | { kind: 'config_changed'; key: string; value: unknown }
+  | { kind: 'available_commands'; commands: AgentAvailableCommand[] }
+  | { kind: 'session_load_failed'; reason: string }
+  | { kind: 'turn_completed'; stop_reason?: string | null }
+  | { kind: 'fork_supported' }
+  | { kind: 'session_config_stale'; reason?: string | null }
   | { kind: 'permission_requested'; request: AgentPermissionRequest }
   | {
       kind: 'permission_responded';

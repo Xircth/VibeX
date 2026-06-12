@@ -487,6 +487,77 @@ export function adaptAgentEventEnvelope(
         used: envelope.event.usage.used,
         limit: envelope.event.usage.limit,
       };
+    case 'session_modes':
+      return {
+        ...base,
+        type: 'status',
+        label: 'modes',
+        state: envelope.event.current ?? `${envelope.event.modes.length}`,
+        message: envelope.event.modes.map((mode) => mode.label).join(', '),
+      };
+    case 'mode_changed':
+      return {
+        ...base,
+        type: 'status',
+        label: 'mode',
+        state: envelope.event.mode_id,
+      };
+    case 'session_config_options':
+      return {
+        ...base,
+        type: 'status',
+        label: 'config',
+        state: 'options',
+        message: envelope.event.options.map((option) => option.key).join(', '),
+      };
+    case 'config_changed':
+      return {
+        ...base,
+        type: 'status',
+        label: 'config',
+        state: envelope.event.key,
+        message: stringifyJson(envelope.event.value),
+      };
+    case 'available_commands':
+      return {
+        ...base,
+        type: 'status',
+        label: 'commands',
+        state: `${envelope.event.commands.length}`,
+        message: envelope.event.commands
+          .map((command) => command.name)
+          .join(', '),
+      };
+    case 'session_load_failed':
+      return {
+        ...base,
+        type: 'status',
+        label: 'session_load',
+        state: 'failed',
+        message: envelope.event.reason,
+      };
+    case 'turn_completed':
+      return {
+        ...base,
+        type: 'status',
+        label: 'turn',
+        state: envelope.event.stop_reason ?? 'completed',
+      };
+    case 'fork_supported':
+      return {
+        ...base,
+        type: 'status',
+        label: 'fork',
+        state: 'supported',
+      };
+    case 'session_config_stale':
+      return {
+        ...base,
+        type: 'status',
+        label: 'config',
+        state: 'stale',
+        message: envelope.event.reason ?? undefined,
+      };
     case 'permission_requested':
       return {
         ...base,

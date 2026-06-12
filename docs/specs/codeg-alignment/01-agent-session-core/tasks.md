@@ -7,7 +7,7 @@
   - Acceptance: 迁移可重放；`prepare-db:check`、`generate-types:check` 绿
   - Verify: `cargo test -p db`；两个 check 命令
   - Files: `crates/db/migrations/*`, `crates/db/src/models/*`
-- [ ] T1.2 events.rs 事件面扩展 + PromptFinished 增补 stop_reason；ts 导出
+- [x] T1.2 events.rs 事件面扩展 + PromptFinished 增补 stop_reason；ts 导出
   - Acceptance: 新事件序列化往返测试通过
   - Verify: `cargo test -p agents events`
   - Files: `crates/agents/src/events.rs`, `shared/types.ts`(生成)

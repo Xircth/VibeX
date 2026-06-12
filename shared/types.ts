@@ -701,7 +701,7 @@ export type AgentDistribution = { "kind": "npx", version: string, package: strin
 
 export type AgentErrorEvent = { message: string, raw?: JsonValue | null, };
 
-export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, };
+export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_load_failed", reason: string, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "fork_supported" } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, };
 
 export type AgentEventEnvelope = { sequence: bigint, workspace_id: string, connection_id: AgentConnectionId, session_id?: AgentSessionId | null, event: AgentEvent, created_at: string, };
 
@@ -792,3 +792,11 @@ export type PlatformBinary = { platform: string, url: string, };
 export type RuntimeSnapshot = { sequence: bigint, registry: Array<AgentRegistryEntry>, connections: Array<AgentConnectionSnapshot>, sessions: Array<AgentSessionSnapshot>, prompts: Array<AgentPromptSnapshot>, events: Array<AgentEventEnvelope>, };
 
 export type SystemCommand = { cmd: string, args: Array<string>, };
+
+export type AgentAvailableCommand = { name: string, description?: string | null, input_schema?: JsonValue | null, };
+
+export type AgentSessionConfigChoice = { value: JsonValue, label: string, description?: string | null, };
+
+export type AgentSessionConfigOption = { key: string, label: string, description?: string | null, value?: JsonValue | null, choices?: Array<AgentSessionConfigChoice>, };
+
+export type AgentSessionMode = { id: string, label: string, description?: string | null, };

@@ -163,6 +163,89 @@ export function buildAgentTranscriptEntries(
           )
         );
         break;
+      case 'session_modes':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Session modes: ${envelope.event.modes
+              .map((mode) => mode.label)
+              .join(', ')}${envelope.event.current ? ` (current: ${envelope.event.current})` : ''}`
+          )
+        );
+        break;
+      case 'mode_changed':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Mode changed: ${envelope.event.mode_id}`
+          )
+        );
+        break;
+      case 'session_config_options':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Session config options: ${envelope.event.options
+              .map((option) => option.key)
+              .join(', ')}`
+          )
+        );
+        break;
+      case 'config_changed':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Config changed: ${envelope.event.key}`
+          )
+        );
+        break;
+      case 'available_commands':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Available commands: ${envelope.event.commands
+              .map((command) => command.name)
+              .join(', ')}`
+          )
+        );
+        break;
+      case 'session_load_failed':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Session load failed: ${envelope.event.reason}`
+          )
+        );
+        break;
+      case 'turn_completed':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Turn completed${envelope.event.stop_reason ? `: ${envelope.event.stop_reason}` : ''}`
+          )
+        );
+        break;
+      case 'fork_supported':
+        entries.push(
+          normalizedEntry(envelope, { type: 'system_message' }, 'Fork supported')
+        );
+        break;
+      case 'session_config_stale':
+        entries.push(
+          normalizedEntry(
+            envelope,
+            { type: 'system_message' },
+            `Session config stale${envelope.event.reason ? `: ${envelope.event.reason}` : ''}`
+          )
+        );
+        break;
       case 'permission_requested':
         entries.push(
           normalizedEntry(

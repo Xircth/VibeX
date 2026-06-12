@@ -17,6 +17,7 @@
 
 ## 实施记录
 
+- 2026-06-13 / Phase 1 T1.2：完成 Agent runtime 事件合同扩展。新增 `session_modes`、`mode_changed`、`session_config_options`、`config_changed`、`available_commands`、`session_load_failed`、`turn_completed`、`fork_supported`、`session_config_stale` 事件及 ts-rs 导出，保留既有 `prompt_finished.stop_reason` 合同；前端 content-part adapter 对新控制类事件提供 status 兜底。验证：`cargo test -p agents events`、`pnpm run generate-types:check`、`pnpm run frontend:check` 通过。
 - 2026-06-13 / Phase 1 T1.1：完成 Agent session core 持久化地基。`sessions` 新增 `external_session_id`/`agent_type`，新增 `agent_pending_permissions` 表和 DB store 方法，`agent_setting` 增加 `auto_approve_mode`，并修复 `generate-types` 脚本使其稳定使用 `crates/db/.sqlx` 离线缓存。验证：`cargo test -p db`、`pnpm run prepare-db:check`、`pnpm run generate-types:check`、`pnpm run frontend:check`、`pnpm run backend:check` 通过。
 - 2026-06-12 / Phase 2 T2.4：已完成 Shiki 代码高亮第一批落地。会话 Markdown 与文件预览均改为 Shiki token + React `<span>` 渲染；删除 `frontend/src/utils/syntax.ts` 的 Prism/DOMPurify HTML 高亮路径；移除 VibeX 前端对 `prismjs`、`@types/prismjs` 的直接依赖；新增 `frontend/src/utils/shikiHighlighter.ts` 作为统一高亮入口。验证：`pnpm run check`、`pnpm run lint`、70 个目标测试通过。
 - 2026-06-12 / Phase 2 T2.5：已完成数学公式与 Mermaid 图表第一批落地。`Markdown.tsx` 接入 `remark-math` + `rehype-katex` + KaTeX CSS，并新增保护 fenced code/inline code 的 TeX delimiter normalizer；`MermaidDiagram.tsx` 通过动态 `import('mermaid')`、`securityLevel: 'strict'` 和 SVG data URL 渲染图表，错误态保留源码，不引入 `dangerouslySetInnerHTML`。验证：`Markdown.test.tsx` 20 条通过，相关回归 96 条通过，`pnpm run check`、`pnpm run lint` 通过。

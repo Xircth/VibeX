@@ -61,6 +61,47 @@ pub struct AgentUsage {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct AgentSessionMode {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSessionConfigChoice {
+    pub value: serde_json::Value,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSessionConfigOption {
+    pub key: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<AgentSessionConfigChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentAvailableCommand {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentTerminalSnapshot {
     pub id: AgentTerminalId,
     pub command: String,
@@ -126,6 +167,36 @@ pub enum AgentEvent {
     Usage {
         usage: AgentUsage,
     },
+    SessionModes {
+        modes: Vec<AgentSessionMode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current: Option<String>,
+    },
+    ModeChanged {
+        mode_id: String,
+    },
+    SessionConfigOptions {
+        options: Vec<AgentSessionConfigOption>,
+    },
+    ConfigChanged {
+        key: String,
+        value: serde_json::Value,
+    },
+    AvailableCommands {
+        commands: Vec<AgentAvailableCommand>,
+    },
+    SessionLoadFailed {
+        reason: String,
+    },
+    TurnCompleted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop_reason: Option<String>,
+    },
+    ForkSupported,
+    SessionConfigStale {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
     PermissionRequested {
         request: AgentPermissionRequest,
     },
@@ -184,5 +255,64 @@ mod tests {
         let value = serde_json::to_value(envelope).unwrap();
         assert_eq!(value["event"]["kind"], "message_chunk");
         assert_eq!(value["event"]["content"]["kind"], "text");
+    }
+
+    #[test]
+    fn phase1_contract_events_roundtrip() {
+        let events = vec![
+            AgentEvent::SessionModes {
+                modes: vec![AgentSessionMode {
+                    id: "plan".to_string(),
+                    label: "Plan".to_string(),
+                    description: Some("Plan before editing".to_string()),
+                }],
+                current: Some("plan".to_string()),
+            },
+            AgentEvent::ModeChanged {
+                mode_id: "code".to_string(),
+            },
+            AgentEvent::SessionConfigOptions {
+                options: vec![AgentSessionConfigOption {
+                    key: "model".to_string(),
+                    label: "Model".to_string(),
+                    description: None,
+                    value: Some(serde_json::json!("gpt-5.4")),
+                    choices: vec![AgentSessionConfigChoice {
+                        value: serde_json::json!("gpt-5.4"),
+                        label: "GPT-5.4".to_string(),
+                        description: None,
+                    }],
+                }],
+            },
+            AgentEvent::ConfigChanged {
+                key: "model".to_string(),
+                value: serde_json::json!("gpt-5.4-mini"),
+            },
+            AgentEvent::AvailableCommands {
+                commands: vec![AgentAvailableCommand {
+                    name: "/compact".to_string(),
+                    description: Some("Compact context".to_string()),
+                    input_schema: Some(serde_json::json!({"type":"object"})),
+                }],
+            },
+            AgentEvent::SessionLoadFailed {
+                reason: "unsupported".to_string(),
+            },
+            AgentEvent::TurnCompleted {
+                stop_reason: Some("end_turn".to_string()),
+            },
+            AgentEvent::ForkSupported,
+            AgentEvent::SessionConfigStale {
+                reason: Some("adapter changed".to_string()),
+            },
+        ];
+
+        for event in events {
+            let value = serde_json::to_value(&event).unwrap();
+            let roundtrip: AgentEvent = serde_json::from_value(value.clone()).unwrap();
+
+            assert_eq!(roundtrip, event);
+            assert!(value["kind"].as_str().is_some());
+        }
     }
 }

@@ -32,8 +32,9 @@ pub use distribution::{
 };
 pub use error::{AgentError, AgentResult};
 pub use events::{
-    AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope, AgentPlan,
-    AgentPromptFinished, AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall,
+    AgentAvailableCommand, AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
+    AgentPlan, AgentPromptFinished, AgentSessionConfigChoice, AgentSessionConfigOption,
+    AgentSessionMode, AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall,
     AgentToolCallUpdate, AgentUsage,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};

@@ -127,6 +127,41 @@ describe('agent transcript adapter', () => {
     expect(normalized(entries[2]!).content).toBe('ok');
   });
 
+  it('keeps Phase 1 control events visible as system messages', () => {
+    const entries = buildAgentTranscriptEntries([
+      event(1, {
+        kind: 'session_modes',
+        modes: [{ id: 'plan', label: 'Plan' }],
+        current: 'plan',
+      }),
+      event(2, {
+        kind: 'available_commands',
+        commands: [{ name: '/compact' }],
+      }),
+      event(3, {
+        kind: 'session_load_failed',
+        reason: 'unsupported',
+      }),
+      event(4, {
+        kind: 'turn_completed',
+        stop_reason: 'end_turn',
+      }),
+    ]);
+
+    expect(entries.map((entry) => normalized(entry).entry_type.type)).toEqual([
+      'system_message',
+      'system_message',
+      'system_message',
+      'system_message',
+    ]);
+    expect(entries.map((entry) => normalized(entry).content)).toEqual([
+      'Session modes: Plan (current: plan)',
+      'Available commands: /compact',
+      'Session load failed: unsupported',
+      'Turn completed: end_turn',
+    ]);
+  });
+
   it.each<AgentType>([
     'claude_code',
     'codex',

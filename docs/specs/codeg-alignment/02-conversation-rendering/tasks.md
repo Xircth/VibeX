@@ -147,6 +147,8 @@
   - Files: `docs/specs/codeg-alignment/02-conversation-rendering/visual-build-validation.md`,
     `docs/specs/codeg-alignment/02-conversation-rendering/screenshots/*`
 
-- [ ] T2.18 五轴审查 → 修复 → 全门验证 → 合并回 master
+- [x] T2.18 五轴审查 → 修复 → 全门验证 → 合并回 master
   - Acceptance: review findings 关闭；traceability 中 C1-C16 全部标记为完成/裁剪。
-  - Verify: 根目录全门：`pnpm run check`, `pnpm run lint`, `cargo test --workspace`
+    收口记录见 `phase2-closure-review.md`；当前分支为 `master`。
+  - Verify: 根目录全门：`pnpm run check`, `pnpm run lint`, `cargo test --workspace` 全部通过。
+  - Files: `docs/specs/codeg-alignment/02-conversation-rendering/phase2-closure-review.md`

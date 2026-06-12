@@ -9,7 +9,6 @@ import { PanelActionsProvider } from '@/contexts/PanelActionsContext';
 import { TerminalProvider } from '@/contexts/TerminalContext';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { IDELayout } from '@/components/layout/IDELayout';
-import { AcpTerminalBridge } from '@/components/layout/AcpTerminalBridge';
 import { KanbanSessionConversationPlacementProvider } from '@/components/kanban/KanbanSessionConversationView';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
@@ -82,7 +81,6 @@ export function WorkspaceLayout({
           <TerminalProvider>
             <PanelActionsProvider>
               <KanbanSessionConversationPlacementProvider>
-                <AcpTerminalBridge />
                 <IDELayout
                   rightPanelContent={rightPanelContent}
                   toolbarContent={toolbarContent}

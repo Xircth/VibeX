@@ -221,6 +221,10 @@ impl AgentConnectionManager {
             .collect()
     }
 
+    pub async fn has_connection(&self, connection_id: AgentConnectionId) -> bool {
+        self.connections.lock().await.contains_key(&connection_id)
+    }
+
     async fn send_command(
         &self,
         connection_id: AgentConnectionId,
@@ -234,10 +238,14 @@ impl AgentConnectionManager {
         }
         .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
 
-        cmd_tx
-            .send(command)
-            .await
-            .map_err(|_| AgentError::Runtime("agent connection command channel closed".into()))
+        if cmd_tx.send(command).await.is_ok() {
+            return Ok(());
+        }
+
+        self.connections.lock().await.remove(&connection_id);
+        Err(AgentError::Runtime(
+            "agent connection command channel closed".into(),
+        ))
     }
 }
 

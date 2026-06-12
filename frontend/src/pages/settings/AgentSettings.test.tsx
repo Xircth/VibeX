@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentSettings } from './AgentSettings';
 
@@ -10,8 +11,21 @@ const agentsApiMock = vi.hoisted(() => ({
   listInstallPlans: vi.fn(),
 }));
 
+const agentSettingsApiMock = vi.hoisted(() => ({
+  list: vi.fn(),
+  updatePreferences: vi.fn(),
+  reorder: vi.fn(),
+  preflight: vi.fn(),
+  runFix: vi.fn(),
+  detectVersion: vi.fn(),
+}));
+
 vi.mock('@/features/agents/api', () => ({
   agentsApi: agentsApiMock,
+}));
+
+vi.mock('@/lib/api', () => ({
+  agentSettingsApi: agentSettingsApiMock,
 }));
 
 function mockRegistry() {
@@ -109,6 +123,18 @@ function mockRegistry() {
       },
     },
   ]);
+  agentSettingsApiMock.list.mockResolvedValue([
+    {
+      id: 1,
+      agent_type: 'codex',
+      enabled: true,
+      sort_order: 0,
+      installed_version: '0.9.0',
+      env_json: '{"OPENAI_API_KEY":"sk-test"}',
+      config_json: '{"model":"gpt-5"}',
+    },
+  ]);
+  agentSettingsApiMock.detectVersion.mockResolvedValue('0.9.0');
 }
 
 describe('AgentSettings', () => {
@@ -116,9 +142,12 @@ describe('AgentSettings', () => {
     for (const fn of Object.values(agentsApiMock)) {
       fn.mockReset();
     }
+    for (const fn of Object.values(agentSettingsApiMock)) {
+      fn.mockReset();
+    }
   });
 
-  it('renders registry driven agent rows', async () => {
+  it('renders registry rows with persisted agent preferences', async () => {
     mockRegistry();
 
     render(<AgentSettings />);
@@ -128,7 +157,64 @@ describe('AgentSettings', () => {
     });
 
     expect(screen.getByTestId('agent-registry-row-gemini')).toBeInTheDocument();
-    expect(screen.getByText('node>=20.0.0')).toBeInTheDocument();
-    expect(agentsApiMock.listRegistry).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByText(/版本 0\.9\.0/).length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue(/"model": "gpt-5"/)).toBeInTheDocument();
+    expect(agentSettingsApiMock.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves enablement and JSON preferences through the agent settings API', async () => {
+    const user = userEvent.setup();
+    mockRegistry();
+    agentSettingsApiMock.updatePreferences.mockResolvedValue({
+      id: 1,
+      agent_type: 'codex',
+      enabled: false,
+      sort_order: 0,
+      installed_version: '0.9.0',
+      env_json: '{"OPENAI_API_KEY":"sk-test"}',
+      config_json: '{"model":"gpt-5"}',
+    });
+
+    render(<AgentSettings />);
+
+    await screen.findByTestId('agent-registry-row-codex');
+    await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(agentSettingsApiMock.updatePreferences).toHaveBeenCalledWith({
+        agentType: 'codex',
+        enabled: false,
+        envJson: '{"OPENAI_API_KEY":"sk-test"}',
+        configJson: '{"model":"gpt-5"}',
+      });
+    });
+  });
+
+  it('runs setup preflight checks for the selected agent', async () => {
+    const user = userEvent.setup();
+    mockRegistry();
+    agentSettingsApiMock.preflight.mockResolvedValue({
+      checks: [
+        {
+          check_id: 'runtime_launcher',
+          label: 'codex runtime launcher',
+          status: 'pass',
+          message: 'Found at codex',
+          fixes: [],
+        },
+      ],
+    });
+
+    render(<AgentSettings />);
+
+    await screen.findByTestId('agent-registry-row-codex');
+    await user.click(screen.getByRole('button', { name: '立即检查' }));
+
+    await waitFor(() => {
+      expect(agentSettingsApiMock.preflight).toHaveBeenCalledWith('codex');
+    });
+    expect(screen.getByText('运行入口可用。')).toBeInTheDocument();
+    expect(screen.getByText('可用')).toBeInTheDocument();
   });
 });

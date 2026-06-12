@@ -72,6 +72,22 @@ function isExpectedRepoRemoteConfigError(cmd: string, error: unknown) {
   );
 }
 
+function isExpectedSessionNotFoundError(cmd: string, error: unknown) {
+  if (cmd !== 'get_session') {
+    return false;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : getErrorField(error, 'message');
+  const normalized = message.toLowerCase();
+
+  return normalized.includes('not found') && normalized.includes('session');
+}
+
 export function isCanceledError(error: unknown) {
   const message =
     error instanceof Error
@@ -101,7 +117,8 @@ export async function tauriInvoke<T>(
       !isCanceledError(error) &&
       !isExpectedBinaryTextReadError(cmd, error) &&
       !isExpectedAttachTerminalNotFoundError(cmd, error) &&
-      !isExpectedRepoRemoteConfigError(cmd, error)
+      !isExpectedRepoRemoteConfigError(cmd, error) &&
+      !isExpectedSessionNotFoundError(cmd, error)
     ) {
       console.error(`Tauri command failed: ${cmd}`, error);
     }

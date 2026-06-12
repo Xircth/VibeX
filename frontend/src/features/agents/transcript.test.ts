@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { buildAgentTranscriptEntries } from './transcript';
-import type { AgentEventEnvelope } from './types';
+import type { AgentEventEnvelope, AgentType } from './types';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
 
 function event(
   sequence: number,
-  event: AgentEventEnvelope['event']
+  event: AgentEventEnvelope['event'],
+  overrides: Partial<
+    Pick<AgentEventEnvelope, 'connection_id' | 'session_id'>
+  > = {}
 ): AgentEventEnvelope {
   return {
     sequence,
     workspace_id: 'workspace',
-    connection_id: 'connection',
-    session_id: 'session',
+    connection_id: overrides.connection_id ?? 'connection',
+    session_id: overrides.session_id ?? 'session',
     created_at: `2026-06-11T00:00:0${sequence}.000Z`,
     event,
   };
@@ -123,4 +126,139 @@ describe('agent transcript adapter', () => {
     expect(normalized(entries[2]!).entry_type.type).toBe('tool_use');
     expect(normalized(entries[2]!).content).toBe('ok');
   });
+
+  it.each<AgentType>([
+    'claude_code',
+    'codex',
+    'open_code',
+    'gemini',
+    'open_claw',
+    'cline',
+    'hermes',
+  ])(
+    'keeps %s ACP conversation output visible without a terminal panel',
+    (agentType) => {
+      const connectionId = `${agentType}-connection`;
+      const sessionId = `${agentType}-session`;
+      const entries = buildAgentTranscriptEntries([
+        event(
+          1,
+          {
+            kind: 'connection_status_changed',
+            snapshot: {
+              id: connectionId,
+              agent_type: agentType,
+              workspace_id: 'workspace',
+              status: 'ready',
+              working_dir: 'C:/repo',
+              created_at: '2026-06-11T00:00:01.000Z',
+              updated_at: '2026-06-11T00:00:01.000Z',
+            },
+          },
+          { connection_id: connectionId, session_id: null }
+        ),
+        event(
+          2,
+          {
+            kind: 'prompt_started',
+            snapshot: {
+              id: `${agentType}-prompt`,
+              session_id: sessionId,
+              status: { kind: 'running' },
+              text_preview: `${agentType} prompt`,
+              created_at: '2026-06-11T00:00:02.000Z',
+              updated_at: '2026-06-11T00:00:02.000Z',
+            },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+        event(
+          3,
+          {
+            kind: 'message_chunk',
+            content: { kind: 'text', text: `${agentType} answer` },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+        event(
+          4,
+          {
+            kind: 'thought_chunk',
+            content: { kind: 'text', text: `${agentType} thought` },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+        event(
+          5,
+          {
+            kind: 'tool_call',
+            tool_call: {
+              id: `${agentType}-tool`,
+              title: `${agentType} tool`,
+              kind: 'command',
+            },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+        event(
+          6,
+          {
+            kind: 'terminal_created',
+            terminal: {
+              id: `${agentType}-terminal`,
+              command: 'echo',
+              args: [agentType],
+              cwd: 'C:/repo',
+            },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+        event(
+          7,
+          {
+            kind: 'terminal_output',
+            output: {
+              terminal_id: `${agentType}-terminal`,
+              output: `${agentType} terminal output`,
+              truncated: false,
+              exit_status: 0,
+            },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+        event(
+          8,
+          {
+            kind: 'permission_requested',
+            request: {
+              id: `${agentType}-permission`,
+              session_id: sessionId,
+              title: `${agentType} permission`,
+              options: [{ id: 'allow', label: 'Allow' }],
+            },
+          },
+          { connection_id: connectionId, session_id: sessionId }
+        ),
+      ]);
+
+      const visibleContent = entries
+        .filter(
+          (
+            entry
+          ): entry is Extract<PatchTypeWithKey, { type: 'NORMALIZED_ENTRY' }> =>
+            entry.type === 'NORMALIZED_ENTRY'
+        )
+        .map((entry) => entry.content.content);
+
+      expect(visibleContent).toEqual([
+        `${agentType} prompt`,
+        `${agentType} answer`,
+        `${agentType} thought`,
+        `${agentType} tool`,
+        `echo ${agentType}`,
+        `${agentType} terminal output`,
+        `Permission requested: ${agentType} permission (1 option)`,
+      ]);
+    }
+  );
 });

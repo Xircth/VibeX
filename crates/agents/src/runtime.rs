@@ -334,22 +334,60 @@ impl AgentRuntime {
         &self,
         input: EnsureAgentSessionInput,
     ) -> AgentResult<AgentSessionSnapshot> {
-        if let Some(existing) = self.state.read().await.sessions.get(&input.session_id) {
-            return Ok(existing.snapshot.clone());
+        let existing_session = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&input.session_id)
+            .map(|session| session.snapshot.clone());
+
+        if let Some(existing_session) = existing_session {
+            let connection = {
+                let state = self.state.read().await;
+                state
+                    .connections
+                    .get(&existing_session.connection_id)
+                    .map(|connection| connection.snapshot.clone())
+            };
+            if let Some(connection) = connection
+                && connection.agent_type == input.agent_type
+                && connection.workspace_id == input.workspace_id
+                && connection.working_dir == input.working_dir.display().to_string()
+                && connection.status == AgentConnectionStatus::Ready
+                && self
+                    .connection_manager
+                    .has_connection(existing_session.connection_id)
+                    .await
+            {
+                return Ok(existing_session);
+            }
         }
 
         let existing_connection = {
             let state = self.state.read().await;
-            state
+            let candidates = state
                 .connections
                 .values()
-                .find(|connection| {
-                    connection.snapshot.agent_type == input.agent_type
+                .filter(|connection| {
+                    connection.snapshot.status == AgentConnectionStatus::Ready
+                        && connection.snapshot.agent_type == input.agent_type
                         && connection.snapshot.workspace_id == input.workspace_id
                         && connection.snapshot.working_dir
                             == input.working_dir.display().to_string()
                 })
                 .map(|connection| connection.snapshot.id)
+                .collect::<Vec<_>>();
+            drop(state);
+
+            let mut active_connection = None;
+            for connection_id in candidates {
+                if self.connection_manager.has_connection(connection_id).await {
+                    active_connection = Some(connection_id);
+                    break;
+                }
+            }
+            active_connection
         };
 
         let connection_id = match existing_connection {
@@ -364,6 +402,14 @@ impl AgentRuntime {
                 .id
             }
         };
+
+        if let Some(existing) = self.state.write().await.sessions.get_mut(&input.session_id) {
+            existing.snapshot.connection_id = connection_id;
+            existing.snapshot.acp_session_id = input.acp_session_id;
+            existing.snapshot.status = AgentSessionStatus::Ready;
+            existing.snapshot.updated_at = Utc::now();
+            return Ok(existing.snapshot.clone());
+        }
 
         self.new_session_with_id(connection_id, input.session_id, input.acp_session_id)
             .await
@@ -436,10 +482,33 @@ impl AgentRuntime {
         );
         drop(state);
 
-        if matches!(prompt.status, AgentPromptStatus::Running) {
-            self.connection_manager
+        if matches!(prompt.status, AgentPromptStatus::Running)
+            && let Err(error) = self
+                .connection_manager
                 .send_prompt(input.connection_id, input.session_id, prompt.id, blocks)
-                .await?;
+                .await
+        {
+            let mut state = self.state.write().await;
+            if let Some(prompt) = state.prompts.get_mut(&prompt.id) {
+                prompt.status = AgentPromptStatus::Failed {
+                    message: error.to_string(),
+                };
+                prompt.updated_at = Utc::now();
+            }
+            if let Some(connection) = state.connections.get_mut(&input.connection_id) {
+                connection.snapshot.status = AgentConnectionStatus::Failed;
+                connection.snapshot.status_message = Some(error.to_string());
+                connection.snapshot.updated_at = Utc::now();
+                let snapshot = connection.snapshot.clone();
+                self.emit_locked(
+                    &mut state,
+                    snapshot.workspace_id,
+                    snapshot.id,
+                    None,
+                    AgentEvent::ConnectionStatusChanged { snapshot },
+                );
+            }
+            return Err(error);
         }
 
         Ok(prompt)
@@ -842,6 +911,50 @@ mod tests {
                     if snapshot.status == AgentConnectionStatus::Disconnected
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn ensure_session_rebinds_existing_session_after_connection_disconnect() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = PathBuf::from("C:/work");
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_type: AgentType::Codex,
+                workspace_id,
+                working_dir: working_dir.clone(),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+
+        runtime.disconnect(connection.id).await.unwrap();
+        let rebound = runtime
+            .ensure_session(EnsureAgentSessionInput {
+                agent_type: AgentType::Codex,
+                workspace_id,
+                working_dir,
+                session_id: session.id,
+                acp_session_id: session.acp_session_id.clone(),
+            })
+            .await
+            .unwrap();
+
+        assert_ne!(rebound.connection_id, connection.id);
+        let prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: rebound.connection_id,
+                session_id: rebound.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "after reconnect".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+        assert!(matches!(prompt.status, AgentPromptStatus::Running));
     }
 
     #[test]

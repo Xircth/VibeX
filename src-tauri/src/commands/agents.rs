@@ -318,21 +318,46 @@ pub async fn agent_send_workspace_prompt(
         .ensure_session(EnsureAgentSessionInput {
             agent_type: request.agent_type,
             workspace_id,
-            working_dir: PathBuf::from(working_dir),
+            working_dir: PathBuf::from(&working_dir),
             session_id,
             acp_session_id: request.session_id.clone(),
         })
         .await?;
 
-    state
+    match state
         .agent_runtime
         .send_prompt(SendAgentPromptInput {
             connection_id: session.connection_id,
             session_id: session.id,
-            blocks,
+            blocks: blocks.clone(),
         })
         .await
-        .map_err(Into::into)
+    {
+        Ok(prompt) => Ok(prompt),
+        Err(error) if is_agent_command_channel_closed(&error) => {
+            let session = state
+                .agent_runtime
+                .ensure_session(EnsureAgentSessionInput {
+                    agent_type: request.agent_type,
+                    workspace_id,
+                    working_dir: PathBuf::from(&working_dir),
+                    session_id,
+                    acp_session_id: request.session_id,
+                })
+                .await?;
+
+            state
+                .agent_runtime
+                .send_prompt(SendAgentPromptInput {
+                    connection_id: session.connection_id,
+                    session_id: session.id,
+                    blocks,
+                })
+                .await
+                .map_err(Into::into)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[tauri::command]
@@ -557,6 +582,14 @@ fn parse_agent_permission_id(value: &str) -> Result<AgentPermissionId, AppError>
 
 fn parse_agent_terminal_id(value: &str) -> Result<AgentTerminalId, AppError> {
     parse_uuid("terminal_id", value).map(AgentTerminalId)
+}
+
+fn is_agent_command_channel_closed(error: &agents::AgentError) -> bool {
+    matches!(
+        error,
+        agents::AgentError::Runtime(message)
+            if message.contains("agent connection command channel closed")
+    )
 }
 
 async fn persist_history_import(

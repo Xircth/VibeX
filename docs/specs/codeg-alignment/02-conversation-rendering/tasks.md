@@ -120,11 +120,13 @@
   - Verify: `cd frontend && pnpm vitest run src/components/tasks/follow-up`
   - Files: `components/tasks/follow-up/*`, `lib/conversation-rendering/commandSources.ts`
 
-- [ ] T2.15 overlayscrollbars 接入或裁剪记录
+- [x] T2.15 overlayscrollbars 接入或裁剪记录
   - Acceptance: 若接入，不破坏 stick-to-bottom、虚拟滚动、键盘滚动、文本选择；
-    若裁剪，记录原因和后续 Phase。
-  - Verify: 桌面手动冒烟；若接入则新增最小渲染测试。
-  - Files: `frontend/src/main.tsx`, `frontend/src/styles/*`, 或裁剪记录
+    若裁剪，记录原因和后续 Phase。Phase 2 已裁剪并保留原生滚动条，原因见决策记录。
+  - Verify: `rg "overlayscrollbars" frontend package.json pnpm-lock.yaml` 无命中；
+    `rg "overlayscrollbars" docs/specs/codeg-alignment/02-conversation-rendering` 仅命中文档裁剪记录。
+    未接入运行时代码，因此无需新增渲染测试，继续由 T2.6/T2.17 覆盖滚动语义。
+  - Files: `docs/specs/codeg-alignment/02-conversation-rendering/overlayscrollbars-decision.md`
 
 - [ ] T2.16 旧路径清理与唯一入口验证
   - Acceptance: Kanban、IDE、导入会话预览均使用同一 `NormalizedConversation`

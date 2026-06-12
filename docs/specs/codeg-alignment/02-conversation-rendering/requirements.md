@@ -80,7 +80,9 @@ Markdown、Shiki 代码高亮、CJK/数学/Mermaid、stick-to-bottom、虚拟滚
     ImagePreviewDialog；THE generated image part SHALL 显示生成中/成功/失败、
     修订 prompt、缩略图和打开预览。
 15. Composer：THE 输入区 SHALL 支持 `@` 文件引用菜单、`/` 命令菜单、Agent
-    AvailableCommands、skills、图片粘贴/拖拽、队列消息展示/编辑/删除/重排。
+    AvailableCommands、skills、图片粘贴/拖拽、队列消息展示/编辑/删除；当前后端仅支持
+    单条 queued prompt 时，重排控件 SHALL 以禁用态展示并记录后续多队列模型事项，待
+    后端支持多条 queued prompts 后再启用重排。
 16. 命令面板：THE SYSTEM SHALL 引入 cmdk 风格命令面板原语，供 `/` 菜单、`@`
     菜单与全局命令复用；键盘导航、过滤、Esc 关闭、Enter 选择一致。
 17. 自定义滚动条：IF 接入 overlayscrollbars，THEN 它 SHALL 不破坏虚拟滚动、

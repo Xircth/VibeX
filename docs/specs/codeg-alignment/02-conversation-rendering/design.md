@@ -54,7 +54,7 @@ Kanban 会话、IDE 会话、Phase 3 导入会话、Phase 6 委托子会话都�
 | `use-stick-to-bottom`                           |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；T2.6 已修复自研贴底锚点，后续若替换必须带 DOM/browser 回归                             | 保留当前 scroll anchor                                                   |
 | `virtua`                                        |     T2.1 已裁剪为后续评估 | React 18/Vite 兼容；T2.6 已采用 `@tanstack/react-virtual` 等价实现并补齐核心缺陷                           | 当前先复用 VibeX 已有 `@tanstack/react-virtual`，避免重复虚拟器栈        |
 | `cmdk`                                          |                                是 | `/`、`@`、全局命令面板共用键盘/过滤语义                                                                   | 手写 Popover 列表不满足一致性                                            |
-| `overlayscrollbars` + `overlayscrollbars-react` |                            可裁剪 | 桌面滚动条一致性                                                                                          | 若破坏虚拟滚动则延后                                                     |
+| `overlayscrollbars` + `overlayscrollbars-react` |             T2.15 已裁剪为后续评估 | 桌面滚动条一致性                                                                                          | Phase 2 优先保留原生滚动，避免破坏虚拟滚动、stick-to-bottom、键盘滚动和文本选择 |
 
 明确不新增：Monaco 到消息流、第二套 UI 框架、SeaORM、Next.js。
 
@@ -211,8 +211,9 @@ Markdown 与 ThinkingEntry 渲染。该层只做分发，不把解析逻辑塞�
   - `/`: 内置命令、Phase 1 `AvailableCommands`、skills、专家（Phase 10）
   - `$`: 保留现有结构化 token 能力
 - 引入 cmdk 作为 listbox/command primitive，不替换 composer 状态机。
-- 队列 UI 从 `MessageQueueIndicator` 升级为可展开列表：预览、编辑、删除、重排、
-  立即发送（可用时）。
+- 队列 UI 从 `MessageQueueIndicator` 升级为可展开列表：预览、编辑、删除；重排与
+  立即发送按后端能力 gate。当前后端仅支持单条 queued prompt，因此重排控件显示为
+  禁用态，后续多队列模型完成后再启用。
 
 ## 测试策略
 

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import {
@@ -63,10 +63,7 @@ export const CodeBlock = memo(function CodeBlock({
   const languageTag = extractLanguageTag(className);
   const language = normalizeShikiLanguage(languageTag);
   const tokens = useShikiTokens(value, language);
-  const languageLabel = useMemo(
-    () => languageTag?.trim() || 'text',
-    [languageTag]
-  );
+  const languageLabel = languageTag?.trim() || 'text';
 
   const handleCopy = useCallback(async () => {
     try {

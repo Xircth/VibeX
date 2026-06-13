@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ChevronRight, Edit } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types.ts';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
 import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
 import DisplayConversationEntry from './DisplayConversationEntry';
 
 export const AggregatedFileEditCard: React.FC<{
@@ -11,12 +12,17 @@ export const AggregatedFileEditCard: React.FC<{
   attempt: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
 }> = ({ entries, attempt, task }) => {
-  const [expanded, setExpanded] = useState(false);
+  // Keyed expand state in the store survives row unmount/remount during virtual
+  // scrolling; local useState would reset every time the row leaves the window.
+  const [expanded, toggle] = useExpandable(
+    `aggregated-file-edit:${entries[0]?.patchKey ?? ''}`,
+    false
+  );
 
   return (
     <div className="px-4 py-1 conv-entry-item">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => toggle()}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm conv-tool-card cursor-pointer"
       >
         <span className="shrink-0 conv-tool-icon">

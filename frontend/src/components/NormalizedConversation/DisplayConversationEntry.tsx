@@ -236,7 +236,6 @@ function DisplayConversationEntry({
           <LookupToolCallCard
             entry={entry}
             expansionKey={expansionKey}
-            statusAppearance={statusAppearance}
             forceExpanded={isPendingApproval}
             containerRef={taskAttempt?.container_ref}
           />

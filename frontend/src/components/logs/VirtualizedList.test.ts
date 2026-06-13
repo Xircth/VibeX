@@ -10,6 +10,7 @@ import {
   getVirtualRowTranslateY,
   isConversationNearBottom,
   pendingAgentPermissionsFromEvents,
+  pendingAgentPermissionsForSession,
 } from './VirtualizedList';
 import { buildProcessChangeFileGroups } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
 import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
@@ -36,6 +37,10 @@ describe('virtualized user-message navigation', () => {
 
   it('falls back to the earliest user turn when already near the top', () => {
     expect(findPreviousUserMessageVirtualIndex([2, 8], 0)).toBe(2);
+  });
+
+  it('skips the anchored user turn so repeated jumps keep moving upward', () => {
+    expect(findPreviousUserMessageVirtualIndex([0, 4, 9], 9)).toBe(4);
   });
 
   it('keeps a 1,000-message fixture indexable for virtual navigation', () => {
@@ -464,5 +469,39 @@ describe('pendingAgentPermissionsFromEvents', () => {
         },
       ])
     ).toEqual([]);
+  });
+
+  it('merges snapshot permissions when request events are no longer in the window', () => {
+    expect(
+      pendingAgentPermissionsForSession(
+        [],
+        {
+          'permission-1': {
+            id: 'permission-1',
+            session_id: 'session',
+            title: 'Run tests',
+            options: [{ id: 'allow', label: 'Allow once' }],
+          },
+          'permission-2': {
+            id: 'permission-2',
+            session_id: 'other-session',
+            title: 'Edit file',
+            options: [{ id: 'reject', label: 'Reject' }],
+          },
+        },
+        'session',
+        'connection'
+      )
+    ).toEqual([
+      {
+        connectionId: 'connection',
+        request: {
+          id: 'permission-1',
+          session_id: 'session',
+          title: 'Run tests',
+          options: [{ id: 'allow', label: 'Allow once' }],
+        },
+      },
+    ]);
   });
 });

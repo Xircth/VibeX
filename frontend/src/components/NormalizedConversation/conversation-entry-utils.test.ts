@@ -10,8 +10,6 @@ import {
   repairTokenizedStreamContent,
   sanitizeConversationContent,
   shouldHideInitializationNotice,
-  splitAssistantCommandOutput,
-  splitAssistantFinalMessage,
   splitLeadingCodexUnstableFeatureNotice,
   splitLeadingImpeccablePreflightNotice,
   splitLeadingTransportNotice,
@@ -183,45 +181,6 @@ describe('conversation meta notices', () => {
     ].join('\n');
 
     expect(repairTokenizedStreamContent(content)).toBe(content);
-  });
-
-  it('splits literal command output assistant messages', () => {
-    expect(
-      splitAssistantCommandOutput('log before\nCommand output: Final answer')
-    ).toEqual({
-      prefix: 'log before',
-      output: 'Final answer',
-    });
-
-    expect(
-      splitAssistantCommandOutput('log before\nCommand output：Final answer')
-    ).toEqual({
-      prefix: 'log before',
-      output: 'Final answer',
-    });
-  });
-
-  it('splits shell output envelopes for assistant messages', () => {
-    expect(
-      splitAssistantCommandOutput(
-        'Exit code: 0\nWall time: 1.7 seconds\nOutput:\nFinal answer'
-      )
-    ).toEqual({
-      prefix: 'Exit code: 0\nWall time: 1.7 seconds\nOutput:',
-      output: 'Final answer',
-    });
-  });
-
-  it('falls back to collapsing earlier assistant paragraphs into a final message block', () => {
-    expect(
-      splitAssistantFinalMessage(
-        '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。\n\n前端已恢复访问。'
-      )
-    ).toEqual({
-      prefix:
-        '先检查前端入口与环境配置。\n\n再核对 dev server 端口映射与代理配置。',
-      output: '前端已恢复访问。',
-    });
   });
 
   it('collapses prior AI-side entries and keeps the final assistant message visible', () => {

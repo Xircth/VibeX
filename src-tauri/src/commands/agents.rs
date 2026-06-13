@@ -1,15 +1,16 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Component, Path, PathBuf},
 };
 
 use agents::{
-    AgentAutoApproveMode, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
-    AgentContentBlock, AgentHistorySource, AgentInstallPlan, AgentMcpConfig, AgentMcpSurface,
-    AgentPermissionId, AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot,
-    AgentRegistryEntry, AgentRuntime, AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface,
-    AgentTerminalId, AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput,
-    ConnectAgentInput, EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentConfigSurface, AgentConnectionId,
+    AgentConnectionSnapshot, AgentContentBlock, AgentHistorySource, AgentInstallPlan,
+    AgentMcpConfig, AgentMcpSurface, AgentPermissionId, AgentPermissionRequest,
+    AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
+    AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
+    AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
+    EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, all_agent_types,
     claude_config_path, codex_config_path, config_surface, default_history_sources,
     default_mcp_config_path, import_history_source, mcp_file_config, mcp_surface,
@@ -102,6 +103,13 @@ pub struct AgentSessionRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentSetAutoApproveRequest {
+    pub agent_type: AgentType,
+    pub auto_approve_mode: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentResumeSessionRequest {
     pub agent_type: AgentType,
     pub workspace_id: String,
@@ -147,19 +155,6 @@ pub struct AgentConfigWriteRequest {
 pub struct AgentMcpWriteRequest {
     pub agent_type: AgentType,
     pub config: Value,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentPermissionRecordDto {
-    pub id: String,
-    pub session_id: String,
-    pub connection_id: String,
-    pub status: String,
-    pub request: Value,
-    pub response: Option<Value>,
-    pub created_at: String,
-    pub responded_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -221,7 +216,24 @@ pub async fn agent_install_plans() -> Result<Vec<AgentInstallPlan>, AppError> {
 pub async fn agent_runtime_snapshot(
     state: tauri::State<'_, AppState>,
 ) -> Result<RuntimeSnapshot, AppError> {
-    Ok(state.agent_runtime.snapshot().await)
+    let mut snapshot = state.agent_runtime.snapshot().await;
+    let mut seen_permission_ids = snapshot
+        .permissions
+        .iter()
+        .map(|request| request.id)
+        .collect::<HashSet<_>>();
+    let records =
+        AgentRuntimeStore::list_pending_permission_requests(&state.deployment.db().pool).await?;
+
+    for record in records {
+        let request: AgentPermissionRequest = serde_json::from_str(&record.request_json)
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        if seen_permission_ids.insert(request.id) {
+            snapshot.permissions.push(request);
+        }
+    }
+
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -254,6 +266,57 @@ pub async fn agent_load_session(
         .into_iter()
         .find(|session| session.id == session_id)
         .ok_or_else(|| AppError::NotFound(format!("Agent session {session_id} not found")))
+}
+
+#[tauri::command]
+pub async fn agent_list_session_commands(
+    state: tauri::State<'_, AppState>,
+    request: AgentSessionRequest,
+) -> Result<Vec<AgentAvailableCommand>, AppError> {
+    let session_id = parse_agent_session_id(&request.session_id)?;
+    let snapshot = state.agent_runtime.snapshot().await;
+
+    Ok(snapshot
+        .events
+        .iter()
+        .rev()
+        .find_map(|envelope| {
+            if envelope.session_id != Some(session_id) {
+                return None;
+            }
+            match &envelope.event {
+                agents::AgentEvent::AvailableCommands { commands } => Some(commands.clone()),
+                _ => None,
+            }
+        })
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn agent_set_auto_approve(
+    state: tauri::State<'_, AppState>,
+    request: AgentSetAutoApproveRequest,
+) -> Result<(), AppError> {
+    validate_auto_approve_mode(&request.auto_approve_mode)?;
+    AgentSetting::update_preferences(
+        &state.deployment.db().pool,
+        agent_type_setting_key(request.agent_type),
+        None,
+        None,
+        None,
+        Some(&request.auto_approve_mode),
+    )
+    .await
+    .map_err(|error| match error {
+        db::models::agent_setting::AgentSettingError::NotFound => AppError::NotFound(format!(
+            "Agent setting not found: {}",
+            agent_type_setting_key(request.agent_type)
+        )),
+        db::models::agent_setting::AgentSettingError::Database(error) => {
+            AppError::Internal(error.to_string())
+        }
+    })?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -349,6 +412,15 @@ fn agent_type_setting_key(agent_type: AgentType) -> &'static str {
     }
 }
 
+fn validate_auto_approve_mode(mode: &str) -> Result<(), AppError> {
+    match mode {
+        "off" | "allow_always" | "yolo" => Ok(()),
+        mode => Err(AppError::BadRequest(format!(
+            "Unsupported auto approve mode: {mode}"
+        ))),
+    }
+}
+
 #[tauri::command]
 pub async fn agent_new_session(
     state: tauri::State<'_, AppState>,
@@ -423,7 +495,8 @@ pub async fn agent_send_workspace_prompt(
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
         .unwrap_or_else(|| container_ref.clone());
-    let blocks = workspace_prompt_blocks(&working_dir, request.text, &request.images)?;
+    let blocks =
+        workspace_prompt_blocks(&working_dir, request.text, &request.images).await?;
     let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
 
     let session = state
@@ -519,43 +592,6 @@ pub async fn agent_respond_permission(
         })
         .await
         .map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn agent_list_permissions(
-    state: tauri::State<'_, AppState>,
-    request: AgentSessionRequest,
-) -> Result<Vec<AgentPermissionRecordDto>, AppError> {
-    let session_id = parse_agent_session_id(&request.session_id)?;
-    let records = AgentRuntimeStore::list_permissions_for_session(
-        &state.deployment.db().pool,
-        &session_id.to_string(),
-    )
-    .await?;
-
-    records
-        .into_iter()
-        .map(|record| {
-            let request = serde_json::from_str(&record.request_json)
-                .map_err(|error| AppError::Internal(error.to_string()))?;
-            let response = record
-                .response_json
-                .as_deref()
-                .map(serde_json::from_str)
-                .transpose()
-                .map_err(|error| AppError::Internal(error.to_string()))?;
-            Ok(AgentPermissionRecordDto {
-                id: record.id,
-                session_id: record.session_id,
-                connection_id: record.connection_id,
-                status: record.status,
-                request,
-                response,
-                created_at: record.created_at,
-                responded_at: record.responded_at,
-            })
-        })
-        .collect()
 }
 
 #[tauri::command]
@@ -781,14 +817,14 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
     }
 }
 
-fn workspace_prompt_blocks(
+async fn workspace_prompt_blocks(
     working_dir: &str,
     text: String,
     images: &[String],
 ) -> Result<Vec<AgentContentBlock>, AppError> {
     let mut blocks = text_prompt_blocks(text);
     for image in images {
-        blocks.push(read_workspace_image_block(working_dir, image)?);
+        blocks.push(read_workspace_image_block(working_dir, image).await?);
     }
     if blocks.is_empty() {
         return Err(AppError::BadRequest(
@@ -798,7 +834,7 @@ fn workspace_prompt_blocks(
     Ok(blocks)
 }
 
-fn read_workspace_image_block(
+async fn read_workspace_image_block(
     working_dir: &str,
     relative_path: &str,
 ) -> Result<AgentContentBlock, AppError> {
@@ -810,7 +846,7 @@ fn read_workspace_image_block(
         )));
     }
 
-    let bytes = std::fs::read(&file_path).map_err(|err| {
+    let bytes = tokio::fs::read(&file_path).await.map_err(|err| {
         AppError::Internal(format!("Failed to read image {relative_path}: {err}"))
     })?;
 

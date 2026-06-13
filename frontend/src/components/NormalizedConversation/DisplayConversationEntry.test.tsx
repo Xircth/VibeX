@@ -48,7 +48,6 @@ vi.mock('./ThinkingEntry', () => ({
 vi.mock('./ToolCallCard', () => ({
   ToolCallCard: () => <div />,
   ScriptToolCallCard: () => <div />,
-  PlanPresentationCard: () => <div />,
   LookupToolCallCard: () => <div />,
 }));
 

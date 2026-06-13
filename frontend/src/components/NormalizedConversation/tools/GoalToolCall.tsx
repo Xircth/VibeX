@@ -1,31 +1,12 @@
 import { Target } from 'lucide-react';
-import type { JsonValue, NormalizedEntry } from 'shared/types';
+import type { NormalizedEntry } from 'shared/types';
 import { renderJson } from '../conversation-entry-utils';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
-
-function isRecord(value: JsonValue | null | undefined): value is {
-  [key: string]: JsonValue | undefined;
-} {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function readString(
-  value: JsonValue | null | undefined,
-  keys: string[]
-): string | null {
-  if (!isRecord(value)) return null;
-  for (const key of keys) {
-    const candidate = value[key];
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate;
-    }
-  }
-  return null;
-}
+import { readString } from './jsonValue';
 
 function isGoalToolName(toolName: string): boolean {
   return /(^|[_-])goal([_-]|$)|create_goal|update_goal|get_goal/i.test(

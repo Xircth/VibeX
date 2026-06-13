@@ -139,8 +139,8 @@ export function useShikiTokens(value: string, language: ShikiCodeLanguage) {
       };
     }
 
-    setTokens(createPlainTokenLines(value));
     if (!value) {
+      setTokens(createPlainTokenLines(value));
       return () => {
         isCurrent = false;
       };
@@ -169,8 +169,11 @@ export function getShikiTokenStyle(
   const darkVariant = token.variants.dark;
 
   return {
-    ...getTokenVariantStyle(lightVariant),
-    ...getTokenVariantStyle(darkVariant),
+    // Token color is theme-isolated via the CSS variables below, but font
+    // styling is plain inline CSS that applies to both color schemes at once.
+    // Only emit font styles shared by both theme variants so a style present in
+    // just one theme never bleeds into the other.
+    ...getSharedVariantFontStyle(lightVariant, darkVariant),
     '--shiki-token-light': lightVariant?.color,
     '--shiki-token-dark': darkVariant?.color,
   };
@@ -246,15 +249,22 @@ function writeTokenCache(key: string, tokens: ShikiTokenLines) {
   tokenCache.set(key, tokens);
 }
 
-function getTokenVariantStyle(variant?: TokenStyles): CSSProperties {
-  if (!variant) return {};
+function getSharedVariantFontStyle(
+  light?: TokenStyles,
+  dark?: TokenStyles
+): CSSProperties {
+  // Shiki encodes fontStyle as a bitmask (1=italic, 2=bold, 4=underline) and
+  // uses -1 for "not set"; clamp negatives to 0 so an unset variant contributes
+  // no styles, then intersect so only shared bits survive.
+  const lightFontStyle = Math.max(light?.fontStyle ?? 0, 0);
+  const darkFontStyle = Math.max(dark?.fontStyle ?? 0, 0);
+  const sharedFontStyle = lightFontStyle & darkFontStyle;
+  if (!sharedFontStyle) return {};
 
   const style: CSSProperties = {};
-  if (variant.fontStyle) {
-    if (variant.fontStyle & 1) style.fontStyle = 'italic';
-    if (variant.fontStyle & 2) style.fontWeight = 600;
-    if (variant.fontStyle & 4) style.textDecoration = 'underline';
-  }
+  if (sharedFontStyle & 1) style.fontStyle = 'italic';
+  if (sharedFontStyle & 2) style.fontWeight = 600;
+  if (sharedFontStyle & 4) style.textDecoration = 'underline';
 
   return style;
 }

@@ -14,7 +14,7 @@ use agent_client_protocol::{
     schema::{
         AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
         CancelNotification, ClientCapabilities, ClientResponse, ContentBlock,
-        CreateTerminalResponse, ErrorCode, ImageContent, Implementation, InitializeRequest,
+        CreateTerminalResponse, ImageContent, Implementation, InitializeRequest,
         KillTerminalRequest, KillTerminalResponse, LoadSessionRequest, NewSessionRequest,
         PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
         RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
@@ -1014,6 +1014,11 @@ impl AgentConnectionRunner {
         loop {
             tokio::select! {
                 result = &mut prompt_future => {
+                    // A turn that ends (normally or with an error) must release any
+                    // permission still pending in the in-memory map; otherwise its
+                    // oneshot sender leaks and the runtime/DB state diverge. The
+                    // cancel/disconnect arms below already do this.
+                    self.cancel_pending_permissions(session_id).await;
                     match result {
                         Ok(response) => {
                             self.emit(
@@ -1028,18 +1033,16 @@ impl AgentConnectionRunner {
                             );
                         }
                         Err(error) => {
-                            if error.code != ErrorCode::InternalError {
-                                self.emit(
-                                    Some(session_id),
-                                    Some(prompt_id),
-                                    AgentEvent::Error {
-                                        error: AgentErrorEvent {
-                                            message: error.to_string(),
-                                            raw: error.data.clone(),
-                                        },
+                            self.emit(
+                                Some(session_id),
+                                Some(prompt_id),
+                                AgentEvent::Error {
+                                    error: AgentErrorEvent {
+                                        message: error.to_string(),
+                                        raw: error.data.clone(),
                                     },
-                                );
-                            }
+                                },
+                            );
                         }
                     }
                     return Ok(());

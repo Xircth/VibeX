@@ -29,6 +29,7 @@ describe('agent workbench store', () => {
       connections: [],
       sessions: [],
       prompts: [],
+      permissions: [],
       events: [],
     };
 
@@ -49,6 +50,7 @@ describe('agent workbench store', () => {
       connections: [],
       sessions: [],
       prompts: [],
+      permissions: [],
       events: [],
     };
 
@@ -194,6 +196,7 @@ describe('agent workbench store', () => {
       connections: [],
       sessions: [],
       prompts: [],
+      permissions: [],
       events: [modes, config, commands],
     };
 
@@ -203,6 +206,29 @@ describe('agent workbench store', () => {
     expect(state.sessionConfigOptionsByScope.session?.[0]?.key).toBe('model');
     expect(state.availableCommandsByScope.session?.[0]?.name).toBe('compact');
     expect(state.eventsByScope.session).toEqual([modes, config, commands]);
+  });
+
+  it('hydrates pending permissions from runtime snapshot', () => {
+    const snapshot: AgentRuntimeSnapshot = {
+      sequence: 5,
+      registry: [],
+      connections: [],
+      sessions: [],
+      prompts: [],
+      permissions: [
+        {
+          id: 'permission-1',
+          session_id: 'session',
+          title: 'Run command',
+          options: [{ id: 'allow', label: 'Allow' }],
+        },
+      ],
+      events: [],
+    };
+
+    const state = stateFromAgentSnapshot(snapshot);
+
+    expect(state.permissions['permission-1']?.title).toBe('Run command');
   });
 
   it('reduces live session control updates by session scope', () => {

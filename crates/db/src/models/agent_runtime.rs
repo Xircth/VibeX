@@ -280,6 +280,56 @@ impl AgentRuntimeStore {
         .bind(session_id)
         .execute(pool)
         .await?;
+
+        if let Ok(session_uuid) = Uuid::parse_str(session_id) {
+            sqlx::query(
+                r#"UPDATE agent_pending_permissions
+                   SET resolved_at = COALESCE(resolved_at, $1),
+                       resolution = COALESCE(resolution, '{"kind":"cancelled"}')
+                   WHERE session_id = $2 AND resolved_at IS NULL"#,
+            )
+            .bind(responded_at)
+            .bind(session_uuid)
+            .execute(pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn cancel_pending_permissions_for_connection(
+        pool: &SqlitePool,
+        connection_id: &str,
+        responded_at: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE agent_permissions
+               SET status = 'cancelled',
+                   response_json = COALESCE(response_json, '{"kind":"cancelled"}'),
+                   responded_at = COALESCE(responded_at, $1)
+               WHERE connection_id = $2 AND status = 'pending'"#,
+        )
+        .bind(responded_at)
+        .bind(connection_id)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"UPDATE agent_pending_permissions
+               SET resolved_at = COALESCE(resolved_at, $1),
+                   resolution = COALESCE(resolution, '{"kind":"cancelled"}')
+               WHERE resolved_at IS NULL
+                 AND request_id IN (
+                     SELECT id
+                     FROM agent_permissions
+                     WHERE connection_id = $2 AND status = 'cancelled'
+                 )"#,
+        )
+        .bind(responded_at)
+        .bind(connection_id)
+        .execute(pool)
+        .await?;
+
         Ok(())
     }
 
@@ -367,6 +417,28 @@ impl AgentRuntimeStore {
         .await
     }
 
+    pub async fn list_pending_permission_requests(
+        pool: &SqlitePool,
+    ) -> Result<Vec<AgentPermissionRecord>, sqlx::Error> {
+        sqlx::query_as::<_, AgentPermissionRecord>(
+            r#"SELECT permissions.id, permissions.session_id, permissions.connection_id,
+                      permissions.status, permissions.request_json,
+                      permissions.response_json, permissions.created_at,
+                      permissions.responded_at
+               FROM agent_permissions permissions
+               WHERE permissions.status = 'pending'
+                 AND EXISTS (
+                     SELECT 1
+                     FROM agent_pending_permissions pending
+                     WHERE pending.request_id = permissions.id
+                       AND pending.resolved_at IS NULL
+                 )
+               ORDER BY permissions.created_at ASC"#,
+        )
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn insert_history_import(
         pool: &SqlitePool,
         record: InsertAgentHistoryImport<'_>,
@@ -408,24 +480,6 @@ impl AgentRuntimeStore {
         .await
     }
 
-    pub async fn list_events_for_workspace(
-        pool: &SqlitePool,
-        workspace_id: &str,
-        limit: i64,
-    ) -> Result<Vec<AgentEventRecord>, sqlx::Error> {
-        sqlx::query_as::<_, AgentEventRecord>(
-            r#"SELECT sequence, workspace_id, connection_id, session_id,
-                      event_kind, event_json, created_at
-               FROM agent_events
-               WHERE workspace_id = $1
-               ORDER BY sequence DESC
-               LIMIT $2"#,
-        )
-        .bind(workspace_id)
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-    }
 }
 
 pub struct UpsertAgentConnection<'a> {
@@ -703,5 +757,88 @@ mod tests {
             .await
             .unwrap();
         assert!(rows.is_empty());
+
+        AgentRuntimeStore::upsert_connection(
+            &pool,
+            UpsertAgentConnection {
+                id: "connection-1",
+                agent_type: "codex",
+                workspace_id: "workspace-1",
+                status: "ready",
+                working_dir: "C:/work",
+                status_message: None,
+                snapshot_json: "{}",
+                created_at: "2026-06-13T00:04:00Z",
+                updated_at: "2026-06-13T00:04:00Z",
+            },
+        )
+        .await
+        .unwrap();
+        AgentRuntimeStore::upsert_session(
+            &pool,
+            UpsertAgentSession {
+                id: &session_id.to_string(),
+                connection_id: "connection-1",
+                workspace_id: "workspace-1",
+                acp_session_id: "acp-session",
+                status: "running",
+                active_prompt_id: None,
+                queued_prompt_ids: "[]",
+                snapshot_json: "{}",
+                created_at: "2026-06-13T00:04:00Z",
+                updated_at: "2026-06-13T00:04:00Z",
+            },
+        )
+        .await
+        .unwrap();
+        AgentRuntimeStore::upsert_permission_request(
+            &pool,
+            UpsertAgentPermissionRequest {
+                id: "permission-request-3",
+                session_id: &session_id.to_string(),
+                connection_id: "connection-1",
+                request_json: r#"{"id":"permission-request-3","session_id":"session","title":"Run","options":[]}"#,
+                created_at: "2026-06-13T00:04:00Z",
+            },
+        )
+        .await
+        .unwrap();
+        AgentRuntimeStore::upsert_pending_permission(
+            &pool,
+            UpsertAgentPendingPermission {
+                id: Uuid::new_v4(),
+                session_id,
+                request_id: "permission-request-3",
+                tool_call_json: r#"{"name":"run"}"#,
+                options_json: r#"[]"#,
+                created_at: "2026-06-13T00:04:00Z",
+            },
+        )
+        .await
+        .unwrap();
+
+        let requests = AgentRuntimeStore::list_pending_permission_requests(&pool)
+            .await
+            .unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].id, "permission-request-3");
+
+        AgentRuntimeStore::cancel_pending_permissions_for_session(
+            &pool,
+            &session_id.to_string(),
+            "2026-06-13T00:05:00Z",
+        )
+        .await
+        .unwrap();
+
+        let rows = AgentRuntimeStore::list_pending_permissions_for_session(&pool, session_id)
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
+
+        let requests = AgentRuntimeStore::list_pending_permission_requests(&pool)
+            .await
+            .unwrap();
+        assert!(requests.is_empty());
     }
 }

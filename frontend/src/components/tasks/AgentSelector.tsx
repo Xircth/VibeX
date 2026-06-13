@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
-import { isSupportedAgent } from '@/constants/agents';
+import { isKnownAgent } from '@/constants/agents';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { settingsWindowApi } from '@/lib/api';
@@ -44,7 +44,7 @@ export function AgentSelector({
     // installed, so the existing three never regress while the registry loads.
     if (profiles) {
       for (const key of Object.keys(profiles)) {
-        if (isSupportedAgent(key)) {
+        if (isKnownAgent(key)) {
           installedByAgent.set(key as BaseCodingAgent, true);
         }
       }

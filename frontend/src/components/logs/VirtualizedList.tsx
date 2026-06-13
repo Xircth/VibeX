@@ -26,11 +26,15 @@ import {
   type ProcessChangeItem,
 } from '@/components/NormalizedConversation/ProcessChangeSummaryCard';
 import { buildDisplayEntries } from '@/components/NormalizedConversation/conversation-entry-utils';
+import { useExpandable } from '@/stores/useExpandableStore';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
 import { buildAgentTranscriptEntries } from '@/features/agents/transcript';
 import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
-import type { AgentEventEnvelope } from '@/features/agents/types';
+import type {
+  AgentEventEnvelope,
+  AgentPermissionRequest,
+} from '@/features/agents/types';
 import {
   AgentPermissionPanel,
   type PendingAgentPermission,
@@ -163,7 +167,7 @@ export function findPreviousUserMessageVirtualIndex(
 
   for (let index = userMessageIndexes.length - 1; index >= 0; index -= 1) {
     const userMessageIndex = userMessageIndexes[index]!;
-    if (userMessageIndex <= anchorIndex) {
+    if (userMessageIndex < anchorIndex) {
       return userMessageIndex;
     }
   }
@@ -243,6 +247,34 @@ export function pendingAgentPermissionsFromEvents(
     if (envelope.event.kind === 'permission_responded') {
       pending.delete(envelope.event.permission_id);
     }
+  }
+
+  return [...pending.values()];
+}
+
+export function pendingAgentPermissionsForSession(
+  events: AgentEventEnvelope[],
+  permissions: Record<string, AgentPermissionRequest>,
+  sessionId: string | null,
+  fallbackConnectionId?: string | null
+): PendingAgentPermission[] {
+  const pending = new Map(
+    pendingAgentPermissionsFromEvents(events).map((permission) => [
+      permission.request.id,
+      permission,
+    ])
+  );
+
+  if (!sessionId || !fallbackConnectionId) {
+    return [...pending.values()];
+  }
+
+  for (const request of Object.values(permissions)) {
+    if (request.session_id !== sessionId || pending.has(request.id)) continue;
+    pending.set(request.id, {
+      connectionId: fallbackConnectionId,
+      request,
+    });
   }
 
   return [...pending.values()];
@@ -378,8 +410,19 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
       [agentSessionEvents]
     );
     const pendingPermissions = useMemo(
-      () => pendingAgentPermissionsFromEvents(agentSessionEvents),
-      [agentSessionEvents]
+      () =>
+        pendingAgentPermissionsForSession(
+          agentSessionEvents,
+          agentWorkbench.permissions,
+          agentSessionId,
+          agentSession?.connection_id
+        ),
+      [
+        agentSession?.connection_id,
+        agentSessionEvents,
+        agentSessionId,
+        agentWorkbench.permissions,
+      ]
     );
     const agentModel = useMemo(
       () =>
@@ -530,16 +573,34 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
       updateActiveVirtualIndex();
     }, [saveScrollPosition, updateActiveVirtualIndex]);
 
+    const cancelStickToBottomCorrection = useCallback(() => {
+      if (
+        typeof window !== 'undefined' &&
+        stickToBottomFrameRef.current !== null
+      ) {
+        window.cancelAnimationFrame(stickToBottomFrameRef.current);
+        stickToBottomFrameRef.current = null;
+      }
+    }, []);
+
+    const detachFromBottomForNavigation = useCallback(() => {
+      cancelStickToBottomCorrection();
+      if (!isAtBottomRef.current) return;
+      isAtBottomRef.current = false;
+      onAtBottomChange?.(false);
+    }, [cancelStickToBottomCorrection, onAtBottomChange]);
+
     const scrollToMessageNavIndex = useCallback(
       (index: number) => {
         if (index < 0 || index >= displayEntries.length) return;
+        detachFromBottomForNavigation();
         rowVirtualizer.scrollToIndex(index, {
           align: 'center',
           behavior: 'smooth',
         });
         setActiveVirtualIndex(index);
       },
-      [displayEntries.length, rowVirtualizer]
+      [detachFromBottomForNavigation, displayEntries.length, rowVirtualizer]
     );
 
     const scrollContainerToBottom = useCallback(
@@ -568,9 +629,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const scheduleStickToBottomCorrection = useCallback(() => {
       if (typeof window === 'undefined') return;
 
-      if (stickToBottomFrameRef.current !== null) {
-        window.cancelAnimationFrame(stickToBottomFrameRef.current);
-      }
+      cancelStickToBottomCorrection();
 
       stickToBottomFrameRef.current = window.requestAnimationFrame(() => {
         stickToBottomFrameRef.current = null;
@@ -579,7 +638,11 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         scrollContainerToBottom('auto');
         updateAtBottomState();
       });
-    }, [scrollContainerToBottom, updateAtBottomState]);
+    }, [
+      cancelStickToBottomCorrection,
+      scrollContainerToBottom,
+      updateAtBottomState,
+    ]);
 
     const updateVirtualScrollMargin = useCallback(() => {
       const container = containerRef.current;
@@ -612,10 +675,16 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         }
 
         if (entry.type === 'AGGREGATED_THINKING_GROUP') {
+          const isStreamingThinking =
+            hasLiveTurn &&
+            displayIndex !== null &&
+            displayIndex >= displayEntries.length - 2;
+
           return (
             <AggregatedThinkingCard
               entries={entry.entries}
               expansionKey={entry.patchKey}
+              isStreaming={isStreamingThinking}
             />
           );
         }
@@ -674,6 +743,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
             jumpTargetIndex === null
               ? null
               : () => {
+                  detachFromBottomForNavigation();
                   rowVirtualizer.scrollToIndex(jumpTargetIndex, {
                     align: 'center',
                     behavior: 'smooth',
@@ -707,6 +777,9 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         agentModel,
         agentWorkbench.usageByScope,
         attempt,
+        detachFromBottomForNavigation,
+        displayEntries.length,
+        hasLiveTurn,
         liveAssistantKey,
         rowVirtualizer,
         task,
@@ -796,16 +869,10 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
 
     useEffect(() => {
       return () => {
-        if (
-          typeof window !== 'undefined' &&
-          stickToBottomFrameRef.current !== null
-        ) {
-          window.cancelAnimationFrame(stickToBottomFrameRef.current);
-          stickToBottomFrameRef.current = null;
-        }
+        cancelStickToBottomCorrection();
         saveScrollPosition();
       };
-    }, [saveScrollPosition]);
+    }, [cancelStickToBottomCorrection, saveScrollPosition]);
 
     useImperativeHandle(
       ref,
@@ -815,6 +882,9 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
         },
         scrollToIndex(index, options) {
           if (index < 0 || index >= displayEntries.length) return;
+          if ((options?.behavior ?? 'smooth') === 'smooth') {
+            detachFromBottomForNavigation();
+          }
           rowVirtualizer.scrollToIndex(index, {
             align: options?.align ?? 'center',
             behavior: options?.behavior ?? 'smooth',
@@ -836,6 +906,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
 
           if (targetIndex === null) return;
 
+          detachFromBottomForNavigation();
           rowVirtualizer.scrollToIndex(targetIndex, {
             align: 'center',
             behavior: 'smooth',
@@ -844,6 +915,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
       }),
       [
         displayEntries.length,
+        detachFromBottomForNavigation,
         rowVirtualizer,
         scrollContainerToBottom,
         userMessageDisplayIndexes,
@@ -934,13 +1006,18 @@ function CollapsedAssistantMessagesBlock({
   entries: BaseDisplayEntry[];
   renderEntry: (entry: BaseDisplayEntry) => JSX.Element | null;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  // Keyed store state survives row unmount/remount during virtual scrolling;
+  // local useState would reset the collapse every time the row leaves the window.
+  const [expanded, toggle] = useExpandable(
+    `collapsed-assistant:${entries[0]?.patchKey ?? ''}`,
+    false
+  );
 
   return (
     <div className="conv-entry-item px-4 py-1">
       <button
         type="button"
-        onClick={() => setExpanded((current) => !current)}
+        onClick={() => toggle()}
         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
         aria-expanded={expanded}
       >

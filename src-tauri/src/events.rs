@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use agents::{
-    AgentConnectionSnapshot, AgentEvent, AgentEventEnvelope, AgentPromptSnapshot,
-    AgentPromptStatus, AgentSessionSnapshot, RuntimeEventSink,
+    AgentConnectionSnapshot, AgentConnectionStatus, AgentEvent, AgentEventEnvelope,
+    AgentPromptSnapshot, AgentPromptStatus, AgentSessionSnapshot, RuntimeEventSink,
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
 use db::models::{
@@ -127,6 +127,19 @@ async fn persist_agent_event(
     match &envelope.event {
         AgentEvent::ConnectionStatusChanged { snapshot } => {
             persist_connection_snapshot(pool, snapshot).await?;
+            if matches!(
+                snapshot.status,
+                AgentConnectionStatus::Disconnected | AgentConnectionStatus::Failed
+            ) {
+                let connection_id = snapshot.id.to_string();
+                let responded_at = envelope.created_at.to_rfc3339();
+                AgentRuntimeStore::cancel_pending_permissions_for_connection(
+                    pool,
+                    &connection_id,
+                    &responded_at,
+                )
+                .await?;
+            }
         }
         AgentEvent::SessionCreated { snapshot } => {
             persist_session_snapshot(pool, envelope.workspace_id, snapshot).await?;

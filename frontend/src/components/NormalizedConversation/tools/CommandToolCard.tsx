@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { TerminalSquare } from 'lucide-react';
 import type { NormalizedEntry, ToolStatus } from 'shared/types';
 import RawLogText from '@/components/common/RawLogText';
@@ -83,13 +82,11 @@ export function CommandToolCard({
   const compactOutput = output ? getCompactVerboseErrorText(output) : null;
   const hasDetails = Boolean(command || output);
   const exitStatus = toolEntry ? getToolExitStatus(toolEntry) : null;
-  const statusDotClass = useMemo(() => {
-    return getCommandStatusDotClassName(exitStatus, toolEntry?.status);
-  }, [exitStatus, toolEntry?.status]);
-  const statusClass = useMemo(
-    () => getCommandStatusClassName(exitStatus, toolEntry?.status),
-    [exitStatus, toolEntry?.status]
+  const statusDotClass = getCommandStatusDotClassName(
+    exitStatus,
+    toolEntry?.status
   );
+  const statusClass = getCommandStatusClassName(exitStatus, toolEntry?.status);
 
   if (!toolEntry || !actionType) return null;
 

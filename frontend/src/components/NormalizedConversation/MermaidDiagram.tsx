@@ -26,6 +26,24 @@ function svgToDataUrl(svg: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
+// mermaid.initialize sets global singleton config; only re-run it when the theme
+// actually changes rather than on every diagram value update.
+let lastMermaidTheme: 'default' | 'dark' | null = null;
+
+async function loadMermaid(theme: 'default' | 'dark') {
+  const { default: mermaid } = await import('mermaid');
+  if (lastMermaidTheme !== theme) {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme,
+      fontFamily: 'IBM Plex Sans, Noto Emoji, sans-serif',
+    });
+    lastMermaidTheme = theme;
+  }
+  return mermaid;
+}
+
 function getMermaidTheme(): 'default' | 'dark' {
   if (typeof document === 'undefined') {
     return 'default';
@@ -85,14 +103,7 @@ export const MermaidDiagram = memo(function MermaidDiagram({
       );
 
       try {
-        const { default: mermaid } = await import('mermaid');
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme,
-          fontFamily: 'IBM Plex Sans, Noto Emoji, sans-serif',
-        });
-
+        const mermaid = await loadMermaid(theme);
         const { svg } = await mermaid.render(diagramId, value);
 
         if (!cancelled) {

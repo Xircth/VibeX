@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { TaskWithAttemptStatus } from 'shared/types.ts';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
 import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
 import {
   AGGREGATION_LABELS,
   getAggregatedEntryDetail,
@@ -21,7 +22,12 @@ export const AggregatedGroupCard: React.FC<{
   attempt: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
 }> = ({ entries, aggregationType, attempt, task }) => {
-  const [expanded, setExpanded] = useState(aggregationType === 'task_create');
+  // Keyed expand state in the store survives row unmount/remount during virtual
+  // scrolling; local useState would reset every time the row leaves the window.
+  const [expanded, toggle] = useExpandable(
+    `aggregated-group:${aggregationType}:${entries[0]?.patchKey ?? ''}`,
+    aggregationType === 'task_create'
+  );
   const { icon, label } = AGGREGATION_LABELS[aggregationType];
   const displayLabel =
     aggregationType === 'task_create'
@@ -32,7 +38,7 @@ export const AggregatedGroupCard: React.FC<{
   return (
     <div className="px-4 py-1 conv-entry-item">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => toggle()}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm conv-tool-card cursor-pointer"
       >
         <span className="shrink-0 conv-tool-icon">{icon}</span>

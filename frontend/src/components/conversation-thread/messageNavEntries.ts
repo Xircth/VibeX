@@ -121,46 +121,34 @@ function statsForDisplayEntry(entry: DisplayEntry): {
   return statsForBaseEntry(entry);
 }
 
-function collectStatsUntilNextUserMessage(
-  entries: DisplayEntry[],
-  startIndex: number
-) {
-  let additions = 0;
-  let deletions = 0;
-
-  for (let index = startIndex + 1; index < entries.length; index += 1) {
-    const entry = entries[index]!;
-    if (isUserMessageEntry(entry)) {
-      break;
-    }
-
-    const stats = statsForDisplayEntry(entry);
-    additions += stats.additions;
-    deletions += stats.deletions;
-  }
-
-  return { additions, deletions };
-}
-
 export function buildConversationMessageNavEntries(
   entries: DisplayEntry[]
 ): ConversationMessageNavEntry[] {
+  // Single pass: each user message starts a new nav entry that accumulates the
+  // file-change stats of the entries following it, up to the next user message.
   const navEntries: ConversationMessageNavEntry[] = [];
+  let current: ConversationMessageNavEntry | null = null;
 
   entries.forEach((entry, index) => {
-    if (!isUserMessageEntry(entry)) return;
+    if (isUserMessageEntry(entry)) {
+      const ordinal = navEntries.length + 1;
+      current = {
+        key: entry.patchKey,
+        index,
+        ordinal,
+        preview: normalizedPreview(entry.content.content, ordinal),
+        additions: 0,
+        deletions: 0,
+      };
+      navEntries.push(current);
+      return;
+    }
 
-    const ordinal = navEntries.length + 1;
-    const stats = collectStatsUntilNextUserMessage(entries, index);
-
-    navEntries.push({
-      key: entry.patchKey,
-      index,
-      ordinal,
-      preview: normalizedPreview(entry.content.content, ordinal),
-      additions: stats.additions,
-      deletions: stats.deletions,
-    });
+    if (current) {
+      const stats = statsForDisplayEntry(entry);
+      current.additions += stats.additions;
+      current.deletions += stats.deletions;
+    }
   });
 
   return navEntries;

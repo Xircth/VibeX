@@ -1,5 +1,5 @@
 import { MessageSquare } from 'lucide-react';
-import type { JsonValue, NormalizedEntry } from 'shared/types';
+import type { NormalizedEntry } from 'shared/types';
 import { renderJson } from '../conversation-entry-utils';
 import { ToolResultView } from './ToolResultView';
 import {
@@ -7,18 +7,7 @@ import {
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
-
-function isRecord(value: JsonValue | null | undefined): value is {
-  [key: string]: JsonValue | undefined;
-} {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function readString(value: JsonValue | null | undefined, key: string) {
-  if (!isRecord(value)) return null;
-  const candidate = value[key];
-  return typeof candidate === 'string' && candidate.trim() ? candidate : null;
-}
+import { readString } from './jsonValue';
 
 function isFeedbackToolName(toolName: string): boolean {
   return /feedback|review_check|check_feedback/i.test(toolName);

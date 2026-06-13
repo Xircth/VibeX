@@ -62,13 +62,15 @@
     `components/logs/VirtualizedList.test.ts`,
     `NormalizedConversation/__fixtures__/longConversation.ts`, `vite.config.ts`
 
-- [x] T2.7 ContentPartsRenderer 与工具卡适配器
-  - Acceptance: VibeX normalized entries、Phase 3 imported turns、Phase 6 delegation
-    events 都能转为 `AdaptedContentPart`；旧单一 ToolCallCard 不再承担全部分型。
-  - Verify: `cd frontend && pnpm exec vitest run src/lib/conversation-rendering/adaptContentParts.test.ts`
-    12 条通过；覆盖 normalized entries、imported turns、agent event 的 text、
-    reasoning、tool-call、plan、terminal、permission、usage、status、error parts。
-  - Files: `lib/conversation-rendering/adaptContentParts.ts`,
+- [~] T2.7 ContentPartsRenderer 与工具卡适配器（已实现但未接线 → 2026-06-13 移除）
+  - 状态：`adaptContentParts.ts` / `ContentPartsRenderer.tsx` 曾实现并通过自身测试，
+    但从未接入真实渲染入口（`VirtualizedList → DisplayConversationEntry` 始终走
+    `conversation-entry-utils`）。两套并行真相源已开始漂移，且适配层内含未触达的
+    BUG（tool_call_update 把 toolName 设为 UUID、未知类型静默吞、imported 消息丢图片）。
+  - 处置（third-review 整改）：删除 `adaptContentParts.ts`、`adaptContentParts.test.ts`、
+    `ContentPartsRenderer.tsx`，回退本任务为未完成。若后续需要统一适配层，应作为独立
+    重构重新立项，并先修复上述潜伏 BUG，再一次性接成唯一入口。
+  - Files（已删除）: `lib/conversation-rendering/adaptContentParts.ts`,
     `NormalizedConversation/ContentPartsRenderer.tsx`
 
 - [x] T2.8 工具卡分型第一批：命令、文件读写、搜索、通用 JSON
@@ -132,8 +134,8 @@
   - Acceptance: Kanban、IDE、导入会话预览均使用同一 `NormalizedConversation`
     渲染入口；无第二套新消息渲染实现。入口审计见 `renderer-entry-audit.md`。
   - Verify: `rg "ReactMarkdown|ToolCallCard|AggregatedThinkingCard|ConversationThread" frontend/src`
-    人工核对；`cd frontend && pnpm exec vitest run src/components/kanban/KanbanSessionConversationView.test.tsx src/components/panels/DockviewLogsPanel.test.tsx src/lib/conversation-rendering/adaptContentParts.test.ts`
-    25 条通过。
+    人工核对；`cd frontend && pnpm exec vitest run src/components/kanban/KanbanSessionConversationView.test.tsx src/components/panels/DockviewLogsPanel.test.tsx`
+    通过。（注：原并行的 `adaptContentParts` 适配层已于 T2.7 移除，不再纳入此验证。）
   - Files: `docs/specs/codeg-alignment/02-conversation-rendering/renderer-entry-audit.md`,
     会话视图容器、`DisplayConversationEntry.tsx`
 
@@ -152,3 +154,9 @@
     收口记录见 `phase2-closure-review.md`；当前分支为 `master`。
   - Verify: 根目录全门：`pnpm run check`, `pnpm run lint`, `cargo test --workspace` 全部通过。
   - Files: `docs/specs/codeg-alignment/02-conversation-rendering/phase2-closure-review.md`
+## 2026-06-13 acceptance follow-up
+
+- [x] Shiki streaming fallback: cache misses keep the previous highlighted token frame while async highlighting is pending. Code blocks no longer flash back to plaintext during incremental streaming unless highlighting fails or content is empty.
+- [x] VirtualizedList scroll race: smooth navigation to message/user anchors detaches from bottom and cancels pending stick-to-bottom correction before starting the animation, so live streaming auto-scroll no longer steals the navigation.
+- [x] Aggregated Codex thinking: `AggregatedThinkingCard` supports live streaming state, default-expanded live content, status text, and live elapsed timing. VirtualizedList marks tail Codex thinking groups as live while a turn is running.
+- [x] Behavior guards: store snapshot permission hydration, pending permission panel merge, aggregated thinking streaming state, and virtual scrollMargin transform remain covered by focused tests.

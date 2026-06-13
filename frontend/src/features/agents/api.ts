@@ -1,5 +1,6 @@
 import { tauriInvoke } from '@/lib/tauriApi';
 import type {
+  AgentAvailableCommand,
   AgentConfigSurface,
   AgentConnectionSnapshot,
   AgentHistorySource,
@@ -61,6 +62,11 @@ export type AgentSessionRequest = {
   sessionId: string;
 };
 
+export type AgentSetAutoApproveRequest = {
+  agentType: AgentType;
+  autoApproveMode: 'off' | 'allow_always' | 'yolo';
+};
+
 export type AgentResumeSessionRequest = {
   agentType: AgentType;
   workspaceId: string;
@@ -119,6 +125,14 @@ export const agentsApi = {
 
   loadSession: (request: AgentSessionRequest): Promise<AgentSessionSnapshot> =>
     tauriInvoke('agent_load_session', { request }),
+
+  listSessionCommands: (
+    request: AgentSessionRequest
+  ): Promise<AgentAvailableCommand[]> =>
+    tauriInvoke('agent_list_session_commands', { request }),
+
+  setAutoApprove: (request: AgentSetAutoApproveRequest): Promise<void> =>
+    tauriInvoke('agent_set_auto_approve', { request }),
 
   connect: (request: AgentConnectRequest): Promise<AgentConnectionSnapshot> =>
     tauriInvoke('agent_connect', { request }),

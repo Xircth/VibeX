@@ -1,29 +1,50 @@
-import type { BaseCodingAgent } from 'shared/types';
+import { BaseCodingAgent } from 'shared/types';
 
-/** The three supported agent types in the settings UI. */
-export const SUPPORTED_AGENTS: readonly BaseCodingAgent[] = [
-  'CLAUDE_CODE' as BaseCodingAgent,
-  'CODEX' as BaseCodingAgent,
-  'OPENCODE' as BaseCodingAgent,
-] as const;
+/**
+ * Canonical display name for every coding agent the type system knows about.
+ * Single source of truth — `getAgentName` (AgentIcon) and every selector read
+ * from here so a name like "OpenCode" never drifts between surfaces.
+ *
+ * NOTE: having a name here does NOT mean the agent is runnable. What a user can
+ * actually select is gated by `getSupportedAgents`, which reads the backend's
+ * real executor profiles. Names beyond the runnable set are forward-compat only.
+ */
+export const AGENT_DISPLAY_NAMES: Record<BaseCodingAgent, string> = {
+  [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code',
+  [BaseCodingAgent.CODEX]: 'Codex',
+  [BaseCodingAgent.OPENCODE]: 'OpenCode',
+  [BaseCodingAgent.GEMINI]: 'Gemini',
+  [BaseCodingAgent.OPENCLAW]: 'OpenClaw',
+  [BaseCodingAgent.CLINE]: 'Cline',
+  [BaseCodingAgent.HERMES]: 'Hermes',
+};
 
-export type SupportedAgent = (typeof SUPPORTED_AGENTS)[number];
+/** Alias kept for call sites that type an agent value. */
+export type SupportedAgent = BaseCodingAgent;
 
-/** Type guard to check if an agent string is one of the supported agents. */
-export function isSupportedAgent(agent: string): agent is SupportedAgent {
-  return (SUPPORTED_AGENTS as readonly string[]).includes(agent);
+const KNOWN_AGENTS: ReadonlySet<string> = new Set(Object.values(BaseCodingAgent));
+
+/** Validity guard: is this string a known `BaseCodingAgent` enum member? */
+export function isKnownAgent(agent: string): agent is BaseCodingAgent {
+  return KNOWN_AGENTS.has(agent);
 }
 
-/** Friendly display names for each supported agent. */
-export const AGENT_DISPLAY_NAMES: Record<SupportedAgent, string> = {
-  CLAUDE_CODE: 'Claude Code',
-  CODEX: 'Codex',
-  OPENCODE: 'Open Code',
-} as Record<SupportedAgent, string>;
+/** Friendly display name for an agent, falling back to the raw id. */
+export function getAgentDisplayName(agent: string): string {
+  return AGENT_DISPLAY_NAMES[agent as BaseCodingAgent] ?? agent;
+}
 
-/** Description text for each supported agent. */
-export const AGENT_DESCRIPTIONS: Record<SupportedAgent, string> = {
-  CLAUDE_CODE: 'Anthropic Claude Code - AI 编码助手',
-  CODEX: 'OpenAI Codex - AI 编码助手',
-  OPENCODE: 'OpenCode - 开源 AI 编码助手',
-} as Record<SupportedAgent, string>;
+/**
+ * The agents a user can actually select, derived from the backend's executor
+ * profiles (`UserSystemInfo.executors`). This is the single source of truth for
+ * "what can run" — the frontend never hardcodes the list, so when the backend
+ * gains an executor it appears here automatically with no UI change.
+ */
+export function getSupportedAgents(
+  profiles: Record<string, unknown> | null | undefined
+): BaseCodingAgent[] {
+  if (!profiles) return [];
+  return (Object.keys(profiles).filter(isKnownAgent) as BaseCodingAgent[]).sort(
+    (a, b) => a.localeCompare(b)
+  );
+}

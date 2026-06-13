@@ -29,7 +29,6 @@ import { buildDisplayEntries } from '@/components/NormalizedConversation/convers
 import { useExpandable } from '@/stores/useExpandableStore';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
-import { buildAgentTranscriptEntries } from '@/features/agents/transcript';
 import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
 import type {
   AgentEventEnvelope,
@@ -412,10 +411,6 @@ const ExecutionProcessConversation = forwardRef<
           : [],
       [agentSessionId, agentWorkbench.eventsByScope]
     );
-    const agentTranscriptEntries = useMemo(
-      () => buildAgentTranscriptEntries(agentSessionEvents),
-      [agentSessionEvents]
-    );
     const pendingPermissions = useMemo(
       () =>
         pendingAgentPermissionsForSession(
@@ -443,29 +438,17 @@ const ExecutionProcessConversation = forwardRef<
     const [respondingPermissionId, setRespondingPermissionId] = useState<
       string | null
     >(null);
-    const usesAgentTranscript = Boolean(agentSession);
-
-    useEffect(() => {
-      if (!usesAgentTranscript) return;
-      setEntries(agentTranscriptEntries);
-      setIsLoadingEntries(
-        agentWorkbench.loadState === 'loading' &&
-          agentTranscriptEntries.length === 0
-      );
-    }, [
-      agentTranscriptEntries,
-      agentWorkbench.loadState,
-      setEntries,
-      usesAgentTranscript,
-    ]);
+    // Agent sessions render through AgentTimelineConversation; this path only
+    // serves non-session attempts, so the agent-transcript branch is gone.
+    const usesAgentTranscript = false;
 
     const normalizedEntries = useMemo(
       () =>
-        (usesAgentTranscript ? agentTranscriptEntries : entries).filter(
+        entries.filter(
           (entry): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } =>
             entry.type === 'NORMALIZED_ENTRY'
         ),
-      [agentTranscriptEntries, entries, usesAgentTranscript]
+      [entries]
     );
 
     const displayEntries = useMemo<DisplayEntry[]>(() => {

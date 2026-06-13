@@ -96,13 +96,13 @@ export function BranchInfoHeader() {
         <span className="shrink-0 text-muted-foreground">&rarr;</span>
         <span className="truncate font-mono text-foreground">HEAD</span>
         {(repo.commits_ahead ?? 0) > 0 && (
-          <span className="flex shrink-0 items-center gap-0.5 text-green-600">
+          <span className="flex shrink-0 items-center gap-0.5 text-[hsl(var(--success))]">
             <ArrowUp className="h-2.5 w-2.5" />
             {repo.commits_ahead}
           </span>
         )}
         {(repo.commits_behind ?? 0) > 0 && (
-          <span className="flex shrink-0 items-center gap-0.5 text-orange-500">
+          <span className="flex shrink-0 items-center gap-0.5 text-[hsl(var(--warning))]">
             <ArrowDown className="h-2.5 w-2.5" />
             {repo.commits_behind}
           </span>

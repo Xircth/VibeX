@@ -51,12 +51,12 @@ function formatRelativeTime(timestamp: number): string {
 /** Color for ref badge based on ref type */
 function getRefBadgeStyle(ref: string): string {
   if (ref.startsWith('origin/') || ref.startsWith('upstream/')) {
-    return 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+    return 'border-[hsl(var(--status-running)/0.3)] bg-[hsl(var(--status-running)/0.12)] text-[hsl(var(--status-running))]';
   }
   if (ref.startsWith('tag:') || ref.startsWith('v')) {
-    return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+    return 'border-[hsl(var(--warning)/0.32)] bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]';
   }
-  return 'bg-[#3B82F6]/15 text-[#3B82F6] border-[#3B82F6]/30';
+  return 'border-[hsl(var(--primary)/0.3)] bg-[hsl(var(--primary)/0.1)] text-primary';
 }
 
 interface ContextMenuState {
@@ -91,13 +91,13 @@ const LogEntry = memo(function LogEntry({
   const initial = entry.author.charAt(0).toUpperCase();
   return (
     <div
-      className={`flex items-start gap-2.5 px-2.5 py-2 text-xs group cursor-pointer transition-colors border-l-2 ${
+      className={`flex items-start gap-2.5 border-l px-2.5 py-2 text-xs group cursor-pointer transition-colors ${
         isSelected
-          ? 'bg-accent/50 border-l-[#3B82F6]'
+          ? 'border-l-primary bg-accent/50'
           : isHead
-            ? 'bg-accent/20 border-l-green-500'
+            ? 'border-l-[hsl(var(--success))] bg-accent/20'
             : isPushable
-              ? 'hover:bg-accent/30 border-l-green-500/40'
+              ? 'border-l-[hsl(var(--success)/0.4)] hover:bg-accent/30'
               : 'hover:bg-accent/30 border-l-transparent'
       }`}
       onClick={() => onSelect(entry.sha)}
@@ -105,14 +105,14 @@ const LogEntry = memo(function LogEntry({
     >
       {/* Author avatar */}
       <div className="shrink-0 self-stretch py-[1.5px] flex flex-col items-center justify-center gap-0.5">
-        <span className="w-px flex-1 min-h-0 bg-[#3B82F6]/60 rounded-full" />
+        <span className="w-px flex-1 min-h-0 rounded-full bg-primary/60" />
         <div
-          className="w-[14.4px] h-[14.4px] rounded-full flex items-center justify-center text-[8px] font-bold text-white bg-[#3B82F6]"
+          className="w-[14.4px] h-[14.4px] rounded-full flex items-center justify-center bg-primary text-[8px] font-bold text-primary-foreground"
           title={entry.author}
         >
           {initial}
         </div>
-        <span className="w-px flex-1 min-h-0 bg-[#3B82F6]/60 rounded-full" />
+        <span className="w-px flex-1 min-h-0 rounded-full bg-primary/60" />
       </div>
 
       {/* Content */}
@@ -147,14 +147,14 @@ const LogEntry = memo(function LogEntry({
         {/* Meta row */}
         <div className="flex items-center gap-2 text-[10px] mt-0.5">
           <button
-            className="font-mono text-[#3B82F6] hover:text-[#2563EB] transition-colors flex items-center gap-0.5"
+            className="font-mono text-primary transition-colors hover:text-primary/80 flex items-center gap-0.5"
             onClick={handleCopyClick}
             title="Copy full SHA"
           >
             {entry.sha.slice(0, 7)}
             <Copy className="h-2.5 w-2.5 opacity-0 group-hover:opacity-60" />
           </button>
-          <span className="truncate text-[#3B82F6]">{entry.author}</span>
+          <span className="truncate text-primary">{entry.author}</span>
           <span className="shrink-0 text-muted-foreground">
             {formatRelativeTime(entry.timestamp)}
           </span>
@@ -485,7 +485,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         title: 'To Push',
         icon: 'upload',
         count: ahead,
-        accentColor: 'text-green-400',
+        accentColor: 'text-[hsl(var(--success))]',
       });
       for (const entry of filteredAhead) {
         items.push({ type: 'entry', entry, isPushable: true });
@@ -499,7 +499,7 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         title: 'To Pull',
         icon: 'download',
         count: behind,
-        accentColor: 'text-yellow-400',
+        accentColor: 'text-[hsl(var(--warning))]',
         extra: 'Fetch or pull to see these commits',
       });
     }
@@ -573,24 +573,24 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
     <div className="flex flex-col flex-1 min-h-0">
       {/* Branch status header */}
       <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/30 text-xs">
-        <GitBranch className="h-3.5 w-3.5 text-green-400 shrink-0" />
+        <GitBranch className="h-3.5 w-3.5 text-[hsl(var(--success))] shrink-0" />
         <span className="font-mono text-foreground font-medium truncate">
           {branchName}
         </span>
         {upstream && (
           <span className="text-muted-foreground text-[10px] truncate">
-            &#8594; {upstream}
+            {'->'} {upstream}
           </span>
         )}
         <div className="flex items-center gap-1.5 ml-auto shrink-0">
           {ahead > 0 && (
-            <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400 font-medium">
+            <span className="flex items-center gap-0.5 rounded-full bg-[hsl(var(--success)/0.1)] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--success))]">
               <ArrowUp className="h-2.5 w-2.5" />
               {ahead}
             </span>
           )}
           {behind > 0 && (
-            <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 font-medium">
+            <span className="flex items-center gap-0.5 rounded-full bg-[hsl(var(--warning)/0.1)] px-1.5 py-0.5 text-[10px] font-medium text-[hsl(var(--warning))]">
               <ArrowDown className="h-2.5 w-2.5" />
               {behind}
             </span>

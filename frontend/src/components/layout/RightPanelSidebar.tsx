@@ -39,7 +39,7 @@ function RightPanelSidebarContent({
         process.exit_code !== 0n)
   );
   const networkButtonClass = hasRunningDevServer
-    ? 'text-sky-600 hover:text-sky-700 hover:bg-sky-500/10 bg-sky-500/10 dark:text-sky-400 dark:hover:text-sky-300'
+    ? 'bg-[hsl(var(--primary)/0.1)] text-primary hover:bg-[hsl(var(--primary)/0.14)] hover:text-primary'
     : hasFailedDevServer
       ? 'text-destructive hover:text-destructive hover:bg-destructive/10 bg-destructive/10'
       : 'text-muted-foreground hover:text-foreground hover:bg-accent';

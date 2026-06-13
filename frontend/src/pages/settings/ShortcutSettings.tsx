@@ -104,7 +104,7 @@ export function ShortcutSettings() {
             <Keyboard className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">输入</h3>
           </div>
-          <div className="settings-card overflow-hidden rounded-xl border">
+          <div className="settings-card overflow-hidden rounded-lg border">
             <div className="settings-row flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="text-sm font-medium">发送快捷键</div>
@@ -138,7 +138,7 @@ export function ShortcutSettings() {
             <Keyboard className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">快捷键</h3>
           </div>
-          <div className="settings-card divide-y divide-border/70 overflow-hidden rounded-xl border">
+          <div className="settings-card overflow-hidden rounded-lg border">
             {IMPLEMENTED_SHORTCUTS.map((item) => (
               <div
                 key={item.id}
@@ -147,7 +147,7 @@ export function ShortcutSettings() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium">{item.name}</span>
-                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    <span className="settings-meta-chip px-1.5 py-0.5 text-[10px]">
                       {item.scope}
                     </span>
                   </div>
@@ -159,7 +159,7 @@ export function ShortcutSettings() {
                   {item.keys.map((key) => (
                     <kbd
                       key={key}
-                      className="rounded-md border bg-muted px-2 py-1 text-[11px] font-mono text-muted-foreground"
+                      className="settings-kbd px-2 py-1 text-[11px] font-mono"
                     >
                       {key}
                     </kbd>
@@ -172,7 +172,7 @@ export function ShortcutSettings() {
       </div>
 
       {hasUnsavedChanges ? (
-        <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
+        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
             <span className="text-xs text-muted-foreground">
               有未保存的更改

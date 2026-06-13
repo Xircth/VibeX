@@ -476,8 +476,8 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
       ref={railRef}
       className={
         standalone
-          ? 'project-rail-shell pointer-events-auto grid h-full w-full grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden rounded-[18px] bg-background/72 px-1 py-3 shadow-xl backdrop-blur-xl'
-          : 'project-rail-shell pointer-events-auto flex w-[60px] flex-col items-center gap-2 rounded-3xl border-2 border-border/95 bg-background/55 px-1 py-3 shadow-xl backdrop-blur-xl'
+          ? 'project-rail-shell pointer-events-auto grid h-full w-full grid-rows-[minmax(0,1fr)_auto_auto] overflow-hidden rounded-[18px] px-1 py-3'
+          : 'project-rail-shell pointer-events-auto flex w-[60px] flex-col items-center gap-2 rounded-[18px] px-1 py-3'
       }
     >
       <div
@@ -519,7 +519,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
                 onClick={() => handleProjectClick(project.id)}
                 title={`${project.name}: ${meta.label}`}
                 className={cn(
-                  'project-rail-item-button relative flex h-10 w-10 items-center justify-center rounded-2xl border text-[11px] font-semibold transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.04] hover:shadow-lg',
+                  'project-rail-item-button relative flex h-10 w-10 items-center justify-center rounded-xl border text-[11px] font-semibold transition-colors duration-150',
                   isActive && 'is-active'
                 )}
               >
@@ -530,13 +530,13 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
                     .toUpperCase() || '项目'}
                 </span>
                 {visualState === 'loading' ? (
-                  <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-background bg-background">
+                  <span className="project-rail-status-dot-shell absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full">
                     <span className="h-2 w-2 animate-spin rounded-full border border-primary border-t-transparent" />
                   </span>
                 ) : (
                   <span
                     className={cn(
-                      'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background',
+                      'project-rail-status-dot absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full',
                       meta.dotClassName,
                       meta.pulseClassName
                     )}
@@ -547,7 +547,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
               {standalone ? (
                 <button
                   type="button"
-                  className="absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-border/80 bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive group-hover:opacity-100"
+                  className="project-rail-delete-button absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100"
                   onPointerDown={(event) => {
                     event.stopPropagation();
                     dragStateRef.current = null;
@@ -600,7 +600,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
         <Button
           variant="ghost"
           size="icon"
-          className="project-rail-action-button h-8 w-8 rounded-2xl"
+          className="project-rail-action-button h-8 w-8 rounded-lg"
           onClick={handleCreateProject}
           aria-label="创建新项目"
           title="创建新项目"
@@ -611,7 +611,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
         <Button
           variant="ghost"
           size="icon"
-          className="project-rail-action-button h-8 w-8 rounded-2xl"
+          className="project-rail-action-button h-8 w-8 rounded-lg"
           onClick={handleOpenProject}
           aria-label="打开项目"
           title="打开项目"
@@ -623,7 +623,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
           <Button
             variant="ghost"
             size="icon"
-            className="project-rail-action-button h-8 w-8 rounded-2xl"
+            className="project-rail-action-button h-8 w-8 rounded-lg"
             onClick={handleCloseRail}
             aria-label="关闭项目栏"
             title="关闭项目栏"

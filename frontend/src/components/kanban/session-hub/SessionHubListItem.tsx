@@ -137,10 +137,9 @@ export function SessionHubListItem({
         }
       }}
       className={cn(
-        'session-hub-card relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-xl px-3 py-2 text-left transition-all duration-200',
+        'session-hub-card relative box-border flex w-full max-w-full min-w-0 items-start gap-2 overflow-hidden rounded-lg px-3 py-2 text-left transition-colors duration-150',
         isSelected && 'is-selected',
-        dragging &&
-          'scale-[1.01] rotate-[0.75deg] shadow-xl ring-1 ring-primary/20'
+        dragging && 'opacity-95 ring-1 ring-primary/20'
       )}
     >
       <div
@@ -184,7 +183,7 @@ export function SessionHubListItem({
                       cancelRename();
                     }
                   }}
-                  className="h-7 min-w-0 rounded-md border-border/60 bg-background/80 text-xs"
+                  className="h-7 min-w-0 rounded-md border-border/60 bg-[var(--surface-control)] text-xs"
                   autoFocus
                   disabled={isSubmitting}
                 />
@@ -212,7 +211,7 @@ export function SessionHubListItem({
                   <span className="min-w-0 truncate">{session.branch}</span>
                 </span>
                 {session.isRunning ? (
-                  <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                  <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
                     运行中
                   </span>
                 ) : null}
@@ -333,7 +332,7 @@ export function SessionHubListItem({
       </div>
       {contextMenu ? (
         <div
-          className="fixed z-50 min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          className="tahoe-popover fixed z-50 min-w-40 rounded-md p-1 text-popover-foreground"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.preventDefault()}

@@ -12,40 +12,33 @@ import { dateTimestamp } from '@/utils/date';
 
 export const MONITOR_SLOT_STYLES = [
   {
-    shell:
-      'border-sky-200/90 bg-sky-100/60 dark:border-sky-400/20 dark:bg-sky-500/10',
-    badge: 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
-    bar: 'bg-sky-400 dark:bg-sky-300',
+    shell: 'kanban-usage-card',
+    badge: 'session-status-done-count',
+    bar: 'session-marker-primary',
   },
   {
-    shell:
-      'border-violet-200/90 bg-violet-100/60 dark:border-violet-400/20 dark:bg-violet-500/10',
-    badge:
-      'bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
-    bar: 'bg-violet-400 dark:bg-violet-300',
+    shell: 'kanban-usage-card',
+    badge: 'session-status-inreview-count',
+    bar: 'session-marker-warning',
   },
   {
-    shell:
-      'border-emerald-200/90 bg-emerald-100/60 dark:border-emerald-400/20 dark:bg-emerald-500/10',
-    badge:
-      'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-    bar: 'bg-emerald-400 dark:bg-emerald-300',
+    shell: 'kanban-usage-card',
+    badge: 'session-status-inprogress-count',
+    bar: 'session-marker-success',
   },
   {
-    shell:
-      'border-orange-200/90 bg-orange-100/60 dark:border-orange-400/20 dark:bg-orange-500/10',
-    badge:
-      'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
-    bar: 'bg-orange-400 dark:bg-orange-300',
+    shell: 'kanban-usage-card',
+    badge: 'session-status-todo-count',
+    bar: 'session-marker-danger',
   },
 ] as const;
 
 export const RIGHT_PANEL_MARKER = {
-  bar: 'bg-rose-400 dark:bg-rose-300',
-  badge: 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300',
+  bar: 'session-marker-primary',
+  badge: 'session-status-inreview-count',
 } as const;
 
-export const INFO_TEXT_CLASS = 'text-sky-600 dark:text-sky-300';
+export const INFO_TEXT_CLASS = 'text-primary';
 export const UNASSIGNED_EXECUTOR = '__kanban_unassigned_executor__';
 export const SESSION_LIST_ACTION_BUTTON_CLASS =
   'session-hub-action-button h-7 w-7 p-0 shadow-none';
@@ -70,37 +63,34 @@ export const SESSION_STATUS_LABELS: Record<ActiveSessionStatus, string> = {
 };
 export const SESSION_STATUS_LIGHT_COLORS: Record<ActiveSessionStatus, string> =
   {
-    todo: '#EF4444',
-    inprogress: '#22C55E',
-    inreview: '#EAB308',
-    done: '#9CA3AF',
+    todo: 'hsl(var(--destructive))',
+    inprogress: 'hsl(var(--success))',
+    inreview: 'hsl(var(--warning))',
+    done: 'var(--text-muted)',
   };
 export const SESSION_STATUS_SECTION_STYLES: Record<
   ActiveSessionStatus,
   { text: string; pill: string; count: string }
 > = {
   todo: {
-    text: 'text-rose-600 dark:text-rose-300',
-    pill: 'border-rose-500/30 bg-rose-500/10',
-    count: 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200',
+    text: 'session-status-todo-text',
+    pill: 'session-status-todo-pill',
+    count: 'session-status-todo-count',
   },
   inprogress: {
-    text: 'text-emerald-600 dark:text-emerald-300',
-    pill: 'border-emerald-500/30 bg-emerald-500/10',
-    count:
-      'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200',
+    text: 'session-status-inprogress-text',
+    pill: 'session-status-inprogress-pill',
+    count: 'session-status-inprogress-count',
   },
   inreview: {
-    text: 'text-amber-600 dark:text-amber-300',
-    pill: 'border-amber-500/30 bg-amber-500/10',
-    count:
-      'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200',
+    text: 'session-status-inreview-text',
+    pill: 'session-status-inreview-pill',
+    count: 'session-status-inreview-count',
   },
   done: {
-    text: 'text-slate-600 dark:text-slate-300',
-    pill: 'border-slate-500/30 bg-slate-500/10',
-    count:
-      'border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-200',
+    text: 'session-status-done-text',
+    pill: 'session-status-done-pill',
+    count: 'session-status-done-count',
   },
 };
 

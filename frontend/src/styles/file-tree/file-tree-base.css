@@ -1,12 +1,12 @@
 /*
  * file-tree-base.css
  *
- * CSS variable bridge from mossx 鈫?VibeX and all base file tree styles
+ * CSS variable bridge to VibeX Tahoe tokens and all base file tree styles
  * including: layout, scroll, hover, selection, icons, search, skeleton,
  * workspace search, file preview popover, and code preview lines.
  */
 
-/* 鈹€鈹€ mossx 鈫?VibeX CSS variable bridge 鈹€鈹€ */
+/* Tahoe file tree compatibility bridge */
 .file-tree-panel {
   --surface-hover: hsl(var(--_accent));
   --surface-active: hsl(var(--_accent));
@@ -27,12 +27,12 @@
   --text-warning: hsl(var(--_warning));
   --border-subtle: hsl(var(--_border));
   --border-stronger: hsl(var(--_border));
-  --border-accent: hsl(var(--brand));
-  --accent-500: hsl(var(--brand));
-  --status-error: hsl(var(--error));
+  --border-accent: hsl(var(--primary));
+  --accent-500: hsl(var(--primary));
+  --status-error: hsl(var(--destructive));
   --status-success: hsl(var(--success));
-  --status-warning: hsl(var(--_warning));
-  --shadow-accent: hsla(var(--brand) / 0.25);
+  --status-warning: hsl(var(--warning));
+  --shadow-accent: hsl(var(--primary) / 0.25);
   --code-font-family: var(--font-ibm-plex-mono, 'IBM Plex Mono', monospace);
   --code-font-size: 11px;
   --code-font-weight: 400;
@@ -280,7 +280,7 @@
 }
 
 .file-tree-search-limit {
-  color: var(--text-warning, #fbbf24);
+  color: var(--text-warning);
   padding-top: 0;
 }
 
@@ -469,7 +469,7 @@
 }
 
 .workspace-search-limit {
-  color: var(--text-warning, #fbbf24);
+  color: var(--text-warning);
 }
 
 .workspace-search-results {
@@ -638,8 +638,8 @@
     var(--accent-500) 65%,
     var(--border-subtle) 35%
   );
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--accent-500) 35%, transparent 65%);
+  outline: 1px solid color-mix(in srgb, var(--accent-500) 35%, transparent 65%);
+  outline-offset: -1px;
 }
 
 .file-tree-row.is-folder {
@@ -827,7 +827,7 @@
 }
 
 .file-preview-error {
-  color: var(--text-danger, #f87171);
+  color: var(--text-danger);
 }
 
 .file-preview-body {
@@ -973,19 +973,19 @@
 .file-preview-line.is-selected {
   background: color-mix(in srgb, var(--surface-active) 65%, transparent);
   border-color: transparent;
-  box-shadow: inset 3px 0 0 var(--border-accent);
+  border-left-color: var(--border-accent);
 }
 
 .file-preview-line.is-selected.is-start {
-  box-shadow: inset 3px 0 0 var(--border-accent);
+  border-left-color: var(--border-accent);
 }
 
 .file-preview-line.is-selected.is-end {
-  box-shadow: inset 3px 0 0 var(--border-accent);
+  border-left-color: var(--border-accent);
 }
 
 .file-preview-line.is-selected.is-start.is-end {
-  box-shadow: inset 3px 0 0 var(--border-accent);
+  border-left-color: var(--border-accent);
 }
 
 .file-preview-line-number {

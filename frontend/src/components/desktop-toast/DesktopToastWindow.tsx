@@ -160,7 +160,7 @@ export function DesktopToastWindow() {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className="pointer-events-auto relative overflow-hidden rounded-2xl border border-border bg-background/96 shadow-2xl backdrop-blur-md"
+              className="tahoe-popover pointer-events-auto relative overflow-hidden rounded-[14px]"
             >
               <button
                 type="button"
@@ -171,8 +171,8 @@ export function DesktopToastWindow() {
                   <span
                     className={
                       toast.kind === 'error'
-                        ? 'h-2.5 w-2.5 rounded-full bg-red-500'
-                        : 'h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse'
+                        ? 'tahoe-status-dot-danger h-2.5 w-2.5 rounded-full'
+                        : 'tahoe-status-dot-success h-2.5 w-2.5 animate-pulse rounded-full'
                     }
                   />
                   <span className="text-sm font-semibold text-foreground">
@@ -188,7 +188,7 @@ export function DesktopToastWindow() {
               </button>
               <button
                 type="button"
-                className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
                 aria-label="Close toast"
                 onClick={() => removeToast(toast.id)}
               >

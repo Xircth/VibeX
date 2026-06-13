@@ -13,8 +13,8 @@ const shikiMock = vi.hoisted(() => {
               content: line,
               offset: 0,
               variants: {
-                light: { color: '#111111' },
-                dark: { color: '#eeeeee' },
+                light: { color: 'rgb(17 17 17)' },
+                dark: { color: 'rgb(238 238 238)' },
               },
             },
           ]
@@ -133,10 +133,10 @@ describe('FilePreviewPopover', () => {
     const token = screen.getByText('const value = 1;');
     expect(token).toHaveClass('file-preview-token');
     expect(token.getAttribute('style')).toContain(
-      '--shiki-token-light: #111111'
+      '--shiki-token-light: rgb(17 17 17)'
     );
     expect(token.getAttribute('style')).toContain(
-      '--shiki-token-dark: #eeeeee'
+      '--shiki-token-dark: rgb(238 238 238)'
     );
   });
 });

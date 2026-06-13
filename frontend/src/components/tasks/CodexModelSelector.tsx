@@ -76,7 +76,7 @@ export function CodexModelSelector({
           ) : null}
           {!iconOnly && fastMode?.checked ? (
             <Zap
-              className="h-3 w-3 fill-blue-500 text-blue-500 dark:fill-blue-400 dark:text-blue-400"
+              className="h-3 w-3 fill-primary text-primary"
               aria-label={fastMode.label}
             />
           ) : null}
@@ -110,14 +110,14 @@ export function CodexModelSelector({
                     className={cn(
                       'flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50',
                       fastMode.checked &&
-                        'bg-blue-50 text-blue-600 hover:bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-950/30'
+                        'bg-[hsl(var(--primary)/0.1)] text-primary hover:bg-[hsl(var(--primary)/0.1)]'
                     )}
                   >
                     <Zap
                       className={cn(
                         'h-3.5 w-3.5',
                         fastMode.checked &&
-                          'fill-blue-500 text-blue-500 dark:fill-blue-400 dark:text-blue-400'
+                          'fill-primary text-primary'
                       )}
                     />
                     <span>{fastMode.label}</span>

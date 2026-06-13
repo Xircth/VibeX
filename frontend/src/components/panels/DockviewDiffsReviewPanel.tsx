@@ -61,20 +61,24 @@ function pathsReferToSameDiffFile(candidatePath: string, targetPath: string) {
 const changeBadge: Record<DiffChangeKind, { label: string; color: string }> = {
   added: {
     label: 'A',
-    color: 'text-green-600 bg-green-100 dark:bg-green-900/40',
+    color: 'bg-[var(--diff-added-bg)] text-[var(--diff-added-fg)]',
   },
-  deleted: { label: 'D', color: 'text-red-600 bg-red-100 dark:bg-red-900/40' },
+  deleted: {
+    label: 'D',
+    color: 'bg-[var(--diff-removed-bg)] text-[var(--diff-removed-fg)]',
+  },
   modified: {
     label: 'M',
-    color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/40',
+    color: 'bg-[hsl(var(--primary)/0.1)] text-primary',
   },
   renamed: {
     label: 'R',
-    color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/40',
+    color: 'bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]',
   },
   copied: {
     label: 'C',
-    color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/40',
+    color:
+      'bg-[hsl(var(--status-running)/0.1)] text-[hsl(var(--status-running))]',
   },
   permissionChange: {
     label: 'P',
@@ -334,8 +338,8 @@ function DockviewDiffsReviewPanel() {
 
   if (!isCommitMode && error) {
     return (
-      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 m-4">
-        <div className="text-red-800 dark:text-red-300 text-sm">{`加载差异失败：${error}`}</div>
+      <div className="m-4 rounded-lg border border-[hsl(var(--destructive)/0.28)] bg-[hsl(var(--destructive)/0.08)] p-4">
+        <div className="text-sm text-destructive">{`加载差异失败：${error}`}</div>
       </div>
     );
   }
@@ -408,10 +412,10 @@ function DockviewDiffsReviewPanel() {
           <div className="shrink-0 flex items-center gap-2 px-3 h-[33px] border-b border-border bg-muted/30">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5">
               <span>{fileCount} 个文件已更改</span>
-              <span className="font-mono text-green-600 dark:text-green-500">
+              <span className="font-mono text-[hsl(var(--success))]">
                 +{added}
               </span>
-              <span className="font-mono text-red-600 dark:text-red-500">
+              <span className="font-mono text-destructive">
                 -{deleted}
               </span>
             </span>
@@ -444,12 +448,12 @@ function DockviewDiffsReviewPanel() {
               {stickyDiff.newPath || stickyDiff.oldPath}
             </span>
             {stickyDiff.additions != null && stickyDiff.additions > 0 && (
-              <span className="text-green-600 text-[10px] font-mono">
+              <span className="font-mono text-[10px] text-[hsl(var(--success))]">
                 +{stickyDiff.additions}
               </span>
             )}
             {stickyDiff.deletions != null && stickyDiff.deletions > 0 && (
-              <span className="text-red-600 text-[10px] font-mono">
+              <span className="font-mono text-[10px] text-destructive">
                 -{stickyDiff.deletions}
               </span>
             )}
@@ -553,8 +557,8 @@ function DockviewDiffsReviewPanel() {
               <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border-t border-border text-[10px] text-muted-foreground">
                 <span>{fileCount} 个文件</span>
                 <span className="text-muted-foreground/40">·</span>
-                <span className="text-green-600 font-mono">+{added}</span>
-                <span className="text-red-600 font-mono">-{deleted}</span>
+                <span className="font-mono text-[hsl(var(--success))]">+{added}</span>
+                <span className="font-mono text-destructive">-{deleted}</span>
               </div>
             </>
           )}

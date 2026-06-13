@@ -358,7 +358,7 @@ const PendingApprovalEntry = ({
 
             {error && (
               <div
-                className="mt-1 text-xs text-red-600"
+                className="mt-1 text-xs text-destructive"
                 role="alert"
                 aria-live="polite"
               >

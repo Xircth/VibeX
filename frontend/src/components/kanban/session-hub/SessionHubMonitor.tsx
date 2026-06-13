@@ -44,7 +44,7 @@ export function SessionHubMonitor({
         </div>
 
         {monitorRecords.length === 0 ? (
-          <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/10 px-6 text-center text-sm text-muted-foreground">
+          <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-[var(--surface-content)] px-6 text-center text-sm text-muted-foreground">
             点击左侧会话即可在右侧栏或监控区中展开。
           </div>
         ) : (
@@ -55,7 +55,7 @@ export function SessionHubMonitor({
               <div
                 key={session.id}
                 className={cn(
-                  'flex min-h-0 flex-col overflow-hidden rounded-2xl border p-3 shadow-sm transition-colors hover:bg-background/30',
+                  'flex min-h-0 flex-col overflow-hidden rounded-lg border p-3 transition-colors hover:bg-[var(--surface-control-hover)]',
                   MONITOR_SLOT_STYLES[index]?.shell,
                   getMonitorItemClassName(monitorRecords.length, index)
                 )}

@@ -115,8 +115,8 @@ export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 m-4">
-        <div className="text-red-800 text-sm">{`加载差异失败：${error}`}</div>
+      <div className="m-4 rounded-lg border border-[hsl(var(--destructive)/0.28)] bg-[hsl(var(--destructive)/0.08)] p-4">
+        <div className="text-sm text-destructive">{`加载差异失败：${error}`}</div>
       </div>
     );
   }
@@ -206,10 +206,10 @@ function DiffsPanelContent({
               aria-live="polite"
             >
               {`${fileCount} 个文件已更改`}{' '}
-              <span className="text-green-600 dark:text-green-500">
+              <span className="text-[hsl(var(--success))]">
                 +{added}
               </span>{' '}
-              <span className="text-red-600 dark:text-red-500">-{deleted}</span>
+              <span className="text-destructive">-{deleted}</span>
             </span>
           </div>
         </NewCardHeader>

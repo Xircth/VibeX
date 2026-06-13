@@ -136,10 +136,10 @@ function runtimeStatusLabel(status: RuntimeStatus): string {
 }
 
 function runtimeStatusClass(status: RuntimeStatus): string {
-  if (status === 'ready') return 'bg-success/10 text-success';
-  if (status === 'warning') return 'bg-warning/10 text-warning';
-  if (status === 'failed') return 'bg-destructive/10 text-destructive';
-  return 'bg-muted text-muted-foreground';
+  if (status === 'ready') return 'settings-status-pill-success';
+  if (status === 'warning') return 'settings-status-pill-warning';
+  if (status === 'failed') return 'settings-status-pill-danger';
+  return 'settings-status-pill-neutral';
 }
 
 function fixLabel(fix: PreflightFix): string {
@@ -690,15 +690,15 @@ function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
   const StatusIcon = isFailed ? XCircle : CheckCircle2;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+    <div className="settings-inline-group flex flex-wrap items-center justify-between gap-3 p-3">
       <div className="flex min-w-0 items-center gap-3">
         <div
           className={cn(
             'flex h-9 w-9 shrink-0 items-center justify-center rounded-md',
-            summary.status === 'ready' && 'bg-success/10',
-            summary.status === 'warning' && 'bg-warning/10',
-            summary.status === 'failed' && 'bg-destructive/10',
-            summary.status === 'idle' && 'bg-muted'
+            summary.status === 'ready' && 'settings-status-swatch-success',
+            summary.status === 'warning' && 'settings-status-swatch-warning',
+            summary.status === 'failed' && 'settings-status-swatch-danger',
+            summary.status === 'idle' && 'settings-status-swatch-neutral'
           )}
         >
           {summary.status === 'idle' ? (
@@ -721,7 +721,7 @@ function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
             </span>
             <span
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                'px-1.5 py-0.5 text-[10px] font-medium',
                 runtimeStatusClass(summary.status)
               )}
             >
@@ -771,7 +771,7 @@ function PreflightChecklist({
         return (
           <div
             key={check.check_id}
-            className="flex gap-3 rounded-md border bg-background/60 p-3"
+            className="settings-inline-group flex gap-3 p-3"
           >
             <StatusIcon
               className={cn(
@@ -895,10 +895,10 @@ function InlineMessage({
   return (
     <div
       className={cn(
-        'rounded-lg border p-3',
-        tone === 'error' && 'border-destructive/40 bg-destructive/5',
-        tone === 'warning' && 'border-warning/40 bg-warning/5',
-        tone === 'success' && 'border-success/40 bg-success/5'
+        'settings-message p-3',
+        tone === 'error' && 'settings-message-error',
+        tone === 'warning' && 'settings-message-warning',
+        tone === 'success' && 'settings-message-success'
       )}
     >
       <div className="flex items-start gap-2">

@@ -122,7 +122,7 @@ export function KanbanBoard() {
               onClick={handleLeftArrowClick}
               aria-label={getLeftArrowLabel()}
               className={cn(
-                'kanban-nav-arrow ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border opacity-0 transition-all duration-200',
+                'kanban-nav-arrow ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
                 'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
               )}
             >
@@ -141,7 +141,7 @@ export function KanbanBoard() {
               onClick={handleRightArrowClick}
               aria-label={getRightArrowLabel()}
               className={cn(
-                'kanban-nav-arrow mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border opacity-0 transition-all duration-200',
+                'kanban-nav-arrow mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
                 'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
               )}
             >

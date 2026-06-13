@@ -7,9 +7,9 @@ const toneClasses = {
   destructive:
     'border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/10',
   warning:
-    'border-amber-500/25 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300',
+    'border-[hsl(var(--warning)/0.25)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.1)]',
   success:
-    'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300',
+    'border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.1)]',
   muted:
     'border-border bg-muted/50 text-muted-foreground hover:bg-muted/50',
 } as const;

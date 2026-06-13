@@ -289,7 +289,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
           {summaryText}
         </div>
         {searchResults?.truncated && (
-          <div className="text-[10px] text-yellow-500 px-0.5">
+          <div className="px-0.5 text-[10px] text-[hsl(var(--warning))]">
             结果过多，仅显示部分匹配
           </div>
         )}

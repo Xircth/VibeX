@@ -103,7 +103,7 @@ export const GitFileRow = memo(function GitFileRow({
                       <Plus className="h-3 w-3" />
                     </button>
                     <button
-                      className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-red-400"
+                      className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
                       onClick={(e) => {
                         stop(e);
                         onRevertFile?.(file.path);

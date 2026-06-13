@@ -12,10 +12,10 @@ interface GitDiffViewerProps {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  A: 'text-green-500',
-  M: 'text-yellow-500',
-  D: 'text-red-500',
-  R: 'text-blue-500',
+  A: 'text-[hsl(var(--success))]',
+  M: 'text-[hsl(var(--warning))]',
+  D: 'text-destructive',
+  R: 'text-[hsl(var(--info))]',
 };
 
 const DiffCard = memo(function DiffCard({

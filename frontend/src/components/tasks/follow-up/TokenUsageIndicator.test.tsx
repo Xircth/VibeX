@@ -30,7 +30,7 @@ describe('TokenUsageIndicator', () => {
       container.querySelector('.composer-token-usage-ring')
     ).toHaveStyle({
       background:
-        'conic-gradient(var(--composer-token-usage-ring, #111827) 25%, var(--composer-token-usage-track, hsl(var(--muted))) 25% 100%)',
+        'conic-gradient(var(--composer-token-usage-ring, hsl(var(--foreground))) 25%, var(--composer-token-usage-track, hsl(var(--muted))) 25% 100%)',
     });
     expect(
       container.querySelector('.composer-token-usage-core')

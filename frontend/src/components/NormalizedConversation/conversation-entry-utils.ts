@@ -619,13 +619,13 @@ export const getContentClassName = (entryType: NormalizedEntryType) => {
           entryType.tool_name.toLowerCase()
         )))
   )
-    return `${base} font-mono text-zinc-800 dark:text-zinc-200`;
+    return `${base} font-mono text-foreground`;
 
   if (
     entryType.type === 'tool_use' &&
     entryType.action_type.action === 'plan_presentation'
   )
-    return `${base} rounded-md border border-blue-400/30 bg-blue-50 px-3 py-2 text-blue-700 dark:bg-blue-950/20 dark:text-blue-300`;
+    return `${base} rounded-md border border-[hsl(var(--primary)/0.28)] bg-[hsl(var(--primary)/0.08)] px-3 py-2 text-primary`;
 
   return base;
 };

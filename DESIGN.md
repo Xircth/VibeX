@@ -117,9 +117,11 @@ components:
     selectedBackground: "{colors.primary}  # accent fill, white label"
 ---
 
-# Design System: VibeX
+# Design System: VibeX Tahoe
 
-## 1. Overview
+`DESIGN.md` is the single current source of truth for frontend design in
+VibeX. Older audits, generated `.impeccable` output, and files with "legacy" in
+their names are migration references only.
 
 **Creative North Star: "The Developer Flight Deck, built as a good Mac citizen."**
 
@@ -187,7 +189,7 @@ A restrained, system-adaptive neutral palette with one calm blue accent and smal
 - **Ink Strong / Ink Muted** — headings vs. metadata.
 - **Hairline / Hairline Strong** — alpha-based seams that read correctly on both glass and opaque surfaces.
 
-### Named Rules
+## 6. Radius, Elevation, And Motion
 
 **The State-Only Accent Rule.** Blue means selected, focused, primary, or live. It is never a decorative fill.
 

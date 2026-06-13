@@ -212,7 +212,7 @@ function SectionLabel({
     >
       <div
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 backdrop-blur-md',
+          'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5',
           statusStyle.pill
         )}
       >
@@ -227,7 +227,7 @@ function SectionLabel({
       </div>
       <span
         className={cn(
-          'rounded-full border px-2 py-0.5 text-[10px] backdrop-blur-md',
+          'rounded-full border px-2 py-0.5 text-[10px]',
           statusStyle.count
         )}
       >
@@ -276,9 +276,11 @@ function ArchiveDropZone({ enabled }: { enabled: boolean }) {
       className={cn(
         'session-hub-drop-zone rounded-xl border border-dashed px-3 py-2 transition-colors',
         enabled
-          ? 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-200'
+          ? 'border-[hsl(var(--primary)/0.4)] bg-[hsl(var(--primary)/0.1)] text-primary'
           : 'text-muted-foreground',
-        isOver && enabled ? 'is-over border-sky-500/70 bg-sky-500/20' : ''
+        isOver && enabled
+          ? 'is-over border-[hsl(var(--primary)/0.7)] bg-[hsl(var(--primary)/0.18)]'
+          : ''
       )}
     >
       <div className="flex items-center gap-2 text-xs font-medium">
@@ -920,13 +922,13 @@ export function SessionHubSidebar({
                 </p>
               ) : null}
               {deleteSuccessMessage ? (
-                <p className="text-[11px] text-emerald-600 dark:text-emerald-300">
+                <p className="text-[11px] text-[hsl(var(--success))]">
                   {deleteSuccessMessage}
                 </p>
               ) : null}
             </div>
           ) : deleteSuccessMessage ? (
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-300">
+            <p className="text-[11px] text-[hsl(var(--success))]">
               {deleteSuccessMessage}
             </p>
           ) : null}
@@ -1043,7 +1045,7 @@ export function SessionHubSidebar({
       <div
         role="separator"
         aria-orientation="vertical"
-        className="session-hub-resizer relative z-10 -ml-2 w-2 shrink-0 cursor-col-resize transition-colors before:absolute before:inset-y-0 before:right-0 before:w-px before:transition-all before:duration-150 hover:before:w-[3px]"
+        className="session-hub-resizer relative z-10 -ml-2 w-2 shrink-0 cursor-col-resize transition-colors before:absolute before:inset-y-0 before:right-0 before:w-px before:transition-[width,background-color] before:duration-150 hover:before:w-[3px]"
         onMouseDown={onResizeMouseDown}
       />
     </>

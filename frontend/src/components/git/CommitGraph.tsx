@@ -17,9 +17,10 @@ const NODE_RADIUS = 4;
 const MERGE_BASE_RADIUS = 6;
 
 const COLORS = {
-  currentBranch: 'var(--commit-graph-current, #3B82F6)',
-  targetBranch: 'var(--commit-graph-target, #9CA3AF)',
-  mergeBase: 'var(--commit-graph-merge-base, #F59E0B)',
+  currentBranch: 'var(--commit-graph-current, hsl(var(--primary)))',
+  targetBranch:
+    'var(--commit-graph-target, hsl(var(--muted-foreground)))',
+  mergeBase: 'var(--commit-graph-merge-base, hsl(var(--warning)))',
 };
 
 interface CommitGraphProps {
@@ -179,7 +180,7 @@ export function CommitGraph({ workspaceId, repoId }: CommitGraphProps) {
                         cx={cx}
                         cy={cy}
                         r={radius - 2}
-                        fill="var(--background, #fff)"
+                        fill="hsl(var(--background))"
                       />
                       <circle cx={cx} cy={cy} r={2} fill={color} />
                     </>

@@ -32,6 +32,16 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: '/settings/system', label: '系统', icon: Settings },
 ];
 
+function getSafeCurrentWindow() {
+  try {
+    const currentWindow = getCurrentWindow();
+    void currentWindow.label;
+    return currentWindow;
+  } catch {
+    return null;
+  }
+}
+
 export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -39,7 +49,10 @@ export function SettingsLayout() {
   const [isStandaloneWindow, setIsStandaloneWindow] = useState(false);
 
   useEffect(() => {
-    getCurrentWindow().label !== 'main' && setIsStandaloneWindow(true);
+    const currentWindow = getSafeCurrentWindow();
+    if (currentWindow && currentWindow.label !== 'main') {
+      setIsStandaloneWindow(true);
+    }
   }, []);
 
   const navigateTo = useCallback(
@@ -57,8 +70,8 @@ export function SettingsLayout() {
   const handleDragStart = useCallback((event: React.MouseEvent) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    getCurrentWindow()
-      .startDragging()
+    getSafeCurrentWindow()
+      ?.startDragging()
       .catch(() => {});
   }, []);
 
@@ -91,7 +104,7 @@ export function SettingsLayout() {
             )}
           >
             <Logo showText={false} size="window" />
-            <span className="text-sm font-semibold tracking-tight text-foreground">
+            <span className="text-sm font-semibold tracking-normal text-foreground">
               设置
             </span>
           </div>

@@ -66,10 +66,10 @@ function todoToPlanItem(todo: TodoItem): ParsedPlanItem {
 function getPlanStatusIcon(status: string) {
   const normalized = status.toLowerCase().replace(/-/g, '_');
   if (normalized === 'completed' || normalized === 'done') {
-    return <Check className="h-3.5 w-3.5 text-green-600" />;
+    return <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />;
   }
   if (normalized === 'in_progress' || normalized === 'inprogress') {
-    return <CircleDot className="h-3.5 w-3.5 text-blue-600" />;
+    return <CircleDot className="h-3.5 w-3.5 text-primary" />;
   }
   return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;
 }

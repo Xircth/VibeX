@@ -17,9 +17,9 @@ const STATUS_LABELS: Record<CodexGoalStatus, string> = {
 };
 
 const STATUS_CLASSES: Record<CodexGoalStatus, string> = {
-  running: 'bg-emerald-500',
-  paused: 'bg-amber-500',
-  completed: 'bg-slate-400',
+  running: 'bg-[hsl(var(--success))]',
+  paused: 'bg-[hsl(var(--warning))]',
+  completed: 'bg-muted-foreground',
 };
 
 export function CodexGoalIndicator({ goalState }: CodexGoalIndicatorProps) {

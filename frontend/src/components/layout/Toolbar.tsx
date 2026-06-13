@@ -129,13 +129,13 @@ function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
           ) : (
             <>
               {totalAhead > 0 && (
-                <span className="flex items-center gap-0.5 text-green-600">
+                <span className="workspace-branch-ahead flex items-center gap-0.5">
                   <ArrowUp className="h-2.5 w-2.5" />
                   {totalAhead}
                 </span>
               )}
               {totalBehind > 0 && (
-                <span className="flex items-center gap-0.5 text-orange-500">
+                <span className="workspace-branch-behind flex items-center gap-0.5">
                   <ArrowDown className="h-2.5 w-2.5" />
                   {totalBehind}
                 </span>
@@ -278,7 +278,7 @@ function WorkspaceTabSwitcher() {
             key={tab.key}
             onClick={() => handleTabSelect(tab.key)}
             className={cn(
-              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-all',
+              'workspace-tab-button flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors',
               isActive && 'is-active'
             )}
           >

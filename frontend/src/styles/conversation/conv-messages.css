@@ -30,11 +30,15 @@
 
 .conv-user-bubble {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent),
+    linear-gradient(
+      180deg,
+      hsl(var(--primary-foreground) / 0.12),
+      transparent
+    ),
     var(--conv-user-bg);
-  color: #fff;
+  color: var(--conv-user-text);
   border-radius: 14px 14px 4px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid hsl(var(--primary-foreground) / 0.1);
   max-width: 85%;
   padding: 10px 14px;
   font-size: 14px;
@@ -75,16 +79,16 @@
 .conv-user-bubble h6,
 .conv-user-bubble strong,
 .conv-user-bubble em {
-  color: #fff !important;
+  color: var(--conv-user-text) !important;
 }
 
 /* Inline code inside user bubble — transparent bg + subtle border only */
 .conv-user-bubble .ProseMirror code,
 .conv-user-bubble code {
-  background: rgba(255, 255, 255, 0.92) !important;
-  background-color: rgba(255, 255, 255, 0.92) !important;
-  color: rgba(15, 23, 42, 0.95) !important;
-  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  background: var(--conv-surface-card) !important;
+  background-color: var(--conv-surface-card) !important;
+  color: var(--conv-code-text) !important;
+  border: 1px solid var(--conv-border-subtle) !important;
   border-radius: 4px;
   padding: 1px 5px;
   font-weight: 500;
@@ -96,8 +100,8 @@
 .conv-user-bubble .editor-code,
 .conv-user-bubble [class*='bg-secondary'],
 .conv-user-bubble .ProseMirror pre {
-  background: rgba(0, 0, 0, 0.25) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: hsl(var(--primary) / 0.18) !important;
+  border: 1px solid hsl(var(--primary-foreground) / 0.15) !important;
   border-radius: 6px !important;
   padding: 8px 10px !important;
   margin: 6px 0 !important;
@@ -111,23 +115,25 @@
   background: none !important;
   border: none !important;
   padding: 0 !important;
-  color: rgba(255, 255, 255, 0.95) !important;
+  color: var(--conv-user-text) !important;
   font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
   font-size: 12px;
   line-height: 1.5;
 }
 
 .conv-user-bubble .ProseMirror a {
-  color: #fff !important;
+  color: var(--conv-user-text) !important;
   text-decoration: underline;
 }
 
+/* Legacy composer chip compatibility: these selectors catch previously emitted
+   Tailwind utility names, but the rendered color is now tokenized. */
 .conv-user-bubble [class*='bg-purple-500'],
 .conv-user-bubble [class*='bg-emerald-500'],
 .conv-user-bubble [class*='bg-sky-500'] {
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(255, 255, 255, 0.28) !important;
-  color: #fff !important;
+  background: hsl(var(--primary-foreground) / 0.16) !important;
+  border-color: hsl(var(--primary-foreground) / 0.28) !important;
+  color: var(--conv-user-text) !important;
 }
 
 .conv-user-retry-panel {
@@ -182,20 +188,19 @@
   transform: translateX(-50%);
   padding: 2px 8px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.65);
+  color: hsl(var(--primary-foreground) / 0.72);
   cursor: pointer;
-  background: rgba(0, 0, 0, 0.18);
+  background: hsl(var(--primary) / 0.24);
   border: none;
   border-radius: 999px;
-  backdrop-filter: blur(4px);
   transition:
     color 0.15s,
     background-color 0.15s;
 }
 
 .conv-user-toggle:hover {
-  color: rgba(255, 255, 255, 0.95);
-  background: rgba(0, 0, 0, 0.28);
+  color: var(--conv-user-text);
+  background: hsl(var(--primary) / 0.32);
 }
 
 .conv-user-toggle-icon {

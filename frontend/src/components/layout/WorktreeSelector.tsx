@@ -280,7 +280,7 @@ export function WorktreeSelector() {
                       className={
                         option.useWorktree
                           ? 'rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary'
-                          : 'rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300'
+                          : 'rounded-full bg-[hsl(var(--warning)/0.12)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]'
                       }
                     >
                       {option.useWorktree ? 'Worktree' : 'Project'}
@@ -307,7 +307,7 @@ export function WorktreeSelector() {
                   }
                 >
                   {copiedWorkspaceId === option.existingWorkspaceId ? (
-                    <Check className="h-3.5 w-3.5 text-green-600" />
+                    <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
                   ) : (
                     <Copy className="h-3.5 w-3.5" />
                   )}

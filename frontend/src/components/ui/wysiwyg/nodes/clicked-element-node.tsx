@@ -242,7 +242,7 @@ function ClickedElementChip({
 
   const chip = (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-emerald-500/15 text-emerald-400 text-sm cursor-default select-none align-baseline"
+      className="mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md bg-[hsl(var(--success)/0.14)] px-1.5 py-0.5 align-baseline text-sm text-[hsl(var(--success))]"
       onDoubleClick={handleDoubleClick}
     >
       <MousePointerClick className="h-3 w-3 shrink-0" />
@@ -250,7 +250,7 @@ function ClickedElementChip({
       {isEditable && (
         <button
           type="button"
-          className="ml-0.5 rounded-sm hover:bg-emerald-500/30 p-0.5 transition-colors"
+          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-[hsl(var(--success)/0.22)]"
           onClick={handleRemove}
           tabIndex={-1}
           aria-label={`Remove element ${componentName}`}

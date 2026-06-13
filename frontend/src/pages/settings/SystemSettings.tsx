@@ -179,7 +179,7 @@ function SettingsSection({
       {description ? (
         <p className="text-xs leading-5 text-muted-foreground">{description}</p>
       ) : null}
-      <div className="settings-card overflow-hidden rounded-xl border">
+      <div className="settings-card overflow-hidden rounded-lg border">
         {children}
       </div>
     </section>
@@ -525,7 +525,7 @@ export function SystemSettings() {
               />
             </div>
 
-            <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="settings-inline-group p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold">应用版本</div>
@@ -537,11 +537,11 @@ export function SystemSettings() {
                       : ''}
                   </div>
                   {maintenanceStatus?.app.update_available ? (
-                    <div className="mt-1 text-[11px] font-medium text-amber-600">
+                    <div className="settings-status-warning mt-1 text-[11px] font-medium">
                       检测到新版本。请打开 Release 页面更新应用安装包。
                     </div>
                   ) : maintenanceStatus?.app.checked ? (
-                    <div className="mt-1 text-[11px] text-emerald-600">
+                    <div className="settings-status-success mt-1 text-[11px]">
                       应用已是最新版本。
                     </div>
                   ) : maintenanceStatus?.app.error ? (
@@ -646,7 +646,7 @@ export function SystemSettings() {
                 </div>
               </div>
 
-              <div className="divide-y rounded-lg border">
+              <div className="settings-inline-group divide-y divide-border/70 overflow-hidden">
                 {visibleMaintenanceTools.map((tool) => {
                   const presentation = getLocalDependencyStatusPresentation(tool);
 
@@ -757,14 +757,14 @@ export function SystemSettings() {
                         textValue={model}
                         className={
                           isFree
-                            ? 'font-medium text-emerald-700 focus:text-emerald-800'
+                            ? 'settings-status-free font-medium focus:text-[hsl(var(--success))]'
                             : undefined
                         }
                       >
                         <span className="flex min-w-0 items-center gap-2">
                           <span className="truncate">{model}</span>
                           {isFree ? (
-                            <span className="shrink-0 rounded-full border border-emerald-500/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-emerald-700">
+                            <span className="settings-status-free-badge shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none">
                               FREE
                             </span>
                           ) : null}
@@ -955,7 +955,7 @@ export function SystemSettings() {
       </div>
 
       {hasUnsavedChanges ? (
-        <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
+        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
             <span className="text-xs text-muted-foreground">
               设置已修改，保存后生效。

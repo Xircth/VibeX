@@ -258,7 +258,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                           entry.is_git_repo ? (
                             <FolderOpen className="h-4 w-4 text-success flex-shrink-0" />
                           ) : (
-                            <Folder className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                            <Folder className="h-4 w-4 text-primary flex-shrink-0" />
                           )
                         ) : (
                           <File className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
@@ -267,7 +267,7 @@ const FolderPickerDialogImpl = NiceModal.create<FolderPickerDialogProps>(
                           {entry.name}
                         </span>
                         {entry.is_git_repo && (
-                          <span className="text-xs text-success bg-green-100 px-2 py-1 rounded flex-shrink-0">
+                          <span className="flex-shrink-0 rounded bg-[hsl(var(--success)/0.12)] px-2 py-1 text-xs text-[hsl(var(--success))]">
                             {'git 仓库'}
                           </span>
                         )}

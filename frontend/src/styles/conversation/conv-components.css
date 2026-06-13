@@ -211,7 +211,7 @@
   border-radius: 12px;
   padding: 8px 12px;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: none;
   transition:
     background 0.15s,
     border-color 0.15s;
@@ -229,11 +229,11 @@
 
 .conv-error-card {
   background: var(--conv-surface-card);
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  border: 1px solid hsl(var(--destructive) / 0.35);
   border-radius: 12px;
   padding: 8px 12px;
   cursor: pointer;
-  box-shadow: inset 3px 0 0 var(--conv-tool-error);
+  box-shadow: none;
   transition:
     background 0.15s,
     border-color 0.15s;

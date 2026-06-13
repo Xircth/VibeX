@@ -199,7 +199,7 @@ export function KanbanUsageDashboard() {
       <span
         className={cn(
           'text-[10px] font-medium',
-          isUp ? 'text-red-500' : 'text-green-500'
+          isUp ? 'text-[hsl(var(--destructive))]' : 'text-[hsl(var(--success))]'
         )}
       >
         {isUp ? '上涨' : '下降'} {Math.abs(value).toFixed(1)}%
@@ -269,25 +269,25 @@ export function KanbanUsageDashboard() {
       key: 'overview' as UsageTab,
       label: '概览',
       icon: TrendingUp,
-      activeColor: 'bg-blue-500/20 text-blue-500',
+      activeColor: 'is-active',
     },
     {
       key: 'models' as UsageTab,
       label: '模型',
       icon: Hash,
-      activeColor: 'bg-purple-500/20 text-purple-500',
+      activeColor: 'is-active',
     },
     {
       key: 'sessions' as UsageTab,
       label: '会话',
       icon: List,
-      activeColor: 'bg-green-500/20 text-green-500',
+      activeColor: 'is-active',
     },
     {
       key: 'plan' as UsageTab,
       label: '套餐',
       icon: Package,
-      activeColor: 'bg-orange-500/20 text-orange-500',
+      activeColor: 'is-active',
     },
   ];
 
@@ -308,8 +308,8 @@ export function KanbanUsageDashboard() {
         </div>
 
         {noticeVisible && activeTab !== 'plan' ? (
-          <div className="flex items-center gap-1.5 rounded-md bg-yellow-500/10 px-2 py-1 text-xs text-yellow-600 dark:text-yellow-400">
-            <span className="text-[10px] text-yellow-500">提示</span>
+          <div className="kanban-usage-message-warning flex items-center gap-1.5 rounded-md px-2 py-1 text-xs">
+            <span className="text-[10px]">提示</span>
             <span>
               {statistics?.pricing_notice ??
                 '按官方定价估算，Claude 缓存写入默认按 5 分钟档处理'}
@@ -317,7 +317,7 @@ export function KanbanUsageDashboard() {
             <button
               type="button"
               onClick={() => setNoticeVisible(false)}
-              className="ml-0.5 rounded p-0.5 hover:bg-yellow-500/20"
+              className="ml-0.5 rounded p-0.5 transition-colors hover:bg-[var(--surface-control-hover)]"
             >
               <X className="h-3 w-3" />
             </button>
@@ -391,17 +391,17 @@ export function KanbanUsageDashboard() {
 
       <div className="relative flex min-h-0 flex-1">
         <div className="absolute left-10 top-1/2 z-10 -translate-y-1/2">
-          <div className="flex flex-col gap-1 rounded-2xl border-2 border-border bg-background/80 px-1 py-2 shadow-lg backdrop-blur-xl">
+          <div className="kanban-usage-tab-rail flex flex-col gap-1 px-1 py-2">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
                 title={tab.label}
                 className={cn(
-                  'flex items-center justify-center rounded-xl px-2 py-3 transition-all',
+                  'kanban-usage-tab flex items-center justify-center rounded-md px-2 py-3 transition-colors',
                   activeTab === tab.key
-                    ? cn(tab.activeColor, 'backdrop-blur-sm')
-                    : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
+                    ? tab.activeColor
+                    : ''
                 )}
                 onClick={() => setActiveTab(tab.key)}
               >
@@ -439,7 +439,7 @@ export function KanbanUsageDashboard() {
           ) : null}
 
           {activeTab !== 'plan' && failedProviders.length > 0 ? (
-            <div className="mb-4 rounded-lg bg-red-500/10 px-4 py-2.5 text-sm text-red-500">
+            <div className="kanban-usage-message-error mb-4 rounded-lg px-4 py-2.5 text-sm">
               部分数据源扫描失败：
               {failedProviders.map((p) => p.provider).join(', ')}
             </div>
@@ -469,9 +469,9 @@ export function KanbanUsageDashboard() {
             <div className="space-y-5">
               <div className="flex gap-4">
                 <div className="grid flex-1 grid-cols-2 gap-4">
-                  <div className="rounded-xl border border-border bg-gradient-to-br from-blue-500/10 to-transparent p-4">
+                  <div className="kanban-usage-card p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <CreditCard className="h-5 w-5 text-blue-500" />
+                      <CreditCard className="h-5 w-5 text-primary" />
                       <span className="text-sm text-muted-foreground">
                         总费用
                       </span>
@@ -484,9 +484,9 @@ export function KanbanUsageDashboard() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border bg-gradient-to-br from-green-500/10 to-transparent p-4">
+                  <div className="kanban-usage-card p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <MessageSquare className="h-5 w-5 text-green-500" />
+                      <MessageSquare className="h-5 w-5 text-[hsl(var(--success))]" />
                       <span className="text-sm text-muted-foreground">
                         总会话
                       </span>
@@ -501,9 +501,9 @@ export function KanbanUsageDashboard() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border bg-gradient-to-br from-purple-500/10 to-transparent p-4">
+                  <div className="kanban-usage-card p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <Hash className="h-5 w-5 text-purple-500" />
+                      <Hash className="h-5 w-5 text-[hsl(var(--status-running))]" />
                       <span className="text-sm text-muted-foreground">
                         总 Token
                       </span>
@@ -516,9 +516,9 @@ export function KanbanUsageDashboard() {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border bg-gradient-to-br from-orange-500/10 to-transparent p-4">
+                  <div className="kanban-usage-card p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5 text-orange-500" />
+                      <TrendingUp className="h-5 w-5 text-[hsl(var(--warning))]" />
                       <span className="text-sm text-muted-foreground">
                         平均/会话
                       </span>
@@ -535,7 +535,7 @@ export function KanbanUsageDashboard() {
                 </div>
 
                 {filteredDailyUsage.length > 0 ? (
-                  <div className="flex-1 rounded-xl border border-border bg-gradient-to-br from-muted/30 to-transparent p-4">
+                  <div className="kanban-usage-card flex-1 p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <span className="text-sm font-medium text-muted-foreground">
                         每日趋势
@@ -681,7 +681,7 @@ export function KanbanUsageDashboard() {
                 ) : null}
               </div>
 
-              <div className="rounded-xl border border-border p-5">
+              <div className="kanban-usage-card p-5">
                 <h4 className="mb-4 text-base font-medium text-foreground">
                   Token 构成
                 </h4>
@@ -690,22 +690,22 @@ export function KanbanUsageDashboard() {
                     {
                       label: '输入',
                       value: statistics.total_usage.input_tokens,
-                      color: 'bg-blue-500',
+                      color: 'kanban-usage-progress-primary',
                     },
                     {
                       label: '输出',
                       value: statistics.total_usage.output_tokens,
-                      color: 'bg-green-500',
+                      color: 'kanban-usage-progress-success',
                     },
                     {
                       label: '缓存写入',
                       value: statistics.total_usage.cache_write_tokens,
-                      color: 'bg-yellow-500',
+                      color: 'kanban-usage-progress-warning',
                     },
                     {
                       label: '缓存读取',
                       value: statistics.total_usage.cache_read_tokens,
-                      color: 'bg-purple-500',
+                      color: 'kanban-usage-progress-running',
                     },
                   ].map((item) => (
                     <div key={item.label}>
@@ -720,7 +720,7 @@ export function KanbanUsageDashboard() {
                       <div className="h-2.5 overflow-hidden rounded-full bg-muted">
                         <div
                           className={cn(
-                            'h-full rounded-full transition-all duration-500',
+                            'h-full rounded-full transition-[width] duration-500',
                             item.color
                           )}
                           style={{
@@ -734,7 +734,7 @@ export function KanbanUsageDashboard() {
               </div>
 
               {topModels.length > 0 ? (
-                <div className="rounded-xl border border-border p-5">
+                <div className="kanban-usage-card p-5">
                   <h4 className="mb-4 text-base font-medium text-foreground">
                     热门模型
                   </h4>
@@ -747,10 +747,10 @@ export function KanbanUsageDashboard() {
                         <span
                           className={cn(
                             'flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold',
-                            index === 0 && 'bg-yellow-500/20 text-yellow-600',
+                            index === 0 && 'kanban-rank-first',
                             index === 1 &&
                               'bg-muted text-muted-foreground',
-                            index === 2 && 'bg-orange-500/20 text-orange-600',
+                            index === 2 && 'kanban-rank-third',
                             index >= 3 && 'bg-muted text-muted-foreground'
                           )}
                         >
@@ -791,7 +791,7 @@ export function KanbanUsageDashboard() {
                   {statistics.by_model.map((model) => (
                     <div
                       key={model.model}
-                      className="group rounded-xl border border-border bg-gradient-to-r from-background to-muted/20 p-4 transition-all hover:shadow-md"
+                      className="kanban-usage-card group p-4 transition-colors"
                     >
                       <div className="flex items-center gap-4">
                         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
@@ -879,7 +879,7 @@ export function KanbanUsageDashboard() {
                 {paginatedSessions.map((session, index) => (
                   <div
                     key={session.session_id}
-                    className="group rounded-xl border border-border bg-gradient-to-r from-background to-muted/20 p-4 transition-all hover:shadow-md"
+                    className="kanban-usage-card group p-4 transition-colors"
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-medium text-muted-foreground">
@@ -955,7 +955,7 @@ export function KanbanUsageDashboard() {
 
       {tooltip.visible ? (
         <div
-          className="fixed z-50 rounded-xl border border-border bg-popover/95 px-3 py-2 shadow-xl backdrop-blur-sm"
+          className="tahoe-popover fixed z-50 rounded-[14px] px-3 py-2"
           style={{
             left: tooltip.x,
             top: tooltip.y - 80,

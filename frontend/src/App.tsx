@@ -45,7 +45,8 @@ import {
 } from '@/mainWindowCloseBehavior';
 import { MainAppRoutes } from '@/MainAppRoutes';
 
-// Design scope components
+// Tahoe design compatibility scope. The exported component keeps its historical
+// name while the `.legacy-design` class remains Tailwind's active scope.
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 
 function MainWindowCloseToastBridge() {

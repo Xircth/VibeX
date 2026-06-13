@@ -121,10 +121,10 @@ export function SessionCreationForm({
             dropdownSide={dropdownSide}
           />
           {workspaceWarning ? (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+            <div className="rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-[11px] text-[hsl(var(--warning))]">
               <p>{workspaceWarning}</p>
               {workspaceCheckoutHint ? (
-                <p className="mt-1 text-amber-700/90 dark:text-amber-200/90">
+                <p className="mt-1 text-[hsl(var(--warning)/0.9)]">
                   {workspaceCheckoutHint}
                 </p>
               ) : null}

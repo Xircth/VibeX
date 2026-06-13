@@ -202,7 +202,7 @@ function FileReferenceChip({
 
   return (
     <span
-      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md border border-sky-500/25 bg-sky-500/10 px-1.5 py-0.5 align-baseline text-sm text-sky-300"
+      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md border border-[hsl(var(--info)/0.25)] bg-[hsl(var(--info)/0.1)] px-1.5 py-0.5 align-baseline text-sm text-[hsl(var(--info))]"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
       onDoubleClick={handleDoubleClick}
@@ -213,7 +213,7 @@ function FileReferenceChip({
       {isEditable ? (
         <button
           type="button"
-          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-sky-500/20"
+          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-[hsl(var(--info)/0.18)]"
           onClick={handleRemove}
           tabIndex={-1}
           aria-label={`Remove file reference ${relativePath}`}

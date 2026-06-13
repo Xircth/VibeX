@@ -232,7 +232,9 @@ export const GitStagingArea = memo(function GitStagingArea({
           <SectionHeader
             label="Staged"
             count={stagedFiles.length}
-            icon={<CheckCircle2 className="h-3 w-3 text-green-500" />}
+            icon={
+              <CheckCircle2 className="h-3 w-3 text-[hsl(var(--success))]" />
+            }
             actions={
               <button
                 className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground"
@@ -282,7 +284,9 @@ export const GitStagingArea = memo(function GitStagingArea({
           <SectionHeader
             label="Changes"
             count={unstagedFiles.length}
-            icon={<SquarePen className="h-3 w-3 text-yellow-500" />}
+            icon={
+              <SquarePen className="h-3 w-3 text-[hsl(var(--warning))]" />
+            }
             actions={
               <>
                 <button
@@ -293,7 +297,7 @@ export const GitStagingArea = memo(function GitStagingArea({
                   <Plus className="h-3 w-3" />
                 </button>
                 <button
-                  className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-red-400"
+                  className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-destructive"
                   onClick={handleRevertAll}
                   title="Discard all"
                 >

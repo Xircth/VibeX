@@ -888,7 +888,7 @@ export function IDELayout({
                 fallback={
                   <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
                     <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
                       <span>Loading Kanban...</span>
                     </div>
                   </div>

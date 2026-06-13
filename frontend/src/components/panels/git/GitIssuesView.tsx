@@ -43,9 +43,9 @@ function IssueRow({ issue }: { issue: GitHubIssueInfo }) {
     >
       <div className="flex items-start gap-1.5">
         {isOpen ? (
-          <CircleDot className="h-3.5 w-3.5 text-green-500 mt-0.5 shrink-0" />
+          <CircleDot className="h-3.5 w-3.5 text-[hsl(var(--success))] mt-0.5 shrink-0" />
         ) : (
-          <CheckCircle2 className="h-3.5 w-3.5 text-purple-500 mt-0.5 shrink-0" />
+          <CheckCircle2 className="h-3.5 w-3.5 text-[hsl(var(--status-running))] mt-0.5 shrink-0" />
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
@@ -144,13 +144,13 @@ export const GitIssuesView = memo(function GitIssuesView({
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {errorPresentation && (
-          <div className="mx-2 mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+          <div className="mx-2 mt-2 rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-[11px] text-[hsl(var(--warning))]">
             <div className="flex items-start gap-2">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <div className="min-w-0 space-y-1">
                 <p className="font-medium">{errorPresentation.title}</p>
                 {errorPresentation.hint ? (
-                  <p className="whitespace-pre-line text-amber-900/80 dark:text-amber-100/80">
+                  <p className="whitespace-pre-line text-[hsl(var(--warning)/0.86)]">
                     {errorPresentation.hint}
                   </p>
                 ) : null}

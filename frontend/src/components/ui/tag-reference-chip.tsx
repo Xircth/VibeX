@@ -20,7 +20,7 @@ export function TagReferenceChip({
 
   return (
     <span
-      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md bg-blue-500/15 px-1.5 py-0.5 align-baseline text-sm text-blue-400"
+      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md bg-[hsl(var(--primary)/0.12)] px-1.5 py-0.5 align-baseline text-sm text-primary"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
       onDoubleClick={onDoubleClick}
@@ -30,7 +30,7 @@ export function TagReferenceChip({
       {isEditable && onRemove ? (
         <button
           type="button"
-          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-blue-500/30"
+          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-[hsl(var(--primary)/0.22)]"
           onClick={onRemove}
           tabIndex={-1}
           aria-label={`Remove tag #${tagName}`}

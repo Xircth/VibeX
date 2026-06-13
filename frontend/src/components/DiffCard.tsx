@@ -412,8 +412,8 @@ export default function DiffCard({
         <span className="truncate text-foreground/80">{newName}</span>
       )}
       <span className="shrink-0 flex items-center gap-1.5 ml-1 font-mono text-xs">
-        <span className="text-green-600 dark:text-green-500">+{add}</span>
-        <span className="text-red-600 dark:text-red-500">-{del}</span>
+        <span className="text-[hsl(var(--success))]">+{add}</span>
+        <span className="text-destructive">-{del}</span>
       </span>
       {commentsForFile.length > 0 && (
         <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary rounded">

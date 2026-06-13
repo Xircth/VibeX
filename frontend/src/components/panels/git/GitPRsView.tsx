@@ -60,13 +60,13 @@ export const GitPRsView = memo(function GitPRsView({
 
       {/* Error */}
       {errorPresentation && (
-        <div className="mx-2 mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+        <div className="mx-2 mt-2 rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-[11px] text-[hsl(var(--warning))]">
           <div className="flex items-start gap-2">
             <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <div className="min-w-0 space-y-1">
               <p className="font-medium">{errorPresentation.title}</p>
               {errorPresentation.hint ? (
-                <p className="whitespace-pre-line text-amber-900/80 dark:text-amber-100/80">
+                <p className="whitespace-pre-line text-[hsl(var(--warning)/0.86)]">
                   {errorPresentation.hint}
                 </p>
               ) : null}
@@ -92,7 +92,7 @@ export const GitPRsView = memo(function GitPRsView({
                 title={`Open PR #${pr.number} in browser`}
               >
                 <div className="flex items-start gap-1.5">
-                  <GitPullRequest className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
+                  <GitPullRequest className="h-3 w-3 text-[hsl(var(--success))] shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1">
                       <span className="text-xs font-medium text-foreground truncate">

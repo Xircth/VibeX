@@ -86,7 +86,7 @@ export function WindowControls() {
         type="button"
         className={cn(
           buttonClass,
-          'hover:bg-[#e81123] hover:text-white active:bg-[#c50f1f] active:text-white'
+          'hover:bg-[var(--windows-close-hover)] hover:text-[var(--windows-close-foreground)] active:bg-[var(--windows-close-active)] active:text-[var(--windows-close-foreground)]'
         )}
         onClick={() => {
           appWindow.close().catch(() => {});
@@ -101,7 +101,7 @@ export function WindowControls() {
 }
 
 const buttonClass =
-  'flex h-8 w-[46px] items-center justify-center text-foreground/85 transition-colors duration-75 hover:bg-foreground/10 active:bg-foreground/15';
+  'flex h-8 w-[46px] items-center justify-center text-foreground/85 transition-colors duration-75 hover:bg-[var(--surface-control-hover)] active:bg-[var(--surface-active)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]';
 
 function MinimizeIcon() {
   return (

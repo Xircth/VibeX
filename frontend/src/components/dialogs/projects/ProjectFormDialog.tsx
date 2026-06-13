@@ -401,8 +401,8 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                   <p
                     className={
                       selectedFolderIsGitRepo
-                        ? 'text-sm text-emerald-600'
-                        : 'text-sm text-amber-600'
+                        ? 'text-sm text-[hsl(var(--success))]'
+                        : 'text-sm text-[hsl(var(--warning))]'
                     }
                   >
                     {selectedFolderIsGitRepo

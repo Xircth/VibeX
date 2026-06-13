@@ -69,9 +69,9 @@ function DiffSummarySection({
     >
       <span>{`${fileCount} 个文件已更改`}</span>
       <span className="opacity-50">•</span>
-      <span className="text-green-600 dark:text-green-400">+{added}</span>
+      <span className="text-[hsl(var(--success))]">+{added}</span>
       <span className="opacity-50">•</span>
-      <span className="text-red-600 dark:text-red-400">-{deleted}</span>
+      <span className="text-destructive">-{deleted}</span>
     </button>
   );
 }
@@ -133,7 +133,7 @@ function ActionButtonsSection({
               aria-label={'复制工作树路径'}
             >
               {copied ? (
-                <Check className="h-3.5 w-3.5 text-green-600" />
+                <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
               ) : (
                 <Copy className="h-3.5 w-3.5" />
               )}

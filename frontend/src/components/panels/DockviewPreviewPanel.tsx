@@ -417,7 +417,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             </span>
           ))}
           {!isDiffMode && isDirty && (
-            <span className="ml-1 shrink-0 text-yellow-400">*</span>
+            <span className="ml-1 shrink-0 text-[hsl(var(--warning))]">*</span>
           )}
         </div>
 

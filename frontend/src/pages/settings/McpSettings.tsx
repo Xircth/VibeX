@@ -298,17 +298,17 @@ export function McpSettings() {
   return (
     <div className="flex-1 overflow-hidden flex h-full">
       {/* ── Left Panel ──────────────────────────────────── */}
-      <div className="w-56 shrink-0 flex h-full flex-col border-r">
+      <div className="settings-split-sidebar w-56 shrink-0 flex h-full flex-col">
         {/* Header */}
-        <div className="shrink-0 border-b px-4 py-3">
+        <div className="settings-split-divider shrink-0 border-b px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground">MCP 服务器</h2>
         </div>
 
         {/* Agent List */}
-        <div className="shrink-0 border-b">
+        <div className="settings-split-divider shrink-0 border-b">
           <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
             <Settings2 className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span className="text-[10px] font-medium uppercase tracking-normal text-muted-foreground">
               代理 ({agents.length})
             </span>
           </div>
@@ -319,23 +319,23 @@ export function McpSettings() {
                 type="button"
                 onClick={() => setSelectedAgent(agentKey)}
                 className={`
-                  w-full text-left rounded-md px-2.5 py-1.5 transition-colors
+                  settings-list-button w-full text-left px-2.5 py-1.5 transition-colors
                   ${
                     selectedAgent === agentKey
-                      ? 'bg-accent text-accent-foreground'
-                      : 'hover:bg-muted/50 text-foreground'
+                      ? 'is-active'
+                      : ''
                   }
                 `}
               >
                 <div className="flex items-center gap-2">
-                  <PlugZap className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <PlugZap className="settings-list-muted h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="text-xs font-medium truncate">
                     {(AGENT_DISPLAY_NAMES as Record<string, string>)[
                       agentKey
                     ] ?? agentKey}
                   </span>
                   {selectedAgent === agentKey && (
-                    <ChevronRight className="h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
+                    <ChevronRight className="settings-list-muted h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
                   )}
                 </div>
               </button>
@@ -344,7 +344,7 @@ export function McpSettings() {
         </div>
 
         {/* Search */}
-        <div className="shrink-0 px-3 py-2 border-b">
+        <div className="settings-split-divider shrink-0 px-3 py-2 border-b">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -366,8 +366,8 @@ export function McpSettings() {
           )}
 
           {mcpError && mcpError.includes('does not support MCP') && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-              <p className="text-xs text-amber-600 dark:text-amber-400">
+            <div className="settings-message settings-message-warning p-3">
+              <p className="text-xs text-foreground">
                 此代理不支持 MCP 服务器。
               </p>
             </div>
@@ -389,16 +389,16 @@ export function McpSettings() {
                 type="button"
                 onClick={() => setSelectedServer(server.name)}
                 className={`
-                w-full text-left rounded-md px-2.5 py-1.5 transition-colors
+                settings-list-button w-full text-left px-2.5 py-1.5 transition-colors
                 ${
                   selectedServer === server.name
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-muted/50 text-foreground'
+                    ? 'is-active'
+                    : ''
                 }
               `}
               >
                 <div className="flex items-center gap-2">
-                  <Server className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <Server className="settings-list-muted h-3 w-3 shrink-0 text-muted-foreground" />
                   <code className="text-[11px] font-mono font-medium truncate flex-1">
                     {server.name}
                   </code>
@@ -442,8 +442,8 @@ export function McpSettings() {
             {/* Agent Header */}
             <div>
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/5 border">
-                  <PlugZap className="h-5 w-5 text-blue-500" />
+                <div className="settings-accent-icon flex h-10 w-10 items-center justify-center rounded-lg">
+                  <PlugZap className="h-5 w-5 text-current" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-base font-semibold text-foreground">
@@ -474,13 +474,13 @@ export function McpSettings() {
 
             {/* Selected Server Detail */}
             {selectedServerEntry && (
-              <div className="rounded-lg border bg-card p-4 space-y-3">
+              <div className="settings-inline-group p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <Server className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="text-xs font-medium text-foreground">
                     {selectedServerEntry.name}
                   </span>
-                  <span className="rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  <span className="settings-meta-chip px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-normal">
                     {String(selectedServerEntry.config.type ?? 'stdio')}
                   </span>
                   <Button
@@ -565,7 +565,7 @@ export function McpSettings() {
                 <p className="text-[11px] text-muted-foreground">
                   点击卡片将该 MCP 服务器添加到配置中。
                 </p>
-                <div className="relative overflow-hidden rounded-lg border bg-background">
+                <div className="settings-inline-group relative overflow-hidden">
                   <Carousel className="w-full px-4 py-3">
                     <CarouselContent>
                       {Object.entries(preconfigured.servers).map(([key]) => {
@@ -584,10 +584,10 @@ export function McpSettings() {
                               onClick={() => addServer(key)}
                               className="group w-full text-left outline-none"
                             >
-                              <Card className="h-28 rounded-lg border hover:shadow-md transition">
+                              <Card className="h-28 rounded-lg border transition-colors hover:border-primary/30">
                                 <CardHeader className="pb-0 px-3 pt-3">
                                   <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 rounded border bg-muted grid place-items-center overflow-hidden shrink-0">
+                                    <div className="settings-inline-group w-5 h-5 grid place-items-center overflow-hidden shrink-0">
                                       {icon ? (
                                         <img
                                           src={icon}
@@ -616,8 +616,8 @@ export function McpSettings() {
                         );
                       })}
                     </CarouselContent>
-                    <CarouselPrevious className="left-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full border bg-background/80 shadow-sm backdrop-blur hover:bg-background" />
-                    <CarouselNext className="right-2 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full border bg-background/80 shadow-sm backdrop-blur hover:bg-background" />
+                    <CarouselPrevious className="settings-inline-group left-2 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full" />
+                    <CarouselNext className="settings-inline-group right-2 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full" />
                   </Carousel>
                 </div>
               </div>
@@ -672,7 +672,7 @@ function extractServers(
 function MetaItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+      <span className="text-[10px] text-muted-foreground uppercase tracking-normal">
         {label}
       </span>
       <span

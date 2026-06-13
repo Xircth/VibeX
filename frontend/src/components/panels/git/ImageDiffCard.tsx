@@ -77,16 +77,19 @@ export const ImageDiffCard = memo(function ImageDiffCard({
         {isAdded && (
           <ImageLabel
             label="Added"
-            className="bg-green-500/20 text-green-400"
+            className="bg-[var(--diff-added-bg)] text-[var(--diff-added-fg)]"
           />
         )}
         {isDeleted && (
-          <ImageLabel label="Deleted" className="bg-red-500/20 text-red-400" />
+          <ImageLabel
+            label="Deleted"
+            className="bg-[var(--diff-removed-bg)] text-[var(--diff-removed-fg)]"
+          />
         )}
         {isModified && (
           <ImageLabel
             label="Modified"
-            className="bg-yellow-500/20 text-yellow-400"
+            className="bg-[hsl(var(--warning)/0.16)] text-[hsl(var(--warning))]"
           />
         )}
       </div>
@@ -98,7 +101,7 @@ export const ImageDiffCard = memo(function ImageDiffCard({
             <img
               src={toDataUri(newImageData, path)}
               alt={`Added: ${fileName}`}
-              className="max-w-full max-h-64 object-contain rounded border border-green-500/30"
+              className="max-h-64 max-w-full rounded border border-[hsl(var(--success)/0.3)] object-contain"
             />
           </div>
         )}
@@ -108,7 +111,7 @@ export const ImageDiffCard = memo(function ImageDiffCard({
             <img
               src={toDataUri(oldImageData, path)}
               alt={`Deleted: ${fileName}`}
-              className="max-w-full max-h-64 object-contain rounded border border-red-500/30 opacity-60"
+              className="max-h-64 max-w-full rounded border border-[hsl(var(--destructive)/0.3)] object-contain opacity-60"
             />
           </div>
         )}
@@ -117,25 +120,25 @@ export const ImageDiffCard = memo(function ImageDiffCard({
           <div className="flex items-start gap-4 justify-center">
             {oldImageData && (
               <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] text-red-400 font-medium">
+                <span className="text-[10px] font-medium text-destructive">
                   Before
                 </span>
                 <img
                   src={toDataUri(oldImageData, path)}
                   alt={`Before: ${fileName}`}
-                  className="max-w-[45%] max-h-48 object-contain rounded border border-red-500/30"
+                  className="max-h-48 max-w-[45%] rounded border border-[hsl(var(--destructive)/0.3)] object-contain"
                 />
               </div>
             )}
             {newImageData && (
               <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] text-green-400 font-medium">
+                <span className="text-[10px] font-medium text-[hsl(var(--success))]">
                   After
                 </span>
                 <img
                   src={toDataUri(newImageData, path)}
                   alt={`After: ${fileName}`}
-                  className="max-w-[45%] max-h-48 object-contain rounded border border-green-500/30"
+                  className="max-h-48 max-w-[45%] rounded border border-[hsl(var(--success)/0.3)] object-contain"
                 />
               </div>
             )}

@@ -2,6 +2,7 @@ pub mod agent_settings;
 pub mod agents;
 pub mod approvals;
 pub mod config;
+pub mod conversations;
 pub mod desktop_toast;
 pub mod events;
 pub mod execution_processes;

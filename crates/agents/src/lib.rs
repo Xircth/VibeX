@@ -5,6 +5,7 @@
 //! `ExecutionProcess` systems.
 
 pub mod config;
+pub mod conversation;
 pub mod distribution;
 pub mod error;
 pub mod events;
@@ -17,6 +18,7 @@ pub mod manager;
 pub mod mcp;
 pub mod mcp_file;
 pub mod metadata;
+pub mod parsers;
 pub mod permissions;
 pub mod preflight;
 pub mod registry;
@@ -27,6 +29,10 @@ pub mod state;
 pub mod terminal;
 
 pub use config::{AgentConfigStrategy, AgentConfigSurface, PathTemplate, config_surface};
+pub use conversation::{
+    AgentExecutionStats, ContentBlock, ConversationDetail, ConversationSummary, ImageData,
+    MessageTurn, SessionStats, SubAgentToolCall, TurnRole, TurnUsage,
+};
 pub use distribution::{
     AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
     SystemCommand, current_platform,

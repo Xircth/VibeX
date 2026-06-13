@@ -804,3 +804,49 @@ export type AgentSessionMode = { id: string, label: string, description?: string
 export type AgentAutoApproveMode = "off" | "allow_always" | "yolo";
 
 export type AgentPermissionOptionKind = "allow_once" | "allow_always" | "reject_once" | "reject_always" | "unknown";
+
+export type AgentExecutionStats = { agent_type?: string | null, status?: string | null, total_duration_ms?: bigint | null, total_tokens?: bigint | null, total_tool_use_count?: number | null, lines_added?: number | null, lines_removed?: number | null, tool_calls: Array<SubAgentToolCall>, };
+
+export type ContentBlock = { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "image", data: string, mime_type: string, uri?: string | null, } | { "type": "image_generation", revised_prompt?: string | null, image?: ImageData | null, } | { "type": "tool_use", tool_use_id?: string | null, tool_name: string, input_preview?: string | null,
+/**
+ * Free-form metadata (e.g. delegation binding).
+ */
+meta?: JsonValue | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, };
+
+export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
+
+export type ConversationSummary = { id: string, agent_type: AgentType, folder_path?: string | null, folder_name?: string | null, title?: string | null, started_at: string, ended_at?: string | null, message_count: number, model?: string | null, git_branch?: string | null, parent_id?: string | null, parent_tool_use_id?: string | null, delegation_call_id?: string | null, };
+
+export type ImageData = { data: string, mime_type: string, uri?: string | null, };
+
+export type MessageTurn = { id: string, role: TurnRole, blocks: Array<ContentBlock>, timestamp: string, usage?: TurnUsage | null, duration_ms?: bigint | null, model?: string | null,
+/**
+ * Wall-clock end of the turn (NOT `timestamp + duration_ms`).
+ */
+completed_at?: string | null, };
+
+export type SessionStats = { total_usage?: TurnUsage | null, total_tokens?: bigint | null, total_duration_ms: bigint, context_window_used_tokens?: bigint | null, context_window_max_tokens?: bigint | null, context_window_usage_percent?: number | null, };
+
+export type SubAgentToolCall = { tool_name: string, input_preview?: string | null, output_preview?: string | null, is_error: boolean, };
+
+export type TurnRole = "user" | "assistant" | "system";
+
+export type TurnUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint, };
+
+export type DbConversationSummary = { id: string, workspace_id: string, task_id: string | null,
+/**
+ * Display title (the `sessions.name` column).
+ */
+title: string | null,
+/**
+ * When set, parsed titles must not overwrite the user-set title.
+ */
+title_locked: boolean, status: SessionStatus, agent_type: string | null, model: string | null, external_session_id: string | null, message_count: bigint, pinned_at: string | null, parent_session_id: string | null, parent_tool_use_id: string | null, delegation_call_id: string | null, created_at: string, updated_at: string, };
+
+export type DbConversationDetail = { summary: DbConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null,
+/**
+ * The persisted user turn currently being answered, if a turn is in flight.
+ * Reconciled with the live stream on the frontend so a mid-turn load renders
+ * seamlessly. (Populated by the live pipeline; `None` for settled loads.)
+ */
+in_flight_user_turn_id?: string | null, };

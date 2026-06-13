@@ -195,6 +195,8 @@ pub fn run() {
             commands::sessions::update_session_status,
             commands::sessions::delete_session,
             commands::sessions::reset_session_process,
+            commands::conversations::conversation_detail,
+            commands::conversations::conversation_list,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,
             commands::events::subscribe_log_stream,

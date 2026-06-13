@@ -1772,6 +1772,14 @@ mod tests {
                 executor TEXT,
                 external_session_id TEXT,
                 agent_type TEXT,
+                title_locked INTEGER NOT NULL DEFAULT 0,
+                pinned_at TEXT,
+                deleted_at TEXT,
+                message_count INTEGER NOT NULL DEFAULT 0,
+                model TEXT,
+                parent_session_id BLOB REFERENCES sessions(id),
+                parent_tool_use_id TEXT,
+                delegation_call_id TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
             )

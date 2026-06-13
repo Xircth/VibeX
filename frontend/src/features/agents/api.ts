@@ -1,4 +1,5 @@
 import { tauriInvoke } from '@/lib/tauriApi';
+import type { DbConversationDetail, DbConversationSummary } from 'shared/types';
 import type {
   AgentAvailableCommand,
   AgentConfigSurface,
@@ -190,4 +191,13 @@ export const agentsApi = {
 
   writeMcp: (request: AgentTypeRequest & { config: unknown }): Promise<void> =>
     tauriInvoke('agent_mcp_write', { request }),
+
+  // Conversation metadata + on-demand re-parsed transcript (codeg-aligned model).
+  // `sessionId` is the VibeX session/conversation row id; the transcript is
+  // re-parsed from the bound agent session file by the backend.
+  conversationDetail: (sessionId: string): Promise<DbConversationDetail | null> =>
+    tauriInvoke('conversation_detail', { sessionId }),
+
+  conversationList: (workspaceId: string): Promise<DbConversationSummary[]> =>
+    tauriInvoke('conversation_list', { workspaceId }),
 };

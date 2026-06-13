@@ -37,6 +37,8 @@ which = "8.0.0"
 dirs = { workspace = true }
 ts-rs = { workspace = true }
 chrono = { workspace = true }
+serde_yaml = "0.9"
+toml = "0.8"
 
 # Reuse existing workspace crates
 db = { path = "../crates/db" }

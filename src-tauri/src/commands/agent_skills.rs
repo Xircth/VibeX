@@ -4,7 +4,7 @@
 //! directory containing `SKILL.md` (or, for Codex, a flat `{id}.md` file).
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -14,6 +14,30 @@ use tokio::fs;
 use utils::path::normalize_windows_extended_path_prefix;
 
 use crate::error::AppError;
+
+/// Every agent VibeX manages. Order is used for stable scan/display output.
+const ALL_AGENTS: [AgentType; 7] = [
+    AgentType::ClaudeCode,
+    AgentType::Codex,
+    AgentType::OpenCode,
+    AgentType::Gemini,
+    AgentType::OpenClaw,
+    AgentType::Cline,
+    AgentType::Hermes,
+];
+
+/// Snake_case identifier for an agent (matches the frontend `AgentType`).
+fn agent_key(agent: AgentType) -> &'static str {
+    match agent {
+        AgentType::ClaudeCode => "claude_code",
+        AgentType::Codex => "codex",
+        AgentType::OpenCode => "open_code",
+        AgentType::Gemini => "gemini",
+        AgentType::OpenClaw => "open_claw",
+        AgentType::Cline => "cline",
+        AgentType::Hermes => "hermes",
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -486,6 +510,632 @@ pub async fn delete_agent_skill(
     Err(AppError::NotFound(format!("Skill not found: {id}")))
 }
 
+// ===========================================================================
+// Local skills view + skills.sh marketplace + global hosting
+//
+// The settings UI mirrors the MCP page: a "本地 Skill" list (scanned across
+// every agent's global skill dirs + ~/.agents/skills + the global store
+// ~/.vibex/skills, deduped by name and grouped by prefix) and a "Skill 市场"
+// backed by skills.sh. Installing shells out to the `skills` CLI
+// (`npx skills add`) into a staging dir, then mirrors the skill — via symlink
+// or file copy — into the chosen targets. "全局" hosting records the skill in
+// ~/.vibex/skills and mirrors it into all seven agents.
+// ===========================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalSkill {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// Prefix group (text before the first '-'); UI may collapse same-prefix
+    /// skills (e.g. `minimax-search`, `minimax-tts` → group `minimax`).
+    pub group: String,
+    /// Recorded in the global store (~/.vibex/skills).
+    pub global: bool,
+    /// Agents whose skill dirs currently carry this skill (snake_case keys).
+    pub apps: Vec<String>,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillMarketItem {
+    pub id: String,
+    pub skill_id: String,
+    pub name: String,
+    pub installs: Option<u64>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalSkillContent {
+    pub id: String,
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillMarketDetail {
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillSearchResponse {
+    #[serde(default)]
+    skills: Vec<SkillSearchRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillSearchRow {
+    #[serde(default)]
+    id: String,
+    #[serde(default, rename = "skillId")]
+    skill_id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    installs: Option<u64>,
+    #[serde(default)]
+    source: String,
+}
+
+fn vibex_skills_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".vibex")
+        .join("skills")
+}
+
+/// The agent-specific directory VibeX writes skills into when hosting.
+fn agent_primary_skill_dir(agent: AgentType) -> Option<PathBuf> {
+    let home = dirs::home_dir();
+    match agent {
+        AgentType::ClaudeCode => home.map(|h| h.join(".claude").join("skills")),
+        AgentType::Codex => codex_home().map(|c| c.join("skills")),
+        AgentType::OpenCode => home.map(|h| h.join(".config").join("opencode").join("skills")),
+        AgentType::Gemini => home.map(|h| h.join(".gemini").join("skills")),
+        AgentType::OpenClaw => home.map(|h| h.join(".openclaw").join("skills")),
+        AgentType::Cline => home.map(|h| h.join(".cline").join("skills")),
+        AgentType::Hermes => hermes_home().map(|h| h.join("skills")),
+    }
+}
+
+/// Prefix before the first '-', or the whole name when there is none.
+fn skill_group(name: &str) -> String {
+    match name.split_once('-') {
+        Some((prefix, _)) if !prefix.is_empty() => prefix.to_string(),
+        _ => name.to_string(),
+    }
+}
+
+/// Every global skill directory across all agents, plus the global store.
+fn global_scan_dirs() -> Vec<SkillDir> {
+    let mut dirs: Vec<SkillDir> = Vec::new();
+    for agent in ALL_AGENTS {
+        for dir in skill_dirs(agent, None) {
+            if dir.scope == AgentSkillScope::Global {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs.push(SkillDir {
+        scope: AgentSkillScope::Global,
+        path: vibex_skills_dir(),
+        read_only: false,
+    });
+    dirs
+}
+
+async fn scan_all_skills() -> Vec<LocalSkill> {
+    #[derive(Default)]
+    struct Agg {
+        description: Option<String>,
+        apps: BTreeSet<&'static str>,
+        global: bool,
+        path: String,
+    }
+
+    let mut map: BTreeMap<String, Agg> = BTreeMap::new();
+    let vibex = vibex_skills_dir();
+
+    for agent in ALL_AGENTS {
+        let allow_md = allows_markdown_file(agent);
+        for dir in skill_dirs(agent, None)
+            .into_iter()
+            .filter(|d| d.scope == AgentSkillScope::Global)
+        {
+            for item in list_skills_in_dir(&dir, allow_md).await {
+                let entry = map.entry(item.id.clone()).or_default();
+                entry.apps.insert(agent_key(agent));
+                if entry.description.is_none() {
+                    entry.description = item.description.clone();
+                }
+                if entry.path.is_empty() {
+                    entry.path = item.path.clone();
+                }
+            }
+        }
+    }
+
+    let vibex_dir = SkillDir {
+        scope: AgentSkillScope::Global,
+        path: vibex,
+        read_only: false,
+    };
+    for item in list_skills_in_dir(&vibex_dir, false).await {
+        let entry = map.entry(item.id.clone()).or_default();
+        entry.global = true;
+        if entry.description.is_none() {
+            entry.description = item.description.clone();
+        }
+        if entry.path.is_empty() {
+            entry.path = item.path.clone();
+        }
+    }
+
+    let mut out: Vec<LocalSkill> = map
+        .into_iter()
+        .map(|(name, agg)| LocalSkill {
+            id: name.clone(),
+            group: skill_group(&name),
+            name,
+            description: agg.description,
+            global: agg.global,
+            apps: agg.apps.into_iter().map(str::to_string).collect(),
+            path: agg.path,
+        })
+        .collect();
+    out.sort_by(|a, b| a.group.cmp(&b.group).then_with(|| a.id.cmp(&b.id)));
+    out
+}
+
+/// Find an existing on-disk instance of a skill (dir with SKILL.md, or a flat
+/// `{id}.md`) across every global scan dir.
+fn locate_skill_entry(skill_id: &str) -> Option<PathBuf> {
+    for dir in global_scan_dirs() {
+        let entry = dir.path.join(skill_id);
+        if skill_content_path(&entry).is_some() {
+            return Some(entry);
+        }
+        let md = dir.path.join(format!("{skill_id}.md"));
+        if md.exists() {
+            return Some(md);
+        }
+    }
+    None
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+fn symlink_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_dir(src, dst)
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(src, dst)
+    }
+}
+
+fn remove_if_exists(path: &Path) -> Result<(), AppError> {
+    if std::fs::symlink_metadata(path).is_ok() {
+        remove_skill_entry(path)
+            .map_err(|e| AppError::Internal(format!("删除 {} 失败: {e}", display_path(path))))?;
+    }
+    Ok(())
+}
+
+/// Place `src` (a skill directory) at `dest`, replacing any existing entry.
+/// When `link` is set, attempts a symlink first and silently falls back to a
+/// copy if the OS rejects it (Windows without Developer Mode / admin).
+fn place_skill(src: &Path, dest: &Path, link: bool) -> Result<(), AppError> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AppError::Internal(format!("创建目录失败: {e}")))?;
+    }
+    remove_if_exists(dest)?;
+    if link && symlink_dir(src, dest).is_ok() {
+        return Ok(());
+    }
+    copy_dir_all(src, dest)
+        .map_err(|e| AppError::Internal(format!("复制技能到 {} 失败: {e}", display_path(dest))))
+}
+
+/// Apply an exact hosting target set: present in selected agents (or all when
+/// global), absent from the rest; recorded in the global store iff `global`.
+fn apply_hosting(
+    src: &Path,
+    skill_id: &str,
+    global: bool,
+    agents: &BTreeSet<String>,
+    link: bool,
+) -> Result<(), AppError> {
+    for agent in ALL_AGENTS {
+        let Some(dir) = agent_primary_skill_dir(agent) else {
+            continue;
+        };
+        let dest = dir.join(skill_id);
+        if global || agents.contains(agent_key(agent)) {
+            place_skill(src, &dest, link)?;
+        } else {
+            remove_if_exists(&dest)?;
+        }
+    }
+    let vibex = vibex_skills_dir().join(skill_id);
+    if global {
+        place_skill(src, &vibex, link)?;
+    } else {
+        remove_if_exists(&vibex)?;
+    }
+    Ok(())
+}
+
+fn parse_agent_keys(keys: &[String]) -> Result<BTreeSet<String>, AppError> {
+    let mut set = BTreeSet::new();
+    for key in keys {
+        let agent = agent_type_from_executor_key(key)
+            .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {key}")))?;
+        set.insert(agent_key(agent).to_string());
+    }
+    Ok(set)
+}
+
+fn staging_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("vibex-skill-{}", uuid::Uuid::new_v4()))
+}
+
+/// BFS the staging tree for the installed skill directory (prefer an exact
+/// name match; otherwise any directory carrying SKILL.md).
+fn find_installed_skill_dir(root: &Path, skill_id: &str) -> Option<PathBuf> {
+    let mut best: Option<PathBuf> = None;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if skill_content_path(&path).is_some() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if name == skill_id {
+                        return Some(path);
+                    }
+                    if best.is_none() {
+                        best = Some(path.clone());
+                    }
+                }
+                stack.push(path);
+            }
+        }
+    }
+    best
+}
+
+/// Run `npx skills add <source> --skill <id>` into a staging project dir.
+async fn run_skills_add(source: &str, skill_id: &str, staging: &Path) -> Result<(), AppError> {
+    use tokio::process::Command;
+    // Project-scope install (no -g) into `staging` so the output is fully
+    // contained; we relocate it ourselves afterwards. `--agent claude-code`
+    // is just a placement vehicle — the real targeting is done by mirroring.
+    let cli_args = [
+        "-y",
+        "skills",
+        "add",
+        source,
+        "--skill",
+        skill_id,
+        "--yes",
+        "--agent",
+        "claude-code",
+    ];
+    let mut command = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg("npx");
+        for arg in cli_args {
+            c.arg(arg);
+        }
+        c
+    } else {
+        let mut c = Command::new("npx");
+        for arg in cli_args {
+            c.arg(arg);
+        }
+        c
+    };
+    command.current_dir(staging);
+
+    let output = tokio::time::timeout(std::time::Duration::from_secs(180), command.output())
+        .await
+        .map_err(|_| AppError::Internal("skills 安装超时（180 秒）".to_string()))?
+        .map_err(|e| AppError::Internal(format!("无法运行 npx skills（请确认已安装 Node.js）: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Internal(format!(
+            "skills 安装失败: {}",
+            stderr.trim()
+        )));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn scan_local_skills() -> Result<Vec<LocalSkill>, AppError> {
+    Ok(scan_all_skills().await)
+}
+
+#[tauri::command]
+pub async fn read_local_skill(skill_id: String) -> Result<LocalSkillContent, AppError> {
+    let id = validate_skill_id(&skill_id)?;
+    let entry =
+        locate_skill_entry(&id).ok_or_else(|| AppError::NotFound(format!("Skill not found: {id}")))?;
+    let content_path = skill_content_path(&entry)
+        .ok_or_else(|| AppError::Internal(format!("Skill content file missing for {id}")))?;
+    let content = fs::read_to_string(&content_path)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read skill {id}: {e}")))?;
+    Ok(LocalSkillContent {
+        id,
+        path: display_path(&entry),
+        content,
+    })
+}
+
+/// Extract the leaderboard skills embedded in the skills.sh homepage RSC
+/// payload (objects like `{"source":..,"skillId":..,"name":..,"installs":N}`),
+/// sorted by install count. The site has no list/leaderboard JSON endpoint, so
+/// the homepage is the source of truth for "most popular".
+fn parse_popular_skills(html: &str, limit: usize) -> Vec<SkillMarketItem> {
+    static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r#"\\"source\\":\\"(.*?)\\",\\"skillId\\":\\"(.*?)\\",\\"name\\":\\"(.*?)\\",\\"installs\\":(\d+)"#,
+        )
+        .expect("valid popular-skills regex")
+    });
+
+    let mut seen = BTreeSet::new();
+    let mut items: Vec<SkillMarketItem> = Vec::new();
+    for cap in RE.captures_iter(html) {
+        let source = cap[1].to_string();
+        let skill_id = cap[2].to_string();
+        let name = cap[3].to_string();
+        let installs = cap[4].parse::<u64>().ok();
+        let id = format!("{source}/{skill_id}");
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        items.push(SkillMarketItem {
+            id,
+            skill_id,
+            name,
+            installs,
+            source,
+        });
+    }
+    items.sort_by(|a, b| b.installs.unwrap_or(0).cmp(&a.installs.unwrap_or(0)));
+    items.truncate(limit);
+    items
+}
+
+async fn fetch_popular_skills(limit: usize) -> Result<Vec<SkillMarketItem>, AppError> {
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 vibex-skills-market/1.0")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let response = client
+        .get("https://www.skills.sh/")
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("获取 skills.sh 热门技能失败: {e}")))?;
+    if !response.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "skills.sh 热门技能请求失败: HTTP {}",
+            response.status()
+        )));
+    }
+    let html = response
+        .text()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(parse_popular_skills(&html, limit))
+}
+
+#[tauri::command]
+pub async fn search_skill_market(query: Option<String>) -> Result<Vec<SkillMarketItem>, AppError> {
+    let q = query.unwrap_or_default();
+    // skills.sh search requires at least 2 characters; with a shorter/empty
+    // query we surface the 50 most-installed skills (scraped from the homepage
+    // leaderboard) so the market isn't empty on open.
+    if q.trim().chars().count() < 2 {
+        return fetch_popular_skills(50).await;
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("vibex-skills-market/1.0")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let response = client
+        .get("https://skills.sh/api/search")
+        .query(&[("q", q.as_str())])
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("搜索 skills.sh 失败: {e}")))?;
+    if !response.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "skills.sh 搜索失败: HTTP {}",
+            response.status()
+        )));
+    }
+    let text = response
+        .text()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let parsed: SkillSearchResponse = serde_json::from_str(&text)
+        .map_err(|e| AppError::Internal(format!("解析 skills.sh 响应失败: {e}")))?;
+    Ok(parsed
+        .skills
+        .into_iter()
+        .map(|row| SkillMarketItem {
+            id: row.id,
+            skill_id: row.skill_id,
+            name: row.name,
+            installs: row.installs,
+            source: row.source,
+        })
+        .collect())
+}
+
+/// Pull the skill description out of a skills.sh skill page. The page embeds a
+/// JSON-LD block carrying the full SKILL.md description; the only other
+/// `"description"` value is the site's own boilerplate, which we skip.
+fn parse_skill_description(html: &str) -> Option<String> {
+    static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r#""description":"((?:[^"\\]|\\.)*)""#).expect("valid description regex")
+    });
+    const SITE_BOILERPLATE: &str = "Discover and install skills for AI agents.";
+
+    for cap in RE.captures_iter(html) {
+        // Re-parse the captured value as a JSON string to undo escaping.
+        let Ok(text) = serde_json::from_str::<String>(&format!("\"{}\"", &cap[1])) else {
+            continue;
+        };
+        let trimmed = text.trim();
+        if trimmed.is_empty() || trimmed == SITE_BOILERPLATE {
+            continue;
+        }
+        return Some(trimmed.to_string());
+    }
+    None
+}
+
+#[tauri::command]
+pub async fn get_market_skill_detail(
+    source: String,
+    skill_id: String,
+) -> Result<SkillMarketDetail, AppError> {
+    let url = format!(
+        "https://www.skills.sh/{}/{}",
+        source.trim().trim_matches('/'),
+        skill_id.trim()
+    );
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 vibex-skills-market/1.0")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("获取技能详情失败: {e}")))?;
+    if !response.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "技能详情请求失败: HTTP {}",
+            response.status()
+        )));
+    }
+    let html = response
+        .text()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(SkillMarketDetail {
+        description: parse_skill_description(&html),
+    })
+}
+
+#[tauri::command]
+pub async fn install_market_skill(
+    source: String,
+    skill_id: String,
+    global: bool,
+    apps: Vec<String>,
+    link: bool,
+) -> Result<Vec<LocalSkill>, AppError> {
+    let id = validate_skill_id(&skill_id)?;
+    if source.trim().is_empty() {
+        return Err(AppError::BadRequest("缺少技能来源".to_string()));
+    }
+    if !global && apps.is_empty() {
+        return Err(AppError::BadRequest(
+            "请至少选择一个 Agent，或勾选「全局」".to_string(),
+        ));
+    }
+    let agents = parse_agent_keys(&apps)?;
+    let staging = staging_dir();
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| AppError::Internal(format!("创建暂存目录失败: {e}")))?;
+
+    let result = async {
+        run_skills_add(source.trim(), &id, &staging).await?;
+        let installed = find_installed_skill_dir(&staging, &id)
+            .ok_or_else(|| AppError::Internal("安装后未找到技能目录".to_string()))?;
+        apply_hosting(&installed, &id, global, &agents, link)
+    }
+    .await;
+
+    let _ = std::fs::remove_dir_all(&staging);
+    result?;
+    Ok(scan_all_skills().await)
+}
+
+#[tauri::command]
+pub async fn set_skill_hosting(
+    skill_id: String,
+    global: bool,
+    apps: Vec<String>,
+    link: bool,
+) -> Result<Vec<LocalSkill>, AppError> {
+    let id = validate_skill_id(&skill_id)?;
+    let agents = parse_agent_keys(&apps)?;
+    let located = locate_skill_entry(&id)
+        .ok_or_else(|| AppError::NotFound(format!("Skill not found: {id}")))?;
+
+    // Snapshot the source into staging first so re-hosting never reads from a
+    // target it is about to overwrite or remove.
+    let staging = staging_dir();
+    let src = staging.join(&id);
+    std::fs::create_dir_all(&src)
+        .map_err(|e| AppError::Internal(format!("创建暂存目录失败: {e}")))?;
+    let snapshot = if located.is_dir() {
+        copy_dir_all(&located, &src)
+    } else {
+        std::fs::copy(&located, src.join("SKILL.md")).map(|_| ())
+    };
+
+    let result = snapshot
+        .map_err(|e| AppError::Internal(format!("快照技能失败: {e}")))
+        .and_then(|_| apply_hosting(&src, &id, global, &agents, link));
+
+    let _ = std::fs::remove_dir_all(&staging);
+    result?;
+    Ok(scan_all_skills().await)
+}
+
+#[tauri::command]
+pub async fn uninstall_skill(skill_id: String) -> Result<Vec<LocalSkill>, AppError> {
+    let id = validate_skill_id(&skill_id)?;
+    for dir in global_scan_dirs() {
+        remove_if_exists(&dir.path.join(&id))?;
+        remove_if_exists(&dir.path.join(format!("{id}.md")))?;
+    }
+    Ok(scan_all_skills().await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,6 +1168,52 @@ mod tests {
     fn codex_is_the_only_markdown_file_agent() {
         assert!(allows_markdown_file(AgentType::Codex));
         assert!(!allows_markdown_file(AgentType::ClaudeCode));
+    }
+
+    #[test]
+    fn groups_skills_by_prefix() {
+        assert_eq!(skill_group("minimax-search"), "minimax");
+        assert_eq!(skill_group("minimax-tts"), "minimax");
+        assert_eq!(skill_group("standalone"), "standalone");
+        assert_eq!(skill_group("-leading"), "-leading");
+    }
+
+    #[test]
+    fn parses_popular_skills_from_homepage_payload() {
+        let html = r#"x[{\"source\":\"vercel-labs/skills\",\"skillId\":\"find-skills\",\"name\":\"find-skills\",\"installs\":2002939,\"isOfficial\":true},{\"source\":\"a/b\",\"skillId\":\"low\",\"name\":\"Low\",\"installs\":5}]y"#;
+        let items = parse_popular_skills(html, 50);
+        assert_eq!(items.len(), 2);
+        // Sorted by installs descending.
+        assert_eq!(items[0].skill_id, "find-skills");
+        assert_eq!(items[0].id, "vercel-labs/skills/find-skills");
+        assert_eq!(items[0].installs, Some(2002939));
+        assert_eq!(items[1].skill_id, "low");
+    }
+
+    #[test]
+    fn parses_skill_description_skipping_site_boilerplate() {
+        let html = r#"<script>{"name":"x","description":"A great skill that does things.\nUse it often."}</script>
+        <script>{"url":"https://www.skills.sh","description":"Discover and install skills for AI agents."}</script>"#;
+        // The site boilerplate appears second; the skill description must win
+        // regardless of order, so put the real one first here and confirm.
+        assert_eq!(
+            parse_skill_description(html).as_deref(),
+            Some("A great skill that does things.\nUse it often.")
+        );
+        assert_eq!(
+            parse_skill_description(r#"{"description":"Discover and install skills for AI agents."}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn every_agent_has_a_primary_skill_dir() {
+        for agent in ALL_AGENTS {
+            assert!(
+                agent_primary_skill_dir(agent).is_some(),
+                "{agent:?} should resolve a primary skills dir"
+            );
+        }
     }
 
     #[test]

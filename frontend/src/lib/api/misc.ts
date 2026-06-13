@@ -504,3 +504,84 @@ export const skillsApi = {
       workspacePath: params.workspacePath ?? null,
     }),
 };
+
+// --- Local skills view + skills.sh marketplace + global hosting ---
+
+/** A skill scanned across agent dirs + ~/.agents/skills + ~/.vibex/skills. */
+export interface LocalSkill {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Prefix group (text before the first '-'). */
+  group: string;
+  /** Recorded in the global store (~/.vibex/skills). */
+  global: boolean;
+  /** Agent keys (snake_case) whose dirs carry this skill. */
+  apps: string[];
+  path: string;
+}
+
+export interface SkillMarketItem {
+  id: string;
+  skill_id: string;
+  name: string;
+  installs: number | null;
+  source: string;
+}
+
+export interface LocalSkillContent {
+  id: string;
+  path: string;
+  content: string;
+}
+
+export interface SkillMarketDetail {
+  description: string | null;
+}
+
+export const skillsMarketApi = {
+  scanLocal: (): Promise<LocalSkill[]> =>
+    tauriInvoke<LocalSkill[]>('scan_local_skills'),
+  readLocal: (skillId: string): Promise<LocalSkillContent> =>
+    tauriInvoke<LocalSkillContent>('read_local_skill', { skillId }),
+  search: (query?: string | null): Promise<SkillMarketItem[]> =>
+    tauriInvoke<SkillMarketItem[]>('search_skill_market', {
+      query: query ?? null,
+    }),
+  detail: (params: {
+    source: string;
+    skillId: string;
+  }): Promise<SkillMarketDetail> =>
+    tauriInvoke<SkillMarketDetail>('get_market_skill_detail', {
+      source: params.source,
+      skillId: params.skillId,
+    }),
+  install: (params: {
+    source: string;
+    skillId: string;
+    global: boolean;
+    apps: string[];
+    link: boolean;
+  }): Promise<LocalSkill[]> =>
+    tauriInvoke<LocalSkill[]>('install_market_skill', {
+      source: params.source,
+      skillId: params.skillId,
+      global: params.global,
+      apps: params.apps,
+      link: params.link,
+    }),
+  setHosting: (params: {
+    skillId: string;
+    global: boolean;
+    apps: string[];
+    link: boolean;
+  }): Promise<LocalSkill[]> =>
+    tauriInvoke<LocalSkill[]>('set_skill_hosting', {
+      skillId: params.skillId,
+      global: params.global,
+      apps: params.apps,
+      link: params.link,
+    }),
+  uninstall: (skillId: string): Promise<LocalSkill[]> =>
+    tauriInvoke<LocalSkill[]>('uninstall_skill', { skillId }),
+};

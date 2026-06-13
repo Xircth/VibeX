@@ -816,49 +816,6 @@ export function AgentConfigManager({
         </div>
       ) : null}
 
-      {/* Environment variables */}
-      <section className="border bg-card overflow-hidden rounded-xl">
-        <div className="flex items-center gap-2 px-3.5 pb-1 pt-3">
-          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[13px] font-semibold text-foreground">
-            环境变量
-          </span>
-          {saved === 'env' ? (
-            <span className="text-[11px] text-success">已保存</span>
-          ) : null}
-        </div>
-        <div className="space-y-3 px-3.5 pb-3.5 pt-1">
-          <Textarea
-            value={envText}
-            spellCheck={false}
-            className="min-h-24 font-mono text-xs"
-            placeholder={'KEY1=VALUE1\nKEY2=VALUE2'}
-            onChange={(event) => setEnvText(event.target.value)}
-          />
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-muted-foreground">
-              {hasSetting
-                ? '注入到 Agent 进程的环境变量（KEY=VALUE，每行一个）。'
-                : '该 Agent 尚未纳管，无法保存环境变量。'}
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              disabled={!hasSetting || busy !== null}
-              onClick={() => void saveEnv()}
-            >
-              {busy === 'env' ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              保存环境变量
-            </Button>
-          </div>
-        </div>
-      </section>
-
       {/* Configuration management */}
       <section className="border bg-card overflow-hidden rounded-xl">
         <div className="flex items-center gap-2 px-3.5 pb-1 pt-3">
@@ -982,7 +939,7 @@ export function AgentConfigManager({
           ) : files.length === 0 ? (
             !spec ? (
               <p className="text-[11px] text-muted-foreground">
-                该 Agent 没有独立配置文件，通过上方环境变量进行配置。
+                该 Agent 没有独立配置文件，通过下方环境变量进行配置。
               </p>
             ) : null
           ) : (
@@ -1027,6 +984,49 @@ export function AgentConfigManager({
                 <Save className="mr-1.5 h-3.5 w-3.5" />
               )}
               保存配置
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Environment variables (kept at the bottom) */}
+      <section className="border bg-card overflow-hidden rounded-xl">
+        <div className="flex items-center gap-2 px-3.5 pb-1 pt-3">
+          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[13px] font-semibold text-foreground">
+            环境变量
+          </span>
+          {saved === 'env' ? (
+            <span className="text-[11px] text-success">已保存</span>
+          ) : null}
+        </div>
+        <div className="space-y-3 px-3.5 pb-3.5 pt-1">
+          <Textarea
+            value={envText}
+            spellCheck={false}
+            className="min-h-24 font-mono text-xs"
+            placeholder={'KEY1=VALUE1\nKEY2=VALUE2'}
+            onChange={(event) => setEnvText(event.target.value)}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] text-muted-foreground">
+              {hasSetting
+                ? '注入到 Agent 进程的环境变量（KEY=VALUE，每行一个）。'
+                : '该 Agent 尚未纳管，无法保存环境变量。'}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={!hasSetting || busy !== null}
+              onClick={() => void saveEnv()}
+            >
+              {busy === 'env' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              保存环境变量
             </Button>
           </div>
         </div>

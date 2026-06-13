@@ -1,686 +1,1451 @@
 /**
- * MCP Settings page — dual-panel layout matching SkillsSettings.
+ * MCP Settings — local management + Smithery marketplace.
  *
- * Left panel: agent list + MCP server list for selected agent.
- * Right panel: selected server detail / JSON editor / preconfigured servers.
+ * Left panel switches between two views:
+ *  - 本地 MCP: servers already installed across the global registry
+ *    (~/.vibex/mcp.json) and each agent's native config; editable + removable.
+ *  - MCP 市场: search Smithery, inspect a server, and install it.
+ *
+ * Install targets a set of agents OR "全局" (global). Global writes the
+ * server to ~/.vibex/mcp.json and mirrors it into every agent's MCP config.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Loader2,
-  Search,
-  PlugZap,
-  Server,
-  FileJson,
-  Plus,
-  Save,
-  ChevronRight,
   AlertCircle,
   CheckCircle2,
-  Settings2,
+  Globe,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Server,
+  ShieldCheck,
+  TerminalSquare,
+  Trash2,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { JSONEditor } from '@/components/ui/json-editor';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from '@/components/ui/carousel';
-import type { BaseCodingAgent, JsonValue } from 'shared/types';
-import type { AgentMcpConfig } from '@/lib/api/config';
-import { useUserSystem } from '@/components/ConfigProvider';
-import { mcpServersApi } from '@/lib/api';
-import { McpConfigStrategyGeneral } from '@/lib/mcpStrategies';
-import { getSupportedAgents, AGENT_DISPLAY_NAMES } from '@/constants/agents';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
+import type { AgentType } from '@/features/agents/types';
+import type { JsonValue } from 'shared/types';
+import {
+  mcpMarketApi,
+  type LocalMcpServer,
+  type McpAppType,
+  type McpMarketplaceInstallOption,
+  type McpMarketplaceItem,
+  type McpMarketplaceProvider,
+  type McpMarketplaceServerDetail,
+} from '@/lib/api';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
+import { cn } from '@/lib/utils';
 
-/* ── types ───────────────────────────────────────────────── */
+/* ── constants & helpers ─────────────────────────────────── */
 
-interface McpServerEntry {
-  name: string;
-  config: Record<string, JsonValue>;
+type LeftTab = 'local' | 'market';
+
+type Selection =
+  | { kind: 'local'; id: string }
+  | { kind: 'market'; id: string }
+  | { kind: 'draft' }
+  | null;
+
+const APP_OPTIONS: { value: McpAppType; label: string }[] = [
+  { value: 'claude_code', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex CLI' },
+  { value: 'gemini', label: 'Gemini CLI' },
+  { value: 'open_claw', label: 'OpenClaw' },
+  { value: 'open_code', label: 'OpenCode' },
+  { value: 'cline', label: 'Cline' },
+  { value: 'hermes', label: 'Hermes Agent' },
+];
+
+type AppsDraft = Record<McpAppType, boolean>;
+
+function emptyApps(value = false): AppsDraft {
+  return {
+    claude_code: value,
+    codex: value,
+    gemini: value,
+    open_claw: value,
+    open_code: value,
+    cline: value,
+    hermes: value,
+  };
 }
 
-type JsonObject = Record<string, JsonValue>;
+function appsToDraft(apps: McpAppType[]): AppsDraft {
+  const draft = emptyApps(false);
+  for (const app of apps) draft[app] = true;
+  return draft;
+}
 
-function isJsonObject(v: unknown): v is JsonObject {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
+function selectedApps(draft: AppsDraft): McpAppType[] {
+  return APP_OPTIONS.filter((item) => draft[item.value]).map(
+    (item) => item.value
+  );
+}
+
+const DRAFT_SPEC_TEMPLATE = `{
+  "type": "stdio",
+  "command": "npx",
+  "args": ["-y", "your-mcp-server"]
+}`;
+
+function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseSpecObject(text: string): Record<string, JsonValue> {
+  const parsed = JSON.parse(text) as unknown;
+  if (!isJsonObject(parsed)) {
+    throw new Error('配置必须是一个 JSON 对象');
+  }
+  return parsed;
+}
+
+function specSummary(spec: Record<string, JsonValue>): string {
+  const type = typeof spec.type === 'string' ? spec.type : 'stdio';
+  if (type === 'http' || type === 'sse') {
+    return typeof spec.url === 'string' ? spec.url : type;
+  }
+  return typeof spec.command === 'string' ? spec.command : type;
+}
+
+function protocolLabel(protocol: string): string {
+  const lower = protocol.toLowerCase();
+  if (lower === 'sse') return 'SSE';
+  if (lower === 'stdio') return 'stdio';
+  if (lower === 'http' || lower.includes('streamable')) return 'HTTP';
+  return protocol;
+}
+
+function buildParameterValues(
+  option: McpMarketplaceInstallOption | null,
+  draft: Record<string, string>
+): Record<string, JsonValue> {
+  const out: Record<string, JsonValue> = {};
+  if (!option) return out;
+  for (const field of option.parameters) {
+    const raw = (draft[field.key] ?? '').trim();
+    if (!raw) continue;
+    if (field.kind === 'boolean') {
+      out[field.key] = raw === 'true';
+    } else if (field.kind === 'number' || field.kind === 'integer') {
+      const num = Number(raw);
+      out[field.key] = Number.isFinite(num) ? num : raw;
+    } else if (field.kind === 'json') {
+      try {
+        out[field.key] = JSON.parse(raw) as JsonValue;
+      } catch {
+        out[field.key] = raw;
+      }
+    } else {
+      out[field.key] = raw;
+    }
+  }
+  return out;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/* ── reusable: target (全局 + agents) selector ───────────── */
+
+function TargetSelector({
+  global,
+  apps,
+  onGlobalChange,
+  onToggleApp,
+}: {
+  global: boolean;
+  apps: AppsDraft;
+  onGlobalChange: (next: boolean) => void;
+  onToggleApp: (app: McpAppType, next: boolean) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="flex w-full cursor-pointer items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
+        <input
+          type="checkbox"
+          checked={global}
+          onChange={(event) => onGlobalChange(event.target.checked)}
+        />
+        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-medium">全局</span>
+        <span className="text-muted-foreground">
+          写入 ~/.vibex/mcp.json 并同步到所有 Agent
+        </span>
+      </label>
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-1 sm:grid-cols-2',
+          global && 'pointer-events-none opacity-50'
+        )}
+      >
+        {APP_OPTIONS.map((app) => (
+          <label
+            key={app.value}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
+          >
+            <input
+              type="checkbox"
+              checked={global || apps[app.value]}
+              disabled={global}
+              onChange={(event) => onToggleApp(app.value, event.target.checked)}
+            />
+            <AgentTypeIcon
+              agentType={app.value as AgentType}
+              className="h-4 w-4"
+            />
+            <span>{app.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ── main component ──────────────────────────────────────── */
 
 export function McpSettings() {
-  const { config, profiles } = useUserSystem();
+  const [leftTab, setLeftTab] = useState<LeftTab>('local');
+  const [selection, setSelection] = useState<Selection>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, triggerSuccess] = useTemporaryFlag(2500);
+  const [runningAction, setRunningAction] = useState<string | null>(null);
 
-  // Agent selection
-  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  // Local servers
+  const [installedServers, setInstalledServers] = useState<LocalMcpServer[]>(
+    []
+  );
+  const [localLoading, setLocalLoading] = useState(false);
+  const [localFilter, setLocalFilter] = useState('');
 
-  // MCP state for selected agent
-  const [mcpConfig, setMcpConfig] = useState<AgentMcpConfig | null>(null);
-  const [mcpServers, setMcpServers] = useState('{}');
-  const [mcpLoading, setMcpLoading] = useState(false);
-  const [mcpError, setMcpError] = useState<string | null>(null);
-  const [mcpConfigPath, setMcpConfigPath] = useState('');
-  const [mcpApplying, setMcpApplying] = useState(false);
-  const [success, triggerSuccess] = useTemporaryFlag(3000);
+  // Local editor draft (selected local server)
+  const [localSpecText, setLocalSpecText] = useState('{}');
+  const [localGlobal, setLocalGlobal] = useState(false);
+  const [localApps, setLocalApps] = useState<AppsDraft>(emptyApps());
 
-  // Search & selection
-  const [search, setSearch] = useState('');
-  const [selectedServer, setSelectedServer] = useState<string | null>(null);
+  // New-server draft
+  const [draftId, setDraftId] = useState('');
+  const [draftSpecText, setDraftSpecText] = useState(DRAFT_SPEC_TEMPLATE);
+  const [draftGlobal, setDraftGlobal] = useState(true);
+  const [draftApps, setDraftApps] = useState<AppsDraft>(emptyApps(true));
 
-  // Available agents from the backend's real executor profiles.
-  const agents = useMemo(() => getSupportedAgents(profiles), [profiles]);
+  // Marketplace
+  const [providers, setProviders] = useState<McpMarketplaceProvider[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState('');
+  const [marketQuery, setMarketQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<McpMarketplaceItem[]>([]);
 
-  // Auto-select first agent or current executor
-  useEffect(() => {
-    if (selectedAgent) return;
-    const defaultExecutor = config?.executor_profile?.executor;
-    if (defaultExecutor && agents.includes(defaultExecutor)) {
-      setSelectedAgent(defaultExecutor);
-    } else if (agents.length > 0) {
-      setSelectedAgent(agents[0]);
-    }
-  }, [agents, config?.executor_profile?.executor, selectedAgent]);
+  const [marketDetail, setMarketDetail] =
+    useState<McpMarketplaceServerDetail | null>(null);
+  const [marketDetailLoading, setMarketDetailLoading] = useState(false);
+  const [marketDetailError, setMarketDetailError] = useState<string | null>(
+    null
+  );
+  const [selectedOptionId, setSelectedOptionId] = useState('');
+  const [marketSpecText, setMarketSpecText] = useState('{}');
+  const [marketSpecDirty, setMarketSpecDirty] = useState(false);
 
-  // Load MCP config when agent changes
-  useEffect(() => {
-    if (!selectedAgent) return;
+  // Install dialog
+  const [installDialogOpen, setInstallDialogOpen] = useState(false);
+  const [installGlobal, setInstallGlobal] = useState(true);
+  const [installApps, setInstallApps] = useState<AppsDraft>(emptyApps(true));
+  const [installParamDraft, setInstallParamDraft] = useState<
+    Record<string, string>
+  >({});
 
-    const loadMcp = async () => {
-      setMcpLoading(true);
-      setMcpError(null);
-      setMcpConfigPath('');
-      setSelectedServer(null);
+  /* ── data loaders ─────────────────────────────────────── */
 
-      try {
-        const result = await mcpServersApi.load({
-          executor: selectedAgent as BaseCodingAgent,
-        });
-        setMcpConfig(result.mcp_config);
-        const fullConfig = McpConfigStrategyGeneral.createFullConfig(
-          result.mcp_config
-        );
-        setMcpServers(JSON.stringify(fullConfig, null, 2));
-        setMcpConfigPath(result.config_path);
-      } catch (err: unknown) {
-        if (
-          err instanceof Error &&
-          err.message.includes('does not support MCP')
-        ) {
-          setMcpError(err.message);
-        } else {
-          setMcpError(err instanceof Error ? err.message : '加载 MCP 配置失败');
-        }
-      } finally {
-        setMcpLoading(false);
-      }
-    };
-
-    loadMcp();
-  }, [selectedAgent]);
-
-  // Parse server list from current JSON
-  const serverEntries = useMemo<McpServerEntry[]>(() => {
-    if (!mcpConfig || !mcpServers.trim()) return [];
+  const refreshLocal = useCallback(async (): Promise<LocalMcpServer[]> => {
+    setLocalLoading(true);
     try {
-      const parsed = JSON.parse(mcpServers);
-      const servers = extractServers(mcpConfig, parsed);
-      if (!servers) return [];
-      return Object.entries(servers).map(([name, cfg]) => ({
-        name,
-        config: isJsonObject(cfg) ? (cfg as Record<string, JsonValue>) : {},
-      }));
-    } catch {
+      const list = await mcpMarketApi.scanLocal();
+      setInstalledServers(list);
+      return list;
+    } catch (err) {
+      setError(errorMessage(err));
       return [];
+    } finally {
+      setLocalLoading(false);
     }
-  }, [mcpServers, mcpConfig]);
+  }, []);
 
-  // Filtered servers
-  const filteredServers = useMemo(() => {
-    if (!search.trim()) return serverEntries;
-    const q = search.toLowerCase();
-    return serverEntries.filter((s) => s.name.toLowerCase().includes(q));
-  }, [serverEntries, search]);
-
-  // Auto-select first server
   useEffect(() => {
-    if (
-      selectedServer &&
-      filteredServers.some((s) => s.name === selectedServer)
-    )
-      return;
-    setSelectedServer(filteredServers[0]?.name ?? null);
-  }, [filteredServers, selectedServer]);
+    void refreshLocal();
+    void mcpMarketApi
+      .listMarketplaces()
+      .then((list) => {
+        setProviders(list);
+        setSelectedProvider((current) => current || list[0]?.id || '');
+      })
+      .catch((err) => setError(errorMessage(err)));
+  }, [refreshLocal]);
 
-  const selectedServerEntry = useMemo(
-    () => serverEntries.find((s) => s.name === selectedServer) ?? null,
-    [serverEntries, selectedServer]
+  const filteredLocal = useMemo(() => {
+    const query = localFilter.trim().toLowerCase();
+    if (!query) return installedServers;
+    return installedServers.filter((server) => {
+      if (server.id.toLowerCase().includes(query)) return true;
+      return specSummary(server.spec).toLowerCase().includes(query);
+    });
+  }, [installedServers, localFilter]);
+
+  const selectedLocal = useMemo(() => {
+    if (selection?.kind !== 'local') return null;
+    return installedServers.find((s) => s.id === selection.id) ?? null;
+  }, [selection, installedServers]);
+
+  // Sync the local editor whenever the selected local server changes.
+  useEffect(() => {
+    if (!selectedLocal) return;
+    setLocalSpecText(JSON.stringify(selectedLocal.spec, null, 2));
+    setLocalGlobal(selectedLocal.global);
+    setLocalApps(appsToDraft(selectedLocal.apps));
+    setError(null);
+  }, [selectedLocal]);
+
+  const selectedOption = useMemo<McpMarketplaceInstallOption | null>(() => {
+    if (!marketDetail) return null;
+    return (
+      marketDetail.install_options.find((o) => o.id === selectedOptionId) ??
+      marketDetail.install_options[0] ??
+      null
+    );
+  }, [marketDetail, selectedOptionId]);
+
+  /* ── marketplace actions ──────────────────────────────── */
+
+  const executeSearch = useCallback(async () => {
+    if (!selectedProvider) return;
+    setSearching(true);
+    setError(null);
+    try {
+      const results = await mcpMarketApi.search({
+        providerId: selectedProvider,
+        query: marketQuery,
+      });
+      setSearchResults(results);
+    } catch (err) {
+      setError(errorMessage(err));
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }, [selectedProvider, marketQuery]);
+
+  // Auto-search once when the market tab is first opened with a provider set.
+  const autoSearchedRef = useRef(false);
+  useEffect(() => {
+    if (leftTab !== 'market' || !selectedProvider || autoSearchedRef.current) {
+      return;
+    }
+    autoSearchedRef.current = true;
+    void executeSearch();
+  }, [leftTab, selectedProvider, executeSearch]);
+
+  const openMarketDetail = useCallback(
+    async (serverId: string) => {
+      if (!selectedProvider) return;
+      setSelection({ kind: 'market', id: serverId });
+      setMarketDetail(null);
+      setMarketDetailError(null);
+      setMarketDetailLoading(true);
+      try {
+        const detail = await mcpMarketApi.detail({
+          providerId: selectedProvider,
+          serverId,
+        });
+        setMarketDetail(detail);
+        const optionId =
+          detail.default_option_id ?? detail.install_options[0]?.id ?? '';
+        setSelectedOptionId(optionId);
+        const option =
+          detail.install_options.find((o) => o.id === optionId) ??
+          detail.install_options[0] ??
+          null;
+        setMarketSpecText(JSON.stringify(option?.spec ?? detail.spec, null, 2));
+        setMarketSpecDirty(false);
+      } catch (err) {
+        setMarketDetailError(errorMessage(err));
+      } finally {
+        setMarketDetailLoading(false);
+      }
+    },
+    [selectedProvider]
   );
 
-  // Handlers
-  const handleMcpServersChange = (value: string) => {
-    setMcpServers(value);
-    setMcpError(null);
-
-    if (value.trim() && mcpConfig) {
-      try {
-        const parsedConfig = JSON.parse(value);
-        McpConfigStrategyGeneral.validateFullConfig(mcpConfig, parsedConfig);
-      } catch (err) {
-        if (err instanceof SyntaxError) {
-          setMcpError('无效的 JSON 格式');
-        } else {
-          setMcpError(err instanceof Error ? err.message : '验证错误');
-        }
-      }
-    }
-  };
-
-  const handleSave = async () => {
-    if (!selectedAgent || !mcpConfig) return;
-
-    setMcpApplying(true);
-    setMcpError(null);
-
-    try {
-      if (mcpServers.trim()) {
-        const fullConfig = JSON.parse(mcpServers);
-        McpConfigStrategyGeneral.validateFullConfig(mcpConfig, fullConfig);
-        const mcpServersConfig = McpConfigStrategyGeneral.extractServersForApi(
-          mcpConfig,
-          fullConfig
-        );
-
-        await mcpServersApi.save(
-          { executor: selectedAgent as BaseCodingAgent },
-          { servers: mcpServersConfig }
-        );
-
-        triggerSuccess();
-      }
-    } catch (err) {
-      if (err instanceof SyntaxError) {
-        setMcpError('无效的 JSON 格式');
-      } else {
-        setMcpError(err instanceof Error ? err.message : '保存 MCP 服务器失败');
-      }
-    } finally {
-      setMcpApplying(false);
-    }
-  };
-
-  const addServer = (key: string) => {
-    if (!mcpConfig) return;
-    try {
-      const existing = mcpServers.trim() ? JSON.parse(mcpServers) : {};
-      const updated = McpConfigStrategyGeneral.addPreconfiguredToConfig(
-        mcpConfig,
-        existing,
-        key
+  const switchInstallOption = useCallback(
+    (optionId: string) => {
+      setSelectedOptionId(optionId);
+      const option = marketDetail?.install_options.find(
+        (o) => o.id === optionId
       );
-      setMcpServers(JSON.stringify(updated, null, 2));
-      setMcpError(null);
-      setSelectedServer(key);
-    } catch (err) {
-      setMcpError(err instanceof Error ? err.message : '添加预配置服务器失败');
-    }
-  };
+      if (option) {
+        setMarketSpecText(JSON.stringify(option.spec, null, 2));
+        setMarketSpecDirty(false);
+      }
+    },
+    [marketDetail]
+  );
 
-  const removeServer = (key: string) => {
-    if (!mcpConfig) return;
+  const openInstallDialog = useCallback(() => {
+    if (!selectedOption) return;
+    setInstallGlobal(true);
+    setInstallApps(emptyApps(true));
+    const params: Record<string, string> = {};
+    for (const field of selectedOption.parameters) {
+      if (field.default_value != null && field.kind !== 'json') {
+        params[field.key] = String(field.default_value);
+      }
+    }
+    setInstallParamDraft(params);
+    setInstallDialogOpen(true);
+  }, [selectedOption]);
+
+  const confirmInstall = useCallback(async () => {
+    if (!marketDetail) return;
+    const apps = installGlobal ? [] : selectedApps(installApps);
+    if (!installGlobal && apps.length === 0) {
+      setError('请至少选择一个目标应用，或勾选「全局」');
+      return;
+    }
+
+    let specOverride: Record<string, JsonValue> | null = null;
+    if (marketSpecDirty) {
+      try {
+        specOverride = parseSpecObject(marketSpecText);
+      } catch (err) {
+        setError(errorMessage(err));
+        return;
+      }
+    }
+
+    const action = `install:${marketDetail.server_id}`;
+    setRunningAction(action);
+    setError(null);
     try {
-      const existing = mcpServers.trim() ? JSON.parse(mcpServers) : {};
-      const fullConfig = structuredClone(existing) as Record<string, unknown>;
-      let current: Record<string, unknown> | null = fullConfig;
-
-      for (const part of mcpConfig.servers_path.slice(0, -1)) {
-        const next: unknown = current?.[part];
-        current =
-          next && typeof next === 'object' && !Array.isArray(next)
-            ? (next as Record<string, unknown>)
-            : null;
-      }
-
-      const lastKey = mcpConfig.servers_path.at(-1);
-      if (!current || !lastKey) return;
-
-      const servers = current[lastKey];
-      if (servers && typeof servers === 'object' && !Array.isArray(servers)) {
-        delete (servers as Record<string, unknown>)[key];
-      }
-
-      setMcpServers(JSON.stringify(fullConfig, null, 2));
-      setSelectedServer(null);
-      setMcpError(null);
+      const list = await mcpMarketApi.install({
+        providerId: marketDetail.provider_id,
+        serverId: marketDetail.server_id,
+        global: installGlobal,
+        apps,
+        optionId: selectedOption?.id ?? null,
+        parameterValues: specOverride
+          ? null
+          : buildParameterValues(selectedOption, installParamDraft),
+        specOverride,
+      });
+      setInstalledServers(list);
+      setInstallDialogOpen(false);
+      triggerSuccess();
+      setLeftTab('local');
+      setSelection({ kind: 'local', id: marketDetail.server_id });
     } catch (err) {
-      setMcpError(err instanceof Error ? err.message : '删除 MCP 服务器失败');
+      setError(errorMessage(err));
+    } finally {
+      setRunningAction(null);
     }
-  };
+  }, [
+    marketDetail,
+    installGlobal,
+    installApps,
+    marketSpecDirty,
+    marketSpecText,
+    selectedOption,
+    installParamDraft,
+    triggerSuccess,
+  ]);
 
-  // Preconfigured servers
-  const preconfigured = useMemo(() => {
-    if (!mcpConfig?.preconfigured)
-      return {
-        servers: {} as Record<string, unknown>,
-        meta: {} as Record<
-          string,
-          { name?: string; description?: string; url?: string; icon?: string }
-        >,
-      };
-    const obj = mcpConfig.preconfigured as Record<string, unknown>;
-    const meta = (
-      typeof obj.meta === 'object' && obj.meta !== null ? obj.meta : {}
-    ) as Record<
-      string,
-      { name?: string; description?: string; url?: string; icon?: string }
-    >;
-    const servers = Object.fromEntries(
-      Object.entries(obj).filter(([k]) => k !== 'meta')
-    );
-    return { servers, meta };
-  }, [mcpConfig?.preconfigured]);
+  /* ── local actions ────────────────────────────────────── */
 
-  if (!config) {
-    return (
-      <div className="py-8">
-        <Alert variant="destructive">
-          <AlertDescription>加载配置失败。</AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
+  const startDraft = useCallback(() => {
+    setSelection({ kind: 'draft' });
+    setDraftId('');
+    setDraftSpecText(DRAFT_SPEC_TEMPLATE);
+    setDraftGlobal(true);
+    setDraftApps(emptyApps(true));
+    setError(null);
+  }, []);
+
+  const saveLocal = useCallback(async () => {
+    if (!selectedLocal) return;
+    let spec: Record<string, JsonValue>;
+    try {
+      spec = parseSpecObject(localSpecText);
+    } catch (err) {
+      setError(errorMessage(err));
+      return;
+    }
+    const action = `save:${selectedLocal.id}`;
+    setRunningAction(action);
+    setError(null);
+    try {
+      const list = await mcpMarketApi.upsertLocal({
+        serverId: selectedLocal.id,
+        spec,
+        global: localGlobal,
+        apps: localGlobal ? [] : selectedApps(localApps),
+      });
+      setInstalledServers(list);
+      triggerSuccess();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setRunningAction(null);
+    }
+  }, [selectedLocal, localSpecText, localGlobal, localApps, triggerSuccess]);
+
+  const createDraft = useCallback(async () => {
+    const id = draftId.trim();
+    if (!id) {
+      setError('请填写服务器 ID');
+      return;
+    }
+    let spec: Record<string, JsonValue>;
+    try {
+      spec = parseSpecObject(draftSpecText);
+    } catch (err) {
+      setError(errorMessage(err));
+      return;
+    }
+    if (!draftGlobal && selectedApps(draftApps).length === 0) {
+      setError('请至少选择一个目标应用，或勾选「全局」');
+      return;
+    }
+    setRunningAction('create');
+    setError(null);
+    try {
+      const list = await mcpMarketApi.upsertLocal({
+        serverId: id,
+        spec,
+        global: draftGlobal,
+        apps: draftGlobal ? [] : selectedApps(draftApps),
+      });
+      setInstalledServers(list);
+      triggerSuccess();
+      setSelection({ kind: 'local', id });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setRunningAction(null);
+    }
+  }, [draftId, draftSpecText, draftGlobal, draftApps, triggerSuccess]);
+
+  const uninstall = useCallback(
+    async (serverId: string) => {
+      setRunningAction(`uninstall:${serverId}`);
+      setError(null);
+      try {
+        const list = await mcpMarketApi.uninstall(serverId);
+        setInstalledServers(list);
+        if (selection?.kind === 'local' && selection.id === serverId) {
+          setSelection(null);
+        }
+        triggerSuccess();
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setRunningAction(null);
+      }
+    },
+    [selection, triggerSuccess]
+  );
+
+  /* ── render ───────────────────────────────────────────── */
 
   return (
-    <div className="flex-1 overflow-hidden flex h-full">
-      {/* ── Left Panel ──────────────────────────────────── */}
-      <div className="settings-split-sidebar w-56 shrink-0 flex h-full flex-col">
-        {/* Header */}
-        <div className="settings-split-divider shrink-0 border-b px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">MCP 服务器</h2>
+    <div className="flex h-full min-h-0 gap-4">
+      {/* Left panel */}
+      <aside className="flex w-[340px] shrink-0 flex-col gap-3">
+        <div className="flex items-center gap-1 rounded-lg border bg-muted-foreground/[0.06] p-0.5">
+          {(['local', 'market'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setLeftTab(tab)}
+              className={cn(
+                'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
+                leftTab === tab
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {tab === 'local' ? '本地 MCP' : 'MCP 市场'}
+            </button>
+          ))}
         </div>
 
-        {/* Agent List */}
-        <div className="settings-split-divider shrink-0 border-b">
-          <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
-            <Settings2 className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[10px] font-medium uppercase tracking-normal text-muted-foreground">
-              代理 ({agents.length})
-            </span>
-          </div>
-          <div className="px-2 pb-2 space-y-0.5">
-            {agents.map((agentKey) => (
-              <button
-                key={agentKey}
-                type="button"
-                onClick={() => setSelectedAgent(agentKey)}
-                className={`
-                  settings-list-button w-full text-left px-2.5 py-1.5 transition-colors
-                  ${
-                    selectedAgent === agentKey
-                      ? 'is-active'
-                      : ''
-                  }
-                `}
-              >
-                <div className="flex items-center gap-2">
-                  <PlugZap className="settings-list-muted h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="text-xs font-medium truncate">
-                    {(AGENT_DISPLAY_NAMES as Record<string, string>)[
-                      agentKey
-                    ] ?? agentKey}
-                  </span>
-                  {selectedAgent === agentKey && (
-                    <ChevronRight className="settings-list-muted h-3 w-3 ml-auto shrink-0 text-muted-foreground" />
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+        {leftTab === 'local' ? (
+          <LocalListPanel
+            servers={filteredLocal}
+            loading={localLoading}
+            filter={localFilter}
+            onFilterChange={setLocalFilter}
+            activeId={selection?.kind === 'local' ? selection.id : null}
+            onSelect={(id) => setSelection({ kind: 'local', id })}
+            onRefresh={() => void refreshLocal()}
+            onNew={startDraft}
+          />
+        ) : (
+          <MarketListPanel
+            providers={providers}
+            selectedProvider={selectedProvider}
+            onProviderChange={setSelectedProvider}
+            query={marketQuery}
+            onQueryChange={setMarketQuery}
+            searching={searching}
+            onSearch={() => void executeSearch()}
+            results={searchResults}
+            activeId={selection?.kind === 'market' ? selection.id : null}
+            onSelect={(id) => void openMarketDetail(id)}
+          />
+        )}
+      </aside>
 
-        {/* Search */}
-        <div className="settings-split-divider shrink-0 px-3 py-2 border-b">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="搜索服务器..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-7 text-xs pl-8"
-            />
-          </div>
-        </div>
-
-        {/* Server List */}
-        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          {mcpLoading && (
-            <div className="flex items-center gap-2 py-6 justify-center text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-xs">加载中...</span>
-            </div>
-          )}
-
-          {mcpError && mcpError.includes('does not support MCP') && (
-            <div className="settings-message settings-message-warning p-3">
-              <p className="text-xs text-foreground">
-                此代理不支持 MCP 服务器。
-              </p>
-            </div>
-          )}
-
-          {!mcpLoading && !mcpError && filteredServers.length === 0 && (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <Server className="h-6 w-6 text-muted-foreground/40" />
-              <p className="text-xs text-muted-foreground">
-                {search ? '无匹配结果' : '暂无 MCP 服务器'}
-              </p>
-            </div>
-          )}
-
-          {!mcpLoading &&
-            filteredServers.map((server) => (
-              <button
-                key={server.name}
-                type="button"
-                onClick={() => setSelectedServer(server.name)}
-                className={`
-                settings-list-button w-full text-left px-2.5 py-1.5 transition-colors
-                ${
-                  selectedServer === server.name
-                    ? 'is-active'
-                    : ''
-                }
-              `}
-              >
-                <div className="flex items-center gap-2">
-                  <Server className="settings-list-muted h-3 w-3 shrink-0 text-muted-foreground" />
-                  <code className="text-[11px] font-mono font-medium truncate flex-1">
-                    {server.name}
-                  </code>
-                </div>
-                {server.config.command && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate pl-5">
-                    {String(server.config.command)}
-                  </p>
-                )}
-              </button>
-            ))}
-        </div>
-      </div>
-
-      {/* ── Right Panel ──────────────────────────────────── */}
-      <div className="flex-1 min-w-0 flex h-full flex-col overflow-y-auto">
-        {/* Status alerts */}
-        {mcpError && !mcpError.includes('does not support MCP') && (
-          <div className="shrink-0 px-6 pt-4">
+      {/* Right panel */}
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+        {error ? (
+          <div className="shrink-0 px-4 pt-4">
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{mcpError}</AlertDescription>
+              <AlertDescription>{error}</AlertDescription>
             </Alert>
           </div>
-        )}
-        {success && (
-          <div className="shrink-0 px-6 pt-4">
+        ) : null}
+        {success ? (
+          <div className="shrink-0 px-4 pt-4">
             <Alert variant="success">
               <CheckCircle2 className="h-4 w-4" />
               <AlertDescription className="font-medium">
-                MCP 配置保存成功
+                操作成功
               </AlertDescription>
             </Alert>
           </div>
-        )}
+        ) : null}
 
-        {selectedAgent &&
-        !mcpLoading &&
-        !mcpError?.includes('does not support MCP') ? (
-          <div className="p-6 space-y-6">
-            {/* Agent Header */}
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="settings-accent-icon flex h-10 w-10 items-center justify-center rounded-lg">
-                  <PlugZap className="h-5 w-5 text-current" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-semibold text-foreground">
-                    {(AGENT_DISPLAY_NAMES as Record<string, string>)[
-                      selectedAgent
-                    ] ?? selectedAgent}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {serverEntries.length} 个 MCP 服务器已配置
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={mcpApplying || mcpLoading || !!mcpError || success}
-                >
-                  {mcpApplying ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : success ? (
-                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                  ) : (
-                    <Save className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  {success ? '已保存' : '保存'}
-                </Button>
-              </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {selection?.kind === 'draft' ? (
+            <DraftEditor
+              id={draftId}
+              onIdChange={setDraftId}
+              specText={draftSpecText}
+              onSpecChange={setDraftSpecText}
+              global={draftGlobal}
+              apps={draftApps}
+              onGlobalChange={setDraftGlobal}
+              onToggleApp={(app, next) =>
+                setDraftApps((prev) => ({ ...prev, [app]: next }))
+              }
+              busy={runningAction === 'create'}
+              onCancel={() => setSelection(null)}
+              onCreate={() => void createDraft()}
+            />
+          ) : selection?.kind === 'local' && selectedLocal ? (
+            <LocalEditor
+              server={selectedLocal}
+              specText={localSpecText}
+              onSpecChange={setLocalSpecText}
+              global={localGlobal}
+              apps={localApps}
+              onGlobalChange={setLocalGlobal}
+              onToggleApp={(app, next) =>
+                setLocalApps((prev) => ({ ...prev, [app]: next }))
+              }
+              saving={runningAction === `save:${selectedLocal.id}`}
+              removing={runningAction === `uninstall:${selectedLocal.id}`}
+              onSave={() => void saveLocal()}
+              onUninstall={() => void uninstall(selectedLocal.id)}
+            />
+          ) : selection?.kind === 'market' ? (
+            <MarketDetailPanel
+              loading={marketDetailLoading}
+              detailError={marketDetailError}
+              detail={marketDetail}
+              selectedOption={selectedOption}
+              onSwitchOption={switchInstallOption}
+              specText={marketSpecText}
+              onSpecChange={(text) => {
+                setMarketSpecText(text);
+                setMarketSpecDirty(true);
+              }}
+              onInstall={openInstallDialog}
+            />
+          ) : (
+            <Placeholder tab={leftTab} />
+          )}
+        </div>
+      </section>
+
+      {/* Install dialog */}
+      <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>确认安装 MCP</DialogTitle>
+            <DialogDescription>
+              {marketDetail
+                ? `将 ${marketDetail.name} 安装到所选目标。`
+                : '安装 MCP 服务器。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">协议</Label>
+              <Select
+                value={selectedOptionId}
+                onValueChange={switchInstallOption}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="选择协议" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(marketDetail?.install_options ?? []).map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {protocolLabel(option.protocol)} · {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* Selected Server Detail */}
-            {selectedServerEntry && (
-              <div className="settings-inline-group p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">
-                    {selectedServerEntry.name}
-                  </span>
-                  <span className="settings-meta-chip px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-normal">
-                    {String(selectedServerEntry.config.type ?? 'stdio')}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto h-7 text-xs text-destructive hover:text-destructive"
-                    onClick={() => removeServer(selectedServerEntry.name)}
-                  >
-                    删除
-                  </Button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {selectedServerEntry.config.command && (
-                    <MetaItem
-                      label="命令"
-                      value={String(selectedServerEntry.config.command)}
-                    />
-                  )}
-                  {selectedServerEntry.config.url && (
-                    <MetaItem
-                      label="URL"
-                      value={String(selectedServerEntry.config.url)}
-                    />
-                  )}
-                  {selectedServerEntry.config.args &&
-                    Array.isArray(selectedServerEntry.config.args) && (
-                      <MetaItem
-                        label="参数"
-                        value={(
-                          selectedServerEntry.config.args as string[]
-                        ).join(' ')}
-                      />
-                    )}
-                  {selectedServerEntry.config.env && (
-                    <MetaItem
-                      label="环境变量"
-                      value={`${Object.keys(selectedServerEntry.config.env as Record<string, unknown>).length} 个`}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* JSON Editor */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <FileJson className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">
-                  完整配置（JSON）
-                </span>
-              </div>
-              <JSONEditor
-                id="mcp-servers"
-                placeholder={
-                  mcpLoading
-                    ? '加载中...'
-                    : '{\n  "server-name": {\n    "type": "stdio",\n    "command": "your-command"\n  }\n}'
-                }
-                value={mcpLoading ? '加载中...' : mcpServers}
-                onChange={handleMcpServersChange}
-                disabled={mcpLoading}
-                minHeight={250}
-              />
-              <div className="text-xs text-muted-foreground">
-                {mcpConfigPath && (
-                  <span>
-                    配置文件：<span className="font-mono">{mcpConfigPath}</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Preconfigured Servers */}
-            {Object.keys(preconfigured.servers).length > 0 && (
+            {selectedOption && selectedOption.parameters.length > 0 ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">
-                    热门服务器
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  点击卡片将该 MCP 服务器添加到配置中。
-                </p>
-                <div className="settings-inline-group relative overflow-hidden">
-                  <Carousel className="w-full px-4 py-3">
-                    <CarouselContent>
-                      {Object.entries(preconfigured.servers).map(([key]) => {
-                        const metaObj = preconfigured.meta[key] ?? {};
-                        const name = metaObj.name ?? key;
-                        const description = metaObj.description ?? '';
-                        const icon = metaObj.icon ? `/${metaObj.icon}` : null;
-
-                        return (
-                          <CarouselItem
-                            key={key}
-                            className="sm:basis-1/3 lg:basis-1/4"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => addServer(key)}
-                              className="group w-full text-left outline-none"
-                            >
-                              <Card className="h-28 rounded-lg border transition-colors hover:border-primary/30">
-                                <CardHeader className="pb-0 px-3 pt-3">
-                                  <div className="flex items-center gap-2">
-                                    <div className="settings-inline-group w-5 h-5 grid place-items-center overflow-hidden shrink-0">
-                                      {icon ? (
-                                        <img
-                                          src={icon}
-                                          alt=""
-                                          className="w-full h-full object-cover"
-                                        />
-                                      ) : (
-                                        <span className="text-[10px] font-semibold">
-                                          {name.slice(0, 1).toUpperCase()}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <CardTitle className="text-xs font-medium truncate">
-                                      {name}
-                                    </CardTitle>
-                                  </div>
-                                </CardHeader>
-                                <CardContent className="pt-1.5 px-3">
-                                  <p className="text-[10px] text-muted-foreground line-clamp-2">
-                                    {description}
-                                  </p>
-                                </CardContent>
-                              </Card>
-                            </button>
-                          </CarouselItem>
-                        );
-                      })}
-                    </CarouselContent>
-                    <CarouselPrevious className="settings-inline-group left-2 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full" />
-                    <CarouselNext className="settings-inline-group right-2 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full" />
-                  </Carousel>
+                <Label className="text-xs text-muted-foreground">参数</Label>
+                <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                  {selectedOption.parameters.map((field) => (
+                    <div key={field.key} className="space-y-1">
+                      <div className="text-xs font-medium">
+                        {field.label}
+                        {field.required ? (
+                          <span className="ml-1 text-destructive">*</span>
+                        ) : null}
+                        {field.location ? (
+                          <span className="ml-2 text-muted-foreground">
+                            {field.location}
+                          </span>
+                        ) : null}
+                      </div>
+                      {field.kind === 'boolean' ? (
+                        <Select
+                          value={installParamDraft[field.key] ?? ''}
+                          onValueChange={(value) =>
+                            setInstallParamDraft((prev) => ({
+                              ...prev,
+                              [field.key]: value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="true / false" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="true">true</SelectItem>
+                            <SelectItem value="false">false</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : field.enum_values.length > 0 ? (
+                        <Select
+                          value={installParamDraft[field.key] ?? ''}
+                          onValueChange={(value) =>
+                            setInstallParamDraft((prev) => ({
+                              ...prev,
+                              [field.key]: value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="选择一个值" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {field.enum_values.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {value}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          type={field.secret ? 'password' : 'text'}
+                          value={installParamDraft[field.key] ?? ''}
+                          className="h-8 text-xs"
+                          placeholder={field.placeholder ?? ''}
+                          onChange={(event) =>
+                            setInstallParamDraft((prev) => ({
+                              ...prev,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                        />
+                      )}
+                      {field.description ? (
+                        <p className="text-[11px] leading-5 text-muted-foreground">
+                          {field.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
               </div>
-            )}
-          </div>
-        ) : mcpError?.includes('does not support MCP') ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="text-center text-muted-foreground max-w-xs">
-              <AlertCircle className="mx-auto h-10 w-10 opacity-30" />
-              <p className="mt-3 text-sm font-medium">不支持 MCP</p>
-              <p className="mt-1 text-xs">
-                {(AGENT_DISPLAY_NAMES as Record<string, string>)[
-                  selectedAgent ?? ''
-                ] ?? selectedAgent}{' '}
-                不支持 MCP 服务器。请选择其他代理。
-              </p>
+            ) : null}
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">目标应用</Label>
+              <TargetSelector
+                global={installGlobal}
+                apps={installApps}
+                onGlobalChange={setInstallGlobal}
+                onToggleApp={(app, next) =>
+                  setInstallApps((prev) => ({ ...prev, [app]: next }))
+                }
+              />
             </div>
           </div>
-        ) : !selectedAgent ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <PlugZap className="mx-auto h-10 w-10 opacity-30" />
-              <p className="mt-3 text-sm">选择一个代理查看 MCP 配置</p>
-            </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setInstallDialogOpen(false)}
+              disabled={!!runningAction?.startsWith('install:')}
+            >
+              取消
+            </Button>
+            <Button
+              type="submit"
+              onClick={() => void confirmInstall()}
+              disabled={!!runningAction?.startsWith('install:')}
+            >
+              {runningAction?.startsWith('install:') ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              确认安装
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ── left: local list ────────────────────────────────────── */
+
+function LocalListPanel({
+  servers,
+  loading,
+  filter,
+  onFilterChange,
+  activeId,
+  onSelect,
+  onRefresh,
+  onNew,
+}: {
+  servers: LocalMcpServer[];
+  loading: boolean;
+  filter: string;
+  onFilterChange: (value: string) => void;
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onRefresh: () => void;
+  onNew: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
+      <div className="border-b p-2.5">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索本地服务器..."
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value)}
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            加载中…
+          </div>
+        ) : servers.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <Server className="h-6 w-6 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">
+              {filter ? '无匹配结果' : '暂无 MCP 服务器，去市场安装或新建。'}
+            </p>
           </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          servers.map((server) => {
+            const active = server.id === activeId;
+            return (
+              <button
+                key={server.id}
+                type="button"
+                onClick={() => onSelect(server.id)}
+                className={cn(
+                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  active
+                    ? 'border-primary/60 bg-primary/5'
+                    : 'border-transparent hover:bg-foreground/[0.05]'
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                    {server.id}
+                  </span>
+                  {server.global ? (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 shrink-0 gap-1 px-1.5 text-[9px]"
+                    >
+                      <Globe className="h-2.5 w-2.5" />
+                      全局
+                    </Badge>
+                  ) : (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {server.apps.length} 个 Agent
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 line-clamp-1 break-all text-[10px] text-muted-foreground">
+                  {specSummary(server.spec)}
+                </p>
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 border-t p-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 w-7 p-0"
+          title="刷新"
+          disabled={loading}
+          onClick={onRefresh}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </Button>
+        <Button size="sm" className="h-7 flex-1 text-xs" onClick={onNew}>
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          新建 MCP
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ── left: market list ───────────────────────────────────── */
+
+function MarketListPanel({
+  providers,
+  selectedProvider,
+  onProviderChange,
+  query,
+  onQueryChange,
+  searching,
+  onSearch,
+  results,
+  activeId,
+  onSelect,
+}: {
+  providers: McpMarketplaceProvider[];
+  selectedProvider: string;
+  onProviderChange: (id: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  searching: boolean;
+  onSearch: () => void;
+  results: McpMarketplaceItem[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
+      <div className="space-y-2 border-b p-2.5">
+        <Select value={selectedProvider} onValueChange={onProviderChange}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="选择市场" />
+          </SelectTrigger>
+          <SelectContent align="start">
+            {providers.map((provider) => (
+              <SelectItem key={provider.id} value={provider.id}>
+                {provider.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex gap-1.5">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜索 MCP..."
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') onSearch();
+              }}
+              className="h-8 pl-8 text-xs"
+            />
           </div>
+          <Button
+            size="sm"
+            className="h-8 w-8 shrink-0 p-0"
+            disabled={searching || !selectedProvider}
+            onClick={onSearch}
+          >
+            {searching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Search className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+        {searching ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            搜索中…
+          </div>
+        ) : results.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <Server className="h-6 w-6 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">
+              无结果，换个关键词试试。
+            </p>
+          </div>
+        ) : (
+          results.map((item) => {
+            const active = item.server_id === activeId;
+            return (
+              <button
+                key={`${item.provider_id}:${item.server_id}`}
+                type="button"
+                onClick={() => onSelect(item.server_id)}
+                className={cn(
+                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  active
+                    ? 'border-primary/60 bg-primary/5'
+                    : 'border-transparent hover:bg-foreground/[0.05]'
+                )}
+              >
+                <div className="flex items-start gap-2">
+                  <div className="mt-0.5 h-7 w-7 shrink-0 overflow-hidden rounded-md border bg-muted/40">
+                    {item.icon_url ? (
+                      <img
+                        src={item.icon_url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[9px] text-muted-foreground">
+                        MCP
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium">
+                      {item.name}
+                    </div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {item.server_id}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {item.protocols.map((protocol) => (
+                    <Badge
+                      key={protocol}
+                      variant="secondary"
+                      className="h-4 px-1.5 text-[9px]"
+                    >
+                      {protocolLabel(protocol)}
+                    </Badge>
+                  ))}
+                  {item.verified ? (
+                    <Badge className="h-4 px-1.5 text-[9px]">已验证</Badge>
+                  ) : null}
+                  {typeof item.downloads === 'number' ? (
+                    <Badge variant="outline" className="h-4 px-1.5 text-[9px]">
+                      {item.downloads} 次使用
+                    </Badge>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })
         )}
       </div>
     </div>
   );
 }
 
-/* ── helpers ──────────────────────────────────────────────── */
+/* ── right: market detail ────────────────────────────────── */
 
-function extractServers(
-  mcpConfig: AgentMcpConfig,
-  parsed: unknown
-): JsonObject | null {
-  if (!isJsonObject(parsed)) return null;
-  let current: unknown = parsed;
-  for (const key of mcpConfig.servers_path) {
-    if (!isJsonObject(current)) return null;
-    current = (current as JsonObject)[key];
-    if (current === undefined) return null;
+function MarketDetailPanel({
+  loading,
+  detailError,
+  detail,
+  selectedOption,
+  onSwitchOption,
+  specText,
+  onSpecChange,
+  onInstall,
+}: {
+  loading: boolean;
+  detailError: string | null;
+  detail: McpMarketplaceServerDetail | null;
+  selectedOption: McpMarketplaceInstallOption | null;
+  onSwitchOption: (id: string) => void;
+  specText: string;
+  onSpecChange: (text: string) => void;
+  onInstall: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        加载详情…
+      </div>
+    );
   }
-  return isJsonObject(current) ? (current as JsonObject) : null;
+  if (detailError) {
+    return (
+      <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        加载详情失败：{detailError}
+      </div>
+    );
+  }
+  if (!detail) {
+    return <Placeholder tab="market" />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-muted/40">
+            {detail.icon_url ? (
+              <img
+                src={detail.icon_url}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                MCP
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <h2 className="break-all text-base font-semibold">{detail.name}</h2>
+            <p className="mt-0.5 break-all text-xs text-muted-foreground">
+              {detail.server_id}
+            </p>
+          </div>
+        </div>
+        <Button size="sm" className="shrink-0" onClick={onInstall}>
+          安装
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {detail.verified ? <Badge>已验证</Badge> : null}
+        {detail.remote ? <Badge variant="secondary">远程</Badge> : null}
+        {detail.homepage ? <Badge variant="outline">有主页</Badge> : null}
+        {detail.protocols.map((protocol) => (
+          <Badge key={protocol} variant="secondary">
+            {protocolLabel(protocol)}
+          </Badge>
+        ))}
+        {typeof detail.downloads === 'number' ? (
+          <Badge variant="outline">{detail.downloads} 次使用</Badge>
+        ) : null}
+      </div>
+
+      <p className="text-sm leading-6 text-muted-foreground">
+        {detail.description}
+      </p>
+
+      {detail.homepage ? (
+        <a
+          href={detail.homepage}
+          target="_blank"
+          rel="noreferrer"
+          className="block break-all text-xs text-primary underline"
+        >
+          {detail.homepage}
+        </a>
+      ) : null}
+
+      <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+        {detail.owner ? (
+          <div className="inline-flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            所有者：{detail.owner}
+          </div>
+        ) : null}
+        {detail.namespace ? (
+          <div className="inline-flex items-center gap-1.5">
+            <TerminalSquare className="h-3.5 w-3.5" />
+            命名空间：{detail.namespace}
+          </div>
+        ) : null}
+        {detail.is_deployed != null ? (
+          <div className="inline-flex items-center gap-1.5">
+            <Globe className="h-3.5 w-3.5" />
+            {detail.is_deployed ? '已部署' : '未部署'}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">默认安装协议</Label>
+        <Select value={selectedOption?.id ?? ''} onValueChange={onSwitchOption}>
+          <SelectTrigger className="h-9 text-xs">
+            <SelectValue placeholder="选择协议" />
+          </SelectTrigger>
+          <SelectContent>
+            {detail.install_options.map((option) => (
+              <SelectItem key={option.id} value={option.id}>
+                {protocolLabel(option.protocol)} · {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[11px] text-muted-foreground">
+          当前选项参数数：{selectedOption?.parameters.length ?? 0}
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">
+          安装配置（JSON，可修改后安装；修改后将覆盖协议/参数表单）
+        </Label>
+        <Textarea
+          value={specText}
+          spellCheck={false}
+          className="min-h-60 font-mono text-xs"
+          onChange={(event) => onSpecChange(event.target.value)}
+        />
+      </div>
+    </div>
+  );
 }
 
-function MetaItem({ label, value }: { label: string; value: string }) {
+/* ── right: local editor ─────────────────────────────────── */
+
+function LocalEditor({
+  server,
+  specText,
+  onSpecChange,
+  global,
+  apps,
+  onGlobalChange,
+  onToggleApp,
+  saving,
+  removing,
+  onSave,
+  onUninstall,
+}: {
+  server: LocalMcpServer;
+  specText: string;
+  onSpecChange: (text: string) => void;
+  global: boolean;
+  apps: AppsDraft;
+  onGlobalChange: (next: boolean) => void;
+  onToggleApp: (app: McpAppType, next: boolean) => void;
+  saving: boolean;
+  removing: boolean;
+  onSave: () => void;
+  onUninstall: () => void;
+}) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] text-muted-foreground uppercase tracking-normal">
-        {label}
-      </span>
-      <span
-        className="text-xs font-medium text-foreground truncate"
-        title={value}
-      >
-        {value}
-      </span>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="break-all text-base font-semibold">{server.id}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            编辑该 MCP 服务器的配置与目标应用。
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            disabled={removing}
+            onClick={onUninstall}
+          >
+            {removing ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            卸载
+          </Button>
+          <Button size="sm" disabled={saving} onClick={onSave}>
+            {saving ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            保存
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">目标应用</Label>
+        <TargetSelector
+          global={global}
+          apps={apps}
+          onGlobalChange={onGlobalChange}
+          onToggleApp={onToggleApp}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">配置（JSON）</Label>
+        <Textarea
+          value={specText}
+          spellCheck={false}
+          className="min-h-60 font-mono text-xs"
+          onChange={(event) => onSpecChange(event.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── right: new-server draft ─────────────────────────────── */
+
+function DraftEditor({
+  id,
+  onIdChange,
+  specText,
+  onSpecChange,
+  global,
+  apps,
+  onGlobalChange,
+  onToggleApp,
+  busy,
+  onCancel,
+  onCreate,
+}: {
+  id: string;
+  onIdChange: (value: string) => void;
+  specText: string;
+  onSpecChange: (text: string) => void;
+  global: boolean;
+  apps: AppsDraft;
+  onGlobalChange: (next: boolean) => void;
+  onToggleApp: (app: McpAppType, next: boolean) => void;
+  busy: boolean;
+  onCancel: () => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">新建 MCP 服务器</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          手动配置一个 MCP 服务器并写入所选目标。
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">服务器 ID</Label>
+        <Input
+          value={id}
+          placeholder="例如 filesystem"
+          className="h-8 text-xs"
+          onChange={(event) => onIdChange(event.target.value)}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">目标应用</Label>
+        <TargetSelector
+          global={global}
+          apps={apps}
+          onGlobalChange={onGlobalChange}
+          onToggleApp={onToggleApp}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">配置（JSON）</Label>
+        <Textarea
+          value={specText}
+          spellCheck={false}
+          className="min-h-60 font-mono text-xs"
+          onChange={(event) => onSpecChange(event.target.value)}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          取消
+        </Button>
+        <Button type="button" disabled={busy} onClick={onCreate}>
+          {busy ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : null}
+          创建
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ── right: placeholder ──────────────────────────────────── */
+
+function Placeholder({ tab }: { tab: LeftTab }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+      <Server className="h-10 w-10 opacity-30" />
+      <p className="mt-3 text-sm">
+        {tab === 'local'
+          ? '选择左侧服务器查看与编辑，或点击「新建 MCP」。'
+          : '搜索并选择一个市场服务器查看详情。'}
+      </p>
     </div>
   );
 }

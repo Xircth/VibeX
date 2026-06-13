@@ -25,11 +25,16 @@ use crate::{error::AppError, state::AppState};
 
 mod agent_native;
 mod claude_settings;
+mod mcp_market;
 mod mcp_servers;
 mod prompt_enhancement;
 
 pub use agent_native::{AgentNativeFile, AgentNativeFileWrite};
 pub use claude_settings::ClaudeSettings;
+pub use mcp_market::{
+    LocalMcpServer, McpAppType, McpMarketplaceInstallOption, McpMarketplaceInstallParameter,
+    McpMarketplaceItem, McpMarketplaceProvider, McpMarketplaceServerDetail,
+};
 pub use mcp_servers::GetMcpServerResponse;
 pub use prompt_enhancement::{
     OpencodeModelsResponse, PromptEnhancementContextMessage, PromptEnhancementRequest,
@@ -429,4 +434,70 @@ pub async fn write_agent_native_files(
     let agent_type = agent_type_from_executor_key(&agent_type)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
     agent_native::agent_native_files_write(agent_type, files).await
+}
+
+// ── MCP marketplace + global hosting ───────────────────────────────────────
+
+#[tauri::command]
+pub async fn mcp_scan_local() -> Result<Vec<LocalMcpServer>, AppError> {
+    mcp_market::scan_local().await
+}
+
+#[tauri::command]
+pub async fn mcp_list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, AppError> {
+    mcp_market::list_marketplaces().await
+}
+
+#[tauri::command]
+pub async fn mcp_search_marketplace(
+    provider_id: String,
+    query: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<McpMarketplaceItem>, AppError> {
+    mcp_market::search_marketplace(provider_id, query, limit).await
+}
+
+#[tauri::command]
+pub async fn mcp_get_marketplace_server_detail(
+    provider_id: String,
+    server_id: String,
+) -> Result<McpMarketplaceServerDetail, AppError> {
+    mcp_market::get_marketplace_server_detail(provider_id, server_id).await
+}
+
+#[tauri::command]
+pub async fn mcp_install_marketplace_server(
+    provider_id: String,
+    server_id: String,
+    global: bool,
+    apps: Vec<McpAppType>,
+    option_id: Option<String>,
+    parameter_values: Option<serde_json::Value>,
+    spec_override: Option<serde_json::Value>,
+) -> Result<Vec<LocalMcpServer>, AppError> {
+    mcp_market::install_marketplace_server(
+        provider_id,
+        server_id,
+        global,
+        apps,
+        option_id,
+        parameter_values,
+        spec_override,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mcp_upsert_local_server(
+    server_id: String,
+    spec: serde_json::Value,
+    global: bool,
+    apps: Vec<McpAppType>,
+) -> Result<Vec<LocalMcpServer>, AppError> {
+    mcp_market::upsert_local_server(server_id, spec, global, apps).await
+}
+
+#[tauri::command]
+pub async fn mcp_uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, AppError> {
+    mcp_market::uninstall_server(server_id).await
 }

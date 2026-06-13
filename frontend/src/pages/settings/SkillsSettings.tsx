@@ -1,38 +1,93 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+/**
+ * Skills Settings — local management + skills.sh marketplace.
+ *
+ * Mirrors the MCP page: a "本地 Skill" view (scanned across every agent's skill
+ * dirs + ~/.agents/skills + the global store ~/.vibex/skills, deduped by name
+ * and optionally grouped by prefix) and a "Skill 市场" backed by skills.sh.
+ *
+ * Installing shells out to the `skills` CLI and then mirrors the skill into the
+ * chosen targets — via symlink or file copy (configurable below the list).
+ * "全局" hosting records the skill in ~/.vibex/skills and mirrors it into all
+ * seven agents.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   BookOpenText,
-  Eye,
+  Check,
+  CheckCircle2,
+  Copy,
+  Download,
   FileText,
+  Globe,
   Loader2,
-  Pencil,
-  Plus,
   RefreshCw,
-  Save,
   Search,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { agentsApi } from '@/features/agents/api';
-import type { AgentRegistryEntry, AgentType } from '@/features/agents/types';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  skillsApi,
-  type AgentSkillItem,
-  type AgentSkillScope,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
+import type { AgentType } from '@/features/agents/types';
+import {
+  skillsMarketApi,
+  type LocalSkill,
+  type SkillMarketItem,
 } from '@/lib/api';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
 
-const DEFAULT_TEMPLATE = `---
-name: new-skill
-description: 描述这个技能的用途与触发时机。
----
+/* ── constants & helpers ─────────────────────────────────── */
 
-# 新技能
+type LeftTab = 'local' | 'market';
+type HostMode = 'copy' | 'symlink';
 
-在这里编写技能内容（Markdown）。
-`;
+type Selection =
+  | { kind: 'local'; id: string }
+  | { kind: 'market'; id: string }
+  | null;
+
+const AGENT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'claude_code', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex CLI' },
+  { value: 'gemini', label: 'Gemini CLI' },
+  { value: 'open_claw', label: 'OpenClaw' },
+  { value: 'open_code', label: 'OpenCode' },
+  { value: 'cline', label: 'Cline' },
+  { value: 'hermes', label: 'Hermes Agent' },
+];
+
+const AGENT_LABELS: Record<string, string> = Object.fromEntries(
+  AGENT_OPTIONS.map((item) => [item.value, item.label])
+);
+
+type AgentsDraft = Record<string, boolean>;
+
+function emptyAgents(value = false): AgentsDraft {
+  return Object.fromEntries(AGENT_OPTIONS.map((a) => [a.value, value]));
+}
+
+function agentsToDraft(apps: string[]): AgentsDraft {
+  const draft = emptyAgents(false);
+  for (const app of apps) if (app in draft) draft[app] = true;
+  return draft;
+}
+
+function selectedAgents(draft: AgentsDraft): string[] {
+  return AGENT_OPTIONS.filter((a) => draft[a.value]).map((a) => a.value);
+}
 
 function splitFrontmatter(content: string): {
   frontmatter: string | null;
@@ -52,470 +107,654 @@ function splitFrontmatter(content: string): {
   return { frontmatter: null, body: content };
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/* ── reusable: target (全局 + agents) selector ───────────── */
+
+function SkillTargetSelector({
+  global,
+  agents,
+  onGlobalChange,
+  onToggleAgent,
+}: {
+  global: boolean;
+  agents: AgentsDraft;
+  onGlobalChange: (next: boolean) => void;
+  onToggleAgent: (agent: string, next: boolean) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="flex w-full cursor-pointer items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
+        <input
+          type="checkbox"
+          checked={global}
+          onChange={(event) => onGlobalChange(event.target.checked)}
+        />
+        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-medium">全局</span>
+        <span className="text-muted-foreground">
+          托管到 ~/.vibex/skills 并同步到所有 Agent
+        </span>
+      </label>
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-1 sm:grid-cols-2',
+          global && 'pointer-events-none opacity-50'
+        )}
+      >
+        {AGENT_OPTIONS.map((agent) => (
+          <label
+            key={agent.value}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
+          >
+            <input
+              type="checkbox"
+              checked={global || agents[agent.value]}
+              disabled={global}
+              onChange={(event) =>
+                onToggleAgent(agent.value, event.target.checked)
+              }
+            />
+            <AgentTypeIcon
+              agentType={agent.value as AgentType}
+              className="h-4 w-4"
+            />
+            <span>{agent.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── main component ──────────────────────────────────────── */
+
 export function SkillsSettings() {
-  const [agents, setAgents] = useState<AgentRegistryEntry[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null);
-  const [scope, setScope] = useState<AgentSkillScope>('global');
-  const [projectPath, setProjectPath] = useState('');
-  const [search, setSearch] = useState('');
+  const [leftTab, setLeftTab] = useState<LeftTab>('local');
+  const [selection, setSelection] = useState<Selection>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, triggerSuccess] = useTemporaryFlag(2500);
+  const [runningAction, setRunningAction] = useState<string | null>(null);
 
-  const [skills, setSkills] = useState<AgentSkillItem[]>([]);
-  const [listLoading, setListLoading] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draftId, setDraftId] = useState('');
-  const [draftContent, setDraftContent] = useState('');
-  const [draftReadOnly, setDraftReadOnly] = useState(false);
-  const [isDrafting, setIsDrafting] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [reading, setReading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-
-  const workspaceParam =
-    scope === 'project' ? projectPath.trim() || null : null;
-  const projectMissing = scope === 'project' && !projectPath.trim();
-
+  // Persisted display/hosting preferences (live below the local list).
+  const [grouping, setGrouping] = useState<boolean>(
+    () => localStorage.getItem('vibex.skills.grouping') !== 'false'
+  );
+  const [hostMode, setHostMode] = useState<HostMode>(
+    () =>
+      (localStorage.getItem('vibex.skills.hostMode') as HostMode | null) ??
+      'copy'
+  );
   useEffect(() => {
-    let alive = true;
-    void agentsApi
-      .listRegistry()
-      .then((entries) => {
-        if (!alive) return;
-        setAgents(entries);
-        setSelectedAgent(
-          (current) => current ?? entries[0]?.agent_type ?? null
-        );
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+    localStorage.setItem('vibex.skills.grouping', String(grouping));
+  }, [grouping]);
+  useEffect(() => {
+    localStorage.setItem('vibex.skills.hostMode', hostMode);
+  }, [hostMode]);
+
+  // Local skills
+  const [skills, setSkills] = useState<LocalSkill[]>([]);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [localFilter, setLocalFilter] = useState('');
+  const [content, setContent] = useState<string>('');
+  const [contentLoading, setContentLoading] = useState(false);
+  const [localGlobal, setLocalGlobal] = useState(false);
+  const [localAgents, setLocalAgents] = useState<AgentsDraft>(emptyAgents());
+
+  // Market
+  const [marketQuery, setMarketQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<SkillMarketItem[]>([]);
+
+  // Install dialog
+  const [installOpen, setInstallOpen] = useState(false);
+  const [installGlobal, setInstallGlobal] = useState(true);
+  const [installAgents, setInstallAgents] = useState<AgentsDraft>(
+    emptyAgents(true)
+  );
+
+  const link = hostMode === 'symlink';
+
+  /* ── loaders ──────────────────────────────────────────── */
+
+  const refreshLocal = useCallback(async (): Promise<LocalSkill[]> => {
+    setLocalLoading(true);
+    try {
+      const list = await skillsMarketApi.scanLocal();
+      setSkills(list);
+      return list;
+    } catch (err) {
+      setError(errorMessage(err));
+      return [];
+    } finally {
+      setLocalLoading(false);
+    }
   }, []);
 
-  const loadSkills = useCallback(async () => {
-    if (!selectedAgent || projectMissing) {
-      setSkills([]);
-      setListError(null);
-      return;
-    }
-    setListLoading(true);
-    setListError(null);
-    try {
-      const result = await skillsApi.list(selectedAgent, workspaceParam);
-      setSkills(result.skills);
-    } catch (error) {
-      setSkills([]);
-      setListError(error instanceof Error ? error.message : '加载技能失败');
-    } finally {
-      setListLoading(false);
-    }
-  }, [selectedAgent, workspaceParam, projectMissing]);
-
   useEffect(() => {
-    void loadSkills();
-  }, [loadSkills]);
-
-  useEffect(() => {
-    setSelectedId(null);
-    setIsDrafting(false);
-    setDraftContent('');
-    setDraftId('');
-    setActionError(null);
-    setPendingDelete(null);
-  }, [selectedAgent, scope, projectPath]);
+    void refreshLocal();
+  }, [refreshLocal]);
 
   const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = localFilter.trim().toLowerCase();
     if (!query) return skills;
     return skills.filter(
       (skill) =>
         skill.id.toLowerCase().includes(query) ||
         (skill.description ?? '').toLowerCase().includes(query) ||
-        skill.path.toLowerCase().includes(query)
+        skill.group.toLowerCase().includes(query)
     );
-  }, [skills, search]);
+  }, [skills, localFilter]);
 
-  const openSkill = useCallback(
-    async (skill: AgentSkillItem, edit: boolean) => {
-      if (!selectedAgent) return;
-      setSelectedId(skill.id);
-      setIsDrafting(false);
-      setActionError(null);
-      setPendingDelete(null);
-      setReading(true);
-      try {
-        const result = await skillsApi.read({
-          agentType: selectedAgent,
-          scope: skill.scope,
-          skillId: skill.id,
-          workspacePath: workspaceParam,
-        });
-        setDraftId(result.skill.id);
-        setDraftContent(result.content);
-        setDraftReadOnly(result.skill.read_only);
-        setIsEditing(edit && !result.skill.read_only);
-      } catch (error) {
-        setActionError(error instanceof Error ? error.message : '读取技能失败');
-      } finally {
-        setReading(false);
-      }
-    },
-    [selectedAgent, workspaceParam]
+  // Group filtered skills by prefix for grouped display.
+  const groups = useMemo(() => {
+    const map = new Map<string, LocalSkill[]>();
+    for (const skill of filtered) {
+      const list = map.get(skill.group) ?? [];
+      list.push(skill);
+      map.set(skill.group, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filtered]);
+
+  const selectedSkill = useMemo(() => {
+    if (selection?.kind !== 'local') return null;
+    return skills.find((s) => s.id === selection.id) ?? null;
+  }, [selection, skills]);
+
+  // Load content + hosting state when the selected skill changes.
+  useEffect(() => {
+    if (!selectedSkill) return;
+    setLocalGlobal(selectedSkill.global);
+    setLocalAgents(agentsToDraft(selectedSkill.apps));
+    setContent('');
+    setContentLoading(true);
+    let alive = true;
+    void skillsMarketApi
+      .readLocal(selectedSkill.id)
+      .then((res) => {
+        if (alive) setContent(res.content);
+      })
+      .catch((err) => {
+        if (alive) setError(errorMessage(err));
+      })
+      .finally(() => {
+        if (alive) setContentLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedSkill]);
+
+  const preview = useMemo(() => splitFrontmatter(content), [content]);
+
+  const selectedMarket = useMemo(() => {
+    if (selection?.kind !== 'market') return null;
+    return results.find((r) => r.skill_id === selection.id) ?? null;
+  }, [selection, results]);
+
+  // Lazily fetch the skill description when a market skill is selected.
+  const [marketDescription, setMarketDescription] = useState<string | null>(
+    null
   );
+  const [marketDescLoading, setMarketDescLoading] = useState(false);
+  const marketSource = selectedMarket?.source ?? null;
+  const marketSkillId = selectedMarket?.skill_id ?? null;
+  useEffect(() => {
+    if (!marketSource || !marketSkillId) return;
+    setMarketDescription(null);
+    setMarketDescLoading(true);
+    let alive = true;
+    void skillsMarketApi
+      .detail({ source: marketSource, skillId: marketSkillId })
+      .then((res) => {
+        if (alive) setMarketDescription(res.description);
+      })
+      .catch(() => {
+        if (alive) setMarketDescription(null);
+      })
+      .finally(() => {
+        if (alive) setMarketDescLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [marketSource, marketSkillId]);
 
-  const startCreate = useCallback(() => {
-    setIsDrafting(true);
-    setSelectedId(null);
-    setDraftId('');
-    setDraftContent(DEFAULT_TEMPLATE);
-    setDraftReadOnly(false);
-    setIsEditing(true);
-    setActionError(null);
-    setPendingDelete(null);
+  /* ── market ───────────────────────────────────────────── */
+
+  const executeSearch = useCallback(async () => {
+    setSearching(true);
+    setError(null);
+    try {
+      // An empty/short query returns the 50 most popular skills (the backend
+      // scrapes the skills.sh leaderboard); ≥2 chars hits the search API.
+      const list = await skillsMarketApi.search(marketQuery);
+      setResults(list);
+    } catch (err) {
+      setError(errorMessage(err));
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }, [marketQuery]);
+
+  // Preload the popular list once when the settings page opens (not when the
+  // market tab is first shown), so switching to the market is instant.
+  const preloadedRef = useRef(false);
+  useEffect(() => {
+    if (preloadedRef.current) return;
+    preloadedRef.current = true;
+    void executeSearch();
+  }, [executeSearch]);
+
+  const openInstall = useCallback(() => {
+    setInstallGlobal(true);
+    setInstallAgents(emptyAgents(true));
+    setInstallOpen(true);
   }, []);
 
-  const save = useCallback(async () => {
-    if (!selectedAgent) return;
-    const id = draftId.trim();
-    if (!id) {
-      setActionError('请填写技能名');
+  const confirmInstall = useCallback(async () => {
+    if (!selectedMarket) return;
+    const apps = installGlobal ? [] : selectedAgents(installAgents);
+    if (!installGlobal && apps.length === 0) {
+      setError('请至少选择一个 Agent，或勾选「全局」');
       return;
     }
-    setSaving(true);
-    setActionError(null);
+    setRunningAction('install');
+    setError(null);
     try {
-      const saved = await skillsApi.save({
-        agentType: selectedAgent,
-        scope,
-        skillId: id,
-        content: draftContent,
-        workspacePath: workspaceParam,
+      const list = await skillsMarketApi.install({
+        source: selectedMarket.source,
+        skillId: selectedMarket.skill_id,
+        global: installGlobal,
+        apps,
+        link,
       });
-      await loadSkills();
-      setIsDrafting(false);
-      setSelectedId(saved.id);
-      setIsEditing(false);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : '保存技能失败');
+      setSkills(list);
+      setInstallOpen(false);
+      triggerSuccess();
+      setLeftTab('local');
+      setSelection({ kind: 'local', id: selectedMarket.skill_id });
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
-      setSaving(false);
+      setRunningAction(null);
     }
-  }, [selectedAgent, scope, draftId, draftContent, workspaceParam, loadSkills]);
+  }, [selectedMarket, installGlobal, installAgents, link, triggerSuccess]);
 
-  const remove = useCallback(
-    async (skill: AgentSkillItem) => {
-      if (!selectedAgent) return;
-      setActionError(null);
+  /* ── local hosting / uninstall ────────────────────────── */
+
+  const applyHosting = useCallback(async () => {
+    if (!selectedSkill) return;
+    const apps = localGlobal ? [] : selectedAgents(localAgents);
+    if (!localGlobal && apps.length === 0) {
+      setError('请至少选择一个 Agent，或勾选「全局」');
+      return;
+    }
+    setRunningAction(`host:${selectedSkill.id}`);
+    setError(null);
+    try {
+      const list = await skillsMarketApi.setHosting({
+        skillId: selectedSkill.id,
+        global: localGlobal,
+        apps,
+        link,
+      });
+      setSkills(list);
+      triggerSuccess();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setRunningAction(null);
+    }
+  }, [selectedSkill, localGlobal, localAgents, link, triggerSuccess]);
+
+  const uninstall = useCallback(
+    async (skillId: string) => {
+      setRunningAction(`uninstall:${skillId}`);
+      setError(null);
       try {
-        await skillsApi.delete({
-          agentType: selectedAgent,
-          scope: skill.scope,
-          skillId: skill.id,
-          workspacePath: workspaceParam,
-        });
-        setPendingDelete(null);
-        if (selectedId === skill.id) {
-          setSelectedId(null);
-          setDraftContent('');
-          setDraftId('');
+        const list = await skillsMarketApi.uninstall(skillId);
+        setSkills(list);
+        if (selection?.kind === 'local' && selection.id === skillId) {
+          setSelection(null);
         }
-        await loadSkills();
-      } catch (error) {
-        setActionError(error instanceof Error ? error.message : '删除技能失败');
+        triggerSuccess();
+      } catch (err) {
+        setError(errorMessage(err));
+      } finally {
+        setRunningAction(null);
       }
     },
-    [selectedAgent, workspaceParam, selectedId, loadSkills]
+    [selection, triggerSuccess]
   );
 
-  const hasDetail = isDrafting || !!selectedId;
-  const preview = useMemo(() => splitFrontmatter(draftContent), [draftContent]);
+  /* ── render ───────────────────────────────────────────── */
 
   return (
     <div className="flex h-full min-h-0 gap-4">
-      {/* Master: agent + scope + skills list */}
-      <aside className="flex w-72 shrink-0 flex-col gap-3">
-        <div className="border bg-cardspace-y-3 rounded-xl p-3">
-          <div className="flex flex-wrap gap-1">
-            {agents.map((agent) => {
-              const active = agent.agent_type === selectedAgent;
-              return (
-                <button
-                  key={agent.agent_type}
-                  type="button"
-                  onClick={() => setSelectedAgent(agent.agent_type)}
-                  className={cn(
-                    'rounded-md px-2 py-1 text-xs font-medium transition-colors',
-                    active
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'border hover:bg-foreground/[0.06]'
-                  )}
-                >
-                  {agent.name}
-                </button>
-              );
-            })}
+      {/* Left panel */}
+      <aside className="flex w-[340px] shrink-0 flex-col gap-3">
+        <div className="flex items-center gap-1 rounded-lg border bg-muted-foreground/[0.06] p-0.5">
+          {(['local', 'market'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setLeftTab(tab)}
+              className={cn(
+                'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
+                leftTab === tab
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {tab === 'local' ? '本地 Skill' : 'Skill 市场'}
+            </button>
+          ))}
+        </div>
+
+        {leftTab === 'local' ? (
+          <LocalListPanel
+            groups={groups}
+            count={filtered.length}
+            grouping={grouping}
+            loading={localLoading}
+            filter={localFilter}
+            onFilterChange={setLocalFilter}
+            activeId={selection?.kind === 'local' ? selection.id : null}
+            onSelect={(id) => setSelection({ kind: 'local', id })}
+            onRefresh={() => void refreshLocal()}
+            onToggleGrouping={setGrouping}
+            hostMode={hostMode}
+            onHostModeChange={setHostMode}
+          />
+        ) : (
+          <MarketListPanel
+            query={marketQuery}
+            onQueryChange={setMarketQuery}
+            searching={searching}
+            onSearch={() => void executeSearch()}
+            results={results}
+            activeId={selection?.kind === 'market' ? selection.id : null}
+            onSelect={(id) => setSelection({ kind: 'market', id })}
+          />
+        )}
+      </aside>
+
+      {/* Right panel */}
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+        {error ? (
+          <div className="shrink-0 px-4 pt-4">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
+        {success ? (
+          <div className="shrink-0 px-4 pt-4">
+            <Alert variant="success">
+              <CheckCircle2 className="h-4 w-4" />
+              <AlertDescription className="font-medium">
+                操作成功
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {selection?.kind === 'local' && selectedSkill ? (
+            <LocalDetail
+              skill={selectedSkill}
+              contentLoading={contentLoading}
+              frontmatter={preview.frontmatter}
+              body={preview.body}
+              global={localGlobal}
+              agents={localAgents}
+              onGlobalChange={setLocalGlobal}
+              onToggleAgent={(agent, next) =>
+                setLocalAgents((prev) => ({ ...prev, [agent]: next }))
+              }
+              hostMode={hostMode}
+              applying={runningAction === `host:${selectedSkill.id}`}
+              removing={runningAction === `uninstall:${selectedSkill.id}`}
+              onApply={() => void applyHosting()}
+              onUninstall={() => void uninstall(selectedSkill.id)}
+            />
+          ) : selection?.kind === 'market' && selectedMarket ? (
+            <MarketDetail
+              item={selectedMarket}
+              description={marketDescription}
+              descriptionLoading={marketDescLoading}
+              onInstall={openInstall}
+            />
+          ) : (
+            <Placeholder tab={leftTab} />
+          )}
+        </div>
+      </section>
+
+      {/* Install dialog */}
+      <Dialog open={installOpen} onOpenChange={setInstallOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>安装 Skill</DialogTitle>
+            <DialogDescription>
+              {selectedMarket
+                ? `通过 skills.sh 安装 ${selectedMarket.name}，并按所选目标托管。`
+                : '安装技能。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">目标</Label>
+              <SkillTargetSelector
+                global={installGlobal}
+                agents={installAgents}
+                onGlobalChange={setInstallGlobal}
+                onToggleAgent={(agent, next) =>
+                  setInstallAgents((prev) => ({ ...prev, [agent]: next }))
+                }
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              托管方式：{hostMode === 'symlink' ? '软链接' : '复制文件'}
+              （可在「本地 Skill」列表下方修改）。
+            </p>
           </div>
 
-          <div className="flex items-center gap-1 rounded-lg border bg-muted-foreground/[0.06] p-0.5">
-            {(['global', 'project'] as const).map((value) => (
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setInstallOpen(false)}
+              disabled={runningAction === 'install'}
+            >
+              取消
+            </Button>
+            <Button
+              type="submit"
+              onClick={() => void confirmInstall()}
+              disabled={runningAction === 'install'}
+            >
+              {runningAction === 'install' ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              确认安装
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ── left: local list ────────────────────────────────────── */
+
+function LocalListPanel({
+  groups,
+  count,
+  grouping,
+  loading,
+  filter,
+  onFilterChange,
+  activeId,
+  onSelect,
+  onRefresh,
+  onToggleGrouping,
+  hostMode,
+  onHostModeChange,
+}: {
+  groups: [string, LocalSkill[]][];
+  count: number;
+  grouping: boolean;
+  loading: boolean;
+  filter: string;
+  onFilterChange: (value: string) => void;
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  onRefresh: () => void;
+  onToggleGrouping: (next: boolean) => void;
+  hostMode: HostMode;
+  onHostModeChange: (mode: HostMode) => void;
+}) {
+  const flat = groups.flatMap(([, items]) => items);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
+      <div className="border-b p-2.5">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索本地技能..."
+            value={filter}
+            onChange={(event) => onFilterChange(event.target.value)}
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            加载中…
+          </div>
+        ) : count === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">
+              {filter ? '无匹配结果' : '暂无技能，去市场安装。'}
+            </p>
+          </div>
+        ) : grouping ? (
+          <div className="space-y-2">
+            {groups.map(([group, items]) =>
+              items.length > 1 ? (
+                <div key={group} className="space-y-0.5">
+                  <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {group}
+                    <span className="ml-1 font-normal opacity-60">
+                      {items.length}
+                    </span>
+                  </div>
+                  {items.map((skill) => (
+                    <SkillRow
+                      key={skill.id}
+                      skill={skill}
+                      indented
+                      active={skill.id === activeId}
+                      onSelect={() => onSelect(skill.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <SkillRow
+                  key={group}
+                  skill={items[0]}
+                  active={items[0].id === activeId}
+                  onSelect={() => onSelect(items[0].id)}
+                />
+              )
+            )}
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {flat.map((skill) => (
+              <SkillRow
+                key={skill.id}
+                skill={skill}
+                active={skill.id === activeId}
+                onSelect={() => onSelect(skill.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Config controls (below the list) */}
+      <div className="space-y-2 border-t p-2.5">
+        <label className="flex cursor-pointer items-center justify-between text-xs">
+          <span className="text-muted-foreground">分组显示</span>
+          <input
+            type="checkbox"
+            checked={grouping}
+            onChange={(event) => onToggleGrouping(event.target.checked)}
+          />
+        </label>
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="shrink-0 text-muted-foreground">托管方式</span>
+          <div className="flex items-center gap-0.5 rounded-md border bg-muted/20 p-0.5">
+            {(['copy', 'symlink'] as const).map((mode) => (
               <button
-                key={value}
+                key={mode}
                 type="button"
-                onClick={() => setScope(value)}
+                onClick={() => onHostModeChange(mode)}
                 className={cn(
-                  'flex-1 rounded-md py-1 text-xs font-medium transition-colors',
-                  scope === value
-                    ? 'bg-card text-foreground shadow-sm'
+                  'rounded px-2 py-0.5 transition-colors',
+                  hostMode === mode
+                    ? 'bg-card font-medium shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {value === 'global' ? '全局' : '项目'}
+                {mode === 'copy' ? '复制文件' : '软链接'}
               </button>
             ))}
           </div>
-
-          {scope === 'project' ? (
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">
-                项目文件夹路径
-              </Label>
-              <Input
-                value={projectPath}
-                placeholder="例如 D:/code/my-project"
-                className="h-8 text-xs"
-                onChange={(event) => setProjectPath(event.target.value)}
-              />
-            </div>
-          ) : null}
-
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="搜索技能..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
         </div>
-
-        <div className="border bg-cardflex min-h-0 flex-1 flex-col rounded-xl">
-          <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-            {listLoading ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                加载中…
-              </div>
-            ) : projectMissing ? (
-              <p className="px-2 py-8 text-center text-xs text-muted-foreground">
-                请输入项目文件夹路径以查看其技能。
-              </p>
-            ) : listError ? (
-              <p className="px-2 py-6 text-center text-xs text-destructive">
-                {listError}
-              </p>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-10 text-center">
-                <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
-                <p className="text-xs text-muted-foreground">
-                  {search ? '无匹配结果' : '暂无技能，点击“新建技能”创建。'}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                {filtered.map((skill) => (
-                  <SkillRow
-                    key={`${skill.scope}:${skill.id}`}
-                    skill={skill}
-                    selected={selectedId === skill.id && !isDrafting}
-                    onSelect={() => void openSkill(skill, false)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-2 border-t px-2 py-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0"
-              title="刷新"
-              disabled={listLoading}
-              onClick={() => void loadSkills()}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 text-xs"
-              disabled={!selectedAgent || projectMissing}
-              onClick={startCreate}
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              新建技能
-            </Button>
-          </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground">
+            共 {count} 个
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            刷新
+          </Button>
         </div>
-      </aside>
-
-      {/* Detail */}
-      <section className="border bg-cardmin-w-0 flex-1 overflow-hidden rounded-xl">
-        {!hasDetail ? (
-          <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
-            <BookOpenText className="h-10 w-10 opacity-30" />
-            <p className="mt-3 text-sm">选择左侧技能，或点击“新建技能”创建。</p>
-          </div>
-        ) : (
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 pt-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate text-[15px] font-semibold text-foreground">
-                  {isDrafting ? '新建技能' : draftId}
-                </span>
-                {draftReadOnly ? (
-                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning">
-                    系统（只读）
-                  </span>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {!draftReadOnly ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => setIsEditing((value) => !value)}
-                  >
-                    {isEditing ? (
-                      <Eye className="mr-1.5 h-3.5 w-3.5" />
-                    ) : (
-                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {isEditing ? '预览' : '编辑'}
-                  </Button>
-                ) : null}
-                {!isDrafting && selectedId && !draftReadOnly ? (
-                  pendingDelete === selectedId ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8"
-                        onClick={() => setPendingDelete(null)}
-                      >
-                        取消
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="h-8"
-                        onClick={() => {
-                          const target = skills.find(
-                            (item) => item.id === selectedId
-                          );
-                          if (target) void remove(target);
-                        }}
-                      >
-                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                        确认删除
-                      </Button>
-                    </>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      onClick={() => setPendingDelete(selectedId)}
-                    >
-                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                      删除
-                    </Button>
-                  )
-                ) : null}
-                {!draftReadOnly ? (
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    disabled={saving || reading}
-                    onClick={() => void save()}
-                  >
-                    {saving ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Save className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    保存
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 pb-3.5 pt-3">
-              {actionError ? (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  {actionError}
-                </div>
-              ) : null}
-
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">
-                  技能名
-                </Label>
-                <Input
-                  value={draftId}
-                  placeholder="my-skill"
-                  className="h-8 text-xs"
-                  disabled={!isDrafting || draftReadOnly}
-                  onChange={(event) => setDraftId(event.target.value)}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {isDrafting
-                    ? '字母、数字、- _ . ；保存到当前作用域的技能目录。'
-                    : '创建后不可重命名。'}
-                </p>
-              </div>
-
-              {reading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  正在读取技能…
-                </div>
-              ) : isEditing ? (
-                <Textarea
-                  value={draftContent}
-                  spellCheck={false}
-                  className="min-h-80 font-mono text-xs"
-                  placeholder={
-                    '---\nname: ...\ndescription: ...\n---\n\n# 标题'
-                  }
-                  onChange={(event) => setDraftContent(event.target.value)}
-                />
-              ) : (
-                <SkillPreview
-                  frontmatter={preview.frontmatter}
-                  body={preview.body}
-                />
-              )}
-            </div>
-          </div>
-        )}
-      </section>
+      </div>
     </div>
   );
 }
 
 function SkillRow({
   skill,
-  selected,
+  active,
+  indented,
   onSelect,
 }: {
-  skill: AgentSkillItem;
-  selected: boolean;
+  skill: LocalSkill;
+  active: boolean;
+  indented?: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -523,75 +762,383 @@ function SkillRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        'flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left transition-colors',
-        selected
-          ? 'bg-primary text-primary-foreground'
-          : 'hover:bg-foreground/[0.06]'
+        'w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors',
+        indented && 'ml-1.5 w-[calc(100%-0.375rem)]',
+        active
+          ? 'border-primary/60 bg-primary/5'
+          : 'border-transparent hover:bg-foreground/[0.05]'
       )}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
           {skill.id}
         </span>
-        <span
-          className={cn(
-            'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider',
-            selected ? 'bg-white/20' : 'bg-muted text-muted-foreground'
-          )}
-        >
-          {skill.scope === 'global' ? '全局' : '项目'}
-        </span>
-        {skill.read_only ? (
-          <span
-            className={cn(
-              'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium',
-              selected ? 'bg-white/20' : 'bg-warning/15 text-warning'
-            )}
+        {skill.global ? (
+          <Badge
+            variant="secondary"
+            className="h-5 shrink-0 gap-1 px-1.5 text-[9px]"
           >
-            只读
+            <Globe className="h-2.5 w-2.5" />
+            全局
+          </Badge>
+        ) : (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {skill.apps.length} 个 Agent
           </span>
-        ) : null}
-      </div>
-      <span
-        className={cn(
-          'line-clamp-1 text-[10px]',
-          selected ? 'text-primary-foreground/75' : 'text-muted-foreground'
         )}
-      >
+      </div>
+      <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
         {skill.description?.trim() || skill.path}
-      </span>
+      </p>
     </button>
   );
 }
 
-function SkillPreview({
+/* ── left: market list ───────────────────────────────────── */
+
+function MarketListPanel({
+  query,
+  onQueryChange,
+  searching,
+  onSearch,
+  results,
+  activeId,
+  onSelect,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  searching: boolean;
+  onSearch: () => void;
+  results: SkillMarketItem[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
+      <div className="space-y-2 p-2.5">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Globe className="h-3.5 w-3.5" />
+          来源：skills.sh
+        </div>
+        <div className="flex gap-1.5">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜索技能..."
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') onSearch();
+              }}
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+          <Button
+            size="sm"
+            className="h-8 w-8 shrink-0 p-0"
+            disabled={searching}
+            onClick={onSearch}
+          >
+            {searching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Search className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+        {searching ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            搜索中…
+          </div>
+        ) : results.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">
+              无结果，换个关键词试试。
+            </p>
+          </div>
+        ) : (
+          results.map((item) => {
+            const active = item.skill_id === activeId;
+            return (
+              <button
+                key={`${item.source}:${item.skill_id}`}
+                type="button"
+                onClick={() => onSelect(item.skill_id)}
+                className={cn(
+                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  active
+                    ? 'border-primary/60 bg-primary/5'
+                    : 'border-transparent hover:bg-foreground/[0.05]'
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                    {item.name}
+                  </span>
+                  {typeof item.installs === 'number' ? (
+                    <Badge
+                      variant="outline"
+                      className="h-4 shrink-0 px-1.5 text-[9px]"
+                    >
+                      {item.installs} 安装
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                  {item.source}
+                </p>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── right: local detail ─────────────────────────────────── */
+
+function LocalDetail({
+  skill,
+  contentLoading,
   frontmatter,
   body,
+  global,
+  agents,
+  onGlobalChange,
+  onToggleAgent,
+  hostMode,
+  applying,
+  removing,
+  onApply,
+  onUninstall,
 }: {
+  skill: LocalSkill;
+  contentLoading: boolean;
   frontmatter: string | null;
   body: string;
+  global: boolean;
+  agents: AgentsDraft;
+  onGlobalChange: (next: boolean) => void;
+  onToggleAgent: (agent: string, next: boolean) => void;
+  hostMode: HostMode;
+  applying: boolean;
+  removing: boolean;
+  onApply: () => void;
+  onUninstall: () => void;
 }) {
-  if (!frontmatter && !body.trim()) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        暂无内容，点击“编辑”开始编写。
-      </p>
-    );
-  }
   return (
-    <div className="space-y-3">
-      {frontmatter ? (
-        <pre className="overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
-          {frontmatter}
-        </pre>
-      ) : null}
-      {body.trim() ? (
-        <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-          {body}
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate text-base font-semibold">{skill.id}</span>
+          {skill.global ? (
+            <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[9px]">
+              <Globe className="h-2.5 w-2.5" />
+              全局
+            </Badge>
+          ) : null}
         </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">仅包含元数据。</p>
-      )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0 text-destructive hover:text-destructive"
+          disabled={removing}
+          onClick={onUninstall}
+        >
+          {removing ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          卸载
+        </Button>
+      </div>
+
+      {skill.apps.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {skill.apps.map((app) => (
+            <Badge
+              key={app}
+              variant="outline"
+              className="h-5 gap-1 px-1.5 text-[9px]"
+            >
+              <AgentTypeIcon agentType={app as AgentType} className="h-3 w-3" />
+              {AGENT_LABELS[app] ?? app}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs text-muted-foreground">托管目标</Label>
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            disabled={applying}
+            onClick={onApply}
+          >
+            {applying ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            应用（{hostMode === 'symlink' ? '软链接' : '复制'}）
+          </Button>
+        </div>
+        <SkillTargetSelector
+          global={global}
+          agents={agents}
+          onGlobalChange={onGlobalChange}
+          onToggleAgent={onToggleAgent}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">SKILL.md 预览</Label>
+        {contentLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            读取中…
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {frontmatter ? (
+              <pre className="overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                {frontmatter}
+              </pre>
+            ) : null}
+            {body.trim() ? (
+              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+                {body}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">仅包含元数据。</p>
+            )}
+          </div>
+        )}
+        <p className="break-all text-[11px] text-muted-foreground">
+          {skill.path}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── right: market detail ────────────────────────────────── */
+
+function MarketDetail({
+  item,
+  description,
+  descriptionLoading,
+  onInstall,
+}: {
+  item: SkillMarketItem;
+  description: string | null;
+  descriptionLoading: boolean;
+  onInstall: () => void;
+}) {
+  const homepage = `https://skills.sh/${item.source}/${item.skill_id}`;
+  const installCommand = `npx skills add ${item.source} --skill ${item.skill_id}`;
+  const [copied, setCopied] = useState(false);
+
+  const copyCommand = useCallback(() => {
+    void navigator.clipboard
+      .writeText(installCommand)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  }, [installCommand]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="break-all text-base font-semibold">{item.name}</h2>
+          <p className="mt-0.5 break-all text-xs text-muted-foreground">
+            {item.source}
+          </p>
+        </div>
+        <Button size="sm" className="shrink-0" onClick={onInstall}>
+          <Download className="mr-1.5 h-3.5 w-3.5" />
+          安装
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {typeof item.installs === 'number' ? (
+          <Badge variant="outline">{item.installs} 安装</Badge>
+        ) : null}
+        <Badge variant="secondary">skills.sh</Badge>
+      </div>
+
+      {/* Description */}
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">描述</Label>
+        {descriptionLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            读取中…
+          </div>
+        ) : description ? (
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+            {description}
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">该技能未提供描述。</p>
+        )}
+      </div>
+
+      <a
+        href={homepage}
+        target="_blank"
+        rel="noreferrer"
+        className="block break-all text-xs text-primary underline"
+      >
+        {homepage}
+      </a>
+
+      {/* Install command — label separate from the click-to-copy command. */}
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">安装命令</Label>
+        <button
+          type="button"
+          onClick={copyCommand}
+          title="点击复制"
+          className="flex w-full items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+        >
+          <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">
+            {installCommand}
+          </code>
+          {copied ? (
+            <Check className="h-3.5 w-3.5 shrink-0 text-success" />
+          ) : (
+            <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── right: placeholder ──────────────────────────────────── */
+
+function Placeholder({ tab }: { tab: LeftTab }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+      <BookOpenText className="h-10 w-10 opacity-30" />
+      <p className="mt-3 text-sm">
+        {tab === 'local'
+          ? '选择左侧技能查看详情与托管设置。'
+          : '搜索并选择一个技能查看详情并安装。'}
+      </p>
     </div>
   );
 }

@@ -35,6 +35,7 @@ export {
   configApi,
   claudeSettingsApi,
   mcpServersApi,
+  mcpMarketApi,
   profilesApi,
   agentSettingsApi,
   settingsWindowApi,
@@ -57,6 +58,13 @@ export type {
   AgentCapability,
   AgentMcpConfig,
   GetMcpServerResponse,
+  McpAppType,
+  LocalMcpServer,
+  McpMarketplaceProvider,
+  McpMarketplaceItem,
+  McpMarketplaceInstallParameter,
+  McpMarketplaceInstallOption,
+  McpMarketplaceServerDetail,
   PromptEnhancementContextMessage,
   PromptEnhancementRequest,
   PromptEnhancementResponse,
@@ -75,6 +83,7 @@ export {
   scratchApi,
   searchApi,
   skillsApi,
+  skillsMarketApi,
 } from './misc';
 export type {
   FileTreeEntry,
@@ -92,6 +101,10 @@ export type {
   AgentSkillLocation,
   AgentSkillsListResult,
   AgentSkillContent,
+  LocalSkill,
+  SkillMarketItem,
+  LocalSkillContent,
+  SkillMarketDetail,
 } from './misc';
 
 // Local Usage Statistics

@@ -213,6 +213,157 @@ export const mcpServersApi = {
   },
 };
 
+// MCP marketplace (Smithery) + global hosting + per-agent sync.
+// `McpAppType` mirrors the ACP `AgentType` snake_case identifiers.
+export type McpAppType =
+  | 'claude_code'
+  | 'codex'
+  | 'gemini'
+  | 'open_claw'
+  | 'open_code'
+  | 'cline'
+  | 'hermes';
+
+export interface LocalMcpServer {
+  id: string;
+  spec: Record<string, JsonValue>;
+  /** Recorded in the global registry (~/.vibex/mcp.json). */
+  global: boolean;
+  /** Agent config files currently carrying this server. */
+  apps: McpAppType[];
+}
+
+export interface McpMarketplaceProvider {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface McpMarketplaceItem {
+  provider_id: string;
+  server_id: string;
+  name: string;
+  description: string;
+  homepage: string | null;
+  remote: boolean;
+  verified: boolean;
+  icon_url: string | null;
+  latest_version: string | null;
+  protocols: string[];
+  owner: string | null;
+  namespace: string | null;
+  downloads: number | null;
+  score: number | null;
+  is_deployed: boolean | null;
+}
+
+export interface McpMarketplaceInstallParameter {
+  key: string;
+  label: string;
+  description: string | null;
+  required: boolean;
+  secret: boolean;
+  kind: string;
+  default_value: JsonValue | null;
+  placeholder: string | null;
+  enum_values: string[];
+  location: string | null;
+}
+
+export interface McpMarketplaceInstallOption {
+  id: string;
+  protocol: string;
+  label: string;
+  description: string | null;
+  spec: Record<string, JsonValue>;
+  parameters: McpMarketplaceInstallParameter[];
+}
+
+export interface McpMarketplaceServerDetail {
+  provider_id: string;
+  server_id: string;
+  name: string;
+  description: string;
+  homepage: string | null;
+  remote: boolean;
+  verified: boolean;
+  icon_url: string | null;
+  latest_version: string | null;
+  protocols: string[];
+  owner: string | null;
+  namespace: string | null;
+  downloads: number | null;
+  score: number | null;
+  is_deployed: boolean | null;
+  default_option_id: string | null;
+  install_options: McpMarketplaceInstallOption[];
+  spec: Record<string, JsonValue>;
+}
+
+export const mcpMarketApi = {
+  scanLocal: async (): Promise<LocalMcpServer[]> => {
+    return tauriInvoke<LocalMcpServer[]>('mcp_scan_local');
+  },
+  listMarketplaces: async (): Promise<McpMarketplaceProvider[]> => {
+    return tauriInvoke<McpMarketplaceProvider[]>('mcp_list_marketplaces');
+  },
+  search: async (params: {
+    providerId: string;
+    query?: string | null;
+    limit?: number | null;
+  }): Promise<McpMarketplaceItem[]> => {
+    return tauriInvoke<McpMarketplaceItem[]>('mcp_search_marketplace', {
+      providerId: params.providerId,
+      query: params.query ?? null,
+      limit: params.limit ?? null,
+    });
+  },
+  detail: async (params: {
+    providerId: string;
+    serverId: string;
+  }): Promise<McpMarketplaceServerDetail> => {
+    return tauriInvoke<McpMarketplaceServerDetail>(
+      'mcp_get_marketplace_server_detail',
+      { providerId: params.providerId, serverId: params.serverId }
+    );
+  },
+  install: async (params: {
+    providerId: string;
+    serverId: string;
+    global: boolean;
+    apps: McpAppType[];
+    optionId?: string | null;
+    parameterValues?: Record<string, JsonValue> | null;
+    specOverride?: Record<string, JsonValue> | null;
+  }): Promise<LocalMcpServer[]> => {
+    return tauriInvoke<LocalMcpServer[]>('mcp_install_marketplace_server', {
+      providerId: params.providerId,
+      serverId: params.serverId,
+      global: params.global,
+      apps: params.apps,
+      optionId: params.optionId ?? null,
+      parameterValues: params.parameterValues ?? null,
+      specOverride: params.specOverride ?? null,
+    });
+  },
+  upsertLocal: async (params: {
+    serverId: string;
+    spec: Record<string, JsonValue>;
+    global: boolean;
+    apps: McpAppType[];
+  }): Promise<LocalMcpServer[]> => {
+    return tauriInvoke<LocalMcpServer[]>('mcp_upsert_local_server', {
+      serverId: params.serverId,
+      spec: params.spec,
+      global: params.global,
+      apps: params.apps,
+    });
+  },
+  uninstall: async (serverId: string): Promise<LocalMcpServer[]> => {
+    return tauriInvoke<LocalMcpServer[]>('mcp_uninstall_server', { serverId });
+  },
+};
+
 // Profiles API
 export const profilesApi = {
   load: async (): Promise<{ content: string; path: string }> => {

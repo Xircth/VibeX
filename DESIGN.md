@@ -1,13 +1,16 @@
 ---
 name: VibeX
 description: Local-first AI coding agent orchestration workspace for developers.
+platform: Tauri desktop with React, Tailwind, and Radix. macOS Tahoe is the visual target; Windows and Linux degrade gracefully.
 colors:
   primary: "#5b8cc7"
   primary-foreground: "#f8fafc"
   shell-bg: "#eef1f5"
-  content-bg: "#fafafa"
-  panel-bg: "#ffffff"
-  panel-translucent: "#ffffffd9"
+  content-bg: "#f6f8fb"
+  panel-bg: "#fbfcfd"
+  panel-translucent: "#fbfcfde6"
+  glass-bg: "#ffffffb8"
+  glass-border: "#ffffff8f"
   control-bg: "#eef0f4"
   active-bg: "#dceafa"
   text-strong: "#242936"
@@ -20,6 +23,7 @@ colors:
   destructive: "#f51818"
   dark-shell-bg: "#151b23"
   dark-panel-bg: "#202733"
+  dark-glass-bg: "#202733cc"
   dark-text-strong: "#e7ebef"
 typography:
   display:
@@ -61,8 +65,7 @@ typography:
 rounded:
   sm: "4px"
   md: "6px"
-  lg: "8px"
-  xl: "12px"
+  card: "8px"
   panel: "14px"
 spacing:
   xs: "4px"
@@ -75,163 +78,214 @@ components:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.primary-foreground}"
     rounded: "{rounded.md}"
-    padding: "8px 16px"
-    height: "40px"
+    padding: "0 12px"
+    height: "32px"
   button-ghost:
     backgroundColor: "transparent"
     textColor: "{colors.text-muted}"
     rounded: "{rounded.md}"
-    padding: "6px 10px"
+    padding: "0 10px"
     height: "32px"
   input-default:
-    backgroundColor: "transparent"
+    backgroundColor: "{colors.control-bg}"
     textColor: "{colors.text-primary}"
     rounded: "{rounded.md}"
-    padding: "8px 12px"
-    height: "40px"
+    padding: "0 10px"
+    height: "32px"
   card-default:
     backgroundColor: "{colors.panel-bg}"
     textColor: "{colors.text-primary}"
-    rounded: "{rounded.lg}"
-    padding: "16px"
+    rounded: "{rounded.card}"
+    padding: "12px"
 ---
 
-# Design System: VibeX
+# Design System: VibeX Tahoe
 
-## 1. Overview
+`DESIGN.md` is the single current source of truth for frontend design in
+VibeX. Older audits, generated `.impeccable` output, and files with "legacy" in
+their names are migration references only.
 
-**Creative North Star: "The Developer Flight Deck"**
+## 1. North Star
 
-VibeX should feel like a local engineering control surface: calm, dense, inspectable, and fast to scan. The product is not trying to impress users with a decorative AI aesthetic. It is trying to help them coordinate multiple agent sessions, worktrees, terminals, previews, and diffs without losing context.
+VibeX is a native-feeling desktop workbench for developers orchestrating agents,
+worktrees, terminals, previews, diffs, files, and settings. It should feel calm,
+dense, inspectable, fast, and deeply keyboard-friendly.
 
-The current system already has the right foundations: IBM Plex typography, Ayu-inspired code colors, restrained blue selection states, and workspace-specific shell classes. The next step is unification. Workspace, settings, Kanban, file tree, conversation, dialogs, toasts, and preview surfaces must stop carrying separate visual dialects.
+The visual target is macOS Tahoe 26, adapted to a Tauri app and kept compatible
+with Windows. "Native" means the app follows platform behavior and hierarchy
+even when it cannot use native AppKit controls directly.
 
-**Key Characteristics:**
-- Dense information, quiet surfaces, visible state.
-- Light mode is the primary working scene; dark mode is supported for code-heavy or low-light sessions.
-- Blue accent is functional: selected, focused, primary, or live state only.
-- Panels are layered by border, tonal surface, and small shadows, not by decorative glass.
-- Typography is compact, fixed scale, and developer-readable.
+## 2. Two-Layer Model
 
-## 2. Colors
+VibeX has two visual layers.
 
-The palette is a restrained technical neutral system with one calm blue accent and small semantic status colors.
+### Navigation And Controls Layer
 
-### Primary
-- **Workbench Blue**: The primary action, active navigation, selected session, focus, and drag target accent.
+This layer may use Liquid Glass. It includes titlebars, sidebars, toolbars,
+command palettes, dropdown menus, popovers, toasts, floating rails, and window
+controls.
 
-### Secondary
-- **Ayu Semantic Green**: Success, passed checks, and positive terminal state.
-- **Ayu Amber**: Warning, queued, pending, and attention states that are not destructive.
+Use shared glass roles:
 
-### Tertiary
-- **Review Red**: Destructive actions, failed processes, deleted diff state, and irreversible warnings.
+- translucent fill over the app shell;
+- 1px hairline border;
+- subtle shadow only for floating surfaces;
+- `backdrop-filter` with reduced-transparency fallback;
+- no glass-on-glass stacking.
 
-### Neutral
-- **Shell Mist**: The broad workspace background.
-- **Panel White**: Primary panel and card surface in light mode.
-- **Control Wash**: Toolbar buttons, chips, and inactive controls.
-- **Ink Strong**: Headings and important labels.
-- **Ink Muted**: Secondary metadata, timestamps, empty-state copy, and helper labels.
-- **Hairline Border**: Panel seams, list separators, and input outlines.
+### Content Layer
 
-### Named Rules
+This layer is opaque. It includes conversations, file tree rows, diff content,
+editors, terminals, tables, forms, cards, dashboards, settings groups, logs, and
+markdown/code content.
 
-**The State-Only Accent Rule.** Blue is for selected, focused, primary, or live state. It is not decorative fill.
+Use shared content roles:
 
-**The Tinted Neutral Rule.** Avoid pure black and pure white. Use tinted neutrals from the token system so surfaces feel integrated.
+- tinted opaque panel surface;
+- 1px border;
+- compact radius;
+- restrained shadow only for floating or dragged states;
+- no decorative blur or gradients.
 
-**The One Surface Family Rule.** Workspace, settings, session hub, dialogs, and preview controls must use the same neutral and border roles unless a host runtime forces a specific override.
+## 3. Platform Rules
 
-## 3. Typography
+- macOS is the visual target.
+- Windows custom controls are allowed for frameless Tauri windows and may use
+  documented Windows chrome exception colors, such as the close-button red.
+- The main window may keep native decorations unless a later task explicitly
+  changes the window strategy.
+- Do not claim an element is a titlebar or drag region unless the Tauri window
+  configuration actually supports that behavior.
+- Settings must remain reachable by keyboard.
 
-**Display Font:** IBM Plex Sans with Noto Emoji fallback
-**Body Font:** IBM Plex Sans with Noto Emoji fallback
-**Label/Mono Font:** IBM Plex Mono with Noto Emoji fallback
+## 4. Color
 
-**Character:** IBM Plex gives the app an editorial but technical voice. It is readable at compact sizes and avoids generic web-app blandness.
-
-### Hierarchy
-- **Display** (600, 1.125rem, 1.55): App-level titles, welcome headings, and dense page headers only.
-- **Headline** (600, 1rem, 1.5): Panel titles, major settings sections, and high-level status headers.
-- **Title** (600, 0.875rem, 1.43): Card titles, list item titles, dialog headings, and toolbar group labels.
-- **Body** (400, 0.875rem, 1.43): Normal UI copy, list content, and settings descriptions. Cap prose around 65 to 75 characters when it is not data.
-- **Label** (500, 0.75rem, 1.33): Metadata, chips, compact controls, timestamps, and helper text.
-- **Mono** (400, 0.75rem, 1.5): Paths, terminal data, code references, branch names, and structured logs.
-
-### Named Rules
-
-**The Compact Scale Rule.** Product UI uses fixed compact sizes. Do not use viewport-scaled type in panels, sidebars, dialogs, or dashboards.
-
-**The Label Honesty Rule.** If text is metadata, make it a label. Do not promote secondary labels into headline size to fill space.
-
-## 4. Elevation
-
-VibeX uses a hybrid of tonal layering and restrained shadow. Most resting surfaces should be flat with a 1px border. Shadows are reserved for floating shells, popovers, dialogs, toasts, dragged items, and important hover responses. Heavy blur should be treated as an exception, not a default surface material.
-
-### Shadow Vocabulary
-- **Shell Shadow** (`0 18px 42px hsl(220 36% 8% / 0.16)`): Floating project rail, loading panels, and large shell elements that sit above the workspace.
-- **Popover Shadow** (`0 18px 42px hsl(220 36% 8% / 0.2)`): Dialogs, menus, and command surfaces.
-- **Card Shadow** (`0 2px 7px hsl(220 36% 8% / 0.075)`): Session cards and compact repeated items only.
-- **Composer Shadow** (`0 -4px 12px hsl(220 36% 8% / 0.045), 0 5px 14px hsl(220 36% 8% / 0.06)`): The follow-up composer because it is a persistent action surface.
+The palette is a restrained technical neutral system with one calm blue accent
+and semantic status colors.
 
 ### Named Rules
 
-**The Flat-At-Rest Rule.** Cards and panels are flat at rest unless they are floating above another layer.
+**State-Only Accent Rule.** Workbench Blue is for selected, focused, primary,
+or live state. It is not decorative fill.
 
-**The Blur Budget Rule.** Backdrop blur is allowed for top bars, dialogs, and toasts only when it clarifies stacking. Do not use glassmorphism as decoration.
+**Tinted Neutral Rule.** Avoid pure black and pure white for app surfaces. Use
+tinted neutral tokens so surfaces adapt across light, dark, contrast, and
+transparency modes.
 
-## 5. Components
+**Semantic Status Rule.** Success, warning, destructive, running, paused,
+queued, and disabled states use semantic tokens. Do not create a local blue,
+green, amber, red, purple, or gray palette inside a component.
+
+**Exception Rule.** Syntax highlighting, terminal ANSI colors, brand icons, and
+document/media canvases may use explicit colors, but the exception must be
+obvious from context or documented in the token layer.
+
+## 5. Typography
+
+Use IBM Plex Sans for product UI, IBM Plex Mono for paths/code-like metadata,
+and Noto Emoji fallback. Product UI uses fixed compact sizes. Do not scale font
+size with viewport width. Letter spacing is `0`.
+
+- **Display:** app-level titles and rare dense page headers.
+- **Headline:** panel titles and major settings sections.
+- **Title:** card titles, list item titles, dialog headings, toolbar labels.
+- **Body:** normal UI copy, list content, settings descriptions.
+- **Label:** metadata, chips, timestamps, helper text.
+- **Mono:** paths, branches, terminal data, code references, structured logs.
+
+## 6. Radius, Elevation, And Motion
+
+- 4px: small controls and inline tokens.
+- 6px: standard buttons, inputs, selects, menu items.
+- 8px: repeated cards and content groups.
+- 14px: shell-scale panels, dialogs, sidebars, and floating glass surfaces.
+
+Cards and panels are flat at rest. Shadows are reserved for popovers, dialogs,
+toasts, dragged items, and floating shell chrome.
+
+Motion must be subtle and state-driven. Avoid `transition-all`, hover scale,
+large translate, rotate, and long-duration animation unless the interaction
+needs it. Reduced Motion must keep the UI understandable.
+
+## 7. Components
 
 ### Buttons
 
-- **Shape:** Compact rounded rectangle (6px radius) for standard buttons, icon buttons at 8px where touch targets need clearer shape.
-- **Primary:** Workbench Blue background with light foreground, 40px height for normal actions, 32px for dense toolbars.
-- **Hover / Focus:** Hover darkens or tints the surface. Focus uses a subtle blue ring or border, never a harsh glow.
-- **Secondary / Ghost / Tertiary:** Ghost buttons are transparent until hover. Outline buttons use Hairline Border and should not become visually heavier than primary actions.
+Default desktop controls are compact. Use 32px height for normal actions and
+dense toolbar controls. Keep icon buttons square with stable dimensions. Primary
+actions use Workbench Blue. Secondary actions stay neutral until hover/focus.
 
-### Chips
+### Inputs
 
-- **Style:** Soft neutral background, 1px border, 12px label type.
-- **State:** Selected chips use Active Blue Wash, not saturated primary fill. Count chips stay quiet unless they indicate a warning or failure.
+Inputs use a control surface, 1px border, 6px radius, visible focus ring, and
+32px default height. Error state must include text, not color alone.
 
-### Cards / Containers
+### Cards And Groups
 
-- **Corner Style:** 8px for repeated cards. Use 12px to 14px only for shell-scale containers such as composer, Kanban columns, and dialogs.
-- **Background:** Panel White or translucent panel tokens. Do not mix ad hoc `bg-white`, `bg-gray-*`, and tokenized surfaces in the same area.
-- **Shadow Strategy:** Repeated cards get low shadow or no shadow. Large shell overlays may use Shell Shadow.
-- **Border:** 1px Hairline Border by default. Avoid thick colored side borders.
-- **Internal Padding:** 12px for dense lists, 16px for cards, 24px only for modal or settings content.
+Content cards use opaque surfaces. Do not use glass, radial gradients, or
+large decorative shadows. Repeated cards use 8px radius. Shell-scale panels may
+use 14px.
 
-### Inputs / Fields
+### Menus, Popovers, Dialogs, Toasts
 
-- **Style:** Transparent or Control Wash background, 1px border, 6px radius, compact 40px height.
-- **Focus:** Blue focus ring at low opacity. Do not remove focus styling except for explicitly decorative close buttons.
-- **Error / Disabled:** Error state uses Review Red with text explanation. Disabled controls reduce opacity and keep cursor behavior clear.
+These are controls-layer surfaces and may use shared glass material. Every one
+must have a solid fallback for reduced transparency and increased contrast.
+Avoid nesting a glass surface inside another glass surface.
 
-### Navigation
+### Sidebars And Toolbars
 
-Navigation is panel-native: left rail, top bar, tab switchers, command palette, and session hub controls. Active state uses Workbench Blue or Active Blue Wash. Hover states should never change layout size, border width, or text wrapping.
+Sidebars and toolbars are stable navigation chrome. Active rows use a clear
+accent treatment and readable labels. Toolbar actions are grouped by function
+and frequency; secondary actions move to menus rather than crowding the bar.
+The workspace topbar is product navigation chrome, not an operating-system
+titlebar or drag region unless the Tauri window configuration explicitly makes
+it one.
 
-### Signature Component
+## 8. Accessibility
 
-The **Composer Shell** is the main signature surface. It should feel grounded, always available, and slightly lifted from the right panel. Keep its controls visually quieter than the text input and send action.
+The design system must support:
 
-## 6. Do's and Don'ts
+- reduced transparency: glass collapses to solid panel;
+- increased contrast: borders and foregrounds strengthen;
+- reduced motion: nonessential transforms and long transitions stop;
+- keyboard operation for primary workflows;
+- accessible labels for icon-only controls;
+- redundant state expression with icon/text/color where state matters.
 
-### Do:
+## 9. Do
 
-- **Do** use the tokenized shell classes in `frontend/src/styles/legacy/index.css` before adding new one-off Tailwind color stacks.
-- **Do** keep product controls compact: 32px dense controls, 40px default controls, 8px default card radius.
-- **Do** communicate state with text, icon, and color together for agent status, queue state, git status, and destructive actions.
-- **Do** keep hover changes stable. Change color, shadow, or transform; do not change dimensions.
-- **Do** keep settings, dialogs, Kanban, conversation, file tree, and preview controls aligned to the same radius, border, and focus rules.
+- Use tokenized roles from `frontend/src/styles/legacy/index.css` while that file
+  remains the effective app-design scope.
+- Keep controls compact and dimensions stable.
+- Treat Settings as the first reference surface for migrated product UI.
+- Use lucide icons for standard actions when an icon exists.
+- Communicate state with text, icon, and color together.
+- Keep content surfaces opaque.
 
-### Don't:
+## 10. Do Not
 
-- **Don't** use generic AI SaaS dashboard patterns: oversized cards, decorative gradients, glass panels, and vague productivity claims.
-- **Don't** use side-stripe borders greater than 1px on cards, callouts, list items, markdown blocks, or file tree rows.
-- **Don't** use pure black or pure white for app surfaces when a tinted token exists.
-- **Don't** use gradient text or background-clip text in product UI.
-- **Don't** let individual areas invent their own palette through `gray-*`, `bg-white`, `text-white`, hard-coded hex colors, or isolated CSS files.
-- **Don't** use large rounded cards as decoration inside dense tool surfaces.
+- Do not apply Liquid Glass to content.
+- Do not stack glass on glass.
+- Do not use generic SaaS dashboard patterns: oversized cards, decorative
+  gradients, glass panels, or vague marketing composition.
+- Do not use hard-coded `gray-*`, `bg-white`, `text-white`, pure black, direct
+  hex values, or isolated local palettes for product UI.
+- Do not use side-stripe borders greater than 1px.
+- Do not use visible text to explain how to use the interface.
+- Do not make one-off hero, landing, or marketing-style layouts inside the app.
+
+## 11. Current Migration Map
+
+- `frontend/src/styles/legacy/index.css`: current effective global token layer.
+  The name is historical; the role is now Tahoe app-design scope.
+- `frontend/src/components/ui/*`: shared primitives that must define compact
+  control and overlay behavior.
+- `frontend/src/pages/settings/*`: first full reference surface.
+- `frontend/src/styles/conversation/*`: compatibility island to be aliased to
+  global content/syntax tokens.
+- `frontend/src/styles/file-tree/*`: compatibility island to be aliased to
+  global content/status tokens.
+- `frontend/src/styles/diff-overrides/*`: code/diff exception island to be
+  routed through global syntax/diff tokens.
+- `frontend/src/styles/dockview-ayu.css`: historical name; should keep using
+  workspace token roles until renamed.

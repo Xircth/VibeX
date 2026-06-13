@@ -5,7 +5,7 @@
  * ============================================ */
 
 /* =========================================
- * Tool Call Card (mossx-style pill)
+ * Tool Call Card
  * ========================================= */
 
 .conv-tool-card {
@@ -429,7 +429,7 @@
 }
 
 .conv-message-nav-target-active {
-  box-shadow: inset 2px 0 var(--conv-tool-icon);
+  border-left: 1px solid var(--conv-tool-icon);
 }
 
 /* =========================================

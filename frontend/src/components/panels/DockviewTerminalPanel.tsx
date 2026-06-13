@@ -395,7 +395,7 @@ function LogViewerTab({
             key={`${matchedUrl}-${matchIndex}`}
             type="button"
             onClick={() => onOpenUrl(matchedUrl)}
-            className="underline text-sky-400 hover:text-sky-300"
+            className="text-primary underline hover:text-primary/80"
           >
             {matchedUrl}
           </button>

@@ -129,7 +129,7 @@ export const GitCommitBox = memo(function GitCommitBox({
             />
             {stagedFiles.length > 0 && (
               <button
-                className="absolute top-1.5 right-1.5 p-0.5 rounded text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+                className="absolute top-1.5 right-1.5 p-0.5 rounded text-muted-foreground hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))] transition-colors"
                 onClick={handleGenerateMessage}
                 title="Generate commit message from staged changes"
                 type="button"

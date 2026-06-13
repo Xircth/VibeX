@@ -33,7 +33,7 @@ export function TokenUsageIndicator({
   const ringStyle = {
     background: [
       'conic-gradient(',
-      `var(--composer-token-usage-ring, #111827) ${percentage}%, `,
+      `var(--composer-token-usage-ring, hsl(var(--foreground))) ${percentage}%, `,
       `var(--composer-token-usage-track, hsl(var(--muted))) ${percentage}% 100%)`,
     ].join(''),
   };

@@ -173,7 +173,7 @@ function DollarCommandChip({
 
   return (
     <span
-      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 align-baseline text-sm text-emerald-400"
+      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md bg-[hsl(var(--success)/0.14)] px-1.5 py-0.5 align-baseline text-sm text-[hsl(var(--success))]"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
       onDoubleClick={handleDoubleClick}
@@ -183,7 +183,7 @@ function DollarCommandChip({
       {isEditable && (
         <button
           type="button"
-          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-emerald-500/30"
+          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-[hsl(var(--success)/0.22)]"
           onClick={handleRemove}
           tabIndex={-1}
           aria-label={`Remove command $${commandName}`}

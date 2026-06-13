@@ -1,41 +1,55 @@
 ## Styling Guidelines
 
+### Source Of Truth
+
+`../DESIGN.md` is the single source of truth for current frontend design. It
+defines the macOS Tahoe visual target, Windows compatibility rules, Liquid Glass
+boundaries, token roles, accessibility fallbacks, and migration map.
+
 ### CSS Architecture
 
-The project uses a **Legacy Design** system with Tailwind CSS. All routes are wrapped in `LegacyDesignScope`.
+All routes are still wrapped in `LegacyDesignScope` for compatibility, but that
+name is historical. Treat it as the active Tahoe app-design scope until the
+class and Tailwind config can be renamed safely.
 
 **Key CSS files:**
-- `src/styles/legacy/index.css` — Main entry, Tailwind base + theme variables
-- `src/styles/conversation.css` — AI conversation UI (uses `--conv-*` CSS variables)
-- `src/styles/file-tree.css` — File tree panel (uses mossx bridge variables)
-- `src/styles/diff-style-overrides.css` — Diff viewer overrides
-- `src/styles/dockview-ayu.css` — Dockview theme (injected via `?raw`)
+- `src/styles/legacy/index.css` - current app-design token layer and Tailwind base.
+- `src/styles/conversation.css` - conversation compatibility island.
+- `src/styles/file-tree.css` - file tree compatibility island.
+- `src/styles/diff-style-overrides.css` - diff/syntax exception island.
+- `src/styles/dockview-ayu.css` - Dockview compatibility theme injected via `?raw`.
 
 ### Theme System
 
-Dark/light mode is toggled via `.dark` class on the root element.
+Dark/light mode is toggled via `.dark` on the root element.
 
-**CSS variable conventions:**
-- Legacy theme: `--background`, `--foreground`, `--border`, `--muted`, etc. (HSL values)
-- Conversation: `--conv-*` variables defined in `conversation.css`
-- File tree: bridge variables mapping legacy tokens to mossx naming
+**Current variable conventions:**
+- App tokens: `--surface-*`, `--text-*`, `--border-*`, `--shadow-*`, plus
+  shadcn-compatible `--background`, `--foreground`, `--border`, `--muted`, etc.
+- Conversation, file-tree, diff, syntax, and terminal variables are compatibility
+  aliases. They should move toward the global token roles in `DESIGN.md`.
 
 **Rules:**
-- Always use CSS variables or Tailwind classes for colors — never hardcode HEX values
-- Dark mode variants use `.dark` selector prefix
-- Diff overrides use `data-theme='dark'` attribute (legacy pattern from @git-diff-view)
+- Use CSS variables or Tailwind token classes for product colors.
+- Reserve Liquid Glass for navigation and controls chrome only.
+- Keep content surfaces opaque.
+- Document platform exceptions, syntax colors, terminal ANSI colors, and brand
+  icon colors where explicit colors are unavoidable.
+- Do not introduce new local palettes or hard-coded surface colors.
+- Diff overrides may keep `data-theme='dark'` while the @git-diff-view adapter
+  requires it.
 
 ### Tailwind Config
 
-- Config file: `tailwind.legacy.config.js`
-- shadcn/ui config: `components.json` points to `src/styles/legacy/index.css`
+- Config file: `tailwind.legacy.config.js` while the compatibility scope remains.
+- shadcn/ui config: `components.json` points to `src/styles/legacy/index.css`.
 
 ### Component Styling
 
 ```tsx
-// Use Tailwind utility classes with theme tokens
-className="bg-background text-foreground border-border"
+// Product UI should state its design role through tokens/classes.
+className="settings-surface rounded-[10px] text-foreground"
 
-// Dark mode responsive
-className="bg-white dark:bg-gray-900"
+// Controls-layer overlays should share the app popover/dialog roles.
+className="dialog-surface text-popover-foreground"
 ```

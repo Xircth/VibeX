@@ -11,27 +11,31 @@ const STATUS_META: Record<
   A: {
     label: 'A',
     title: 'Added',
-    className: 'text-green-600 bg-green-500/10 border-green-500/30',
+    className:
+      'border-[hsl(var(--success)/0.3)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]',
   },
   M: {
     label: 'M',
     title: 'Modified',
-    className: 'text-amber-600 bg-amber-500/10 border-amber-500/30',
+    className:
+      'border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]',
   },
   D: {
     label: 'D',
     title: 'Deleted',
-    className: 'text-red-600 bg-red-500/10 border-red-500/30',
+    className:
+      'border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.1)] text-destructive',
   },
   R: {
     label: 'R',
     title: 'Renamed',
-    className: 'text-blue-600 bg-blue-500/10 border-blue-500/30',
+    className:
+      'border-[hsl(var(--info)/0.3)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]',
   },
   U: {
     label: 'U',
     title: 'Untracked',
-    className: 'text-slate-500 bg-slate-500/10 border-slate-500/30',
+    className: 'border-border/40 bg-muted/20 text-muted-foreground',
   },
 };
 

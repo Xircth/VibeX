@@ -175,10 +175,10 @@ function runtimeStatusLabel(status: RuntimeStatus): string {
 }
 
 function runtimeStatusClass(status: RuntimeStatus): string {
-  if (status === 'ready') return 'bg-success/10 text-success';
-  if (status === 'warning') return 'bg-warning/10 text-warning';
-  if (status === 'failed') return 'bg-destructive/10 text-destructive';
-  return 'bg-muted text-muted-foreground';
+  if (status === 'ready') return 'settings-status-pill-success';
+  if (status === 'warning') return 'settings-status-pill-warning';
+  if (status === 'failed') return 'settings-status-pill-danger';
+  return 'settings-status-pill-neutral';
 }
 
 function fixLabel(fix: PreflightFix): string {
@@ -454,7 +454,7 @@ export function AgentSettings() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto rounded-xl bg-muted/45 p-1 [scrollbar-width:none]">
+      <div className="settings-agent-strip flex shrink-0 items-center gap-2 overflow-x-auto p-1 [scrollbar-width:none]">
         {rows.map((row) => {
           const isSelected = row.entry.agent_type === selectedAgentType;
           const rowDraft =
@@ -470,24 +470,24 @@ export function AgentSettings() {
               data-testid={`agent-registry-row-${row.entry.agent_type}`}
               onClick={() => setSelectedAgentType(row.entry.agent_type)}
               className={cn(
-                'flex h-20 w-24 shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg px-2 transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-                isSelected
-                  ? 'bg-card text-foreground shadow-[0_2px_7px_hsl(220_36%_8%/0.075)]'
-                  : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+                'settings-agent-tab flex h-20 w-24 shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg px-2 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
+                isSelected && 'is-active'
               )}
             >
               <span
                 className={cn(
-                  'relative flex h-9 w-9 items-center justify-center rounded-md border bg-background/70',
-                  isSelected && 'border-primary/35 bg-primary/10'
+                  'settings-agent-icon relative flex h-9 w-9 items-center justify-center rounded-md',
+                  isSelected && 'is-active'
                 )}
               >
                 <AgentGlyph agentType={row.entry.agent_type} />
                 <span
                   className={cn(
-                    'absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-card',
-                    rowDraft.enabled ? 'bg-success' : 'bg-muted-foreground/50'
+                    'settings-agent-status-dot absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full',
+                    rowDraft.enabled
+                      ? 'settings-status-dot-success'
+                      : 'settings-status-dot-neutral'
                   )}
                 />
               </span>
@@ -498,9 +498,10 @@ export function AgentSettings() {
                 <span
                   className={cn(
                     'h-1.5 w-1.5 rounded-full',
-                    runtimeStatus === 'ready' && 'bg-success',
-                    runtimeStatus === 'warning' && 'bg-warning',
-                    runtimeStatus === 'failed' && 'bg-destructive'
+                    runtimeStatus === 'ready' && 'settings-status-dot-success',
+                    runtimeStatus === 'warning' &&
+                      'settings-status-dot-warning',
+                    runtimeStatus === 'failed' && 'settings-status-dot-danger'
                   )}
                 />
               ) : null}
@@ -527,7 +528,7 @@ export function AgentSettings() {
         <div className="min-h-0 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border bg-card">
+              <div className="settings-inline-group flex h-11 w-11 shrink-0 items-center justify-center">
                 <AgentGlyph
                   agentType={selectedRow.entry.agent_type}
                   className="h-7 w-7"
@@ -540,10 +541,10 @@ export function AgentSettings() {
                   </h2>
                   <span
                     className={cn(
-                      'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                      'px-1.5 py-0.5 text-[10px] font-medium',
                       selectedDraft.enabled
-                        ? 'bg-success/10 text-success'
-                        : 'bg-muted text-muted-foreground'
+                        ? 'settings-status-pill-success'
+                        : 'settings-status-pill-neutral'
                     )}
                   >
                     {selectedDraft.enabled ? '已启用' : '已停用'}
@@ -575,7 +576,7 @@ export function AgentSettings() {
               >
                 <ChevronRight className="h-3.5 w-3.5 rotate-90" />
               </Button>
-              <div className="flex h-8 items-center gap-2 rounded-md border bg-card px-2">
+              <div className="settings-inline-group flex h-8 items-center gap-2 px-2">
                 <span className="text-xs text-muted-foreground">启用</span>
                 <Switch
                   checked={selectedDraft.enabled}
@@ -741,15 +742,15 @@ function RuntimeCard({
   const fixes = filterRuntimeFixes(summary.fixes);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+    <div className="settings-inline-group flex flex-wrap items-center justify-between gap-3 p-3">
       <div className="flex min-w-0 items-center gap-3">
         <div
           className={cn(
             'flex h-9 w-9 shrink-0 items-center justify-center rounded-md',
-            summary.status === 'ready' && 'bg-success/10',
-            summary.status === 'warning' && 'bg-warning/10',
-            summary.status === 'failed' && 'bg-destructive/10',
-            summary.status === 'idle' && 'bg-muted'
+            summary.status === 'ready' && 'settings-status-swatch-success',
+            summary.status === 'warning' && 'settings-status-swatch-warning',
+            summary.status === 'failed' && 'settings-status-swatch-danger',
+            summary.status === 'idle' && 'settings-status-swatch-neutral'
           )}
         >
           {summary.status === 'idle' ? (
@@ -770,7 +771,7 @@ function RuntimeCard({
             <span className="text-xs font-medium text-foreground">运行状态</span>
             <span
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                'px-1.5 py-0.5 text-[10px] font-medium',
                 runtimeStatusClass(summary.status)
               )}
             >
@@ -825,7 +826,7 @@ function PreflightChecklist({ checks }: { checks: PreflightCheck[] }) {
         return (
           <div
             key={check.check_id}
-            className="flex gap-3 rounded-md border bg-background/60 p-3"
+            className="settings-inline-group flex gap-3 p-3"
           >
             <StatusIcon
               className={cn(
@@ -842,11 +843,11 @@ function PreflightChecklist({ checks }: { checks: PreflightCheck[] }) {
                 </span>
                 <span
                   className={cn(
-                    'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                    check.status === 'pass' && 'bg-success/10 text-success',
-                    check.status === 'warn' && 'bg-warning/10 text-warning',
+                    'px-1.5 py-0.5 text-[10px] font-medium',
+                    check.status === 'pass' && 'settings-status-pill-success',
+                    check.status === 'warn' && 'settings-status-pill-warning',
                     check.status === 'fail' &&
-                      'bg-destructive/10 text-destructive'
+                      'settings-status-pill-danger'
                   )}
                 >
                   {check.status}
@@ -860,7 +861,7 @@ function PreflightChecklist({ checks }: { checks: PreflightCheck[] }) {
                   {check.fixes.map((fix) => (
                     <span
                       key={`${check.check_id}:${fix.action}`}
-                      className="rounded border bg-muted/45 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                      className="settings-meta-chip px-1.5 py-0.5 text-[10px]"
                     >
                       {fix.label}
                     </span>
@@ -893,7 +894,7 @@ function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border bg-card">
+    <section className="settings-card overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
         <button
           type="button"
@@ -974,10 +975,10 @@ function InlineMessage({
   return (
     <div
       className={cn(
-        'rounded-lg border p-3',
-        tone === 'error' && 'border-destructive/40 bg-destructive/5',
-        tone === 'warning' && 'border-warning/40 bg-warning/5',
-        tone === 'success' && 'border-success/40 bg-success/5'
+        'settings-message p-3',
+        tone === 'error' && 'settings-message-error',
+        tone === 'warning' && 'settings-message-warning',
+        tone === 'success' && 'settings-message-success'
       )}
     >
       <div className="flex items-start gap-2">

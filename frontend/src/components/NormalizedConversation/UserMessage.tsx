@@ -573,7 +573,7 @@ const UserMessage = ({
                     aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
                   >
                     {copied ? (
-                      <Check className="h-3.5 w-3.5 text-green-600" />
+                      <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
                     ) : (
                       <Clipboard className="h-3.5 w-3.5" />
                     )}

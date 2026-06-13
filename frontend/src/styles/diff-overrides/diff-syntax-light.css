@@ -24,7 +24,7 @@
 */
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs {
   color: var(--syntax-punctuation);
-  background: #ffffff;
+  background: var(--surface-content);
 }
 
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs-doctag,
@@ -101,7 +101,7 @@
 
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs-bullet {
   /* prettylights-syntax-markup-list */
-  color: #735c0f;
+  color: hsl(var(--warning));
 }
 
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs-emphasis {
@@ -119,13 +119,13 @@
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs-addition {
   /* prettylights-syntax-markup-inserted */
   color: var(--syntax-tag);
-  background-color: #f0fff4;
+  background-color: var(--diff-added-bg);
 }
 
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs-deletion {
   /* prettylights-syntax-markup-deleted */
   color: var(--syntax-deleted);
-  background-color: #ffeef0;
+  background-color: var(--diff-removed-bg);
 }
 
 .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs-char.escape_,

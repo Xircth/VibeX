@@ -65,7 +65,7 @@ function SettingsSection({
       {description ? (
         <p className="text-xs leading-5 text-muted-foreground">{description}</p>
       ) : null}
-      <div className="settings-card overflow-hidden rounded-xl border">
+      <div className="settings-card overflow-hidden rounded-lg border">
         {children}
       </div>
     </section>
@@ -472,7 +472,7 @@ export function EditorSettings() {
           title="预览"
           description="配置编辑区文件预览和会话文件变更显示偏好。"
         >
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 px-3 py-3">
+          <div className="settings-inline-group flex items-center justify-between gap-4 px-3 py-3">
             <div className="space-y-1">
               <div className="text-sm font-medium">
                 `files changed` 默认折叠
@@ -490,7 +490,7 @@ export function EditorSettings() {
             />
           </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 px-3 py-3">
+          <div className="settings-inline-group flex items-center justify-between gap-4 px-3 py-3">
             <div className="space-y-1">
               <div className="text-sm font-medium">AI消息默认折叠</div>
               <p className="text-xs leading-5 text-muted-foreground">
@@ -509,7 +509,7 @@ export function EditorSettings() {
       </div>
 
       {dirty ? (
-        <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
+        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
             <span className="text-xs text-muted-foreground">
               设置已修改，保存后生效。

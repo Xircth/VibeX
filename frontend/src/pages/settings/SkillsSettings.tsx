@@ -230,8 +230,8 @@ export function SkillsSettings() {
 
   return (
     <div className="flex h-full flex-1 overflow-hidden">
-      <div className="flex h-full w-64 shrink-0 flex-col border-r">
-        <div className="shrink-0 border-b px-4 py-3">
+      <div className="settings-split-sidebar flex h-full w-64 shrink-0 flex-col">
+        <div className="settings-split-divider shrink-0 border-b px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground">技能</h2>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {SUPPORTED_AGENTS.map((agent) => (
@@ -250,7 +250,7 @@ export function SkillsSettings() {
           </div>
         </div>
 
-        <div className="shrink-0 border-b px-3 py-2">
+        <div className="settings-split-divider shrink-0 border-b px-3 py-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -375,7 +375,7 @@ function CatalogGroup({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left hover:bg-muted/40"
+        className="settings-list-button flex w-full items-center gap-1.5 px-1 py-1 text-left"
         aria-expanded={expanded}
         aria-controls={`skills-group-${groupKey}`}
       >
@@ -385,7 +385,7 @@ function CatalogGroup({
           }`}
         />
         <Icon className="h-3 w-3 text-muted-foreground" />
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="text-[10px] font-medium uppercase tracking-normal text-muted-foreground">
           {title} ({items.length})
         </span>
       </button>
@@ -420,15 +420,15 @@ function CatalogListItem({
       onClick={onSelect}
       className={`w-full rounded-md px-2.5 py-1.5 text-left transition-colors ${
         isSelected
-          ? 'bg-accent text-accent-foreground'
-          : 'text-foreground hover:bg-muted/50'
+          ? 'settings-list-button is-active'
+          : 'settings-list-button'
       }`}
     >
       <div className="flex items-center gap-2">
         <code className="flex-1 truncate font-mono text-[11px] font-medium">
           {item.invocation}
         </code>
-        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="settings-meta-chip shrink-0 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-normal">
           {item.kind === 'local_skill' ? '技能' : '命令'}
         </span>
       </div>
@@ -453,9 +453,9 @@ function CatalogDetail({
     <div className="space-y-6 p-6">
       <div>
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg border bg-primary/5">
+          <div className="settings-accent-icon flex h-10 w-10 items-center justify-center rounded-lg">
             {item.kind === 'local_skill' ? (
-              <FolderSearch className="h-5 w-5 text-blue-500" />
+              <FolderSearch className="h-5 w-5 text-current" />
             ) : (
               <Command className="h-5 w-5 text-muted-foreground" />
             )}
@@ -464,7 +464,7 @@ function CatalogDetail({
             <h3 className="text-base font-semibold text-foreground">
               {item.invocation}
             </h3>
-            <span className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span className="settings-meta-chip mt-0.5 inline-block px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-normal">
               {item.kind === 'local_skill' ? '本地技能' : '命令'}
             </span>
           </div>
@@ -472,7 +472,7 @@ function CatalogDetail({
       </div>
 
       {normalizeText(item.description) ? (
-        <div className="rounded-lg border bg-card p-4">
+        <div className="settings-inline-group p-4">
           <div className="mb-2 flex items-center gap-2">
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-xs font-medium text-foreground">描述</span>
@@ -483,7 +483,7 @@ function CatalogDetail({
         </div>
       ) : null}
 
-      <div className="space-y-3 rounded-lg border bg-card p-4">
+      <div className="settings-inline-group space-y-3 p-4">
         <span className="text-xs font-medium text-foreground">元数据</span>
         <div className="grid grid-cols-2 gap-3">
           <MetaItem label="代理" value={agentLabel} />
@@ -499,9 +499,9 @@ function CatalogDetail({
         </div>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="settings-inline-group p-4">
         <span className="text-xs font-medium text-foreground">使用方式</span>
-        <div className="mt-2 rounded border bg-card px-3 py-2">
+        <div className="settings-inline-group mt-2 px-3 py-2">
           <code className="text-xs text-foreground">{item.invocation}</code>
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
@@ -525,7 +525,7 @@ function MetaItem({
 }) {
   return (
     <div className={`flex flex-col gap-0.5 ${fullWidth ? 'col-span-2' : ''}`}>
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+      <span className="text-[10px] uppercase tracking-normal text-muted-foreground">
         {label}
       </span>
       <span className="break-all text-xs font-medium text-foreground">

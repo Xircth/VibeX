@@ -47,7 +47,7 @@
 .diff-tailwindcss-wrapper .diff-widget-tooltip::after {
   display: none;
   box-sizing: border-box;
-  background-color: #333333;
+  background-color: var(--surface-popover);
   position: absolute;
   content: attr(data-title);
   font-size: 11px;
@@ -58,11 +58,11 @@
   white-space: nowrap;
   transform: translateY(-50%);
   left: calc(100% + 8px);
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .diff-tailwindcss-wrapper[data-theme='dark'] .diff-widget-tooltip::after {
-  background-color: #6b7280;
+  background-color: var(--surface-popover);
 }
 
 .diff-tailwindcss-wrapper .diff-widget-tooltip::before {
@@ -74,16 +74,16 @@
   left: calc(100% - 2px);
   transform: translateY(-50%);
   border: 6px solid transparent;
-  border-right-color: #333333;
+  border-right-color: var(--surface-popover);
 }
 
 .diff-tailwindcss-wrapper[data-theme='dark'] .diff-widget-tooltip::before {
-  border-right-color: #6b7280;
+  border-right-color: var(--surface-popover);
 }
 
 .diff-tailwindcss-wrapper .diff-widget-tooltip:hover {
   background-color: var(--diff-hunk-lineNumber-hover--);
-  color: white;
+  color: hsl(var(--primary-foreground));
 }
 
 .diff-tailwindcss-wrapper .diff-widget-tooltip:hover::before {

@@ -6,29 +6,33 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed',
+  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+        default:
+          'border border-transparent bg-primary text-primary-foreground shadow-none hover:bg-primary/90',
         destructive:
-          'border border-destructive text-destructive hover:bg-destructive/10',
+          'border border-destructive bg-transparent text-destructive hover:bg-destructive/10',
         outline:
-          'border border-input hover:bg-accent hover:text-accent-foreground',
-        secondary: 'text-secondary-foreground hover:bg-secondary/80 border',
-        ghost: 'hover:bg-accent hover:text-accent-foreground',
-        link: 'hover:underline',
-        icon: 'bg-transparent rounded text-muted-foreground hover:text-foreground',
+          'border border-border bg-transparent text-foreground hover:bg-[var(--surface-control-hover)]',
+        secondary:
+          'border border-border bg-[var(--surface-control)] text-foreground hover:bg-[var(--surface-control-hover)]',
+        ghost:
+          'bg-transparent text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
+        link: 'h-auto p-0 text-primary underline-offset-4 hover:underline',
+        icon:
+          'bg-transparent p-0 text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
       },
       size: {
-        default: 'h-10 px-4 py-2',
-        xs: 'h-8 px-2 text-xs',
-        sm: 'h-9 px-3',
-        lg: 'h-11 px-8',
-        icon: 'h-10 w-10',
+        default: 'h-8 px-3',
+        xs: 'h-6 px-2 text-xs',
+        sm: 'h-7 px-2.5 text-xs',
+        lg: 'h-9 px-4',
+        icon: 'h-8 w-8 p-0',
       },
     },
-    compoundVariants: [{ variant: 'icon', class: 'p-0 h-4' }],
+    compoundVariants: [{ variant: 'icon', class: 'h-8 w-8 p-0' }],
     defaultVariants: {
       variant: 'default',
       size: 'default',

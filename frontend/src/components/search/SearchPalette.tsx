@@ -149,18 +149,18 @@ export function SearchPalette() {
       role="presentation"
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-[hsl(220_42%_4%_/_0.46)] backdrop-blur-sm" />
+      <div className="dialog-backdrop absolute inset-0" />
 
       {/* Palette */}
       <div
-        className="relative w-full max-w-[600px] mx-4 bg-popover border border-border rounded-lg shadow-2xl overflow-hidden"
+        className="tahoe-popover relative mx-4 w-full max-w-[600px] overflow-hidden rounded-[14px]"
         role="dialog"
         aria-modal="true"
         aria-label="快速搜索"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Input row */}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
+        <div className="flex items-center gap-2 border-b border-[var(--border-content)] px-3 py-2.5">
           <SearchIcon className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
             ref={inputRef}
@@ -183,10 +183,10 @@ export function SearchPalette() {
                 key={result.id}
                 type="button"
                 data-active={index === paletteSelectedIndex}
-                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                className={`workspace-command-row flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                   index === paletteSelectedIndex
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground hover:bg-accent/50'
+                    ? 'is-active'
+                    : ''
                 }`}
                 onClick={() => handleSelect(result)}
               >
@@ -209,19 +209,19 @@ export function SearchPalette() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center gap-4 px-3 py-1.5 border-t border-border text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-4 border-t border-[var(--border-content)] px-3 py-1.5 text-[10px] text-muted-foreground">
           <span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">↑↓</kbd>{' '}
+            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">↑↓</kbd>{' '}
             导航
           </span>
           <span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">
+            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">
               Enter
             </kbd>{' '}
             打开
           </span>
           <span>
-            <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd>{' '}
+            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">Esc</kbd>{' '}
             关闭
           </span>
         </div>

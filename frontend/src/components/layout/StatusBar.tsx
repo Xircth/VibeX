@@ -26,7 +26,7 @@ function AgentStatusLight({ agent }: { agent: BaseCodingAgent }) {
     >
       <span
         className={`h-2 w-2 rounded-full ${
-          isOnline ? 'bg-emerald-400' : 'bg-red-400'
+          isOnline ? 'bg-[hsl(var(--success))]' : 'bg-destructive'
         }`}
       />
       <AgentIcon agent={agent} className="h-3.5 w-3.5" />

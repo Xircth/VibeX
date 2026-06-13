@@ -311,7 +311,7 @@ function KanbanSessionConversationContent({
               <div className="pointer-events-none relative z-20 h-0">
                 <button
                   type="button"
-                  className="pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full border border-border/70 bg-background/65 text-foreground/80 shadow-lg shadow-black/10 backdrop-blur-md transition hover:bg-background/85 hover:text-foreground"
+                  className="tahoe-popover pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full text-foreground/80 transition-colors hover:text-foreground"
                   aria-label={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
                   title={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
                   onClick={() => logsRef.current?.scrollToBottom()}
@@ -389,7 +389,7 @@ function KanbanSessionConversationSurface({
   if (isBootstrappingWorkspace || isBootstrappingSession || !workspace) {
     return (
       <div className={`relative ${className ?? ''}`}>
-        <div className="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full border bg-background/90 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+        <div className="tahoe-popover pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           <span>正在加载会话...</span>
         </div>

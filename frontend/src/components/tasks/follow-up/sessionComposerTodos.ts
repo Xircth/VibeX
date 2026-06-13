@@ -26,7 +26,7 @@ export function getComposerTodoItemView(
   if (status === 'completed') {
     return {
       marker: '\u2713',
-      markerClassName: 'text-green-500',
+      markerClassName: 'text-[hsl(var(--success))]',
       contentClassName: '',
     };
   }
@@ -34,7 +34,7 @@ export function getComposerTodoItemView(
   if (isRunning) {
     return {
       marker: '\u25CF',
-      markerClassName: 'text-blue-500',
+      markerClassName: 'text-primary',
       contentClassName: '',
     };
   }

@@ -1,7 +1,10 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-05-25T00:00:00+08:00",
-  "title": "Design System: VibeX",
+  "title": "Historical Design Snapshot: VibeX",
+  "status": "historical",
+  "supersededBy": "DESIGN.md",
+  "supersededReason": "Current frontend design is governed by the macOS Tahoe rules in DESIGN.md and docs/specs/tahoe-design-system-convergence.",
   "extensions": {
     "colorMeta": {
       "primary": {
@@ -162,8 +165,8 @@
     }
   ],
   "narrative": {
-    "northStar": "The Developer Flight Deck",
-    "overview": "VibeX should feel like a local engineering control surface: calm, dense, inspectable, and fast to scan. The product is not trying to impress users with a decorative AI aesthetic. It is trying to help them coordinate multiple agent sessions, worktrees, terminals, previews, and diffs without losing context.",
+    "northStar": "Historical pre-Tahoe workbench snapshot",
+    "overview": "Historical 2026-05-25 generated snapshot. Use DESIGN.md as the single current source of truth for Tahoe design, Liquid Glass boundaries, Windows compatibility, and active migration rules.",
     "keyCharacteristics": [
       "Dense information, quiet surfaces, visible state.",
       "Light mode is the primary working scene; dark mode is supported for code-heavy or low-light sessions.",

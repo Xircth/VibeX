@@ -188,13 +188,13 @@ export function GitPanel() {
         {(totalAdditions > 0 || totalDeletions > 0) && (
           <span className="text-[10px] font-mono shrink-0">
             {totalAdditions > 0 && (
-              <span className="text-green-500">+{totalAdditions}</span>
+              <span className="text-[hsl(var(--success))]">+{totalAdditions}</span>
             )}
             {totalAdditions > 0 && totalDeletions > 0 && (
               <span className="text-muted-foreground">/</span>
             )}
             {totalDeletions > 0 && (
-              <span className="text-red-500">-{totalDeletions}</span>
+              <span className="text-destructive">-{totalDeletions}</span>
             )}
           </span>
         )}
@@ -219,7 +219,7 @@ export function GitPanel() {
             <button
               className={`p-1 rounded transition-colors relative disabled:opacity-40 ${
                 gitLog.behind > 0
-                  ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10'
+                  ? 'text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.1)] hover:text-[hsl(var(--warning))]'
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
               }`}
               onClick={onPull}
@@ -236,7 +236,7 @@ export function GitPanel() {
                 <Download className="h-3 w-3" />
               )}
               {gitLog.behind > 0 && (
-                <span className="absolute -top-1 -right-1 bg-yellow-500 text-[8px] text-background rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-bold leading-none px-0.5">
+                <span className="absolute -right-1 -top-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[hsl(var(--warning))] px-0.5 text-[8px] font-bold leading-none text-background">
                   {gitLog.behind}
                 </span>
               )}

@@ -1,52 +1,29 @@
 /*
  * file-tree-git.css
  *
- * Git status colors for file tree entries (added, modified, deleted, renamed, type-changed),
- * gitignored file styling, active toggle state, and inline new file/folder input.
+ * Git status presentation for file tree entries.
+ * Colors are aliases over the Tahoe semantic token layer.
  */
 
-/* Git status colors in file tree — Light mode */
 .file-tree-name.git-a {
-  color: var(--status-success, #2da44e);
+  color: var(--status-success);
 }
 
 .file-tree-name.git-m {
-  color: #2a7ab5;
+  color: hsl(var(--primary));
 }
 
 .file-tree-name.git-d {
-  color: var(--status-error, #cf222e);
+  color: var(--status-error);
   text-decoration: line-through;
 }
 
 .file-tree-name.git-r {
-  color: #8b5fcf;
+  color: var(--status-running);
 }
 
 .file-tree-name.git-t {
-  color: var(--status-warning, #bf8700);
-}
-
-/* Git status colors — Dark mode */
-.dark .file-tree-name.git-a {
-  color: #89d185;
-}
-
-.dark .file-tree-name.git-m {
-  color: #6bb3f0;
-}
-
-.dark .file-tree-name.git-d {
-  color: #ff6b6b;
-  text-decoration: line-through;
-}
-
-.dark .file-tree-name.git-r {
-  color: #c9a3f5;
-}
-
-.dark .file-tree-name.git-t {
-  color: #f5c363;
+  color: var(--status-warning);
 }
 
 /* Gitignored files */
@@ -64,7 +41,7 @@
   border-color: var(--border-accent);
 }
 
-/* ── Inline new file/folder input ── */
+/* Inline new file/folder input */
 
 .file-tree-inline-new-row {
   background: color-mix(in srgb, var(--surface-active) 40%, transparent);

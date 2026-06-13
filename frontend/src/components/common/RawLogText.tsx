@@ -28,8 +28,8 @@ const RawLogText = memo(
     const shouldApplyStderrFallback = channel === 'stderr' && !hasAnsiCodes;
 
     const highlightClass = isCurrentMatch
-      ? 'bg-yellow-500/60 ring-1 ring-yellow-500 rounded-sm'
-      : 'bg-yellow-500/30 rounded-sm';
+      ? 'rounded-sm bg-[hsl(var(--warning)/0.6)] ring-1 ring-[hsl(var(--warning))]'
+      : 'rounded-sm bg-[hsl(var(--warning)/0.3)]';
 
     const highlightMatches = (text: string, key: string | number) => {
       if (!searchQuery) {

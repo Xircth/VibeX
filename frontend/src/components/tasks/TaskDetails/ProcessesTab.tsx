@@ -66,30 +66,30 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
   const getStatusIcon = (status: ExecutionProcessStatus) => {
     switch (status) {
       case 'running':
-        return <Play className="h-4 w-4 text-blue-500" />;
+        return <Play className="h-4 w-4 text-primary" />;
       case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
+        return <CheckCircle className="h-4 w-4 text-[hsl(var(--success))]" />;
       case 'failed':
         return <AlertCircle className="h-4 w-4 text-destructive" />;
       case 'killed':
-        return <Square className="h-4 w-4 text-gray-500" />;
+        return <Square className="h-4 w-4 text-muted-foreground" />;
       default:
-        return <Clock className="h-4 w-4 text-gray-400" />;
+        return <Clock className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
   const getStatusColor = (status: ExecutionProcessStatus) => {
     switch (status) {
       case 'running':
-        return 'bg-blue-50 border-blue-200 text-blue-800';
+        return 'border-[hsl(var(--primary)/0.28)] bg-[hsl(var(--primary)/0.08)] text-primary';
       case 'completed':
-        return 'bg-green-50 border-green-200 text-green-800';
+        return 'border-[hsl(var(--success)/0.28)] bg-[hsl(var(--success)/0.08)] text-[hsl(var(--success))]';
       case 'failed':
-        return 'bg-red-50 border-red-200 text-red-800';
+        return 'border-[hsl(var(--destructive)/0.28)] bg-[hsl(var(--destructive)/0.08)] text-destructive';
       case 'killed':
-        return 'bg-gray-50 border-gray-200 text-gray-800';
+        return 'border-border bg-muted/40 text-muted-foreground';
       default:
-        return 'bg-gray-50 border-gray-200 text-gray-800';
+        return 'border-border bg-muted/40 text-muted-foreground';
     }
   };
 
@@ -210,7 +210,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                         </p>
                         {process.dropped && (
                           <span
-                            className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200"
+                            className="mt-1 inline-block rounded-full border border-[hsl(var(--warning)/0.28)] bg-[hsl(var(--warning)/0.08)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]"
                             title={
                               '因恢复而删除：时间轴已恢复到检查点，后续执行已被移除'
                             }

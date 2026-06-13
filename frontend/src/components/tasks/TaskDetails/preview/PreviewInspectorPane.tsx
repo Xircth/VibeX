@@ -115,13 +115,13 @@ function formatTime(timestamp: number): string {
 function consoleLevelClass(level: PreviewConsoleEntry['level']): string {
   switch (level) {
     case 'error':
-      return 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300';
+      return 'border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.1)] text-destructive';
     case 'warn':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+      return 'border-[hsl(var(--warning)/0.32)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]';
     case 'info':
-      return 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300';
+      return 'border-[hsl(var(--info)/0.3)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]';
     case 'debug':
-      return 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300';
+      return 'border-[hsl(var(--status-running)/0.3)] bg-[hsl(var(--status-running)/0.1)] text-[hsl(var(--status-running))]';
     default:
       return 'border-border/60 bg-muted/20 text-foreground';
   }
@@ -129,18 +129,18 @@ function consoleLevelClass(level: PreviewConsoleEntry['level']): string {
 
 function networkStatusClass(entry: PreviewNetworkEntry): string {
   if (entry.error) {
-    return 'text-red-600 dark:text-red-300';
+    return 'text-destructive';
   }
   if (entry.status == null) {
     return 'text-muted-foreground';
   }
   if (entry.status >= 400) {
-    return 'text-red-600 dark:text-red-300';
+    return 'text-destructive';
   }
   if (entry.status >= 300) {
-    return 'text-amber-600 dark:text-amber-300';
+    return 'text-[hsl(var(--warning))]';
   }
-  return 'text-emerald-600 dark:text-emerald-300';
+  return 'text-[hsl(var(--success))]';
 }
 
 function StatusRow({
@@ -158,8 +158,8 @@ function StatusRow({
       <span
         className={cn(
           'font-medium',
-          tone === 'success' && 'text-emerald-600 dark:text-emerald-400',
-          tone === 'warning' && 'text-amber-600 dark:text-amber-300'
+          tone === 'success' && 'text-[hsl(var(--success))]',
+          tone === 'warning' && 'text-[hsl(var(--warning))]'
         )}
       >
         {value}
@@ -418,7 +418,7 @@ export function PreviewInspectorPane({
                       <span>{formatTime(entry.timestamp)}</span>
                     </div>
                     {entry.error ? (
-                      <div className="text-[11px] text-red-600 dark:text-red-300">
+                      <div className="text-[11px] text-destructive">
                         {entry.error}
                       </div>
                     ) : null}

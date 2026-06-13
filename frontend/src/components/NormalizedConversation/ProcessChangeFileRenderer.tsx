@@ -163,9 +163,9 @@ function ProcessChangeFileRenderer({
 
   const statusIcon =
     statusAppearance === 'denied' ? (
-      <FileX className="h-3.5 w-3.5 text-red-500" />
+      <FileX className="h-3.5 w-3.5 text-destructive" />
     ) : statusAppearance === 'timed_out' ? (
-      <FileClock className="h-3.5 w-3.5 text-amber-500" />
+      <FileClock className="h-3.5 w-3.5 text-[hsl(var(--warning))]" />
     ) : null;
 
   const rowClassName = cn(
@@ -212,10 +212,10 @@ function ProcessChangeFileRenderer({
           >
             {path}
           </span>
-          <span className="font-mono text-xs text-green-600 dark:text-green-400">
+          <span className="font-mono text-xs text-[hsl(var(--success))]">
             +{editDiffState.additions}
           </span>
-          <span className="font-mono text-xs text-red-600 dark:text-red-400">
+          <span className="font-mono text-xs text-destructive">
             -{editDiffState.deletions}
           </span>
         </div>

@@ -24,7 +24,7 @@ function Toaster({ ...props }: ToasterProps) {
           cancelButton:
             'group-[.toast]:h-7 group-[.toast]:rounded-full group-[.toast]:bg-foreground/[0.08] group-[.toast]:px-3 group-[.toast]:text-xs group-[.toast]:font-medium group-[.toast]:text-foreground group-[.toast]:transition-colors group-[.toast]:hover:bg-foreground/[0.12]',
           closeButton:
-            'group-[.toast]:border-white/50 group-[.toast]:bg-background/70 group-[.toast]:text-muted-foreground group-[.toast]:shadow-sm group-[.toast]:backdrop-blur-xl group-[.toast]:transition-colors group-[.toast]:hover:bg-background/90 group-[.toast]:hover:text-foreground dark:group-[.toast]:border-white/10 dark:group-[.toast]:bg-white/10 dark:group-[.toast]:hover:bg-white/15',
+            'group-[.toast]:border-border group-[.toast]:bg-[var(--surface-control)] group-[.toast]:text-muted-foreground group-[.toast]:shadow-none group-[.toast]:transition-colors group-[.toast]:hover:bg-[var(--surface-control-hover)] group-[.toast]:hover:text-foreground',
           success: 'vu-sonner-toast-success',
           info: 'vu-sonner-toast-info',
           warning: 'vu-sonner-toast-warning',

@@ -55,8 +55,8 @@ export const ExpandChevron: React.FC<{
 }> = ({ expanded, onClick, variant }) => {
   const color =
     variant === 'system'
-      ? 'text-zinc-700 dark:text-zinc-300'
-      : 'text-red-700 dark:text-red-300';
+      ? 'text-foreground/70'
+      : 'text-destructive';
 
   return (
     <ChevronDown
@@ -190,7 +190,7 @@ export const AssistantCommandOutputEntry: React.FC<{
       {hasPrefix ? (
         <button
           type="button"
-          className="mb-1 inline-flex h-4 w-4 items-center justify-center text-zinc-700 transition-transform dark:text-zinc-300"
+          className="mb-1 inline-flex h-4 w-4 items-center justify-center text-foreground/70 transition-transform"
           onClick={() => toggle()}
           aria-expanded={expanded}
           aria-label={expanded ? 'Collapse previous AI content' : 'Expand previous AI content'}

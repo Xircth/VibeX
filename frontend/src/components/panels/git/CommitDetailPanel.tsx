@@ -14,13 +14,13 @@ function formatTimestamp(timestamp: number): string {
 function statusColor(status: string): string {
   switch (status.charAt(0).toUpperCase()) {
     case 'A':
-      return 'text-green-400 bg-green-400/10';
+      return 'bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]';
     case 'D':
-      return 'text-red-400 bg-red-400/10';
+      return 'bg-[hsl(var(--destructive)/0.1)] text-destructive';
     case 'M':
-      return 'text-yellow-400 bg-yellow-400/10';
+      return 'bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]';
     case 'R':
-      return 'text-blue-400 bg-blue-400/10';
+      return 'bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]';
     default:
       return 'text-muted-foreground bg-muted/20';
   }
@@ -39,13 +39,13 @@ const FileRow = memo(function FileRow({ file }: { file: CommitFileEntry }) {
       </span>
       <span className="flex items-center gap-1 shrink-0 text-[10px]">
         {file.additions > 0 && (
-          <span className="text-green-400 flex items-center gap-0.5">
+          <span className="flex items-center gap-0.5 text-[hsl(var(--success))]">
             <Plus className="h-2.5 w-2.5" />
             {file.additions}
           </span>
         )}
         {file.deletions > 0 && (
-          <span className="text-red-400 flex items-center gap-0.5">
+          <span className="flex items-center gap-0.5 text-destructive">
             <Minus className="h-2.5 w-2.5" />
             {file.deletions}
           </span>
@@ -130,9 +130,9 @@ export const CommitDetailPanel = memo(function CommitDetailPanel({
           </span>
           <div className="flex-1" />
           <span className="flex items-center gap-1 font-mono font-normal normal-case">
-            <span className="text-green-400">+{totalAdditions}</span>
+            <span className="text-[hsl(var(--success))]">+{totalAdditions}</span>
             <span className="text-muted-foreground/40">/</span>
-            <span className="text-red-400">-{totalDeletions}</span>
+            <span className="text-destructive">-{totalDeletions}</span>
           </span>
         </div>
         <div className="max-h-48 overflow-y-auto">

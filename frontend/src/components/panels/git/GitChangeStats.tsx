@@ -18,11 +18,15 @@ export const GitChangeStats = memo(function GitChangeStats({
     <span
       className={`inline-flex min-w-8 shrink-0 items-center justify-end gap-0.5 font-mono tabular-nums text-[11px] leading-none ${className}`}
     >
-      {hasAdditions && <span className="text-green-500">+{additions}</span>}
+      {hasAdditions && (
+        <span className="text-[hsl(var(--success))]">+{additions}</span>
+      )}
       {hasAdditions && hasDeletions && (
         <span className="text-muted-foreground">/</span>
       )}
-      {hasDeletions && <span className="text-red-500">-{deletions}</span>}
+      {hasDeletions && (
+        <span className="text-[hsl(var(--destructive))]">-{deletions}</span>
+      )}
       {!hasAdditions && !hasDeletions && (
         <span className="text-muted-foreground/40">--</span>
       )}

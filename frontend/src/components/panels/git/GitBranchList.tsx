@@ -65,15 +65,15 @@ function getScopeIcon(scope: string): React.ReactNode {
   switch (scope.toLowerCase()) {
     case 'feature':
     case 'feat':
-      return <Zap className={`${cls} text-blue-400`} />;
+      return <Zap className={`${cls} text-primary`} />;
     case 'fix':
     case 'bugfix':
     case 'hotfix':
-      return <Bug className={`${cls} text-orange-400`} />;
+      return <Bug className={`${cls} text-[hsl(var(--warning))]`} />;
     case 'release':
-      return <Tag className={`${cls} text-green-400`} />;
+      return <Tag className={`${cls} text-[hsl(var(--success))]`} />;
     case 'merge':
-      return <GitMerge className={`${cls} text-purple-400`} />;
+      return <GitMerge className={`${cls} text-[hsl(var(--status-running))]`} />;
     default:
       return <FolderOpen className={`${cls} text-muted-foreground/60`} />;
   }
@@ -138,8 +138,8 @@ const BranchRow = memo(function BranchRow({
     <div
       className={`flex items-center gap-2 px-2.5 py-1.5 text-xs group cursor-pointer transition-colors ${
         branch.is_current
-          ? 'bg-green-500/8 border-l-2 border-l-green-500 text-foreground'
-          : 'hover:bg-accent/20 border-l-2 border-l-transparent text-foreground/80'
+          ? 'border-l border-l-[hsl(var(--success))] bg-[hsl(var(--success)/0.08)] text-foreground'
+          : 'border-l border-l-transparent text-foreground/80 hover:bg-accent/20'
       }`}
       onClick={handleCheckout}
       title={
@@ -153,11 +153,11 @@ const BranchRow = memo(function BranchRow({
       {actionLoading ? (
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
       ) : branch.is_current ? (
-        <div className="shrink-0 w-4 h-4 rounded-full bg-green-500/20 flex items-center justify-center">
-          <Check className="h-3 w-3 text-green-400" />
+        <div className="shrink-0 w-4 h-4 rounded-full bg-[hsl(var(--success)/0.18)] flex items-center justify-center">
+          <Check className="h-3 w-3 text-[hsl(var(--success))]" />
         </div>
       ) : branch.is_remote ? (
-        <Globe className="h-3.5 w-3.5 shrink-0 text-purple-400/60" />
+        <Globe className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--status-running)/0.64)]" />
       ) : (
         <GitBranchIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       )}
@@ -174,7 +174,7 @@ const BranchRow = memo(function BranchRow({
 
       {!branch.is_current && !branch.is_remote && (
         <button
-          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-all"
+          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-colors"
           onClick={handleDelete}
           title={`Delete ${branch.name}`}
         >
@@ -334,13 +334,13 @@ export const GitBranchList = memo(function GitBranchList({
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
       <div className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border/30 text-xs">
-        <GitBranchIcon className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+        <GitBranchIcon className="h-3.5 w-3.5 text-primary shrink-0" />
         <span className="font-medium text-foreground">Branches</span>
         <span className="px-1.5 py-0 rounded-full bg-foreground/10 text-muted-foreground text-[10px] font-mono">
           {localBranches.length}
         </span>
         {remoteBranches.length > 0 && (
-          <span className="px-1.5 py-0 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-mono">
+          <span className="rounded-full bg-[hsl(var(--status-running)/0.1)] px-1.5 py-0 text-[10px] font-mono text-[hsl(var(--status-running))]">
             {remoteBranches.length} remote
           </span>
         )}
@@ -430,7 +430,7 @@ export const GitBranchList = memo(function GitBranchList({
         {groupedRemoteBranches.length > 0 && (
           <div>
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/30 border-b border-border/20">
-              <Globe className="h-3 w-3 text-purple-400/60" />
+              <Globe className="h-3 w-3 text-[hsl(var(--status-running)/0.64)]" />
               <span>Remote</span>
             </div>
             {groupedRemoteBranches.length === 1

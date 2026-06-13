@@ -33,7 +33,9 @@ describe('TodoListButton', () => {
     expect(screen.getByText('任务列表 (2)')).toBeInTheDocument();
     expect(screen.getByText('Ship cleanup')).toBeInTheDocument();
     expect(screen.getByText('Review plan')).toBeInTheDocument();
-    expect(screen.getByText('\u2713')).toHaveClass('text-green-500');
-    expect(screen.getByText('\u25CF')).toHaveClass('text-blue-500');
+    expect(screen.getByText('\u2713')).toHaveClass(
+      'text-[hsl(var(--success))]'
+    );
+    expect(screen.getByText('\u25CF')).toHaveClass('text-primary');
   });
 });

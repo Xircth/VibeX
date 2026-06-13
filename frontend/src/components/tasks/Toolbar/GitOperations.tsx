@@ -366,7 +366,7 @@ function GitOperations({
 
         if (hasConflictsCalculated) {
           return (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning)/0.12)] px-2 py-0.5 text-[hsl(var(--warning))]">
               <AlertTriangle className="h-3.5 w-3.5" />
               {'冲突'}
             </span>
@@ -375,7 +375,7 @@ function GitOperations({
 
         if (selectedRepoStatus?.is_rebase_in_progress) {
           return (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning)/0.12)] px-2 py-0.5 text-[hsl(var(--warning))]">
               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
               {'变基中...'}
             </span>
@@ -384,7 +384,7 @@ function GitOperations({
 
         if (mergeInfo.hasMergedPR) {
           return (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100/70 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--success)/0.12)] px-2 py-0.5 text-[hsl(var(--success))]">
               <CheckCircle className="h-3.5 w-3.5" />
               {'已合并！'}
             </span>
@@ -396,7 +396,7 @@ function GitOperations({
           return (
             <button
               onClick={() => window.open(prMerge.pr_info.url, '_blank')}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100/60 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 hover:underline truncate max-w-[180px] sm:max-w-none"
+              className="inline-flex max-w-[180px] items-center gap-1 truncate rounded-full bg-[hsl(var(--info)/0.12)] px-2 py-0.5 text-[hsl(var(--info))] hover:underline sm:max-w-none"
               aria-label={`打开 PR #${Number(prMerge.pr_info.number)}`}
             >
               <GitPullRequest className="h-3.5 w-3.5" />
@@ -411,7 +411,7 @@ function GitOperations({
           chips.push(
             <span
               key="ahead"
-              className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100/70 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+              className="hidden items-center gap-1 rounded-full bg-[hsl(var(--success)/0.12)] px-2 py-0.5 text-[hsl(var(--success))] sm:inline-flex"
             >
               +{commitsAhead} {'提交'} {'领先'}
             </span>
@@ -421,7 +421,7 @@ function GitOperations({
           chips.push(
             <span
               key="behind"
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100/60 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+              className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning)/0.12)] px-2 py-0.5 text-[hsl(var(--warning))]"
             >
               {commitsBehind} {'提交'} {'落后'}
             </span>

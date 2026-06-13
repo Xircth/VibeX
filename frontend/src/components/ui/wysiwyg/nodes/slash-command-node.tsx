@@ -215,7 +215,7 @@ function SlashCommandChip({
 
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-purple-500/15 text-purple-400 text-sm cursor-default select-none align-baseline relative"
+      className="relative mx-0.5 inline-flex cursor-default select-none items-center gap-1 rounded-md bg-[hsl(var(--status-running)/0.14)] px-1.5 py-0.5 align-baseline text-sm text-[hsl(var(--status-running))]"
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
       onDoubleClick={handleDoubleClick}
@@ -225,7 +225,7 @@ function SlashCommandChip({
       {isEditable && (
         <button
           type="button"
-          className="ml-0.5 rounded-sm hover:bg-purple-500/30 p-0.5 transition-colors"
+          className="ml-0.5 rounded-sm p-0.5 transition-colors hover:bg-[hsl(var(--status-running)/0.22)]"
           onClick={handleRemove}
           tabIndex={-1}
           aria-label={`Remove command /${commandName}`}

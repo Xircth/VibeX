@@ -27,7 +27,7 @@
 */
 .diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs {
   color: var(--syntax-punctuation);
-  background: #0d1117;
+  background: var(--surface-content);
 }
 
 .diff-tailwindcss-wrapper[data-theme='dark'] .diff-line-syntax-raw .hljs-doctag,
@@ -146,7 +146,7 @@
   .diff-line-syntax-raw
   .hljs-section {
   /* prettylights-syntax-markup-heading */
-  color: #1f6feb;
+  color: hsl(var(--primary));
   font-weight: bold;
 }
 
@@ -154,7 +154,7 @@
   .diff-line-syntax-raw
   .hljs-bullet {
   /* prettylights-syntax-markup-list */
-  color: #f2cc60;
+  color: hsl(var(--warning));
 }
 
 .diff-tailwindcss-wrapper[data-theme='dark']
@@ -177,8 +177,8 @@
   .diff-line-syntax-raw
   .hljs-addition {
   /* prettylights-syntax-markup-inserted */
-  color: #aff5b4;
-  background-color: #033a16;
+  color: var(--diff-added-fg);
+  background-color: var(--diff-added-bg);
 }
 
 .diff-tailwindcss-wrapper[data-theme='dark']
@@ -186,7 +186,7 @@
   .hljs-deletion {
   /* prettylights-syntax-markup-deleted */
   color: var(--syntax-deleted);
-  background-color: #67060c;
+  background-color: var(--diff-removed-bg);
 }
 
 .diff-tailwindcss-wrapper[data-theme='dark']

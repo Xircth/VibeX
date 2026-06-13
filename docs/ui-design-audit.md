@@ -4,6 +4,10 @@ Date: 2026-05-25
 Skill: impeccable
 Scope: `frontend/src/components`, `frontend/src/styles`, Tailwind config, shadcn primitives, workspace shell, Kanban session hub, composer, file tree, conversation, and docs context.
 
+> Historical note: this audit is a migration reference. `DESIGN.md` is the
+> single current source of truth for frontend design. The active convergence
+> plan lives in `docs/specs/tahoe-design-system-convergence/`.
+
 ## Summary
 
 VibeX has a credible product UI foundation: compact IBM Plex typography, Ayu-inspired code colors, tokenized workspace surfaces, and a useful distinction between shell, panel, card, control, active, and semantic states. The weak point is not lack of styling. The weak point is that several UI regions still carry separate visual systems.
@@ -106,9 +110,9 @@ Document and enforce default, hover, active, focus-visible, disabled, loading, e
 
 Overall: 14/24. The product is workable and has a real foundation, but it is not yet visually unified enough to feel premium.
 
-## Recommended Unification Plan
+## Historical Recommended Unification Plan
 
-1. Adopt `PRODUCT.md`, `DESIGN.md`, and `.impeccable/design.json` as the design context for future UI work.
+1. Adopt `DESIGN.md` as the single current design context for future UI work.
 2. Fix the automated warnings first: side stripes, pure black backgrounds, and max-height transition.
 3. Unify `ContextMenu`, file tree, and conversation styles against the `legacy/index.css` token roles.
 4. Normalize radius and elevation: 6px controls, 8px cards, 12px to 14px shell surfaces only.

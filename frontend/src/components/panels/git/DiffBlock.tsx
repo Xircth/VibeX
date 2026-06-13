@@ -84,22 +84,22 @@ function parseDiff(raw: string): ParsedLine[] {
 }
 
 const LINE_COLORS: Record<string, string> = {
-  add: 'bg-green-500/10',
-  del: 'bg-red-500/10',
+  add: 'bg-[var(--diff-added-bg)]',
+  del: 'bg-[var(--diff-removed-bg)]',
   ctx: '',
   hunk: 'bg-accent/30',
 };
 
 const LINE_TEXT_COLORS: Record<string, string> = {
-  add: 'text-green-400',
-  del: 'text-red-400',
+  add: 'text-[var(--diff-added-fg)]',
+  del: 'text-[var(--diff-removed-fg)]',
   ctx: 'text-foreground',
   hunk: 'text-muted-foreground italic',
 };
 
 const GUTTER_COLORS: Record<string, string> = {
-  add: 'text-green-500/50',
-  del: 'text-red-500/50',
+  add: 'text-[hsl(var(--success)/0.55)]',
+  del: 'text-[hsl(var(--destructive)/0.55)]',
   ctx: 'text-muted-foreground/40',
   hunk: '',
 };

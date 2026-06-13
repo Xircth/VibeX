@@ -6,10 +6,10 @@ import { DiffBlock, type DiffStyle } from './DiffBlock';
 import { ImageDiffCard } from './ImageDiffCard';
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  A: { label: 'Added', color: 'text-green-500' },
-  M: { label: 'Modified', color: 'text-yellow-500' },
-  D: { label: 'Deleted', color: 'text-red-500' },
-  R: { label: 'Renamed', color: 'text-blue-500' },
+  A: { label: 'Added', color: 'text-[hsl(var(--success))]' },
+  M: { label: 'Modified', color: 'text-[hsl(var(--warning))]' },
+  D: { label: 'Deleted', color: 'text-destructive' },
+  R: { label: 'Renamed', color: 'text-[hsl(var(--info))]' },
 };
 
 interface GitDiffModalProps {

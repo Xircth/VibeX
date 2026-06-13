@@ -64,7 +64,7 @@ export function getWysiwygInitialConfig(
             : 'list-none pl-4',
         },
       },
-      link: 'text-blue-600 dark:text-blue-400 underline underline-offset-2 cursor-pointer hover:text-blue-800 dark:hover:text-blue-300',
+      link: 'cursor-pointer text-primary underline underline-offset-2 hover:text-primary/80',
       text: {
         bold: isSessionInputMinimalPreset ? '' : 'font-semibold',
         italic: isSessionInputMinimalPreset ? '' : 'italic',

@@ -79,7 +79,7 @@ export function AppearanceSettings() {
           <Sun className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-sm font-semibold">主题</h3>
         </div>
-        <div className="settings-card overflow-hidden rounded-xl border">
+        <div className="settings-card overflow-hidden rounded-lg border">
           <div className="settings-row flex items-center justify-between gap-4">
             <div className="text-sm font-medium">应用主题</div>
             <Select
@@ -102,7 +102,7 @@ export function AppearanceSettings() {
       </section>
 
       {hasUnsavedChanges ? (
-        <div className="sticky bottom-0 z-10 mt-4 -mx-4 border-t bg-background/80 px-4 py-3 backdrop-blur-sm">
+        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
           <div className="mx-auto flex max-w-2xl items-center justify-between">
             <span className="text-xs text-muted-foreground">
               有未保存的更改

@@ -257,7 +257,7 @@ export function NoServerContent({
                   href="https://github.com/vibex/vibex-web-companion"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
+                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
                   查看 Companion 仓库

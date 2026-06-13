@@ -1,73 +1,49 @@
 /* ============================================
- * AI Conversation — CSS Variables
- * Light mode (:root) and dark mode (.dark) tokens
+ * AI Conversation CSS Variables
+ * Compatibility aliases over the Tahoe app-design token layer.
  * ============================================ */
 
-/* --- CSS Variables (Light Mode — mossx inspired) --- */
 :root,
 .legacy-design {
   --conv-user-bg: hsl(var(--primary, 215 50% 55%));
-  --conv-user-text: #ffffff;
+  --conv-user-text: hsl(var(--primary-foreground, 0 0% 100%));
   --conv-user-bubble-radius: 12px 12px 2px 12px;
 
-  --conv-thinking-border: #7c3aed;
-  --conv-thinking-bg: var(--surface-control, #f5f3ff);
+  --conv-thinking-border: hsl(var(--primary, 215 50% 55%) / 0.42);
+  --conv-thinking-bg: var(--surface-control);
 
-  --conv-tool-success: #22c55e;
-  --conv-tool-error: #ef4444;
-  --conv-tool-pending: #eab308;
+  --conv-tool-success: hsl(var(--success));
+  --conv-tool-error: hsl(var(--destructive));
+  --conv-tool-pending: hsl(var(--warning));
 
-  --conv-border-subtle: var(--border-subtle, rgba(15, 23, 36, 0.18));
-  --conv-border-strong: var(--border-strong, rgba(15, 23, 36, 0.32));
-  --conv-surface-card: var(--surface-card, rgba(255, 255, 255, 0.85));
-  --conv-surface-control: var(--surface-control, rgba(15, 23, 36, 0.06));
-  --conv-surface-control-hover: var(
-    --surface-control-hover,
-    rgba(15, 23, 36, 0.1)
-  );
-  --conv-text-primary: var(--text-strong, #111318);
-  --conv-text-secondary: var(--text-muted, rgba(17, 20, 28, 0.72));
-  --conv-text-tertiary: var(--text-faint, rgba(17, 20, 28, 0.5));
+  --conv-border-subtle: var(--border-content);
+  --conv-border-strong: var(--border-strong);
+  --conv-surface-card: var(--surface-content);
+  --conv-surface-control: var(--surface-control);
+  --conv-surface-control-hover: var(--surface-control-hover);
+  --conv-text-primary: var(--text-strong);
+  --conv-text-secondary: var(--text-muted);
+  --conv-text-tertiary: var(--text-faint);
   --conv-tool-icon: hsl(var(--primary, 215 50% 55%));
 
-  --conv-shimmer-from: rgba(0, 120, 212, 0.15);
-  --conv-shimmer-via: rgba(0, 120, 212, 0.45);
-  --conv-shimmer-to: rgba(0, 120, 212, 0.15);
+  --conv-shimmer-from: hsl(var(--primary, 215 50% 55%) / 0.14);
+  --conv-shimmer-via: hsl(var(--primary, 215 50% 55%) / 0.38);
+  --conv-shimmer-to: hsl(var(--primary, 215 50% 55%) / 0.14);
 
-  --conv-code-bg: #f6f8fa;
-  --conv-code-text: #24292f;
-  --conv-terminal-bg: var(--conv-surface-control);
-  --conv-terminal-text: var(--conv-text-primary);
+  --conv-code-bg: var(--surface-control);
+  --conv-code-text: var(--text-strong);
+  --conv-terminal-bg: hsl(var(--console-background));
+  --conv-terminal-text: hsl(var(--console-foreground));
 }
 
 .dark,
 .legacy-design.dark,
 .dark .legacy-design {
   --conv-user-bg: hsl(var(--primary, 215 50% 62%));
-  --conv-user-text: #ffffff;
-
-  --conv-thinking-border: #8b5cf6;
-  --conv-thinking-bg: var(--surface-control, rgba(139, 92, 246, 0.08));
-
-  --conv-border-subtle: var(--border-subtle, rgba(255, 255, 255, 0.2));
-  --conv-border-strong: var(--border-strong, rgba(255, 255, 255, 0.32));
-  --conv-surface-card: var(--surface-card, rgba(255, 255, 255, 0.06));
-  --conv-surface-control: var(--surface-control, rgba(255, 255, 255, 0.08));
-  --conv-surface-control-hover: var(
-    --surface-control-hover,
-    rgba(255, 255, 255, 0.14)
-  );
-  --conv-text-primary: var(--text-strong, #f0f1f3);
-  --conv-text-secondary: var(--text-muted, rgba(229, 231, 235, 0.8));
-  --conv-text-tertiary: var(--text-faint, rgba(229, 231, 235, 0.55));
+  --conv-user-text: hsl(var(--primary-foreground, 0 0% 100%));
+  --conv-thinking-border: hsl(var(--primary, 215 50% 62%) / 0.44);
   --conv-tool-icon: hsl(var(--primary, 215 50% 62%));
-
-  --conv-shimmer-from: rgba(96, 165, 250, 0.1);
-  --conv-shimmer-via: rgba(96, 165, 250, 0.35);
-  --conv-shimmer-to: rgba(96, 165, 250, 0.1);
-
-  --conv-code-bg: #0d1117;
-  --conv-code-text: #e6edf3;
-  --conv-terminal-bg: #0f1117;
-  --conv-terminal-text: #7ee787;
+  --conv-shimmer-from: hsl(var(--primary, 215 50% 62%) / 0.12);
+  --conv-shimmer-via: hsl(var(--primary, 215 50% 62%) / 0.32);
+  --conv-shimmer-to: hsl(var(--primary, 215 50% 62%) / 0.12);
 }

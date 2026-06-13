@@ -42,10 +42,10 @@ function DiffHunk({ diffHunk }: { diffHunk: string }) {
       {lines.map((line, i) => {
         let lineClass = 'block';
         if (line.startsWith('+') && !line.startsWith('+++')) {
-          lineClass =
-            'block bg-green-500/20 text-green-700 dark:text-green-400';
+          lineClass = 'block bg-[var(--diff-added-bg)] text-[var(--diff-added-fg)]';
         } else if (line.startsWith('-') && !line.startsWith('---')) {
-          lineClass = 'block bg-red-500/20 text-red-700 dark:text-red-400';
+          lineClass =
+            'block bg-[var(--diff-removed-bg)] text-[var(--diff-removed-fg)]';
         } else if (line.startsWith('@@')) {
           lineClass = 'block text-muted-foreground';
         }

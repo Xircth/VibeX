@@ -20,7 +20,7 @@ describe('session composer todo helpers', () => {
   it('derives completed todo presentation', () => {
     expect(getComposerTodoItemView('completed')).toEqual({
       marker: '\u2713',
-      markerClassName: 'text-green-500',
+      markerClassName: 'text-[hsl(var(--success))]',
       contentClassName: '',
     });
   });
@@ -28,7 +28,7 @@ describe('session composer todo helpers', () => {
   it('derives both running status spellings identically', () => {
     const expected = {
       marker: '\u25CF',
-      markerClassName: 'text-blue-500',
+      markerClassName: 'text-primary',
       contentClassName: '',
     };
 

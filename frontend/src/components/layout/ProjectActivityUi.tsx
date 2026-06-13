@@ -50,24 +50,24 @@ export function resolveProjectVisualStateMeta(
     case 'success-unread':
       return {
         label: '有刚完成未查看的会话',
-        dotClassName: 'bg-emerald-500',
+        dotClassName: 'bg-[hsl(var(--success))]',
         pulseClassName: 'animate-pulse',
       };
     case 'success':
       return {
         label: '所有会话已完成且已查看',
-        dotClassName: 'bg-emerald-500',
+        dotClassName: 'bg-[hsl(var(--success))]',
       };
     case 'error-unread':
       return {
         label: '会话执行报错需查看',
-        dotClassName: 'bg-red-500',
+        dotClassName: 'bg-destructive',
         pulseClassName: 'animate-pulse',
       };
     case 'error':
       return {
         label: '会话报错已查看',
-        dotClassName: 'bg-red-500',
+        dotClassName: 'bg-destructive',
       };
     default:
       return {
@@ -117,9 +117,9 @@ export function ProjectRecentSessionsPopover({
                   className={cn(
                     'h-2 w-2 rounded-full',
                     session.visualState === 'error'
-                      ? 'bg-red-500'
+                      ? 'bg-destructive'
                       : session.visualState === 'success'
-                        ? 'bg-emerald-500'
+                        ? 'bg-[hsl(var(--success))]'
                         : 'bg-muted-foreground/60'
                   )}
                 />

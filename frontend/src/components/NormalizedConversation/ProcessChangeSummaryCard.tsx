@@ -149,10 +149,10 @@ function ProcessChangeFileGroupRenderer({
         <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {group.items.length} changes
         </span>
-        <span className="font-mono text-xs text-green-600 dark:text-green-400">
+        <span className="font-mono text-xs text-[hsl(var(--success))]">
           +{stats.additions}
         </span>
-        <span className="font-mono text-xs text-red-600 dark:text-red-400">
+        <span className="font-mono text-xs text-destructive">
           -{stats.deletions}
         </span>
       </button>
@@ -279,10 +279,10 @@ export function ProcessChangeSummaryCard({
             />
             <div className="min-w-0 flex-1">
               <span className="font-medium">{fileCount} files changed</span>
-              <span className="ml-2 text-green-600 dark:text-green-400">
+              <span className="ml-2 text-[hsl(var(--success))]">
                 +{additions}
               </span>
-              <span className="ml-1 text-red-600 dark:text-red-400">
+              <span className="ml-1 text-destructive">
                 -{deletions}
               </span>
             </div>

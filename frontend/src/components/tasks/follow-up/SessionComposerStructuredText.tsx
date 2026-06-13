@@ -20,24 +20,24 @@ export function getSessionComposerTokenChipClassName(
 ): string {
   const toneClassName =
     token.kind === 'slash'
-      ? 'session-composer-token-chip--slash border-violet-500/35 bg-violet-500/10 text-violet-700 dark:text-violet-300'
+      ? 'session-composer-token-chip--slash border-[hsl(var(--status-running)/0.35)] bg-[hsl(var(--status-running)/0.1)] text-[hsl(var(--status-running))]'
       : token.kind === 'dollar'
-        ? 'session-composer-token-chip--dollar border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+        ? 'session-composer-token-chip--dollar border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
         : token.kind === 'file'
-          ? 'session-composer-token-chip--file border-sky-500/35 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+          ? 'session-composer-token-chip--file border-[hsl(var(--info)/0.35)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]'
           : token.kind === 'element'
-            ? 'session-composer-token-chip--element border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-300'
-            : 'session-composer-token-chip--tag border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+            ? 'session-composer-token-chip--element border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.1)] text-primary'
+            : 'session-composer-token-chip--tag border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]';
   const hoverClassName =
     token.kind === 'file'
-      ? 'hover:border-sky-500/55 hover:bg-sky-500/15'
+      ? 'hover:border-[hsl(var(--info)/0.55)] hover:bg-[hsl(var(--info)/0.15)]'
       : token.kind === 'element'
-        ? 'hover:border-blue-500/55 hover:bg-blue-500/15'
+        ? 'hover:border-[hsl(var(--primary)/0.55)] hover:bg-[hsl(var(--primary)/0.15)]'
         : token.kind === 'slash'
-          ? 'hover:border-violet-500/55 hover:bg-violet-500/15'
+          ? 'hover:border-[hsl(var(--status-running)/0.55)] hover:bg-[hsl(var(--status-running)/0.15)]'
           : token.kind === 'dollar'
-            ? 'hover:border-emerald-500/55 hover:bg-emerald-500/15'
-            : 'hover:border-amber-500/60 hover:bg-amber-500/15';
+            ? 'hover:border-[hsl(var(--success)/0.55)] hover:bg-[hsl(var(--success)/0.15)]'
+            : 'hover:border-[hsl(var(--warning)/0.6)] hover:bg-[hsl(var(--warning)/0.15)]';
 
   return cn(
     'inline-flex max-w-[220px] cursor-default select-none items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] leading-4 transition-colors',

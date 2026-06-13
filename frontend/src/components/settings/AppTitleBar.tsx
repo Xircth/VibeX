@@ -17,13 +17,13 @@ export function AppTitleBar({
   className,
   showWindowControls = true,
 }: AppTitleBarProps) {
-  // On Windows, always show window controls since we use decorations: false
+  // Windows keeps native-style custom controls because these windows are frameless.
   const isWindows = navigator.platform.toLowerCase().includes('win');
 
   return (
     <div
       className={cn(
-        'relative h-8 shrink-0 border-b bg-muted/70 select-none',
+        'settings-titlebar relative h-8 shrink-0 select-none text-foreground',
         className
       )}
     >

@@ -10,9 +10,17 @@ import {
 } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { TaskWithAttemptStatus } from 'shared/types';
+import type {
+  MessageTurn,
+  SessionStats,
+  TaskWithAttemptStatus,
+} from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { TurnStats } from '@/components/conversation-thread/TurnStats';
+import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
+import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
+import { agentUsageToSnapshot } from '@/hooks/useConversationHistory/conversationTokenUsage';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import {
   findActiveConversationMessageNavEntry,
@@ -29,6 +37,7 @@ import { cn } from '@/lib/utils';
 import {
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
+  getAgentSessionModel,
   getVirtualRowTranslateY,
   isConversationNearBottom,
   pendingAgentPermissionsForSession,
@@ -65,6 +74,42 @@ export function buildTimelineNavEntries(
   return entries;
 }
 
+function assistantCopyText(turn: MessageTurn): string {
+  return turn.blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n\n');
+}
+
+function contextWindowFrom(sessionStats: SessionStats | null): number | null {
+  return sessionStats?.context_window_max_tokens != null
+    ? Number(sessionStats.context_window_max_tokens)
+    : null;
+}
+
+/** Turn stats for a settled assistant turn, sourced from the parsed MessageTurn. */
+function buildSettledTurnStats(
+  turn: MessageTurn,
+  sessionStats: SessionStats | null
+): TurnStatsData {
+  const usage = turn.usage ?? null;
+  return {
+    model: turn.model ?? null,
+    startedAt: turn.timestamp,
+    totalTokens: usage
+      ? Number(usage.input_tokens) +
+        Number(usage.output_tokens) +
+        Number(usage.cache_creation_input_tokens) +
+        Number(usage.cache_read_input_tokens)
+      : null,
+    contextWindow: contextWindowFrom(sessionStats),
+    cacheReadTokens: usage ? Number(usage.cache_read_input_tokens) : null,
+    cacheWriteTokens: usage ? Number(usage.cache_creation_input_tokens) : null,
+    elapsedMs: turn.duration_ms != null ? Number(turn.duration_ms) : null,
+    completedAt: turn.completed_at ?? null,
+    stopReason: null,
+  };
+}
+
 /**
  * Conversation view backed by the unified, codeg-aligned timeline: persisted
  * transcript (re-parsed from the agent's session file) merged with the live
@@ -92,10 +137,28 @@ const AgentTimelineConversation = forwardRef<
     [sessionId, agentWorkbench.eventsByScope]
   );
 
-  const { timeline, detailLoading } = useConversationRuntime({
+  const { timeline, detailLoading, sessionStats } = useConversationRuntime({
     conversationId: sessionId,
     events,
   });
+
+  // Model + live token usage for the streaming turn's inline stats.
+  const agentModel = useMemo(
+    () =>
+      getAgentSessionModel(
+        sessionId ? agentWorkbench.sessionConfigOptionsByScope[sessionId] : null
+      ),
+    [agentWorkbench.sessionConfigOptionsByScope, sessionId]
+  );
+  const liveStats = useMemo<TurnStatsData>(() => {
+    const usage = sessionId ? agentWorkbench.usageByScope[sessionId] : undefined;
+    const snapshot = usage ? agentUsageToSnapshot(usage) : null;
+    return {
+      model: agentModel ?? null,
+      totalTokens: snapshot?.totalTokens ?? null,
+      contextWindow: snapshot?.contextWindow ?? contextWindowFrom(sessionStats),
+    };
+  }, [agentModel, agentWorkbench.usageByScope, sessionId, sessionStats]);
 
   const markdownContext = useMemo(
     () => ({
@@ -297,6 +360,50 @@ const AgentTimelineConversation = forwardRef<
     onAtBottomChange?.(true);
   }, [onAtBottomChange, sessionId]);
 
+  // Inline turn stats after each assistant turn, in the same position as the
+  // legacy path — re-sourced from the parsed MessageTurn / live usage.
+  const renderTurnStats = useCallback(
+    (row: ConversationTimelineTurn, index: number) => {
+      if (row.turn.role !== 'assistant') return null;
+      const jumpTarget = findPreviousUserMessageVirtualIndex(
+        userMessageIndexes,
+        index
+      );
+      const onJumpBack =
+        jumpTarget === null
+          ? null
+          : () => {
+              detachFromBottom();
+              rowVirtualizer.scrollToIndex(jumpTarget, {
+                align: 'center',
+                behavior: 'smooth',
+              });
+            };
+      const copyText = assistantCopyText(row.turn);
+      return row.phase === 'streaming' ? (
+        <LiveTurnStats
+          stats={liveStats}
+          startedAt={row.turn.timestamp}
+          copyText={copyText}
+          onJumpBack={onJumpBack}
+        />
+      ) : (
+        <TurnStats
+          stats={buildSettledTurnStats(row.turn, sessionStats)}
+          copyText={copyText}
+          onJumpBack={onJumpBack}
+        />
+      );
+    },
+    [
+      detachFromBottom,
+      liveStats,
+      rowVirtualizer,
+      sessionStats,
+      userMessageIndexes,
+    ]
+  );
+
   return (
     <div
       ref={containerRef}
@@ -349,6 +456,7 @@ const AgentTimelineConversation = forwardRef<
                       context={markdownContext}
                       inProgressToolCallIds={row.inProgressToolCallIds}
                     />
+                    {renderTurnStats(row, virtualRow.index)}
                   </div>
                 );
               })}

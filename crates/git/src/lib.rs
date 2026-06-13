@@ -17,6 +17,27 @@ pub use types::*;
 pub use utils::path::ALWAYS_SKIP_DIRS;
 pub use validation::is_valid_branch_prefix;
 
+use std::sync::Once;
+
+static OWNER_VALIDATION_INIT: Once = Once::new();
+
+/// Disable libgit2's repository ownership validation.
+///
+/// On Windows the owner recorded on a user-created directory can differ from the
+/// running process token (elevation, copied/moved folders, network shares), so
+/// libgit2 rejects the user's own repositories with `class=Config; code=Owner`.
+/// The CLI path already trusts these repos via `-c safe.directory=<path>`; this
+/// mirrors that for the libgit2 path. Runs once, ahead of any git operation.
+fn ensure_libgit2_owner_validation_disabled() {
+    OWNER_VALIDATION_INIT.call_once(|| {
+        // SAFETY: libgit2 global options must be set before concurrent git use;
+        // `Once` guarantees a single call before the first GitService git op.
+        unsafe {
+            let _ = git2::opts::set_verify_owner_validation(false);
+        }
+    });
+}
+
 /// Service for managing Git operations in task execution workflows
 #[derive(Clone)]
 pub struct GitService {}
@@ -48,6 +69,7 @@ impl GitService {
 
     /// Create a new GitService for the given repository path
     pub fn new() -> Self {
+        ensure_libgit2_owner_validation_disabled();
         Self {}
     }
 

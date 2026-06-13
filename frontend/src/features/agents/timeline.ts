@@ -162,21 +162,22 @@ function mergeText(
 
 const FINAL_TOOL_STATUSES = new Set(['completed', 'failed']);
 
-/**
- * Derive the in-flight assistant turn from accumulated event envelopes.
- *
- * Reads the events of the latest still-running prompt (the last `prompt_started`
- * with no matching `prompt_finished`) and folds them into a single assistant
- * `MessageTurn`, matching how the backend parser groups a completed round.
- * Returns no turns when no prompt is active — the finished reply then comes from
- * the persisted/local phases instead.
- */
-export function buildStreamingTurns(
-  envelopes: AgentEventEnvelope[],
-  conversationId: string
-): StreamingTurns {
-  const inProgressToolCallIds = new Set<string>();
+/** The prompt currently being answered: the last `prompt_started` not yet finished. */
+export interface ActivePrompt {
+  id: string;
+  /** Index of the `prompt_started` envelope within `envelopes`. */
+  index: number;
+  textPreview: string;
+  startedAt: string;
+}
 
+/**
+ * Locate the active prompt — the latest `prompt_started` with no matching
+ * `prompt_finished`. Returns null when the conversation is idle.
+ */
+export function findActivePrompt(
+  envelopes: AgentEventEnvelope[]
+): ActivePrompt | null {
   const finishedPromptIds = new Set<string>();
   for (const envelope of envelopes) {
     if (envelope.event.kind === 'prompt_finished') {
@@ -184,23 +185,44 @@ export function buildStreamingTurns(
     }
   }
 
-  let activeStartIndex = -1;
-  let activePromptId: string | null = null;
-  let activeStartedAt = '';
+  let active: ActivePrompt | null = null;
   envelopes.forEach((envelope, index) => {
     if (
       envelope.event.kind === 'prompt_started' &&
       !finishedPromptIds.has(String(envelope.event.snapshot.id))
     ) {
-      activeStartIndex = index;
-      activePromptId = String(envelope.event.snapshot.id);
-      activeStartedAt = envelope.event.snapshot.created_at;
+      active = {
+        id: String(envelope.event.snapshot.id),
+        index,
+        textPreview: envelope.event.snapshot.text_preview,
+        startedAt: envelope.event.snapshot.created_at,
+      };
     }
   });
+  return active;
+}
 
-  if (activeStartIndex === -1 || activePromptId === null) {
+/**
+ * Derive the in-flight assistant turn from accumulated event envelopes.
+ *
+ * Reads the events of the latest still-running prompt and folds them into a
+ * single assistant `MessageTurn`, matching how the backend parser groups a
+ * completed round. Returns no turns when no prompt is active — the finished
+ * reply then comes from the persisted/local phases instead.
+ */
+export function buildStreamingTurns(
+  envelopes: AgentEventEnvelope[],
+  conversationId: string
+): StreamingTurns {
+  const inProgressToolCallIds = new Set<string>();
+
+  const active = findActivePrompt(envelopes);
+  if (active === null) {
     return { turns: [], inProgressToolCallIds };
   }
+  const activeStartIndex = active.index;
+  const activePromptId = active.id;
+  const activeStartedAt = active.startedAt;
 
   const blocks: ContentBlock[] = [];
   const resultIndexByToolId = new Map<string, number>();

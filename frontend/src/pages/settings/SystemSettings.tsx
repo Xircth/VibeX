@@ -472,9 +472,6 @@ export function SystemSettings() {
     <div className="mx-auto max-w-2xl px-4 py-6">
       <div className="mb-4">
         <h2 className="text-base font-semibold">系统设置</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          配置提示词优化、通知、标签提示词与本地数据维护。
-        </p>
       </div>
 
       <div className="space-y-7">

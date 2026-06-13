@@ -3,7 +3,7 @@ use futures_io::Error as FuturesIoError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::Type;
-use strum_macros::{Display, EnumDiscriminants, EnumString, VariantNames};
+use strum_macros::{Display, EnumString};
 use thiserror::Error;
 use ts_rs::TS;
 
@@ -61,33 +61,58 @@ pub enum ExecutorError {
     UnsupportedExecutorConfig(String),
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, PartialEq, TS, Display, EnumDiscriminants, VariantNames,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Display)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
-#[strum_discriminants(
-    name(BaseCodingAgent),
-    derive(
-        EnumString,
-        Hash,
-        strum_macros::Display,
-        Serialize,
-        Deserialize,
-        TS,
-        Type
-    ),
-    strum(serialize_all = "SCREAMING_SNAKE_CASE"),
-    ts(use_ts_enum),
-    serde(rename_all = "SCREAMING_SNAKE_CASE"),
-    sqlx(type_name = "TEXT", rename_all = "SCREAMING_SNAKE_CASE")
-)]
 pub enum CodingAgent {
     ClaudeCode(claude::ClaudeCode),
     Codex(codex::Codex),
     Opencode(opencode::Opencode),
     #[cfg(feature = "qa-mode")]
     QaMock(QaMockExecutor),
+}
+
+/// Stable agent identity used as the executor key in profiles, sessions, and
+/// the DB `executor` column.
+///
+/// Previously this was the strum discriminant of [`CodingAgent`], which tied
+/// the set of selectable agents to the CLI executors that build commands
+/// (Claude Code, Codex, OpenCode). It is now a standalone enum so ACP-native
+/// agents that have no CLI executor — Gemini, OpenClaw, Cline, Hermes — can be
+/// selected for a session and run through the ACP runtime.
+///
+/// Variant names stay single-word (like `Opencode`) so `Display`/serde emit
+/// `OPENCLAW`/`CLINE`/`HERMES`, the keys `agents::agent_type_from_executor_key`
+/// already understands.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type, EnumString, Display,
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+#[ts(use_ts_enum)]
+#[sqlx(type_name = "TEXT", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BaseCodingAgent {
+    ClaudeCode,
+    Codex,
+    Opencode,
+    Gemini,
+    Openclaw,
+    Cline,
+    Hermes,
+    #[cfg(feature = "qa-mode")]
+    QaMock,
+}
+
+impl From<&CodingAgent> for BaseCodingAgent {
+    fn from(agent: &CodingAgent) -> Self {
+        match agent {
+            CodingAgent::ClaudeCode(_) => BaseCodingAgent::ClaudeCode,
+            CodingAgent::Codex(_) => BaseCodingAgent::Codex,
+            CodingAgent::Opencode(_) => BaseCodingAgent::Opencode,
+            #[cfg(feature = "qa-mode")]
+            CodingAgent::QaMock(_) => BaseCodingAgent::QaMock,
+        }
+    }
 }
 
 /// Result communicated through the exit signal.

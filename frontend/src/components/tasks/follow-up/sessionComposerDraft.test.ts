@@ -511,8 +511,8 @@ describe('session composer draft helpers', () => {
       variant: 'CONFIG',
     };
     const profiles = {
-      [BaseCodingAgent.COPILOT]: { DEFAULT: {} },
-      [BaseCodingAgent.DROID]: { MOBILE: {} },
+      [BaseCodingAgent.CLINE]: { DEFAULT: {} },
+      [BaseCodingAgent.OPENCLAW]: { MOBILE: {} },
     } as unknown as ExecutorConfigs['executors'];
 
     const baseInput = {
@@ -522,7 +522,7 @@ describe('session composer draft helpers', () => {
         'session-1': createdProfile,
       },
       sessionId: 'session-1',
-      sessionExecutor: BaseCodingAgent.AMP,
+      sessionExecutor: BaseCodingAgent.HERMES,
       configExecutorProfile: configProfile,
       profiles,
     };
@@ -548,7 +548,7 @@ describe('session composer draft helpers', () => {
         latestProfileId: null,
         sessionId: 'unknown-session',
       })
-    ).toEqual({ executor: BaseCodingAgent.AMP, variant: null });
+    ).toEqual({ executor: BaseCodingAgent.HERMES, variant: null });
     expect(
       getDefaultExecutorProfile({
         ...baseInput,
@@ -567,7 +567,7 @@ describe('session composer draft helpers', () => {
         sessionExecutor: null,
         configExecutorProfile: null,
       })
-    ).toEqual({ executor: BaseCodingAgent.COPILOT, variant: null });
+    ).toEqual({ executor: BaseCodingAgent.CLINE, variant: null });
     expect(
       getDefaultExecutorProfile({
         ...baseInput,

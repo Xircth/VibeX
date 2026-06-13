@@ -72,9 +72,6 @@ export function AppearanceSettings() {
     <div className="mx-auto max-w-2xl px-4 py-6">
       <div className="mb-4">
         <h2 className="text-base font-semibold">外观</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          调整应用界面的主题显示。
-        </p>
       </div>
 
       <section className="settings-section space-y-3">

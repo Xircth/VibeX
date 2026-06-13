@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
 
 use agents::{AgentCapability, agent_capabilities, agent_type_from_executor_key};
 use db::models::{
@@ -15,7 +12,6 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::executors::BaseCodingAgent;
 use serde::Serialize;
 use services::services::container::ContainerService;
 use sqlx::types::chrono::{DateTime, Utc};
@@ -59,8 +55,7 @@ fn derive_session_continuity_mode(
     }
 
     if executor
-        .and_then(|value| BaseCodingAgent::from_str(value).ok())
-        .and_then(|executor| agent_type_from_executor_key(&executor.to_string()))
+        .and_then(agent_type_from_executor_key)
         .map(|agent_type| agent_capabilities(agent_type).contains(&AgentCapability::SessionFork))
         .unwrap_or(false)
     {

@@ -174,9 +174,6 @@ export function EditorSettings() {
     <div className="mx-auto max-w-2xl px-4 py-6">
       <div className="mb-4">
         <h2 className="text-base font-semibold">编辑设置</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          配置输入交互、编辑器、终端、Git 与文件预览显示效果。
-        </p>
       </div>
 
       <div className="space-y-7">

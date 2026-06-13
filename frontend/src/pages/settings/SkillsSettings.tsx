@@ -233,9 +233,6 @@ export function SkillsSettings() {
       <div className="flex h-full w-64 shrink-0 flex-col border-r">
         <div className="shrink-0 border-b px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground">技能</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            按代理查看本地技能和可调用命令
-          </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {SUPPORTED_AGENTS.map((agent) => (
               <Button

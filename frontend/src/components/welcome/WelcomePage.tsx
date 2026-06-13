@@ -291,7 +291,7 @@ export function WelcomePage() {
 
       {contextMenu && contextMenuStyle ? (
         <div
-          className="fixed z-[1000] min-w-[180px] rounded-xl border border-border/70 bg-background/96 p-1 shadow-2xl backdrop-blur-md"
+          className="fixed z-[1000] min-w-[180px] rounded-xl border border-border/70 bg-popover p-1 text-popover-foreground shadow-lg"
           style={contextMenuStyle}
           onContextMenu={(event) => event.preventDefault()}
         >

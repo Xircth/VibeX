@@ -21,6 +21,12 @@ export function agentTypeFromExecutor(executor: BaseCodingAgent): AgentType {
       return 'open_code';
     case BaseCodingAgent.GEMINI:
       return 'gemini';
+    case BaseCodingAgent.OPENCLAW:
+      return 'open_claw';
+    case BaseCodingAgent.CLINE:
+      return 'cline';
+    case BaseCodingAgent.HERMES:
+      return 'hermes';
     default:
       throw new Error(`ACP-native agent is not registered for ${executor}`);
   }

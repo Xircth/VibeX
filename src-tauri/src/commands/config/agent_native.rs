@@ -125,7 +125,6 @@ pub(crate) async fn read_agent_native_configs(
             })
         }
         BaseCodingAgent::ClaudeCode => Ok(empty_configs()),
-        #[allow(unreachable_patterns)]
         _ => Ok(empty_configs()),
     }
 }

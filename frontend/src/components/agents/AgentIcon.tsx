@@ -1,3 +1,4 @@
+import { Bot } from 'lucide-react';
 import { BaseCodingAgent, ThemeMode } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
 import { cn } from '@/lib/utils';
@@ -5,6 +6,28 @@ import { cn } from '@/lib/utils';
 type AgentIconProps = {
   agent: BaseCodingAgent | null | undefined;
   className?: string;
+};
+
+/** Display name for every agent. Exhaustive over `BaseCodingAgent`. */
+const AGENT_NAMES: Record<BaseCodingAgent, string> = {
+  [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code',
+  [BaseCodingAgent.CODEX]: 'Codex',
+  [BaseCodingAgent.OPENCODE]: 'OpenCode',
+  [BaseCodingAgent.GEMINI]: 'Gemini',
+  [BaseCodingAgent.OPENCLAW]: 'OpenClaw',
+  [BaseCodingAgent.CLINE]: 'Cline',
+  [BaseCodingAgent.HERMES]: 'Hermes',
+};
+
+/**
+ * Agents that ship a themed SVG under `public/agents`. Agents missing here fall
+ * back to a generic glyph so the picker never renders a broken image.
+ */
+const AGENT_ICON_BASENAMES: Partial<Record<BaseCodingAgent, string>> = {
+  [BaseCodingAgent.CLAUDE_CODE]: 'claude',
+  [BaseCodingAgent.CODEX]: 'codex',
+  [BaseCodingAgent.OPENCODE]: 'opencode',
+  [BaseCodingAgent.GEMINI]: 'gemini',
 };
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
@@ -20,82 +43,26 @@ export function getAgentName(
   agent: BaseCodingAgent | null | undefined
 ): string {
   if (!agent) return 'Agent';
-  switch (agent) {
-    case BaseCodingAgent.CLAUDE_CODE:
-      return 'Claude Code';
-    case BaseCodingAgent.AMP:
-      return 'AMP';
-    case BaseCodingAgent.GEMINI:
-      return 'Gemini';
-    case BaseCodingAgent.CODEX:
-      return 'Codex';
-    case BaseCodingAgent.OPENCODE:
-      return 'OpenCode';
-    case BaseCodingAgent.CURSOR_AGENT:
-      return 'Cursor';
-    case BaseCodingAgent.QWEN_CODE:
-      return 'Qwen';
-    case BaseCodingAgent.COPILOT:
-      return 'Copilot';
-    case BaseCodingAgent.DROID:
-      return 'Droid';
-    case BaseCodingAgent.AUGGIE:
-      return 'Auggie';
-  }
+  return AGENT_NAMES[agent] ?? agent;
 }
 
 export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
   const { theme } = useTheme();
-  const resolvedTheme = getResolvedTheme(theme);
-  const isDark = resolvedTheme === 'dark';
-  const suffix = isDark ? '-dark' : '-light';
+  const suffix = getResolvedTheme(theme) === 'dark' ? '-dark' : '-light';
 
   if (!agent) {
     return null;
   }
 
-  const agentName = getAgentName(agent);
-  let iconPath = '';
-
-  switch (agent) {
-    case BaseCodingAgent.CLAUDE_CODE:
-      iconPath = `/agents/claude${suffix}.svg`;
-      break;
-    case BaseCodingAgent.AMP:
-      iconPath = `/agents/amp${suffix}.svg`;
-      break;
-    case BaseCodingAgent.GEMINI:
-      iconPath = `/agents/gemini${suffix}.svg`;
-      break;
-    case BaseCodingAgent.CODEX:
-      iconPath = `/agents/codex${suffix}.svg`;
-      break;
-    case BaseCodingAgent.OPENCODE:
-      iconPath = `/agents/opencode${suffix}.svg`;
-      break;
-    case BaseCodingAgent.CURSOR_AGENT:
-      iconPath = `/agents/cursor${suffix}.svg`;
-      break;
-    case BaseCodingAgent.QWEN_CODE:
-      iconPath = `/agents/qwen${suffix}.svg`;
-      break;
-    case BaseCodingAgent.COPILOT:
-      iconPath = `/agents/copilot${suffix}.svg`;
-      break;
-    case BaseCodingAgent.DROID:
-      iconPath = `/agents/droid${suffix}.svg`;
-      break;
-    case BaseCodingAgent.AUGGIE:
-      iconPath = `/agents/auggie${suffix}.svg`;
-      break;
-    default:
-      return null;
+  const basename = AGENT_ICON_BASENAMES[agent];
+  if (!basename) {
+    return <Bot className={cn('shrink-0', className)} />;
   }
 
   return (
     <img
-      src={iconPath}
-      alt={agentName}
+      src={`/agents/${basename}${suffix}.svg`}
+      alt={getAgentName(agent)}
       className={cn('block shrink-0 object-contain', className)}
     />
   );

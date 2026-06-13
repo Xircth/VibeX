@@ -96,9 +96,6 @@ export function ShortcutSettings() {
     <div className="mx-auto max-w-2xl px-4 py-6">
       <div className="mb-4">
         <h2 className="text-base font-semibold">交互</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          配置输入行为，并查看已经接入真实处理逻辑的快捷键。
-        </p>
       </div>
 
       <div className="space-y-3">

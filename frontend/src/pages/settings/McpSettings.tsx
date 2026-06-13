@@ -307,9 +307,6 @@ export function McpSettings() {
         {/* Header */}
         <div className="shrink-0 border-b px-4 py-3">
           <h2 className="text-sm font-semibold text-foreground">MCP 服务器</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            为每个代理配置 MCP 工具
-          </p>
         </div>
 
         {/* Agent List */}

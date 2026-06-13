@@ -3,6 +3,7 @@ use std::sync::Arc;
 use agents::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentEvent, AgentEventEnvelope,
     AgentPromptSnapshot, AgentPromptStatus, AgentSessionSnapshot, RuntimeEventSink,
+    executor_key_for,
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
 use db::models::{
@@ -10,6 +11,7 @@ use db::models::{
         AgentRuntimeStore, InsertAgentEvent, UpsertAgentConnection, UpsertAgentPendingPermission,
         UpsertAgentPermissionRequest, UpsertAgentPrompt, UpsertAgentSession, json_kind,
     },
+    conversation::DbConversationSummary,
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -143,6 +145,20 @@ async fn persist_agent_event(
         }
         AgentEvent::SessionCreated { snapshot } => {
             persist_session_snapshot(pool, envelope.workspace_id, snapshot).await?;
+        }
+        AgentEvent::SessionLinked {
+            acp_session_id,
+            agent_type,
+        } => {
+            if let Some(session_id) = envelope.session_id {
+                DbConversationSummary::bind_external_id(
+                    pool,
+                    session_id.0,
+                    acp_session_id,
+                    executor_key_for(*agent_type),
+                )
+                .await?;
+            }
         }
         AgentEvent::PromptStarted { snapshot } => {
             persist_prompt_snapshot(pool, snapshot).await?;

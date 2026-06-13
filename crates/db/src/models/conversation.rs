@@ -211,3 +211,78 @@ impl DbConversationSummary {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::session::{CreateSession, Session};
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    /// Shared in-memory pool with foreign keys disabled — this exercises the
+    /// `bind_external_id` UPDATE in isolation without standing up the full
+    /// workspace/project/task FK graph.
+    async fn migrated_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory db");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        // A migration may re-enable the pragma; force it off on the pooled
+        // connection so the focused UPDATE test needs no FK parents.
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        pool
+    }
+
+    /// Binding an agent's session id onto the conversation row is what lets the
+    /// transcript re-parser locate the on-disk session file later, so verify the
+    /// write is observable both by id and by the (external_id, agent_type) key.
+    #[tokio::test]
+    async fn bind_external_id_round_trips_and_resolves() {
+        let pool = migrated_pool().await;
+        let id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+        Session::create(
+            &pool,
+            &CreateSession {
+                executor: None,
+                task_id: None,
+                name: None,
+                initial_prompt: None,
+                status: None,
+            },
+            id,
+            workspace_id,
+        )
+        .await
+        .expect("create session");
+
+        DbConversationSummary::bind_external_id(&pool, id, "rollout-abc", "claude_code")
+            .await
+            .expect("bind external id");
+
+        let by_id = DbConversationSummary::find_by_id(&pool, id)
+            .await
+            .expect("query by id")
+            .expect("conversation present");
+        assert_eq!(by_id.external_session_id.as_deref(), Some("rollout-abc"));
+        assert_eq!(by_id.agent_type.as_deref(), Some("claude_code"));
+
+        let by_external =
+            DbConversationSummary::find_by_external_id(&pool, "rollout-abc", "claude_code")
+                .await
+                .expect("query by external id")
+                .expect("conversation present");
+        assert_eq!(by_external.id, id);
+    }
+}

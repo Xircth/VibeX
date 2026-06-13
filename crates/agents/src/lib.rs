@@ -80,7 +80,8 @@ pub use preflight::{
     AgentPreflightProbe, AgentPreflightReport, build_preflight_report,
 };
 pub use registry::{
-    AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, registry_entry,
+    AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, executor_key_for,
+    registry_entry,
 };
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,

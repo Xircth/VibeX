@@ -789,7 +789,7 @@ export type PathTemplate = { env_var: string | null, unix: string, windows: stri
 
 export type PlatformBinary = { platform: string, url: string, };
 
-export type RuntimeSnapshot = { sequence: bigint, registry: Array<AgentRegistryEntry>, connections: Array<AgentConnectionSnapshot>, sessions: Array<AgentSessionSnapshot>, prompts: Array<AgentPromptSnapshot>, events: Array<AgentEventEnvelope>, };
+export type RuntimeSnapshot = { sequence: bigint, registry: Array<AgentRegistryEntry>, connections: Array<AgentConnectionSnapshot>, sessions: Array<AgentSessionSnapshot>, prompts: Array<AgentPromptSnapshot>, permissions?: Array<AgentPermissionRequest>, events: Array<AgentEventEnvelope>, };
 
 export type SystemCommand = { cmd: string, args: Array<string>, };
 

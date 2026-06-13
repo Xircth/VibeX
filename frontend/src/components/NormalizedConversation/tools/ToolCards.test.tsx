@@ -6,6 +6,7 @@ import { CommandToolCard } from './CommandToolCard';
 import { FileToolCard } from './FileToolCard';
 import { GenericToolCard } from './GenericToolCard';
 import { SearchToolCard } from './SearchToolCard';
+import { UnifiedDiffPreview } from './UnifiedDiffPreview';
 
 const panelMocks = vi.hoisted(() => ({
   openFilePreview: vi.fn(),
@@ -322,30 +323,22 @@ describe('conversation tool cards', () => {
     expect(screen.getAllByText('high')).toHaveLength(2);
   });
 
-  it('routes file edits to an inline unified diff preview', () => {
+  it('renders file edits as an inline unified diff preview', () => {
     render(
-      <ToolCallCard
-        entry={toolEntry({
-          toolName: 'edit',
-          actionType: {
-            action: 'file_edit',
-            path: 'src/App.tsx',
-            changes: [
-              {
-                action: 'edit',
-                unified_diff: [
-                  'diff --git a/src/App.tsx b/src/App.tsx',
-                  '--- a/src/App.tsx',
-                  '+++ b/src/App.tsx',
-                  '@@ -1,3 +1,3 @@',
-                  '-old line',
-                  '+new line',
-                ].join('\n'),
-                has_line_numbers: true,
-              },
-            ],
-          },
-        })}
+      <UnifiedDiffPreview
+        path="src/App.tsx"
+        change={{
+          action: 'edit',
+          unified_diff: [
+            'diff --git a/src/App.tsx b/src/App.tsx',
+            '--- a/src/App.tsx',
+            '+++ b/src/App.tsx',
+            '@@ -1,3 +1,3 @@',
+            '-old line',
+            '+new line',
+          ].join('\n'),
+          has_line_numbers: true,
+        }}
         expansionKey="inline-diff"
       />
     );

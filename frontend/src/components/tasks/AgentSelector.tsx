@@ -6,8 +6,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
-import { isSupportedAgent, AGENT_DISPLAY_NAMES } from '@/constants/agents';
+import type { ExecutorProfileId } from 'shared/types';
+import { getSupportedAgents, getAgentDisplayName } from '@/constants/agents';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 
 interface AgentSelectorProps {
@@ -29,15 +29,10 @@ export function AgentSelector({
   iconOnly = false,
   dropdownSide = 'bottom',
 }: AgentSelectorProps) {
-  const agents = profiles
-    ? (Object.keys(profiles)
-        .filter(isSupportedAgent)
-        .sort() as BaseCodingAgent[])
-    : [];
+  const agents = getSupportedAgents(profiles);
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedAgentLabel = selectedAgent
-    ? ((AGENT_DISPLAY_NAMES as Record<string, string>)[selectedAgent] ??
-      selectedAgent)
+    ? getAgentDisplayName(selectedAgent)
     : 'Agent';
 
   if (!profiles) return null;
@@ -98,8 +93,7 @@ export function AgentSelector({
               >
                 <span className="flex items-center gap-2">
                   <AgentIcon agent={agent} className="h-3.5 w-3.5" />
-                  {(AGENT_DISPLAY_NAMES as Record<string, string>)[agent] ??
-                    agent}
+                  {getAgentDisplayName(agent)}
                 </span>
               </DropdownMenuItem>
             ))

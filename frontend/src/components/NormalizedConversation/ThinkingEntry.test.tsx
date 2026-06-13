@@ -101,4 +101,23 @@ describe('AggregatedThinkingCard', () => {
     expect(screen.getByText('first hidden thought')).toBeInTheDocument();
     expect(screen.getByText('second hidden thought')).toBeInTheDocument();
   });
+
+  it('opens and shows streaming status for live aggregated thinking', () => {
+    render(
+      <AggregatedThinkingCard
+        expansionKey="aggregate-live"
+        isStreaming
+        entries={[
+          thinkingEntry(
+            'think-live',
+            'live hidden thought',
+            new Date().toISOString()
+          ),
+        ]}
+      />
+    );
+
+    expect(screen.getByText('思考中')).toBeInTheDocument();
+    expect(screen.getByText('live hidden thought')).toBeInTheDocument();
+  });
 });

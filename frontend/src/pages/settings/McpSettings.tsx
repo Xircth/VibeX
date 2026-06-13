@@ -37,7 +37,7 @@ import type { AgentMcpConfig } from '@/lib/api/config';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { mcpServersApi } from '@/lib/api';
 import { McpConfigStrategyGeneral } from '@/lib/mcpStrategies';
-import { isSupportedAgent, AGENT_DISPLAY_NAMES } from '@/constants/agents';
+import { getSupportedAgents, AGENT_DISPLAY_NAMES } from '@/constants/agents';
 
 /* ── types ───────────────────────────────────────────────── */
 
@@ -73,13 +73,8 @@ export function McpSettings() {
   const [search, setSearch] = useState('');
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
 
-  // Available agents from profiles
-  const agents = useMemo(() => {
-    if (!profiles) return [];
-    return Object.keys(profiles)
-      .filter(isSupportedAgent)
-      .sort((a, b) => a.localeCompare(b));
-  }, [profiles]);
+  // Available agents from the backend's real executor profiles.
+  const agents = useMemo(() => getSupportedAgents(profiles), [profiles]);
 
   // Auto-select first agent or current executor
   useEffect(() => {

@@ -32,3 +32,6 @@ Fixture 会话链路覆盖：
 | Cline | direct `cline` command missing; `npm view cline version` = `3.0.24` | no known marker found | Fixture gate passed |
 
 说明：真实 LLM/tool 调用链路可能消耗外部服务且行为不完全确定，本记录把本机 adapter/认证探测作为人工实测准备状态，把可重复的通过证据收口到 fixture integration gate。后续若产品负责人要求成本可接受的 live smoke，可在此表中把对应行从 `Fixture gate passed` 升级为 `Live gate passed`。
+## 2026-06-13 acceptance follow-up clarification
+
+The T1.9 gate currently uses one deterministic in-memory ACP-compatible event sequence for all registered Agent types. This remains useful as a VibeX runtime/event/store regression gate, but it is not a per-Agent recorded ACP transcript and does not spawn each real adapter. Per-Agent fixture transcripts/live adapter smoke are deferred and should be tracked separately before this gate is described as protocol-dialect coverage.

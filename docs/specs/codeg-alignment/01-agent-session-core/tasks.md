@@ -44,3 +44,13 @@
   - Acceptance: A1-A14 与全 Agent 会话门均完成/裁剪记录齐全；review findings 关闭。
   - Verify: `pnpm run check && pnpm run lint && cargo test --workspace &&
     cd frontend && pnpm vitest run`
+
+## 2026-06-13 acceptance follow-up
+
+- [x] T1.5 follow-up: pending permissions are readable from `RuntimeSnapshot.permissions`, hydrated by the frontend store, merged into the conversation permission panel, and cancelled in both `agent_permissions` and `agent_pending_permissions` on prompt finish/error or connection disconnect/failure.
+  - Verify: `cargo test -p agents runtime`, `cargo test -p db agent_runtime`, `pnpm vitest run src/features/agents/store.test.ts src/components/logs/VirtualizedList.test.ts`
+- [x] T1.6 follow-up: `agent_list_session_commands` returns the latest `AvailableCommands` event for a session. `agent_set_auto_approve` persists the Agent-level auto-approve setting for future connections/resumes.
+  - Cropped: live ACP `set_session_mode` and `set_session_config` remain unsupported because the current ACP command bridge has no writable mode/config request path. They are explicit follow-up work, not considered complete in Phase 1.
+- [x] T1.9 follow-up: the all-Agent gate remains a deterministic in-memory ACP-compatible fixture. It validates VibeX event handling for every registered Agent type, but it is not a per-Agent recorded ACP transcript and does not spawn each real adapter.
+  - Cropped: per-Agent recorded ACP message fixtures/live adapter smoke are deferred until product approval for non-deterministic external Agent runs.
+- [x] Runtime correctness follow-up: prompt-level `InternalError` is emitted as `Error`, marks the prompt failed, releases its queue slot, and advances the next queued prompt.

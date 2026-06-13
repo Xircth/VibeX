@@ -97,3 +97,11 @@ Binary→文件存在 + 可执行，Uvx→uv 存在。认证检查（A12）也�
   硬编码 per-agent 行为表（Codeg 亦如此）。
 - 在途修改与本阶段同文件（runtime.rs/manager.rs）：Phase 0 已先行提交，
   worktree 从含其的 master 切出。
+## 2026-06-13 acceptance follow-up design notes
+
+- `RuntimeSnapshot` is extended with `permissions: Vec<AgentPermissionRequest>`. The runtime derives active permissions from recent events, and the Tauri snapshot command augments that list from persisted unresolved permission rows so frontend refresh can restore pending permission cards.
+- Pending permission cleanup is two-sided: `agent_permissions` records are marked cancelled/responded and matching `agent_pending_permissions` rows receive `resolved_at`/`resolution`. Cleanup runs on prompt finish, prompt/session error, and connection disconnect/failure.
+- `agent_list_session_commands` is a read command over the latest `AvailableCommands` event for the session.
+- `agent_set_auto_approve` persists Agent-level auto approve mode (`off`, `allow_always`, `yolo`) for future connections/resumes. Live mutation of an already-running ACP bridge remains cropped because the current bridge stores the mode at connection launch.
+- `set_session_mode` and `set_session_config` are explicitly cropped in this phase. The current ACP bridge only consumes Agent broadcast events for modes/config options and does not expose writable mode/config request primitives.
+- T1.9 all-Agent verification is a deterministic in-memory ACP-compatible fixture reused for every registered Agent type. It proves VibeX runtime/event/store handling across the registry, not per-Agent protocol dialect fidelity. Per-Agent recorded ACP transcript fixtures are deferred follow-up work.

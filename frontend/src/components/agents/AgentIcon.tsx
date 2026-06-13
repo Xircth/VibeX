@@ -1,5 +1,6 @@
 import { BaseCodingAgent, ThemeMode } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
+import { getAgentDisplayName } from '@/constants/agents';
 import { cn } from '@/lib/utils';
 
 type AgentIconProps = {
@@ -20,28 +21,7 @@ export function getAgentName(
   agent: BaseCodingAgent | null | undefined
 ): string {
   if (!agent) return 'Agent';
-  switch (agent) {
-    case BaseCodingAgent.CLAUDE_CODE:
-      return 'Claude Code';
-    case BaseCodingAgent.AMP:
-      return 'AMP';
-    case BaseCodingAgent.GEMINI:
-      return 'Gemini';
-    case BaseCodingAgent.CODEX:
-      return 'Codex';
-    case BaseCodingAgent.OPENCODE:
-      return 'OpenCode';
-    case BaseCodingAgent.CURSOR_AGENT:
-      return 'Cursor';
-    case BaseCodingAgent.QWEN_CODE:
-      return 'Qwen';
-    case BaseCodingAgent.COPILOT:
-      return 'Copilot';
-    case BaseCodingAgent.DROID:
-      return 'Droid';
-    case BaseCodingAgent.AUGGIE:
-      return 'Auggie';
-  }
+  return getAgentDisplayName(agent);
 }
 
 export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {

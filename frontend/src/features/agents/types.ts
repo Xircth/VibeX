@@ -181,6 +181,7 @@ export type AgentRuntimeSnapshot = {
   connections: AgentConnectionSnapshot[];
   sessions: AgentSessionSnapshot[];
   prompts: AgentPromptSnapshot[];
+  permissions?: AgentPermissionRequest[];
   events: AgentEventEnvelope[];
 };
 

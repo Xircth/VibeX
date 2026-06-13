@@ -118,39 +118,6 @@ export const AGGREGATION_LABELS: Record<
   },
 };
 
-export const PLAN_APPEARANCE: Record<
-  ToolStatusAppearance,
-  {
-    border: string;
-    headerBg: string;
-    headerText: string;
-    contentBg: string;
-    contentText: string;
-  }
-> = {
-  default: {
-    border: 'border-blue-400/40',
-    headerBg: 'bg-blue-50 dark:bg-blue-950/20',
-    headerText: 'text-blue-700 dark:text-blue-300',
-    contentBg: 'bg-blue-50 dark:bg-blue-950/20',
-    contentText: 'text-blue-700 dark:text-blue-300',
-  },
-  denied: {
-    border: 'border-red-400/40',
-    headerBg: 'bg-red-50 dark:bg-red-950/20',
-    headerText: 'text-red-700 dark:text-red-300',
-    contentBg: 'bg-red-50 dark:bg-red-950/10',
-    contentText: 'text-red-700 dark:text-red-300',
-  },
-  timed_out: {
-    border: 'border-amber-400/40',
-    headerBg: 'bg-amber-50 dark:bg-amber-950/20',
-    headerText: 'text-amber-700 dark:text-amber-200',
-    contentBg: 'bg-amber-50 dark:bg-amber-950/10',
-    contentText: 'text-amber-700 dark:text-amber-200',
-  },
-};
-
 /***********************
  * Helper functions     *
  ***********************/
@@ -185,9 +152,6 @@ const VERBOSE_ERROR_PATTERNS = [
   /\bCannot find module\b/i,
   /\bfailed to load config\b/i,
 ];
-const COMMAND_OUTPUT_MARKER_PATTERN = /\bCommand output\s*[:：]\s*/i;
-const SHELL_OUTPUT_ENVELOPE_PATTERN =
-  /^\s*(?:(?:Exit code|Wall time):[\s\S]*?)?\bOutput:\s*/i;
 const AGENT_LAUNCH_SENTENCE_PATTERN =
   /(?:^|\n)\s*(?:[一二三四五六七八九十两\d]+\s*个)?(?:子代理|智能体|agent|Agent)\s*(?:已启动|启动|已创建|创建完成|created|started)\s*[：:]\s*([^\n。.!！？]+)[。.!！？]?/i;
 const AGENT_LAUNCH_SPLIT_PATTERN = /[，,；;、]+/;
@@ -392,100 +356,6 @@ export function getCompactVerboseErrorText(content: string): string | null {
       ) ?? withoutShellEnvelope;
 
   return ellipsize(`Command output: ${firstMeaningfulLine}`, 180);
-}
-
-export interface AssistantCommandOutputSplit {
-  prefix: string;
-  output: string;
-}
-
-export interface AssistantCollapsedMessageSplit {
-  prefix: string;
-  output: string;
-}
-
-function stripCommandOutputPrefixNoise(content: string): string {
-  const withoutProfileNoise = stripPowerShellProfileNoise(content);
-  return (withoutProfileNoise.trim() || content.trim()).trim();
-}
-
-export function splitAssistantCommandOutput(
-  content: string
-): AssistantCommandOutputSplit | null {
-  const cleaned = sanitizeConversationContent(content);
-  if (!cleaned) {
-    return null;
-  }
-
-  const markerMatch = cleaned.match(COMMAND_OUTPUT_MARKER_PATTERN);
-  if (markerMatch?.index != null) {
-    const markerEnd = markerMatch.index + markerMatch[0].length;
-    const output = stripCommandOutputPrefixNoise(cleaned.slice(markerEnd));
-    if (!output) {
-      return null;
-    }
-
-    return {
-      prefix: cleaned.slice(0, markerMatch.index).trim(),
-      output,
-    };
-  }
-
-  const shellEnvelopeMatch = cleaned.match(SHELL_OUTPUT_ENVELOPE_PATTERN);
-  if (!shellEnvelopeMatch) {
-    return null;
-  }
-
-  const output = stripCommandOutputPrefixNoise(
-    cleaned.slice(shellEnvelopeMatch[0].length)
-  );
-  if (!output) {
-    return null;
-  }
-
-  return {
-    prefix: shellEnvelopeMatch[0].trim(),
-    output,
-  };
-}
-
-function splitContentBlocks(content: string): string[] {
-  return content
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-}
-
-export function splitAssistantFinalMessage(
-  content: string
-): AssistantCollapsedMessageSplit | null {
-  const cleaned = sanitizeConversationContent(content);
-  if (!cleaned) {
-    return null;
-  }
-
-  const commandOutputSplit = splitAssistantCommandOutput(cleaned);
-  if (commandOutputSplit) {
-    return commandOutputSplit;
-  }
-
-  const blocks = splitContentBlocks(cleaned);
-  if (blocks.length < 2) {
-    return null;
-  }
-
-  const output = blocks[blocks.length - 1] ?? '';
-  const prefix = blocks.slice(0, -1).join('\n\n').trim();
-
-  if (!prefix || !output) {
-    return null;
-  }
-
-  if (prefix.length < 24 || output.length < 8) {
-    return null;
-  }
-
-  return { prefix, output };
 }
 
 export const getEntryIcon = (entryType: NormalizedEntryType) => {
@@ -759,28 +629,6 @@ export const getContentClassName = (entryType: NormalizedEntryType) => {
 
   return base;
 };
-
-export function extractThinkingTitle(content: string): string | null {
-  const firstNonEmptyLine = content
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-
-  if (!firstNonEmptyLine) return null;
-
-  let title = firstNonEmptyLine
-    .replace(/^#{1,6}\s+/, '')
-    .replace(/^[-*+]\s+/, '')
-    .replace(/^\d+[.)]\s+/, '')
-    .trim();
-
-  const boldMatch = title.match(/^\*\*(.+?)\*\*$/);
-  if (boldMatch?.[1]) {
-    title = boldMatch[1].trim();
-  }
-
-  return title || null;
-}
 
 /** Produce a human-readable one-line summary for a tool call */
 export const getToolSummary = (

@@ -9,26 +9,7 @@ import {
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
-
-function isRecord(value: JsonValue | null | undefined): value is {
-  [key: string]: JsonValue | undefined;
-} {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function readString(
-  value: JsonValue | null | undefined,
-  keys: string[]
-): string | null {
-  if (!isRecord(value)) return null;
-  for (const key of keys) {
-    const candidate = value[key];
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate;
-    }
-  }
-  return null;
-}
+import { isRecord, readString } from './jsonValue';
 
 function readFirstRecord(
   value: JsonValue | null | undefined,

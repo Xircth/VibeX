@@ -68,6 +68,9 @@ export function stateFromAgentSnapshot(
       snapshot.prompts.map((prompt) => [prompt.id, prompt])
     ),
   };
+  const snapshotPermissions = Object.fromEntries(
+    (snapshot.permissions ?? []).map((permission) => [permission.id, permission])
+  );
   const state = snapshot.events.reduce(reduceAgentEvent, {
     ...emptyAgentWorkbenchState(),
     ...snapshotEntities,
@@ -76,7 +79,10 @@ export function stateFromAgentSnapshot(
   return {
     ...state,
     ...snapshotEntities,
-    permissions: {},
+    permissions: {
+      ...state.permissions,
+      ...snapshotPermissions,
+    },
     terminals: {},
     usageByScope: {},
     errorsByScope: {},

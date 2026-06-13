@@ -1,536 +1,597 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpenText,
-  Bot,
-  ChevronRight,
-  Command,
+  Eye,
   FileText,
-  FolderSearch,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Save,
   Search,
-  Sparkles,
-  Terminal,
+  Trash2,
 } from 'lucide-react';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useUserSystem } from '@/components/ConfigProvider';
-import { useSlashCommands } from '@/hooks/useSlashCommands';
-import { skillsApi, type AgentLocalSkill } from '@/lib/api';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { agentsApi } from '@/features/agents/api';
+import type { AgentRegistryEntry, AgentType } from '@/features/agents/types';
+import {
+  skillsApi,
+  type AgentSkillItem,
+  type AgentSkillScope,
+} from '@/lib/api';
+import { cn } from '@/lib/utils';
 
-type SupportedAgent =
-  | BaseCodingAgent.CLAUDE_CODE
-  | BaseCodingAgent.CODEX
-  | BaseCodingAgent.OPENCODE;
+const DEFAULT_TEMPLATE = `---
+name: new-skill
+description: 描述这个技能的用途与触发时机。
+---
 
-type CatalogItem =
-  | {
-      id: string;
-      kind: 'local_skill';
-      name: string;
-      description: string | null;
-      invocation: string;
-      path: string;
+# 新技能
+
+在这里编写技能内容（Markdown）。
+`;
+
+function splitFrontmatter(content: string): {
+  frontmatter: string | null;
+  body: string;
+} {
+  const trimmed = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  if (trimmed.startsWith('---')) {
+    const rest = trimmed.slice(3);
+    const end = rest.indexOf('\n---');
+    if (end !== -1) {
+      return {
+        frontmatter: rest.slice(0, end).trim(),
+        body: rest.slice(end + 4).replace(/^\n+/, ''),
+      };
     }
-  | {
-      id: string;
-      kind: 'slash_command';
-      name: string;
-      description: string | null;
-      invocation: string;
-      isCustom: boolean;
-    };
-
-const SUPPORTED_AGENTS: Array<{
-  value: SupportedAgent;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: BaseCodingAgent.CLAUDE_CODE,
-    label: 'Claude Code',
-    description: 'Slash commands and Claude skills',
-  },
-  {
-    value: BaseCodingAgent.CODEX,
-    label: 'Codex',
-    description: 'Built-in commands and ~/.codex/skills',
-  },
-  {
-    value: BaseCodingAgent.OPENCODE,
-    label: 'OpenCode',
-    description: 'Slash commands discovered from OpenCode',
-  },
-];
-
-function getInitialAgent(
-  executor: ExecutorProfileId | null | undefined
-): SupportedAgent {
-  if (
-    executor?.executor === BaseCodingAgent.CLAUDE_CODE ||
-    executor?.executor === BaseCodingAgent.CODEX ||
-    executor?.executor === BaseCodingAgent.OPENCODE
-  ) {
-    return executor.executor;
   }
-
-  return BaseCodingAgent.CLAUDE_CODE;
-}
-
-function isCustomSlashCommand(name: string): boolean {
-  return name.includes(':') || name.includes('/');
-}
-
-function normalizeText(value: string | null | undefined): string {
-  return value?.trim() ?? '';
-}
-
-function buildSelectedProfile(agent: SupportedAgent): ExecutorProfileId {
-  return {
-    executor: agent,
-    variant: null,
-  };
-}
-
-function useAgentLocalSkills(agent: SupportedAgent) {
-  const [skills, setSkills] = useState<AgentLocalSkill[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (agent !== BaseCodingAgent.CODEX) {
-      setSkills([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    skillsApi
-      .listLocal(agent)
-      .then((data) => {
-        if (!cancelled) {
-          setSkills(data);
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to list local agent skills:', error);
-        if (!cancelled) {
-          setSkills([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [agent]);
-
-  return { skills, loading };
+  return { frontmatter: null, body: content };
 }
 
 export function SkillsSettings() {
-  const { config } = useUserSystem();
-  const [selectedAgent, setSelectedAgent] = useState<SupportedAgent>(() =>
-    getInitialAgent(config?.executor_profile)
-  );
+  const [agents, setAgents] = useState<AgentRegistryEntry[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<AgentType | null>(null);
+  const [scope, setScope] = useState<AgentSkillScope>('global');
+  const [projectPath, setProjectPath] = useState('');
   const [search, setSearch] = useState('');
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<
-    Record<'local' | 'customCommands' | 'builtinCommands', boolean>
-  >({
-    local: true,
-    customCommands: true,
-    builtinCommands: true,
-  });
 
-  const selectedProfile = useMemo(
-    () => buildSelectedProfile(selectedAgent),
-    [selectedAgent]
-  );
-  const { commands, discovering } = useSlashCommands(selectedProfile);
-  const { skills: localSkills, loading: localSkillsLoading } =
-    useAgentLocalSkills(selectedAgent);
+  const [skills, setSkills] = useState<AgentSkillItem[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
 
-  const catalogItems = useMemo<CatalogItem[]>(() => {
-    const slashItems: CatalogItem[] = commands.map((command) => ({
-      id: `slash:${command.name}`,
-      kind: 'slash_command',
-      name: command.name,
-      description: command.description ?? null,
-      invocation: `/${command.name}`,
-      isCustom: isCustomSlashCommand(command.name),
-    }));
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState('');
+  const [draftContent, setDraftContent] = useState('');
+  const [draftReadOnly, setDraftReadOnly] = useState(false);
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-    const localSkillItems: CatalogItem[] = localSkills.map((skill) => ({
-      id: `skill:${skill.name}`,
-      kind: 'local_skill',
-      name: skill.name,
-      description: skill.description,
-      invocation: skill.invocation,
-      path: skill.path,
-    }));
-
-    return [...localSkillItems, ...slashItems];
-  }, [commands, localSkills]);
-
-  const filteredItems = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) {
-      return catalogItems;
-    }
-
-    return catalogItems.filter((item) => {
-      const haystacks = [
-        item.name,
-        item.description ?? '',
-        item.invocation,
-        item.kind === 'local_skill' ? item.path : '',
-      ];
-
-      return haystacks.some((value) => value.toLowerCase().includes(query));
-    });
-  }, [catalogItems, search]);
-
-  const groups = useMemo(() => {
-    const local = filteredItems.filter(
-      (item): item is Extract<CatalogItem, { kind: 'local_skill' }> =>
-        item.kind === 'local_skill'
-    );
-    const customCommands = filteredItems.filter(
-      (item): item is Extract<CatalogItem, { kind: 'slash_command' }> =>
-        item.kind === 'slash_command' && item.isCustom
-    );
-    const builtinCommands = filteredItems.filter(
-      (item): item is Extract<CatalogItem, { kind: 'slash_command' }> =>
-        item.kind === 'slash_command' && !item.isCustom
-    );
-
-    return { local, customCommands, builtinCommands };
-  }, [filteredItems]);
+  const workspaceParam =
+    scope === 'project' ? projectPath.trim() || null : null;
+  const projectMissing = scope === 'project' && !projectPath.trim();
 
   useEffect(() => {
-    setSelectedItemId((current) => {
-      if (current && catalogItems.some((item) => item.id === current)) {
-        return current;
-      }
-      return catalogItems[0]?.id ?? null;
-    });
-  }, [catalogItems]);
+    let alive = true;
+    void agentsApi
+      .listRegistry()
+      .then((entries) => {
+        if (!alive) return;
+        setAgents(entries);
+        setSelectedAgent(
+          (current) => current ?? entries[0]?.agent_type ?? null
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-  const selectedItem = useMemo(
-    () => catalogItems.find((item) => item.id === selectedItemId) ?? null,
-    [catalogItems, selectedItemId]
+  const loadSkills = useCallback(async () => {
+    if (!selectedAgent || projectMissing) {
+      setSkills([]);
+      setListError(null);
+      return;
+    }
+    setListLoading(true);
+    setListError(null);
+    try {
+      const result = await skillsApi.list(selectedAgent, workspaceParam);
+      setSkills(result.skills);
+    } catch (error) {
+      setSkills([]);
+      setListError(error instanceof Error ? error.message : '加载技能失败');
+    } finally {
+      setListLoading(false);
+    }
+  }, [selectedAgent, workspaceParam, projectMissing]);
+
+  useEffect(() => {
+    void loadSkills();
+  }, [loadSkills]);
+
+  useEffect(() => {
+    setSelectedId(null);
+    setIsDrafting(false);
+    setDraftContent('');
+    setDraftId('');
+    setActionError(null);
+    setPendingDelete(null);
+  }, [selectedAgent, scope, projectPath]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return skills;
+    return skills.filter(
+      (skill) =>
+        skill.id.toLowerCase().includes(query) ||
+        (skill.description ?? '').toLowerCase().includes(query) ||
+        skill.path.toLowerCase().includes(query)
+    );
+  }, [skills, search]);
+
+  const openSkill = useCallback(
+    async (skill: AgentSkillItem, edit: boolean) => {
+      if (!selectedAgent) return;
+      setSelectedId(skill.id);
+      setIsDrafting(false);
+      setActionError(null);
+      setPendingDelete(null);
+      setReading(true);
+      try {
+        const result = await skillsApi.read({
+          agentType: selectedAgent,
+          scope: skill.scope,
+          skillId: skill.id,
+          workspacePath: workspaceParam,
+        });
+        setDraftId(result.skill.id);
+        setDraftContent(result.content);
+        setDraftReadOnly(result.skill.read_only);
+        setIsEditing(edit && !result.skill.read_only);
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : '读取技能失败');
+      } finally {
+        setReading(false);
+      }
+    },
+    [selectedAgent, workspaceParam]
   );
 
-  const isLoading = discovering || localSkillsLoading;
+  const startCreate = useCallback(() => {
+    setIsDrafting(true);
+    setSelectedId(null);
+    setDraftId('');
+    setDraftContent(DEFAULT_TEMPLATE);
+    setDraftReadOnly(false);
+    setIsEditing(true);
+    setActionError(null);
+    setPendingDelete(null);
+  }, []);
+
+  const save = useCallback(async () => {
+    if (!selectedAgent) return;
+    const id = draftId.trim();
+    if (!id) {
+      setActionError('请填写技能名');
+      return;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const saved = await skillsApi.save({
+        agentType: selectedAgent,
+        scope,
+        skillId: id,
+        content: draftContent,
+        workspacePath: workspaceParam,
+      });
+      await loadSkills();
+      setIsDrafting(false);
+      setSelectedId(saved.id);
+      setIsEditing(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '保存技能失败');
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedAgent, scope, draftId, draftContent, workspaceParam, loadSkills]);
+
+  const remove = useCallback(
+    async (skill: AgentSkillItem) => {
+      if (!selectedAgent) return;
+      setActionError(null);
+      try {
+        await skillsApi.delete({
+          agentType: selectedAgent,
+          scope: skill.scope,
+          skillId: skill.id,
+          workspacePath: workspaceParam,
+        });
+        setPendingDelete(null);
+        if (selectedId === skill.id) {
+          setSelectedId(null);
+          setDraftContent('');
+          setDraftId('');
+        }
+        await loadSkills();
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : '删除技能失败');
+      }
+    },
+    [selectedAgent, workspaceParam, selectedId, loadSkills]
+  );
+
+  const hasDetail = isDrafting || !!selectedId;
+  const preview = useMemo(() => splitFrontmatter(draftContent), [draftContent]);
 
   return (
-    <div className="flex h-full flex-1 overflow-hidden">
-      <div className="flex h-full w-64 shrink-0 flex-col border-r">
-        <div className="shrink-0 border-b px-4 py-3">
-          <h2 className="text-sm font-semibold text-foreground">技能</h2>
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {SUPPORTED_AGENTS.map((agent) => (
-              <Button
-                key={agent.value}
+    <div className="flex h-full min-h-0 gap-4">
+      {/* Master: agent + scope + skills list */}
+      <aside className="flex w-72 shrink-0 flex-col gap-3">
+        <div className="border bg-cardspace-y-3 rounded-xl p-3">
+          <div className="flex flex-wrap gap-1">
+            {agents.map((agent) => {
+              const active = agent.agent_type === selectedAgent;
+              return (
+                <button
+                  key={agent.agent_type}
+                  type="button"
+                  onClick={() => setSelectedAgent(agent.agent_type)}
+                  className={cn(
+                    'rounded-md px-2 py-1 text-xs font-medium transition-colors',
+                    active
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'border hover:bg-foreground/[0.06]'
+                  )}
+                >
+                  {agent.name}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1 rounded-lg border bg-muted-foreground/[0.06] p-0.5">
+            {(['global', 'project'] as const).map((value) => (
+              <button
+                key={value}
                 type="button"
-                variant={selectedAgent === agent.value ? 'default' : 'outline'}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setSelectedAgent(agent.value)}
-                title={agent.description}
+                onClick={() => setScope(value)}
+                className={cn(
+                  'flex-1 rounded-md py-1 text-xs font-medium transition-colors',
+                  scope === value
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
               >
-                {agent.label}
-              </Button>
+                {value === 'global' ? '全局' : '项目'}
+              </button>
             ))}
           </div>
-        </div>
 
-        <div className="shrink-0 border-b px-3 py-2">
+          {scope === 'project' ? (
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">
+                项目文件夹路径
+              </Label>
+              <Input
+                value={projectPath}
+                placeholder="例如 D:/code/my-project"
+                className="h-8 text-xs"
+                onChange={(event) => setProjectPath(event.target.value)}
+              />
+            </div>
+          ) : null}
+
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索技能或命令..."
+              placeholder="搜索技能..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              className="h-7 pl-8 text-xs"
+              className="h-8 pl-8 text-xs"
             />
           </div>
         </div>
 
-        <div className="flex-1 space-y-3 overflow-y-auto px-2 py-2">
-          {isLoading ? (
-            <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
-              <Sparkles className="h-4 w-4 animate-pulse" />
-              <span className="text-xs">加载中...</span>
-            </div>
-          ) : null}
-
-          {groups.local.length > 0 ? (
-            <CatalogGroup
-              groupKey="local"
-              title="本地技能"
-              icon={FolderSearch}
-              items={groups.local}
-              selectedItemId={selectedItemId}
-              onSelect={setSelectedItemId}
-              expanded={expandedGroups.local}
-              onToggle={() =>
-                setExpandedGroups((current) => ({
-                  ...current,
-                  local: !current.local,
-                }))
-              }
-            />
-          ) : null}
-
-          {groups.customCommands.length > 0 ? (
-            <CatalogGroup
-              groupKey="customCommands"
-              title="自定义命令"
-              icon={Sparkles}
-              items={groups.customCommands}
-              selectedItemId={selectedItemId}
-              onSelect={setSelectedItemId}
-              expanded={expandedGroups.customCommands}
-              onToggle={() =>
-                setExpandedGroups((current) => ({
-                  ...current,
-                  customCommands: !current.customCommands,
-                }))
-              }
-            />
-          ) : null}
-
-          {groups.builtinCommands.length > 0 ? (
-            <CatalogGroup
-              groupKey="builtinCommands"
-              title="内置命令"
-              icon={Terminal}
-              items={groups.builtinCommands}
-              selectedItemId={selectedItemId}
-              onSelect={setSelectedItemId}
-              expanded={expandedGroups.builtinCommands}
-              onToggle={() =>
-                setExpandedGroups((current) => ({
-                  ...current,
-                  builtinCommands: !current.builtinCommands,
-                }))
-              }
-            />
-          ) : null}
-
-          {!isLoading && filteredItems.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-8 text-center">
-              <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
-              <p className="text-xs text-muted-foreground">
-                {search ? '无匹配结果' : '无可用技能或命令'}
+        <div className="border bg-cardflex min-h-0 flex-1 flex-col rounded-xl">
+          <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+            {listLoading ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                加载中…
+              </div>
+            ) : projectMissing ? (
+              <p className="px-2 py-8 text-center text-xs text-muted-foreground">
+                请输入项目文件夹路径以查看其技能。
               </p>
-            </div>
-          ) : null}
-        </div>
-      </div>
+            ) : listError ? (
+              <p className="px-2 py-6 text-center text-xs text-destructive">
+                {listError}
+              </p>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
+                <p className="text-xs text-muted-foreground">
+                  {search ? '无匹配结果' : '暂无技能，点击“新建技能”创建。'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-0.5">
+                {filtered.map((skill) => (
+                  <SkillRow
+                    key={`${skill.scope}:${skill.id}`}
+                    skill={skill}
+                    selected={selectedId === skill.id && !isDrafting}
+                    onSelect={() => void openSkill(skill, false)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-        {selectedItem ? (
-          <CatalogDetail item={selectedItem} agent={selectedAgent} />
+          <div className="flex items-center justify-between gap-2 border-t px-2 py-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0"
+              title="刷新"
+              disabled={listLoading}
+              onClick={() => void loadSkills()}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              disabled={!selectedAgent || projectMissing}
+              onClick={startCreate}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              新建技能
+            </Button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Detail */}
+      <section className="border bg-cardmin-w-0 flex-1 overflow-hidden rounded-xl">
+        {!hasDetail ? (
+          <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+            <BookOpenText className="h-10 w-10 opacity-30" />
+            <p className="mt-3 text-sm">选择左侧技能，或点击“新建技能”创建。</p>
+          </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <Bot className="mx-auto h-10 w-10 opacity-30" />
-              <p className="mt-3 text-sm">选择一个技能或命令查看详情</p>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 pt-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate text-[15px] font-semibold text-foreground">
+                  {isDrafting ? '新建技能' : draftId}
+                </span>
+                {draftReadOnly ? (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning">
+                    系统（只读）
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {!draftReadOnly ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => setIsEditing((value) => !value)}
+                  >
+                    {isEditing ? (
+                      <Eye className="mr-1.5 h-3.5 w-3.5" />
+                    ) : (
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {isEditing ? '预览' : '编辑'}
+                  </Button>
+                ) : null}
+                {!isDrafting && selectedId && !draftReadOnly ? (
+                  pendingDelete === selectedId ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={() => setPendingDelete(null)}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-8"
+                        onClick={() => {
+                          const target = skills.find(
+                            (item) => item.id === selectedId
+                          );
+                          if (target) void remove(target);
+                        }}
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                        确认删除
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={() => setPendingDelete(selectedId)}
+                    >
+                      <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                      删除
+                    </Button>
+                  )
+                ) : null}
+                {!draftReadOnly ? (
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    disabled={saving || reading}
+                    onClick={() => void save()}
+                  >
+                    {saving ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    保存
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 pb-3.5 pt-3">
+              {actionError ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  {actionError}
+                </div>
+              ) : null}
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] text-muted-foreground">
+                  技能名
+                </Label>
+                <Input
+                  value={draftId}
+                  placeholder="my-skill"
+                  className="h-8 text-xs"
+                  disabled={!isDrafting || draftReadOnly}
+                  onChange={(event) => setDraftId(event.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {isDrafting
+                    ? '字母、数字、- _ . ；保存到当前作用域的技能目录。'
+                    : '创建后不可重命名。'}
+                </p>
+              </div>
+
+              {reading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  正在读取技能…
+                </div>
+              ) : isEditing ? (
+                <Textarea
+                  value={draftContent}
+                  spellCheck={false}
+                  className="min-h-80 font-mono text-xs"
+                  placeholder={
+                    '---\nname: ...\ndescription: ...\n---\n\n# 标题'
+                  }
+                  onChange={(event) => setDraftContent(event.target.value)}
+                />
+              ) : (
+                <SkillPreview
+                  frontmatter={preview.frontmatter}
+                  body={preview.body}
+                />
+              )}
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
 
-function CatalogGroup({
-  groupKey,
-  title,
-  icon: Icon,
-  items,
-  selectedItemId,
-  onSelect,
-  expanded,
-  onToggle,
-}: {
-  groupKey: 'local' | 'customCommands' | 'builtinCommands';
-  title: string;
-  icon: typeof Sparkles;
-  items: CatalogItem[];
-  selectedItemId: string | null;
-  onSelect: (id: string) => void;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left hover:bg-muted/40"
-        aria-expanded={expanded}
-        aria-controls={`skills-group-${groupKey}`}
-      >
-        <ChevronRight
-          className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${
-            expanded ? 'rotate-90' : ''
-          }`}
-        />
-        <Icon className="h-3 w-3 text-muted-foreground" />
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {title} ({items.length})
-        </span>
-      </button>
-      {expanded ? (
-        <div id={`skills-group-${groupKey}`} className="space-y-0.5">
-          {items.map((item) => (
-            <CatalogListItem
-              key={item.id}
-              item={item}
-              isSelected={selectedItemId === item.id}
-              onSelect={() => onSelect(item.id)}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function CatalogListItem({
-  item,
-  isSelected,
+function SkillRow({
+  skill,
+  selected,
   onSelect,
 }: {
-  item: CatalogItem;
-  isSelected: boolean;
+  skill: AgentSkillItem;
+  selected: boolean;
   onSelect: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`w-full rounded-md px-2.5 py-1.5 text-left transition-colors ${
-        isSelected
-          ? 'bg-accent text-accent-foreground'
-          : 'text-foreground hover:bg-muted/50'
-      }`}
+      className={cn(
+        'flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left transition-colors',
+        selected
+          ? 'bg-primary text-primary-foreground'
+          : 'hover:bg-foreground/[0.06]'
+      )}
     >
       <div className="flex items-center gap-2">
-        <code className="flex-1 truncate font-mono text-[11px] font-medium">
-          {item.invocation}
-        </code>
-        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
-          {item.kind === 'local_skill' ? '技能' : '命令'}
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          {skill.id}
         </span>
+        <span
+          className={cn(
+            'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider',
+            selected ? 'bg-white/20' : 'bg-muted text-muted-foreground'
+          )}
+        >
+          {skill.scope === 'global' ? '全局' : '项目'}
+        </span>
+        {skill.read_only ? (
+          <span
+            className={cn(
+              'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium',
+              selected ? 'bg-white/20' : 'bg-warning/15 text-warning'
+            )}
+          >
+            只读
+          </span>
+        ) : null}
       </div>
-      <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
-        {normalizeText(item.description) || item.name}
-      </p>
+      <span
+        className={cn(
+          'line-clamp-1 text-[10px]',
+          selected ? 'text-primary-foreground/75' : 'text-muted-foreground'
+        )}
+      >
+        {skill.description?.trim() || skill.path}
+      </span>
     </button>
   );
 }
 
-function CatalogDetail({
-  item,
-  agent,
+function SkillPreview({
+  frontmatter,
+  body,
 }: {
-  item: CatalogItem;
-  agent: SupportedAgent;
+  frontmatter: string | null;
+  body: string;
 }) {
-  const agentLabel =
-    SUPPORTED_AGENTS.find((entry) => entry.value === agent)?.label ?? agent;
-
+  if (!frontmatter && !body.trim()) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        暂无内容，点击“编辑”开始编写。
+      </p>
+    );
+  }
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg border bg-primary/5">
-            {item.kind === 'local_skill' ? (
-              <FolderSearch className="h-5 w-5 text-blue-500" />
-            ) : (
-              <Command className="h-5 w-5 text-muted-foreground" />
-            )}
-          </div>
-          <div>
-            <h3 className="text-base font-semibold text-foreground">
-              {item.invocation}
-            </h3>
-            <span className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {item.kind === 'local_skill' ? '本地技能' : '命令'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {normalizeText(item.description) ? (
-        <div className="rounded-lg border bg-card p-4">
-          <div className="mb-2 flex items-center gap-2">
-            <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs font-medium text-foreground">描述</span>
-          </div>
-          <p className="text-sm leading-relaxed text-foreground">
-            {item.description}
-          </p>
-        </div>
+    <div className="space-y-3">
+      {frontmatter ? (
+        <pre className="overflow-x-auto rounded-lg border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+          {frontmatter}
+        </pre>
       ) : null}
-
-      <div className="space-y-3 rounded-lg border bg-card p-4">
-        <span className="text-xs font-medium text-foreground">元数据</span>
-        <div className="grid grid-cols-2 gap-3">
-          <MetaItem label="代理" value={agentLabel} />
-          <MetaItem
-            label="调用方式"
-            value={item.kind === 'local_skill' ? '$调用技能' : '命令'}
-          />
-          <MetaItem label="调用前缀" value={item.invocation} />
-          <MetaItem label="名称" value={item.name} />
-          {item.kind === 'local_skill' ? (
-            <MetaItem label="目录" value={item.path} fullWidth />
-          ) : null}
+      {body.trim() ? (
+        <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+          {body}
         </div>
-      </div>
-
-      <div className="rounded-lg border bg-muted/30 p-4">
-        <span className="text-xs font-medium text-foreground">使用方式</span>
-        <div className="mt-2 rounded border bg-card px-3 py-2">
-          <code className="text-xs text-foreground">{item.invocation}</code>
-        </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          {item.kind === 'local_skill'
-            ? '在 Codex 输入框中以 $前缀调用该技能。'
-            : '在支持命令的输入框中输入该命令即可调用。'}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function MetaItem({
-  label,
-  value,
-  fullWidth = false,
-}: {
-  label: string;
-  value: string;
-  fullWidth?: boolean;
-}) {
-  return (
-    <div className={`flex flex-col gap-0.5 ${fullWidth ? 'col-span-2' : ''}`}>
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      <span className="break-all text-xs font-medium text-foreground">
-        {value}
-      </span>
+      ) : (
+        <p className="text-xs text-muted-foreground">仅包含元数据。</p>
+      )}
     </div>
   );
 }

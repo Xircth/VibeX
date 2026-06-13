@@ -87,10 +87,7 @@ export interface InstallSystemDependenciesResult {
   status: SystemMaintenanceStatus;
 }
 
-export type AgentCapability =
-  | 'SESSION_FORK'
-  | 'SETUP_HELPER'
-  | 'CONTEXT_USAGE';
+export type AgentCapability = 'SESSION_FORK' | 'SETUP_HELPER' | 'CONTEXT_USAGE';
 
 export const AgentCapability = {
   SESSION_FORK: 'SESSION_FORK',
@@ -260,13 +257,15 @@ export interface RunAgentFixRequest {
   action: string;
 }
 
-export interface AgentNativeConfigs {
-  codex_config_toml: string | null;
-  codex_auth_json: string | null;
-  codex_home_path: string | null;
-  opencode_config_json: string | null;
-  opencode_auth_json: string | null;
-  opencode_config_path: string | null;
+/** One editable native config file the agent reads directly. */
+export interface AgentNativeFile {
+  id: string;
+  label: string;
+  path: string;
+  /** Editor language hint: 'json' | 'toml' | 'yaml' | 'env' | 'text'. */
+  format: string;
+  exists: boolean;
+  content: string | null;
 }
 
 export const agentSettingsApi = {
@@ -309,27 +308,25 @@ export const agentSettingsApi = {
       agentType,
     });
   },
-  readNativeConfigs: async (
-    agentType: BaseCodingAgent
-  ): Promise<AgentNativeConfigs> => {
-    return tauriInvoke<AgentNativeConfigs>('read_agent_native_configs', {
+  // Generic native-config-file access for any ACP agent (by agent_type key).
+  // Reads each agent's own config file(s); writes back up to ~/.vibex first.
+  readNativeFiles: async (agentType: string): Promise<AgentNativeFile[]> => {
+    return tauriInvoke<AgentNativeFile[]>('read_agent_native_files', {
       agentType,
     });
   },
-  writeNativeConfig: async (params: {
-    agentType: BaseCodingAgent;
-    codexConfigToml?: string | null;
-    codexAuthJson?: string | null;
-    opencodeConfigJson?: string | null;
-    opencodeAuthJson?: string | null;
-  }): Promise<void> => {
-    return tauriInvoke<void>('write_agent_native_config', {
-      agentType: params.agentType,
-      codexConfigToml: params.codexConfigToml ?? null,
-      codexAuthJson: params.codexAuthJson ?? null,
-      opencodeConfigJson: params.opencodeConfigJson ?? null,
-      opencodeAuthJson: params.opencodeAuthJson ?? null,
+  writeNativeFiles: async (
+    agentType: string,
+    files: { id: string; content: string }[]
+  ): Promise<AgentNativeFile[]> => {
+    return tauriInvoke<AgentNativeFile[]>('write_agent_native_files', {
+      agentType,
+      files,
     });
+  },
+  // Open the agent CLI's interactive login (e.g. `codex login`) in a terminal.
+  openLoginTerminal: async (agentType: string): Promise<void> => {
+    return tauriInvoke<void>('open_agent_login_terminal', { agentType });
   },
 };
 

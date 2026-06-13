@@ -31,12 +31,11 @@ describe('ConversationMessageNav', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /Second request/ })).toHaveAttribute(
-      'aria-current',
-      'true'
-    );
+    expect(
+      screen.getByRole('button', { name: '跳转到第 2 条消息' })
+    ).toHaveAttribute('aria-current', 'true');
 
-    fireEvent.click(screen.getByRole('button', { name: /First request/ }));
+    fireEvent.click(screen.getByRole('button', { name: '跳转到第 1 条消息' }));
 
     expect(onSelect).toHaveBeenCalledWith(0);
   });

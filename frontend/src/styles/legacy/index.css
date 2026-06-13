@@ -340,12 +340,11 @@
     overflow: hidden !important;
     border: 1px solid oklch(1 0 0 / 0.52) !important;
     border-radius: 18px !important;
-    background:
-      linear-gradient(
-        135deg,
-        oklch(1 0 0 / 0.76),
-        oklch(0.96 0.006 250 / 0.62)
-      ) !important;
+    background: linear-gradient(
+      135deg,
+      oklch(1 0 0 / 0.76),
+      oklch(0.96 0.006 250 / 0.62)
+    ) !important;
     color: oklch(0.18 0.012 255) !important;
     box-shadow:
       0 18px 55px oklch(0.2 0.02 255 / 0.18),
@@ -360,11 +359,7 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: linear-gradient(
-      180deg,
-      oklch(1 0 0 / 0.36),
-      oklch(1 0 0 / 0)
-    );
+    background: linear-gradient(180deg, oklch(1 0 0 / 0.36), oklch(1 0 0 / 0));
   }
 
   :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-icon] {
@@ -439,12 +434,11 @@
 
   .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast {
     border-color: oklch(1 0 0 / 0.13) !important;
-    background:
-      linear-gradient(
-        135deg,
-        oklch(0.25 0.018 255 / 0.82),
-        oklch(0.18 0.012 255 / 0.68)
-      ) !important;
+    background: linear-gradient(
+      135deg,
+      oklch(0.25 0.018 255 / 0.82),
+      oklch(0.18 0.012 255 / 0.68)
+    ) !important;
     color: oklch(0.96 0.006 250) !important;
     box-shadow:
       0 18px 55px oklch(0 0 0 / 0.36),
@@ -453,11 +447,7 @@
   }
 
   .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast::before {
-    background: linear-gradient(
-      180deg,
-      oklch(1 0 0 / 0.08),
-      oklch(1 0 0 / 0)
-    );
+    background: linear-gradient(180deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0));
   }
 
   .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-icon] {
@@ -1037,8 +1027,22 @@
     -webkit-backdrop-filter: blur(18px) saturate(1.2);
   }
 
+  /* Floating rounded sidebar container (macOS-style inset panel). The upper
+     region carries a faint diagonal blue wash from the top-left corner. */
   .settings-sidebar {
-    border-right: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.875rem;
+    background:
+      linear-gradient(145deg, #e2effc 0%, #f1f8fe 28%, transparent 52%),
+      var(--surface-sidebar);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    box-shadow:
+      0 1px 2px hsl(220 36% 8% / 0.04),
+      0 8px 24px hsl(220 36% 8% / 0.05);
+  }
+
+  .dark .settings-sidebar {
     background: var(--surface-sidebar);
   }
 
@@ -1058,6 +1062,16 @@
     color: var(--text-strong);
     border-color: hsl(var(--primary) / 0.32);
     background: var(--surface-active);
+  }
+
+  /* Elevated "inset grouped" surface used by the Agent detail sections and the
+     selected agent tab. No auto child padding (unlike .settings-card). */
+  .settings-surface {
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-card-strong);
+    box-shadow:
+      0 1px 2px hsl(220 36% 8% / 0.05),
+      0 10px 30px hsl(220 36% 8% / 0.06);
   }
 
   .dialog-backdrop {

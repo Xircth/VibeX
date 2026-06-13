@@ -40,10 +40,7 @@ import {
   type PendingAgentPermission,
 } from '@/components/agents/AgentPermissionPanel';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
-import {
-  buildConversationMessageNavEntries,
-  findActiveConversationMessageNavEntry,
-} from '@/components/conversation-thread/messageNavEntries';
+import { buildConversationMessageNavEntries } from '@/components/conversation-thread/messageNavEntries';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
 import {
@@ -436,7 +433,14 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const [respondingPermissionId, setRespondingPermissionId] = useState<
       string | null
     >(null);
-    const usesAgentTranscript = Boolean(agentSession);
+    // Render the ACP transcript whenever this session has agent events, not only
+    // once its session_created snapshot has landed in the store. For a freshly
+    // created session the prompt events can arrive before (or without) the
+    // snapshot; keying solely on `agentSession` would fall back to the empty DB
+    // history and show no output. Legacy (non-ACP) sessions have no agent events,
+    // so they still use the DB history path.
+    const usesAgentTranscript =
+      Boolean(agentSession) || agentSessionEvents.length > 0;
 
     useEffect(() => {
       if (!usesAgentTranscript) return;
@@ -544,14 +548,6 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const messageNavEntries = useMemo(
       () => buildConversationMessageNavEntries(displayEntries),
       [displayEntries]
-    );
-    const activeMessageNavEntry = useMemo(
-      () =>
-        findActiveConversationMessageNavEntry(
-          messageNavEntries,
-          activeVirtualIndex
-        ),
-      [activeVirtualIndex, messageNavEntries]
     );
 
     const updateActiveVirtualIndex = useCallback(() => {
@@ -958,11 +954,7 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
                       key={virtualRow.key}
                       ref={rowVirtualizer.measureElement}
                       data-index={virtualRow.index}
-                      className={cn(
-                        'absolute left-0 top-0 w-full pb-3',
-                        activeMessageNavEntry?.index === virtualRow.index &&
-                          'conv-message-nav-target-active'
-                      )}
+                      className="absolute left-0 top-0 w-full pb-3"
                       style={{
                         transform: getVirtualRowTranslateY(
                           virtualRow.start,

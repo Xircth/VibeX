@@ -214,12 +214,20 @@ async fn detect_agent_version_inner(
 ) -> Result<Option<String>, AppError> {
     let arg_strings = version_args_for_entry(entry);
     let mut command = utils::process::new_hidden_tokio_command(executable, &arg_strings);
-    let output = command.output().await.map_err(|e| {
-        AppError::Internal(format!(
-            "Failed to run ACP version command for {:?}: {}",
-            entry.agent_type, e
-        ))
-    })?;
+    // Some ACP adapters (notably the npx Claude adapter) do not exit on an
+    // unknown `--version` flag and instead wait on stdin, which would hang
+    // preflight forever. Bound the probe and kill the child if it overruns.
+    command.kill_on_drop(true);
+    let output = match timeout(Duration::from_secs(15), command.output()).await {
+        Ok(result) => result.map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to run ACP version command for {:?}: {}",
+                entry.agent_type, e
+            ))
+        })?,
+        // Probe timed out: fall back to npm package metadata instead of blocking.
+        Err(_) => return detect_global_npm_package_version(entry).await,
+    };
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -536,6 +544,70 @@ pub async fn run_agent_fix(
 
     let _ = detect_agent_local_version(state, agent_type).await?;
     Ok(())
+}
+
+/// The interactive login command for an agent's own CLI, if it has one.
+fn login_command_for_agent(agent_type: AgentType) -> Option<&'static str> {
+    match agent_type {
+        AgentType::Codex => Some("codex login"),
+        _ => None,
+    }
+}
+
+/// Open the agent's interactive login command in a visible OS terminal so the
+/// user can complete the (browser/device-code) auth flow. The CLI writes its
+/// own credentials (e.g. `~/.codex/auth.json`) which VibeX then detects.
+#[tauri::command]
+pub async fn open_agent_login_terminal(agent_type: String) -> Result<(), AppError> {
+    let agent = parse_agent_type_key(&agent_type)?;
+    let command = login_command_for_agent(agent).ok_or_else(|| {
+        AppError::BadRequest(format!("{agent_type} does not support in-app login"))
+    })?;
+
+    let spawn_result = spawn_login_terminal(command);
+    spawn_result.map_err(|e| AppError::Internal(format!("Failed to open login terminal: {e}")))
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_login_terminal(command: &str) -> std::io::Result<()> {
+    // Open a new console window that runs the login command and stays open so
+    // the device-code / browser prompt remains visible.
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", "cmd", "/K", command])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_login_terminal(command: &str) -> std::io::Result<()> {
+    let script = format!(
+        "tell application \"Terminal\" to do script \"{}\"",
+        command.replace('\\', "\\\\").replace('"', "\\\"")
+    );
+    std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_login_terminal(command: &str) -> std::io::Result<()> {
+    let run = format!("{command}; exec $SHELL");
+    for terminal in ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"] {
+        if which::which(terminal).is_ok() {
+            if let Ok(()) = std::process::Command::new(terminal)
+                .args(["-e", "sh", "-lc", &run])
+                .spawn()
+                .map(|_| ())
+            {
+                return Ok(());
+            }
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "no supported terminal emulator found",
+    ))
 }
 
 #[cfg(test)]

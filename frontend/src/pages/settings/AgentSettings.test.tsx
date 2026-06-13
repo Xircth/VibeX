@@ -18,6 +18,8 @@ const agentSettingsApiMock = vi.hoisted(() => ({
   preflight: vi.fn(),
   runFix: vi.fn(),
   detectVersion: vi.fn(),
+  readNativeFiles: vi.fn(),
+  writeNativeFiles: vi.fn(),
 }));
 
 vi.mock('@/features/agents/api', () => ({
@@ -136,6 +138,25 @@ function mockRegistry() {
     },
   ]);
   agentSettingsApiMock.detectVersion.mockResolvedValue('0.9.0');
+  agentSettingsApiMock.readNativeFiles.mockResolvedValue([
+    {
+      id: 'config',
+      label: 'config.toml',
+      path: '~/.codex/config.toml',
+      format: 'toml',
+      exists: true,
+      content: 'model = "gpt-5"\n',
+    },
+    {
+      id: 'auth',
+      label: 'auth.json',
+      path: '~/.codex/auth.json',
+      format: 'json',
+      exists: false,
+      content: null,
+    },
+  ]);
+  agentSettingsApiMock.writeNativeFiles.mockResolvedValue([]);
 }
 
 describe('AgentSettings', () => {
@@ -154,16 +175,18 @@ describe('AgentSettings', () => {
     render(<AgentSettings />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('agent-registry-row-codex')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('agent-registry-row-codex')
+      ).toBeInTheDocument();
     });
 
     expect(screen.getByTestId('agent-registry-row-gemini')).toBeInTheDocument();
     expect(screen.getAllByText(/版本 0\.9\.0/).length).toBeGreaterThan(0);
-    expect(screen.getByDisplayValue(/"model": "gpt-5"/)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('gpt-5')).toBeInTheDocument();
     expect(agentSettingsApiMock.list).toHaveBeenCalledTimes(1);
   });
 
-  it('saves enablement and JSON preferences through the agent settings API', async () => {
+  it('toggles enablement through the agent settings API', async () => {
     const user = userEvent.setup();
     mockRegistry();
     agentSettingsApiMock.updatePreferences.mockResolvedValue({
@@ -173,7 +196,7 @@ describe('AgentSettings', () => {
       sort_order: 0,
       installed_version: '0.9.0',
       env_json: '{"OPENAI_API_KEY":"sk-test"}',
-      config_json: '{"model":"gpt-5"}',
+      config_json: null,
       auto_approve_mode: 'off',
     });
 
@@ -181,14 +204,11 @@ describe('AgentSettings', () => {
 
     await screen.findByTestId('agent-registry-row-codex');
     await user.click(screen.getByRole('switch', { name: '启用 Agent' }));
-    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(agentSettingsApiMock.updatePreferences).toHaveBeenCalledWith({
         agentType: 'codex',
         enabled: false,
-        envJson: '{"OPENAI_API_KEY":"sk-test"}',
-        configJson: '{"model":"gpt-5"}',
       });
     });
   });
@@ -225,7 +245,7 @@ describe('AgentSettings', () => {
       expect(agentSettingsApiMock.preflight).toHaveBeenCalledWith('codex');
     });
     expect(screen.getByText('运行入口可用。')).toBeInTheDocument();
-    expect(screen.getByText('需确认')).toBeInTheDocument();
+    expect(screen.getByText('可用')).toBeInTheDocument();
     expect(screen.getByText('Authentication')).toBeInTheDocument();
     expect(
       screen.getByText(

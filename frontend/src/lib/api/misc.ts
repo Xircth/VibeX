@@ -424,7 +424,83 @@ export interface AgentLocalSkill {
   invocation: string;
 }
 
+export type AgentSkillScope = 'global' | 'project';
+
+export interface AgentSkillItem {
+  id: string;
+  scope: AgentSkillScope;
+  path: string;
+  description: string | null;
+  read_only: boolean;
+}
+
+export interface AgentSkillLocation {
+  scope: AgentSkillScope;
+  path: string;
+  exists: boolean;
+  read_only: boolean;
+}
+
+export interface AgentSkillsListResult {
+  supported: boolean;
+  locations: AgentSkillLocation[];
+  skills: AgentSkillItem[];
+}
+
+export interface AgentSkillContent {
+  skill: AgentSkillItem;
+  content: string;
+}
+
 export const skillsApi = {
   listLocal: (agentType: string): Promise<AgentLocalSkill[]> =>
     tauriInvoke<AgentLocalSkill[]>('list_local_agent_skills', { agentType }),
+  // Per-agent skills CRUD (global / project scope), backed by each agent's
+  // own skill directories; writes are scoped to a writable directory.
+  list: (
+    agentType: string,
+    workspacePath?: string | null
+  ): Promise<AgentSkillsListResult> =>
+    tauriInvoke<AgentSkillsListResult>('list_agent_skills', {
+      agentType,
+      workspacePath: workspacePath ?? null,
+    }),
+  read: (params: {
+    agentType: string;
+    scope: AgentSkillScope;
+    skillId: string;
+    workspacePath?: string | null;
+  }): Promise<AgentSkillContent> =>
+    tauriInvoke<AgentSkillContent>('read_agent_skill', {
+      agentType: params.agentType,
+      scope: params.scope,
+      skillId: params.skillId,
+      workspacePath: params.workspacePath ?? null,
+    }),
+  save: (params: {
+    agentType: string;
+    scope: AgentSkillScope;
+    skillId: string;
+    content: string;
+    workspacePath?: string | null;
+  }): Promise<AgentSkillItem> =>
+    tauriInvoke<AgentSkillItem>('save_agent_skill', {
+      agentType: params.agentType,
+      scope: params.scope,
+      skillId: params.skillId,
+      content: params.content,
+      workspacePath: params.workspacePath ?? null,
+    }),
+  delete: (params: {
+    agentType: string;
+    scope: AgentSkillScope;
+    skillId: string;
+    workspacePath?: string | null;
+  }): Promise<void> =>
+    tauriInvoke<void>('delete_agent_skill', {
+      agentType: params.agentType,
+      scope: params.scope,
+      skillId: params.skillId,
+      workspacePath: params.workspacePath ?? null,
+    }),
 };

@@ -265,8 +265,8 @@ pub fn run() {
             commands::config::list_opencode_models,
             commands::config::get_claude_settings,
             commands::config::update_claude_settings,
-            commands::config::read_agent_native_configs,
-            commands::config::write_agent_native_config,
+            commands::config::read_agent_native_files,
+            commands::config::write_agent_native_files,
             commands::desktop_toast::show_desktop_toast,
             commands::desktop_toast::is_main_window_focused,
             commands::desktop_toast::activate_desktop_toast,
@@ -282,6 +282,7 @@ pub fn run() {
             commands::agent_settings::agent_preflight,
             commands::agent_settings::detect_agent_local_version,
             commands::agent_settings::run_agent_fix,
+            commands::agent_settings::open_agent_login_terminal,
             commands::system_maintenance::get_system_maintenance_status,
             commands::system_maintenance::check_app_release,
             commands::system_maintenance::install_system_dependencies,
@@ -342,6 +343,10 @@ pub fn run() {
             commands::file_tree::search_workspace_text,
             // Skills commands
             commands::skills::list_local_agent_skills,
+            commands::agent_skills::list_agent_skills,
+            commands::agent_skills::read_agent_skill,
+            commands::agent_skills::save_agent_skill,
+            commands::agent_skills::delete_agent_skill,
             // Local usage commands
             commands::local_usage::get_project_usage_statistics,
         ])

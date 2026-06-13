@@ -28,7 +28,7 @@ mod claude_settings;
 mod mcp_servers;
 mod prompt_enhancement;
 
-pub use agent_native::AgentNativeConfigs;
+pub use agent_native::{AgentNativeFile, AgentNativeFileWrite};
 pub use claude_settings::ClaudeSettings;
 pub use mcp_servers::GetMcpServerResponse;
 pub use prompt_enhancement::{
@@ -409,29 +409,24 @@ pub async fn update_claude_settings(
 }
 
 #[tauri::command]
-pub async fn read_agent_native_configs(
+pub async fn read_agent_native_files(
     state: tauri::State<'_, AppState>,
-    agent_type: BaseCodingAgent,
-) -> Result<AgentNativeConfigs, AppError> {
-    agent_native::read_agent_native_configs(state, agent_type).await
+    agent_type: String,
+) -> Result<Vec<AgentNativeFile>, AppError> {
+    let _ = state;
+    let agent_type = agent_type_from_executor_key(&agent_type)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
+    agent_native::agent_native_files_read(agent_type).await
 }
 
 #[tauri::command]
-pub async fn write_agent_native_config(
+pub async fn write_agent_native_files(
     state: tauri::State<'_, AppState>,
-    agent_type: BaseCodingAgent,
-    codex_config_toml: Option<String>,
-    codex_auth_json: Option<String>,
-    opencode_config_json: Option<String>,
-    opencode_auth_json: Option<String>,
-) -> Result<(), AppError> {
-    agent_native::write_agent_native_config(
-        state,
-        agent_type,
-        codex_config_toml,
-        codex_auth_json,
-        opencode_config_json,
-        opencode_auth_json,
-    )
-    .await
+    agent_type: String,
+    files: Vec<AgentNativeFileWrite>,
+) -> Result<Vec<AgentNativeFile>, AppError> {
+    let _ = state;
+    let agent_type = agent_type_from_executor_key(&agent_type)
+        .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
+    agent_native::agent_native_files_write(agent_type, files).await
 }

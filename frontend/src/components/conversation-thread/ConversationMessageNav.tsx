@@ -1,4 +1,3 @@
-import { MessageSquareText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ConversationMessageNavEntry } from './messageNavEntries';
 import { findActiveConversationMessageNavEntry } from './messageNavEntries';
@@ -28,34 +27,12 @@ export function ConversationMessageNav({
             <button
               key={entry.key}
               type="button"
-              className={cn(
-                'conv-message-nav-button',
-                isActive && 'is-active'
-              )}
+              className={cn('conv-message-nav-dot', isActive && 'is-active')}
               onClick={() => onSelect(entry.index)}
               aria-current={isActive ? 'true' : undefined}
+              aria-label={`跳转到第 ${entry.ordinal} 条消息`}
               title={entry.preview}
-            >
-              <MessageSquareText className="h-3.5 w-3.5 shrink-0" />
-              <span className="conv-message-nav-ordinal">
-                {entry.ordinal}
-              </span>
-              <span className="conv-message-nav-preview">{entry.preview}</span>
-              {entry.additions > 0 || entry.deletions > 0 ? (
-                <span className="conv-message-nav-stats">
-                  {entry.additions > 0 ? (
-                    <span className="conv-message-nav-add">
-                      +{entry.additions}
-                    </span>
-                  ) : null}
-                  {entry.deletions > 0 ? (
-                    <span className="conv-message-nav-del">
-                      -{entry.deletions}
-                    </span>
-                  ) : null}
-                </span>
-              ) : null}
-            </button>
+            />
           );
         })}
       </div>

@@ -495,8 +495,7 @@ pub async fn agent_send_workspace_prompt(
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
         .unwrap_or_else(|| container_ref.clone());
-    let blocks =
-        workspace_prompt_blocks(&working_dir, request.text, &request.images).await?;
+    let blocks = workspace_prompt_blocks(&working_dir, request.text, &request.images).await?;
     let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
 
     let session = state

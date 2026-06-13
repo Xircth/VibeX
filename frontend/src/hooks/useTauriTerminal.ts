@@ -284,18 +284,31 @@ export function useTauriTerminal({
       terminalOpenedRef.current = true;
 
       const applyCurrentTheme = () => {
-        if (!terminalRef.current) {
+        const term = terminalRef.current;
+        const activeContainer = containerElRef.current;
+        if (!term || !activeContainer) {
           return;
         }
 
-        terminalRef.current.options.theme = getTerminalTheme();
+        // Assigning `options.theme` synchronously drives xterm's
+        // onDimensionsChange -> Viewport.syncScrollArea, and refresh() schedules
+        // the same on a RAF. Both read RenderService.dimensions, which throws
+        // ("Cannot read properties of undefined (reading 'dimensions')") when the
+        // terminal sits in the hidden/zero-size Dockview panel (renderer never
+        // sized) or is mid-dispose. Only touch it once it is open and on-screen.
+        if (
+          !terminalOpenedRef.current ||
+          !hasUsableTerminalContainer(activeContainer) ||
+          !hasLiveTerminalElement(term, activeContainer)
+        ) {
+          return;
+        }
+
         try {
-          terminalRef.current.refresh(
-            0,
-            Math.max(0, terminalRef.current.rows - 1)
-          );
+          term.options.theme = getTerminalTheme();
+          term.refresh(0, Math.max(0, term.rows - 1));
         } catch {
-          // Ignore refresh errors while terminal is hidden.
+          // Panel may be mid-layout, hidden, or disposing.
         }
       };
 

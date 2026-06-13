@@ -46,6 +46,7 @@ export type {
   PreflightFix,
   PreflightResult,
   RunAgentFixRequest,
+  AgentNativeFile,
   OpencodeModelsResponse,
   AppReleaseStatus,
   RuntimeStatus,
@@ -86,6 +87,11 @@ export type {
   TextSearchResponse,
   TextSearchOptions,
   AgentLocalSkill,
+  AgentSkillScope,
+  AgentSkillItem,
+  AgentSkillLocation,
+  AgentSkillsListResult,
+  AgentSkillContent,
 } from './misc';
 
 // Local Usage Statistics

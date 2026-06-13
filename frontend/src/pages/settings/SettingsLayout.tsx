@@ -108,10 +108,7 @@ export function SettingsLayout() {
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        <aside className="settings-sidebar w-56 shrink-0 p-3">
-          <div className="px-1 pb-2 text-[11px] font-medium text-muted-foreground">
-            偏好设置
-          </div>
+        <aside className="settings-sidebar m-3 w-56 shrink-0 p-2.5">
           <nav className="space-y-1">
             {SETTINGS_NAV_ITEMS.map((item) => {
               const Icon = item.icon;

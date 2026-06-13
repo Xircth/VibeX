@@ -64,6 +64,10 @@ import type { AgentSessionConfigOption } from '@/features/agents/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
+// Benign ES-module cycle: AgentTimelineConversation imports only this module's
+// hoisted helper functions + the VirtualizedListRef type (available during
+// partial load), and is itself used only at render time.
+import AgentTimelineConversation from './AgentTimelineConversation';
 
 export type VirtualizedListScrollOptions = {
   align?: 'start' | 'center' | 'end' | 'auto';
@@ -335,8 +339,11 @@ export function collapsedAssistantMessagesLabel(hiddenCount: number): string {
   return `已折叠 ${hiddenCount} 条过程消息`;
 }
 
-const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
-  function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
+const ExecutionProcessConversation = forwardRef<
+  VirtualizedListRef,
+  VirtualizedListProps
+>(
+  function ExecutionProcessConversation({ attempt, task, onAtBottomChange }, ref) {
     const { entries, setEntries } = useEntries();
     const { executionProcessesVisible } = useExecutionProcessesContext();
     const agentWorkbench = useAgentWorkbench();
@@ -1037,5 +1044,33 @@ function CollapsedAssistantMessagesBlock({
     </div>
   );
 }
+
+/**
+ * Routes ACP agent sessions to the unified-timeline view (codeg-aligned) and
+ * everything else to the execution-process conversation. Keys on the stable
+ * attempt session id so the branch never flaps mid-session.
+ */
+const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
+  function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
+    if (attempt.session?.id) {
+      return (
+        <AgentTimelineConversation
+          ref={ref}
+          attempt={attempt}
+          task={task}
+          onAtBottomChange={onAtBottomChange}
+        />
+      );
+    }
+    return (
+      <ExecutionProcessConversation
+        ref={ref}
+        attempt={attempt}
+        task={task}
+        onAtBottomChange={onAtBottomChange}
+      />
+    );
+  }
+);
 
 export default VirtualizedList;

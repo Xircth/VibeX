@@ -216,6 +216,28 @@ impl AgentRuntime {
         self.event_tx.subscribe()
     }
 
+    /// Emit a synthetic event onto `connection_id`'s stream as if the runtime
+    /// produced it. The delegation layer uses this to surface
+    /// `AgentEvent::DelegationStarted` / `DelegationCompleted` on the parent
+    /// connection, so they flow through the normal sink (DB) + broadcast
+    /// (frontend) path with a proper sequence number.
+    pub async fn emit_external(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: Option<AgentSessionId>,
+        event: AgentEvent,
+    ) {
+        let mut state = self.state.write().await;
+        Self::emit_with_parts_locked(
+            &mut state,
+            self.event_sink.as_ref(),
+            &self.event_tx,
+            connection_id,
+            session_id,
+            event,
+        );
+    }
+
     pub fn registry(&self) -> Vec<AgentRegistryEntry> {
         crate::registry::all_agent_types()
             .into_iter()

@@ -40,6 +40,8 @@ ts-rs = { workspace = true }
 chrono = { workspace = true }
 serde_yaml = "0.9"
 toml = "0.8"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+prost = "0.13"
 
 # Reuse existing workspace crates
 db = { path = "../crates/db" }

@@ -240,8 +240,7 @@
     --shadow-shell: 0 18px 42px hsl(220 36% 8% / 0.16);
     --shadow-popover: 0 18px 42px hsl(220 36% 8% / 0.2);
     --shadow-glass:
-      0 18px 42px hsl(220 36% 8% / 0.14),
-      inset 0 1px 0 hsl(0 0% 100% / 0.36);
+      0 18px 42px hsl(220 36% 8% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.36);
     --shadow-card: 0 2px 7px hsl(220 36% 8% / 0.075);
     --status-init: var(--neutral);
     --status-init-foreground: var(--neutral-foreground);
@@ -298,8 +297,7 @@
     --shadow-shell: 0 18px 42px hsl(220 48% 2% / 0.34);
     --shadow-popover: 0 18px 42px hsl(220 48% 2% / 0.44);
     --shadow-glass:
-      0 18px 42px hsl(220 48% 2% / 0.3),
-      inset 0 1px 0 hsl(0 0% 100% / 0.08);
+      0 18px 42px hsl(220 48% 2% / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.08);
     --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
   }
 }
@@ -574,28 +572,111 @@
     box-shadow: none;
   }
 
+  .settings-page .settings-content {
+    width: min(100%, 860px);
+    margin: 0 auto;
+    padding: 1.25rem 0 1.75rem;
+  }
+
+  .settings-page .settings-page-header {
+    margin-bottom: 1rem;
+  }
+
+  .settings-page .settings-page-header h2 {
+    color: var(--text-strong);
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .settings-page .settings-page-header p {
+    margin-top: 0.25rem;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+
+  .settings-page .settings-sections {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .settings-page .settings-card__header h3 {
+    color: var(--text-strong);
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .settings-page .settings-card__header p {
+    margin-top: 0.25rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+
   .settings-page .settings-card > :not([hidden]) {
     padding: 0.75rem 1rem;
   }
 
-  .settings-page .settings-card > :not([hidden]) + :not([hidden]) {
-    border-top: 1px solid var(--border-content);
-  }
+  /* Grouped settings cards rely on spacing, not hairlines, to separate rows.
+     Tables that genuinely need row separators opt in with their own divider. */
 
   .settings-page .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
     min-height: 2.75rem;
   }
 
+  .settings-page .settings-row--stacked {
+    align-items: stretch;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .settings-page .settings-row__description {
+    margin-top: 0.25rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+
   .settings-page .settings-inline-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    padding: 0.25rem 0.5rem;
     border: 1px solid var(--border-content);
     border-radius: 8px;
     background: var(--surface-content);
   }
 
   .settings-page .settings-action-bar {
+    position: sticky;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
     border-top: 1px solid var(--border-content);
     background: var(--surface-content);
     box-shadow: 0 -8px 18px hsl(220 36% 8% / 0.04);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .settings-page .settings-empty-state {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.5;
   }
 
   .settings-page .settings-meta-chip,
@@ -1704,8 +1785,7 @@
 :where(.legacy-design.reduced-transparency) .settings-sidebar,
 :where(.legacy-design.reduced-transparency) .project-rail-shell,
 :where(.legacy-design.reduced-transparency) .dialog-backdrop,
-:where(.legacy-design.reduced-transparency)
-  [data-sonner-toast].vu-sonner-toast,
+:where(.legacy-design.reduced-transparency) [data-sonner-toast].vu-sonner-toast,
 :where(.app.reduced-transparency .legacy-design) .tahoe-glass,
 :where(.app.reduced-transparency .legacy-design) .tahoe-popover,
 :where(.app.reduced-transparency .legacy-design) .workspace-topbar,

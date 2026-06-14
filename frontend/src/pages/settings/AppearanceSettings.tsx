@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Save, Sun, Undo2 } from 'lucide-react';
+import { Loader2, Sun } from 'lucide-react';
 import { ThemeMode, type Config } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -13,6 +13,12 @@ import {
 } from '@/components/ui/select';
 import { tauriEmit } from '@/lib/tauriApi';
 import { toPrettyCase } from '@/utils/string';
+
+import {
+  SettingsActionBar,
+  SettingsPageHeader,
+  SettingsSection,
+} from './SettingsUi';
 
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
@@ -69,19 +75,25 @@ export function AppearanceSettings() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold">外观</h2>
-      </div>
+    <div className="settings-content">
+      <SettingsPageHeader
+        title="外观"
+        description="管理应用主题与亮暗模式。"
+      />
 
-      <section className="settings-section space-y-3">
-        <div className="flex items-center gap-2">
-          <Sun className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">主题</h3>
-        </div>
-        <div className="settings-card overflow-hidden rounded-lg border">
-          <div className="settings-row flex items-center justify-between gap-4">
-            <div className="text-sm font-medium">应用主题</div>
+      <div className="settings-sections">
+        <SettingsSection
+          icon={Sun}
+          title="主题"
+          description="选择浅色、深色或跟随系统的配色方案。"
+        >
+          <div className="settings-row">
+            <div>
+              <Label>应用主题</Label>
+              <p className="settings-row__description">
+                深色模式（Ayu Mirage）针对代码密集会话优化。
+              </p>
+            </div>
             <Select
               value={draft.theme}
               onValueChange={(value) => updateTheme(value as ThemeMode)}
@@ -98,43 +110,16 @@ export function AppearanceSettings() {
               </SelectContent>
             </Select>
           </div>
-        </div>
-      </section>
+        </SettingsSection>
+      </div>
 
-      {hasUnsavedChanges ? (
-        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
-          <div className="mx-auto flex max-w-2xl items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              有未保存的更改
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleDiscard}
-                disabled={saving}
-              >
-                <Undo2 className="mr-1 h-3 w-3" />
-                放弃
-              </Button>
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving ? (
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3 w-3" />
-                )}
-                保存设置
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <SettingsActionBar
+        dirty={hasUnsavedChanges}
+        saving={saving}
+        onDiscard={handleDiscard}
+        onSave={handleSave}
+        disabled={saving}
+      />
     </div>
   );
 }

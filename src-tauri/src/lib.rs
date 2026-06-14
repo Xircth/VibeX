@@ -77,6 +77,11 @@ pub fn run() {
             {
                 tracing::warn!("Failed to initialize project rail window: {}", error);
             }
+            if let Err(error) =
+                tauri::async_runtime::block_on(commands::web_service::ensure_web_service_autostart())
+            {
+                tracing::warn!("Failed to autostart web service: {}", error);
+            }
 
             if let Some(main_window) = app.get_webview_window("main") {
                 if let Err(error) = apply_app_icon(&main_window) {
@@ -195,6 +200,8 @@ pub fn run() {
             commands::sessions::update_session_status,
             commands::sessions::delete_session,
             commands::sessions::reset_session_process,
+            commands::conversations::conversation_detail,
+            commands::conversations::conversation_list,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,
             commands::events::subscribe_log_stream,
@@ -290,6 +297,48 @@ pub fn run() {
             commands::agent_settings::detect_agent_local_version,
             commands::agent_settings::run_agent_fix,
             commands::agent_settings::open_agent_login_terminal,
+            commands::version_control::get_version_control_settings,
+            commands::version_control::update_version_control_settings,
+            commands::version_control::detect_git_version,
+            commands::version_control::test_git_path,
+            commands::version_control::get_github_cli_status,
+            commands::version_control::open_github_cli_login,
+            commands::version_control::logout_github_cli,
+            commands::system_settings::get_system_proxy_settings,
+            commands::system_settings::update_system_proxy_settings,
+            commands::system_settings::get_system_rendering_settings,
+            commands::system_settings::update_system_rendering_settings,
+            commands::backup::backup_create,
+            commands::backup::backup_inspect,
+            commands::backup::backup_restore_stage,
+            commands::backup::backup_cancel,
+            commands::web_service::get_web_service_config,
+            commands::web_service::update_web_service_config,
+            commands::web_service::get_web_server_status,
+            commands::web_service::start_web_server,
+            commands::web_service::stop_web_server,
+            commands::web_service::probe_web_service_port,
+            commands::web_service::generate_web_service_token,
+            commands::model_provider::list_agent_providers,
+            commands::model_provider::create_agent_provider,
+            commands::model_provider::update_agent_provider,
+            commands::model_provider::delete_agent_provider,
+            commands::model_provider::apply_agent_provider,
+            commands::model_provider::preview_agent_provider,
+            commands::model_provider::clear_agent_provider_key,
+            commands::model_provider::fetch_agent_provider_models,
+            commands::chat_channel::list_chat_channels,
+            commands::chat_channel::create_chat_channel,
+            commands::chat_channel::update_chat_channel,
+            commands::chat_channel::delete_chat_channel,
+            commands::chat_channel::save_chat_channel_token,
+            commands::chat_channel::get_chat_channel_has_token,
+            commands::chat_channel::delete_chat_channel_token,
+            commands::chat_channel::test_chat_channel,
+            commands::chat_channel::get_chat_event_filter,
+            commands::chat_channel::set_chat_event_filter,
+            commands::chat_channel::get_chat_command_prefix,
+            commands::chat_channel::set_chat_command_prefix,
             commands::system_maintenance::get_system_maintenance_status,
             commands::system_maintenance::check_app_release,
             commands::system_maintenance::install_system_dependencies,
@@ -300,6 +349,12 @@ pub fn run() {
             commands::tags::create_tag,
             commands::tags::update_tag,
             commands::tags::delete_tag,
+            commands::instructions::list_instructions,
+            commands::instructions::list_official_instructions,
+            commands::instructions::create_instruction,
+            commands::instructions::update_instruction,
+            commands::instructions::delete_instruction,
+            commands::instructions::install_official_instruction,
             // Approval commands
             commands::approvals::respond_to_approval,
             // ACP-native agent platform commands
@@ -318,6 +373,7 @@ pub fn run() {
             commands::agents::agent_resume_session,
             commands::agents::agent_send_prompt,
             commands::agents::agent_send_workspace_prompt,
+            commands::agents::agent_reset_to_checkpoint,
             commands::agents::agent_cancel_prompt,
             commands::agents::agent_disconnect,
             commands::agents::agent_respond_permission,

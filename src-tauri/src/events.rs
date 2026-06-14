@@ -3,6 +3,7 @@ use std::sync::Arc;
 use agents::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentEvent, AgentEventEnvelope,
     AgentPromptSnapshot, AgentPromptStatus, AgentSessionSnapshot, RuntimeEventSink,
+    executor_key_for,
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
 use db::models::{
@@ -10,6 +11,7 @@ use db::models::{
         AgentRuntimeStore, InsertAgentEvent, UpsertAgentConnection, UpsertAgentPendingPermission,
         UpsertAgentPermissionRequest, UpsertAgentPrompt, UpsertAgentSession, json_kind,
     },
+    conversation::DbConversationSummary,
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -109,6 +111,15 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
         loop {
             match agent_events.recv().await {
                 Ok(event) => {
+                    let notification_event = event.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) =
+                            crate::commands::chat_channel::notify_agent_event(&notification_event)
+                                .await
+                        {
+                            tracing::warn!("Failed to dispatch chat channel event: {}", error);
+                        }
+                    });
                     if app_handle.emit(channels::AGENT_EVENTS, &event).is_err() {
                         break;
                     }
@@ -143,6 +154,20 @@ async fn persist_agent_event(
         }
         AgentEvent::SessionCreated { snapshot } => {
             persist_session_snapshot(pool, envelope.workspace_id, snapshot).await?;
+        }
+        AgentEvent::SessionLinked {
+            acp_session_id,
+            agent_type,
+        } => {
+            if let Some(session_id) = envelope.session_id {
+                DbConversationSummary::bind_external_id(
+                    pool,
+                    session_id.0,
+                    acp_session_id,
+                    executor_key_for(*agent_type),
+                )
+                .await?;
+            }
         }
         AgentEvent::PromptStarted { snapshot } => {
             persist_prompt_snapshot(pool, snapshot).await?;

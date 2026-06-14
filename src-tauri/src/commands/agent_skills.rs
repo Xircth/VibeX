@@ -861,7 +861,9 @@ async fn run_skills_add(source: &str, skill_id: &str, staging: &Path) -> Result<
     let output = tokio::time::timeout(std::time::Duration::from_secs(180), command.output())
         .await
         .map_err(|_| AppError::Internal("skills 安装超时（180 秒）".to_string()))?
-        .map_err(|e| AppError::Internal(format!("无法运行 npx skills（请确认已安装 Node.js）: {e}")))?;
+        .map_err(|e| {
+            AppError::Internal(format!("无法运行 npx skills（请确认已安装 Node.js）: {e}"))
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -881,8 +883,8 @@ pub async fn scan_local_skills() -> Result<Vec<LocalSkill>, AppError> {
 #[tauri::command]
 pub async fn read_local_skill(skill_id: String) -> Result<LocalSkillContent, AppError> {
     let id = validate_skill_id(&skill_id)?;
-    let entry =
-        locate_skill_entry(&id).ok_or_else(|| AppError::NotFound(format!("Skill not found: {id}")))?;
+    let entry = locate_skill_entry(&id)
+        .ok_or_else(|| AppError::NotFound(format!("Skill not found: {id}")))?;
     let content_path = skill_content_path(&entry)
         .ok_or_else(|| AppError::Internal(format!("Skill content file missing for {id}")))?;
     let content = fs::read_to_string(&content_path)
@@ -1201,7 +1203,9 @@ mod tests {
             Some("A great skill that does things.\nUse it often.")
         );
         assert_eq!(
-            parse_skill_description(r#"{"description":"Discover and install skills for AI agents."}"#),
+            parse_skill_description(
+                r#"{"description":"Discover and install skills for AI agents."}"#
+            ),
             None
         );
     }

@@ -1,5 +1,6 @@
 pub mod agent_runtime;
 pub mod agent_setting;
+pub mod conversation;
 pub mod execution_process;
 pub mod execution_process_logs;
 pub mod execution_process_repo_state;
@@ -11,6 +12,7 @@ pub mod project_repo;
 pub mod repo;
 pub mod scratch;
 pub mod session;
+pub mod session_checkpoint;
 pub mod tag;
 pub mod task;
 pub mod workspace;

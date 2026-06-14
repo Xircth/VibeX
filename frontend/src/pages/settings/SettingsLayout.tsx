@@ -4,17 +4,23 @@ import {
   ArrowLeft,
   Bot,
   BookOpenText,
-  Code2,
+  GitBranch,
+  Globe,
   Keyboard,
+  MessageSquareText,
   PlugZap,
+  SendHorizontal,
+  Server,
   Settings,
+  SlidersHorizontal,
   Sun,
 } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+
+import { Logo } from '@/components/Logo';
+import { WindowControls } from '@/components/settings/WindowControls';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { WindowControls } from '@/components/settings/WindowControls';
-import { Logo } from '@/components/Logo';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
 interface SettingsNavItem {
   path: string;
@@ -24,11 +30,16 @@ interface SettingsNavItem {
 
 const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: '/settings/agents', label: 'Agent', icon: Bot },
-  { path: '/settings/skills', label: '技能', icon: BookOpenText },
-  { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
-  { path: '/settings/shortcuts', label: '交互', icon: Keyboard },
-  { path: '/settings/editor', label: '编辑', icon: Code2 },
   { path: '/settings/appearance', label: '外观', icon: Sun },
+  { path: '/settings/general', label: '常规', icon: SlidersHorizontal },
+  { path: '/settings/model-providers', label: '模型供应商', icon: Server },
+  { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
+  { path: '/settings/skills', label: '技能', icon: BookOpenText },
+  { path: '/settings/instructions', label: '指令', icon: MessageSquareText },
+  { path: '/settings/shortcuts', label: '交互', icon: Keyboard },
+  { path: '/settings/version-control', label: '版本管理', icon: GitBranch },
+  { path: '/settings/chat-channels', label: '消息渠道', icon: SendHorizontal },
+  { path: '/settings/web-service', label: 'Web 服务', icon: Globe },
   { path: '/settings/system', label: '系统', icon: Settings },
 ];
 
@@ -112,7 +123,7 @@ export function SettingsLayout() {
 
         {isStandaloneWindow && isWindows && (
           <div
-            className="absolute right-0 top-0 z-30 flex items-center h-full"
+            className="absolute right-0 top-0 z-30 flex h-full items-center"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <WindowControls />
@@ -120,7 +131,7 @@ export function SettingsLayout() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex min-h-0 flex-1">
         <aside className="settings-sidebar m-3 w-56 shrink-0 p-2.5">
           <nav className="space-y-1">
             {SETTINGS_NAV_ITEMS.map((item) => {
@@ -135,15 +146,15 @@ export function SettingsLayout() {
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    'settings-nav-button w-full justify-start',
+                    'settings-nav-button h-8 w-full justify-start text-sm',
                     active && 'is-active'
                   )}
                   type="button"
                   onClick={() => navigateTo(item.path)}
                   aria-current={active ? 'page' : undefined}
                 >
-                  <span className="inline-flex items-center gap-1">
-                    <Icon className="h-3.5 w-3.5" />
+                  <span className="inline-flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
                     {item.label}
                   </span>
                 </Button>
@@ -153,7 +164,7 @@ export function SettingsLayout() {
         </aside>
 
         <section
-          className="flex-1 min-w-0 min-h-0 p-4 overflow-y-auto [scrollbar-gutter:stable]"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]"
           style={{ scrollbarGutter: 'stable' }}
         >
           <Outlet />

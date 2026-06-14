@@ -393,7 +393,7 @@ export enum ThemeMode { LIGHT = "LIGHT", DARK = "DARK", SYSTEM = "SYSTEM" }
 
 export type EditorConfig = { editor_type: EditorType, custom_command: string | null, remote_ssh_host: string | null, remote_ssh_user: string | null, };
 
-export enum EditorType { VS_CODE = "VS_CODE", VS_CODE_INSIDERS = "VS_CODE_INSIDERS", CURSOR = "CURSOR", WINDSURF = "WINDSURF", INTELLI_J = "INTELLI_J", ZED = "ZED", XCODE = "XCODE", GOOGLE_ANTIGRAVITY = "GOOGLE_ANTIGRAVITY", CUSTOM = "CUSTOM" }
+export enum EditorType { VS_CODE = "VS_CODE", VS_CODE_INSIDERS = "VS_CODE_INSIDERS", CURSOR = "CURSOR", WINDSURF = "WINDSURF", INTELLI_J = "INTELLI_J", ZED = "ZED", XCODE = "XCODE", GOOGLE_ANTIGRAVITY = "GOOGLE_ANTIGRAVITY", CUSTOM = "CUSTOM", FILE_MANAGER = "FILE_MANAGER" }
 
 export type EditorOpenError = { "type": "executable_not_found", executable: string, editor_type: EditorType, } | { "type": "invalid_command", details: string, editor_type: EditorType, } | { "type": "launch_failed", executable: string, details: string, editor_type: EditorType, };
 
@@ -708,7 +708,7 @@ export type AgentDistribution = { "kind": "npx", version: string, package: strin
 
 export type AgentErrorEvent = { message: string, raw?: JsonValue | null, };
 
-export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_load_failed", reason: string, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "fork_supported" } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, auto: boolean, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, };
+export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "session_linked", acp_session_id: string, agent_type: AgentType, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_load_failed", reason: string, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "fork_supported" } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, auto: boolean, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, };
 
 export type AgentEventEnvelope = { sequence: bigint, workspace_id: string, connection_id: AgentConnectionId, session_id?: AgentSessionId | null, event: AgentEvent, created_at: string, };
 
@@ -811,3 +811,55 @@ export type AgentSessionMode = { id: string, label: string, description?: string
 export type AgentAutoApproveMode = "off" | "allow_always" | "yolo";
 
 export type AgentPermissionOptionKind = "allow_once" | "allow_always" | "reject_once" | "reject_always" | "unknown";
+
+export type AgentExecutionStats = { agent_type?: string | null, status?: string | null, total_duration_ms?: bigint | null, total_tokens?: bigint | null, total_tool_use_count?: number | null, lines_added?: number | null, lines_removed?: number | null, tool_calls: Array<SubAgentToolCall>, };
+
+export type ContentBlock = { "type": "text", text: string, } | { "type": "thinking", text: string, } | { "type": "image", data: string, mime_type: string, uri?: string | null, } | { "type": "image_generation", revised_prompt?: string | null, image?: ImageData | null, } | { "type": "tool_use", tool_use_id?: string | null, tool_name: string, input_preview?: string | null,
+/**
+ * Free-form metadata (e.g. delegation binding).
+ */
+meta?: JsonValue | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, };
+
+export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
+
+export type ConversationSummary = { id: string, agent_type: AgentType, folder_path?: string | null, folder_name?: string | null, title?: string | null, started_at: string, ended_at?: string | null, message_count: number, model?: string | null, git_branch?: string | null, parent_id?: string | null, parent_tool_use_id?: string | null, delegation_call_id?: string | null, };
+
+export type ImageData = { data: string, mime_type: string, uri?: string | null, };
+
+export type MessageTurn = { id: string, role: TurnRole, blocks: Array<ContentBlock>, timestamp: string, usage?: TurnUsage | null, duration_ms?: bigint | null, model?: string | null,
+/**
+ * Wall-clock end of the turn (NOT `timestamp + duration_ms`).
+ */
+completed_at?: string | null, };
+
+export type SessionStats = { total_usage?: TurnUsage | null, total_tokens?: bigint | null, total_duration_ms: bigint, context_window_used_tokens?: bigint | null, context_window_max_tokens?: bigint | null, context_window_usage_percent?: number | null, };
+
+export type SubAgentToolCall = { tool_name: string, input_preview?: string | null, output_preview?: string | null, is_error: boolean, };
+
+export type TurnRole = "user" | "assistant" | "system";
+
+export type TurnUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint, };
+
+export type DbConversationSummary = { id: string, workspace_id: string, task_id: string | null,
+/**
+ * Display title (the `sessions.name` column).
+ */
+title: string | null,
+/**
+ * When set, parsed titles must not overwrite the user-set title.
+ */
+title_locked: boolean, status: SessionStatus, agent_type: string | null, model: string | null, external_session_id: string | null, message_count: bigint, pinned_at: string | null, parent_session_id: string | null, parent_tool_use_id: string | null, delegation_call_id: string | null, created_at: string, updated_at: string, };
+
+export type DbConversationDetail = { summary: DbConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null,
+/**
+ * The persisted user turn currently being answered, if a turn is in flight.
+ * Reconciled with the live stream on the frontend so a mid-turn load renders
+ * seamlessly. (Populated by the live pipeline; `None` for settled loads.)
+ */
+in_flight_user_turn_id?: string | null, };
+
+export type PlanEntry = { content: string,
+/**
+ * Normalized: `pending` | `in_progress` | `completed`.
+ */
+status: string, priority?: string | null, };

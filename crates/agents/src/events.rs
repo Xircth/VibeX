@@ -163,6 +163,15 @@ pub enum AgentEvent {
     SessionCreated {
         snapshot: AgentSessionSnapshot,
     },
+    /// The agent assigned its own ACP session id (the on-disk session-file key).
+    /// Emitted once when the ACP session is established, so the persistence layer
+    /// can bind `external_session_id` + `agent_type` onto the conversation row for
+    /// transcript re-parse. The `session_id` of the originating DB row travels on
+    /// the event envelope.
+    SessionLinked {
+        acp_session_id: String,
+        agent_type: AgentType,
+    },
     PromptStarted {
         snapshot: AgentPromptSnapshot,
     },

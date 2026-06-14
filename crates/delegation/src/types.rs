@@ -175,12 +175,15 @@ pub struct DelegationMatchKey {
 
 /// Linkage persisted onto the child session row (`sessions.parent_session_id`
 /// etc.) so the lifecycle resolver can route the child's terminal turn back to
-/// the broker.
+/// the broker. `agent_type` is carried so the spawner can register it for the
+/// resolver (which needs it to build the child's terminal outcome) without an
+/// extra DB round-trip.
 #[derive(Debug, Clone)]
 pub struct DelegationLink {
     pub parent_session_id: Uuid,
     pub parent_tool_use_id: String,
     pub delegation_call_id: String,
+    pub agent_type: AgentType,
 }
 
 /// Runtime-tunable delegation knobs.

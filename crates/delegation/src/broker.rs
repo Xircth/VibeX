@@ -263,6 +263,7 @@ impl DelegationBroker {
             parent_session_id: req.parent_session_id,
             parent_tool_use_id: parent_tool_use_id.clone(),
             delegation_call_id: call_id.clone(),
+            agent_type: req.agent_type,
         };
         let child_session_id = match self
             .spawner

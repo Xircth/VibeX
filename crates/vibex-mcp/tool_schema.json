@@ -1,0 +1,103 @@
+[
+  {
+    "name": "delegate_to_agent",
+    "description": "Hand off a self-contained sub-task to a separate local AI agent that runs in its own session. ASYNCHRONOUS: returns a task_id right away and the sub-agent keeps working in the background — this call never blocks. So you can fan out several delegations at once and keep working, then collect the results with get_delegation_status by passing the task_ids array (one id to poll a single task, or many at once to poll the whole fan-out in one call) — or stop one early with cancel_delegation(task_id). The sub-agent CANNOT see this conversation, your open files, or earlier turns — it starts cold, so `task` must carry everything it needs. Best for independent, parallelizable work you can describe up front; not for steps that need your ongoing back-and-forth.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["agent_type", "task"],
+      "properties": {
+        "agent_type": {
+          "type": "string",
+          "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes"],
+          "description": "Which local agent runs the sub-task. Pick the one best suited to the work."
+        },
+        "task": {
+          "type": "string",
+          "description": "The complete, self-contained prompt for the sub-agent. It has no access to this conversation or your context, so spell out everything: the goal, the relevant background and absolute file paths, any constraints, and exactly what to return."
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Absolute path the sub-agent runs in. Defaults to this session's working directory."
+        }
+      }
+    }
+  },
+  {
+    "name": "get_delegation_status",
+    "description": "Collect delegated task results — or check on them — by the task_ids from delegate_to_agent. Pass a single id in the array to poll one task, or many at once to poll a whole fan-out in a single call. The response is ALWAYS a JSON object {\"tasks\":[...]} with one entry per id, in the order you asked; every entry carries that task's task_id and status, so you can always tell which task it is and where it stands. The wait_ms argument picks the mode: omit it for a non-blocking snapshot (poll), or pass wait_ms to wait — wait_ms>0 blocks up to that many ms (capped at 60000; re-call to keep waiting), wait_ms=0 blocks with no timeout for as long as the sub-agent runs. When polling several, the wait returns as soon as ANY requested task reaches a terminal state, so re-call to keep collecting the rest. When you just need the results, prefer blocking over repeated polling. Each task reports running, or a terminal completed / failed / canceled (or unknown if the id isn't recognized); a finished task includes its full result text. While simply waiting, do NOT emit any user-facing message between calls — just call again silently.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["task_ids"],
+      "properties": {
+        "task_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "One or more task_ids returned by delegate_to_agent. The response is always {\"tasks\":[...]} with one entry per id, in this order. With wait_ms set, the call returns as soon as ANY of these tasks reaches a terminal state."
+        },
+        "wait_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How long to wait. Omit for an immediate snapshot (poll). A positive value blocks up to that many milliseconds (capped at 60000). 0 means no timeout — block until a task reaches a terminal state."
+        }
+      }
+    }
+  },
+  {
+    "name": "cancel_delegation",
+    "description": "Stop a running delegated task by its task_id and tear down its sub-agent — use this only when you no longer want the result. Don't cancel just because a task is taking a while: substantial work can legitimately run for a long time, so prefer waiting on it (get_delegation_status with wait_ms) over canceling. If the task has already finished, nothing is canceled and its final result is returned instead.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["task_id"],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The task_id returned by delegate_to_agent."
+        }
+      }
+    }
+  },
+  {
+    "name": "check_user_feedback",
+    "description": "Receive the user's real-time guidance while you work, preventing wasted effort. The user can type corrections or new requirements at any time during your turn — but you will NEVER see them unless you call this tool. Call it after thinking through your approach but BEFORE starting implementation, before significant decisions, and after completing a sub-task. This is a quick, non-blocking snapshot: it returns the user's messages (treat as HIGH-PRIORITY steering) or an empty result (continue your plan).",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "ask_user_question",
+    "description": "Ask the user one or more multiple-choice questions and BLOCK until they answer. Use ONLY when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from the request, the code, or sensible defaults. Do NOT use it to ask 'should I proceed?' or to confirm an obvious default. The user can always pick 'Other' and type a custom answer.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "description": "1-4 questions to ask in this single call.",
+          "items": {
+            "type": "object",
+            "required": ["question", "header", "multiSelect", "options"],
+            "properties": {
+              "question": { "type": "string", "description": "The full question shown to the user." },
+              "header": { "type": "string", "maxLength": 12, "description": "Short category label (≤ 12 chars)." },
+              "multiSelect": { "type": "boolean", "description": "If true, the user may select multiple options." },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "required": ["label", "description"],
+                  "properties": {
+                    "label": { "type": "string", "description": "Concise choice text." },
+                    "description": { "type": "string", "description": "What this choice means or its trade-off." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+]

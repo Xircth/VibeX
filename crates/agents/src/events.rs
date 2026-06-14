@@ -6,8 +6,25 @@ use uuid::Uuid;
 use crate::{
     ids::{AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId},
     permissions::{AgentPermissionRequest, AgentPermissionResponse},
+    registry::AgentType,
     state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot},
 };
+
+/// Terminal summary of a delegation, carried on [`AgentEvent::DelegationCompleted`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum DelegationResultSummary {
+    Ok {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_preview: Option<String>,
+    },
+    Err {
+        error_code: String,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -214,6 +231,23 @@ pub enum AgentEvent {
     },
     PromptFinished {
         finished: AgentPromptFinished,
+    },
+    /// A child agent was delegated to (spawned + first prompt sent). Emitted on
+    /// the PARENT connection's stream so the UI can render an inline delegation
+    /// card on the parent's `delegate_to_agent` tool call.
+    DelegationStarted {
+        parent_tool_use_id: String,
+        /// The child's `sessions.id` — the conversation the user can open.
+        child_session_id: Uuid,
+        agent_type: AgentType,
+        task_preview: String,
+    },
+    /// A delegated child reached a terminal state.
+    DelegationCompleted {
+        parent_tool_use_id: String,
+        child_session_id: Uuid,
+        agent_type: AgentType,
+        result: DelegationResultSummary,
     },
     Error {
         error: AgentErrorEvent,

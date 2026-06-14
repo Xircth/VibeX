@@ -160,15 +160,6 @@ const AgentTimelineConversation = forwardRef<
     };
   }, [agentModel, agentWorkbench.usageByScope, sessionId, sessionStats]);
 
-  const markdownContext = useMemo(
-    () => ({
-      taskAttemptId: attempt.id,
-      taskId: task?.id ?? attempt.task_id ?? undefined,
-      workspacePath: attempt.container_ref,
-    }),
-    [attempt.container_ref, attempt.id, attempt.task_id, task?.id]
-  );
-
   const pendingPermissions = useMemo(
     () =>
       pendingAgentPermissionsForSession(
@@ -451,11 +442,7 @@ const AgentTimelineConversation = forwardRef<
                       ),
                     }}
                   >
-                    <MessageTurnView
-                      turn={row.turn}
-                      context={markdownContext}
-                      inProgressToolCallIds={row.inProgressToolCallIds}
-                    />
+                    <MessageTurnView turn={row.turn} attempt={attempt} task={task} />
                     {renderTurnStats(row, virtualRow.index)}
                   </div>
                 );

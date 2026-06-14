@@ -339,20 +339,26 @@ pub async fn agent_connect(
         .map_err(Into::into)
 }
 
-struct AgentRuntimeLaunchSettings {
-    auto_approve_mode: AgentAutoApproveMode,
-    env: HashMap<String, String>,
+pub(crate) struct AgentRuntimeLaunchSettings {
+    pub(crate) auto_approve_mode: AgentAutoApproveMode,
+    pub(crate) env: HashMap<String, String>,
 }
 
 async fn agent_runtime_launch_settings(
     state: &tauri::State<'_, AppState>,
     agent_type: AgentType,
 ) -> Result<AgentRuntimeLaunchSettings, AppError> {
-    let setting = AgentSetting::find_by_type(
-        &state.deployment.db().pool,
-        agent_type_setting_key(agent_type),
-    )
-    .await?;
+    agent_runtime_launch_settings_from_pool(&state.deployment.db().pool, agent_type).await
+}
+
+/// Pool-based variant of [`agent_runtime_launch_settings`] so non-command code
+/// (the delegation spawner) can resolve a child agent's auto-approve mode + env
+/// without a `tauri::State`.
+pub(crate) async fn agent_runtime_launch_settings_from_pool(
+    pool: &sqlx::SqlitePool,
+    agent_type: AgentType,
+) -> Result<AgentRuntimeLaunchSettings, AppError> {
+    let setting = AgentSetting::find_by_type(pool, agent_type_setting_key(agent_type)).await?;
     let auto_approve_mode = setting
         .as_ref()
         .map(|setting| AgentAutoApproveMode::from_setting(&setting.auto_approve_mode))

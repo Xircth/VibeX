@@ -36,19 +36,26 @@ pub struct AppState {
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
     pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
     pub agent_runtime: Arc<AgentRuntime>,
+    pub delegation: crate::delegation::DelegationState,
 }
 
 impl AppState {
     pub async fn new() -> Result<Self, deployment::DeploymentError> {
         let deployment = LocalDeployment::new().await?;
-        let agent_runtime = AgentRuntime::new(agent_runtime_sink(deployment.db().pool.clone()));
+        let pool = deployment.db().pool.clone();
+        let agent_runtime = Arc::new(AgentRuntime::new(agent_runtime_sink(pool.clone())));
+        // Build the delegation broker over the runtime + DB and start its
+        // listener + resolver. Live from startup; ClaudeCode MCP injection (so
+        // the agent auto-calls it) lands in a follow-up.
+        let delegation = crate::delegation::build_delegation(agent_runtime.clone(), pool);
         Ok(Self {
             deployment: Arc::new(deployment),
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
             local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
-            agent_runtime: Arc::new(agent_runtime),
+            agent_runtime,
+            delegation,
         })
     }
 }

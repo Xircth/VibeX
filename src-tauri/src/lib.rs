@@ -1,6 +1,7 @@
 use tauri::{Emitter, Manager, image::Image};
 
 pub mod commands;
+mod delegation;
 mod error;
 mod events;
 mod preview_proxy;

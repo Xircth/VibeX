@@ -780,7 +780,7 @@ export type AgentTerminalOutputSnapshot = { terminal_id: AgentTerminalId, output
 
 export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args: Array<string>, cwd?: string | null, };
 
-export type AgentToolCall = { id: string, title: string, kind?: string | null, };
+export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, };
 
 export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null, };
 

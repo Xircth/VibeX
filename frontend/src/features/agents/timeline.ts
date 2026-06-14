@@ -1,137 +1,34 @@
 import type { ContentBlock, MessageTurn } from 'shared/types';
-import type { AgentContentBlock, AgentEventEnvelope } from './types';
+import type { AgentContentBlock, AgentEvent, AgentEventEnvelope } from './types';
 
 /**
- * The unified conversation timeline (codeg-aligned). A conversation's rendered
- * turns are the merge of four phases:
- *   - persisted:  re-parsed from the agent's own session file (conversation_detail)
- *   - local:      turns the active session has completed but the DB hasn't re-parsed yet
- *   - optimistic: user messages sent but not yet acknowledged
- *   - streaming:  the in-flight assistant reply, derived live from the event stream
+ * Unified ACP-native conversation timeline.
  *
- * `getTimelineTurns` flattens these into one de-duplicated, render-stable list.
- *
- * VibeX-authored. Unlike codeg (which buffers a dedicated LiveMessage), VibeX
- * derives the streaming turn directly from the accumulated `eventsByScope`
- * envelopes, matching the app's existing transport store.
+ * While a session is live, the event stream is the source of truth: every
+ * `prompt_started` opens a user turn and subsequent ACP updates are folded into
+ * that prompt's assistant turn. The parsed transcript remains the cold-open
+ * history source and is prepended when it clearly predates the live events.
  */
 
-export type TimelinePhase = 'persisted' | 'optimistic' | 'streaming';
+export type TimelinePhase = 'persisted' | 'streaming';
 
 export interface ConversationTimelineTurn {
-  /** Stable React key for the rendered row. */
   key: string;
   turn: MessageTurn;
   phase: TimelinePhase;
-  /** Tool calls still producing output (streaming phase only). */
   inProgressToolCallIds?: Set<string>;
 }
 
-export interface StreamingTurns {
+export interface LiveTurns {
   turns: MessageTurn[];
   inProgressToolCallIds: Set<string>;
 }
 
 export interface GetTimelineTurnsInput {
   conversationId: string;
-  /** Re-parsed historical turns (`conversation_detail.turns`). */
   persisted: MessageTurn[];
-  /** Completed-but-not-yet-persisted turns held by the active runtime. */
-  local?: MessageTurn[];
-  /** User turns sent but not yet acknowledged by the backend. */
-  optimistic?: MessageTurn[];
-  /** The in-flight assistant reply, if a turn is streaming. */
-  streaming?: StreamingTurns | null;
-  /** The persisted user turn currently being answered (mid-turn reconciliation). */
-  inFlightUserTurnId?: string | null;
-}
-
-/** Collision-proof de-dup key over `(role, id)` — no separator to clash with ids. */
-function retainKey(turn: MessageTurn): string {
-  return JSON.stringify([turn.role, turn.id]);
-}
-
-/**
- * Merge the four phases into one timeline, de-duplicated by `(role, id)`.
- *
- * Retention is role-aware: assistant/system turns keep the LAST occurrence (a
- * fresher streamed copy supersedes an earlier promoted snapshot), while user
- * turns keep the FIRST (the persisted prompt must stay above its own reply).
- */
-export function getTimelineTurns(
-  input: GetTimelineTurnsInput
-): ConversationTimelineTurn[] {
-  const {
-    conversationId,
-    persisted,
-    local = [],
-    optimistic = [],
-    streaming = null,
-    inFlightUserTurnId = null,
-  } = input;
-
-  // While a live reply is in hand, drop the stale persisted partial some agents
-  // write mid-turn: any persisted assistant turn after the in-flight user prompt
-  // is superseded by the streaming reply.
-  let persistedTurns = persisted;
-  if (streaming && streaming.turns.length > 0 && inFlightUserTurnId) {
-    const promptIndex = persistedTurns.findIndex(
-      (turn) => turn.role === 'user' && turn.id === inFlightUserTurnId
-    );
-    if (promptIndex !== -1) {
-      persistedTurns = persistedTurns.filter(
-        (turn, index) => index <= promptIndex || turn.role !== 'assistant'
-      );
-    }
-  }
-
-  const result: ConversationTimelineTurn[] = [];
-  persistedTurns.forEach((turn, index) =>
-    result.push({
-      key: `persisted-${conversationId}-${turn.id}-${index}`,
-      turn,
-      phase: 'persisted',
-    })
-  );
-  // Promoted-but-unpersisted turns render identically to persisted ones.
-  local.forEach((turn, index) =>
-    result.push({
-      key: `local-${conversationId}-${turn.id}-${index}`,
-      turn,
-      phase: 'persisted',
-    })
-  );
-  optimistic.forEach((turn, index) =>
-    result.push({
-      key: `optimistic-${conversationId}-${turn.id}-${index}`,
-      turn,
-      phase: 'optimistic',
-    })
-  );
-  if (streaming) {
-    streaming.turns.forEach((turn, index) =>
-      result.push({
-        key: `streaming-${conversationId}-${turn.id}-${index}`,
-        turn,
-        phase: 'streaming',
-        inProgressToolCallIds: streaming.inProgressToolCallIds,
-      })
-    );
-  }
-
-  const retainIndexByKey = new Map<string, number>();
-  result.forEach((entry, index) => {
-    const key = retainKey(entry.turn);
-    if (entry.turn.role !== 'user') {
-      retainIndexByKey.set(key, index); // non-user: keep last
-    } else if (!retainIndexByKey.has(key)) {
-      retainIndexByKey.set(key, index); // user: keep first
-    }
-  });
-
-  return result.filter(
-    (entry, index) => retainIndexByKey.get(retainKey(entry.turn)) === index
-  );
+  live: MessageTurn[];
+  inProgressToolCallIds?: Set<string>;
 }
 
 function textOf(content: AgentContentBlock): string {
@@ -162,22 +59,97 @@ function mergeText(
 
 const FINAL_TOOL_STATUSES = new Set(['completed', 'failed']);
 
-/** The prompt currently being answered: the last `prompt_started` not yet finished. */
-export interface ActivePrompt {
-  id: string;
-  /** Index of the `prompt_started` envelope within `envelopes`. */
-  index: number;
-  textPreview: string;
+interface ReplyAccumulator {
+  promptId: string;
+  blocks: ContentBlock[];
+  resultIndexByToolId: Map<string, number>;
+  planIndex: number;
   startedAt: string;
+  finished: boolean;
 }
 
-/**
- * Locate the active prompt — the latest `prompt_started` with no matching
- * `prompt_finished`. Returns null when the conversation is idle.
- */
-export function findActivePrompt(
-  envelopes: AgentEventEnvelope[]
-): ActivePrompt | null {
+function appendReplyEvent(
+  acc: ReplyAccumulator,
+  event: AgentEvent,
+  inProgressToolCallIds: Set<string>
+): void {
+  switch (event.kind) {
+    case 'plan': {
+      const plan: ContentBlock = {
+        type: 'plan',
+        entries: event.plan.entries.map((content) => ({
+          content,
+          status: 'pending',
+          priority: null,
+        })),
+      };
+      if (acc.planIndex >= 0) {
+        acc.blocks[acc.planIndex] = plan;
+      } else {
+        acc.planIndex = acc.blocks.length;
+        acc.blocks.push(plan);
+      }
+      break;
+    }
+    case 'message_chunk':
+      if (event.content.kind === 'image') {
+        acc.blocks.push({
+          type: 'image',
+          data: event.content.data,
+          mime_type: event.content.mime_type,
+          uri: event.content.uri,
+        });
+      } else {
+        mergeText(acc.blocks, 'text', textOf(event.content));
+      }
+      break;
+    case 'thought_chunk':
+      mergeText(acc.blocks, 'thinking', textOf(event.content));
+      break;
+    case 'tool_call':
+      acc.blocks.push({
+        type: 'tool_use',
+        tool_use_id: event.tool_call.id,
+        tool_name: event.tool_call.title,
+        input_preview:
+          event.tool_call.input_preview ?? event.tool_call.kind ?? null,
+        meta: null,
+      });
+      break;
+    case 'tool_call_update': {
+      const id = event.update.id;
+      const status = event.update.status ?? null;
+      const isFinal = status !== null && FINAL_TOOL_STATUSES.has(status);
+      const block: ContentBlock = {
+        type: 'tool_result',
+        tool_use_id: id,
+        output_preview: event.update.content ?? null,
+        is_error: status === 'failed',
+        agent_stats: null,
+      };
+      const existing = acc.resultIndexByToolId.get(id);
+      if (existing !== undefined) {
+        acc.blocks[existing] = block;
+      } else {
+        acc.resultIndexByToolId.set(id, acc.blocks.length);
+        acc.blocks.push(block);
+      }
+      if (isFinal) {
+        inProgressToolCallIds.delete(id);
+      } else {
+        inProgressToolCallIds.add(id);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+export function buildTurnsFromEvents(
+  envelopes: AgentEventEnvelope[],
+  conversationId: string
+): LiveTurns {
   const finishedPromptIds = new Set<string>();
   for (const envelope of envelopes) {
     if (envelope.event.kind === 'prompt_finished') {
@@ -185,137 +157,99 @@ export function findActivePrompt(
     }
   }
 
-  let active: ActivePrompt | null = null;
-  envelopes.forEach((envelope, index) => {
-    if (
-      envelope.event.kind === 'prompt_started' &&
-      !finishedPromptIds.has(String(envelope.event.snapshot.id))
-    ) {
-      active = {
-        id: String(envelope.event.snapshot.id),
-        index,
-        textPreview: envelope.event.snapshot.text_preview,
-        startedAt: envelope.event.snapshot.created_at,
-      };
+  const turns: MessageTurn[] = [];
+  let inProgressToolCallIds = new Set<string>();
+  let current: ReplyAccumulator | null = null;
+
+  const flush = () => {
+    if (current && current.blocks.length > 0) {
+      turns.push({
+        id: `a-${conversationId}-${current.promptId}`,
+        role: 'assistant',
+        blocks: current.blocks,
+        timestamp: current.startedAt,
+        usage: null,
+        duration_ms: null,
+        model: null,
+        completed_at: current.finished ? current.startedAt : null,
+      });
     }
-  });
-  return active;
+    current = null;
+  };
+
+  for (const envelope of envelopes) {
+    const event = envelope.event;
+    if (event.kind === 'prompt_started') {
+      flush();
+      const id = String(event.snapshot.id);
+      turns.push({
+        id: `u-${conversationId}-${id}`,
+        role: 'user',
+        blocks: [{ type: 'text', text: event.snapshot.text_preview }],
+        timestamp: event.snapshot.created_at,
+        usage: null,
+        duration_ms: null,
+        model: null,
+        completed_at: null,
+      });
+      inProgressToolCallIds = new Set<string>();
+      current = {
+        promptId: id,
+        blocks: [],
+        resultIndexByToolId: new Map(),
+        planIndex: -1,
+        startedAt: event.snapshot.created_at,
+        finished: finishedPromptIds.has(id),
+      };
+    } else if (current) {
+      appendReplyEvent(current, event, inProgressToolCallIds);
+    }
+  }
+  flush();
+
+  return { turns, inProgressToolCallIds };
 }
 
-/**
- * Derive the in-flight assistant turn from accumulated event envelopes.
- *
- * Reads the events of the latest still-running prompt and folds them into a
- * single assistant `MessageTurn`, matching how the backend parser groups a
- * completed round. Returns no turns when no prompt is active — the finished
- * reply then comes from the persisted/local phases instead.
- */
-export function buildStreamingTurns(
-  envelopes: AgentEventEnvelope[],
-  conversationId: string
-): StreamingTurns {
-  const inProgressToolCallIds = new Set<string>();
+export function getTimelineTurns(
+  input: GetTimelineTurnsInput
+): ConversationTimelineTurn[] {
+  const { conversationId, persisted, live, inProgressToolCallIds } = input;
 
-  const active = findActivePrompt(envelopes);
-  if (active === null) {
-    return { turns: [], inProgressToolCallIds };
-  }
-  const activeStartIndex = active.index;
-  const activePromptId = active.id;
-  const activeStartedAt = active.startedAt;
-
-  const blocks: ContentBlock[] = [];
-  const resultIndexByToolId = new Map<string, number>();
-  let planIndex = -1;
-
-  for (let i = activeStartIndex + 1; i < envelopes.length; i += 1) {
-    const event = envelopes[i].event;
-    switch (event.kind) {
-      case 'plan': {
-        // The latest plan event supersedes; keep a single plan block.
-        const plan: ContentBlock = {
-          type: 'plan',
-          entries: event.plan.entries.map((content) => ({
-            content,
-            status: 'pending',
-            priority: null,
-          })),
-        };
-        if (planIndex >= 0) {
-          blocks[planIndex] = plan;
-        } else {
-          planIndex = blocks.length;
-          blocks.push(plan);
-        }
-        break;
-      }
-      case 'message_chunk':
-        if (event.content.kind === 'image') {
-          blocks.push({
-            type: 'image',
-            data: event.content.data,
-            mime_type: event.content.mime_type,
-            uri: event.content.uri,
-          });
-        } else {
-          mergeText(blocks, 'text', textOf(event.content));
-        }
-        break;
-      case 'thought_chunk':
-        mergeText(blocks, 'thinking', textOf(event.content));
-        break;
-      case 'tool_call':
-        blocks.push({
-          type: 'tool_use',
-          tool_use_id: event.tool_call.id,
-          tool_name: event.tool_call.title,
-          input_preview: event.tool_call.kind ?? null,
-          meta: null,
-        });
-        break;
-      case 'tool_call_update': {
-        const id = event.update.id;
-        const status = event.update.status ?? null;
-        const isFinal = status !== null && FINAL_TOOL_STATUSES.has(status);
-        const block: ContentBlock = {
-          type: 'tool_result',
-          tool_use_id: id,
-          output_preview: event.update.content ?? null,
-          is_error: status === 'failed',
-          agent_stats: null,
-        };
-        const existing = resultIndexByToolId.get(id);
-        if (existing !== undefined) {
-          blocks[existing] = block;
-        } else {
-          resultIndexByToolId.set(id, blocks.length);
-          blocks.push(block);
-        }
-        if (isFinal) {
-          inProgressToolCallIds.delete(id);
-        } else {
-          inProgressToolCallIds.add(id);
-        }
-        break;
-      }
-      default:
-        break;
-    }
+  if (live.length === 0) {
+    return persisted.map((turn, index) => ({
+      key: `persisted-${conversationId}-${turn.id}-${index}`,
+      turn,
+      phase: 'persisted' as const,
+    }));
   }
 
-  if (blocks.length === 0) {
-    return { turns: [], inProgressToolCallIds };
-  }
+  const firstLiveTs = live[0]?.timestamp ?? '';
+  const result: ConversationTimelineTurn[] = [];
+  persisted
+    .filter(
+      (turn) => !!turn.timestamp && !!firstLiveTs && turn.timestamp < firstLiveTs
+    )
+    .forEach((turn, index) =>
+      result.push({
+        key: `persisted-${conversationId}-${turn.id}-${index}`,
+        turn,
+        phase: 'persisted',
+      })
+    );
 
-  const turn: MessageTurn = {
-    id: `live-${conversationId}-${activePromptId}`,
-    role: 'assistant',
-    blocks,
-    timestamp: activeStartedAt,
-    usage: null,
-    duration_ms: null,
-    model: null,
-    completed_at: null,
-  };
-  return { turns: [turn], inProgressToolCallIds };
+  const lastIndex = live.length - 1;
+  live.forEach((turn, index) => {
+    const isInFlight =
+      index === lastIndex &&
+      turn.role === 'assistant' &&
+      turn.completed_at == null;
+    result.push({
+      key: `live-${conversationId}-${turn.id}-${index}`,
+      turn,
+      phase: isInFlight ? 'streaming' : 'persisted',
+      inProgressToolCallIds: isInFlight ? inProgressToolCallIds : undefined,
+    });
+  });
+
+  return result;
 }

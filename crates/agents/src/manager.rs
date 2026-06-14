@@ -28,6 +28,7 @@ use agent_client_protocol::{
 };
 use chrono::Utc;
 use futures::StreamExt;
+use serde::Serialize;
 use tokio::{
     io::AsyncWriteExt,
     sync::{Mutex, RwLock, mpsc, oneshot},
@@ -40,7 +41,7 @@ use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_
 
 use crate::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentError,
-    AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption,
+    AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption, AgentPlan,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest,
@@ -520,6 +521,7 @@ impl AgentConnectionRunner {
                     id: "fixture-tool".to_string(),
                     title: "Inspect fixture workspace".to_string(),
                     kind: Some("read".to_string()),
+                    input_preview: None,
                 },
             },
         );
@@ -1415,21 +1417,38 @@ impl AcpClientBridge {
                 tool_call: AgentToolCall {
                     id: tool_call.tool_call_id.0.to_string(),
                     title: tool_call.title,
-                    kind: Some(format!("{:?}", tool_call.kind)),
+                    kind: Some(acp_enum_label(&tool_call.kind)),
+                    input_preview: tool_call
+                        .raw_input
+                        .and_then(|input| serde_json::to_string(&input).ok()),
                 },
             }),
             SessionUpdate::ToolCallUpdate(update) => Some(AgentEvent::ToolCallUpdate {
                 update: AgentToolCallUpdate {
                     id: update.tool_call_id.0.to_string(),
-                    status: update.fields.status.map(|status| format!("{status:?}")),
+                    status: update.fields.status.as_ref().map(acp_enum_label),
                     content: update
                         .fields
-                        .content
-                        .and_then(|content| serde_json::to_string(&content).ok()),
+                        .raw_output
+                        .as_ref()
+                        .and_then(|output| serde_json::to_string(output).ok())
+                        .or_else(|| {
+                            update
+                                .fields
+                                .content
+                                .as_ref()
+                                .and_then(|content| serde_json::to_string(content).ok())
+                        }),
                 },
             }),
-            SessionUpdate::Plan(plan) => Some(AgentEvent::RawAcpDiagnostic {
-                raw: serde_json::to_value(plan).unwrap_or(serde_json::Value::Null),
+            SessionUpdate::Plan(plan) => Some(AgentEvent::Plan {
+                plan: AgentPlan {
+                    entries: plan
+                        .entries
+                        .into_iter()
+                        .map(|entry| entry.content)
+                        .collect(),
+                },
             }),
             SessionUpdate::AvailableCommandsUpdate(update) => Some(AgentEvent::AvailableCommands {
                 commands: agent_available_commands_from_acp(update.available_commands),
@@ -1550,6 +1569,16 @@ fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
             text: serde_json::to_string(&other).unwrap_or_default(),
         },
     }
+}
+
+fn acp_enum_label<T>(value: &T) -> String
+where
+    T: Serialize + std::fmt::Debug,
+{
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{value:?}"))
 }
 
 fn merged_agent_env(configured_env: &HashMap<String, String>) -> HashMap<String, String> {

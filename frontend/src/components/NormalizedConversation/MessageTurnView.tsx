@@ -1,7 +1,9 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import { RotateCcw, Wrench } from 'lucide-react';
+import { ChevronDown, RotateCcw, Wrench } from 'lucide-react';
 import type { MessageTurn, TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
+import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
 import { Markdown } from './Markdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
@@ -13,13 +15,6 @@ import {
   type ToolResultBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
-
-/**
- * Renders one unified-timeline `MessageTurn` by mapping content blocks onto
- * VibeX's existing components: text/output -> Markdown, thinking ->
- * ThinkingEntry, plan -> TimelinePlanCard, images inline, and tool calls -> the
- * full VibeX tool cards via a NormalizedEntry adapter.
- */
 
 export interface MessageTurnContext {
   taskAttemptId?: string;
@@ -118,17 +113,53 @@ function renderItem(
   }
 }
 
+function CollapsedProcessGroup({
+  turnId,
+  items,
+  renderItem: render,
+}: {
+  turnId: string;
+  items: TurnRenderItem[];
+  renderItem: (item: TurnRenderItem, key: string) => ReactNode;
+}) {
+  const [expanded, toggle] = useExpandable(`process:${turnId}`, false);
+  return (
+    <div className="conv-collapsed-process px-1 py-1">
+      <button
+        type="button"
+        onClick={() => toggle()}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        aria-expanded={expanded}
+      >
+        <ChevronDown
+          className={cn(
+            'h-3.5 w-3.5 transition-transform',
+            expanded ? '' : '-rotate-90'
+          )}
+        />
+        <span>Collapsed {items.length} process messages</span>
+      </button>
+      {expanded
+        ? items.map((item, index) =>
+            render(item, `${turnId}-prelude-${index}`)
+          )
+        : null}
+    </div>
+  );
+}
+
 export const MessageTurnView = memo(function MessageTurnView({
   turn,
   attempt,
   task,
   onRetry,
+  collapseProcess = false,
 }: {
   turn: MessageTurn;
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
-  /** When set (user turns), shows a retry affordance. */
   onRetry?: () => void;
+  collapseProcess?: boolean;
 }) {
   const context = useMemo<MessageTurnContext>(
     () => ({
@@ -168,28 +199,60 @@ export const MessageTurnView = memo(function MessageTurnView({
     );
   }
 
+  const renderTurnItem = (item: TurnRenderItem, key: string): ReactNode => {
+    if (item.kind === 'tool' && item.use) {
+      return (
+        <DisplayConversationEntry
+          key={key}
+          entry={toolBlockToNormalizedEntry(
+            item.use,
+            item.result,
+            turn.timestamp
+          )}
+          expansionKey={key}
+          taskAttempt={attempt}
+          task={task ?? undefined}
+        />
+      );
+    }
+    return renderItem(item, key, context);
+  };
+
   const items = planTurnBlocks(turn.blocks);
+  let body: ReactNode[];
+
+  if (collapseProcess) {
+    const lastTextIndex = items.reduce(
+      (acc, item, index) => (item.kind === 'markdown' ? index : acc),
+      -1
+    );
+    const collapsibleEnd = lastTextIndex >= 0 ? lastTextIndex : items.length;
+    const prelude = items.slice(0, collapsibleEnd);
+    const rest = items.slice(collapsibleEnd);
+    body = [
+      ...(prelude.length > 0
+        ? [
+            <CollapsedProcessGroup
+              key={`${turn.id}-collapsed`}
+              turnId={turn.id}
+              items={prelude}
+              renderItem={renderTurnItem}
+            />,
+          ]
+        : []),
+      ...rest.map((item, index) =>
+        renderTurnItem(item, `${turn.id}-${collapsibleEnd + index}`)
+      ),
+    ];
+  } else {
+    body = items.map((item, index) =>
+      renderTurnItem(item, `${turn.id}-${index}`)
+    );
+  }
+
   return (
     <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
-      {items.map((item, index) => {
-        const key = `${turn.id}-${index}`;
-        if (item.kind === 'tool' && item.use) {
-          return (
-            <DisplayConversationEntry
-              key={key}
-              entry={toolBlockToNormalizedEntry(
-                item.use,
-                item.result,
-                turn.timestamp
-              )}
-              expansionKey={key}
-              taskAttempt={attempt}
-              task={task ?? undefined}
-            />
-          );
-        }
-        return renderItem(item, key, context);
-      })}
+      {body}
     </div>
   );
 });

@@ -1,19 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ContentBlock, MessageTurn, TurnRole } from 'shared/types';
 import type { AgentEventEnvelope } from './types';
-import {
-  buildStreamingTurns,
-  getTimelineTurns,
-  type StreamingTurns,
-} from './timeline';
-
-function turn(
-  id: string,
-  role: TurnRole,
-  blocks: ContentBlock[] = []
-): MessageTurn {
-  return { id, role, blocks, timestamp: '2026-06-11T00:00:00.000Z' };
-}
+import { buildTurnsFromEvents, getTimelineTurns } from './timeline';
 
 function event(
   sequence: number,
@@ -29,110 +17,89 @@ function event(
   };
 }
 
-function promptStarted(seq: number, id: string): AgentEventEnvelope {
+function promptStarted(seq: number, id: string, text = 'hi'): AgentEventEnvelope {
   return event(seq, {
     kind: 'prompt_started',
     snapshot: {
       id,
       session_id: 'session',
       status: { kind: 'running' },
-      text_preview: 'hi',
+      text_preview: text,
       created_at: `2026-06-11T00:00:0${seq}.000Z`,
       updated_at: `2026-06-11T00:00:0${seq}.000Z`,
     },
   });
 }
 
-describe('getTimelineTurns', () => {
-  it('flattens phases in persisted/optimistic/streaming order', () => {
-    const streaming: StreamingTurns = {
-      turns: [turn('live-1', 'assistant')],
-      inProgressToolCallIds: new Set(),
-    };
-    const timeline = getTimelineTurns({
-      conversationId: 'c',
-      persisted: [turn('u1', 'user'), turn('a1', 'assistant')],
-      optimistic: [turn('u2', 'user')],
-      streaming,
-    });
+function turn(
+  id: string,
+  role: TurnRole,
+  blocks: ContentBlock[] = [],
+  completedAt: string | null = null
+): MessageTurn {
+  return {
+    id,
+    role,
+    blocks,
+    timestamp: '2026-06-11T00:00:00.000Z',
+    completed_at: completedAt,
+  };
+}
 
-    expect(timeline.map((entry) => [entry.turn.id, entry.phase])).toEqual([
-      ['u1', 'persisted'],
-      ['a1', 'persisted'],
-      ['u2', 'optimistic'],
-      ['live-1', 'streaming'],
+describe('buildTurnsFromEvents', () => {
+  it('reconstructs user and assistant turns from the event stream', () => {
+    const { turns } = buildTurnsFromEvents(
+      [
+        promptStarted(1, 'p1', 'Inspect repo'),
+        event(2, {
+          kind: 'message_chunk',
+          content: { kind: 'text', text: 'Looking ' },
+        }),
+        event(3, {
+          kind: 'message_chunk',
+          content: { kind: 'text', text: 'now' },
+        }),
+        event(4, {
+          kind: 'prompt_finished',
+          finished: { prompt_id: 'p1', stop_reason: 'end_turn' },
+        }),
+      ],
+      'c'
+    );
+
+    expect(turns.map((candidate) => [candidate.role, candidate.id])).toEqual([
+      ['user', 'u-c-p1'],
+      ['assistant', 'a-c-p1'],
     ]);
+    expect(turns[0].blocks).toEqual([{ type: 'text', text: 'Inspect repo' }]);
+    expect(turns[1].blocks).toEqual([{ type: 'text', text: 'Looking now' }]);
+    expect(turns[1].completed_at).not.toBeNull();
   });
 
-  it('keeps the last occurrence of an assistant turn (streaming wins over local)', () => {
-    const timeline = getTimelineTurns({
-      conversationId: 'c',
-      persisted: [],
-      local: [turn('shared', 'assistant', [{ type: 'text', text: 'old' }])],
-      streaming: {
-        turns: [turn('shared', 'assistant', [{ type: 'text', text: 'new' }])],
-        inProgressToolCallIds: new Set(),
-      },
-    });
+  it('keeps an unfinished assistant turn open with in-progress tools', () => {
+    const { turns, inProgressToolCallIds } = buildTurnsFromEvents(
+      [
+        promptStarted(1, 'p1'),
+        event(2, {
+          kind: 'tool_call',
+          tool_call: {
+            id: 't1',
+            title: 'read',
+            kind: 'read',
+            input_preview: '{"path":"a.txt"}',
+          },
+        }),
+        event(3, {
+          kind: 'tool_call_update',
+          update: { id: 't1', status: 'in_progress', content: 'partial' },
+        }),
+      ],
+      'c'
+    );
 
-    expect(timeline).toHaveLength(1);
-    expect(timeline[0].phase).toBe('streaming');
-    expect(timeline[0].turn.blocks).toEqual([{ type: 'text', text: 'new' }]);
-  });
-
-  it('keeps the first occurrence of a user turn (persisted wins over optimistic)', () => {
-    const timeline = getTimelineTurns({
-      conversationId: 'c',
-      persisted: [turn('uX', 'user')],
-      optimistic: [turn('uX', 'user')],
-    });
-
-    expect(timeline).toHaveLength(1);
-    expect(timeline[0].phase).toBe('persisted');
-  });
-
-  it('suppresses the stale persisted partial after the in-flight user turn', () => {
-    const timeline = getTimelineTurns({
-      conversationId: 'c',
-      persisted: [turn('IF', 'user'), turn('stale', 'assistant')],
-      streaming: {
-        turns: [turn('live', 'assistant')],
-        inProgressToolCallIds: new Set(),
-      },
-      inFlightUserTurnId: 'IF',
-    });
-
-    expect(timeline.map((entry) => entry.turn.id)).toEqual(['IF', 'live']);
-  });
-});
-
-describe('buildStreamingTurns', () => {
-  it('folds the active prompt events into one in-flight assistant turn', () => {
-    const envelopes: AgentEventEnvelope[] = [
-      promptStarted(1, 'p1'),
-      event(2, { kind: 'message_chunk', content: { kind: 'text', text: 'Hello ' } }),
-      event(3, { kind: 'message_chunk', content: { kind: 'text', text: 'world' } }),
-      event(4, {
-        kind: 'tool_call',
-        tool_call: {
-          id: 't1',
-          title: 'read',
-          kind: 'read',
-          input_preview: '{"path":"a.txt"}',
-        },
-      }),
-      event(5, {
-        kind: 'tool_call_update',
-        update: { id: 't1', status: 'in_progress', content: 'partial' },
-      }),
-    ];
-
-    const { turns, inProgressToolCallIds } = buildStreamingTurns(envelopes, 'c');
-
-    expect(turns).toHaveLength(1);
-    expect(turns[0]).toMatchObject({ id: 'live-c-p1', role: 'assistant' });
-    expect(turns[0].blocks).toEqual([
-      { type: 'text', text: 'Hello world' },
+    expect(turns).toHaveLength(2);
+    expect(turns[1].completed_at).toBeNull();
+    expect(turns[1].blocks).toEqual([
       {
         type: 'tool_use',
         tool_use_id: 't1',
@@ -140,34 +107,89 @@ describe('buildStreamingTurns', () => {
         input_preview: '{"path":"a.txt"}',
         meta: null,
       },
-      { type: 'tool_result', tool_use_id: 't1', output_preview: 'partial', is_error: false, agent_stats: null },
+      {
+        type: 'tool_result',
+        tool_use_id: 't1',
+        output_preview: 'partial',
+        is_error: false,
+        agent_stats: null,
+      },
     ]);
     expect(inProgressToolCallIds.has('t1')).toBe(true);
   });
 
-  it('clears in-progress on a final tool status and updates the result in place', () => {
-    const envelopes: AgentEventEnvelope[] = [
-      promptStarted(1, 'p1'),
-      event(2, { kind: 'tool_call', tool_call: { id: 't1', title: 'read', kind: null } }),
-      event(3, { kind: 'tool_call_update', update: { id: 't1', status: 'in_progress', content: 'partial' } }),
-      event(4, { kind: 'tool_call_update', update: { id: 't1', status: 'completed', content: 'done' } }),
-    ];
+  it('reconstructs multiple rounds in order', () => {
+    const { turns } = buildTurnsFromEvents(
+      [
+        promptStarted(1, 'p1', 'one'),
+        event(2, {
+          kind: 'message_chunk',
+          content: { kind: 'text', text: 'first' },
+        }),
+        event(3, { kind: 'prompt_finished', finished: { prompt_id: 'p1' } }),
+        promptStarted(4, 'p2', 'two'),
+        event(5, {
+          kind: 'message_chunk',
+          content: { kind: 'text', text: 'second' },
+        }),
+      ],
+      'c'
+    );
 
-    const { turns, inProgressToolCallIds } = buildStreamingTurns(envelopes, 'c');
+    expect(turns.map((candidate) => candidate.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+    ]);
+    expect(turns[3].completed_at).toBeNull();
+  });
+});
 
-    expect(inProgressToolCallIds.size).toBe(0);
-    const results = turns[0].blocks.filter((block) => block.type === 'tool_result');
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ output_preview: 'done', is_error: false });
+describe('getTimelineTurns', () => {
+  it('renders persisted turns when there are no live events', () => {
+    const timeline = getTimelineTurns({
+      conversationId: 'c',
+      persisted: [turn('u1', 'user'), turn('a1', 'assistant')],
+      live: [],
+    });
+
+    expect(timeline.map((entry) => [entry.turn.id, entry.phase])).toEqual([
+      ['u1', 'persisted'],
+      ['a1', 'persisted'],
+    ]);
   });
 
-  it('returns no streaming turn once the prompt has finished', () => {
-    const envelopes: AgentEventEnvelope[] = [
-      promptStarted(1, 'p1'),
-      event(2, { kind: 'message_chunk', content: { kind: 'text', text: 'done' } }),
-      event(3, { kind: 'prompt_finished', finished: { prompt_id: 'p1', stop_reason: 'end_turn' } }),
-    ];
+  it('uses live turns and marks the in-flight assistant as streaming', () => {
+    const timeline = getTimelineTurns({
+      conversationId: 'c',
+      persisted: [],
+      live: [turn('u-c-p1', 'user'), turn('a-c-p1', 'assistant', [], null)],
+      inProgressToolCallIds: new Set(['t1']),
+    });
 
-    expect(buildStreamingTurns(envelopes, 'c').turns).toEqual([]);
+    expect(timeline.map((entry) => entry.phase)).toEqual([
+      'persisted',
+      'streaming',
+    ]);
+    expect(timeline[1].inProgressToolCallIds?.has('t1')).toBe(true);
+  });
+
+  it('prepends persisted history that precedes the live conversation', () => {
+    const old = {
+      ...turn('old', 'assistant'),
+      timestamp: '2026-06-10T00:00:00.000Z',
+    };
+    const liveUser = {
+      ...turn('u-c-p1', 'user'),
+      timestamp: '2026-06-11T00:00:01.000Z',
+    };
+    const timeline = getTimelineTurns({
+      conversationId: 'c',
+      persisted: [old],
+      live: [liveUser],
+    });
+
+    expect(timeline.map((entry) => entry.turn.id)).toEqual(['old', 'u-c-p1']);
   });
 });

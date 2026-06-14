@@ -75,7 +75,7 @@ describe('useConversationRuntime', () => {
     ).toBe(true);
   });
 
-  it('shows the optimistic user turn and streaming reply while active', async () => {
+  it('reconstructs the live user turn + in-flight reply from events', async () => {
     vi.mocked(agentsApi.conversationDetail).mockResolvedValue(null);
     const events: AgentEventEnvelope[] = [
       promptStarted(1, 'p1', 'Hello?'),
@@ -87,11 +87,16 @@ describe('useConversationRuntime', () => {
     );
 
     await waitFor(() => expect(result.current.detailLoading).toBe(false));
+    // The live conversation comes from events: user turn (from prompt_started)
+    // + the in-flight assistant reply (phase 'streaming').
     expect(
       result.current.timeline.map((entry) => [entry.phase, entry.turn.role])
     ).toEqual([
-      ['optimistic', 'user'],
+      ['persisted', 'user'],
       ['streaming', 'assistant'],
+    ]);
+    expect(result.current.timeline[1].turn.blocks).toEqual([
+      { type: 'text', text: 'Hi there' },
     ]);
   });
 });

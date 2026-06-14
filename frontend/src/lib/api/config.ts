@@ -610,6 +610,12 @@ export const chatChannelApi = {
       prefix,
     });
   },
+  getIncludePromptText: async (): Promise<boolean> => {
+    return tauriInvoke<boolean>('get_chat_include_prompt_text');
+  },
+  setIncludePromptText: async (enabled: boolean): Promise<boolean> => {
+    return tauriInvoke<boolean>('set_chat_include_prompt_text', { enabled });
+  },
 };
 
 // Claude Settings (~/.claude/settings.json) APIs

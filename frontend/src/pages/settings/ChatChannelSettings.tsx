@@ -118,6 +118,7 @@ interface ChannelDraft {
   chat_id: string;
   app_id: string;
   base_url: string;
+  ws_url: string;
   message_type: string;
   target_id: string;
   webhook_url: string;
@@ -132,6 +133,7 @@ function emptyDraft(): ChannelDraft {
     chat_id: '',
     app_id: '',
     base_url: 'http://127.0.0.1:3000',
+    ws_url: '',
     message_type: 'group',
     target_id: '',
     webhook_url: '',
@@ -148,6 +150,7 @@ function draftFromChannel(channel: ChatChannel): ChannelDraft {
     chat_id: cfgStr(c, 'chat_id'),
     app_id: cfgStr(c, 'app_id'),
     base_url: cfgStr(c, 'base_url') || 'http://127.0.0.1:3000',
+    ws_url: cfgStr(c, 'ws_url'),
     message_type: cfgStr(c, 'message_type') || 'group',
     target_id: cfgStr(c, 'target_id'),
     webhook_url: cfgStr(c, 'webhook_url'),
@@ -165,6 +168,7 @@ function buildConfig(draft: ChannelDraft): Record<string, unknown> {
     case 'qq':
       return {
         base_url: draft.base_url.trim(),
+        ws_url: draft.ws_url.trim(),
         message_type: draft.message_type,
         target_id: draft.target_id.trim(),
       };
@@ -215,6 +219,7 @@ export function ChatChannelSettings() {
   // App-level notification settings.
   const [eventFilter, setEventFilter] = useState<string[]>([]);
   const [prefix, setPrefix] = useState('/vibex');
+  const [includePromptText, setIncludePromptText] = useState(false);
   const [savingEvents, setSavingEvents] = useState(false);
   const [savingPrefix, setSavingPrefix] = useState(false);
 
@@ -231,14 +236,16 @@ export function ChatChannelSettings() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [channelList, filter, commandPrefix] = await Promise.all([
+      const [channelList, filter, commandPrefix, promptText] = await Promise.all([
         chatChannelApi.list(),
         chatChannelApi.getEventFilter(),
         chatChannelApi.getCommandPrefix(),
+        chatChannelApi.getIncludePromptText(),
       ]);
       setChannels(channelList);
       setEventFilter(filter.enabled_events);
       setPrefix(commandPrefix.prefix);
+      setIncludePromptText(promptText);
     } catch (error) {
       toast.error('消息渠道加载失败', { description: errorMessage(error) });
     } finally {
@@ -395,6 +402,16 @@ export function ChatChannelSettings() {
     }
   };
 
+  const togglePromptText = async (enabled: boolean) => {
+    setIncludePromptText(enabled);
+    try {
+      await chatChannelApi.setIncludePromptText(enabled);
+    } catch (error) {
+      setIncludePromptText(!enabled);
+      toast.error('设置保存失败', { description: errorMessage(error) });
+    }
+  };
+
   const updateDraft = (patch: Partial<ChannelDraft>) =>
     setDraft((previous) => ({ ...previous, ...patch }));
 
@@ -525,21 +542,39 @@ export function ChatChannelSettings() {
             </Button>
           }
         >
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {EVENT_OPTIONS.map((event) => {
-              const checked = eventFilter.includes(event.value);
-              return (
-                <button
-                  key={event.value}
-                  type="button"
-                  onClick={() => toggleEvent(event.value, !checked)}
-                  className="flex items-center gap-2 rounded-md border border-[var(--border-content)] px-2.5 py-2 text-left text-xs transition-colors hover:bg-[var(--surface-control-hover)]"
-                >
-                  <Checkbox checked={checked} className="pointer-events-none" />
-                  <span>{event.label}</span>
-                </button>
-              );
-            })}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {EVENT_OPTIONS.map((event) => {
+                const checked = eventFilter.includes(event.value);
+                return (
+                  <button
+                    key={event.value}
+                    type="button"
+                    onClick={() => toggleEvent(event.value, !checked)}
+                    className="flex items-center gap-2 rounded-md border border-[var(--border-content)] px-2.5 py-2 text-left text-xs transition-colors hover:bg-[var(--surface-control-hover)]"
+                  >
+                    <Checkbox checked={checked} className="pointer-events-none" />
+                    <span>{event.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between gap-4 pt-1">
+              <div>
+                <Label className="text-xs">在通知中包含提示词内容</Label>
+                <p className="settings-row__description">
+                  默认关闭：任务开始通知不会带上你的 Prompt 原文，避免泄露到 IM。
+                </p>
+              </div>
+              <Switch
+                className="settings-switch"
+                checked={includePromptText}
+                onCheckedChange={(checked: boolean) =>
+                  void togglePromptText(checked)
+                }
+              />
+            </div>
           </div>
         </SettingsSection>
 
@@ -671,7 +706,7 @@ export function ChatChannelSettings() {
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="qq-url" className="text-xs">
-                  OneBot 服务地址
+                  OneBot HTTP 地址（发送）
                 </Label>
                 <Input
                   id="qq-url"
@@ -680,6 +715,17 @@ export function ChatChannelSettings() {
                     updateDraft({ base_url: event.target.value })
                   }
                   placeholder="http://127.0.0.1:3000"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="qq-ws" className="text-xs">
+                  OneBot 正向 WebSocket 地址（接收命令，可选）
+                </Label>
+                <Input
+                  id="qq-ws"
+                  value={draft.ws_url}
+                  onChange={(event) => updateDraft({ ws_url: event.target.value })}
+                  placeholder="ws://127.0.0.1:3001（留空则由 HTTP 地址推导）"
                 />
               </div>
               <div className="grid grid-cols-[160px_minmax(0,1fr)] gap-3">

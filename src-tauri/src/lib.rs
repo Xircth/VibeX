@@ -63,6 +63,8 @@ pub fn run() {
             events::start_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
+            // Bidirectional IM channels: run inbound loops + command dispatch (ACP).
+            commands::chat_channel::start_inbound_manager(state.agent_runtime.clone());
             app.manage(state);
 
             if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
@@ -339,6 +341,8 @@ pub fn run() {
             commands::chat_channel::set_chat_event_filter,
             commands::chat_channel::get_chat_command_prefix,
             commands::chat_channel::set_chat_command_prefix,
+            commands::chat_channel::get_chat_include_prompt_text,
+            commands::chat_channel::set_chat_include_prompt_text,
             commands::system_maintenance::get_system_maintenance_status,
             commands::system_maintenance::check_app_release,
             commands::system_maintenance::install_system_dependencies,

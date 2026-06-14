@@ -15,7 +15,7 @@ pub struct TokenEntry {
     pub working_dir: PathBuf,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct TokenRegistry {
     inner: RwLock<HashMap<String, TokenEntry>>,
 }

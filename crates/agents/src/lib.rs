@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod conversation;
+pub mod delegation_inject;
 pub mod distribution;
 pub mod error;
 pub mod events;
@@ -29,6 +30,7 @@ pub mod state;
 pub mod terminal;
 
 pub use config::{AgentConfigStrategy, AgentConfigSurface, PathTemplate, config_surface};
+pub use delegation_inject::{DelegationInjector, InjectedMcpServer};
 pub use conversation::{
     AgentExecutionStats, ContentBlock, ConversationDetail, ConversationSummary, ImageData,
     MessageTurn, SessionStats, SubAgentToolCall, TurnRole, TurnUsage,

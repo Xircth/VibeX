@@ -2,12 +2,13 @@ use std::{
     collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
+use crate::delegation_inject::DelegationInjector;
 use agent_client_protocol as acp;
 use agent_client_protocol::{
     Agent, ConnectionTo,
@@ -194,6 +195,9 @@ pub struct AgentConnectionManager {
     connections: Mutex<HashMap<AgentConnectionId, ManagedAgentConnection>>,
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     driver_enabled: bool,
+    /// Installed once at startup. Lets the app splice a companion MCP server
+    /// (the delegation companion) into each connection's `session/new`.
+    delegation_injector: OnceLock<Arc<dyn DelegationInjector>>,
 }
 
 impl Default for AgentConnectionManager {
@@ -216,7 +220,14 @@ impl AgentConnectionManager {
             connections: Mutex::new(HashMap::new()),
             event_tx,
             driver_enabled,
+            delegation_injector: OnceLock::new(),
         }
+    }
+
+    /// Install the companion injector (called once at startup, before any
+    /// connection is registered).
+    pub fn install_delegation_injector(&self, injector: Arc<dyn DelegationInjector>) {
+        let _ = self.delegation_injector.set(injector);
     }
 
     pub async fn register_connection(
@@ -232,7 +243,11 @@ impl AgentConnectionManager {
             auto_approve_mode: launch.auto_approve_mode,
             env: launch.env,
         };
-        let runner = AgentConnectionRunner::new(snapshot.clone(), self.event_tx.clone());
+        let runner = AgentConnectionRunner::new(
+            snapshot.clone(),
+            self.event_tx.clone(),
+            self.delegation_injector.get().cloned(),
+        );
 
         if self.driver_enabled {
             tokio::spawn(async move {
@@ -383,6 +398,7 @@ struct AgentConnectionRunner {
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     auto_approve_mode: AgentAutoApproveMode,
+    delegation_injector: Option<Arc<dyn DelegationInjector>>,
 }
 
 #[derive(Debug)]
@@ -396,6 +412,7 @@ impl AgentConnectionRunner {
     fn new(
         snapshot: ManagedAgentConnectionSnapshot,
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
+        delegation_injector: Option<Arc<dyn DelegationInjector>>,
     ) -> Self {
         let auto_approve_mode = snapshot.auto_approve_mode;
         Self {
@@ -404,6 +421,7 @@ impl AgentConnectionRunner {
             session_map: Arc::new(RwLock::new(HashMap::new())),
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
             auto_approve_mode,
+            delegation_injector,
         }
     }
 
@@ -948,10 +966,21 @@ impl AgentConnectionRunner {
         working_dir: &Path,
         session_id: AgentSessionId,
     ) -> Result<String, acp::Error> {
-        let response = conn
-            .send_request(NewSessionRequest::new(working_dir.to_path_buf()))
-            .block_task()
-            .await?;
+        let mut request = NewSessionRequest::new(working_dir.to_path_buf());
+        // Splice in the delegation companion (so the agent's LLM gets the
+        // delegate_to_agent tools) when the host installed an injector.
+        if let Some(injector) = &self.delegation_injector {
+            if let Some(server) = injector.companion(
+                &self.snapshot.connection_id.0.to_string(),
+                self.snapshot.agent_type,
+                working_dir,
+            ) {
+                request.mcp_servers.push(acp::schema::McpServer::Stdio(
+                    acp::schema::McpServerStdio::new(server.name, server.command).args(server.args),
+                ));
+            }
+        }
+        let response = conn.send_request(request).block_task().await?;
         let acp_session_id = response.session_id.0.to_string();
         self.session_map
             .write()

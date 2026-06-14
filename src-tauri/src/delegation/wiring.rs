@@ -51,6 +51,13 @@ pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> 
 
     spawn_resolver(broker.clone(), runtime.clone(), map);
 
+    // Install the companion injector so ClaudeCode parents auto-launch vibex-mcp
+    // (the agent connects to our listener over the socket with the minted token).
+    runtime.install_delegation_injector(Arc::new(crate::delegation::inject::VibexDelegationInjector {
+        tokens: tokens.clone(),
+        socket_path: socket_path.clone(),
+    }));
+
     let listener = Arc::new(DelegationListener::new(
         broker.clone(),
         tokens.clone(),

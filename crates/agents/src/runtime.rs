@@ -238,6 +238,15 @@ impl AgentRuntime {
         );
     }
 
+    /// Install the delegation companion injector so each new ACP session can
+    /// have the companion MCP server spliced into its `session/new`.
+    pub fn install_delegation_injector(
+        &self,
+        injector: Arc<dyn crate::delegation_inject::DelegationInjector>,
+    ) {
+        self.connection_manager.install_delegation_injector(injector);
+    }
+
     pub fn registry(&self) -> Vec<AgentRegistryEntry> {
         crate::registry::all_agent_types()
             .into_iter()

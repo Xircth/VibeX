@@ -29,7 +29,6 @@ import { buildDisplayEntries } from '@/components/NormalizedConversation/convers
 import { useExpandable } from '@/stores/useExpandableStore';
 import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesContext';
 import { useEntries } from '@/contexts/EntriesContext';
-import { buildAgentTranscriptEntries } from '@/features/agents/transcript';
 import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
 import type {
   AgentEventEnvelope,
@@ -61,6 +60,10 @@ import type { AgentSessionConfigOption } from '@/features/agents/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 import { cn } from '@/lib/utils';
+// Benign ES-module cycle: AgentTimelineConversation imports only this module's
+// hoisted helper functions + the VirtualizedListRef type (available during
+// partial load), and is itself used only at render time.
+import AgentTimelineConversation from './AgentTimelineConversation';
 
 export type VirtualizedListScrollOptions = {
   align?: 'start' | 'center' | 'end' | 'auto';
@@ -332,8 +335,11 @@ export function collapsedAssistantMessagesLabel(hiddenCount: number): string {
   return `已折叠 ${hiddenCount} 条过程消息`;
 }
 
-const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
-  function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
+const ExecutionProcessConversation = forwardRef<
+  VirtualizedListRef,
+  VirtualizedListProps
+>(
+  function ExecutionProcessConversation({ attempt, task, onAtBottomChange }, ref) {
     const { entries, setEntries } = useEntries();
     const { executionProcessesVisible } = useExecutionProcessesContext();
     const agentWorkbench = useAgentWorkbench();
@@ -402,10 +408,6 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
           : [],
       [agentSessionId, agentWorkbench.eventsByScope]
     );
-    const agentTranscriptEntries = useMemo(
-      () => buildAgentTranscriptEntries(agentSessionEvents),
-      [agentSessionEvents]
-    );
     const pendingPermissions = useMemo(
       () =>
         pendingAgentPermissionsForSession(
@@ -433,36 +435,19 @@ const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
     const [respondingPermissionId, setRespondingPermissionId] = useState<
       string | null
     >(null);
-    // Render the ACP transcript whenever this session has agent events, not only
-    // once its session_created snapshot has landed in the store. For a freshly
-    // created session the prompt events can arrive before (or without) the
-    // snapshot; keying solely on `agentSession` would fall back to the empty DB
-    // history and show no output. Legacy (non-ACP) sessions have no agent events,
-    // so they still use the DB history path.
-    const usesAgentTranscript =
-      Boolean(agentSession) || agentSessionEvents.length > 0;
-
-    useEffect(() => {
-      if (!usesAgentTranscript) return;
-      setEntries(agentTranscriptEntries);
-      setIsLoadingEntries(
-        agentWorkbench.loadState === 'loading' &&
-          agentTranscriptEntries.length === 0
-      );
-    }, [
-      agentTranscriptEntries,
-      agentWorkbench.loadState,
-      setEntries,
-      usesAgentTranscript,
-    ]);
+    // Agent sessions render through AgentTimelineConversation; this path only
+    // serves non-session attempts, so the agent-transcript branch is gone.
+    // (master's pre-merge `|| agentSessionEvents.length > 0` enhancement is
+    // obsolete here — and referenced the now-deleted buildAgentTranscriptEntries.)
+    const usesAgentTranscript = false;
 
     const normalizedEntries = useMemo(
       () =>
-        (usesAgentTranscript ? agentTranscriptEntries : entries).filter(
+        entries.filter(
           (entry): entry is PatchTypeWithKey & { type: 'NORMALIZED_ENTRY' } =>
             entry.type === 'NORMALIZED_ENTRY'
         ),
-      [agentTranscriptEntries, entries, usesAgentTranscript]
+      [entries]
     );
 
     const displayEntries = useMemo<DisplayEntry[]>(() => {
@@ -1029,5 +1014,33 @@ function CollapsedAssistantMessagesBlock({
     </div>
   );
 }
+
+/**
+ * Routes ACP agent sessions to the unified-timeline view (codeg-aligned) and
+ * everything else to the execution-process conversation. Keys on the stable
+ * attempt session id so the branch never flaps mid-session.
+ */
+const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
+  function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
+    if (attempt.session?.id) {
+      return (
+        <AgentTimelineConversation
+          ref={ref}
+          attempt={attempt}
+          task={task}
+          onAtBottomChange={onAtBottomChange}
+        />
+      );
+    }
+    return (
+      <ExecutionProcessConversation
+        ref={ref}
+        attempt={attempt}
+        task={task}
+        onAtBottomChange={onAtBottomChange}
+      />
+    );
+  }
+);
 
 export default VirtualizedList;

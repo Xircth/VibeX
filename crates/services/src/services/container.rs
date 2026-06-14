@@ -20,6 +20,7 @@ use db::{
         },
         repo::Repo,
         session::{CreateSession, Session, SessionError, SessionStatus},
+        session_checkpoint::SessionCheckpoint,
         task::{Task, TaskStatus},
         workspace::{Workspace, WorkspaceError},
         workspace_repo::WorkspaceRepo,
@@ -664,6 +665,92 @@ pub trait ContainerService {
         self.try_stop(workspace, false).await;
         ExecutionProcess::drop_at_and_after(&self.db().pool, session_id, target_process_id).await?;
 
+        Ok(())
+    }
+
+    /// Record each repo's worktree HEAD before an agent prompt is sent, under the
+    /// session's next ordinal. Best-effort: repos whose HEAD can't be read are
+    /// skipped. Returns the ordinal used. Lets a later retry restore files to the
+    /// state before the Nth user message.
+    async fn checkpoint_agent_session(&self, session_id: Uuid) -> Result<i64, ContainerError> {
+        let pool = &self.db().pool;
+        let session = Session::find_by_id(pool, session_id)
+            .await?
+            .ok_or_else(|| ContainerError::Other(anyhow!("Session not found")))?;
+        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+            .await?
+            .ok_or_else(|| ContainerError::Other(anyhow!("Workspace not found")))?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+
+        let ordinal = SessionCheckpoint::next_ordinal(pool, session_id).await?;
+        let container_ref = self.ensure_container_exists(&workspace).await?;
+        let workspace_dir = std::path::PathBuf::from(container_ref);
+
+        for repo in &repos {
+            let worktree_path = workspace
+                .repo_path(repo)
+                .unwrap_or_else(|| workspace_dir.clone());
+            if let Ok(head) = self.git().get_head_info(&worktree_path) {
+                SessionCheckpoint::insert(
+                    pool,
+                    Uuid::new_v4(),
+                    session_id,
+                    ordinal,
+                    repo.id,
+                    &head.oid,
+                )
+                .await?;
+            }
+        }
+        Ok(ordinal)
+    }
+
+    /// Restore every repo's worktree to the checkpoint recorded at `ordinal`
+    /// (the state before the Nth user message). Destructive when `perform_git_reset`
+    /// is set; the ACP transcript itself is append-only and is not truncated.
+    async fn reset_agent_session_to_checkpoint(
+        &self,
+        session_id: Uuid,
+        ordinal: i64,
+        perform_git_reset: bool,
+        force_when_dirty: bool,
+    ) -> Result<(), ContainerError> {
+        let pool = &self.db().pool;
+        let session = Session::find_by_id(pool, session_id)
+            .await?
+            .ok_or_else(|| ContainerError::Other(anyhow!("Session not found")))?;
+        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+            .await?
+            .ok_or_else(|| ContainerError::Other(anyhow!("Workspace not found")))?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        let checkpoints = SessionCheckpoint::find_by_ordinal(pool, session_id, ordinal).await?;
+        if checkpoints.is_empty() {
+            return Err(ContainerError::Other(anyhow!(
+                "No checkpoint at ordinal {ordinal} for this session"
+            )));
+        }
+
+        let container_ref = self.ensure_container_exists(&workspace).await?;
+        let workspace_dir = std::path::PathBuf::from(container_ref);
+        let is_dirty = self
+            .is_container_clean(&workspace)
+            .await
+            .map(|is_clean| !is_clean)
+            .unwrap_or(false);
+
+        for repo in &repos {
+            let Some(checkpoint) = checkpoints.iter().find(|state| state.repo_id == repo.id) else {
+                continue;
+            };
+            let worktree_path = workspace
+                .repo_path(repo)
+                .unwrap_or_else(|| workspace_dir.clone());
+            self.git().reconcile_worktree_to_commit(
+                &worktree_path,
+                &checkpoint.before_head_commit,
+                container_workflow::reset_options(perform_git_reset, force_when_dirty, is_dirty),
+            );
+        }
         Ok(())
     }
 

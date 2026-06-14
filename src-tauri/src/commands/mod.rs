@@ -5,6 +5,7 @@ pub mod approvals;
 pub mod backup;
 pub mod chat_channel;
 pub mod config;
+pub mod conversations;
 pub mod desktop_toast;
 pub mod events;
 pub mod execution_processes;

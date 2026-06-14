@@ -957,6 +957,14 @@ impl AgentConnectionRunner {
             .write()
             .await
             .insert(session_id, acp_session_id.clone());
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionLinked {
+                acp_session_id: acp_session_id.clone(),
+                agent_type: self.snapshot.agent_type,
+            },
+        );
         self.emit_session_controls(session_id, response.modes, response.config_options);
         Ok(acp_session_id)
     }

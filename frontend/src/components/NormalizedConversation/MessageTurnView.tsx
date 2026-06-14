@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import { Wrench } from 'lucide-react';
+import { RotateCcw, Wrench } from 'lucide-react';
 import type { MessageTurn, TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { Markdown } from './Markdown';
@@ -125,10 +125,13 @@ export const MessageTurnView = memo(function MessageTurnView({
   turn,
   attempt,
   task,
+  onRetry,
 }: {
   turn: MessageTurn;
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
+  /** When set (user turns), shows a retry affordance (optional rollback + resend). */
+  onRetry?: () => void;
 }) {
   const context = useMemo<MessageTurnContext>(
     () => ({
@@ -144,7 +147,7 @@ export const MessageTurnView = memo(function MessageTurnView({
       .flatMap((block) => (block.type === 'text' ? [block.text] : []))
       .join('\n\n');
     return (
-      <div className="conv-entry-item conv-user-turn">
+      <div className="conv-entry-item conv-user-turn group relative">
         <div className="conv-user-bubble">
           <Markdown
             value={text}
@@ -153,6 +156,17 @@ export const MessageTurnView = memo(function MessageTurnView({
             workspacePath={context.workspacePath}
           />
         </div>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="conv-copy-btn absolute right-1 top-1 rounded p-1 text-muted-foreground hover:text-foreground"
+            title="重试:可选回滚工作区到本条消息前并重发"
+            aria-label="重试"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
       </div>
     );
   }

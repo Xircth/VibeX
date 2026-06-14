@@ -200,4 +200,20 @@ export const agentsApi = {
 
   conversationList: (workspaceId: string): Promise<DbConversationSummary[]> =>
     tauriInvoke('conversation_list', { workspaceId }),
+
+  // Restore the workspace to the checkpoint recorded before the Nth user message
+  // (ordinal). Destructive when performGitReset; the ACP transcript is not
+  // truncated. Resolves with no checkpoint -> the caller falls back to resend.
+  resetToCheckpoint: (
+    sessionId: string,
+    ordinal: number,
+    performGitReset = true,
+    forceWhenDirty = false
+  ): Promise<void> =>
+    tauriInvoke('agent_reset_to_checkpoint', {
+      sessionId,
+      ordinal,
+      performGitReset,
+      forceWhenDirty,
+    }),
 };

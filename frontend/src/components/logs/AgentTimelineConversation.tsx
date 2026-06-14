@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { BaseCodingAgent } from 'shared/types';
 import type {
   MessageTurn,
   SessionStats,
@@ -17,6 +18,8 @@ import type {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { agentsApi } from '@/features/agents/api';
+import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
 import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
@@ -395,6 +398,51 @@ const AgentTimelineConversation = forwardRef<
     ]
   );
 
+  // The Nth user turn maps to the Nth checkpoint ordinal (see G-R1).
+  const userOrdinalByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    let ordinal = 0;
+    for (const row of timeline) {
+      if (row.turn.role === 'user') {
+        map.set(row.key, ordinal);
+        ordinal += 1;
+      }
+    }
+    return map;
+  }, [timeline]);
+
+  const handleRetry = useCallback(
+    async (turn: MessageTurn, ordinal: number) => {
+      const session = attempt.session;
+      if (!session?.executor) return;
+      const text = turn.blocks
+        .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+        .join('\n\n');
+      if (!text) return;
+      const restoreFiles = window.confirm(
+        '恢复工作区文件到本条消息发送前?\n\n确定 = 恢复文件并重发\n取消 = 仅重发(不改动文件)'
+      );
+      if (restoreFiles) {
+        try {
+          await agentsApi.resetToCheckpoint(session.id, ordinal, true, false);
+        } catch (error) {
+          // No checkpoint at this ordinal (e.g. a pre-feature turn) -> resend only.
+          console.warn('checkpoint restore skipped', error);
+        }
+      }
+      await sendAgentRuntimeTurn({
+        workspaceId: attempt.id,
+        sessionId: session.id,
+        executorProfileId: {
+          executor: session.executor as BaseCodingAgent,
+          variant: null,
+        },
+        text,
+      });
+    },
+    [attempt.id, attempt.session]
+  );
+
   return (
     <div
       ref={containerRef}
@@ -442,7 +490,20 @@ const AgentTimelineConversation = forwardRef<
                       ),
                     }}
                   >
-                    <MessageTurnView turn={row.turn} attempt={attempt} task={task} />
+                    <MessageTurnView
+                      turn={row.turn}
+                      attempt={attempt}
+                      task={task}
+                      onRetry={
+                        row.turn.role === 'user'
+                          ? () =>
+                              void handleRetry(
+                                row.turn,
+                                userOrdinalByKey.get(row.key) ?? 0
+                              )
+                          : undefined
+                      }
+                    />
                     {renderTurnStats(row, virtualRow.index)}
                   </div>
                 );

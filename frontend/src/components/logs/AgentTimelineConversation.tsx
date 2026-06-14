@@ -24,6 +24,7 @@ import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
 import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
 import { agentUsageToSnapshot } from '@/hooks/useConversationHistory/conversationTokenUsage';
+import { useUserSystem } from '@/components/ConfigProvider';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import {
   findActiveConversationMessageNavEntry,
@@ -127,6 +128,8 @@ const AgentTimelineConversation = forwardRef<
   AgentTimelineConversationProps
 >(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
   const agentWorkbench = useAgentWorkbench();
+  const { config } = useUserSystem();
+  const collapseProcess = config?.ai_message_default_collapsed ?? false;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const virtualListRef = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
@@ -503,6 +506,7 @@ const AgentTimelineConversation = forwardRef<
                               )
                           : undefined
                       }
+                      collapseProcess={collapseProcess}
                     />
                     {renderTurnStats(row, virtualRow.index)}
                   </div>

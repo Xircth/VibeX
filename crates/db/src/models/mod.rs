@@ -12,6 +12,7 @@ pub mod project_repo;
 pub mod repo;
 pub mod scratch;
 pub mod session;
+pub mod session_checkpoint;
 pub mod tag;
 pub mod task;
 pub mod workspace;

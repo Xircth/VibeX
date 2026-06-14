@@ -512,6 +512,17 @@ pub async fn agent_send_workspace_prompt(
         })
         .await?;
 
+    // Best-effort: snapshot repo HEADs before the agent runs so a retry can
+    // restore the workspace to the state before this message. Never blocks send.
+    if let Err(error) = state
+        .deployment
+        .container()
+        .checkpoint_agent_session(session_id.0)
+        .await
+    {
+        tracing::warn!(%error, "failed to record agent session checkpoint");
+    }
+
     match state
         .agent_runtime
         .send_prompt(SendAgentPromptInput {
@@ -548,6 +559,31 @@ pub async fn agent_send_workspace_prompt(
         }
         Err(error) => Err(error.into()),
     }
+}
+
+/// Restore the workspace to the checkpoint recorded before the given user
+/// message (its `ordinal`). Destructive when `perform_git_reset` is set; the ACP
+/// transcript is append-only and is not truncated. Used by retry/rollback.
+#[tauri::command]
+pub async fn agent_reset_to_checkpoint(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    ordinal: i64,
+    perform_git_reset: Option<bool>,
+    force_when_dirty: Option<bool>,
+) -> Result<(), AppError> {
+    let session_id = parse_uuid("session_id", &session_id)?;
+    state
+        .deployment
+        .container()
+        .reset_agent_session_to_checkpoint(
+            session_id,
+            ordinal,
+            perform_git_reset.unwrap_or(true),
+            force_when_dirty.unwrap_or(false),
+        )
+        .await?;
+    Ok(())
 }
 
 #[tauri::command]

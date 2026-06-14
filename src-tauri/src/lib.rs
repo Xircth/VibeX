@@ -312,6 +312,7 @@ pub fn run() {
             commands::agents::agent_resume_session,
             commands::agents::agent_send_prompt,
             commands::agents::agent_send_workspace_prompt,
+            commands::agents::agent_reset_to_checkpoint,
             commands::agents::agent_cancel_prompt,
             commands::agents::agent_disconnect,
             commands::agents::agent_respond_permission,

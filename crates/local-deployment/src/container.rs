@@ -1785,6 +1785,16 @@ mod tests {
             )
             "#,
             r#"
+            CREATE TABLE session_checkpoints (
+                id BLOB PRIMARY KEY NOT NULL,
+                session_id BLOB NOT NULL,
+                ordinal INTEGER NOT NULL,
+                repo_id BLOB NOT NULL,
+                before_head_commit TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'subsec'))
+            )
+            "#,
+            r#"
             CREATE TABLE execution_processes (
                 id BLOB PRIMARY KEY NOT NULL,
                 session_id BLOB NOT NULL,

@@ -36,6 +36,7 @@ import {
   type SystemMaintenanceStatus,
 } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
+import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 
 import { SettingsSection } from './SettingsUi';
 
@@ -831,6 +832,7 @@ export function SystemSettings() {
                 </div>
               </div>
             ) : null}
+            <ConversationBundlePanel />
           </div>
         </SettingsSection>
 

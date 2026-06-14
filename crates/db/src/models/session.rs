@@ -429,9 +429,14 @@ mod tests {
     #[tokio::test]
     async fn delegation_columns_default_null_for_regular_session() {
         let pool = setup_pool().await;
-        let session = Session::create(&pool, &sample("CLAUDE_CODE"), Uuid::new_v4(), Uuid::new_v4())
-            .await
-            .expect("create session");
+        let session = Session::create(
+            &pool,
+            &sample("CLAUDE_CODE"),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        )
+        .await
+        .expect("create session");
 
         assert!(session.parent_session_id.is_none());
         assert!(session.parent_tool_use_id.is_none());
@@ -472,9 +477,11 @@ mod tests {
         assert_eq!(found.id, child_id);
         assert_eq!(found.parent_session_id, Some(parent_id));
 
-        assert!(Session::find_by_delegation_call_id(&pool, "missing")
-            .await
-            .expect("query by call id")
-            .is_none());
+        assert!(
+            Session::find_by_delegation_call_id(&pool, "missing")
+                .await
+                .expect("query by call id")
+                .is_none()
+        );
     }
 }

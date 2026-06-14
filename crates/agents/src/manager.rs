@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use crate::delegation_inject::DelegationInjector;
 use agent_client_protocol as acp;
 use agent_client_protocol::{
     Agent, ConnectionTo,
@@ -41,12 +40,13 @@ use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_
 
 use crate::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentError,
-    AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption, AgentPlan,
-    AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse,
+    AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption,
+    AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest,
     AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType,
     AgentUsage, CommandBuildInput, current_platform, decide_auto_permission_response,
+    delegation_inject::DelegationInjector,
     registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
@@ -231,11 +231,21 @@ impl AgentConnectionManager {
         let _ = self.delegation_injector.set(injector);
     }
 
+    /// Spawn the connection task and return a readiness receiver. The receiver
+    /// resolves `Ok(())` once the ACP handshake (InitializeRequest) succeeds, and
+    /// resolves with an error (or a dropped-sender `RecvError`) on any spawn /
+    /// handshake failure. `connect` awaits it so a connection is only ever marked
+    /// Ready after the agent is actually reachable — no more "false Ready" that
+    /// silently swallows the first prompt.
     pub async fn register_connection(
         &self,
         launch: AgentConnectionLaunch,
-    ) -> ManagedAgentConnectionSnapshot {
+    ) -> (
+        ManagedAgentConnectionSnapshot,
+        oneshot::Receiver<AgentResult<()>>,
+    ) {
         let (cmd_tx, cmd_rx) = mpsc::channel::<AgentConnectionCommand>(32);
+        let (ready_tx, ready_rx) = oneshot::channel::<AgentResult<()>>();
         let snapshot = ManagedAgentConnectionSnapshot {
             connection_id: launch.connection_id,
             agent_type: launch.agent_type,
@@ -252,9 +262,12 @@ impl AgentConnectionManager {
 
         if self.driver_enabled {
             tokio::spawn(async move {
-                runner.run(cmd_rx).await;
+                runner.run(cmd_rx, ready_tx).await;
             });
         } else {
+            // The in-memory driver has no process to spawn / handshake — it's
+            // ready the moment it's registered.
+            let _ = ready_tx.send(Ok(()));
             tokio::spawn(async move {
                 runner.run_in_memory(cmd_rx).await;
             });
@@ -268,7 +281,7 @@ impl AgentConnectionManager {
             },
         );
 
-        snapshot
+        (snapshot, ready_rx)
     }
 
     pub async fn send_prompt(
@@ -426,9 +439,20 @@ impl AgentConnectionRunner {
         }
     }
 
-    async fn run(self, cmd_rx: mpsc::Receiver<AgentConnectionCommand>) {
-        if let Err(error) = self.run_acp(cmd_rx).await {
+    async fn run(
+        self,
+        cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
+        ready_tx: oneshot::Sender<AgentResult<()>>,
+    ) {
+        // Shared so run_acp signals Ok at handshake AND a pre-handshake failure
+        // forwards the REAL error to `connect` (instead of a dropped-sender
+        // generic). `take()` makes exactly one of the two fire.
+        let ready = Arc::new(Mutex::new(Some(ready_tx)));
+        if let Err(error) = self.run_acp(cmd_rx, Arc::clone(&ready)).await {
             let message = error.to_string();
+            if let Some(tx) = ready.lock().await.take() {
+                let _ = tx.send(Err(AgentError::Runtime(message.clone())));
+            }
             self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()));
             self.emit(
                 None,
@@ -677,7 +701,11 @@ impl AgentConnectionRunner {
         );
     }
 
-    async fn run_acp(&self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) -> AgentResult<()> {
+    async fn run_acp(
+        &self,
+        mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
+        ready_tx: Arc<Mutex<Option<oneshot::Sender<AgentResult<()>>>>>,
+    ) -> AgentResult<()> {
         let _ = refresh_process_path().await;
         let entry = registry_entry(self.snapshot.agent_type);
         let command_parts = entry.distribution.command_parts(&CommandBuildInput {
@@ -824,6 +852,12 @@ impl AgentConnectionRunner {
                         }
                     };
                 let supports_load_session = initialize_response.agent_capabilities.load_session;
+                // Handshake succeeded — the connection is now genuinely reachable.
+                // Signal readiness so `connect` can mark it Ready. A failure before
+                // this point leaves the sender for `run` to forward the real error.
+                if let Some(tx) = ready_tx.lock().await.take() {
+                    let _ = tx.send(Ok(()));
+                }
 
                 while let Some(command) = cmd_rx.recv().await {
                     match command {
@@ -971,16 +1005,16 @@ impl AgentConnectionRunner {
         let mut request = NewSessionRequest::new(working_dir.to_path_buf());
         // Splice in the delegation companion (so the agent's LLM gets the
         // delegate_to_agent tools) when the host installed an injector.
-        if let Some(injector) = &self.delegation_injector {
-            if let Some(server) = injector.companion(
+        if let Some(injector) = &self.delegation_injector
+            && let Some(server) = injector.companion(
                 &self.snapshot.connection_id.0.to_string(),
                 self.snapshot.agent_type,
                 working_dir,
-            ) {
-                request.mcp_servers.push(acp::schema::McpServer::Stdio(
-                    acp::schema::McpServerStdio::new(server.name, server.command).args(server.args),
-                ));
-            }
+            )
+        {
+            request.mcp_servers.push(acp::schema::McpServer::Stdio(
+                acp::schema::McpServerStdio::new(server.name, server.command).args(server.args),
+            ));
         }
         let response = conn.send_request(request).block_task().await?;
         let acp_session_id = response.session_id.0.to_string();
@@ -1754,6 +1788,50 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, AgentError::ConnectionNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn no_response_regressions_command_channel_close_returns_runtime_error() {
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, false);
+        let connection_id = AgentConnectionId::new();
+        let (_snapshot, ready_rx) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id,
+                agent_type: AgentType::Codex,
+                workspace_id: uuid::Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        ready_rx.await.unwrap().unwrap();
+        let (closed_tx, closed_rx) = mpsc::channel(1);
+        drop(closed_rx);
+        manager
+            .connections
+            .lock()
+            .await
+            .get_mut(&connection_id)
+            .unwrap()
+            .cmd_tx = closed_tx;
+
+        let err = manager
+            .send_prompt(
+                connection_id,
+                AgentSessionId::new(),
+                AgentPromptId::new(),
+                vec![AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("agent connection command channel closed")
+        );
     }
 
     #[tokio::test]

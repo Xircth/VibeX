@@ -35,14 +35,6 @@ export type AgentSendPromptRequest = {
   text: string;
 };
 
-export type AgentSendWorkspacePromptRequest = {
-  agentType: AgentType;
-  workspaceId: string;
-  sessionId: string;
-  text: string;
-  images?: string[];
-};
-
 export type AgentCancelPromptRequest = {
   connectionId: string;
   sessionId: string;
@@ -87,6 +79,7 @@ export type AgentTypeRequest = {
 export type AgentHistoryImportRequest = {
   agentType: AgentType;
   path?: string | null;
+  workspaceId?: string | null;
 };
 
 export type AgentConfigFile = {
@@ -153,11 +146,6 @@ export const agentsApi = {
   ): Promise<AgentPromptSnapshot> =>
     tauriInvoke('agent_send_prompt', { request }),
 
-  sendWorkspacePrompt: (
-    request: AgentSendWorkspacePromptRequest
-  ): Promise<AgentPromptSnapshot> =>
-    tauriInvoke('agent_send_workspace_prompt', { request }),
-
   cancelPrompt: (request: AgentCancelPromptRequest): Promise<void> =>
     tauriInvoke('agent_cancel_prompt', { request }),
 
@@ -192,9 +180,8 @@ export const agentsApi = {
   writeMcp: (request: AgentTypeRequest & { config: unknown }): Promise<void> =>
     tauriInvoke('agent_mcp_write', { request }),
 
-  // Conversation metadata + on-demand re-parsed transcript (codeg-aligned model).
-  // `sessionId` is the VibeX session/conversation row id; the transcript is
-  // re-parsed from the bound agent session file by the backend.
+  // Conversation metadata + projected timeline from the durable VibeX event log.
+  // `sessionId` is the local VibeX conversation row id.
   conversationDetail: (sessionId: string): Promise<DbConversationDetail | null> =>
     tauriInvoke('conversation_detail', { sessionId }),
 

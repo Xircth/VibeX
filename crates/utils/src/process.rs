@@ -1,5 +1,7 @@
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::{ffi::OsStr, path::Path};
 
 use command_group::{AsyncCommandGroup, AsyncGroupChild};
@@ -50,6 +52,38 @@ fn is_windows_batch_script(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Resolve a bare program name (e.g. `npx`, `codex-acp`) to a concrete file on
+/// Windows using PATH + PATHEXT, the way a shell would. Rust's `Command` calls
+/// `CreateProcess`, which does NOT apply PATHEXT — so a bare `npx` (whose real
+/// file is `npx.cmd`) fails to spawn. npm-installed CLIs ship as `.cmd` shims,
+/// so without this every npx/binary agent silently fails to launch on Windows.
+///
+/// Returns `None` for names that already carry a path separator or an extension
+/// (let `CreateProcess` handle those), or when nothing matches on PATH.
+#[cfg(windows)]
+fn resolve_windows_program(program: &Path) -> Option<PathBuf> {
+    if program.components().count() != 1 || program.extension().is_some() {
+        return None;
+    }
+    let name = program.as_os_str().to_string_lossy().to_string();
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    let exts: Vec<String> = pathext
+        .split(';')
+        .map(|ext| ext.trim().to_string())
+        .filter(|ext| !ext.is_empty())
+        .collect();
+    let paths = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&paths) {
+        for ext in &exts {
+            let candidate = dir.join(format!("{name}{ext}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 /// Build a tokio command that stays hidden on Windows, including `.cmd`/`.bat`
 /// wrappers such as npm-installed CLIs.
 pub fn new_hidden_tokio_command(
@@ -64,6 +98,18 @@ pub fn new_hidden_tokio_command(
             let mut command = tokio::process::Command::new("cmd.exe");
             configure_tokio_command_no_window(&mut command);
             command.arg("/d").arg("/c").arg(program).args(args);
+            return command;
+        }
+        if let Some(resolved) = resolve_windows_program(program) {
+            if is_windows_batch_script(&resolved) {
+                let mut command = tokio::process::Command::new("cmd.exe");
+                configure_tokio_command_no_window(&mut command);
+                command.arg("/d").arg("/c").arg(&resolved).args(args);
+                return command;
+            }
+            let mut command = tokio::process::Command::new(&resolved);
+            configure_tokio_command_no_window(&mut command);
+            command.args(args);
             return command;
         }
     }
@@ -88,6 +134,18 @@ pub fn new_hidden_std_command(
             let mut command = std::process::Command::new("cmd.exe");
             configure_std_command_no_window(&mut command);
             command.arg("/d").arg("/c").arg(program).args(args);
+            return command;
+        }
+        if let Some(resolved) = resolve_windows_program(program) {
+            if is_windows_batch_script(&resolved) {
+                let mut command = std::process::Command::new("cmd.exe");
+                configure_std_command_no_window(&mut command);
+                command.arg("/d").arg("/c").arg(&resolved).args(args);
+                return command;
+            }
+            let mut command = std::process::Command::new(&resolved);
+            configure_std_command_no_window(&mut command);
+            command.args(args);
             return command;
         }
     }

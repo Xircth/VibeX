@@ -11,11 +11,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { BaseCodingAgent } from 'shared/types';
-import type {
-  MessageTurn,
-  SessionStats,
-  TaskWithAttemptStatus,
-} from 'shared/types';
+import type { ConversationTimelineRow, MessageTurn, TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
 import { agentsApi } from '@/features/agents/api';
@@ -23,7 +19,6 @@ import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
 import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
-import { agentUsageToSnapshot } from '@/hooks/useConversationHistory/conversationTokenUsage';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { ConversationMessageNav } from '@/components/conversation-thread/ConversationMessageNav';
 import {
@@ -31,20 +26,15 @@ import {
   type ConversationMessageNavEntry,
 } from '@/components/conversation-thread/messageNavEntries';
 import {
-  AgentPermissionPanel,
-  type PendingAgentPermission,
-} from '@/components/agents/AgentPermissionPanel';
-import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
-import { useConversationRuntime } from '@/features/agents/useConversationRuntime';
-import type { ConversationTimelineTurn } from '@/features/agents/timeline';
+  type ConversationTimelineTurn,
+} from '@/features/conversation/conversationStore';
+import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { cn } from '@/lib/utils';
 import {
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
-  getAgentSessionModel,
   getVirtualRowTranslateY,
   isConversationNearBottom,
-  pendingAgentPermissionsForSession,
   type VirtualizedListRef,
 } from './VirtualizedList';
 
@@ -84,17 +74,8 @@ function assistantCopyText(turn: MessageTurn): string {
     .join('\n\n');
 }
 
-function contextWindowFrom(sessionStats: SessionStats | null): number | null {
-  return sessionStats?.context_window_max_tokens != null
-    ? Number(sessionStats.context_window_max_tokens)
-    : null;
-}
-
 /** Turn stats for a settled assistant turn, sourced from the parsed MessageTurn. */
-function buildSettledTurnStats(
-  turn: MessageTurn,
-  sessionStats: SessionStats | null
-): TurnStatsData {
+function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
   const usage = turn.usage ?? null;
   return {
     model: turn.model ?? null,
@@ -105,7 +86,7 @@ function buildSettledTurnStats(
         Number(usage.cache_creation_input_tokens) +
         Number(usage.cache_read_input_tokens)
       : null,
-    contextWindow: contextWindowFrom(sessionStats),
+    contextWindow: null,
     cacheReadTokens: usage ? Number(usage.cache_read_input_tokens) : null,
     cacheWriteTokens: usage ? Number(usage.cache_creation_input_tokens) : null,
     elapsedMs: turn.duration_ms != null ? Number(turn.duration_ms) : null,
@@ -114,11 +95,127 @@ function buildSettledTurnStats(
   };
 }
 
+function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
+  const visibleRows = rows.filter((row) => row.kind !== 'turn_error');
+  if (visibleRows.length === 0) return null;
+
+  return (
+    <div className="mb-3 space-y-2">
+      {visibleRows.map((row, index) => {
+        if (row.kind === 'permission_request') {
+          return (
+            <div
+              key={`permission-${row.request.permission_id}-${index}`}
+              className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100"
+            >
+              <div className="font-medium">{row.request.title ?? 'Permission requested'}</div>
+              <div className="mt-1 text-amber-800/80 dark:text-amber-100/75">
+                {row.request.status}
+              </div>
+            </div>
+          );
+        }
+        if (row.kind === 'question_request') {
+          return (
+            <div
+              key={`question-${row.request.question_id}-${index}`}
+              className="rounded-md border border-sky-300/50 bg-sky-50 px-3 py-2 text-xs text-sky-950 dark:border-sky-500/30 dark:bg-sky-950/25 dark:text-sky-100"
+            >
+              <div className="font-medium">{row.request.prompt}</div>
+              {row.request.options.length > 0 ? (
+                <div className="mt-1 truncate text-sky-800/80 dark:text-sky-100/75">
+                  {row.request.options.join(', ')}
+                </div>
+              ) : null}
+            </div>
+          );
+        }
+        if (row.kind === 'feedback_request') {
+          return (
+            <div
+              key={`feedback-${row.request.feedback_id}-${index}`}
+              className="rounded-md border border-violet-300/50 bg-violet-50 px-3 py-2 text-xs text-violet-950 dark:border-violet-500/30 dark:bg-violet-950/25 dark:text-violet-100"
+            >
+              <div className="font-medium">Feedback requested</div>
+              <div className="mt-1 whitespace-pre-wrap break-words text-violet-800/80 dark:text-violet-100/75">
+                {row.request.prompt}
+              </div>
+            </div>
+          );
+        }
+        if (row.kind === 'terminal_summary') {
+          return (
+            <div
+              key={`terminal-${row.terminal.terminal_id}-${index}`}
+              className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+            >
+              <div className="font-medium text-foreground">
+                {row.terminal.command ?? 'Terminal'} · {row.terminal.status}
+              </div>
+              {row.terminal.output_summary ? (
+                <div className="mt-1 whitespace-pre-wrap break-words">
+                  {row.terminal.output_summary}
+                </div>
+              ) : null}
+            </div>
+          );
+        }
+        if (row.kind === 'delegation') {
+          return (
+            <div
+              key={`delegation-${row.delegation.delegation_id}-${index}`}
+              className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+            >
+              <div className="font-medium text-foreground">
+                Delegation {row.delegation.status}
+              </div>
+              {row.delegation.task_preview ? (
+                <div className="mt-1 truncate">{row.delegation.task_preview}</div>
+              ) : null}
+            </div>
+          );
+        }
+        if (row.kind === 'file_change_summary') {
+          return (
+            <div
+              key={`files-${index}`}
+              className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+            >
+              <div className="font-medium text-foreground">
+                {row.summary.files.length} file change
+                {row.summary.files.length === 1 ? '' : 's'}
+              </div>
+              <div className="mt-1 truncate">
+                {row.summary.files.map((file) => file.path).join(', ')}
+              </div>
+            </div>
+          );
+        }
+        if (row.kind === 'session_notice') {
+          return (
+            <div
+              key={`notice-${index}`}
+              className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+            >
+              <div className="font-medium text-foreground">{row.notice.title}</div>
+              {row.notice.message ? (
+                <div className="mt-1 whitespace-pre-wrap break-words">
+                  {row.notice.message}
+                </div>
+              ) : null}
+            </div>
+          );
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
 /**
- * Conversation view backed by the unified, codeg-aligned timeline: persisted
- * transcript (re-parsed from the agent's session file) merged with the live
- * event stream, rendered turn-by-turn via {@link MessageTurnView}. This replaces
- * the legacy events -> NormalizedEntry transcript path for ACP agent sessions.
+ * Conversation view backed by the canonical VibeX event log: projected timeline
+ * rows are hydrated from storage and updated from `conversation-events`, then
+ * rendered turn-by-turn via {@link MessageTurnView}.
  *
  * Inline turn stats are intentionally absent — token/usage surfaces move out of
  * the timeline in the relocation phase. VibeX-authored.
@@ -127,7 +224,6 @@ const AgentTimelineConversation = forwardRef<
   VirtualizedListRef,
   AgentTimelineConversationProps
 >(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
-  const agentWorkbench = useAgentWorkbench();
   const { config } = useUserSystem();
   const collapseProcess = config?.ai_message_default_collapsed ?? false;
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -137,48 +233,22 @@ const AgentTimelineConversation = forwardRef<
   const isAtBottomRef = useRef(true);
 
   const sessionId = attempt.session?.id ?? null;
-  const session = sessionId ? agentWorkbench.sessions[sessionId] : undefined;
-  const events = useMemo(
-    () => (sessionId ? (agentWorkbench.eventsByScope[sessionId] ?? []) : []),
-    [sessionId, agentWorkbench.eventsByScope]
+  const conversation = useConversationTimeline(sessionId);
+  const timeline = conversation.timeline;
+  const detailLoading = conversation.loading;
+  const sideRows = conversation.sideRows;
+  const turnErrors = sideRows.flatMap((row) =>
+    row.kind === 'turn_error' ? [row.error.error.message] : []
   );
 
-  const { timeline, detailLoading, sessionStats } = useConversationRuntime({
-    conversationId: sessionId,
-    events,
-  });
-
-  // Model + live token usage for the streaming turn's inline stats.
-  const agentModel = useMemo(
-    () =>
-      getAgentSessionModel(
-        sessionId ? agentWorkbench.sessionConfigOptionsByScope[sessionId] : null
-      ),
-    [agentWorkbench.sessionConfigOptionsByScope, sessionId]
+  const liveStats = useMemo<TurnStatsData>(
+    () => ({
+      model: null,
+      totalTokens: null,
+      contextWindow: null,
+    }),
+    []
   );
-  const liveStats = useMemo<TurnStatsData>(() => {
-    const usage = sessionId ? agentWorkbench.usageByScope[sessionId] : undefined;
-    const snapshot = usage ? agentUsageToSnapshot(usage) : null;
-    return {
-      model: agentModel ?? null,
-      totalTokens: snapshot?.totalTokens ?? null,
-      contextWindow: snapshot?.contextWindow ?? contextWindowFrom(sessionStats),
-    };
-  }, [agentModel, agentWorkbench.usageByScope, sessionId, sessionStats]);
-
-  const pendingPermissions = useMemo(
-    () =>
-      pendingAgentPermissionsForSession(
-        events,
-        agentWorkbench.permissions,
-        sessionId,
-        session?.connection_id
-      ),
-    [agentWorkbench.permissions, events, session?.connection_id, sessionId]
-  );
-  const [respondingPermissionId, setRespondingPermissionId] = useState<
-    string | null
-  >(null);
 
   const navEntries = useMemo(() => buildTimelineNavEntries(timeline), [timeline]);
   const userMessageIndexes = useMemo(
@@ -278,7 +348,7 @@ const AgentTimelineConversation = forwardRef<
 
   useLayoutEffect(() => {
     updateScrollMargin();
-  }, [pendingPermissions.length, timeline.length, updateScrollMargin]);
+  }, [sideRows.length, timeline.length, updateScrollMargin]);
 
   useLayoutEffect(() => {
     updateActiveIndex();
@@ -294,26 +364,6 @@ const AgentTimelineConversation = forwardRef<
       scrollToBottom('auto');
     }
   }, [scrollToBottom, timeline.length, totalSize, updateAtBottomState]);
-
-  const respondToPermission = useCallback(
-    async (permission: PendingAgentPermission, optionId: string | null) => {
-      setRespondingPermissionId(permission.request.id);
-      try {
-        await agentWorkbench.respondPermission({
-          connectionId: permission.connectionId,
-          permissionId: permission.request.id,
-          response: optionId
-            ? { kind: 'selected', option_id: optionId }
-            : { kind: 'cancelled' },
-        });
-      } finally {
-        setRespondingPermissionId((current) =>
-          current === permission.request.id ? null : current
-        );
-      }
-    },
-    [agentWorkbench]
-  );
 
   useImperativeHandle(
     ref,
@@ -386,7 +436,7 @@ const AgentTimelineConversation = forwardRef<
         />
       ) : (
         <TurnStats
-          stats={buildSettledTurnStats(row.turn, sessionStats)}
+          stats={buildSettledTurnStats(row.turn)}
           copyText={copyText}
           onJumpBack={onJumpBack}
         />
@@ -396,7 +446,6 @@ const AgentTimelineConversation = forwardRef<
       detachFromBottom,
       liveStats,
       rowVirtualizer,
-      sessionStats,
       userMessageIndexes,
     ]
   );
@@ -463,11 +512,15 @@ const AgentTimelineConversation = forwardRef<
       ) : (
         <div className="mx-auto flex w-full max-w-6xl items-start gap-3">
           <div className="min-w-0 flex-1">
-            <AgentPermissionPanel
-              permissions={pendingPermissions}
-              respondingPermissionId={respondingPermissionId}
-              onRespond={respondToPermission}
-            />
+            {turnErrors.length > 0 ? (
+              <div className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <div className="font-medium">会话出错</div>
+                <div className="mt-0.5 whitespace-pre-wrap break-words leading-5">
+                  {turnErrors[turnErrors.length - 1]}
+                </div>
+              </div>
+            ) : null}
+            <ConversationSideRows rows={sideRows} />
             <div
               ref={virtualListRef}
               className="relative w-full"

@@ -1,0 +1,20 @@
+{
+  "name": "terminal",
+  "projectionVersion": 1,
+  "conversation": {
+    "id": "00000000-0000-0000-0000-000000000005",
+    "title": "Terminal",
+    "status": "completed"
+  },
+  "events": [
+    { "sequence": 1, "kind": "user_turn_created" },
+    { "sequence": 2, "kind": "terminal_updated", "terminalId": "terminal-1", "status": "running" },
+    { "sequence": 3, "kind": "terminal_updated", "terminalId": "terminal-1", "status": "exited" },
+    { "sequence": 4, "kind": "turn_completed" }
+  ],
+  "expectedTimeline": ["message_turn:user", "terminal_summary"],
+  "expectedState": {
+    "terminalStatus": "exited",
+    "outputTruncated": false
+  }
+}

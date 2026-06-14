@@ -33,6 +33,12 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+impl From<serde_json::Error> for AppError {
+    fn from(e: serde_json::Error) -> Self {
+        AppError::Internal(e.to_string())
+    }
+}
+
 impl From<db::models::repo::RepoError> for AppError {
     fn from(e: db::models::repo::RepoError) -> Self {
         match e {

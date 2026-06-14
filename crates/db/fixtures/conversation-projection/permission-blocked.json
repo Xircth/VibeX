@@ -1,0 +1,23 @@
+{
+  "name": "permission-blocked",
+  "projectionVersion": 1,
+  "conversation": {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "title": "Permission blocked",
+    "status": "completed"
+  },
+  "events": [
+    { "sequence": 1, "kind": "user_turn_created" },
+    { "sequence": 2, "kind": "user_turn_started" },
+    { "sequence": 3, "kind": "permission_requested" },
+    { "sequence": 4, "kind": "turn_blocked" },
+    { "sequence": 5, "kind": "permission_responded" },
+    { "sequence": 6, "kind": "assistant_text_delta" },
+    { "sequence": 7, "kind": "turn_completed" }
+  ],
+  "expectedTimeline": ["message_turn:user", "permission_request", "message_turn:assistant"],
+  "expectedState": {
+    "permissionStatus": "responded",
+    "turnStatus": "completed"
+  }
+}

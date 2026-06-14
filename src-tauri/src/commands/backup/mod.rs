@@ -143,14 +143,20 @@ fn collect_directory_sources(
     }
 
     for entry in fs::read_dir(current).map_err(|error| {
-        AppError::Internal(format!("Failed to read directory {}: {error}", current.display()))
+        AppError::Internal(format!(
+            "Failed to read directory {}: {error}",
+            current.display()
+        ))
     })? {
         let entry = entry.map_err(|error| {
             AppError::Internal(format!("Failed to read directory entry: {error}"))
         })?;
         let path = entry.path();
         let metadata = fs::metadata(&path).map_err(|error| {
-            AppError::Internal(format!("Failed to read metadata {}: {error}", path.display()))
+            AppError::Internal(format!(
+                "Failed to read metadata {}: {error}",
+                path.display()
+            ))
         })?;
 
         if metadata.is_dir() {
@@ -273,7 +279,10 @@ fn read_backup_file(path: &Path) -> Result<PortableBackup, AppError> {
         AppError::Internal(format!("Failed to read backup {}: {error}", path.display()))
     })?;
     let backup: PortableBackup = serde_json::from_slice(&bytes).map_err(|error| {
-        AppError::BadRequest(format!("Failed to parse backup {}: {error}", path.display()))
+        AppError::BadRequest(format!(
+            "Failed to parse backup {}: {error}",
+            path.display()
+        ))
     })?;
     validate_backup(&backup)?;
     Ok(backup)
@@ -472,7 +481,10 @@ pub async fn backup_restore_stage(
         let bytes = general_purpose::STANDARD
             .decode(&entry.bytes_base64)
             .map_err(|error| {
-                AppError::BadRequest(format!("Invalid backup payload for {}: {error}", entry.path))
+                AppError::BadRequest(format!(
+                    "Invalid backup payload for {}: {error}",
+                    entry.path
+                ))
             })?;
 
         fs::write(&target, bytes).map_err(|error| {

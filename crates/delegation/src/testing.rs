@@ -1,8 +1,10 @@
 //! Shared mock trait implementations for broker unit tests. Test-only.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use agents::registry::AgentType;
 use async_trait::async_trait;
@@ -10,13 +12,13 @@ use serde_json::Value;
 use tokio::sync::Notify;
 use uuid::Uuid;
 
-use crate::event_emitter::{
-    DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent,
+use crate::{
+    event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent},
+    lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup},
+    meta_writer::DelegationMetaWriter,
+    spawner::{ConnectionSpawner, SpawnerError},
+    types::{DelegationError, DelegationLink},
 };
-use crate::lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup};
-use crate::meta_writer::DelegationMetaWriter;
-use crate::spawner::{ConnectionSpawner, SpawnerError};
-use crate::types::{DelegationError, DelegationLink};
 
 #[derive(Default)]
 pub struct MockSpawnerCalls {

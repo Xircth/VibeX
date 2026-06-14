@@ -122,8 +122,8 @@ export function useSessionComposerContextCompact({
       setFollowUpError(null);
       clearStopping();
 
-      const prompt = await sendAgentRuntimeTurn(compactTurnInput);
-      setPendingCompactProcessId(prompt.id);
+      const turn = await sendAgentRuntimeTurn(compactTurnInput);
+      setPendingCompactProcessId(turn.turnId);
     } catch (error) {
       setFollowUpError(getCompactContextErrorMessage(error));
     }

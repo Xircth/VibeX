@@ -58,7 +58,10 @@ describe('useSessionComposerContextCompact', () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
     sendAgentRuntimeTurnMock.mockResolvedValue({
-      id: 'prompt-1',
+      conversationId: 'session-1',
+      turnId: 'turn-1',
+      status: 'running',
+      lastSequence: 1n,
     });
 
     const { result } = renderHook(() =>
@@ -90,7 +93,10 @@ describe('useSessionComposerContextCompact', () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
     sendAgentRuntimeTurnMock.mockResolvedValue({
-      id: 'process-1',
+      conversationId: 'session-1',
+      turnId: 'process-1',
+      status: 'running',
+      lastSequence: 1n,
     });
 
     const { result, rerender } = renderHook(
@@ -129,7 +135,10 @@ describe('useSessionComposerContextCompact', () => {
   it('clears pending compact state after the timeout window', async () => {
     vi.useFakeTimers();
     sendAgentRuntimeTurnMock.mockResolvedValue({
-      id: 'prompt-1',
+      conversationId: 'session-1',
+      turnId: 'turn-1',
+      status: 'running',
+      lastSequence: 1n,
     });
 
     const { result } = renderHook(() =>

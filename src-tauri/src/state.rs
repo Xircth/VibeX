@@ -37,6 +37,9 @@ pub struct AppState {
     pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
     pub agent_runtime: Arc<AgentRuntime>,
     pub delegation: crate::delegation::DelegationState,
+    pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
+    pub conversation_runtime_states:
+        Arc<Mutex<HashMap<uuid::Uuid, crate::conversation_service::ConversationRuntimeState>>>,
 }
 
 impl AppState {
@@ -56,6 +59,8 @@ impl AppState {
             local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
             agent_runtime,
             delegation,
+            conversation_turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            conversation_runtime_states: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 }

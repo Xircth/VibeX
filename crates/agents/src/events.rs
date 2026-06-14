@@ -362,4 +362,87 @@ mod tests {
             assert!(value["kind"].as_str().is_some());
         }
     }
+
+    #[test]
+    fn acp_notification_mapping_contract_events_exist() {
+        let events = vec![
+            AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                },
+            },
+            AgentEvent::ThoughtChunk {
+                content: AgentContentBlock::Text {
+                    text: "thinking".to_string(),
+                },
+            },
+            AgentEvent::ToolCall {
+                tool_call: AgentToolCall {
+                    id: "tool-1".to_string(),
+                    title: "Edit".to_string(),
+                    kind: Some("edit".to_string()),
+                    input_preview: Some("{}".to_string()),
+                },
+            },
+            AgentEvent::ToolCallUpdate {
+                update: AgentToolCallUpdate {
+                    id: "tool-1".to_string(),
+                    status: Some("completed".to_string()),
+                    content: Some("ok".to_string()),
+                },
+            },
+            AgentEvent::SessionLoadFailed {
+                reason: "missing".to_string(),
+            },
+            AgentEvent::SessionConfigStale { reason: None },
+        ];
+
+        for event in events {
+            let value = serde_json::to_value(&event).unwrap();
+            assert!(value["kind"].as_str().is_some());
+        }
+    }
+
+    #[test]
+    fn acp_host_request_mapping_contract_events_exist() {
+        let permission_id = AgentPermissionId::new();
+        let session_id = AgentSessionId::new();
+        let events = vec![
+            AgentEvent::PermissionRequested {
+                request: AgentPermissionRequest {
+                    id: permission_id,
+                    session_id,
+                    title: "Run".to_string(),
+                    details: None,
+                    options: Vec::new(),
+                },
+            },
+            AgentEvent::PermissionResponded {
+                permission_id,
+                response: AgentPermissionResponse::Cancelled,
+                auto: false,
+            },
+            AgentEvent::TerminalCreated {
+                terminal: AgentTerminalSnapshot {
+                    id: AgentTerminalId::new(),
+                    command: "cargo".to_string(),
+                    args: vec!["test".to_string()],
+                    cwd: None,
+                },
+            },
+            AgentEvent::TerminalOutput {
+                output: AgentTerminalOutput {
+                    terminal_id: AgentTerminalId::new(),
+                    output: "ok".to_string(),
+                    truncated: false,
+                    exit_status: Some(0),
+                },
+            },
+        ];
+
+        for event in events {
+            let value = serde_json::to_value(&event).unwrap();
+            assert!(value["kind"].as_str().is_some());
+        }
+    }
 }

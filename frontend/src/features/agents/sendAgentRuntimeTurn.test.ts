@@ -2,25 +2,24 @@ import { describe, expect, it, vi } from 'vitest';
 import { BaseCodingAgent } from 'shared/types';
 import { sendAgentRuntimeTurn } from './sendAgentRuntimeTurn';
 
-const { sendWorkspacePromptMock } = vi.hoisted(() => ({
-  sendWorkspacePromptMock: vi.fn(),
+const { startTurnMock } = vi.hoisted(() => ({
+  startTurnMock: vi.fn(),
 }));
 
-vi.mock('./api', () => ({
-  agentsApi: {
-    sendWorkspacePrompt: sendWorkspacePromptMock,
+vi.mock('@/features/conversation/conversationApi', () => ({
+  conversationApi: {
+    startTurn: startTurnMock,
   },
 }));
 
 describe('sendAgentRuntimeTurn', () => {
-  it('sends text and image paths through the ACP workspace prompt API', async () => {
-    sendWorkspacePromptMock.mockResolvedValue({
-      id: 'prompt-1',
-      session_id: 'session-1',
-      status: { kind: 'running' },
-      text_preview: 'hello',
-      created_at: '2026-06-11T00:00:00.000Z',
-      updated_at: '2026-06-11T00:00:00.000Z',
+  it('starts a canonical conversation turn with text and image paths', async () => {
+    startTurnMock.mockResolvedValue({
+      conversationId: 'session-1',
+      turnId: 'turn-1',
+      promptId: 'prompt-1',
+      status: 'running',
+      lastSequence: 2n,
     });
 
     await sendAgentRuntimeTurn({
@@ -32,10 +31,10 @@ describe('sendAgentRuntimeTurn', () => {
       images: ['.vibe-images/screen.png'],
     });
 
-    expect(sendWorkspacePromptMock).toHaveBeenCalledWith({
+    expect(startTurnMock).toHaveBeenCalledWith({
       agentType: 'codex',
       workspaceId: 'workspace-1',
-      sessionId: 'session-1',
+      conversationId: 'session-1',
       text: 'visible text',
       images: ['.vibe-images/screen.png'],
     });

@@ -1,6 +1,12 @@
 pub mod agent_runtime;
 pub mod agent_setting;
 pub mod conversation;
+pub mod conversation_bundle;
+pub mod conversation_event;
+pub mod conversation_projection;
+pub mod conversation_side_effects;
+pub mod conversation_tool;
+pub mod conversation_turn;
 pub mod execution_process;
 pub mod execution_process_logs;
 pub mod execution_process_repo_state;

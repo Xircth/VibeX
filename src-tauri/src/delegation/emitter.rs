@@ -4,9 +4,11 @@
 
 use std::sync::Arc;
 
-use agents::events::{AgentEvent, DelegationResultSummary};
-use agents::ids::AgentConnectionId;
-use agents::runtime::AgentRuntime;
+use agents::{
+    events::{AgentEvent, DelegationResultSummary},
+    ids::AgentConnectionId,
+    runtime::AgentRuntime,
+};
 use async_trait::async_trait;
 use delegation::{
     DelegationCompletedEvent, DelegationEventEmitter, DelegationMetaWriter, DelegationOutcome,
@@ -89,5 +91,11 @@ pub(crate) struct NoopMetaWriter;
 
 #[async_trait]
 impl DelegationMetaWriter for NoopMetaWriter {
-    async fn write_meta(&self, _parent_connection_id: &str, _parent_tool_use_id: &str, _meta: serde_json::Value) {}
+    async fn write_meta(
+        &self,
+        _parent_connection_id: &str,
+        _parent_tool_use_id: &str,
+        _meta: serde_json::Value,
+    ) {
+    }
 }

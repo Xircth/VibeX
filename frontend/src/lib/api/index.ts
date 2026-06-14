@@ -164,7 +164,6 @@ export type {
   AgentConnectRequest,
   AgentNewSessionRequest,
   AgentSendPromptRequest,
-  AgentSendWorkspacePromptRequest,
 } from '@/features/agents/api';
 export type {
   AgentConfigSurface,

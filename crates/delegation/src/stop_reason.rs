@@ -99,13 +99,19 @@ mod tests {
     fn classifies_debug_pascal_and_snake_forms_alike() {
         assert_eq!(classify_stop_reason(Some("EndTurn")), StopClass::EndTurn);
         assert_eq!(classify_stop_reason(Some("end_turn")), StopClass::EndTurn);
-        assert_eq!(classify_stop_reason(Some("MaxTokens")), StopClass::MaxTokens);
+        assert_eq!(
+            classify_stop_reason(Some("MaxTokens")),
+            StopClass::MaxTokens
+        );
         assert_eq!(
             classify_stop_reason(Some("max_turn_requests")),
             StopClass::MaxTurnRequests
         );
         assert_eq!(classify_stop_reason(Some("Refusal")), StopClass::Refusal);
-        assert_eq!(classify_stop_reason(Some("Cancelled")), StopClass::Cancelled);
+        assert_eq!(
+            classify_stop_reason(Some("Cancelled")),
+            StopClass::Cancelled
+        );
         assert_eq!(classify_stop_reason(Some("canceled")), StopClass::Cancelled);
         assert_eq!(classify_stop_reason(None), StopClass::EndTurn);
     }
@@ -149,10 +155,18 @@ mod tests {
 
     #[test]
     fn max_tokens_and_refusal_map_to_their_codes() {
-        for (reason, expected) in [("MaxTokens", "child_max_tokens"), ("Refusal", "child_refusal")]
-        {
-            let outcome =
-                outcome_from_turn(Some(reason), "x".to_string(), Uuid::nil(), AgentType::Codex, 1, 1);
+        for (reason, expected) in [
+            ("MaxTokens", "child_max_tokens"),
+            ("Refusal", "child_refusal"),
+        ] {
+            let outcome = outcome_from_turn(
+                Some(reason),
+                "x".to_string(),
+                Uuid::nil(),
+                AgentType::Codex,
+                1,
+                1,
+            );
             match outcome {
                 DelegationOutcome::Err { code, .. } => assert_eq!(code, expected),
                 DelegationOutcome::Ok(_) => panic!("expected error for {reason}"),

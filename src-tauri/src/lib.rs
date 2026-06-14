@@ -1,6 +1,8 @@
 use tauri::{Emitter, Manager, image::Image};
 
 pub mod commands;
+pub mod conversation_bundle;
+pub mod conversation_service;
 mod delegation;
 mod error;
 mod events;
@@ -80,9 +82,9 @@ pub fn run() {
             {
                 tracing::warn!("Failed to initialize project rail window: {}", error);
             }
-            if let Err(error) =
-                tauri::async_runtime::block_on(commands::web_service::ensure_web_service_autostart())
-            {
+            if let Err(error) = tauri::async_runtime::block_on(
+                commands::web_service::ensure_web_service_autostart(),
+            ) {
                 tracing::warn!("Failed to autostart web service: {}", error);
             }
 
@@ -205,6 +207,14 @@ pub fn run() {
             commands::sessions::reset_session_process,
             commands::conversations::conversation_detail,
             commands::conversations::conversation_list,
+            commands::conversations::conversation_start_turn,
+            commands::conversations::conversation_events_since,
+            commands::conversations::conversation_timeline_page,
+            commands::conversations::conversation_respond_permission,
+            commands::conversations::conversation_cancel_turn,
+            commands::conversations::conversation_close,
+            commands::conversations::conversation_export,
+            commands::conversations::conversation_import,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,
             commands::events::subscribe_log_stream,
@@ -377,7 +387,6 @@ pub fn run() {
             commands::agents::agent_new_session,
             commands::agents::agent_resume_session,
             commands::agents::agent_send_prompt,
-            commands::agents::agent_send_workspace_prompt,
             commands::agents::agent_reset_to_checkpoint,
             commands::agents::agent_cancel_prompt,
             commands::agents::agent_disconnect,

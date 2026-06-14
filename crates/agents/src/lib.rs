@@ -30,11 +30,22 @@ pub mod state;
 pub mod terminal;
 
 pub use config::{AgentConfigStrategy, AgentConfigSurface, PathTemplate, config_surface};
-pub use delegation_inject::{DelegationInjector, InjectedMcpServer};
 pub use conversation::{
-    AgentExecutionStats, ContentBlock, ConversationDetail, ConversationSummary, ImageData,
-    MessageTurn, SessionStats, SubAgentToolCall, TurnRole, TurnUsage,
+    AcpCapabilitySnapshot, AgentExecutionStats, AgentPromptCapabilities, ContentBlock,
+    ConversationAgentConnectionStatus, ConversationBundleChecksum, ConversationBundleManifest,
+    ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
+    ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,
+    ConversationEventEnvelope, ConversationEventsPage, ConversationFeedbackRequest,
+    ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
+    ConversationFileLocation, ConversationInputBlock, ConversationPermissionRequest,
+    ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
+    ConversationQuestionRequest, ConversationQuestionResponse, ConversationSessionNotice,
+    ConversationSummary, ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
+    ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
+    ConversationUsage, ImageData, MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy,
+    SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
 };
+pub use delegation_inject::{DelegationInjector, InjectedMcpServer};
 pub use distribution::{
     AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
     SystemCommand, current_platform,

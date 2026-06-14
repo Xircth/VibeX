@@ -12,24 +12,26 @@
 //! mutations and is dropped before any `.await`, so no lock is held across a
 //! suspension point.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use agents::registry::AgentType;
 use tokio::sync::Notify;
 use uuid::Uuid;
 
-use crate::depth::compute_depth;
-use crate::event_emitter::{
-    DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent,
-};
-use crate::lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup};
-use crate::meta_writer::DelegationMetaWriter;
-use crate::spawner::ConnectionSpawner;
-use crate::types::{
-    DelegationConfig, DelegationError, DelegationLink, DelegationOutcome, DelegationRequest,
-    DelegationTaskReport, TaskStatus,
+use crate::{
+    depth::compute_depth,
+    event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent},
+    lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup},
+    meta_writer::DelegationMetaWriter,
+    spawner::ConnectionSpawner,
+    types::{
+        DelegationConfig, DelegationError, DelegationLink, DelegationOutcome, DelegationRequest,
+        DelegationTaskReport, TaskStatus,
+    },
 };
 
 /// Per-result text cap. Full output stays in the child session.
@@ -140,7 +142,9 @@ fn insert_completed(inner: &mut PendingInner, call_id: String, task: CompletedTa
             Some(order) if order.len() > 1 => order,
             _ => break, // keep the newest result even if it alone exceeds the cap
         };
-        let Some(oldest) = order.pop_front() else { break };
+        let Some(oldest) = order.pop_front() else {
+            break;
+        };
         if let Some(removed) = inner.completed.remove(&oldest) {
             let removed_bytes = removed.text.as_ref().map(String::len).unwrap_or(0);
             let entry = inner.completed_bytes.entry(parent.clone()).or_default();
@@ -649,9 +653,12 @@ fn terminal_fields(
     outcome: &DelegationOutcome,
 ) -> (TaskStatus, Option<String>, Option<String>, Option<String>) {
     match outcome {
-        DelegationOutcome::Ok(success) => {
-            (TaskStatus::Completed, Some(cap_text(&success.text)), None, None)
-        }
+        DelegationOutcome::Ok(success) => (
+            TaskStatus::Completed,
+            Some(cap_text(&success.text)),
+            None,
+            None,
+        ),
         DelegationOutcome::Err { code, message, .. } => {
             let status = if code == "canceled" {
                 TaskStatus::Canceled
@@ -799,10 +806,13 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::testing::{
-        MockDepthLookup, MockSpawner, MockStatusLookup, RecordingEventEmitter, RecordingMetaWriter,
+    use crate::{
+        testing::{
+            MockDepthLookup, MockSpawner, MockStatusLookup, RecordingEventEmitter,
+            RecordingMetaWriter,
+        },
+        types::{DelegationOutcome, DelegationSuccess},
     };
-    use crate::types::{DelegationOutcome, DelegationSuccess};
 
     fn request(parent_session_id: Uuid) -> DelegationRequest {
         DelegationRequest {
@@ -973,7 +983,7 @@ mod tests {
 
         let running = h
             .broker
-            .get_tasks_status(&[call_id.clone()], StatusWait::Immediate)
+            .get_tasks_status(std::slice::from_ref(&call_id), StatusWait::Immediate)
             .await;
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].status, TaskStatus::Running);
@@ -1110,7 +1120,10 @@ mod tests {
             ids.push(id);
         }
 
-        assert!(h.broker.completed_report(&ids[0]).is_none(), "oldest evicted");
+        assert!(
+            h.broker.completed_report(&ids[0]).is_none(),
+            "oldest evicted"
+        );
         assert!(h.broker.completed_report(&ids[2]).is_some(), "newest kept");
     }
 
@@ -1137,7 +1150,8 @@ mod tests {
         );
 
         let start_broker = broker.clone();
-        let start = tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
 
         // Wait until start_delegation is parked inside send_prompt_linked, then
         // complete the call before it registers as running.
@@ -1147,7 +1161,11 @@ mod tests {
         release.notify_one();
 
         let report = start.await.unwrap();
-        assert_eq!(report.status, TaskStatus::Completed, "early terminal applied");
+        assert_eq!(
+            report.status,
+            TaskStatus::Completed,
+            "early terminal applied"
+        );
         assert_eq!(broker.running_count(), 0);
         let done = broker
             .get_tasks_status(&[call_id], StatusWait::Immediate)
@@ -1217,7 +1235,8 @@ mod tests {
         );
 
         let start_broker = broker.clone();
-        let start = tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
 
         // Cancel while start_delegation is parked in send (task is in `setups`).
         reached.notified().await;

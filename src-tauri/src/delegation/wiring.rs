@@ -1,9 +1,7 @@
 //! Constructs the broker over the runtime + DB, starts the resolver + listener,
 //! and returns the handles `AppState` holds.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::runtime::AgentRuntime;
 use delegation::{
@@ -12,10 +10,12 @@ use delegation::{
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
-use crate::delegation::emitter::{NoopMetaWriter, RuntimeEventEmitter};
-use crate::delegation::lookups::{DbChildStatusLookup, DbDepthLookup, RuntimeParentLookup};
-use crate::delegation::resolver::spawn_resolver;
-use crate::delegation::spawner::RuntimeSpawner;
+use crate::delegation::{
+    emitter::{NoopMetaWriter, RuntimeEventEmitter},
+    lookups::{DbChildStatusLookup, DbDepthLookup, RuntimeParentLookup},
+    resolver::spawn_resolver,
+    spawner::RuntimeSpawner,
+};
 
 /// Delegation handles held by `AppState`. `broker`/`tokens`/`socket_path` are
 /// consumed by the ClaudeCode MCP injection (T4.4) and future delegation
@@ -53,10 +53,12 @@ pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> 
 
     // Install the companion injector so ClaudeCode parents auto-launch vibex-mcp
     // (the agent connects to our listener over the socket with the minted token).
-    runtime.install_delegation_injector(Arc::new(crate::delegation::inject::VibexDelegationInjector {
-        tokens: tokens.clone(),
-        socket_path: socket_path.clone(),
-    }));
+    runtime.install_delegation_injector(Arc::new(
+        crate::delegation::inject::VibexDelegationInjector {
+            tokens: tokens.clone(),
+            socket_path: socket_path.clone(),
+        },
+    ));
 
     let listener = Arc::new(DelegationListener::new(
         broker.clone(),

@@ -10,19 +10,16 @@ use agents::{
     AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
     AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
     AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
-    EnsureAgentSessionInput, ImportedAgentSession, RespondAgentPermissionInput,
-    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, all_agent_types,
-    claude_config_path, codex_config_path, config_surface, default_history_sources,
-    default_mcp_config_path, import_history_source, mcp_file_config, mcp_surface,
-    opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
+    ImportedAgentSession, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot,
+    SendAgentPromptInput, all_agent_types, claude_config_path, codex_config_path, config_surface,
+    default_history_sources, default_mcp_config_path, import_history_source, mcp_file_config,
+    mcp_surface, opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
     terminal::agent_terminal_registry, write_agent_mcp_config,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
     agent_runtime::{AgentRuntimeStore, InsertAgentHistoryImport},
     agent_setting::AgentSetting,
-    workspace::Workspace,
-    workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
@@ -30,9 +27,7 @@ use serde_json::Value;
 use services::services::container::ContainerService;
 use uuid::Uuid;
 
-use crate::{
-    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
-};
+use crate::{error::AppError, state::AppState};
 
 impl From<agents::AgentError> for AppError {
     fn from(error: agents::AgentError) -> Self {
@@ -135,6 +130,7 @@ pub struct AgentTypeRequest {
 pub struct AgentHistoryImportRequest {
     pub agent_type: AgentType,
     pub path: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,17 +166,6 @@ pub struct AgentMcpConfigDto {
     pub path: String,
     pub config: Value,
     pub surface: AgentMcpConfig,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSendWorkspacePromptRequest {
-    pub agent_type: AgentType,
-    pub workspace_id: String,
-    pub session_id: String,
-    pub text: String,
-    #[serde(default)]
-    pub images: Vec<String>,
 }
 
 #[tauri::command]
@@ -482,90 +467,6 @@ pub async fn agent_send_prompt(
         .map_err(Into::into)
 }
 
-#[tauri::command]
-pub async fn agent_send_workspace_prompt(
-    state: tauri::State<'_, AppState>,
-    request: AgentSendWorkspacePromptRequest,
-) -> Result<AgentPromptSnapshot, AppError> {
-    let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
-    let session_id = parse_agent_session_id(&request.session_id)?;
-    let pool = &state.deployment.db().pool;
-    let workspace = Workspace::find_by_id(pool, workspace_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
-    let container_ref = state
-        .deployment
-        .container()
-        .ensure_container_exists(&workspace)
-        .await?;
-    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
-        .unwrap_or_else(|| container_ref.clone());
-    let blocks = workspace_prompt_blocks(&working_dir, request.text, &request.images).await?;
-    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
-
-    let session = state
-        .agent_runtime
-        .ensure_session(EnsureAgentSessionInput {
-            agent_type: request.agent_type,
-            workspace_id,
-            working_dir: PathBuf::from(&working_dir),
-            session_id,
-            acp_session_id: request.session_id.clone(),
-            auto_approve_mode: launch_settings.auto_approve_mode,
-            env: launch_settings.env.clone(),
-        })
-        .await?;
-
-    // Best-effort: snapshot repo HEADs before the agent runs so a retry can
-    // restore the workspace to the state before this message. Never blocks send.
-    if let Err(error) = state
-        .deployment
-        .container()
-        .checkpoint_agent_session(session_id.0)
-        .await
-    {
-        tracing::warn!(%error, "failed to record agent session checkpoint");
-    }
-
-    match state
-        .agent_runtime
-        .send_prompt(SendAgentPromptInput {
-            connection_id: session.connection_id,
-            session_id: session.id,
-            blocks: blocks.clone(),
-        })
-        .await
-    {
-        Ok(prompt) => Ok(prompt),
-        Err(error) if is_agent_command_channel_closed(&error) => {
-            let session = state
-                .agent_runtime
-                .ensure_session(EnsureAgentSessionInput {
-                    agent_type: request.agent_type,
-                    workspace_id,
-                    working_dir: PathBuf::from(&working_dir),
-                    session_id,
-                    acp_session_id: request.session_id,
-                    auto_approve_mode: launch_settings.auto_approve_mode,
-                    env: launch_settings.env,
-                })
-                .await?;
-
-            state
-                .agent_runtime
-                .send_prompt(SendAgentPromptInput {
-                    connection_id: session.connection_id,
-                    session_id: session.id,
-                    blocks,
-                })
-                .await
-                .map_err(Into::into)
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
 /// Restore the workspace to the checkpoint recorded before the given user
 /// message (its `ordinal`). Destructive when `perform_git_reset` is set; the ACP
 /// transcript is append-only and is not truncated. Used by retry/rollback.
@@ -656,6 +557,11 @@ pub async fn agent_history_import(
     state: tauri::State<'_, AppState>,
     request: AgentHistoryImportRequest,
 ) -> Result<Vec<ImportedAgentSession>, AppError> {
+    let workspace_id = request
+        .workspace_id
+        .as_deref()
+        .map(|id| parse_uuid("workspace_id", id))
+        .transpose()?;
     let sources = match request.path {
         Some(path) => vec![AgentHistorySource {
             agent_type: request.agent_type,
@@ -672,6 +578,14 @@ pub async fn agent_history_import(
         let sessions = import_history_source(&source).map_err(agent_history_error)?;
         for session in &sessions {
             persist_history_import(&state, session).await?;
+            if let Some(workspace_id) = workspace_id {
+                crate::commands::conversations::import_agent_session_to_conversation_events(
+                    &state.deployment.db().pool,
+                    workspace_id,
+                    session,
+                )
+                .await?;
+            }
         }
         imported.extend(sessions);
     }
@@ -778,14 +692,6 @@ fn parse_agent_terminal_id(value: &str) -> Result<AgentTerminalId, AppError> {
     parse_uuid("terminal_id", value).map(AgentTerminalId)
 }
 
-fn is_agent_command_channel_closed(error: &agents::AgentError) -> bool {
-    matches!(
-        error,
-        agents::AgentError::Runtime(message)
-            if message.contains("agent connection command channel closed")
-    )
-}
-
 async fn persist_history_import(
     state: &tauri::State<'_, AppState>,
     session: &ImportedAgentSession,
@@ -858,7 +764,7 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
     }
 }
 
-async fn workspace_prompt_blocks(
+pub(crate) async fn workspace_prompt_blocks(
     working_dir: &str,
     text: String,
     images: &[String],

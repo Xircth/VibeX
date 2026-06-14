@@ -854,13 +854,12 @@ title: string | null,
  */
 title_locked: boolean, status: SessionStatus, agent_type: string | null, model: string | null, external_session_id: string | null, message_count: bigint, pinned_at: string | null, parent_session_id: string | null, parent_tool_use_id: string | null, delegation_call_id: string | null, created_at: string, updated_at: string, };
 
-export type DbConversationDetail = { summary: DbConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null,
+export type DbConversationDetail = { summary: DbConversationSummary,
 /**
- * The persisted user turn currently being answered, if a turn is in flight.
- * Reconciled with the live stream on the frontend so a mid-turn load renders
- * seamlessly. (Populated by the live pipeline; `None` for settled loads.)
+ * Derived from `timeline` for transitional consumers only. The timeline is
+ * the canonical rendering contract.
  */
-in_flight_user_turn_id?: string | null, };
+turns: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null, };
 
 export type PlanEntry = { content: string,
 /**
@@ -869,3 +868,87 @@ export type PlanEntry = { content: string,
 status: string, priority?: string | null, };
 
 export type DelegationResultSummary = { "kind": "ok", duration_ms?: bigint | null, text_preview?: string | null, } | { "kind": "err", error_code: string, };
+
+export type AcpCapabilitySnapshot = { protocol_version?: string | null, prompt: AgentPromptCapabilities, load_session: boolean, resume_session: boolean, close_session: boolean, terminal: boolean, additional_directories: boolean, filesystem_requests: boolean, mcp_servers: boolean, permission_requests: boolean, modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, available_commands: Array<AgentAvailableCommand>, };
+
+export type AgentPromptCapabilities = { text: boolean, image: boolean, resource: boolean, };
+
+export type ConversationAgentConnectionStatus = "connecting" | "ready" | "recovering" | "error" | "closed";
+
+export type ConversationBundleChecksum = { path: string, sha256: string, };
+
+export type ConversationBundleManifest = { bundle_version: string, export_app_version: string, exported_at: string, source_platform: string, conversation_ids: Array<string>, projection_version: number, checksums: Array<ConversationBundleChecksum>, };
+
+export type ConversationBundlePayload = { manifest: ConversationBundleManifest, conversations_json: JsonValue, bindings_json: JsonValue, turns_json: JsonValue, events_jsonl: string, tool_calls_json: JsonValue, file_changes_json: JsonValue, permissions_json: JsonValue, terminals_json: JsonValue, checkpoints_json: JsonValue, };
+
+export type ConversationDelegation = { delegation_id: string, parent_tool_call_id: string, child_conversation_id: string, agent_type: AgentType, task_preview: string, };
+
+export type ConversationDelegationResult = { "kind": "ok", text_preview?: string | null, duration_ms?: bigint | null, } | { "kind": "err", error: ConversationError, };
+
+export type ConversationError = { message: string, code?: string | null, raw?: JsonValue | null, };
+
+export type ConversationErrorView = { turn_id: string | null, error: ConversationError, };
+
+export type ConversationEvent = { "kind": "conversation_created", title: string | null, } | { "kind": "agent_binding_started", agent_type: AgentType, working_dir: string, } | { "kind": "agent_binding_ready", acp_session_id: string, capabilities: AcpCapabilitySnapshot, } | { "kind": "agent_binding_recovered", strategy: SessionRecoveryStrategy, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "fork_support_updated", supported: boolean, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, };
+
+export type ConversationEventEnvelope = { id: string, conversation_id: string, turn_id?: string | null, sequence: bigint, source: string, event: ConversationEvent, created_at: string, };
+
+export type ConversationEventsPage = { conversation_id: string, after_sequence: bigint, last_sequence: bigint, has_more: boolean, events: Array<ConversationEventEnvelope>, };
+
+export type ConversationFeedbackRequest = { feedback_id: string, prompt: string, };
+
+export type ConversationFeedbackResponse = { rating: string, comment?: string | null, };
+
+export type ConversationFileChange = { path: string, change_kind: string, additions?: bigint | null, deletions?: bigint | null, old_path?: string | null, };
+
+export type ConversationFileChangeSummary = { source: string, files: Array<ConversationFileChange>, summary?: string | null, };
+
+export type ConversationFileLocation = { path: string, line?: number | null, column?: number | null, };
+
+export type ConversationInputBlock = { "kind": "text", text: string, } | { "kind": "image", uri: string, mime_type: string, title?: string | null, } | { "kind": "resource", uri: string, title?: string | null, mime_type?: string | null, };
+
+export type ConversationPermissionRequest = { permission_id: string, request: AgentPermissionRequest, };
+
+export type ConversationPermissionResponse = { response: AgentPermissionResponse, auto: boolean, };
+
+export type ConversationPermissionView = { permission_id: string, title: string | null, status: string, };
+
+export type ConversationPlanEntry = { id: string, content: string, status: string, priority?: string | null, };
+
+export type ConversationQuestionRequest = { question_id: string, prompt: string, options: Array<string>, };
+
+export type ConversationQuestionResponse = { answer: string, };
+
+export type ConversationSessionNotice = { title: string, message?: string | null, severity: string, };
+
+export type ConversationTerminalPatch = { terminal_id: string, command?: string | null, args: Array<string>, cwd?: string | null, status: string, output_summary?: string | null, output_truncated: boolean, exit_status?: JsonValue | null, };
+
+export type ConversationTerminalView = { terminal_id: string, command: string | null, status: string, output_summary: string | null, output_truncated: boolean, };
+
+export type ConversationTimeline = { conversation_id: string, projection_version: number, last_sequence: bigint, rows: Array<ConversationTimelineRow>, };
+
+export type ConversationTimelinePage = { conversation_id: string, projection_version: number, cursor: string | null, next_cursor: string | null, rows: Array<ConversationTimelineRow>, };
+
+export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTurn, phase: string, } | { "kind": "permission_request", request: ConversationPermissionView, } | { "kind": "question_request", request: ConversationQuestionRequest, } | { "kind": "feedback_request", request: ConversationFeedbackRequest, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
+
+export type ConversationToolCallPatch = { tool_call_id: string, title?: string | null, kind?: string | null, status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, raw_output_append?: string | null, content?: JsonValue | null, locations?: Array<ConversationFileLocation> | null, metadata?: JsonValue | null, images: Array<ImageData>, };
+
+export type ConversationUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint, };
+
+export type SessionLoadFailureReason = { "kind": "resource_not_found" } | { "kind": "authentication_required", message: string, } | { "kind": "unsupported" } | { "kind": "other", message: string, };
+
+export type SessionRecoveryStrategy = { "kind": "loaded" } | { "kind": "resumed" } | { "kind": "created_new_session" };
+
+export type TurnBlockedReason = { "kind": "permission", permission_id: string, } | { "kind": "question", question_id: string, } | { "kind": "authentication", message: string, } | { "kind": "other", message: string, };
+
+export type ConversationTurnSnapshot = { conversationId: string, turnId: string, promptId?: string | null, status: string, lastSequence: bigint, };
+
+export type ConversationActiveBinding = { id: string, agent_type: string, working_dir: string, acp_session_id?: string | null, status: string, capabilities: AcpCapabilitySnapshot, };
+
+export type ConversationCurrentTurn = { id: string, ordinal: bigint, status: string, prompt_id?: string | null, text_preview?: string | null, };
+
+export type ConversationExportResult = { conversationId: string, bundle: ConversationBundlePayload, destinationPath?: string | null, };
+
+export type ConversationImportResult = { conversationId: string, importedEventCount: number, projectionVersion: number, };
+
+export type ConversationDelegationView = { delegation_id: string, parent_tool_call_id?: string | null, child_conversation_id?: string | null, agent_type?: AgentType | null, task_preview?: string | null, status: string, result?: ConversationDelegationResult | null, };

@@ -244,7 +244,8 @@ impl AgentRuntime {
         &self,
         injector: Arc<dyn crate::delegation_inject::DelegationInjector>,
     ) {
-        self.connection_manager.install_delegation_injector(injector);
+        self.connection_manager
+            .install_delegation_injector(injector);
     }
 
     pub fn registry(&self) -> Vec<AgentRegistryEntry> {
@@ -306,7 +307,8 @@ impl AgentRuntime {
         );
         drop(state);
 
-        self.connection_manager
+        let (_registered, ready_rx) = self
+            .connection_manager
             .register_connection(AgentConnectionLaunch {
                 connection_id: snapshot.id,
                 agent_type: snapshot.agent_type,
@@ -316,6 +318,38 @@ impl AgentRuntime {
                 env: input.env,
             })
             .await;
+
+        // Block until the ACP handshake completes. `run_acp` signals readiness
+        // after InitializeRequest succeeds; any spawn/handshake failure drops the
+        // sender. Marking the connection Ready only after this guarantees the
+        // first prompt reaches a live agent instead of being buffered into a
+        // command channel that is about to close (the silent "no response" bug).
+        match ready_rx.await {
+            Ok(Ok(())) => {}
+            other => {
+                let message = match other {
+                    Ok(Err(error)) => error.to_string(),
+                    _ => "agent connection failed before it became ready".to_string(),
+                };
+                let mut state = self.state.write().await;
+                if let Some(connection) = state.connections.get_mut(&snapshot.id) {
+                    connection.snapshot.status = AgentConnectionStatus::Failed;
+                    connection.snapshot.status_message = Some(message.clone());
+                    connection.snapshot.updated_at = Utc::now();
+                    let failed = connection.snapshot.clone();
+                    self.emit_locked(
+                        &mut state,
+                        failed.workspace_id,
+                        failed.id,
+                        None,
+                        AgentEvent::ConnectionStatusChanged { snapshot: failed },
+                    );
+                }
+                drop(state);
+                let _ = self.connection_manager.disconnect(snapshot.id).await;
+                return Err(AgentError::Runtime(message));
+            }
+        }
 
         let mut state = self.state.write().await;
         let ready_snapshot = if let Some(connection) = state.connections.get_mut(&snapshot.id) {
@@ -984,7 +1018,7 @@ fn preview_text_from_blocks(blocks: &[AgentContentBlock]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{sync::Mutex, time::Duration};
 
     use super::*;
     use crate::{AgentErrorEvent, AgentPermissionOption, AgentPermissionOptionKind};
@@ -1182,6 +1216,128 @@ mod tests {
 
         let snapshot = runtime.snapshot().await;
         assert_eq!(snapshot.permissions, vec![request]);
+    }
+
+    #[tokio::test]
+    async fn no_response_regressions_message_output_remains_visible() {
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
+        let (_connection, _session, prompt) =
+            create_running_prompt(&runtime, "visible fake ACP output").await;
+
+        let event = wait_for_recorded_event(&sink, |envelope| {
+            matches!(
+                &envelope.event,
+                AgentEvent::MessageChunk {
+                    content: AgentContentBlock::Text { text }
+                } if text == "visible fake ACP output"
+            )
+        })
+        .await;
+
+        assert_eq!(event.session_id, Some(prompt.session_id));
+    }
+
+    #[tokio::test]
+    async fn no_response_regressions_no_output_prompt_failure_is_terminal() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (connection, session, active_prompt, queued_prompt) =
+            create_running_prompt_pair(&runtime).await;
+        let message = "session/prompt failed before producing output";
+
+        emit_manager_error(
+            &runtime,
+            connection.id,
+            Some(session.id),
+            Some(active_prompt.id),
+            message,
+        )
+        .await;
+
+        let snapshot = runtime.snapshot().await;
+        assert_prompt_failed(&snapshot, active_prompt.id, message);
+        let queued = snapshot
+            .prompts
+            .iter()
+            .find(|candidate| candidate.id == queued_prompt.id)
+            .unwrap();
+        assert!(matches!(queued.status, AgentPromptStatus::Running));
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|candidate| candidate.id == session.id)
+            .unwrap();
+        assert_eq!(session.status, AgentSessionStatus::Running);
+        assert_eq!(session.active_prompt_id, Some(queued_prompt.id));
+        assert!(session.queued_prompt_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_response_regressions_connection_failures_are_terminal() {
+        for message in [
+            "agent connection command channel closed",
+            "ACP handshake timed out after 5s. No stderr captured.",
+            "ACP child exited before producing output",
+        ] {
+            let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+            let (connection, session, active_prompt, queued_prompt) =
+                create_running_prompt_pair(&runtime).await;
+            let failed = AgentConnectionSnapshot {
+                status: AgentConnectionStatus::Failed,
+                status_message: Some(message.to_string()),
+                updated_at: Utc::now(),
+                ..connection.clone()
+            };
+
+            let mut state = runtime.state.write().await;
+            AgentRuntime::apply_manager_event_locked(
+                &mut state,
+                &AgentConnectionManagerEvent {
+                    connection_id: connection.id,
+                    session_id: None,
+                    prompt_id: None,
+                    event: AgentEvent::ConnectionStatusChanged {
+                        snapshot: failed.clone(),
+                    },
+                },
+            );
+            AgentRuntime::apply_manager_event_locked(
+                &mut state,
+                &AgentConnectionManagerEvent {
+                    connection_id: connection.id,
+                    session_id: None,
+                    prompt_id: None,
+                    event: AgentEvent::Error {
+                        error: AgentErrorEvent {
+                            message: message.to_string(),
+                            raw: None,
+                        },
+                    },
+                },
+            );
+            drop(state);
+
+            let snapshot = runtime.snapshot().await;
+            let connection = snapshot
+                .connections
+                .iter()
+                .find(|candidate| candidate.id == connection.id)
+                .unwrap();
+            assert_eq!(connection.status, AgentConnectionStatus::Failed);
+            assert_eq!(connection.status_message.as_deref(), Some(message));
+            let session = snapshot
+                .sessions
+                .iter()
+                .find(|candidate| candidate.id == session.id)
+                .unwrap();
+            assert_eq!(session.status, AgentSessionStatus::Failed);
+            assert_eq!(session.active_prompt_id, None);
+            assert!(session.queued_prompt_ids.is_empty());
+            assert_prompt_failed(&snapshot, active_prompt.id, message);
+            assert_prompt_failed(&snapshot, queued_prompt.id, message);
+        }
     }
 
     #[tokio::test]
@@ -1484,11 +1640,219 @@ mod tests {
         assert_eq!(resumed.status, AgentSessionStatus::Ready);
     }
 
+    #[tokio::test]
+    async fn acp_session_identity_keeps_local_and_external_ids_distinct() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let local_session_id = AgentSessionId::new();
+
+        let session = runtime
+            .ensure_session(EnsureAgentSessionInput {
+                agent_type: AgentType::Codex,
+                workspace_id,
+                working_dir: PathBuf::from("C:/work"),
+                session_id: local_session_id,
+                acp_session_id: "external-acp-session".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(session.id, local_session_id);
+        assert_eq!(session.acp_session_id, "external-acp-session");
+        assert_ne!(session.id.to_string(), session.acp_session_id);
+    }
+
+    #[tokio::test]
+    async fn failed_prompt_emits_terminal_event_contract() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_type: AgentType::Codex,
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+        let prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+
+        let mut state = runtime.state.write().await;
+        AgentRuntime::apply_manager_event_locked(
+            &mut state,
+            &AgentConnectionManagerEvent {
+                connection_id: connection.id,
+                session_id: Some(session.id),
+                prompt_id: Some(prompt.id),
+                event: AgentEvent::Error {
+                    error: AgentErrorEvent {
+                        message: "prompt failed".to_string(),
+                        raw: None,
+                    },
+                },
+            },
+        );
+        drop(state);
+
+        let snapshot = runtime.snapshot().await;
+        let prompt = snapshot
+            .prompts
+            .iter()
+            .find(|candidate| candidate.id == prompt.id)
+            .unwrap();
+        assert!(matches!(
+            prompt.status,
+            AgentPromptStatus::Failed { ref message } if message == "prompt failed"
+        ));
+    }
+
     #[test]
     fn preview_text_is_bounded() {
         let long = "x".repeat(400);
         let preview = super::preview_text(&long);
         assert_eq!(preview.chars().count(), 243);
         assert!(preview.ends_with("..."));
+    }
+
+    async fn create_running_prompt(
+        runtime: &AgentRuntime,
+        text: &str,
+    ) -> (
+        AgentConnectionSnapshot,
+        AgentSessionSnapshot,
+        AgentPromptSnapshot,
+    ) {
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_type: AgentType::Codex,
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let session = runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+        let prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: text.to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+
+        (connection, session, prompt)
+    }
+
+    async fn create_running_prompt_pair(
+        runtime: &AgentRuntime,
+    ) -> (
+        AgentConnectionSnapshot,
+        AgentSessionSnapshot,
+        AgentPromptSnapshot,
+        AgentPromptSnapshot,
+    ) {
+        let (connection, session, active_prompt) =
+            create_running_prompt(runtime, "active prompt").await;
+        let queued_prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: connection.id,
+                session_id: session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "queued prompt".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(active_prompt.status, AgentPromptStatus::Running));
+        assert!(matches!(queued_prompt.status, AgentPromptStatus::Queued));
+
+        (connection, session, active_prompt, queued_prompt)
+    }
+
+    async fn emit_manager_error(
+        runtime: &AgentRuntime,
+        connection_id: AgentConnectionId,
+        session_id: Option<AgentSessionId>,
+        prompt_id: Option<AgentPromptId>,
+        message: &str,
+    ) {
+        let mut state = runtime.state.write().await;
+        AgentRuntime::apply_manager_event_locked(
+            &mut state,
+            &AgentConnectionManagerEvent {
+                connection_id,
+                session_id,
+                prompt_id,
+                event: AgentEvent::Error {
+                    error: AgentErrorEvent {
+                        message: message.to_string(),
+                        raw: None,
+                    },
+                },
+            },
+        );
+    }
+
+    fn assert_prompt_failed(
+        snapshot: &RuntimeSnapshot,
+        prompt_id: AgentPromptId,
+        expected_message: &str,
+    ) {
+        let prompt = snapshot
+            .prompts
+            .iter()
+            .find(|candidate| candidate.id == prompt_id)
+            .unwrap();
+        assert!(matches!(
+            prompt.status,
+            AgentPromptStatus::Failed { ref message } if message == expected_message
+        ));
+    }
+
+    async fn wait_for_recorded_event(
+        sink: &RecordingSink,
+        predicate: impl Fn(&AgentEventEnvelope) -> bool,
+    ) -> AgentEventEnvelope {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            if let Some(event) = sink
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|event| predicate(event))
+                .cloned()
+            {
+                return event;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for recorded runtime event"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 }

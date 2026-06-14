@@ -1,10 +1,9 @@
 //! Agent session-file parsers.
 //!
-//! In the codeg-aligned storage model the DB stores only conversation metadata;
-//! the transcript is re-parsed from each agent CLI's own session file, keyed by
-//! `external_session_id` + `agent_type`. Each parser turns a raw session file
-//! into the shared [`crate::conversation`] vocabulary (`MessageTurn` /
-//! `ContentBlock`), so live and historical transcripts render uniformly.
+//! These parsers are explicit import tools for agent CLI session files keyed by
+//! `external_session_id` + `agent_type`. Product conversation history is stored
+//! in VibeX `conversation_events`; imported transcript records are converted into
+//! the same event vocabulary before rendering.
 //!
 //! VibeX-authored. The on-disk session formats are the agents' own.
 
@@ -16,11 +15,13 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::conversation::{
-    ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, PlanEntry, SessionStats,
-    TurnRole, TurnUsage,
+use crate::{
+    conversation::{
+        ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, PlanEntry,
+        SessionStats, TurnRole, TurnUsage,
+    },
+    registry::AgentType,
 };
-use crate::registry::AgentType;
 
 /// True for plan/todo tools whose input should render as a [`ContentBlock::Plan`]
 /// checklist rather than a generic tool card (mirrors codeg's `isPlanLikeToolName`).
@@ -86,7 +87,7 @@ pub struct ParseContext {
 
 /// A parser for one agent's session-file format.
 pub trait ConversationParser {
-    /// Parse a raw session file into a conversation transcript.
+    /// Parse a raw session file into an importable conversation transcript.
     fn parse(&self, raw: &str, ctx: &ParseContext) -> Result<ConversationDetail, ParseError>;
 }
 
@@ -256,7 +257,11 @@ mod tests {
     #[test]
     fn merges_consecutive_same_role_records() {
         let turns = group_into_turns(vec![
-            rec(TurnRole::User, vec![ContentBlock::Text { text: "hi".into() }], 1),
+            rec(
+                TurnRole::User,
+                vec![ContentBlock::Text { text: "hi".into() }],
+                1,
+            ),
             rec(
                 TurnRole::Assistant,
                 vec![ContentBlock::Text { text: "a".into() }],

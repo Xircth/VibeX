@@ -3,11 +3,12 @@
 //! `session/new`. Lives here (not in `agents`) so it can touch the token
 //! registry + locate the companion binary.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use agents::registry::AgentType;
-use agents::{DelegationInjector, InjectedMcpServer};
+use agents::{DelegationInjector, InjectedMcpServer, registry::AgentType};
 use delegation::{TokenEntry, TokenRegistry};
 use uuid::Uuid;
 
@@ -74,12 +75,12 @@ fn locate_vibex_mcp_binary() -> PathBuf {
             return candidate;
         }
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.join(bin_name());
-            if candidate.exists() {
-                return candidate;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let candidate = dir.join(bin_name());
+        if candidate.exists() {
+            return candidate;
         }
     }
     PathBuf::from(bin_name())

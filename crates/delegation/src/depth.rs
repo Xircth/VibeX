@@ -45,11 +45,7 @@ mod tests {
     /// A linear chain `0 -> 1 -> 2 -> ...` where index 0 is the root.
     fn parent_of(chain_len: usize, id: i32) -> Result<Option<i32>, DelegationError> {
         assert!((id as usize) < chain_len, "id outside test chain");
-        if id == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(id - 1))
-        }
+        if id == 0 { Ok(None) } else { Ok(Some(id - 1)) }
     }
 
     #[tokio::test]
@@ -90,7 +86,9 @@ mod tests {
     async fn resolver_error_propagates() {
         let err = compute_depth(
             42,
-            |_id| async { Err::<Option<i32>, _>(DelegationError::SubagentRuntimeError("db down".into())) },
+            |_id| async {
+                Err::<Option<i32>, _>(DelegationError::SubagentRuntimeError("db down".into()))
+            },
             8,
         )
         .await

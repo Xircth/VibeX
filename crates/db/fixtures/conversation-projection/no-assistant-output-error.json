@@ -1,0 +1,19 @@
+{
+  "name": "no-assistant-output-error",
+  "projectionVersion": 1,
+  "conversation": {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "title": "No output",
+    "status": "failed"
+  },
+  "events": [
+    { "sequence": 1, "kind": "user_turn_created" },
+    { "sequence": 2, "kind": "user_turn_started" },
+    { "sequence": 3, "kind": "turn_failed" }
+  ],
+  "expectedTimeline": ["message_turn:user", "turn_error"],
+  "expectedState": {
+    "turnStatus": "failed",
+    "visibleError": true
+  }
+}

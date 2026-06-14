@@ -12,8 +12,8 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex as StdMutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -26,7 +26,7 @@ use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite;
 use uuid::Uuid;
 
@@ -139,7 +139,10 @@ pub struct ChatChannelTestResult {
 }
 
 fn default_event_filter() -> Vec<String> {
-    DEFAULT_EVENTS.iter().map(|event| event.to_string()).collect()
+    DEFAULT_EVENTS
+        .iter()
+        .map(|event| event.to_string())
+        .collect()
 }
 
 fn default_command_prefix() -> String {
@@ -458,7 +461,9 @@ async fn telegram_post(
         body["parse_mode"] = Value::String(mode.to_string());
     }
     let response = http_client()
-        .post(format!("https://api.telegram.org/bot{bot_token}/sendMessage"))
+        .post(format!(
+            "https://api.telegram.org/bot{bot_token}/sendMessage"
+        ))
         .json(&body)
         .send()
         .await
@@ -481,8 +486,24 @@ fn telegram_escape(text: &str) -> String {
     for ch in text.chars() {
         if matches!(
             ch,
-            '_' | '*' | '[' | ']' | '(' | ')' | '~' | '`' | '>' | '#' | '+' | '-' | '=' | '|'
-                | '{' | '}' | '.' | '!' | '\\'
+            '_' | '*'
+                | '['
+                | ']'
+                | '('
+                | ')'
+                | '~'
+                | '`'
+                | '>'
+                | '#'
+                | '+'
+                | '-'
+                | '='
+                | '|'
+                | '{'
+                | '}'
+                | '.'
+                | '!'
+                | '\\'
         ) {
             out.push('\\');
         }
@@ -520,7 +541,14 @@ async fn telegram_send_rich(
         .filter(|t| !t.trim().is_empty())
         .ok_or_else(|| AppError::BadRequest("Telegram 渠道缺少 Bot Token".to_string()))?;
     let chat_id = require_field(config, "chat_id", "Telegram chat_id")?;
-    match telegram_post(bot_token, &chat_id, &telegram_markdown(msg), Some("MarkdownV2")).await {
+    match telegram_post(
+        bot_token,
+        &chat_id,
+        &telegram_markdown(msg),
+        Some("MarkdownV2"),
+    )
+    .await
+    {
         Ok(status) => Ok(status),
         // MarkdownV2 is finicky; fall back to plain text.
         Err(_) => telegram_post(bot_token, &chat_id, &msg.to_plain(), None).await,
@@ -634,10 +662,7 @@ fn wecom_markdown(msg: &RichMessage) -> String {
     text
 }
 
-async fn weixin_send_rich(
-    token: Option<&str>,
-    msg: &RichMessage,
-) -> Result<Option<u16>, AppError> {
+async fn weixin_send_rich(token: Option<&str>, msg: &RichMessage) -> Result<Option<u16>, AppError> {
     let key = token
         .filter(|t| !t.trim().is_empty())
         .ok_or_else(|| AppError::BadRequest("企业微信渠道缺少 Webhook Key".to_string()))?;
@@ -782,10 +807,10 @@ fn should_send(channel_id: &str, event: &str, level: MsgLevel) -> bool {
         Err(_) => return true,
     };
     let key = (channel_id.to_string(), event.to_string());
-    if let Some(last) = table.get(&key) {
-        if now.duration_since(*last) < Duration::from_secs(DEBOUNCE_SECS) {
-            return false;
-        }
+    if let Some(last) = table.get(&key)
+        && now.duration_since(*last) < Duration::from_secs(DEBOUNCE_SECS)
+    {
+        return false;
     }
     table.insert(key, now);
     true
@@ -1139,9 +1164,12 @@ impl LarkFrame {
 }
 
 /// Per-(channel, sender) selected target session for follow-up prompts.
-fn session_bridge() -> &'static StdMutex<HashMap<(String, String), (String, String)>> {
-    static BRIDGE: OnceLock<StdMutex<HashMap<(String, String), (String, String)>>> =
-        OnceLock::new();
+type SessionBridgeKey = (String, String);
+type SessionBridgeValue = (String, String);
+type SessionBridgeMap = HashMap<SessionBridgeKey, SessionBridgeValue>;
+
+fn session_bridge() -> &'static StdMutex<SessionBridgeMap> {
+    static BRIDGE: OnceLock<StdMutex<SessionBridgeMap>> = OnceLock::new();
     BRIDGE.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
@@ -1251,7 +1279,12 @@ async fn inbound_targets() -> Result<Vec<InboundTarget>, AppError> {
 
 fn spawn_receiver(runtime: Arc<AgentRuntime>, target: &InboundTarget, flag: Arc<AtomicBool>) {
     match target.kind.as_str() {
-        "telegram" => spawn_telegram_loop(runtime, target.channel_id.clone(), target.token.clone(), flag),
+        "telegram" => spawn_telegram_loop(
+            runtime,
+            target.channel_id.clone(),
+            target.token.clone(),
+            flag,
+        ),
         "qq" => spawn_qq_loop(
             runtime,
             target.channel_id.clone(),
@@ -1380,11 +1413,15 @@ fn spawn_qq_loop(
                     while !shutdown.load(Ordering::Relaxed) {
                         match read.next().await {
                             Some(Ok(tungstenite::Message::Text(text))) => {
-                                if let Ok(event) =
-                                    serde_json::from_str::<Value>(text.as_str())
-                                {
-                                    handle_qq_event(&runtime, &channel_id, &base_url, &token, &event)
-                                        .await;
+                                if let Ok(event) = serde_json::from_str::<Value>(text.as_str()) {
+                                    handle_qq_event(
+                                        &runtime,
+                                        &channel_id,
+                                        &base_url,
+                                        &token,
+                                        &event,
+                                    )
+                                    .await;
                                 }
                             }
                             Some(Ok(tungstenite::Message::Ping(data))) => {
@@ -1536,7 +1573,8 @@ fn spawn_feishu_loop(
                 Ok((stream, _)) => {
                     let (mut write, mut read) = stream.split();
                     // message_id -> (total, parts)
-                    let mut partials: HashMap<String, (i32, HashMap<i32, Vec<u8>>)> = HashMap::new();
+                    let mut partials: HashMap<String, (i32, HashMap<i32, Vec<u8>>)> =
+                        HashMap::new();
 
                     while !shutdown.load(Ordering::Relaxed) {
                         match read.next().await {
@@ -1557,11 +1595,16 @@ fn spawn_feishu_loop(
                                             .await;
                                     }
                                 } else if frame.method == 1 && frame_type == "event" {
-                                    let msg_id = frame.header("message_id").unwrap_or("").to_string();
-                                    let sum: i32 =
-                                        frame.header("sum").and_then(|s| s.parse().ok()).unwrap_or(1);
-                                    let seq: i32 =
-                                        frame.header("seq").and_then(|s| s.parse().ok()).unwrap_or(0);
+                                    let msg_id =
+                                        frame.header("message_id").unwrap_or("").to_string();
+                                    let sum: i32 = frame
+                                        .header("sum")
+                                        .and_then(|s| s.parse().ok())
+                                        .unwrap_or(1);
+                                    let seq: i32 = frame
+                                        .header("seq")
+                                        .and_then(|s| s.parse().ok())
+                                        .unwrap_or(0);
 
                                     let full = if sum <= 1 {
                                         Some(frame.payload.clone())
@@ -1585,17 +1628,17 @@ fn spawn_feishu_loop(
                                     };
 
                                     if let Some(bytes) = full {
-                                        if let Ok(text) = std::str::from_utf8(&bytes) {
-                                            if let Ok(event) = serde_json::from_str::<Value>(text) {
-                                                handle_feishu_event(
-                                                    &runtime,
-                                                    &channel_id,
-                                                    &app_id,
-                                                    &app_secret,
-                                                    &event,
-                                                )
-                                                .await;
-                                            }
+                                        if let Ok(text) = std::str::from_utf8(&bytes)
+                                            && let Ok(event) = serde_json::from_str::<Value>(text)
+                                        {
+                                            handle_feishu_event(
+                                                &runtime,
+                                                &channel_id,
+                                                &app_id,
+                                                &app_secret,
+                                                &event,
+                                            )
+                                            .await;
                                         }
                                         let mut ack = frame.clone();
                                         ack.payload = br#"{"code":200}"#.to_vec();
@@ -1636,8 +1679,7 @@ async fn handle_feishu_event(
     app_secret: &str,
     event: &Value,
 ) {
-    if event.pointer("/header/event_type").and_then(Value::as_str)
-        != Some("im.message.receive_v1")
+    if event.pointer("/header/event_type").and_then(Value::as_str) != Some("im.message.receive_v1")
     {
         return;
     }
@@ -1751,9 +1793,7 @@ async fn dispatch_command(
         "status" => status_text(prefix, runtime).await,
         "sessions" | "ls" => list_sessions(runtime, prefix).await,
         "use" => select_session(runtime, channel_id, sender_id, args, prefix).await,
-        "task" | "do" | "ask" => {
-            send_task(runtime, channel_id, sender_id, args, prefix).await
-        }
+        "task" | "do" | "ask" => send_task(runtime, channel_id, sender_id, args, prefix).await,
         "echo" => {
             if args.is_empty() {
                 format!("用法：{prefix} echo <文本>")
@@ -1788,7 +1828,9 @@ fn short_id(id: &str) -> String {
 }
 
 fn dir_name(path: &str) -> &str {
-    path.rsplit(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(path)
+    path.rsplit(['/', '\\'])
+        .find(|s| !s.is_empty())
+        .unwrap_or(path)
 }
 
 /// Active sessions sorted deterministically (by creation time) so list indices
@@ -1815,13 +1857,7 @@ async fn sorted_sessions(
             let dir = conn
                 .map(|c| dir_name(&c.working_dir).to_string())
                 .unwrap_or_default();
-            (
-                s.connection_id,
-                s.id,
-                agent,
-                dir,
-                format!("{:?}", s.status),
-            )
+            (s.connection_id, s.id, agent, dir, format!("{:?}", s.status))
         })
         .collect()
 }
@@ -1839,7 +1875,9 @@ async fn list_sessions(runtime: &Arc<AgentRuntime>, prefix: &str) -> String {
             short_id(&session_id.to_string())
         ));
     }
-    out.push_str(&format!("\n用 {prefix} use <序号> 选择，再 {prefix} task <内容> 发送。"));
+    out.push_str(&format!(
+        "\n用 {prefix} use <序号> 选择，再 {prefix} task <内容> 发送。"
+    ));
     out
 }
 
@@ -1858,12 +1896,15 @@ async fn select_session(
     let Some((connection_id, session_id, agent, dir, _)) = sessions.get(index - 1) else {
         return format!("序号超出范围，当前有 {} 个会话。", sessions.len());
     };
-    session_bridge().lock().map(|mut bridge| {
-        bridge.insert(
-            (channel_id.to_string(), sender_id.to_string()),
-            (connection_id.to_string(), session_id.to_string()),
-        );
-    }).ok();
+    session_bridge()
+        .lock()
+        .map(|mut bridge| {
+            bridge.insert(
+                (channel_id.to_string(), sender_id.to_string()),
+                (connection_id.to_string(), session_id.to_string()),
+            );
+        })
+        .ok();
     format!(
         "✅ 已选择会话 {}（{agent} · {dir}），用 {prefix} task <内容> 发送。",
         short_id(&session_id.to_string())
@@ -1878,15 +1919,19 @@ async fn resolve_target(
     sender_id: &str,
     prefix: &str,
 ) -> Result<(AgentConnectionId, AgentSessionId), String> {
-    let selected = session_bridge()
-        .lock()
-        .ok()
-        .and_then(|bridge| bridge.get(&(channel_id.to_string(), sender_id.to_string())).cloned());
-    if let Some((connection, session)) = selected {
-        if let (Ok(connection), Ok(session)) = (Uuid::parse_str(&connection), Uuid::parse_str(&session))
-        {
-            return Ok((AgentConnectionId::from(connection), AgentSessionId::from(session)));
-        }
+    let selected = session_bridge().lock().ok().and_then(|bridge| {
+        bridge
+            .get(&(channel_id.to_string(), sender_id.to_string()))
+            .cloned()
+    });
+    if let Some((connection, session)) = selected
+        && let (Ok(connection), Ok(session)) =
+            (Uuid::parse_str(&connection), Uuid::parse_str(&session))
+    {
+        return Ok((
+            AgentConnectionId::from(connection),
+            AgentSessionId::from(session),
+        ));
     }
 
     let sessions = sorted_sessions(runtime).await;

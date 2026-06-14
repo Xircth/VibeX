@@ -26,15 +26,12 @@ pub mod types;
 mod testing;
 
 pub use broker::{DelegationBroker, StatusWait};
-pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
-
-pub use event_emitter::{
-    DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent,
-};
+pub use event_emitter::{DelegationCompletedEvent, DelegationEventEmitter, DelegationStartedEvent};
 pub use listener::{DelegationListener, default_socket_path};
 pub use lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup, ParentSessionLookup};
 pub use meta_writer::DelegationMetaWriter;
 pub use spawner::{ConnectionSpawner, SpawnerError};
+pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
 pub use token_registry::{TokenEntry, TokenRegistry};
 pub use types::{
     DelegationConfig, DelegationError, DelegationLink, DelegationMatchKey, DelegationOutcome,

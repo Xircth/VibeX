@@ -5,11 +5,12 @@
 //! This lives OUTSIDE the spawner (which the broker owns) to avoid an `Arc`
 //! cycle: the resolver references the broker, never the reverse.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use agents::events::{AgentContentBlock, AgentEvent};
-use agents::runtime::AgentRuntime;
+use agents::{
+    events::{AgentContentBlock, AgentEvent},
+    runtime::AgentRuntime,
+};
 use delegation::{DelegationBroker, outcome_from_turn};
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;

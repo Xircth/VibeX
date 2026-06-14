@@ -37,6 +37,11 @@ compatibility migration.
   terminal, settings, and history UI.
 - `05-legacy-removal-verification/`: deletion plan, compile fallout map, final
   verification gates, and rejected compatibility paths.
+- `06-event-sourced-conversation-core/`: breaking refactor that makes VibeX's
+  own conversation event log the canonical history source for ACP sessions,
+  replacing Agent transcript re-parse as the live rendering path and adding
+  projection, filesChanged, capability gating, import/export planning, and a
+  Codeg runtime adoption matrix.
 
 ## Source References
 
@@ -49,7 +54,12 @@ The target design is informed by Codeg's public implementation:
   channels, prompt locking, connection state, cleanup guards, and frontend event
   emission.
 
+Phase 06 narrows this reference: Codeg's ACP runtime patterns are adopted for
+connection/session hardening, but Codeg's transcript-backed completed-history
+model is rejected. VibeX conversation history must be rebuilt from VibeX-owned
+events. Agent transcript files are import-only inputs, not live conversation
+detail sources.
+
 When copying source, preserve upstream license notices and attribution. If a file
 is substantially copied, include the Codeg origin and license header in the new
 file or crate-level NOTICE.
-

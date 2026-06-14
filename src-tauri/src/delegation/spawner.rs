@@ -5,15 +5,13 @@
 //! delegation task as the child's first prompt. The child's `external_session_id`
 //! + `agent_type` are auto-bound later by the runtime's `SessionLinked` event.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use agents::events::AgentContentBlock;
-use agents::ids::{AgentConnectionId, AgentSessionId};
-use agents::registry::AgentType;
-use agents::runtime::{
-    AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput,
+use agents::{
+    events::AgentContentBlock,
+    ids::{AgentConnectionId, AgentSessionId},
+    registry::AgentType,
+    runtime::{AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
 };
 use async_trait::async_trait;
 use db::models::session::{CreateSession, Session, SessionStatus};
@@ -41,7 +39,8 @@ impl ConnectionSpawner for RuntimeSpawner {
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError> {
         let parent = AgentConnectionId::from(
-            Uuid::parse_str(parent_connection_id).map_err(|e| SpawnerError::Spawn(e.to_string()))?,
+            Uuid::parse_str(parent_connection_id)
+                .map_err(|e| SpawnerError::Spawn(e.to_string()))?,
         );
         let snapshot = self.runtime.snapshot().await;
         let parent_conn = snapshot
@@ -52,10 +51,11 @@ impl ConnectionSpawner for RuntimeSpawner {
         let working_dir = working_dir
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(&parent_conn.working_dir));
-        let launch =
-            crate::commands::agents::agent_runtime_launch_settings_from_pool(&self.pool, agent_type)
-                .await
-                .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
+        let launch = crate::commands::agents::agent_runtime_launch_settings_from_pool(
+            &self.pool, agent_type,
+        )
+        .await
+        .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
         let child = self
             .runtime
             .connect(ConnectAgentInput {
@@ -128,17 +128,17 @@ impl ConnectionSpawner for RuntimeSpawner {
             Uuid::parse_str(child_connection_id).map_err(|e| SpawnerError::Other(e.to_string()))?,
         );
         let snapshot = self.runtime.snapshot().await;
-        if let Some(session) = snapshot.sessions.iter().find(|s| s.connection_id == conn) {
-            if let Some(prompt_id) = session.active_prompt_id {
-                let _ = self
-                    .runtime
-                    .cancel_prompt(CancelAgentPromptInput {
-                        connection_id: conn,
-                        session_id: session.id,
-                        prompt_id,
-                    })
-                    .await;
-            }
+        if let Some(session) = snapshot.sessions.iter().find(|s| s.connection_id == conn)
+            && let Some(prompt_id) = session.active_prompt_id
+        {
+            let _ = self
+                .runtime
+                .cancel_prompt(CancelAgentPromptInput {
+                    connection_id: conn,
+                    session_id: session.id,
+                    prompt_id,
+                })
+                .await;
         }
         Ok(())
     }

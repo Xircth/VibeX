@@ -3,9 +3,7 @@
 //! injected with it), looked up on every framed message, and revoked when the
 //! parent disconnects.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::RwLock;
+use std::{collections::HashMap, path::PathBuf, sync::RwLock};
 
 /// What a valid token authorizes: the parent connection it belongs to and that
 /// connection's launch working directory (used to default a delegation's cwd).

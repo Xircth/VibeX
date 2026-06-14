@@ -1,0 +1,22 @@
+{
+  "name": "happy-path",
+  "projectionVersion": 1,
+  "conversation": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "title": "Happy path",
+    "status": "completed"
+  },
+  "events": [
+    { "sequence": 1, "kind": "conversation_created" },
+    { "sequence": 2, "kind": "user_turn_created" },
+    { "sequence": 3, "kind": "user_turn_started" },
+    { "sequence": 4, "kind": "assistant_text_delta" },
+    { "sequence": 5, "kind": "usage_updated" },
+    { "sequence": 6, "kind": "turn_completed" }
+  ],
+  "expectedTimeline": ["message_turn:user", "message_turn:assistant"],
+  "expectedState": {
+    "turnStatus": "completed",
+    "lastSequence": 6
+  }
+}

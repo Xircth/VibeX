@@ -46,12 +46,11 @@ describe('useSessionComposerQueue', () => {
   beforeEach(() => {
     sendAgentRuntimeTurnMock.mockReset();
     sendAgentRuntimeTurnMock.mockResolvedValue({
-      id: 'prompt-1',
-      session_id: 'session-1',
-      status: { kind: 'queued' },
-      text_preview: 'next message',
-      created_at: '2026-05-25T00:00:00.000Z',
-      updated_at: '2026-05-25T00:00:00.000Z',
+      conversationId: 'session-1',
+      turnId: 'turn-1',
+      promptId: 'prompt-1',
+      status: 'queued',
+      lastSequence: 1n,
     });
   });
 
@@ -102,10 +101,10 @@ describe('useSessionComposerQueue', () => {
       {
         status: 'queued',
         message: {
-          id: 'prompt-1',
+          id: 'turn-1',
           session_id: 'session-1',
-          created_at: '2026-05-25T00:00:00.000Z',
-          updated_at: '2026-05-25T00:00:00.000Z',
+          created_at: expect.any(String),
+          updated_at: expect.any(String),
           data: {
             message: 'next message',
             images: ['vibe://next-image'],

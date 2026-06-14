@@ -1,8 +1,16 @@
 use std::sync::Arc;
 
 use agents::{
-    AgentConnectionSnapshot, AgentConnectionStatus, AgentEvent, AgentEventEnvelope,
-    AgentPromptSnapshot, AgentPromptStatus, AgentSessionSnapshot, RuntimeEventSink,
+    AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock, AgentEvent,
+    AgentEventEnvelope, AgentPromptSnapshot, AgentPromptStatus, AgentSessionSnapshot,
+    RuntimeEventSink,
+    conversation::{
+        AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
+        ConversationDelegation, ConversationDelegationResult, ConversationError, ConversationEvent,
+        ConversationEventEnvelope, ConversationFileLocation, ConversationPermissionRequest,
+        ConversationPermissionResponse, ConversationPlanEntry, ConversationTerminalPatch,
+        ConversationToolCallPatch, ConversationUsage, SessionLoadFailureReason,
+    },
     executor_key_for,
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
@@ -12,6 +20,8 @@ use db::models::{
         UpsertAgentPermissionRequest, UpsertAgentPrompt, UpsertAgentSession, json_kind,
     },
     conversation::DbConversationSummary,
+    conversation_event::AppendConversationEvent,
+    conversation_projection::ConversationEventAppender,
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -26,6 +36,7 @@ use crate::state::AppState;
 pub mod channels {
     pub const GLOBAL_EVENTS: &str = "global-events";
     pub const AGENT_EVENTS: &str = "agent-events";
+    pub const CONVERSATION_EVENTS: &str = "conversation-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
 }
 
@@ -105,6 +116,8 @@ pub fn start_event_forwarding(app: &AppHandle, state: &AppState) {
 
 pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
     let app_handle = app.clone();
+    let conversation_pool = state.deployment.db().pool.clone();
+    let deployment = state.deployment.clone();
     let mut agent_events = state.agent_runtime.subscribe_events();
 
     tauri::async_runtime::spawn(async move {
@@ -120,6 +133,53 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                             tracing::warn!("Failed to dispatch chat channel event: {}", error);
                         }
                     });
+                    match persist_conversation_event(&conversation_pool, &event).await {
+                        Ok(Some(conversation_event)) => {
+                            if app_handle
+                                .emit(channels::CONVERSATION_EVENTS, &conversation_event)
+                                .is_err()
+                            {
+                                break;
+                            }
+                            if is_terminal_conversation_event(&conversation_event.event)
+                                && let Some(turn_id) = conversation_event.turn_id
+                            {
+                                match crate::conversation_service::finalize_checkpoint_file_changes(
+                                    deployment.as_ref(),
+                                    conversation_event.conversation_id,
+                                    turn_id,
+                                )
+                                .await
+                                {
+                                    Ok(Some(file_event)) => {
+                                        if app_handle
+                                            .emit(channels::CONVERSATION_EVENTS, &file_event)
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Ok(None) => {}
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            conversation_id = %conversation_event.conversation_id,
+                                            turn_id = %turn_id,
+                                            %error,
+                                            "Failed to finalize conversation checkpoint diff"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                sequence = event.sequence,
+                                error = %error,
+                                "Failed to persist and emit conversation event"
+                            );
+                        }
+                    }
                     if app_handle.emit(channels::AGENT_EVENTS, &event).is_err() {
                         break;
                     }
@@ -129,6 +189,15 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
             }
         }
     });
+}
+
+fn is_terminal_conversation_event(event: &ConversationEvent) -> bool {
+    matches!(
+        event,
+        ConversationEvent::TurnCompleted { .. }
+            | ConversationEvent::TurnFailed { .. }
+            | ConversationEvent::TurnCancelled { .. }
+    )
 }
 
 async fn persist_agent_event(
@@ -273,27 +342,427 @@ async fn persist_agent_event(
         _ => {}
     }
 
-    let event_json_value = serde_json::to_value(&envelope.event)?;
-    let event_json = serde_json::to_string(&envelope.event)?;
-    let workspace_id = envelope.workspace_id.to_string();
-    let connection_id = envelope.connection_id.to_string();
-    let session_id = envelope.session_id.map(|session_id| session_id.to_string());
-    let created_at = envelope.created_at.to_rfc3339();
-    AgentRuntimeStore::insert_event(
+    persist_conversation_event(pool, envelope).await?;
+
+    // The `agent_events` table is a runtime/debug audit log. Product
+    // conversations are rebuilt from `conversation_events`, while the runtime
+    // snapshot serves recent agent events from memory. Persisting every
+    // streaming chunk here once an agent actually runs floods the single SQLite
+    // writer because each event spawns its own task and INSERT, starving
+    // git-status reads ("database is locked" / pool-acquire timeouts). Skip the
+    // high-frequency streaming kinds; keep the low-frequency lifecycle events for
+    // the audit trail.
+    if should_log_event(&envelope.event) {
+        let event_json_value = serde_json::to_value(&envelope.event)?;
+        let event_json = serde_json::to_string(&envelope.event)?;
+        let workspace_id = envelope.workspace_id.to_string();
+        let connection_id = envelope.connection_id.to_string();
+        let session_id = envelope.session_id.map(|session_id| session_id.to_string());
+        let created_at = envelope.created_at.to_rfc3339();
+        AgentRuntimeStore::insert_event(
+            pool,
+            InsertAgentEvent {
+                sequence: envelope.sequence,
+                workspace_id: &workspace_id,
+                connection_id: &connection_id,
+                session_id: session_id.as_deref(),
+                event_kind: json_kind(&event_json_value),
+                event_json: &event_json,
+                created_at: &created_at,
+            },
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn persist_conversation_event(
+    pool: &SqlitePool,
+    envelope: &AgentEventEnvelope,
+) -> Result<Option<ConversationEventEnvelope>, anyhow::Error> {
+    let Some(session_id) = envelope.session_id else {
+        return Ok(None);
+    };
+
+    let conversation_id = session_id.0;
+    let turn_id = match active_turn_id(pool, conversation_id).await {
+        Ok(turn_id) => turn_id,
+        Err(sqlx::Error::Database(error)) if error.message().contains("no such table") => {
+            return Ok(None);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Some(event) = map_agent_event_to_conversation_event(envelope, turn_id) else {
+        return Ok(None);
+    };
+    let value = serde_json::to_value(&event)?;
+    let event_kind = value["kind"].as_str().unwrap_or("unknown").to_string();
+    let normalized_json = serde_json::to_string(&event)?;
+    let raw_json = serde_json::to_string(&envelope.event)?;
+    let idempotency_key = format!("agent:{}:{event_kind}", envelope.sequence);
+
+    if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event
+        && let Some(binding_id) = latest_binding_id(pool, conversation_id).await?
+    {
+        db::models::conversation::ConversationAgentBindingRecord::bind_acp_session(
+            pool,
+            binding_id,
+            acp_session_id,
+            None,
+            "ready",
+        )
+        .await?;
+    }
+
+    let record = ConversationEventAppender::append(
         pool,
-        InsertAgentEvent {
-            sequence: envelope.sequence,
-            workspace_id: &workspace_id,
-            connection_id: &connection_id,
-            session_id: session_id.as_deref(),
-            event_kind: json_kind(&event_json_value),
-            event_json: &event_json,
-            created_at: &created_at,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id,
+            binding_id: None,
+            connection_id: Some(&envelope.connection_id.to_string()),
+            prompt_id: None,
+            source: conversation_event_source(&envelope.event),
+            event_kind: &event_kind,
+            normalized_json: &normalized_json,
+            raw_json: Some(&raw_json),
+            idempotency_key: Some(&idempotency_key),
         },
     )
     .await?;
 
-    Ok(())
+    let event = serde_json::from_str::<ConversationEvent>(&record.normalized_json)?;
+    Ok(Some(ConversationEventEnvelope {
+        id: record.id,
+        conversation_id: record.conversation_id,
+        turn_id: record.turn_id,
+        sequence: record.sequence,
+        source: record.source,
+        event,
+        created_at: record.created_at,
+    }))
+}
+
+async fn active_turn_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await
+}
+
+async fn latest_binding_id(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT id
+           FROM conversation_agent_bindings
+           WHERE conversation_id = ?
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await
+}
+
+fn map_agent_event_to_conversation_event(
+    envelope: &AgentEventEnvelope,
+    turn_id: Option<Uuid>,
+) -> Option<ConversationEvent> {
+    match &envelope.event {
+        AgentEvent::ConnectionStatusChanged { snapshot } => {
+            Some(ConversationEvent::AgentConnectionStatusChanged {
+                status: match snapshot.status {
+                    AgentConnectionStatus::Disconnected => {
+                        ConversationAgentConnectionStatus::Closed
+                    }
+                    AgentConnectionStatus::Connecting => {
+                        ConversationAgentConnectionStatus::Connecting
+                    }
+                    AgentConnectionStatus::Ready => ConversationAgentConnectionStatus::Ready,
+                    AgentConnectionStatus::Failed => ConversationAgentConnectionStatus::Error,
+                },
+            })
+        }
+        AgentEvent::SessionLinked {
+            acp_session_id,
+            agent_type: _,
+        } => Some(ConversationEvent::AgentBindingReady {
+            acp_session_id: acp_session_id.clone(),
+            capabilities: default_conversation_capabilities(),
+        }),
+        AgentEvent::MessageChunk {
+            content: AgentContentBlock::Text { text },
+        } => Some(ConversationEvent::AssistantTextDelta {
+            text: text.clone(),
+            message_id: None,
+        }),
+        AgentEvent::ThoughtChunk {
+            content: AgentContentBlock::Text { text },
+        } => Some(ConversationEvent::AssistantReasoningDelta {
+            text: text.clone(),
+            message_id: None,
+        }),
+        AgentEvent::ToolCall { tool_call } => Some(ConversationEvent::ToolCallUpsert {
+            tool_call: ConversationToolCallPatch {
+                tool_call_id: tool_call.id.clone(),
+                title: Some(tool_call.title.clone()),
+                kind: tool_call.kind.clone(),
+                status: Some("running".to_string()),
+                raw_input: tool_call
+                    .input_preview
+                    .as_ref()
+                    .map(|preview| serde_json::json!({ "preview": preview })),
+                raw_output: None,
+                raw_output_append: None,
+                content: None,
+                locations: None,
+                metadata: None,
+                images: Vec::new(),
+            },
+        }),
+        AgentEvent::ToolCallUpdate { update } => Some(ConversationEvent::ToolCallUpsert {
+            tool_call: ConversationToolCallPatch {
+                tool_call_id: update.id.clone(),
+                title: None,
+                kind: None,
+                status: update.status.clone(),
+                raw_input: None,
+                raw_output: None,
+                raw_output_append: update.content.clone(),
+                content: update
+                    .content
+                    .as_ref()
+                    .map(|content| serde_json::json!({ "text": content })),
+                locations: Some(Vec::<ConversationFileLocation>::new()),
+                metadata: None,
+                images: Vec::new(),
+            },
+        }),
+        AgentEvent::Plan { plan } => Some(ConversationEvent::PlanUpdated {
+            entries: plan
+                .entries
+                .iter()
+                .enumerate()
+                .map(|(index, content)| ConversationPlanEntry {
+                    id: format!("plan-{index}"),
+                    content: content.clone(),
+                    status: "pending".to_string(),
+                    priority: None,
+                })
+                .collect(),
+        }),
+        AgentEvent::Usage { usage } => Some(ConversationEvent::UsageUpdated {
+            usage: ConversationUsage {
+                input_tokens: usage.used,
+                output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+        }),
+        AgentEvent::SessionModes { modes, current } => {
+            Some(ConversationEvent::SessionModeUpdated {
+                current: current.clone(),
+                modes: modes.clone(),
+            })
+        }
+        AgentEvent::SessionConfigOptions { options } => {
+            Some(ConversationEvent::SessionConfigOptionsUpdated {
+                options: options.clone(),
+            })
+        }
+        AgentEvent::AvailableCommands { commands } => {
+            Some(ConversationEvent::AvailableCommandsUpdated {
+                commands: commands.clone(),
+            })
+        }
+        AgentEvent::SessionLoadFailed { reason } => {
+            Some(ConversationEvent::AgentBindingLoadFailed {
+                reason: SessionLoadFailureReason::Other {
+                    message: reason.clone(),
+                },
+            })
+        }
+        AgentEvent::TurnCompleted { stop_reason }
+        | AgentEvent::PromptFinished {
+            finished: agents::AgentPromptFinished { stop_reason, .. },
+        } => Some(ConversationEvent::TurnCompleted {
+            stop_reason: stop_reason.clone(),
+        }),
+        AgentEvent::ForkSupported => {
+            Some(ConversationEvent::ForkSupportUpdated { supported: true })
+        }
+        AgentEvent::SessionConfigStale { reason } => Some(ConversationEvent::SessionConfigStale {
+            stale: true,
+            reason: reason.clone(),
+        }),
+        AgentEvent::PermissionRequested { request } => {
+            Some(ConversationEvent::PermissionRequested {
+                request: ConversationPermissionRequest {
+                    permission_id: request.id.to_string(),
+                    request: request.clone(),
+                },
+            })
+        }
+        AgentEvent::PermissionResponded {
+            permission_id,
+            response,
+            auto,
+        } => Some(ConversationEvent::PermissionResponded {
+            permission_id: permission_id.to_string(),
+            response: ConversationPermissionResponse {
+                response: response.clone(),
+                auto: *auto,
+            },
+        }),
+        AgentEvent::TerminalCreated { terminal } => Some(ConversationEvent::TerminalUpdated {
+            terminal: ConversationTerminalPatch {
+                terminal_id: terminal.id.to_string(),
+                command: Some(terminal.command.clone()),
+                args: terminal.args.clone(),
+                cwd: terminal.cwd.clone(),
+                status: "created".to_string(),
+                output_summary: None,
+                output_truncated: false,
+                exit_status: None,
+            },
+        }),
+        AgentEvent::TerminalOutput { output } => Some(ConversationEvent::TerminalUpdated {
+            terminal: ConversationTerminalPatch {
+                terminal_id: output.terminal_id.to_string(),
+                command: None,
+                args: Vec::new(),
+                cwd: None,
+                status: if output.exit_status.is_some() {
+                    "exited".to_string()
+                } else {
+                    "running".to_string()
+                },
+                output_summary: Some(output.output.clone()),
+                output_truncated: output.truncated,
+                exit_status: output
+                    .exit_status
+                    .map(|code| serde_json::json!({ "code": code })),
+            },
+        }),
+        AgentEvent::DelegationStarted {
+            parent_tool_use_id,
+            child_session_id,
+            agent_type,
+            task_preview,
+        } => Some(ConversationEvent::DelegationStarted {
+            delegation: ConversationDelegation {
+                delegation_id: format!("delegation-{child_session_id}"),
+                parent_tool_call_id: parent_tool_use_id.clone(),
+                child_conversation_id: *child_session_id,
+                agent_type: *agent_type,
+                task_preview: task_preview.clone(),
+            },
+        }),
+        AgentEvent::DelegationCompleted {
+            parent_tool_use_id: _,
+            child_session_id,
+            result,
+            ..
+        } => Some(ConversationEvent::DelegationCompleted {
+            delegation_id: format!("delegation-{child_session_id}"),
+            result: match result {
+                agents::DelegationResultSummary::Ok {
+                    duration_ms,
+                    text_preview,
+                } => ConversationDelegationResult::Ok {
+                    duration_ms: *duration_ms,
+                    text_preview: text_preview.clone(),
+                },
+                agents::DelegationResultSummary::Err { error_code } => {
+                    ConversationDelegationResult::Err {
+                        error: ConversationError {
+                            message: error_code.clone(),
+                            code: Some(error_code.clone()),
+                            raw: None,
+                        },
+                    }
+                }
+            },
+        }),
+        AgentEvent::Error { error } => Some(if turn_id.is_some() {
+            ConversationEvent::TurnFailed {
+                error: ConversationError {
+                    message: error.message.clone(),
+                    code: None,
+                    raw: error.raw.clone(),
+                },
+            }
+        } else {
+            ConversationEvent::AgentBindingRecoveryFailed {
+                reason: error.message.clone(),
+            }
+        }),
+        AgentEvent::RawAcpDiagnostic { .. } => Some(ConversationEvent::RawDiagnosticRecorded {
+            label: "raw_acp_diagnostic".to_string(),
+        }),
+        AgentEvent::MessageChunk { .. } | AgentEvent::ThoughtChunk { .. } => None,
+        AgentEvent::SessionCreated { .. }
+        | AgentEvent::PromptStarted { .. }
+        | AgentEvent::ModeChanged { .. }
+        | AgentEvent::ConfigChanged { .. } => None,
+    }
+}
+
+fn conversation_event_source(event: &AgentEvent) -> &'static str {
+    match event {
+        AgentEvent::PermissionRequested { .. }
+        | AgentEvent::PermissionResponded { .. }
+        | AgentEvent::TerminalCreated { .. }
+        | AgentEvent::TerminalOutput { .. } => "host",
+        AgentEvent::MessageChunk { .. }
+        | AgentEvent::ThoughtChunk { .. }
+        | AgentEvent::ToolCall { .. }
+        | AgentEvent::ToolCallUpdate { .. }
+        | AgentEvent::Plan { .. }
+        | AgentEvent::Usage { .. }
+        | AgentEvent::TurnCompleted { .. }
+        | AgentEvent::PromptFinished { .. } => "acp",
+        _ => "runtime",
+    }
+}
+
+fn default_conversation_capabilities() -> AcpCapabilitySnapshot {
+    AcpCapabilitySnapshot {
+        prompt: AgentPromptCapabilities {
+            text: true,
+            image: true,
+            resource: false,
+        },
+        load_session: true,
+        close_session: true,
+        terminal: true,
+        ..Default::default()
+    }
+}
+
+/// Whether an event is worth writing to the append-only `agent_events` log.
+/// High-frequency streaming events (per-token chunks, tool output, stderr) are
+/// excluded — nothing reads them back, and persisting each one floods the
+/// SQLite writer while an agent streams.
+fn should_log_event(event: &AgentEvent) -> bool {
+    !matches!(
+        event,
+        AgentEvent::MessageChunk { .. }
+            | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::ToolCall { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::Plan { .. }
+            | AgentEvent::Usage { .. }
+            | AgentEvent::TerminalOutput { .. }
+            | AgentEvent::RawAcpDiagnostic { .. }
+    )
 }
 
 async fn persist_connection_snapshot(
@@ -485,8 +954,10 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
 #[cfg(test)]
 mod tests {
     use agents::{
-        AgentConnectionId, AgentConnectionSnapshot, AgentEvent, AgentEventEnvelope, AgentSessionId,
-        AgentSessionSnapshot, AgentType,
+        AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
+        AgentEvent, AgentEventEnvelope, AgentPermissionId, AgentPermissionOption,
+        AgentPermissionOptionKind, AgentPermissionRequest, AgentSessionId, AgentSessionSnapshot,
+        AgentTerminalId, AgentTerminalOutput, AgentType,
         state::{AgentConnectionStatus, AgentSessionStatus},
     };
     use chrono::Utc;
@@ -602,8 +1073,147 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(event_count, 3);
+        // RawAcpDiagnostic is a high-frequency streaming kind → skipped from the
+        // append-only log (see `should_log_event`). Only the two lifecycle events
+        // are persisted, newest-by-insert-order first.
+        assert_eq!(event_count, 2);
         assert!(session_json.contains("acp-session"));
-        assert_eq!(latest_kinds, vec!["raw_acp_diagnostic", "session_created"]);
+        assert_eq!(
+            latest_kinds,
+            vec!["session_created", "connection_status_changed"]
+        );
+    }
+
+    #[test]
+    fn high_frequency_streaming_events_are_not_logged() {
+        assert!(!super::should_log_event(&AgentEvent::MessageChunk {
+            content: agents::AgentContentBlock::Text {
+                text: "hi".to_string(),
+            },
+        }));
+        assert!(super::should_log_event(&AgentEvent::TurnCompleted {
+            stop_reason: None,
+        }));
+    }
+
+    #[test]
+    fn acp_notification_mapping_covers_streaming_and_controls() {
+        let envelope = AgentEventEnvelope {
+            sequence: 1,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId::new()),
+            event: AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                },
+            },
+            created_at: now(),
+        };
+
+        assert!(matches!(
+            super::map_agent_event_to_conversation_event(&envelope, Some(Uuid::new_v4())),
+            Some(agents::conversation::ConversationEvent::AssistantTextDelta { .. })
+        ));
+
+        let load_failed = AgentEventEnvelope {
+            event: AgentEvent::SessionLoadFailed {
+                reason: "missing".to_string(),
+            },
+            ..envelope.clone()
+        };
+        assert!(matches!(
+            super::map_agent_event_to_conversation_event(&load_failed, None),
+            Some(agents::conversation::ConversationEvent::AgentBindingLoadFailed { .. })
+        ));
+
+        let commands = AgentEventEnvelope {
+            event: AgentEvent::AvailableCommands {
+                commands: vec![AgentAvailableCommand {
+                    name: "compact".to_string(),
+                    description: None,
+                    input_schema: None,
+                }],
+            },
+            ..envelope
+        };
+        assert!(matches!(
+            super::map_agent_event_to_conversation_event(&commands, None),
+            Some(agents::conversation::ConversationEvent::AvailableCommandsUpdated { .. })
+        ));
+    }
+
+    #[test]
+    fn acp_host_request_mapping_covers_permissions_and_terminal() {
+        let session_id = AgentSessionId::new();
+        let permission_id = AgentPermissionId::new();
+        let envelope = AgentEventEnvelope {
+            sequence: 1,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(session_id),
+            event: AgentEvent::PermissionRequested {
+                request: AgentPermissionRequest {
+                    id: permission_id,
+                    session_id,
+                    title: "Run command".to_string(),
+                    details: None,
+                    options: vec![AgentPermissionOption {
+                        id: "allow".to_string(),
+                        label: "Allow".to_string(),
+                        kind: AgentPermissionOptionKind::AllowOnce,
+                        description: None,
+                    }],
+                },
+            },
+            created_at: now(),
+        };
+
+        assert!(matches!(
+            super::map_agent_event_to_conversation_event(&envelope, Some(Uuid::new_v4())),
+            Some(agents::conversation::ConversationEvent::PermissionRequested { .. })
+        ));
+
+        let terminal = AgentEventEnvelope {
+            event: AgentEvent::TerminalOutput {
+                output: AgentTerminalOutput {
+                    terminal_id: AgentTerminalId::new(),
+                    output: "ok".to_string(),
+                    truncated: false,
+                    exit_status: Some(0),
+                },
+            },
+            ..envelope
+        };
+        assert!(matches!(
+            super::map_agent_event_to_conversation_event(&terminal, Some(Uuid::new_v4())),
+            Some(agents::conversation::ConversationEvent::TerminalUpdated { .. })
+        ));
+    }
+
+    #[test]
+    fn failed_prompt_emits_terminal_event_mapping() {
+        let envelope = AgentEventEnvelope {
+            sequence: 1,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId::new()),
+            event: AgentEvent::Error {
+                error: agents::AgentErrorEvent {
+                    message: "send failed".to_string(),
+                    raw: None,
+                },
+            },
+            created_at: now(),
+        };
+
+        assert!(matches!(
+            super::map_agent_event_to_conversation_event(&envelope, Some(Uuid::new_v4())),
+            Some(agents::conversation::ConversationEvent::TurnFailed { .. })
+        ));
+    }
+
+    fn now() -> chrono::DateTime<Utc> {
+        Utc::now()
     }
 }

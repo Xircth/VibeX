@@ -3,8 +3,7 @@
 //! UDS (unix) / named pipe (windows), authenticates the per-launch token,
 //! resolves the parent's current session, and routes to the broker.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use agents::registry::agent_type_from_executor_key;
 use delegation_proto::{
@@ -13,10 +12,12 @@ use delegation_proto::{
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::broker::{DelegationBroker, StatusWait, failed_setup_report, unknown_report};
-use crate::lookups::ParentSessionLookup;
-use crate::token_registry::TokenRegistry;
-use crate::types::{DelegationRequest, DelegationTaskReport};
+use crate::{
+    broker::{DelegationBroker, StatusWait, failed_setup_report, unknown_report},
+    lookups::ParentSessionLookup,
+    token_registry::TokenRegistry,
+    types::{DelegationRequest, DelegationTaskReport},
+};
 
 /// Bridges companion connections to the broker.
 #[derive(Clone)]
@@ -245,11 +246,14 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::testing::{
-        MockDepthLookup, MockSpawner, MockStatusLookup, RecordingEventEmitter, RecordingMetaWriter,
+    use crate::{
+        testing::{
+            MockDepthLookup, MockSpawner, MockStatusLookup, RecordingEventEmitter,
+            RecordingMetaWriter,
+        },
+        token_registry::TokenEntry,
+        types::DelegationConfig,
     };
-    use crate::token_registry::TokenEntry;
-    use crate::types::DelegationConfig;
 
     struct FixedParent(Option<Uuid>);
 

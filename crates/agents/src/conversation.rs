@@ -11,8 +11,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+use uuid::Uuid;
 
-use crate::registry::AgentType;
+use crate::{
+    events::{AgentAvailableCommand, AgentSessionConfigOption, AgentSessionMode},
+    permissions::{AgentPermissionRequest, AgentPermissionResponse},
+    registry::AgentType,
+};
 
 /// Role of a conversation turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -223,4 +228,630 @@ pub struct ConversationDetail {
     pub turns: Vec<MessageTurn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_stats: Option<SessionStats>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentPromptCapabilities {
+    pub text: bool,
+    pub image: bool,
+    pub resource: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AcpCapabilitySnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<String>,
+    pub prompt: AgentPromptCapabilities,
+    pub load_session: bool,
+    pub resume_session: bool,
+    pub close_session: bool,
+    pub terminal: bool,
+    pub additional_directories: bool,
+    pub filesystem_requests: bool,
+    pub mcp_servers: bool,
+    pub permission_requests: bool,
+    #[serde(default)]
+    pub modes: Vec<AgentSessionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_mode: Option<String>,
+    #[serde(default)]
+    pub config_options: Vec<AgentSessionConfigOption>,
+    #[serde(default)]
+    pub available_commands: Vec<AgentAvailableCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationInputBlock {
+    Text {
+        text: String,
+    },
+    Image {
+        uri: String,
+        mime_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    Resource {
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationPlanEntry {
+    pub id: String,
+    pub content: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationToolCallPatch {
+    pub tool_call_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_input: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_output: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_output_append: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locations: Option<Vec<ConversationFileLocation>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub images: Vec<ImageData>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationFileLocation {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationPermissionRequest {
+    pub permission_id: String,
+    pub request: AgentPermissionRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationPermissionResponse {
+    pub response: AgentPermissionResponse,
+    #[serde(default)]
+    pub auto: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationQuestionRequest {
+    pub question_id: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationQuestionResponse {
+    pub answer: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationFeedbackRequest {
+    pub feedback_id: String,
+    pub prompt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationFeedbackResponse {
+    pub rating: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationTerminalPatch {
+    pub terminal_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_summary: Option<String>,
+    #[serde(default)]
+    pub output_truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_status: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationFileChange {
+    pub path: String,
+    pub change_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additions: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationFileChangeSummary {
+    pub source: String,
+    #[serde(default)]
+    pub files: Vec<ConversationFileChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationError {
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum TurnBlockedReason {
+    Permission { permission_id: String },
+    Question { question_id: String },
+    Authentication { message: String },
+    Other { message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum SessionRecoveryStrategy {
+    Loaded,
+    Resumed,
+    CreatedNewSession,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum SessionLoadFailureReason {
+    ResourceNotFound,
+    AuthenticationRequired { message: String },
+    Unsupported,
+    Other { message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationAgentConnectionStatus {
+    Connecting,
+    Ready,
+    Recovering,
+    Error,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationDelegation {
+    pub delegation_id: String,
+    pub parent_tool_call_id: String,
+    pub child_conversation_id: Uuid,
+    pub agent_type: AgentType,
+    pub task_preview: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationDelegationResult {
+    Ok {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text_preview: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+    },
+    Err {
+        error: ConversationError,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+#[allow(clippy::large_enum_variant)]
+pub enum ConversationEvent {
+    ConversationCreated {
+        title: Option<String>,
+    },
+    AgentBindingStarted {
+        agent_type: AgentType,
+        working_dir: String,
+    },
+    AgentBindingReady {
+        acp_session_id: String,
+        capabilities: AcpCapabilitySnapshot,
+    },
+    AgentBindingRecovered {
+        strategy: SessionRecoveryStrategy,
+    },
+    AgentBindingRecoveryFailed {
+        reason: String,
+    },
+    AgentBindingLoadFailed {
+        reason: SessionLoadFailureReason,
+    },
+    AgentConnectionStatusChanged {
+        status: ConversationAgentConnectionStatus,
+    },
+    UserTurnCreated {
+        blocks: Vec<ConversationInputBlock>,
+    },
+    UserTurnQueued,
+    UserTurnStarted,
+    AssistantTextDelta {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
+    AssistantReasoningDelta {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
+    PlanUpdated {
+        entries: Vec<ConversationPlanEntry>,
+    },
+    ToolCallUpsert {
+        tool_call: ConversationToolCallPatch,
+    },
+    PermissionRequested {
+        request: ConversationPermissionRequest,
+    },
+    PermissionResponded {
+        permission_id: String,
+        response: ConversationPermissionResponse,
+    },
+    QuestionRequested {
+        request: ConversationQuestionRequest,
+    },
+    QuestionResponded {
+        question_id: String,
+        response: ConversationQuestionResponse,
+    },
+    FeedbackRequested {
+        request: ConversationFeedbackRequest,
+    },
+    FeedbackSubmitted {
+        feedback_id: String,
+        response: ConversationFeedbackResponse,
+    },
+    TerminalUpdated {
+        terminal: ConversationTerminalPatch,
+    },
+    UsageUpdated {
+        usage: ConversationUsage,
+    },
+    FileChangeSummaryUpdated {
+        summary: ConversationFileChangeSummary,
+    },
+    TurnBlocked {
+        reason: TurnBlockedReason,
+    },
+    TurnCompleted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop_reason: Option<String>,
+    },
+    TurnFailed {
+        error: ConversationError,
+    },
+    TurnCancelled {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    SessionModeUpdated {
+        current: Option<String>,
+        modes: Vec<AgentSessionMode>,
+    },
+    SessionConfigOptionsUpdated {
+        options: Vec<AgentSessionConfigOption>,
+    },
+    SessionConfigStale {
+        stale: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    PromptCapabilitiesUpdated {
+        capabilities: AgentPromptCapabilities,
+    },
+    ForkSupportUpdated {
+        supported: bool,
+    },
+    AvailableCommandsUpdated {
+        commands: Vec<AgentAvailableCommand>,
+    },
+    DelegationStarted {
+        delegation: ConversationDelegation,
+    },
+    DelegationCompleted {
+        delegation_id: String,
+        result: ConversationDelegationResult,
+    },
+    RawDiagnosticRecorded {
+        label: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationEventEnvelope {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<Uuid>,
+    pub sequence: i64,
+    pub source: String,
+    pub event: ConversationEvent,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationPermissionView {
+    pub permission_id: String,
+    pub title: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationTerminalView {
+    pub terminal_id: String,
+    pub command: Option<String>,
+    pub status: String,
+    pub output_summary: Option<String>,
+    pub output_truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationErrorView {
+    pub turn_id: Option<Uuid>,
+    pub error: ConversationError,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationSessionNotice {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    pub severity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationDelegationView {
+    pub delegation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_conversation_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<AgentType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_preview: Option<String>,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<ConversationDelegationResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationTimelineRow {
+    MessageTurn {
+        turn: MessageTurn,
+        phase: String,
+    },
+    PermissionRequest {
+        request: ConversationPermissionView,
+    },
+    QuestionRequest {
+        request: ConversationQuestionRequest,
+    },
+    FeedbackRequest {
+        request: ConversationFeedbackRequest,
+    },
+    TerminalSummary {
+        terminal: ConversationTerminalView,
+    },
+    Delegation {
+        delegation: ConversationDelegationView,
+    },
+    FileChangeSummary {
+        summary: ConversationFileChangeSummary,
+    },
+    TurnError {
+        error: ConversationErrorView,
+    },
+    SessionNotice {
+        notice: ConversationSessionNotice,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationTimeline {
+    pub conversation_id: Uuid,
+    pub projection_version: u32,
+    pub last_sequence: i64,
+    pub rows: Vec<ConversationTimelineRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationEventsPage {
+    pub conversation_id: Uuid,
+    pub after_sequence: i64,
+    pub last_sequence: i64,
+    pub has_more: bool,
+    pub events: Vec<ConversationEventEnvelope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationTimelinePage {
+    pub conversation_id: Uuid,
+    pub projection_version: u32,
+    pub cursor: Option<String>,
+    pub next_cursor: Option<String>,
+    pub rows: Vec<ConversationTimelineRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationBundleManifest {
+    pub bundle_version: String,
+    pub export_app_version: String,
+    pub exported_at: DateTime<Utc>,
+    pub source_platform: String,
+    pub conversation_ids: Vec<Uuid>,
+    pub projection_version: u32,
+    pub checksums: Vec<ConversationBundleChecksum>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationBundleChecksum {
+    pub path: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationBundlePayload {
+    pub manifest: ConversationBundleManifest,
+    pub conversations_json: serde_json::Value,
+    pub bindings_json: serde_json::Value,
+    pub turns_json: serde_json::Value,
+    pub events_jsonl: String,
+    pub tool_calls_json: serde_json::Value,
+    pub file_changes_json: serde_json::Value,
+    pub permissions_json: serde_json::Value,
+    pub terminals_json: serde_json::Value,
+    pub checkpoints_json: serde_json::Value,
+}
+
+#[cfg(test)]
+mod event_sourced_tests {
+    use super::*;
+
+    #[test]
+    fn capability_snapshot_defaults_are_degraded() {
+        let snapshot = AcpCapabilitySnapshot::default();
+
+        assert!(!snapshot.load_session);
+        assert!(!snapshot.resume_session);
+        assert!(!snapshot.close_session);
+        assert!(!snapshot.terminal);
+        assert!(!snapshot.prompt.text);
+    }
+
+    #[test]
+    fn conversation_event_round_trips_codeg_coverage_cases() {
+        let events = vec![
+            ConversationEvent::QuestionRequested {
+                request: ConversationQuestionRequest {
+                    question_id: "q1".to_string(),
+                    prompt: "Continue?".to_string(),
+                    options: vec!["yes".to_string(), "no".to_string()],
+                },
+            },
+            ConversationEvent::FeedbackRequested {
+                request: ConversationFeedbackRequest {
+                    feedback_id: "f1".to_string(),
+                    prompt: "Rate this".to_string(),
+                },
+            },
+            ConversationEvent::DelegationStarted {
+                delegation: ConversationDelegation {
+                    delegation_id: "d1".to_string(),
+                    parent_tool_call_id: "tool1".to_string(),
+                    child_conversation_id: Uuid::new_v4(),
+                    agent_type: AgentType::Codex,
+                    task_preview: "child work".to_string(),
+                },
+            },
+            ConversationEvent::SessionConfigStale {
+                stale: true,
+                reason: Some("config changed".to_string()),
+            },
+            ConversationEvent::PromptCapabilitiesUpdated {
+                capabilities: AgentPromptCapabilities {
+                    text: true,
+                    image: true,
+                    resource: false,
+                },
+            },
+            ConversationEvent::ForkSupportUpdated { supported: true },
+            ConversationEvent::AgentBindingLoadFailed {
+                reason: SessionLoadFailureReason::ResourceNotFound,
+            },
+        ];
+
+        for event in events {
+            let value = serde_json::to_value(&event).expect("serialize event");
+            assert!(value["kind"].as_str().is_some());
+            let roundtrip: ConversationEvent =
+                serde_json::from_value(value).expect("deserialize event");
+            assert_eq!(roundtrip, event);
+        }
+    }
 }

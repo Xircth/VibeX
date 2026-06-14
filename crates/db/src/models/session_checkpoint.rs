@@ -15,12 +15,11 @@ pub struct SessionCheckpoint {
 impl SessionCheckpoint {
     /// The ordinal to use for the next prompt's checkpoint (max + 1, or 0).
     pub async fn next_ordinal(pool: &SqlitePool, session_id: Uuid) -> Result<i64, sqlx::Error> {
-        let max: Option<i64> = sqlx::query_scalar(
-            "SELECT MAX(ordinal) FROM session_checkpoints WHERE session_id = ?",
-        )
-        .bind(session_id)
-        .fetch_one(pool)
-        .await?;
+        let max: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(ordinal) FROM session_checkpoints WHERE session_id = ?")
+                .bind(session_id)
+                .fetch_one(pool)
+                .await?;
         Ok(max.map(|value| value + 1).unwrap_or(0))
     }
 
@@ -67,9 +66,11 @@ impl SessionCheckpoint {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use std::str::FromStr;
+
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
 
     async fn migrated_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -97,16 +98,28 @@ mod tests {
         let session = Uuid::new_v4();
         let repo = Uuid::new_v4();
 
-        assert_eq!(SessionCheckpoint::next_ordinal(&pool, session).await.unwrap(), 0);
+        assert_eq!(
+            SessionCheckpoint::next_ordinal(&pool, session)
+                .await
+                .unwrap(),
+            0
+        );
         SessionCheckpoint::insert(&pool, Uuid::new_v4(), session, 0, repo, "abc123")
             .await
             .unwrap();
-        assert_eq!(SessionCheckpoint::next_ordinal(&pool, session).await.unwrap(), 1);
+        assert_eq!(
+            SessionCheckpoint::next_ordinal(&pool, session)
+                .await
+                .unwrap(),
+            1
+        );
         SessionCheckpoint::insert(&pool, Uuid::new_v4(), session, 1, repo, "def456")
             .await
             .unwrap();
 
-        let at_zero = SessionCheckpoint::find_by_ordinal(&pool, session, 0).await.unwrap();
+        let at_zero = SessionCheckpoint::find_by_ordinal(&pool, session, 0)
+            .await
+            .unwrap();
         assert_eq!(at_zero.len(), 1);
         assert_eq!(at_zero[0].before_head_commit, "abc123");
     }

@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use agents::ids::AgentConnectionId;
-use agents::registry::agent_type_from_executor_key;
-use agents::runtime::AgentRuntime;
+use agents::{
+    ids::AgentConnectionId, registry::agent_type_from_executor_key, runtime::AgentRuntime,
+};
 use async_trait::async_trait;
 use db::models::session::{Session, SessionStatus};
 use delegation::{
@@ -45,7 +45,10 @@ impl ChildStatusLookup for DbChildStatusLookup {
         Some(ChildStatusRecord {
             child_session_id: session.id,
             status: map_status(&session.status),
-            agent_type: session.agent_type.as_deref().and_then(agent_type_from_executor_key),
+            agent_type: session
+                .agent_type
+                .as_deref()
+                .and_then(agent_type_from_executor_key),
         })
     }
 }

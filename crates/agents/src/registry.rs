@@ -82,7 +82,7 @@ pub fn agent_type_from_executor_key(key: &str) -> Option<AgentType> {
 
 /// The canonical executor-key string for an agent type. Round-trips through
 /// [`agent_type_from_executor_key`]; persisted in `sessions.agent_type` so the
-/// transcript re-parser can resolve the parser for a stored conversation.
+/// runtime binding and explicit transcript importer use the same agent key.
 pub fn executor_key_for(agent_type: AgentType) -> &'static str {
     match agent_type {
         AgentType::ClaudeCode => "claude_code",
@@ -287,8 +287,8 @@ mod tests {
     #[test]
     fn executor_keys_round_trip() {
         // The string `bind_external_id` persists in `sessions.agent_type` must
-        // resolve back to the same agent so the transcript re-parser can pick
-        // the right parser for a stored conversation.
+        // resolve back to the same agent so imported transcript metadata and
+        // runtime bindings share the same key space.
         for agent in all_agent_types() {
             let key = executor_key_for(agent);
             assert_eq!(

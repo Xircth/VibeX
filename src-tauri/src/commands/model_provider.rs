@@ -19,7 +19,7 @@ use std::{
 use chrono::Utc;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -248,9 +248,9 @@ where
     T: Serialize,
 {
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to create {}: {e}", parent.display())))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            AppError::Internal(format!("Failed to create {}: {e}", parent.display()))
+        })?;
     }
     let content = serde_json::to_string_pretty(value)
         .map_err(|e| AppError::Internal(format!("Failed to serialize JSON: {e}")))?;
@@ -384,7 +384,11 @@ fn validate_payload(payload: &ProviderPayload) -> Result<(), AppError> {
     Ok(())
 }
 
-fn record_from_payload(id: String, payload: &ProviderPayload, created_at: String) -> ProviderRecord {
+fn record_from_payload(
+    id: String,
+    payload: &ProviderPayload,
+    created_at: String,
+) -> ProviderRecord {
     ProviderRecord {
         id,
         name: payload.name.trim().to_string(),
@@ -531,8 +535,9 @@ fn display_config_path(agent: &str) -> Option<String> {
 
 fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| AppError::Internal(format!("Failed to create {}: {e}", parent.display())))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            AppError::Internal(format!("Failed to create {}: {e}", parent.display()))
+        })?;
     }
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".vibextmp");
@@ -557,10 +562,7 @@ fn backup_existing(path: &Path, agent: &str) {
     let Some(home) = dirs::home_dir() else {
         return;
     };
-    let dir = home
-        .join(".vibex")
-        .join("provider-backups")
-        .join(agent);
+    let dir = home.join(".vibex").join("provider-backups").join(agent);
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -753,7 +755,10 @@ fn render_provider_config(
     }
 }
 
-fn render_claude(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
+fn render_claude(
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<RenderedFile>, AppError> {
     let path = home_dir().join(".claude").join("settings.json");
     let mut root = read_json_file(&path)?;
     {
@@ -784,7 +789,10 @@ fn render_claude(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<R
     )])
 }
 
-fn render_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
+fn render_codex(
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<RenderedFile>, AppError> {
     let home = codex_home_dir();
     let toml_path = home.join("config.toml");
     let auth_path = home.join("auth.json");
@@ -814,7 +822,12 @@ fn render_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<Re
         );
         entry.insert(
             "wire_api".to_string(),
-            toml::Value::String(record.wire_api.clone().unwrap_or_else(|| "chat".to_string())),
+            toml::Value::String(
+                record
+                    .wire_api
+                    .clone()
+                    .unwrap_or_else(|| "chat".to_string()),
+            ),
         );
         entry.insert(
             "env_key".to_string(),
@@ -822,22 +835,33 @@ fn render_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<Re
         );
         providers.insert(key_name, toml::Value::Table(entry));
     }
-    let mut files = vec![rendered("config.toml", toml_path, "toml", toml_content(&root)?)];
+    let mut files = vec![rendered(
+        "config.toml",
+        toml_path,
+        "toml",
+        toml_content(&root)?,
+    )];
 
     if api_key.is_some() || auth_path.exists() {
         let mut auth = read_json_file(&auth_path)?;
         if let Some(key) = api_key {
-            ensure_object(&mut auth).insert(
-                "OPENAI_API_KEY".to_string(),
-                Value::String(key.to_string()),
-            );
+            ensure_object(&mut auth)
+                .insert("OPENAI_API_KEY".to_string(), Value::String(key.to_string()));
         }
-        files.push(rendered("auth.json", auth_path, "json", json_content(&auth)?));
+        files.push(rendered(
+            "auth.json",
+            auth_path,
+            "json",
+            json_content(&auth)?,
+        ));
     }
     Ok(files)
 }
 
-fn render_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
+fn render_gemini(
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<RenderedFile>, AppError> {
     let dir = home_dir().join(".gemini");
     let env_path = dir.join(".env");
     let settings_path = dir.join("settings.json");
@@ -846,10 +870,7 @@ fn render_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<R
     if let Some(key) = api_key {
         env.insert("GEMINI_API_KEY".to_string(), key.to_string());
     }
-    env.insert(
-        "GOOGLE_GEMINI_BASE_URL".to_string(),
-        record.api_url.clone(),
-    );
+    env.insert("GOOGLE_GEMINI_BASE_URL".to_string(), record.api_url.clone());
     if let Some(model) = &record.default_model {
         env.insert("GEMINI_MODEL".to_string(), model.clone());
     }
@@ -863,11 +884,19 @@ fn render_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<R
 
     Ok(vec![
         rendered(".env", env_path, "dotenv", dotenv_content(&env)),
-        rendered("settings.json", settings_path, "json", json_content(&settings)?),
+        rendered(
+            "settings.json",
+            settings_path,
+            "json",
+            json_content(&settings)?,
+        ),
     ])
 }
 
-fn render_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
+fn render_opencode(
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<RenderedFile>, AppError> {
     let path = home_dir()
         .join(".config")
         .join("opencode")
@@ -911,13 +940,25 @@ fn render_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec
             );
         }
     }
-    Ok(vec![rendered("opencode.json", path, "json", json_content(&root)?)])
+    Ok(vec![rendered(
+        "opencode.json",
+        path,
+        "json",
+        json_content(&root)?,
+    )])
 }
 
-fn render_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
+fn render_openclaw(
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<RenderedFile>, AppError> {
     let path = home_dir().join(".openclaw").join("openclaw.json");
     let key_name = slug(&record.name);
-    let api_kind = if is_anthropic(record) { "anthropic" } else { "openai" };
+    let api_kind = if is_anthropic(record) {
+        "anthropic"
+    } else {
+        "openai"
+    };
     let mut root = read_json_file(&path)?;
     {
         let obj = ensure_object(&mut root);
@@ -944,10 +985,18 @@ fn render_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec
             .or_insert_with(|| Value::Object(Map::new()));
         ensure_object(providers).insert(key_name, Value::Object(block));
     }
-    Ok(vec![rendered("openclaw.json", path, "json", json_content(&root)?)])
+    Ok(vec![rendered(
+        "openclaw.json",
+        path,
+        "json",
+        json_content(&root)?,
+    )])
 }
 
-fn render_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
+fn render_hermes(
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<RenderedFile>, AppError> {
     let path = hermes_home_dir().join("config.yaml");
     let mut root = read_yaml_file(&path)?;
     {
@@ -998,7 +1047,12 @@ fn render_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<R
             None => seq.push(serde_yaml::Value::Mapping(entry)),
         }
     }
-    Ok(vec![rendered("config.yaml", path, "yaml", yaml_content(&root)?)])
+    Ok(vec![rendered(
+        "config.yaml",
+        path,
+        "yaml",
+        yaml_content(&root)?,
+    )])
 }
 
 /// Persist rendered files, substituting any manual per-file override.
@@ -1010,7 +1064,9 @@ fn write_rendered(
     let mut written = Vec::new();
     for file in files {
         let content = match overrides.get(&file.id) {
-            Some(override_content) if !override_content.trim().is_empty() => override_content.clone(),
+            Some(override_content) if !override_content.trim().is_empty() => {
+                override_content.clone()
+            }
             _ => file.content.clone(),
         };
         let path = PathBuf::from(&file.path);
@@ -1106,12 +1162,13 @@ pub async fn update_agent_provider(
     }
 
     // Keep the live config in sync when editing the active provider.
-    if is_current && supports_apply(&agent) {
-        if let Some(record) = find_record(&store, &agent, &provider_id) {
-            let key = secrets.api_keys.get(&provider_id).map(String::as_str);
-            let files = render_provider_config(&agent, record, key)?;
-            write_rendered(&agent, &files, &record.config_overrides)?;
-        }
+    if is_current
+        && supports_apply(&agent)
+        && let Some(record) = find_record(&store, &agent, &provider_id)
+    {
+        let key = secrets.api_keys.get(&provider_id).map(String::as_str);
+        let files = render_provider_config(&agent, record, key)?;
+        write_rendered(&agent, &files, &record.config_overrides)?;
     }
 
     Ok(build_view(&agent, &store, &secrets))
@@ -1193,7 +1250,11 @@ pub async fn preview_agent_provider(
     let secrets = load_secrets().await?;
     let id = provider_id.unwrap_or_default();
     let record = record_from_payload(
-        if id.is_empty() { "preview".to_string() } else { id.clone() },
+        if id.is_empty() {
+            "preview".to_string()
+        } else {
+            id.clone()
+        },
         &payload,
         Utc::now().to_rfc3339(),
     );
@@ -1246,7 +1307,9 @@ pub async fn fetch_agent_provider_models(
     let status = response.status();
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
-        return Err(AppError::BadRequest(format!("供应商返回 {status}：{detail}")));
+        return Err(AppError::BadRequest(format!(
+            "供应商返回 {status}：{detail}"
+        )));
     }
 
     let parsed: OpenAiModelsResponse = response

@@ -3,7 +3,10 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 use sqlx::{
     Error, Pool, Sqlite,
     migrate::MigrateError,
-    sqlite::{SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions},
+    sqlite::{
+        SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions,
+        SqliteSynchronous,
+    },
 };
 use utils::assets::asset_dir;
 
@@ -94,9 +97,17 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.sqlite").to_string_lossy()
         );
+        // WAL lets readers (git-status polls, conversation detail) run concurrently
+        // with the writer (the ACP event persistence sink, which writes rapidly
+        // while an agent streams). DELETE mode serialized every access and caused
+        // "database is locked" + pool-acquire timeouts once agents actually run.
+        // busy_timeout makes a contended write wait for the lock instead of
+        // erroring immediately.
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete);
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(10));
         let pool = SqlitePoolOptions::new()
             .max_connections(20)
             .min_connections(1)
@@ -135,9 +146,17 @@ impl DBService {
             "sqlite://{}",
             asset_dir().join("db.sqlite").to_string_lossy()
         );
+        // WAL lets readers (git-status polls, conversation detail) run concurrently
+        // with the writer (the ACP event persistence sink, which writes rapidly
+        // while an agent streams). DELETE mode serialized every access and caused
+        // "database is locked" + pool-acquire timeouts once agents actually run.
+        // busy_timeout makes a contended write wait for the lock instead of
+        // erroring immediately.
         let options = SqliteConnectOptions::from_str(&database_url)?
             .create_if_missing(true)
-            .journal_mode(SqliteJournalMode::Delete);
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(10));
         let pool_options = SqlitePoolOptions::new()
             .max_connections(20)
             .min_connections(1)

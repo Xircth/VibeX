@@ -1,0 +1,20 @@
+{
+  "name": "file-change",
+  "projectionVersion": 1,
+  "conversation": {
+    "id": "00000000-0000-0000-0000-000000000006",
+    "title": "File change",
+    "status": "completed"
+  },
+  "events": [
+    { "sequence": 1, "kind": "user_turn_created" },
+    { "sequence": 2, "kind": "tool_call_upsert", "toolCallId": "tool-1", "status": "completed" },
+    { "sequence": 3, "kind": "file_change_summary_updated" },
+    { "sequence": 4, "kind": "turn_completed" }
+  ],
+  "expectedTimeline": ["message_turn:user", "file_change_summary"],
+  "expectedState": {
+    "filesChanged": ["src/main.rs"],
+    "source": "checkpoint_diff"
+  }
+}

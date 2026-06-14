@@ -110,7 +110,10 @@ where
     if body.len() > MAX_FRAME_BYTES {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("frame too large to write: {} > {MAX_FRAME_BYTES}", body.len()),
+            format!(
+                "frame too large to write: {} > {MAX_FRAME_BYTES}",
+                body.len()
+            ),
         ));
     }
     writer.write_all(&(body.len() as u32).to_le_bytes()).await?;

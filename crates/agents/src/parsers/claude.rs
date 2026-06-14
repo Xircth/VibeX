@@ -10,8 +10,8 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use super::{
-    build_detail, group_into_turns, is_plan_tool, plan_entries_from_input, ConversationParser,
-    ParseContext, ParseError, ParsedRecord,
+    ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns,
+    is_plan_tool, plan_entries_from_input,
 };
 use crate::conversation::{ContentBlock, ConversationDetail, TurnRole, TurnUsage};
 
@@ -99,10 +99,10 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
         }),
         "tool_use" => {
             let name = item.get("name").and_then(Value::as_str).unwrap_or("tool");
-            if is_plan_tool(name) {
-                if let Some(entries) = plan_entries_from_input(item.get("input")) {
-                    return Some(ContentBlock::Plan { entries });
-                }
+            if is_plan_tool(name)
+                && let Some(entries) = plan_entries_from_input(item.get("input"))
+            {
+                return Some(ContentBlock::Plan { entries });
             }
             Some(ContentBlock::ToolUse {
                 tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),

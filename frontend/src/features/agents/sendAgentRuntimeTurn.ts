@@ -1,6 +1,7 @@
 import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
-import { agentsApi } from './api';
-import type { AgentPromptSnapshot, AgentType } from './types';
+import { conversationApi } from '@/features/conversation/conversationApi';
+import type { ConversationTurnSnapshot } from 'shared/types';
+import type { AgentType } from './types';
 
 export type AgentRuntimeTurnInput = {
   workspaceId: string;
@@ -39,11 +40,11 @@ export async function sendAgentRuntimeTurn({
   text,
   displayText,
   images,
-}: AgentRuntimeTurnInput): Promise<AgentPromptSnapshot> {
-  return agentsApi.sendWorkspacePrompt({
+}: AgentRuntimeTurnInput): Promise<ConversationTurnSnapshot> {
+  return conversationApi.startTurn({
     agentType: agentTypeFromExecutor(executorProfileId.executor),
     workspaceId,
-    sessionId,
+    conversationId: sessionId,
     text: displayText ?? text,
     images,
   });

@@ -113,6 +113,7 @@ export function useFollowUpSend({
       if (!targetWorkspaceId) {
         throw new Error('No workspace available for ACP agent turn');
       }
+
       await sendAgentRuntimeTurn({
         workspaceId: targetWorkspaceId,
         sessionId: targetSessionId,

@@ -83,14 +83,15 @@ export function useSessionComposerQueue({
         images,
         executorProfileId,
       }),
-    onSuccess: (prompt, variables) => {
+    onSuccess: (turn, variables) => {
+      const now = new Date().toISOString();
       const status: QueueStatus = {
         status: 'queued',
         message: {
-          id: prompt.id,
+          id: turn.turnId,
           session_id: variables.sessionId,
-          created_at: prompt.created_at,
-          updated_at: prompt.updated_at,
+          created_at: now,
+          updated_at: now,
           data: {
             message: variables.message,
             images: variables.images,

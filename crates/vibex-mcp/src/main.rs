@@ -14,17 +14,23 @@
 
 mod client;
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use delegation_proto::{
     BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerFeedbackRequest,
     BrokerMessage, BrokerRequest, BrokerStatusRequest,
 };
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{Mutex, oneshot};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    sync::{Mutex, oneshot},
+};
 
 const TOOL_SCHEMA: &str = include_str!("../tool_schema.json");
 static HANDLE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -83,7 +89,10 @@ fn parse_args() -> Result<Args, String> {
 
     let mut argv = std::env::args().skip(1);
     while let Some(flag) = argv.next() {
-        let mut take = || argv.next().ok_or_else(|| format!("missing value for {flag}"));
+        let mut take = || {
+            argv.next()
+                .ok_or_else(|| format!("missing value for {flag}"))
+        };
         match flag.as_str() {
             "--parent-connection-id" => parent_connection_id = Some(take()?),
             "--socket-path" => socket_path = Some(take()?),
@@ -203,7 +212,10 @@ impl Companion {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
-                    arguments: params.get("arguments").cloned().unwrap_or_else(|| json!({})),
+                    arguments: params
+                        .get("arguments")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
                     meta: params.get("_meta").cloned(),
                 },
                 _ => LineAction::Ignore,
@@ -230,7 +242,11 @@ impl Companion {
         stdout: Arc<Mutex<tokio::io::Stdout>>,
     ) {
         if !self.features.allows_tool(&name) {
-            write_opt(&stdout, respond_error(id, -32601, &format!("tool not available: {name}"))).await;
+            write_opt(
+                &stdout,
+                respond_error(id, -32601, &format!("tool not available: {name}")),
+            )
+            .await;
             return;
         }
         let message = match self.build_message(&name, &arguments, meta.as_ref()) {
@@ -276,7 +292,11 @@ impl Companion {
                 write_opt(&stdout, respond(id, render_result(&response.outcome))).await;
             }
             Some(Err(err)) => {
-                write_opt(&stdout, respond_error(id, -32603, &format!("broker unavailable: {err}"))).await;
+                write_opt(
+                    &stdout,
+                    respond_error(id, -32603, &format!("broker unavailable: {err}")),
+                )
+                .await;
             }
         }
     }
@@ -327,12 +347,18 @@ impl Companion {
                     .and_then(Value::as_str)
                     .ok_or("task_id is required")?
                     .to_string();
-                Ok(BrokerMessage::CancelTask(BrokerCancelTaskRequest { token, task_id }))
+                Ok(BrokerMessage::CancelTask(BrokerCancelTaskRequest {
+                    token,
+                    task_id,
+                }))
             }
             "check_user_feedback" => Ok(BrokerMessage::Feedback(BrokerFeedbackRequest { token })),
             "ask_user_question" => Ok(BrokerMessage::Ask(BrokerAskRequest {
                 token,
-                questions: arguments.get("questions").cloned().unwrap_or_else(|| json!([])),
+                questions: arguments
+                    .get("questions")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
             })),
             other => Err(format!("unknown tool: {other}")),
         }
@@ -457,15 +483,15 @@ async fn main() {
                 });
             }
             LineAction::Cancel { request_id } => {
-                if let Some(key) = id_key(&request_id) {
-                    if let Some(entry) = inflight.take(&key).await {
-                        let _ = entry.cancel.send(());
-                        if let Some(handle) = entry.external_handle {
-                            let companion = companion.clone();
-                            tokio::spawn(async move {
-                                companion.send_broker_cancel(handle).await;
-                            });
-                        }
+                if let Some(key) = id_key(&request_id)
+                    && let Some(entry) = inflight.take(&key).await
+                {
+                    let _ = entry.cancel.send(());
+                    if let Some(handle) = entry.external_handle {
+                        let companion = companion.clone();
+                        tokio::spawn(async move {
+                            companion.send_broker_cancel(handle).await;
+                        });
                     }
                 }
             }
@@ -634,7 +660,10 @@ mod tests {
         });
         let response = client::call_broker(&path, &message).await.unwrap();
         assert_eq!(response.outcome["status"], "running");
-        assert!(matches!(server_task.await.unwrap(), BrokerMessage::Status(_)));
+        assert!(matches!(
+            server_task.await.unwrap(),
+            BrokerMessage::Status(_)
+        ));
     }
 
     #[cfg(unix)]
@@ -664,6 +693,9 @@ mod tests {
         });
         let response = client::call_broker(&path_str, &message).await.unwrap();
         assert_eq!(response.outcome["status"], "running");
-        assert!(matches!(server_task.await.unwrap(), BrokerMessage::Status(_)));
+        assert!(matches!(
+            server_task.await.unwrap(),
+            BrokerMessage::Status(_)
+        ));
     }
 }

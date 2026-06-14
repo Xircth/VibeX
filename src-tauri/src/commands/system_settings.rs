@@ -6,47 +6,25 @@ use crate::error::AppError;
 
 const SETTINGS_FILE_NAME: &str = "system-settings.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SystemProxySettings {
     pub enabled: bool,
     pub proxy_url: Option<String>,
 }
 
-impl Default for SystemProxySettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            proxy_url: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RenderingAccelerationMode {
+    #[default]
     Auto,
     ForceGpu,
     DisableGpu,
 }
 
-impl Default for RenderingAccelerationMode {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SystemRenderingSettings {
     #[serde(default)]
     pub acceleration_mode: RenderingAccelerationMode,
-}
-
-impl Default for SystemRenderingSettings {
-    fn default() -> Self {
-        Self {
-            acceleration_mode: RenderingAccelerationMode::Auto,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

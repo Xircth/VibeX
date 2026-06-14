@@ -44,6 +44,7 @@ import {
   type MainWindowCloseBehavior,
 } from '@/mainWindowCloseBehavior';
 import { MainAppRoutes } from '@/MainAppRoutes';
+import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 
 // Tahoe design compatibility scope. The exported component keeps its historical
 // name while the `.legacy-design` class remains Tailwind's active scope.
@@ -417,10 +418,12 @@ function MainAppContent() {
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
-        <ProjectWindowManager />
-        <MainWindowCloseToastBridge />
-        <ThemedToaster />
-        <MainAppRoutes />
+        <AgentWorkbenchProvider>
+          <ProjectWindowManager />
+          <MainWindowCloseToastBridge />
+          <ThemedToaster />
+          <MainAppRoutes />
+        </AgentWorkbenchProvider>
       </SearchProvider>
     </ThemeProvider>
   );

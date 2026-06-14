@@ -1,17 +1,19 @@
-//! Locate an agent's session file by `external_session_id` and re-parse it into
-//! a [`ConversationDetail`]. This is the backend half of the codeg-aligned model:
-//! the DB holds only metadata; the transcript is reconstructed on demand from the
-//! agent CLI's own session file. VibeX-authored.
+//! Locate an agent's session file by `external_session_id` and parse it for
+//! explicit import. Product conversation history is persisted in VibeX
+//! `conversation_events`; this loader must not be used as an on-demand history
+//! source. VibeX-authored.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use thiserror::Error;
 
-use super::{claude::ClaudeParser, codex::CodexParser, ConversationParser, ParseContext, ParseError};
-use crate::conversation::ConversationDetail;
-use crate::history::default_history_sources;
-use crate::registry::AgentType;
+use super::{
+    ConversationParser, ParseContext, ParseError, claude::ClaudeParser, codex::CodexParser,
+};
+use crate::{
+    conversation::ConversationDetail, history::default_history_sources, registry::AgentType,
+};
 
 #[derive(Debug, Error)]
 pub enum LoaderError {
@@ -81,9 +83,7 @@ fn is_jsonl(path: &Path) -> bool {
 fn file_matches(agent_type: AgentType, id: &str, path: &Path) -> bool {
     match agent_type {
         // Claude names each session file by its session id.
-        AgentType::ClaudeCode => {
-            path.file_stem().and_then(|stem| stem.to_str()) == Some(id)
-        }
+        AgentType::ClaudeCode => path.file_stem().and_then(|stem| stem.to_str()) == Some(id),
         // Codex names files `rollout-<ts>-<uuid>.jsonl`; the canonical id is in
         // the leading `session_meta` record.
         AgentType::Codex => codex_session_id(path).as_deref() == Some(id),
@@ -105,10 +105,9 @@ fn codex_session_id(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Locate and re-parse the transcript for a bound agent session. Returns `Ok(None)`
-/// when no parser is available or the file cannot be found (the caller then has
-/// only DB metadata, no transcript).
-pub fn load_conversation_detail(
+/// Locate and parse the transcript for an explicit import operation. Returns
+/// `Ok(None)` when no parser is available or the file cannot be found.
+pub fn load_import_conversation_detail(
     agent_type: AgentType,
     external_session_id: &str,
     workspace_path: Option<String>,
@@ -119,8 +118,14 @@ pub fn load_conversation_detail(
     let Some(path) = locate_session_file(agent_type, external_session_id) else {
         return Ok(None);
     };
-    load_from_path(parser.as_ref(), agent_type, external_session_id, workspace_path, &path)
-        .map(Some)
+    load_from_path(
+        parser.as_ref(),
+        agent_type,
+        external_session_id,
+        workspace_path,
+        &path,
+    )
+    .map(Some)
 }
 
 /// Re-parse a known session file path (testable; bypasses location).
@@ -148,10 +153,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "vibex-loader-{tag}-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("vibex-loader-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -176,9 +178,20 @@ mod tests {
         )
         .unwrap();
 
-        let found = locate_in_roots(AgentType::ClaudeCode, "claude-xyz", &[root.clone()]);
+        let found = locate_in_roots(
+            AgentType::ClaudeCode,
+            "claude-xyz",
+            std::slice::from_ref(&root),
+        );
         assert_eq!(found.as_deref(), Some(file.as_path()));
-        assert!(locate_in_roots(AgentType::ClaudeCode, "missing", &[root.clone()]).is_none());
+        assert!(
+            locate_in_roots(
+                AgentType::ClaudeCode,
+                "missing",
+                std::slice::from_ref(&root),
+            )
+            .is_none()
+        );
 
         std::fs::remove_dir_all(&root).unwrap();
     }
@@ -199,7 +212,7 @@ mod tests {
         )
         .unwrap();
 
-        let found = locate_in_roots(AgentType::Codex, "codex-abc", &[root.clone()]);
+        let found = locate_in_roots(AgentType::Codex, "codex-abc", std::slice::from_ref(&root));
         assert_eq!(found.as_deref(), Some(file.as_path()));
 
         let parser = parser_for(AgentType::Codex).unwrap();

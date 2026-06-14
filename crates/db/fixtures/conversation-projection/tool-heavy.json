@@ -1,0 +1,21 @@
+{
+  "name": "tool-heavy",
+  "projectionVersion": 1,
+  "conversation": {
+    "id": "00000000-0000-0000-0000-000000000004",
+    "title": "Tool heavy",
+    "status": "completed"
+  },
+  "events": [
+    { "sequence": 1, "kind": "user_turn_created" },
+    { "sequence": 2, "kind": "tool_call_upsert", "toolCallId": "tool-1", "status": "running" },
+    { "sequence": 3, "kind": "tool_call_upsert", "toolCallId": "tool-1", "status": "completed" },
+    { "sequence": 4, "kind": "assistant_text_delta" },
+    { "sequence": 5, "kind": "turn_completed" }
+  ],
+  "expectedTimeline": ["message_turn:user", "message_turn:assistant"],
+  "expectedState": {
+    "toolCount": 1,
+    "toolStatus": "completed"
+  }
+}

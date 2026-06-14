@@ -113,6 +113,9 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         executor: summary.executor,
         external_session_id: null,
         agent_type: null,
+        parent_session_id: null,
+        parent_tool_use_id: null,
+        delegation_call_id: null,
         created_at: summary.created_at,
         updated_at: summary.updated_at,
       };

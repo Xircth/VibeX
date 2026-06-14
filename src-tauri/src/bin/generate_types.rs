@@ -14,8 +14,8 @@ use agents::{
     AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest, AgentTerminalEnvVar,
     AgentTerminalExit, AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot,
     AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentType, AgentUsage, CommandParts,
-    ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession, PathTemplate,
-    PlatformBinary, RuntimeSnapshot, SystemCommand,
+    DelegationResultSummary, ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession,
+    PathTemplate, PlatformBinary, RuntimeSnapshot, SystemCommand,
 };
 use agents::conversation::{
     AgentExecutionStats, ContentBlock, ConversationDetail, ConversationSummary, ImageData,
@@ -239,6 +239,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentPromptSnapshot>(&mut decls);
     insert_declaration::<AgentEventEnvelope>(&mut decls);
     insert_declaration::<AgentEvent>(&mut decls);
+    insert_declaration::<DelegationResultSummary>(&mut decls);
     insert_declaration::<AgentContentBlock>(&mut decls);
     insert_declaration::<AgentToolCall>(&mut decls);
     insert_declaration::<AgentToolCallUpdate>(&mut decls);

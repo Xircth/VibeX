@@ -12,14 +12,15 @@
 //! each agent's native format (TOML for Codex, YAML for Hermes, the
 //! `local`/`remote` variant for OpenCode).
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
-use std::time::Duration;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+    sync::LazyLock,
+    time::Duration,
+};
 
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 
 use crate::error::AppError;
@@ -175,7 +176,10 @@ fn should_retry_http_status(status: reqwest::StatusCode) -> bool {
     status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
 }
 
-async fn send_request_with_retry<F>(context: &str, mut build: F) -> Result<reqwest::Response, AppError>
+async fn send_request_with_retry<F>(
+    context: &str,
+    mut build: F,
+) -> Result<reqwest::Response, AppError>
 where
     F: FnMut() -> reqwest::RequestBuilder,
 {
@@ -317,7 +321,10 @@ fn normalize_mcp_type(raw: &str) -> Option<&'static str> {
         _ => {}
     }
 
-    let collapsed: String = lower.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    let collapsed: String = lower
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
     if collapsed == "streamablehttp" {
         return Some("http");
     }
@@ -343,7 +350,9 @@ fn protocol_priority(protocol: &str) -> i32 {
 fn select_default_install_option(
     options: &[McpMarketplaceInstallOption],
 ) -> Option<&McpMarketplaceInstallOption> {
-    options.iter().min_by_key(|item| protocol_priority(&item.protocol))
+    options
+        .iter()
+        .min_by_key(|item| protocol_priority(&item.protocol))
 }
 
 fn select_install_option<'a>(
@@ -426,7 +435,9 @@ fn gemini_config_path() -> PathBuf {
 }
 
 fn openclaw_config_path() -> PathBuf {
-    home_dir_or_default().join(".openclaw").join("openclaw.json")
+    home_dir_or_default()
+        .join(".openclaw")
+        .join("openclaw.json")
 }
 
 fn cline_config_path() -> PathBuf {
@@ -472,8 +483,12 @@ fn write_json_file(path: &Path, value: &Value) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| internal(e.to_string()))?;
     }
-    let serialized = serde_json::to_string_pretty(value)
-        .map_err(|e| bad(format!("failed to serialize JSON for {}: {e}", path.display())))?;
+    let serialized = serde_json::to_string_pretty(value).map_err(|e| {
+        bad(format!(
+            "failed to serialize JSON for {}: {e}",
+            path.display()
+        ))
+    })?;
     fs::write(path, format!("{serialized}\n")).map_err(|e| internal(e.to_string()))
 }
 
@@ -500,8 +515,12 @@ fn write_codex_root_toml(root: &toml::Value) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| internal(e.to_string()))?;
     }
-    let serialized = toml::to_string_pretty(root)
-        .map_err(|e| bad(format!("failed to serialize TOML for {}: {e}", path.display())))?;
+    let serialized = toml::to_string_pretty(root).map_err(|e| {
+        bad(format!(
+            "failed to serialize TOML for {}: {e}",
+            path.display()
+        ))
+    })?;
     fs::write(&path, format!("{serialized}\n")).map_err(|e| internal(e.to_string()))
 }
 
@@ -516,7 +535,11 @@ fn obj_as_string_map(value: Option<&Value>) -> Option<Map<String, Value>> {
         }
         output.insert(key.to_string(), Value::String(trimmed.to_string()));
     }
-    if output.is_empty() { None } else { Some(output) }
+    if output.is_empty() {
+        None
+    } else {
+        Some(output)
+    }
 }
 
 fn key_looks_secret(name: &str) -> bool {
@@ -617,7 +640,9 @@ fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, AppError> {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
-                    bad(format!("{source}: stdio MCP spec requires a non-empty command"))
+                    bad(format!(
+                        "{source}: stdio MCP spec requires a non-empty command"
+                    ))
                 })?;
 
             normalized.insert("type".to_string(), Value::String("stdio".to_string()));
@@ -655,7 +680,11 @@ fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, AppError> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .ok_or_else(|| bad(format!("{source}: remote MCP spec requires a non-empty url")))?;
+                .ok_or_else(|| {
+                    bad(format!(
+                        "{source}: remote MCP spec requires a non-empty url"
+                    ))
+                })?;
 
             normalized.insert("type".to_string(), Value::String(resolved_type.to_string()));
             normalized.insert("url".to_string(), Value::String(url.to_string()));
@@ -712,7 +741,9 @@ fn canonicalize_opencode_spec(spec: &Value, source: &str) -> Result<Value, AppEr
                         .map(str::trim)
                         .filter(|item| !item.is_empty())
                         .ok_or_else(|| {
-                            bad(format!("{source}: local MCP command array must include executable"))
+                            bad(format!(
+                                "{source}: local MCP command array must include executable"
+                            ))
                         })?;
                     converted.insert("command".to_string(), Value::String(first.to_string()));
 
@@ -731,7 +762,9 @@ fn canonicalize_opencode_spec(spec: &Value, source: &str) -> Result<Value, AppEr
                 } else if let Some(raw) = command.as_str() {
                     let trimmed = raw.trim();
                     if trimmed.is_empty() {
-                        return Err(bad(format!("{source}: local MCP command must be non-empty")));
+                        return Err(bad(format!(
+                            "{source}: local MCP command must be non-empty"
+                        )));
                     }
                     converted.insert("command".to_string(), Value::String(trimmed.to_string()));
                 }
@@ -821,7 +854,11 @@ fn canonical_to_opencode_spec(spec: &Value) -> Result<Value, AppError> {
                 out.insert("headers".to_string(), Value::Object(headers));
             }
         }
-        _ => return Err(bad(format!("OpenCode conversion: unsupported MCP type '{typ}'"))),
+        _ => {
+            return Err(bad(format!(
+                "OpenCode conversion: unsupported MCP type '{typ}'"
+            )));
+        }
     }
 
     out.insert("enabled".to_string(), Value::Bool(true));
@@ -892,11 +929,17 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppE
         .filter(|value| !value.is_empty())
         .unwrap_or("stdio")
         .to_string();
-    let canonical_type = normalize_mcp_type(&raw_type)
-        .ok_or_else(|| bad(format!("Codex MCP entry '{id}' has unsupported type '{raw_type}'")))?;
+    let canonical_type = normalize_mcp_type(&raw_type).ok_or_else(|| {
+        bad(format!(
+            "Codex MCP entry '{id}' has unsupported type '{raw_type}'"
+        ))
+    })?;
 
     let mut spec = Map::new();
-    spec.insert("type".to_string(), Value::String(canonical_type.to_string()));
+    spec.insert(
+        "type".to_string(),
+        Value::String(canonical_type.to_string()),
+    );
 
     match canonical_type {
         "stdio" => {
@@ -999,7 +1042,10 @@ fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppError> {
                 .get("command")
                 .and_then(Value::as_str)
                 .ok_or_else(|| bad("Codex conversion: stdio MCP spec missing command"))?;
-            table.insert("command".to_string(), toml::Value::String(command.to_string()));
+            table.insert(
+                "command".to_string(),
+                toml::Value::String(command.to_string()),
+            );
 
             if let Some(args) = obj.get("args").and_then(Value::as_array) {
                 let values = args
@@ -1046,11 +1092,18 @@ fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppError> {
                     headers_table.insert(key.to_string(), toml::Value::String(trimmed.to_string()));
                 }
                 if !headers_table.is_empty() {
-                    table.insert("http_headers".to_string(), toml::Value::Table(headers_table));
+                    table.insert(
+                        "http_headers".to_string(),
+                        toml::Value::Table(headers_table),
+                    );
                 }
             }
         }
-        _ => return Err(bad(format!("Codex conversion: unsupported MCP type '{typ}'"))),
+        _ => {
+            return Err(bad(format!(
+                "Codex conversion: unsupported MCP type '{typ}'"
+            )));
+        }
     }
 
     for (key, value) in obj {
@@ -1124,7 +1177,11 @@ fn canonical_to_hermes_entry(spec: &Value) -> Result<serde_yaml::Value, AppError
                 out.insert("headers".to_string(), headers.clone());
             }
         }
-        other => return Err(bad(format!("Hermes conversion: unsupported MCP type '{other}'"))),
+        other => {
+            return Err(bad(format!(
+                "Hermes conversion: unsupported MCP type '{other}'"
+            )));
+        }
     }
 
     for (key, value) in obj {
@@ -1218,7 +1275,11 @@ fn enable_claude_local_plugin(id: &str) -> Result<(), AppError> {
     let obj = root
         .as_object_mut()
         .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
-    if !obj.get("enabledPlugins").map(Value::is_object).unwrap_or(false) {
+    if !obj
+        .get("enabledPlugins")
+        .map(Value::is_object)
+        .unwrap_or(false)
+    {
         obj.insert("enabledPlugins".to_string(), Value::Object(Map::new()));
     }
     let plugins = obj
@@ -1273,8 +1334,15 @@ fn upsert_codex_server(id: &str, spec: &Value) -> Result<(), AppError> {
         .as_table_mut()
         .ok_or_else(|| bad("Codex root TOML must be a table"))?;
     let codex_entry = canonical_to_codex_entry(spec)?;
-    if !table.get("mcp_servers").map(toml::Value::is_table).unwrap_or(false) {
-        table.insert("mcp_servers".to_string(), toml::Value::Table(toml::map::Map::new()));
+    if !table
+        .get("mcp_servers")
+        .map(toml::Value::is_table)
+        .unwrap_or(false)
+    {
+        table.insert(
+            "mcp_servers".to_string(),
+            toml::Value::Table(toml::map::Map::new()),
+        );
     }
     let mcp_servers = table
         .get_mut("mcp_servers")
@@ -1294,7 +1362,10 @@ fn remove_codex_server(id: &str) -> Result<bool, AppError> {
         return Ok(false);
     };
     let mut removed = false;
-    if let Some(mcp_servers) = table.get_mut("mcp_servers").and_then(toml::Value::as_table_mut) {
+    if let Some(mcp_servers) = table
+        .get_mut("mcp_servers")
+        .and_then(toml::Value::as_table_mut)
+    {
         removed |= mcp_servers.remove(id).is_some();
         if mcp_servers.is_empty() {
             table.remove("mcp_servers");
@@ -1573,7 +1644,10 @@ fn read_hermes_servers() -> Result<BTreeMap<String, Value>, AppError> {
         Err(_) => return Ok(BTreeMap::new()),
     };
     let mut out = BTreeMap::new();
-    let Some(servers) = root.get("mcp_servers").and_then(serde_yaml::Value::as_mapping) else {
+    let Some(servers) = root
+        .get("mcp_servers")
+        .and_then(serde_yaml::Value::as_mapping)
+    else {
         return Ok(out);
     };
     for (key, entry) in servers {
@@ -1591,9 +1665,8 @@ fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), AppError> {
     let path = hermes_config_yaml_path();
 
     let mut root: Yaml = match fs::read_to_string(&path) {
-        Ok(raw) if !raw.trim().is_empty() => {
-            serde_yaml::from_str(&raw).map_err(|e| bad(format!("invalid hermes config.yaml: {e}")))?
-        }
+        Ok(raw) if !raw.trim().is_empty() => serde_yaml::from_str(&raw)
+            .map_err(|e| bad(format!("invalid hermes config.yaml: {e}")))?,
         Ok(_) => Yaml::Mapping(Mapping::new()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Yaml::Mapping(Mapping::new()),
         Err(e) => return Err(internal(format!("read hermes config.yaml failed: {e}"))),
@@ -1603,7 +1676,11 @@ fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), AppError> {
     }
     let root_map = root.as_mapping_mut().expect("root is a mapping");
     let servers_key = Yaml::String("mcp_servers".to_string());
-    if !root_map.get(&servers_key).map(Yaml::is_mapping).unwrap_or(false) {
+    if !root_map
+        .get(&servers_key)
+        .map(Yaml::is_mapping)
+        .unwrap_or(false)
+    {
         root_map.insert(servers_key.clone(), Yaml::Mapping(Mapping::new()));
     }
     let servers = root_map
@@ -1612,8 +1689,8 @@ fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), AppError> {
         .ok_or_else(|| bad("hermes mcp_servers must be a mapping"))?;
     servers.insert(Yaml::String(id.to_string()), entry);
 
-    let yaml =
-        serde_yaml::to_string(&root).map_err(|e| bad(format!("serialize hermes config.yaml failed: {e}")))?;
+    let yaml = serde_yaml::to_string(&root)
+        .map_err(|e| bad(format!("serialize hermes config.yaml failed: {e}")))?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| internal(e.to_string()))?;
     }
@@ -1635,7 +1712,10 @@ fn remove_hermes_server(id: &str) -> Result<bool, AppError> {
         return Ok(false);
     };
     let servers_key = Yaml::String("mcp_servers".to_string());
-    let Some(servers) = root_map.get_mut(&servers_key).and_then(Yaml::as_mapping_mut) else {
+    let Some(servers) = root_map
+        .get_mut(&servers_key)
+        .and_then(Yaml::as_mapping_mut)
+    else {
         return Ok(false);
     };
     let removed = servers.remove(Yaml::String(id.to_string())).is_some();
@@ -1783,7 +1863,12 @@ fn scan_local_servers() -> Result<Vec<LocalMcpServer>, AppError> {
 /// Add a server to the requested targets (never removes from others). When
 /// `global` is set, the server is recorded in the global registry AND mirrored
 /// into every agent's config file.
-fn install_targets(id: &str, spec: &Value, global: bool, apps: &[McpAppType]) -> Result<(), AppError> {
+fn install_targets(
+    id: &str,
+    spec: &Value,
+    global: bool,
+    apps: &[McpAppType],
+) -> Result<(), AppError> {
     if global {
         upsert_global_server(id, spec)?;
         for app in ALL_APPS {
@@ -1853,9 +1938,11 @@ async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceIt
         )));
     }
 
-    let payload =
-        parse_json_response::<SmitheryServerListResponse>(response, "failed to parse smithery response")
-            .await?;
+    let payload = parse_json_response::<SmitheryServerListResponse>(
+        response,
+        "failed to parse smithery response",
+    )
+    .await?;
 
     Ok(payload
         .servers
@@ -1864,7 +1951,9 @@ async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceIt
             provider_id: MARKETPLACE_SMITHERY.to_string(),
             server_id: item.qualified_name,
             name: item.display_name,
-            description: item.description.unwrap_or_else(|| "No description".to_string()),
+            description: item
+                .description
+                .unwrap_or_else(|| "No description".to_string()),
             homepage: clean_opt(item.homepage),
             remote: item.remote,
             verified: item.verified,
@@ -1896,8 +1985,9 @@ async fn fetch_smithery_server_summary(server_id: &str) -> Option<SmitheryServer
     if !response.status().is_success() {
         return None;
     }
-    let payload =
-        parse_json_response::<SmitheryServerListResponse>(response, "summary").await.ok()?;
+    let payload = parse_json_response::<SmitheryServerListResponse>(response, "summary")
+        .await
+        .ok()?;
     payload
         .servers
         .into_iter()
@@ -1907,16 +1997,18 @@ async fn fetch_smithery_server_summary(server_id: &str) -> Option<SmitheryServer
 async fn fetch_smithery_server_detail(server_id: &str) -> Result<SmitheryServerDetail, AppError> {
     let url = format!("https://api.smithery.ai/servers/{server_id}");
     let client = marketplace_http_client()?;
-    let response =
-        send_request_with_retry("failed to fetch smithery server detail", || client.get(url.clone()))
-            .await?;
+    let response = send_request_with_retry("failed to fetch smithery server detail", || {
+        client.get(url.clone())
+    })
+    .await?;
     if !response.status().is_success() {
         return Err(internal(format!(
             "smithery server detail request failed: HTTP {}",
             response.status()
         )));
     }
-    parse_json_response::<SmitheryServerDetail>(response, "failed to parse smithery server detail").await
+    parse_json_response::<SmitheryServerDetail>(response, "failed to parse smithery server detail")
+        .await
 }
 
 fn clean_opt(value: Option<String>) -> Option<String> {
@@ -1949,7 +2041,10 @@ fn smithery_connection_protocol(connection: &SmitheryConnection) -> String {
     }
 }
 
-fn smithery_connection_url(connection: &SmitheryConnection, fallback: Option<&str>) -> Option<String> {
+fn smithery_connection_url(
+    connection: &SmitheryConnection,
+    fallback: Option<&str>,
+) -> Option<String> {
     clean_opt(connection.deployment_url.clone()).or_else(|| clean_opt(fallback.map(str::to_string)))
 }
 
@@ -2037,7 +2132,10 @@ fn parse_smithery_config_fields(schema: Option<&Value>) -> Vec<SmitheryConfigFie
             continue;
         };
         let kind = smithery_property_kind(prop);
-        let secret = prop.get("writeOnly").and_then(Value::as_bool).unwrap_or(false)
+        let secret = prop
+            .get("writeOnly")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
             || key_looks_secret(key);
         let location = smithery_field_location(prop, secret);
         let enum_values = prop
@@ -2054,7 +2152,11 @@ fn parse_smithery_config_fields(schema: Option<&Value>) -> Vec<SmitheryConfigFie
 
         fields.push(SmitheryConfigField {
             key: key.to_string(),
-            description: clean_opt(prop.get("description").and_then(Value::as_str).map(str::to_string)),
+            description: clean_opt(
+                prop.get("description")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            ),
             required: required.contains(key),
             secret,
             kind,
@@ -2067,7 +2169,9 @@ fn parse_smithery_config_fields(schema: Option<&Value>) -> Vec<SmitheryConfigFie
     fields
 }
 
-fn smithery_parameter_fields(connection: &SmitheryConnection) -> Vec<McpMarketplaceInstallParameter> {
+fn smithery_parameter_fields(
+    connection: &SmitheryConnection,
+) -> Vec<McpMarketplaceInstallParameter> {
     parse_smithery_config_fields(connection.config_schema.as_ref())
         .into_iter()
         .map(|field| McpMarketplaceInstallParameter {
@@ -2114,7 +2218,10 @@ fn resolve_smithery_connection_spec_with_values(
 
         let Some(value) = value else {
             if enforce_required && field.required {
-                return Err(bad(format!("missing required configuration '{}'", field.key)));
+                return Err(bad(format!(
+                    "missing required configuration '{}'",
+                    field.key
+                )));
             }
             continue;
         };
@@ -2170,7 +2277,10 @@ fn build_smithery_install_options(
     if options.is_empty()
         && let Some(fallback) = clean_opt(server.deployment_url.clone())
     {
-        let spec = canonicalize_spec(&json!({ "type": "http", "url": fallback }), "smithery fallback")?;
+        let spec = canonicalize_spec(
+            &json!({ "type": "http", "url": fallback }),
+            "smithery fallback",
+        )?;
         options.push(McpMarketplaceInstallOption {
             id: "smithery:fallback:http".to_string(),
             protocol: "http".to_string(),
@@ -2201,10 +2311,11 @@ fn resolve_smithery_install_spec(
         .ok_or_else(|| not_found("no smithery install option available"))?;
 
     if let Some(index) = parse_smithery_option_id(&selected.id) {
-        let connection = server
-            .connections
-            .get(index)
-            .ok_or_else(|| not_found(format!("selected smithery connection is out of range: {index}")))?;
+        let connection = server.connections.get(index).ok_or_else(|| {
+            not_found(format!(
+                "selected smithery connection is out of range: {index}"
+            ))
+        })?;
         return resolve_smithery_connection_spec_with_values(
             connection,
             server.deployment_url.as_deref(),
@@ -2241,7 +2352,9 @@ pub(crate) async fn search_marketplace(
     let max = limit.unwrap_or(30).clamp(1, 100);
     match provider_id.as_str() {
         MARKETPLACE_SMITHERY => search_smithery(&q, max).await,
-        _ => Err(bad(format!("unsupported marketplace provider: {provider_id}"))),
+        _ => Err(bad(format!(
+            "unsupported marketplace provider: {provider_id}"
+        ))),
     }
 }
 
@@ -2255,18 +2368,24 @@ pub(crate) async fn get_marketplace_server_detail(
             let summary = fetch_smithery_server_summary(&server_id).await;
             let install_options = build_smithery_install_options(&detail)?;
             let default_option = select_default_install_option(&install_options);
-            let spec = default_option.map(|item| item.spec.clone()).ok_or_else(|| {
-                not_found(format!(
-                    "smithery server '{}' does not provide installable connection info",
-                    detail.qualified_name
-                ))
-            })?;
+            let spec = default_option
+                .map(|item| item.spec.clone())
+                .ok_or_else(|| {
+                    not_found(format!(
+                        "smithery server '{}' does not provide installable connection info",
+                        detail.qualified_name
+                    ))
+                })?;
             Ok(McpMarketplaceServerDetail {
                 provider_id: MARKETPLACE_SMITHERY.to_string(),
                 server_id: detail.qualified_name.clone(),
                 name: detail.display_name.clone(),
                 description: clean_opt(detail.description.clone())
-                    .or_else(|| summary.as_ref().and_then(|s| clean_opt(s.description.clone())))
+                    .or_else(|| {
+                        summary
+                            .as_ref()
+                            .and_then(|s| clean_opt(s.description.clone()))
+                    })
                     .unwrap_or_else(|| "No description".to_string()),
                 homepage: clean_opt(detail.homepage.clone())
                     .or_else(|| summary.as_ref().and_then(|s| clean_opt(s.homepage.clone()))),
@@ -2278,17 +2397,28 @@ pub(crate) async fn get_marketplace_server_detail(
                 protocols: collect_protocols_from_options(&install_options),
                 owner: clean_opt(detail.owner.clone())
                     .or_else(|| summary.as_ref().and_then(|s| clean_opt(s.owner.clone()))),
-                namespace: clean_opt(detail.namespace.clone())
-                    .or_else(|| summary.as_ref().and_then(|s| clean_opt(s.namespace.clone()))),
-                downloads: detail.use_count.or_else(|| summary.as_ref().and_then(|s| s.use_count)),
-                score: detail.score.or_else(|| summary.as_ref().and_then(|s| s.score)),
-                is_deployed: detail.is_deployed.or_else(|| summary.as_ref().and_then(|s| s.is_deployed)),
+                namespace: clean_opt(detail.namespace.clone()).or_else(|| {
+                    summary
+                        .as_ref()
+                        .and_then(|s| clean_opt(s.namespace.clone()))
+                }),
+                downloads: detail
+                    .use_count
+                    .or_else(|| summary.as_ref().and_then(|s| s.use_count)),
+                score: detail
+                    .score
+                    .or_else(|| summary.as_ref().and_then(|s| s.score)),
+                is_deployed: detail
+                    .is_deployed
+                    .or_else(|| summary.as_ref().and_then(|s| s.is_deployed)),
                 default_option_id: default_option.map(|item| item.id.clone()),
                 install_options,
                 spec,
             })
         }
-        _ => Err(bad(format!("unsupported marketplace provider: {provider_id}"))),
+        _ => Err(bad(format!(
+            "unsupported marketplace provider: {provider_id}"
+        ))),
     }
 }
 
@@ -2315,7 +2445,11 @@ pub(crate) async fn install_marketplace_server(
                 let detail = fetch_smithery_server_detail(&server_id).await?;
                 resolve_smithery_install_spec(&detail, &option_id, &values)?
             }
-            _ => return Err(bad(format!("unsupported marketplace provider: {provider_id}"))),
+            _ => {
+                return Err(bad(format!(
+                    "unsupported marketplace provider: {provider_id}"
+                )));
+            }
         }
     };
 
@@ -2378,7 +2512,8 @@ mod tests {
         let back = codex_entry_to_canonical("ex", &entry).expect("from codex");
         assert_eq!(back.get("type").and_then(Value::as_str), Some("http"));
         assert_eq!(
-            back.pointer("/headers/Authorization").and_then(Value::as_str),
+            back.pointer("/headers/Authorization")
+                .and_then(Value::as_str),
             Some("Bearer t")
         );
     }
@@ -2393,8 +2528,14 @@ mod tests {
 
     #[test]
     fn append_query_param_encodes_and_picks_separator() {
-        assert_eq!(append_query_param("https://x/mcp", "a b", "c&d"), "https://x/mcp?a%20b=c%26d");
-        assert_eq!(append_query_param("https://x/mcp?z=1", "a", "b"), "https://x/mcp?z=1&a=b");
+        assert_eq!(
+            append_query_param("https://x/mcp", "a b", "c&d"),
+            "https://x/mcp?a%20b=c%26d"
+        );
+        assert_eq!(
+            append_query_param("https://x/mcp?z=1", "a", "b"),
+            "https://x/mcp?z=1&a=b"
+        );
     }
 
     #[test]
@@ -2404,9 +2545,6 @@ mod tests {
         assert_eq!(oc.get("type").and_then(Value::as_str), Some("local"));
         let back = canonicalize_opencode_spec(&oc, "test").expect("from opencode");
         assert_eq!(back.get("command").and_then(Value::as_str), Some("npx"));
-        assert_eq!(
-            back.pointer("/args/1").and_then(Value::as_str),
-            Some("pkg")
-        );
+        assert_eq!(back.pointer("/args/1").and_then(Value::as_str), Some("pkg"));
     }
 }

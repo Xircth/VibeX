@@ -180,6 +180,386 @@ export const configApi = {
   },
 };
 
+export interface VersionControlCliSettings {
+  git_custom_path: string | null;
+}
+
+export interface GitVersionStatus {
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  message: string | null;
+}
+
+export interface GitHubCliStatus {
+  gh_installed: boolean;
+  gh_path: string | null;
+  authenticated: boolean;
+  username: string | null;
+  host: string;
+  message: string | null;
+}
+
+export const versionControlApi = {
+  getSettings: async (): Promise<VersionControlCliSettings> => {
+    return tauriInvoke<VersionControlCliSettings>(
+      'get_version_control_settings'
+    );
+  },
+  updateSettings: async (
+    settings: VersionControlCliSettings
+  ): Promise<VersionControlCliSettings> => {
+    return tauriInvoke<VersionControlCliSettings>(
+      'update_version_control_settings',
+      { settings }
+    );
+  },
+  detectGit: async (): Promise<GitVersionStatus> => {
+    return tauriInvoke<GitVersionStatus>('detect_git_version');
+  },
+  testGitPath: async (path: string): Promise<GitVersionStatus> => {
+    return tauriInvoke<GitVersionStatus>('test_git_path', { path });
+  },
+  getGithubCliStatus: async (
+    host?: string | null
+  ): Promise<GitHubCliStatus> => {
+    return tauriInvoke<GitHubCliStatus>('get_github_cli_status', {
+      host: host ?? null,
+    });
+  },
+  openGithubCliLogin: async (host?: string | null): Promise<void> => {
+    return tauriInvoke<void>('open_github_cli_login', { host: host ?? null });
+  },
+  logoutGithubCli: async (
+    host?: string | null,
+    username?: string | null
+  ): Promise<GitHubCliStatus> => {
+    return tauriInvoke<GitHubCliStatus>('logout_github_cli', {
+      host: host ?? null,
+      username: username ?? null,
+    });
+  },
+};
+
+export interface SystemProxySettings {
+  enabled: boolean;
+  proxy_url: string | null;
+}
+
+export interface SystemRenderingSettings {
+  acceleration_mode: 'auto' | 'force_gpu' | 'disable_gpu';
+}
+
+export interface BackupCreateOptions {
+  path: string;
+}
+
+export interface BackupInspectOptions {
+  path: string;
+  passphrase?: string | null;
+}
+
+export interface BackupRestoreStagePayload {
+  path: string;
+  passphrase?: string | null;
+  confirmed: boolean;
+}
+
+export interface BackupManifest {
+  format: string;
+  version: number;
+  created_at: string;
+  app_version: string;
+  entry_count: number;
+  total_bytes: number;
+}
+
+export interface BackupPreviewEntry {
+  path: string;
+  size_bytes: number;
+  modified_at: string | null;
+}
+
+export interface BackupPreview {
+  manifest: BackupManifest;
+  entries: BackupPreviewEntry[];
+}
+
+export interface BackupRestoreResult {
+  preview: BackupPreview;
+  restored_entries: number;
+  requires_reload: boolean;
+}
+
+export const systemSettingsApi = {
+  getProxy: async (): Promise<SystemProxySettings> => {
+    return tauriInvoke<SystemProxySettings>('get_system_proxy_settings');
+  },
+  updateProxy: async (
+    settings: SystemProxySettings
+  ): Promise<SystemProxySettings> => {
+    return tauriInvoke<SystemProxySettings>('update_system_proxy_settings', {
+      settings,
+    });
+  },
+  getRendering: async (): Promise<SystemRenderingSettings> => {
+    return tauriInvoke<SystemRenderingSettings>(
+      'get_system_rendering_settings'
+    );
+  },
+  updateRendering: async (
+    settings: SystemRenderingSettings
+  ): Promise<SystemRenderingSettings> => {
+    return tauriInvoke<SystemRenderingSettings>(
+      'update_system_rendering_settings',
+      { settings }
+    );
+  },
+};
+
+export const backupApi = {
+  create: async (options: BackupCreateOptions): Promise<BackupPreview> => {
+    return tauriInvoke<BackupPreview>('backup_create', { options });
+  },
+  inspect: async (options: BackupInspectOptions): Promise<BackupPreview> => {
+    return tauriInvoke<BackupPreview>('backup_inspect', { options });
+  },
+  restoreStage: async (
+    payload: BackupRestoreStagePayload
+  ): Promise<BackupRestoreResult> => {
+    return tauriInvoke<BackupRestoreResult>('backup_restore_stage', {
+      payload,
+    });
+  },
+  cancel: async (opId?: string | null): Promise<void> => {
+    return tauriInvoke<void>('backup_cancel', { opId: opId ?? null });
+  },
+};
+
+export interface WebServiceConfig {
+  port: number;
+  token: string | null;
+  auto_start: boolean;
+}
+
+export interface WebServerStatus {
+  running: boolean;
+  port: number;
+  address: string | null;
+  token_configured: boolean;
+  started_at: string | null;
+  message: string | null;
+}
+
+export interface PortProbeResult {
+  port: number;
+  available: boolean;
+  message: string | null;
+}
+
+export const webServiceApi = {
+  getConfig: async (): Promise<WebServiceConfig> => {
+    return tauriInvoke<WebServiceConfig>('get_web_service_config');
+  },
+  updateConfig: async (
+    config: WebServiceConfig
+  ): Promise<WebServiceConfig> => {
+    return tauriInvoke<WebServiceConfig>('update_web_service_config', {
+      config,
+    });
+  },
+  getStatus: async (): Promise<WebServerStatus> => {
+    return tauriInvoke<WebServerStatus>('get_web_server_status');
+  },
+  start: async (): Promise<WebServerStatus> => {
+    return tauriInvoke<WebServerStatus>('start_web_server');
+  },
+  stop: async (): Promise<WebServerStatus> => {
+    return tauriInvoke<WebServerStatus>('stop_web_server');
+  },
+  probePort: async (port: number): Promise<PortProbeResult> => {
+    return tauriInvoke<PortProbeResult>('probe_web_service_port', { port });
+  },
+  generateToken: async (): Promise<WebServiceConfig> => {
+    return tauriInvoke<WebServiceConfig>('generate_web_service_token');
+  },
+};
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  agent_types: string[];
+  api_url: string;
+  auth_type: string;
+  default_model: string | null;
+  config_json: string | null;
+  active_agents: string[];
+  has_api_key: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelProviderPayload {
+  name: string;
+  agent_types: string[];
+  api_url: string;
+  auth_type: string;
+  default_model?: string | null;
+  config_json?: string | null;
+}
+
+export interface ProviderModelsResult {
+  provider_id: string;
+  models: string[];
+  fetched_at: string;
+}
+
+export const modelProviderApi = {
+  list: async (): Promise<ModelProvider[]> => {
+    return tauriInvoke<ModelProvider[]>('list_model_providers');
+  },
+  create: async (payload: ModelProviderPayload): Promise<ModelProvider> => {
+    return tauriInvoke<ModelProvider>('create_model_provider', { payload });
+  },
+  update: async (
+    providerId: string,
+    payload: ModelProviderPayload
+  ): Promise<ModelProvider> => {
+    return tauriInvoke<ModelProvider>('update_model_provider', {
+      providerId,
+      payload,
+    });
+  },
+  delete: async (providerId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_model_provider', { providerId });
+  },
+  activate: async (
+    providerId: string,
+    agentType: string
+  ): Promise<ModelProvider> => {
+    return tauriInvoke<ModelProvider>('activate_model_provider', {
+      providerId,
+      agentType,
+    });
+  },
+  deactivate: async (agentType: string): Promise<void> => {
+    return tauriInvoke<void>('deactivate_model_provider', { agentType });
+  },
+  saveApiKey: async (
+    providerId: string,
+    apiKey: string
+  ): Promise<ModelProvider> => {
+    return tauriInvoke<ModelProvider>('save_model_provider_api_key', {
+      providerId,
+      apiKey,
+    });
+  },
+  hasApiKey: async (providerId: string): Promise<boolean> => {
+    return tauriInvoke<boolean>('get_model_provider_has_api_key', {
+      providerId,
+    });
+  },
+  deleteApiKey: async (providerId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_model_provider_api_key', { providerId });
+  },
+  fetchModels: async (providerId: string): Promise<ProviderModelsResult> => {
+    return tauriInvoke<ProviderModelsResult>('fetch_provider_models', {
+      providerId,
+    });
+  },
+};
+
+export interface ChatChannel {
+  id: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  webhook_url: string;
+  has_token: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatChannelPayload {
+  name: string;
+  kind: string;
+  enabled: boolean;
+  webhook_url: string;
+}
+
+export interface ChatEventFilter {
+  enabled_events: string[];
+}
+
+export interface ChatCommandPrefix {
+  prefix: string;
+}
+
+export interface ChatChannelTestResult {
+  ok: boolean;
+  status: number | null;
+  message: string;
+}
+
+export const chatChannelApi = {
+  list: async (): Promise<ChatChannel[]> => {
+    return tauriInvoke<ChatChannel[]>('list_chat_channels');
+  },
+  create: async (payload: ChatChannelPayload): Promise<ChatChannel> => {
+    return tauriInvoke<ChatChannel>('create_chat_channel', { payload });
+  },
+  update: async (
+    channelId: string,
+    payload: ChatChannelPayload
+  ): Promise<ChatChannel> => {
+    return tauriInvoke<ChatChannel>('update_chat_channel', {
+      channelId,
+      payload,
+    });
+  },
+  delete: async (channelId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_chat_channel', { channelId });
+  },
+  saveToken: async (
+    channelId: string,
+    token: string
+  ): Promise<ChatChannel> => {
+    return tauriInvoke<ChatChannel>('save_chat_channel_token', {
+      channelId,
+      token,
+    });
+  },
+  hasToken: async (channelId: string): Promise<boolean> => {
+    return tauriInvoke<boolean>('get_chat_channel_has_token', { channelId });
+  },
+  deleteToken: async (channelId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_chat_channel_token', { channelId });
+  },
+  test: async (channelId: string): Promise<ChatChannelTestResult> => {
+    return tauriInvoke<ChatChannelTestResult>('test_chat_channel', {
+      channelId,
+    });
+  },
+  getEventFilter: async (): Promise<ChatEventFilter> => {
+    return tauriInvoke<ChatEventFilter>('get_chat_event_filter');
+  },
+  setEventFilter: async (
+    filter: ChatEventFilter
+  ): Promise<ChatEventFilter> => {
+    return tauriInvoke<ChatEventFilter>('set_chat_event_filter', { filter });
+  },
+  getCommandPrefix: async (): Promise<ChatCommandPrefix> => {
+    return tauriInvoke<ChatCommandPrefix>('get_chat_command_prefix');
+  },
+  setCommandPrefix: async (
+    prefix: ChatCommandPrefix
+  ): Promise<ChatCommandPrefix> => {
+    return tauriInvoke<ChatCommandPrefix>('set_chat_command_prefix', {
+      prefix,
+    });
+  },
+};
+
 // Claude Settings (~/.claude/settings.json) APIs
 export interface ClaudeSettings {
   env: Record<string, string>;

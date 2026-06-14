@@ -479,7 +479,6 @@ impl AgentRuntimeStore {
         .fetch_all(pool)
         .await
     }
-
 }
 
 pub struct UpsertAgentConnection<'a> {

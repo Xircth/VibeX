@@ -11,12 +11,18 @@ import { Projects } from '@/pages/Projects';
 import {
   AgentSettings,
   AppearanceSettings,
+  ChatChannelSettings,
   EditorSettings,
+  GeneralSettings,
+  InstructionsSettings,
   McpSettings,
+  ModelProviderSettings,
   SettingsLayout,
   ShortcutSettings,
   SkillsSettings,
   SystemSettings,
+  VersionControlSettings,
+  WebServiceSettings,
 } from '@/pages/settings/';
 
 function MainLegacyScope({
@@ -77,11 +83,17 @@ export function MainAppRoutes() {
       >
         <Route index element={<Navigate to="agents" replace />} />
         <Route path="agents" element={<AgentSettings />} />
+        <Route path="appearance" element={<AppearanceSettings />} />
+        <Route path="general" element={<GeneralSettings />} />
+        <Route path="model-providers" element={<ModelProviderSettings />} />
         <Route path="mcp" element={<McpSettings />} />
         <Route path="skills" element={<SkillsSettings />} />
+        <Route path="instructions" element={<InstructionsSettings />} />
         <Route path="shortcuts" element={<ShortcutSettings />} />
         <Route path="editor" element={<EditorSettings />} />
-        <Route path="appearance" element={<AppearanceSettings />} />
+        <Route path="version-control" element={<VersionControlSettings />} />
+        <Route path="chat-channels" element={<ChatChannelSettings />} />
+        <Route path="web-service" element={<WebServiceSettings />} />
         <Route path="system" element={<SystemSettings />} />
       </Route>
 

@@ -1,24 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Archive,
   Bell,
   Download,
   ExternalLink,
+  Gauge,
   Lightbulb,
   Loader2,
+  Network,
   PackageCheck,
   RefreshCw,
   Save,
-  Tag,
   Trash2,
   Undo2,
   Volume2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SoundFile, type Config } from 'shared/types';
-import { TagManager } from '@/components/TagManager';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { LocalDependencyStatusBadge } from '@/components/settings/LocalDependencyStatusBadge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -30,8 +32,13 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  backupApi,
   configApi,
+  systemSettingsApi,
+  type BackupPreview,
   type LocalToolStatus,
+  type SystemProxySettings,
+  type SystemRenderingSettings,
   type SystemMaintenanceStatus,
 } from '@/lib/api';
 import {
@@ -111,6 +118,30 @@ function isFreeOpenCodeModel(model: string): boolean {
 }
 
 const CLEAR_LOCAL_DATA_TITLE = '清除 VibeX 本地数据';
+const DEFAULT_PROXY_SETTINGS: SystemProxySettings = {
+  enabled: false,
+  proxy_url: null,
+};
+const DEFAULT_RENDERING_SETTINGS: SystemRenderingSettings = {
+  acceleration_mode: 'auto',
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
 
 function deepMerge<T extends Record<string, unknown>>(
   target: T,
@@ -203,6 +234,28 @@ export function SystemSettings() {
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [dependencyInstallRunning, setDependencyInstallRunning] =
     useState(false);
+  const [proxySettings, setProxySettings] = useState<SystemProxySettings>(
+    DEFAULT_PROXY_SETTINGS
+  );
+  const [proxyDraft, setProxyDraft] = useState<SystemProxySettings>(
+    DEFAULT_PROXY_SETTINGS
+  );
+  const [proxyLoading, setProxyLoading] = useState(true);
+  const [proxySaving, setProxySaving] = useState(false);
+  const [renderingSettings, setRenderingSettings] =
+    useState<SystemRenderingSettings>(DEFAULT_RENDERING_SETTINGS);
+  const [renderingDraft, setRenderingDraft] =
+    useState<SystemRenderingSettings>(DEFAULT_RENDERING_SETTINGS);
+  const [renderingLoading, setRenderingLoading] = useState(true);
+  const [renderingSaving, setRenderingSaving] = useState(false);
+  const [backupPath, setBackupPath] = useState('');
+  const [restorePath, setRestorePath] = useState('');
+  const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(
+    null
+  );
+  const [backupPreviewPath, setBackupPreviewPath] = useState('');
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
   useEffect(() => {
     if (!config || dirty) {
@@ -234,11 +287,7 @@ export function SystemSettings() {
       const status = await configApi.getSystemMaintenanceStatus();
       setMaintenanceStatus(status);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : '本地环境检查失败'
-      );
+      toast.error(error instanceof Error ? error.message : '本地环境检查失败');
     } finally {
       setMaintenanceLoading(false);
     }
@@ -247,6 +296,31 @@ export function SystemSettings() {
   useEffect(() => {
     void refreshMaintenanceStatus();
   }, [refreshMaintenanceStatus]);
+
+  const refreshSystemSettings = useCallback(async () => {
+    setProxyLoading(true);
+    setRenderingLoading(true);
+
+    try {
+      const [proxy, rendering] = await Promise.all([
+        systemSettingsApi.getProxy(),
+        systemSettingsApi.getRendering(),
+      ]);
+      setProxySettings(proxy);
+      setProxyDraft(proxy);
+      setRenderingSettings(rendering);
+      setRenderingDraft(rendering);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '系统设置读取失败');
+    } finally {
+      setProxyLoading(false);
+      setRenderingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSystemSettings();
+  }, [refreshSystemSettings]);
 
   const installDependencies = useCallback(
     async ({
@@ -277,9 +351,7 @@ export function SystemSettings() {
         });
       } catch (error) {
         toast.error(
-          error instanceof Error
-            ? error.message
-            : '本地依赖安装失败',
+          error instanceof Error ? error.message : '本地依赖安装失败',
           { id: toastId }
         );
       } finally {
@@ -320,13 +392,23 @@ export function SystemSettings() {
         return aIsFree ? -1 : 1;
       }
 
-    return a.localeCompare(b);
+      return a.localeCompare(b);
     });
   }, [draft?.prompt_enhancement_model, opencodeModels]);
 
   const visibleMaintenanceTools = useMemo(
     () => (maintenanceStatus?.tools ?? []).filter((tool) => tool.user_visible),
     [maintenanceStatus?.tools]
+  );
+
+  const proxyDirty = useMemo(
+    () => !deepEqual(proxyDraft, proxySettings),
+    [proxyDraft, proxySettings]
+  );
+
+  const renderingDirty = useMemo(
+    () => !deepEqual(renderingDraft, renderingSettings),
+    [renderingDraft, renderingSettings]
   );
 
   const handleInstallDependencyGroup = useCallback(
@@ -379,6 +461,135 @@ export function SystemSettings() {
     } catch (error) {
       console.error('Failed to play notification sound:', error);
     }
+  };
+
+  const handleSaveProxy = async () => {
+    setProxySaving(true);
+    try {
+      const saved = await systemSettingsApi.updateProxy(proxyDraft);
+      setProxySettings(saved);
+      setProxyDraft(saved);
+      toast.success('网络代理设置已保存');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '网络代理设置保存失败');
+    } finally {
+      setProxySaving(false);
+    }
+  };
+
+  const handleSaveRendering = async () => {
+    setRenderingSaving(true);
+    try {
+      const saved = await systemSettingsApi.updateRendering(renderingDraft);
+      setRenderingSettings(saved);
+      setRenderingDraft(saved);
+      toast.success('渲染设置已保存，重启应用后完全生效');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '渲染设置保存失败');
+    } finally {
+      setRenderingSaving(false);
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    const path = backupPath.trim();
+    if (!path) {
+      toast.error('请填写备份导出路径');
+      return;
+    }
+
+    setBackupBusy(true);
+    const toastId = toast.loading('正在导出 VibeX 备份...');
+    try {
+      const preview = await backupApi.create({ path });
+      setBackupPreview(preview);
+      setBackupPreviewPath(path);
+      toast.success('备份已导出', { id: toastId });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '备份导出失败', {
+        id: toastId,
+      });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleInspectBackup = async () => {
+    const path = restorePath.trim();
+    if (!path) {
+      toast.error('请填写备份文件路径');
+      return;
+    }
+
+    setRestoreBusy(true);
+    try {
+      const preview = await backupApi.inspect({ path, passphrase: null });
+      setBackupPreview(preview);
+      setBackupPreviewPath(path);
+      toast.success('备份预览已读取');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '备份预览失败');
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
+
+  const restoreInspectedBackup = async () => {
+    const path = restorePath.trim();
+    if (!path || !backupPreview || backupPreviewPath !== path) {
+      toast.error('请先预览要恢复的备份');
+      return;
+    }
+
+    setRestoreBusy(true);
+    const toastId = toast.loading('正在恢复 VibeX 备份...');
+    try {
+      const result = await backupApi.restoreStage({
+        path,
+        passphrase: null,
+        confirmed: true,
+      });
+      setBackupPreview(result.preview);
+      setBackupPreviewPath(path);
+      toast.success(
+        result.requires_reload
+          ? '备份已恢复，建议重启应用'
+          : '备份已恢复',
+        { id: toastId }
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '备份恢复失败', {
+        id: toastId,
+      });
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
+
+  const handleRestoreBackup = () => {
+    if (
+      !restorePath.trim() ||
+      !backupPreview ||
+      backupPreviewPath !== restorePath.trim()
+    ) {
+      toast.error('请先预览要恢复的备份');
+      return;
+    }
+
+    const toastId = toast.warning('确认从备份恢复 VibeX 数据？', {
+      duration: 8000,
+      action: {
+        label: '恢复',
+        onClick: () => {
+          toast.dismiss(toastId);
+          void restoreInspectedBackup();
+        },
+      },
+      cancel: {
+        label: '取消',
+        onClick: () => toast.dismiss(toastId),
+      },
+    });
   };
 
   const handleSave = async () => {
@@ -594,7 +805,7 @@ export function SystemSettings() {
                     npm:{' '}
                     {maintenanceStatus?.npm.available
                       ? maintenanceStatus.npm.path
-                      : maintenanceStatus?.npm.message ?? '未检查'}
+                      : (maintenanceStatus?.npm.message ?? '未检查')}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -648,7 +859,8 @@ export function SystemSettings() {
 
               <div className="settings-inline-group divide-y divide-border/70 overflow-hidden">
                 {visibleMaintenanceTools.map((tool) => {
-                  const presentation = getLocalDependencyStatusPresentation(tool);
+                  const presentation =
+                    getLocalDependencyStatusPresentation(tool);
 
                   return (
                     <div
@@ -672,7 +884,9 @@ export function SystemSettings() {
                           size="xs"
                           variant="outline"
                           className="h-7 text-xs"
-                          onClick={() => void handleInstallDependencyGroup(tool)}
+                          onClick={() =>
+                            void handleInstallDependencyGroup(tool)
+                          }
                           disabled={
                             dependencyInstallRunning ||
                             maintenanceLoading ||
@@ -838,6 +1052,253 @@ export function SystemSettings() {
         </SettingsSection>
 
         <SettingsSection
+          icon={Network}
+          title="网络代理"
+          description="配置 VibeX 后端网络请求和新启动进程可继承的代理地址。"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="system-proxy-enabled" className="text-xs">
+                  启用代理
+                </Label>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  保存前会校验代理地址格式。
+                </p>
+              </div>
+              <Switch
+                id="system-proxy-enabled"
+                className="settings-switch"
+                checked={proxyDraft.enabled}
+                disabled={proxyLoading || proxySaving}
+                onCheckedChange={(checked: boolean) =>
+                  setProxyDraft((previous) => ({
+                    ...previous,
+                    enabled: checked,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="system-proxy-url"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                代理地址
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="system-proxy-url"
+                  value={proxyDraft.proxy_url ?? ''}
+                  placeholder="http://127.0.0.1:7890"
+                  disabled={proxyLoading || proxySaving}
+                  onChange={(event) =>
+                    setProxyDraft((previous) => ({
+                      ...previous,
+                      proxy_url: event.target.value,
+                    }))
+                  }
+                />
+                <Button
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
+                  onClick={() => void handleSaveProxy()}
+                  disabled={proxyLoading || proxySaving || !proxyDirty}
+                >
+                  {proxySaving ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Save className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  保存
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                支持 HTTP、HTTPS 和 SOCKS 代理；已运行的代理进程可能需要重启后继承。
+              </p>
+            </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Gauge}
+          title="渲染加速"
+          description="控制 WebView 渲染策略；部分平台需要重启应用后完全生效。"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label className="text-xs">加速模式</Label>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Windows 上可在 GPU 驱动异常时切换为禁用 GPU。
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={renderingDraft.acceleration_mode}
+                onValueChange={(
+                  value: SystemRenderingSettings['acceleration_mode']
+                ) =>
+                  setRenderingDraft({
+                    acceleration_mode: value,
+                  })
+                }
+                disabled={renderingLoading || renderingSaving}
+              >
+                <SelectTrigger className="!w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="auto">自动</SelectItem>
+                  <SelectItem value="force_gpu">强制 GPU</SelectItem>
+                  <SelectItem value="disable_gpu">禁用 GPU</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                className="h-8 shrink-0 text-xs"
+                onClick={() => void handleSaveRendering()}
+                disabled={renderingLoading || renderingSaving || !renderingDirty}
+              >
+                {renderingSaving ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="mr-1 h-3.5 w-3.5" />
+                )}
+                保存
+              </Button>
+            </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Archive}
+          title="备份与恢复"
+          description="导出一份可移动的 VibeX 数据备份，或在预览后从备份恢复。"
+        >
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-xs font-semibold">导出备份</div>
+              <div className="flex gap-2">
+                <Input
+                  value={backupPath}
+                  placeholder="C:\\Users\\Administrator\\Desktop\\vibex-backup.vibexbak"
+                  onChange={(event) => setBackupPath(event.target.value)}
+                  disabled={backupBusy}
+                />
+                <Button
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
+                  onClick={() => void handleCreateBackup()}
+                  disabled={backupBusy}
+                >
+                  {backupBusy ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  导出
+                </Button>
+              </div>
+              <Input
+                type="password"
+                value=""
+                placeholder="加密口令：当前构建仅支持未加密备份"
+                disabled
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-semibold">恢复备份</div>
+              <div className="flex gap-2">
+                <Input
+                  value={restorePath}
+                  placeholder="选择或粘贴 .vibexbak 文件路径"
+                  onChange={(event) => setRestorePath(event.target.value)}
+                  disabled={restoreBusy}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
+                  onClick={() => void handleInspectBackup()}
+                  disabled={restoreBusy}
+                >
+                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                  预览
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
+                  onClick={handleRestoreBackup}
+                  disabled={
+                    restoreBusy ||
+                    !backupPreview ||
+                    backupPreviewPath !== restorePath.trim()
+                  }
+                >
+                  {restoreBusy ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Archive className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  恢复
+                </Button>
+              </div>
+              <Input
+                type="password"
+                value=""
+                placeholder="解密口令：当前构建仅支持未加密备份"
+                disabled
+              />
+            </div>
+
+            {backupPreview ? (
+              <div className="settings-inline-group p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold">备份预览</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {backupPreviewPath}
+                    </div>
+                  </div>
+                  <div className="text-right text-[11px] text-muted-foreground">
+                    <div>{backupPreview.manifest.entry_count} 个文件</div>
+                    <div>{formatBytes(backupPreview.manifest.total_bytes)}</div>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                  <div>格式：{backupPreview.manifest.format}</div>
+                  <div>版本：{backupPreview.manifest.version}</div>
+                  <div>应用：{backupPreview.manifest.app_version}</div>
+                  <div>
+                    创建：{new Date(backupPreview.manifest.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <div className="mt-3 max-h-32 overflow-y-auto rounded-md border border-border/70">
+                  {backupPreview.entries.slice(0, 8).map((entry) => (
+                    <div
+                      key={entry.path}
+                      className="flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]"
+                    >
+                      <span className="min-w-0 truncate">{entry.path}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {formatBytes(entry.size_bytes)}
+                      </span>
+                    </div>
+                  ))}
+                  {backupPreview.entries.length > 8 ? (
+                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                      还有 {backupPreview.entries.length - 8} 个条目未显示
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
           icon={Bell}
           title="通知"
           description="配置声音和系统推送通知。"
@@ -924,14 +1385,6 @@ export function SystemSettings() {
               />
             </div>
           </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Tag}
-          title="标签提示词"
-          description="管理可通过 `#tag_name` 插入任务输入框的复用片段。"
-        >
-          <TagManager />
         </SettingsSection>
 
         <SettingsSection icon={Trash2} title={CLEAR_LOCAL_DATA_TITLE}>

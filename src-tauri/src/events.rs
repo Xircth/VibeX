@@ -109,6 +109,15 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
         loop {
             match agent_events.recv().await {
                 Ok(event) => {
+                    let notification_event = event.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) =
+                            crate::commands::chat_channel::notify_agent_event(&notification_event)
+                                .await
+                        {
+                            tracing::warn!("Failed to dispatch chat channel event: {}", error);
+                        }
+                    });
                     if app_handle.emit(channels::AGENT_EVENTS, &event).is_err() {
                         break;
                     }

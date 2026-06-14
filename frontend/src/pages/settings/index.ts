@@ -1,8 +1,14 @@
 export { SettingsLayout } from './SettingsLayout';
 export { AgentSettings } from './AgentSettings';
 export { AppearanceSettings } from './AppearanceSettings';
+export { ChatChannelSettings } from './ChatChannelSettings';
 export { EditorSettings } from './EditorSettings';
+export { GeneralSettings } from './GeneralSettings';
+export { InstructionsSettings } from './InstructionsSettings';
 export { McpSettings } from './McpSettings';
+export { ModelProviderSettings } from './ModelProviderSettings';
 export { SkillsSettings } from './SkillsSettings';
 export { ShortcutSettings } from './ShortcutSettings';
 export { SystemSettings } from './SystemSettings';
+export { VersionControlSettings } from './VersionControlSettings';
+export { WebServiceSettings } from './WebServiceSettings';

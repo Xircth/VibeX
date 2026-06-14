@@ -300,6 +300,69 @@ export const tagsApi = {
   },
 };
 
+export interface Instruction {
+  id: string;
+  name: string;
+  content: string;
+  agent_types: string[];
+  source: 'local' | 'official' | string;
+  description: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateInstructionPayload {
+  name: string;
+  content: string;
+  agent_types?: string[] | null;
+}
+
+export interface UpdateInstructionPayload {
+  name?: string | null;
+  content?: string | null;
+  agent_types?: string[] | null;
+}
+
+export const instructionsApi = {
+  listLocal: async (search?: string | null): Promise<Instruction[]> => {
+    return tauriInvoke<Instruction[]>('list_instructions', {
+      search: search ?? null,
+    });
+  },
+
+  listOfficial: async (): Promise<Instruction[]> => {
+    return tauriInvoke<Instruction[]>('list_official_instructions');
+  },
+
+  create: async (payload: CreateInstructionPayload): Promise<Instruction> => {
+    return tauriInvoke<Instruction>('create_instruction', { payload });
+  },
+
+  update: async (
+    instructionId: string,
+    payload: UpdateInstructionPayload
+  ): Promise<Instruction> => {
+    return tauriInvoke<Instruction>('update_instruction', {
+      instructionId,
+      payload,
+    });
+  },
+
+  delete: async (instructionId: string): Promise<void> => {
+    return tauriInvoke<void>('delete_instruction', { instructionId });
+  },
+
+  installOfficial: async (
+    officialId: string,
+    agentTypes?: string[] | null
+  ): Promise<Instruction> => {
+    return tauriInvoke<Instruction>('install_official_instruction', {
+      officialId,
+      agentTypes: agentTypes ?? null,
+    });
+  },
+};
+
 // Images API
 export const imagesApi = {
   upload: async (file: File): Promise<ImageResponse> => {

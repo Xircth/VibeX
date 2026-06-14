@@ -226,10 +226,29 @@ export function buildStreamingTurns(
 
   const blocks: ContentBlock[] = [];
   const resultIndexByToolId = new Map<string, number>();
+  let planIndex = -1;
 
   for (let i = activeStartIndex + 1; i < envelopes.length; i += 1) {
     const event = envelopes[i].event;
     switch (event.kind) {
+      case 'plan': {
+        // The latest plan event supersedes; keep a single plan block.
+        const plan: ContentBlock = {
+          type: 'plan',
+          entries: event.plan.entries.map((content) => ({
+            content,
+            status: 'pending',
+            priority: null,
+          })),
+        };
+        if (planIndex >= 0) {
+          blocks[planIndex] = plan;
+        } else {
+          planIndex = blocks.length;
+          blocks.push(plan);
+        }
+        break;
+      }
       case 'message_chunk':
         if (event.content.kind === 'image') {
           blocks.push({

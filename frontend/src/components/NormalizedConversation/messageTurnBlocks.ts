@@ -1,4 +1,4 @@
-import type { ContentBlock, ImageData } from 'shared/types';
+import type { ContentBlock, ImageData, PlanEntry } from 'shared/types';
 
 /**
  * Render planning for a unified-timeline `MessageTurn` (codeg-aligned model).
@@ -22,6 +22,7 @@ export type TurnRenderItem =
       image: ImageData | null;
       revisedPrompt: string | null;
     }
+  | { kind: 'plan'; entries: PlanEntry[] }
   | { kind: 'tool'; use: ToolUseBlock | null; result: ToolResultBlock | null };
 
 export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
@@ -58,6 +59,9 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
           image: block.image ?? null,
           revisedPrompt: block.revised_prompt ?? null,
         });
+        break;
+      case 'plan':
+        items.push({ kind: 'plan', entries: block.entries });
         break;
       case 'tool_use':
         items.push({

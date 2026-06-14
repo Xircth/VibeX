@@ -4,6 +4,7 @@ import type { MessageTurn } from 'shared/types';
 import { Markdown } from './Markdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
+import { TimelinePlanCard } from './TimelinePlanCard';
 import {
   planTurnBlocks,
   type ToolResultBlock,
@@ -130,6 +131,8 @@ function renderItem(
           Generating image…
         </div>
       );
+    case 'plan':
+      return <TimelinePlanCard key={key} entries={item.entries} />;
     case 'tool':
       return (
         <ToolBlockCard

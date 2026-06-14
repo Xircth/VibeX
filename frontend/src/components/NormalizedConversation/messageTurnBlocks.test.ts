@@ -43,6 +43,21 @@ describe('planTurnBlocks', () => {
     ]);
   });
 
+  it('passes a plan block through as a plan item', () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: 'plan',
+        entries: [{ content: 'Step 1', status: 'completed', priority: null }],
+      },
+    ];
+    expect(planTurnBlocks(blocks)).toEqual([
+      {
+        kind: 'plan',
+        entries: [{ content: 'Step 1', status: 'completed', priority: null }],
+      },
+    ]);
+  });
+
   it('renders an orphan tool_result standalone', () => {
     const blocks: ContentBlock[] = [
       { type: 'tool_result', tool_use_id: 'orphan', output_preview: 'late', is_error: true, agent_stats: null },

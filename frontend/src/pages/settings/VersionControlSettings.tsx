@@ -42,7 +42,7 @@ import {
   SettingsActionBar,
   SettingsPageHeader,
   SettingsSection,
-} from './settings-ui';
+} from './SettingsUi';
 
 function cloneConfig(config: Config): Config {
   return structuredClone(config);

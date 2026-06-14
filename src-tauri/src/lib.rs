@@ -324,6 +324,7 @@ pub fn run() {
             commands::model_provider::update_agent_provider,
             commands::model_provider::delete_agent_provider,
             commands::model_provider::apply_agent_provider,
+            commands::model_provider::preview_agent_provider,
             commands::model_provider::clear_agent_provider_key,
             commands::model_provider::fetch_agent_provider_models,
             commands::chat_channel::list_chat_channels,

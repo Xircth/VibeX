@@ -27,7 +27,7 @@ import {
   SettingsActionBar,
   SettingsPageHeader,
   SettingsSection,
-} from './settings-ui';
+} from './SettingsUi';
 
 const DEFAULT_CONFIG: WebServiceConfig = {
   port: 17891,

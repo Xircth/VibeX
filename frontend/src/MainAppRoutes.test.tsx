@@ -62,10 +62,18 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-agents' }),
     AppearanceSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-appearance' }),
+    ChatChannelSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-chat-channels' }),
     EditorSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-editor' }),
+    GeneralSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-general' }),
+    InstructionsSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-instructions' }),
     McpSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-mcp' }),
+    ModelProviderSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-model-providers' }),
     SettingsLayout: () =>
       React.createElement(
         'div',
@@ -78,6 +86,10 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-skills' }),
     SystemSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-system' }),
+    VersionControlSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-version-control' }),
+    WebServiceSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-web-service' }),
   };
 });
 

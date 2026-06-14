@@ -18,7 +18,7 @@ import {
   SettingsActionBar,
   SettingsPageHeader,
   SettingsSection,
-} from './settings-ui';
+} from './SettingsUi';
 
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();

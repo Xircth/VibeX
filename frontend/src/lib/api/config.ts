@@ -392,12 +392,25 @@ export interface AgentProvider {
   api_url: string;
   default_model: string | null;
   models: string[];
+  /** Provider protocol: "openai_compatible" | "anthropic". */
+  auth_type: string | null;
   /** Codex wire protocol: "chat" | "responses". */
   wire_api: string | null;
+  /** Manual per-file overrides keyed by file id (e.g. "config.toml"). */
+  config_overrides: Record<string, string>;
   has_api_key: boolean;
   is_current: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** A config file rendered for preview / edit before it is written. */
+export interface RenderedConfigFile {
+  /** Stable file basename id, used to key overrides. */
+  id: string;
+  path: string;
+  language: string;
+  content: string;
 }
 
 /** The provider set for one agent, plus its apply capability/target. */
@@ -416,7 +429,10 @@ export interface AgentProviderPayload {
   api_url: string;
   default_model?: string | null;
   models?: string[];
+  auth_type?: string | null;
   wire_api?: string | null;
+  /** Manual per-file overrides keyed by file id. */
+  config_overrides?: Record<string, string>;
   /** Optional; empty/absent leaves a stored key unchanged on update. */
   api_key?: string | null;
 }
@@ -471,6 +487,17 @@ export const modelProviderApi = {
       providerId,
     });
   },
+  preview: async (
+    agentType: string,
+    payload: AgentProviderPayload,
+    providerId: string | null
+  ): Promise<RenderedConfigFile[]> => {
+    return tauriInvoke<RenderedConfigFile[]>('preview_agent_provider', {
+      agentType,
+      payload,
+      providerId,
+    });
+  },
   clearApiKey: async (
     agentType: string,
     providerId: string
@@ -496,7 +523,8 @@ export interface ChatChannel {
   name: string;
   kind: string;
   enabled: boolean;
-  webhook_url: string;
+  /** Type-specific non-secret fields (e.g. chat_id, app_id, webhook_url). */
+  config: Record<string, unknown>;
   has_token: boolean;
   created_at: string;
   updated_at: string;
@@ -506,7 +534,9 @@ export interface ChatChannelPayload {
   name: string;
   kind: string;
   enabled: boolean;
-  webhook_url: string;
+  config: Record<string, unknown>;
+  /** Optional secret; empty/absent leaves a stored token unchanged on update. */
+  token?: string | null;
 }
 
 export interface ChatEventFilter {

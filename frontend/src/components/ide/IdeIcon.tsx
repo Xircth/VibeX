@@ -1,4 +1,4 @@
-import { Code2 } from 'lucide-react';
+import { Code2, FolderOpen } from 'lucide-react';
 import { EditorType, ThemeMode } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
 
@@ -37,6 +37,12 @@ export function getIdeName(editorType: EditorType | undefined | null): string {
       return 'IDE';
     case EditorType.GOOGLE_ANTIGRAVITY:
       return 'Antigravity';
+    case EditorType.FILE_MANAGER:
+      return '文件资源管理器';
+    default:
+      // Guaranteed return keeps this total even if EditorType gains a variant
+      // (the previous switch relied on exhaustiveness and tripped TS2366).
+      return 'IDE';
   }
 }
 
@@ -47,6 +53,10 @@ export function IdeIcon({ editorType, className = 'h-4 w-4' }: IdeIconProps) {
 
   const ideName = getIdeName(editorType);
   let ideIconPath = '';
+
+  if (editorType === EditorType.FILE_MANAGER) {
+    return <FolderOpen className={className} />;
+  }
 
   if (!editorType || editorType === EditorType.CUSTOM) {
     // Generic fallback for other IDEs or no IDE configured

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   CheckCircle2,
+  ChevronRight,
   KeyRound,
   Loader2,
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Server,
   Trash2,
@@ -33,15 +35,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import type { AgentType } from '@/features/agents/types';
 import {
   modelProviderApi,
   type AgentProvider,
   type AgentProviderPayload,
   type AgentProvidersView,
+  type RenderedConfigFile,
 } from '@/lib/api';
 
-import { SettingsPageHeader, SettingsSection } from './settings-ui';
+import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 
 const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: 'claude_code', label: 'Claude Code' },
@@ -53,40 +57,48 @@ const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: 'hermes', label: 'Hermes' },
 ];
 
-const PROVIDER_PRESETS = [
-  { id: 'openai', label: 'OpenAI', api_url: 'https://api.openai.com/v1' },
-  { id: 'deepseek', label: 'DeepSeek', api_url: 'https://api.deepseek.com/v1' },
-  {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    api_url: 'https://openrouter.ai/api/v1',
-  },
-  { id: 'custom', label: '自定义 OpenAI 兼容', api_url: 'https://example.com/v1' },
-] as const;
+const AUTH_OPTIONS = [
+  { value: 'openai_compatible', label: 'OpenAI 兼容' },
+  { value: 'anthropic', label: 'Anthropic' },
+];
+
+function defaultAuthType(agent: AgentType): string {
+  return agent === 'claude_code' ? 'anthropic' : 'openai_compatible';
+}
+
+function defaultApiUrl(authType: string): string {
+  return authType === 'anthropic'
+    ? 'https://api.anthropic.com'
+    : 'https://api.openai.com/v1';
+}
 
 interface ProviderDraft {
   name: string;
   api_url: string;
   api_key: string;
+  auth_type: string;
   default_model: string;
   wire_api: string;
 }
 
-function emptyDraft(): ProviderDraft {
+function emptyDraft(agent: AgentType): ProviderDraft {
+  const auth = defaultAuthType(agent);
   return {
     name: '',
-    api_url: 'https://api.openai.com/v1',
+    api_url: defaultApiUrl(auth),
     api_key: '',
+    auth_type: auth,
     default_model: '',
     wire_api: 'chat',
   };
 }
 
-function draftFromProvider(provider: AgentProvider): ProviderDraft {
+function draftFromProvider(provider: AgentProvider, agent: AgentType): ProviderDraft {
   return {
     name: provider.name,
     api_url: provider.api_url,
     api_key: '',
+    auth_type: provider.auth_type ?? defaultAuthType(agent),
     default_model: provider.default_model ?? '',
     wire_api: provider.wire_api ?? 'chat',
   };
@@ -106,11 +118,19 @@ export function ModelProviderSettings() {
   const [editingProvider, setEditingProvider] = useState<AgentProvider | null>(
     null
   );
-  const [draft, setDraft] = useState<ProviderDraft>(() => emptyDraft());
+  const [draft, setDraft] = useState<ProviderDraft>(() =>
+    emptyDraft('claude_code')
+  );
   const [models, setModels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
+
+  // Config-file preview / edit state.
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewFiles, setPreviewFiles] = useState<RenderedConfigFile[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
 
   const isCodex = selectedAgent === 'codex';
 
@@ -137,39 +157,72 @@ export function ModelProviderSettings() {
 
   const openCreate = () => {
     setEditingProvider(null);
-    setDraft(emptyDraft());
+    setDraft(emptyDraft(selectedAgent));
     setModels([]);
+    setOverrides({});
+    setPreviewFiles([]);
+    setPreviewOpen(false);
     setDialogOpen(true);
   };
 
   const openEdit = (provider: AgentProvider) => {
     setEditingProvider(provider);
-    setDraft(draftFromProvider(provider));
+    setDraft(draftFromProvider(provider, selectedAgent));
     setModels(provider.models ?? []);
+    setOverrides({ ...(provider.config_overrides ?? {}) });
+    setPreviewFiles([]);
+    setPreviewOpen(false);
     setDialogOpen(true);
   };
 
-  const applyPreset = (presetId: string) => {
-    const preset = PROVIDER_PRESETS.find((item) => item.id === presetId);
-    if (!preset) return;
-    setDraft((previous) => ({
-      ...previous,
-      name: previous.name || preset.label,
-      api_url: preset.api_url,
-    }));
-  };
-
-  const payloadFromDraft = useCallback(
-    (current: ProviderDraft): AgentProviderPayload => ({
-      name: current.name,
-      api_url: current.api_url,
-      default_model: current.default_model.trim() || null,
+  const buildPayload = useCallback(
+    (includeOverrides: boolean): AgentProviderPayload => ({
+      name: draft.name,
+      api_url: draft.api_url,
+      default_model: draft.default_model.trim() || null,
       models,
-      wire_api: isCodex ? current.wire_api : null,
-      api_key: current.api_key.trim() ? current.api_key.trim() : null,
+      auth_type: draft.auth_type,
+      wire_api: isCodex ? draft.wire_api : null,
+      api_key: draft.api_key.trim() ? draft.api_key.trim() : null,
+      config_overrides: includeOverrides ? overrides : {},
     }),
-    [isCodex, models]
+    [draft, isCodex, models, overrides]
   );
+
+  // Live preview of the config file(s) the form would write.
+  useEffect(() => {
+    if (!dialogOpen || !previewOpen || !supportsApply) {
+      return;
+    }
+    const payload: AgentProviderPayload = {
+      name: draft.name,
+      api_url: draft.api_url,
+      default_model: draft.default_model.trim() || null,
+      models,
+      auth_type: draft.auth_type,
+      wire_api: isCodex ? draft.wire_api : null,
+      api_key: draft.api_key.trim() ? draft.api_key.trim() : null,
+      config_overrides: {},
+    };
+    const handle = setTimeout(() => {
+      setPreviewLoading(true);
+      void modelProviderApi
+        .preview(selectedAgent, payload, editingProvider?.id ?? null)
+        .then((files) => setPreviewFiles(files))
+        .catch(() => setPreviewFiles([]))
+        .finally(() => setPreviewLoading(false));
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [
+    dialogOpen,
+    previewOpen,
+    supportsApply,
+    selectedAgent,
+    editingProvider,
+    draft,
+    models,
+    isCodex,
+  ]);
 
   const saveProvider = async () => {
     if (!draft.name.trim()) {
@@ -178,7 +231,7 @@ export function ModelProviderSettings() {
     }
     setSaving(true);
     try {
-      const payload = payloadFromDraft(draft);
+      const payload = buildPayload(true);
       const result = editingProvider
         ? await modelProviderApi.update(
             selectedAgent,
@@ -273,6 +326,16 @@ export function ModelProviderSettings() {
     }
   };
 
+  const editFile = (id: string, content: string) =>
+    setOverrides((previous) => ({ ...previous, [id]: content }));
+
+  const resetFile = (id: string) =>
+    setOverrides((previous) => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+
   const sectionDescription = useMemo(() => {
     const agentLabel =
       AGENT_OPTIONS.find((agent) => agent.value === selectedAgent)?.label ??
@@ -282,7 +345,7 @@ export function ModelProviderSettings() {
     }
     return configPath
       ? `应用后写入 ${configPath}（自动备份原文件）。`
-      : `配置 ${agentLabel} 使用的 OpenAI-compatible 供应商。`;
+      : `配置 ${agentLabel} 使用的供应商。`;
   }, [configPath, selectedAgent, supportsApply]);
 
   return (
@@ -292,8 +355,8 @@ export function ModelProviderSettings() {
         description="先选择 Agent，再为其配置供应商；应用后写入该 Agent 的真实配置文件。"
       />
 
-      {/* Agent selector */}
-      <div className="settings-agent-strip mb-4 flex gap-1 overflow-x-auto rounded-lg border p-1">
+      {/* Agent selector — justified across the full width. */}
+      <div className="settings-agent-strip mb-4 flex items-center justify-between gap-1 overflow-x-auto rounded-lg border p-1">
         {AGENT_OPTIONS.map((agent) => {
           const active = agent.value === selectedAgent;
           return (
@@ -329,18 +392,12 @@ export function ModelProviderSettings() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : providers.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
               <Server className="h-8 w-8 text-muted-foreground/60" />
-              <div>
-                <p className="text-sm font-medium">还没有供应商</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  新建一个 OpenAI-compatible 供应商，应用后即可切换该 Agent 的模型接入。
-                </p>
-              </div>
-              <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                新建供应商
-              </Button>
+              <p className="text-sm font-medium">还没有供应商</p>
+              <p className="text-xs text-muted-foreground">
+                点击右上角「新建供应商」，应用后即可切换该 Agent 的模型接入。
+              </p>
             </div>
           ) : (
             <div className="space-y-1">
@@ -362,6 +419,11 @@ export function ModelProviderSettings() {
                         <span className="settings-status-pill-success inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium">
                           <CheckCircle2 className="h-3 w-3" />
                           当前
+                        </span>
+                      ) : null}
+                      {provider.auth_type === 'anthropic' ? (
+                        <span className="settings-status-pill-neutral shrink-0 px-1.5 py-0.5 text-[10px] font-medium">
+                          Anthropic
                         </span>
                       ) : null}
                       {provider.has_api_key ? (
@@ -422,7 +484,7 @@ export function ModelProviderSettings() {
         </SettingsSection>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} className="max-w-xl">
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {editingProvider ? '编辑供应商' : '新建供应商'}
@@ -430,12 +492,12 @@ export function ModelProviderSettings() {
           <DialogDescription>
             {editingProvider
               ? '更新供应商配置与密钥；若该供应商为当前项，保存后会同步写入配置文件。'
-              : '创建新的 OpenAI-compatible 供应商。'}
+              : '为该 Agent 配置一个供应商，支持 OpenAI 兼容与 Anthropic 协议。'}
           </DialogDescription>
         </DialogHeader>
 
         <DialogContent>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="provider-name" className="text-xs">
                 名称
@@ -449,19 +511,24 @@ export function ModelProviderSettings() {
                     name: event.target.value,
                   }))
                 }
-                placeholder="OpenAI"
+                placeholder="自定义供应商"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">预设</Label>
-              <Select value="" onValueChange={applyPreset}>
+              <Label className="text-xs">接口协议</Label>
+              <Select
+                value={draft.auth_type}
+                onValueChange={(value) =>
+                  setDraft((previous) => ({ ...previous, auth_type: value }))
+                }
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="应用供应商预设" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROVIDER_PRESETS.map((preset) => (
-                    <SelectItem key={preset.id} value={preset.id}>
-                      {preset.label}
+                  {AUTH_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -482,7 +549,7 @@ export function ModelProviderSettings() {
                   api_url: event.target.value,
                 }))
               }
-              placeholder="https://api.openai.com/v1"
+              placeholder={defaultApiUrl(draft.auth_type)}
             />
           </div>
 
@@ -536,7 +603,11 @@ export function ModelProviderSettings() {
                     default_model: event.target.value,
                   }))
                 }
-                placeholder="gpt-4o-mini"
+                placeholder={
+                  draft.auth_type === 'anthropic'
+                    ? 'claude-sonnet-4-6'
+                    : 'gpt-4o-mini'
+                }
               />
             </div>
             {isCodex ? (
@@ -607,10 +678,83 @@ export function ModelProviderSettings() {
               )}
             </div>
           ) : null}
+
+          {/* Config file preview + edit (kept in sync with the form). */}
+          {supportsApply ? (
+            <div className="rounded-lg border border-[var(--border-content)]">
+              <button
+                type="button"
+                onClick={() => setPreviewOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+              >
+                <span className="flex items-center gap-2 text-xs font-medium">
+                  <ChevronRight
+                    className={`h-3.5 w-3.5 transition-transform ${
+                      previewOpen ? 'rotate-90' : ''
+                    }`}
+                  />
+                  预览配置文件
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  应用时写入这些文件
+                </span>
+              </button>
+
+              {previewOpen ? (
+                <div className="space-y-3 border-t border-[var(--border-content)] p-3">
+                  {previewLoading && previewFiles.length === 0 ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : previewFiles.length === 0 ? (
+                    <p className="py-2 text-center text-[11px] text-muted-foreground">
+                      填写 API 地址后可预览生成的配置文件。
+                    </p>
+                  ) : (
+                    previewFiles.map((file) => {
+                      const overridden = overrides[file.id] !== undefined;
+                      const value = overrides[file.id] ?? file.content;
+                      return (
+                        <div key={file.id} className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className="truncate text-[11px] font-medium text-muted-foreground"
+                              title={file.path}
+                            >
+                              {file.path}
+                            </span>
+                            {overridden ? (
+                              <button
+                                type="button"
+                                onClick={() => resetFile(file.id)}
+                                className="inline-flex shrink-0 items-center gap-1 text-[11px] text-primary hover:underline"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                恢复与表单同步
+                              </button>
+                            ) : null}
+                          </div>
+                          <Textarea
+                            value={value}
+                            spellCheck={false}
+                            onChange={(event) =>
+                              editFile(file.id, event.target.value)
+                            }
+                            className="min-h-32 font-mono text-[11px] leading-relaxed"
+                          />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </DialogContent>
 
         <DialogFooter>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-8 text-xs"

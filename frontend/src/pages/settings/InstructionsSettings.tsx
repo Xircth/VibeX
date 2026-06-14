@@ -28,7 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { AgentType } from '@/features/agents/types';
 import { cn } from '@/lib/utils';
 import { instructionsApi, type Instruction } from '@/lib/api';
-import { SettingsPageHeader } from './settings-ui';
+import { SettingsPageHeader } from './SettingsUi';
 
 type LeftTab = 'local' | 'market';
 type Selection =

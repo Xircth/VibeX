@@ -78,6 +78,7 @@ export type {
   AgentProvider,
   AgentProvidersView,
   AgentProviderPayload,
+  RenderedConfigFile,
   ProviderModelsResult,
   ChatChannel,
   ChatChannelPayload,

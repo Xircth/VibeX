@@ -38,14 +38,14 @@ import {
   type ChatChannelPayload,
 } from '@/lib/api';
 
-import { SettingsPageHeader, SettingsSection } from './settings-ui';
+import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 
 const CHANNEL_KINDS = [
-  { value: 'webhook', label: 'Webhook' },
+  { value: 'telegram', label: 'Telegram' },
   { value: 'feishu', label: '飞书机器人' },
-  { value: 'dingtalk', label: '钉钉机器人' },
-  { value: 'telegram', label: 'Telegram Bot' },
-  { value: 'slack', label: 'Slack App' },
+  { value: 'weixin', label: '企业微信机器人' },
+  { value: 'qq', label: 'QQ 机器人' },
+  { value: 'webhook', label: '通用 Webhook' },
 ];
 
 const EVENT_OPTIONS = [
@@ -58,33 +58,119 @@ const EVENT_OPTIONS = [
   { value: 'turn_completed', label: '回合完成' },
 ];
 
+interface SecretMeta {
+  label: string;
+  placeholder: string;
+  optional: boolean;
+}
+
+function secretMeta(kind: string): SecretMeta {
+  switch (kind) {
+    case 'telegram':
+      return { label: 'Bot Token', placeholder: '从 @BotFather 获取', optional: false };
+    case 'feishu':
+      return { label: 'App Secret', placeholder: '应用凭证 App Secret', optional: false };
+    case 'weixin':
+      return {
+        label: 'Webhook Key',
+        placeholder: '群机器人 Webhook 链接里的 key 参数',
+        optional: false,
+      };
+    case 'qq':
+      return { label: 'Access Token', placeholder: 'OneBot access_token（可选）', optional: true };
+    default:
+      return { label: 'Bearer Token', placeholder: '可选鉴权 token', optional: true };
+  }
+}
+
 function kindLabel(kind: string): string {
   return CHANNEL_KINDS.find((item) => item.value === kind)?.label ?? kind;
+}
+
+function cfgStr(config: Record<string, unknown> | undefined, key: string): string {
+  const value = config?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function channelSummary(channel: ChatChannel): string {
+  const c = channel.config ?? {};
+  switch (channel.kind) {
+    case 'telegram':
+      return `chat ${cfgStr(c, 'chat_id') || '未设置'}`;
+    case 'feishu':
+      return cfgStr(c, 'app_id') || '未设置 App ID';
+    case 'weixin':
+      return '企业微信群机器人';
+    case 'qq':
+      return `${cfgStr(c, 'message_type') === 'private' ? '私聊' : '群'} ${
+        cfgStr(c, 'target_id') || '未设置'
+      }`;
+    default:
+      return cfgStr(c, 'webhook_url') || '未配置 Webhook';
+  }
 }
 
 interface ChannelDraft {
   name: string;
   kind: string;
   enabled: boolean;
+  token: string;
+  chat_id: string;
+  app_id: string;
+  base_url: string;
+  message_type: string;
+  target_id: string;
   webhook_url: string;
 }
 
 function emptyDraft(): ChannelDraft {
   return {
     name: '',
-    kind: 'webhook',
+    kind: 'telegram',
     enabled: true,
+    token: '',
+    chat_id: '',
+    app_id: '',
+    base_url: 'http://127.0.0.1:3000',
+    message_type: 'group',
+    target_id: '',
     webhook_url: '',
   };
 }
 
 function draftFromChannel(channel: ChatChannel): ChannelDraft {
+  const c = channel.config ?? {};
   return {
     name: channel.name,
     kind: channel.kind,
     enabled: channel.enabled,
-    webhook_url: channel.webhook_url,
+    token: '',
+    chat_id: cfgStr(c, 'chat_id'),
+    app_id: cfgStr(c, 'app_id'),
+    base_url: cfgStr(c, 'base_url') || 'http://127.0.0.1:3000',
+    message_type: cfgStr(c, 'message_type') || 'group',
+    target_id: cfgStr(c, 'target_id'),
+    webhook_url: cfgStr(c, 'webhook_url'),
   };
+}
+
+function buildConfig(draft: ChannelDraft): Record<string, unknown> {
+  switch (draft.kind) {
+    case 'telegram':
+      return { chat_id: draft.chat_id.trim() };
+    case 'feishu':
+      return { app_id: draft.app_id.trim(), chat_id: draft.chat_id.trim() };
+    case 'weixin':
+      return {};
+    case 'qq':
+      return {
+        base_url: draft.base_url.trim(),
+        message_type: draft.message_type,
+        target_id: draft.target_id.trim(),
+      };
+    default:
+      return { webhook_url: draft.webhook_url.trim() };
+  }
 }
 
 function payloadFromDraft(draft: ChannelDraft): ChatChannelPayload {
@@ -92,7 +178,21 @@ function payloadFromDraft(draft: ChannelDraft): ChatChannelPayload {
     name: draft.name,
     kind: draft.kind,
     enabled: draft.enabled,
-    webhook_url: draft.webhook_url,
+    config: buildConfig(draft),
+    token: draft.token.trim() ? draft.token.trim() : null,
+  };
+}
+
+function payloadFromChannel(
+  channel: ChatChannel,
+  enabled: boolean
+): ChatChannelPayload {
+  return {
+    name: channel.name,
+    kind: channel.kind,
+    enabled,
+    config: channel.config ?? {},
+    token: null,
   };
 }
 
@@ -109,7 +209,6 @@ export function ChatChannelSettings() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<ChatChannel | null>(null);
   const [draft, setDraft] = useState<ChannelDraft>(() => emptyDraft());
-  const [tokenDraft, setTokenDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
@@ -119,13 +218,13 @@ export function ChatChannelSettings() {
   const [savingEvents, setSavingEvents] = useState(false);
   const [savingPrefix, setSavingPrefix] = useState(false);
 
+  const secret = secretMeta(draft.kind);
+
   const visibleChannels = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return channels;
-    return channels.filter(
-      (channel) =>
-        channel.name.toLowerCase().includes(query) ||
-        channel.webhook_url.toLowerCase().includes(query)
+    return channels.filter((channel) =>
+      channel.name.toLowerCase().includes(query)
     );
   }, [channels, search]);
 
@@ -154,14 +253,12 @@ export function ChatChannelSettings() {
   const openCreate = () => {
     setEditingChannel(null);
     setDraft(emptyDraft());
-    setTokenDraft('');
     setDialogOpen(true);
   };
 
   const openEdit = (channel: ChatChannel) => {
     setEditingChannel(channel);
     setDraft(draftFromChannel(channel));
-    setTokenDraft('');
     setDialogOpen(true);
   };
 
@@ -192,17 +289,13 @@ export function ChatChannelSettings() {
   };
 
   const toggleEnabled = async (channel: ChatChannel, enabled: boolean) => {
-    // Optimistic toggle persisted immediately.
     setChannels((previous) =>
       previous.map((item) =>
         item.id === channel.id ? { ...item, enabled } : item
       )
     );
     try {
-      await chatChannelApi.update(channel.id, {
-        ...payloadFromDraft(draftFromChannel(channel)),
-        enabled,
-      });
+      await chatChannelApi.update(channel.id, payloadFromChannel(channel, enabled));
     } catch (error) {
       setChannels((previous) =>
         previous.map((item) =>
@@ -232,37 +325,11 @@ export function ChatChannelSettings() {
           }
         },
       },
-      cancel: {
-        label: '取消',
-        onClick: () => toast.dismiss(toastId),
-      },
+      cancel: { label: '取消', onClick: () => toast.dismiss(toastId) },
     });
   };
 
-  const saveToken = async () => {
-    if (!editingChannel) return;
-    setSaving(true);
-    try {
-      const updated = await chatChannelApi.saveToken(
-        editingChannel.id,
-        tokenDraft
-      );
-      setChannels((previous) =>
-        previous.map((channel) =>
-          channel.id === updated.id ? updated : channel
-        )
-      );
-      setEditingChannel(updated);
-      setTokenDraft('');
-      toast.success('Token 已保存');
-    } catch (error) {
-      toast.error('Token 保存失败', { description: errorMessage(error) });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteToken = async () => {
+  const removeToken = async () => {
     if (!editingChannel) return;
     try {
       await chatChannelApi.deleteToken(editingChannel.id);
@@ -273,9 +340,9 @@ export function ChatChannelSettings() {
         )
       );
       setEditingChannel(updated);
-      toast.success('Token 已移除');
+      toast.success('密钥已移除');
     } catch (error) {
-      toast.error('Token 移除失败', { description: errorMessage(error) });
+      toast.error('密钥移除失败', { description: errorMessage(error) });
     }
   };
 
@@ -328,18 +395,21 @@ export function ChatChannelSettings() {
     }
   };
 
+  const updateDraft = (patch: Partial<ChannelDraft>) =>
+    setDraft((previous) => ({ ...previous, ...patch }));
+
   return (
     <div className="settings-content">
       <SettingsPageHeader
         title="消息渠道"
-        description="配置 IM 机器人，接收事件通知，并预留编码活动查询命令入口。"
+        description="配置 IM 机器人，接收编码活动通知。支持 Telegram、飞书、企业微信、QQ 机器人。"
       />
 
       <div className="settings-sections">
         <SettingsSection
           icon={SendHorizontal}
           title="渠道"
-          description={`${channels.length} 个本地配置的 IM 机器人渠道。`}
+          description={`${channels.length} 个本地配置的消息渠道。`}
           action={
             <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <Plus className="mr-1 h-3.5 w-3.5" />
@@ -352,18 +422,12 @@ export function ChatChannelSettings() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : channels.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
               <SendHorizontal className="h-8 w-8 text-muted-foreground/60" />
-              <div>
-                <p className="text-sm font-medium">还没有消息渠道</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  新建渠道后即可接收编码活动通知。
-                </p>
-              </div>
-              <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                新建渠道
-              </Button>
+              <p className="text-sm font-medium">还没有消息渠道</p>
+              <p className="text-xs text-muted-foreground">
+                点击右上角「新建渠道」，选择类型并填写对应凭证。
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -405,12 +469,12 @@ export function ChatChannelSettings() {
                           {channel.has_token ? (
                             <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
                               <KeyRound className="h-3 w-3" />
-                              Token
+                              密钥
                             </span>
                           ) : null}
                         </div>
                         <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                          {channel.webhook_url || '未配置 Webhook'}
+                          {channelSummary(channel)}
                         </div>
                       </button>
 
@@ -522,9 +586,7 @@ export function ChatChannelSettings() {
         <DialogHeader>
           <DialogTitle>{editingChannel ? '编辑渠道' : '新建渠道'}</DialogTitle>
           <DialogDescription>
-            {editingChannel
-              ? '更新机器人配置，并管理访问 Token 与测试发送。'
-              : '创建新的 IM 机器人渠道，用于接收编码活动通知。'}
+            选择渠道类型并填写对应的凭证，保存后可测试发送。
           </DialogDescription>
         </DialogHeader>
 
@@ -537,12 +599,7 @@ export function ChatChannelSettings() {
               <Input
                 id="channel-name"
                 value={draft.name}
-                onChange={(event) =>
-                  setDraft((previous) => ({
-                    ...previous,
-                    name: event.target.value,
-                  }))
-                }
+                onChange={(event) => updateDraft({ name: event.target.value })}
                 placeholder="编码活动通知"
               />
             </div>
@@ -550,9 +607,7 @@ export function ChatChannelSettings() {
               <Label className="text-xs">类型</Label>
               <Select
                 value={draft.kind}
-                onValueChange={(value) =>
-                  setDraft((previous) => ({ ...previous, kind: value }))
-                }
+                onValueChange={(value) => updateDraft({ kind: value })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -568,21 +623,153 @@ export function ChatChannelSettings() {
             </div>
           </div>
 
+          {/* Telegram */}
+          {draft.kind === 'telegram' ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="tg-chat" className="text-xs">
+                Chat ID
+              </Label>
+              <Input
+                id="tg-chat"
+                value={draft.chat_id}
+                onChange={(event) => updateDraft({ chat_id: event.target.value })}
+                placeholder="如 -1001234567890 或个人 chat id"
+              />
+            </div>
+          ) : null}
+
+          {/* Feishu (app mode) */}
+          {draft.kind === 'feishu' ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="fs-app" className="text-xs">
+                  App ID
+                </Label>
+                <Input
+                  id="fs-app"
+                  value={draft.app_id}
+                  onChange={(event) => updateDraft({ app_id: event.target.value })}
+                  placeholder="cli_xxxxxxxx"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fs-chat" className="text-xs">
+                  群 Chat ID
+                </Label>
+                <Input
+                  id="fs-chat"
+                  value={draft.chat_id}
+                  onChange={(event) => updateDraft({ chat_id: event.target.value })}
+                  placeholder="oc_xxxxxxxx"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {/* QQ (OneBot) */}
+          {draft.kind === 'qq' ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="qq-url" className="text-xs">
+                  OneBot 服务地址
+                </Label>
+                <Input
+                  id="qq-url"
+                  value={draft.base_url}
+                  onChange={(event) =>
+                    updateDraft({ base_url: event.target.value })
+                  }
+                  placeholder="http://127.0.0.1:3000"
+                />
+              </div>
+              <div className="grid grid-cols-[160px_minmax(0,1fr)] gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">消息类型</Label>
+                  <Select
+                    value={draft.message_type}
+                    onValueChange={(value) =>
+                      updateDraft({ message_type: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="group">群消息</SelectItem>
+                      <SelectItem value="private">私聊</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="qq-target" className="text-xs">
+                    {draft.message_type === 'private' ? 'QQ 号' : '群号'}
+                  </Label>
+                  <Input
+                    id="qq-target"
+                    value={draft.target_id}
+                    onChange={(event) =>
+                      updateDraft({ target_id: event.target.value })
+                    }
+                    placeholder="数字 ID"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Generic webhook */}
+          {draft.kind === 'webhook' ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="wh-url" className="text-xs">
+                Webhook URL
+              </Label>
+              <Input
+                id="wh-url"
+                value={draft.webhook_url}
+                onChange={(event) =>
+                  updateDraft({ webhook_url: event.target.value })
+                }
+                placeholder="https://example.com/webhook"
+              />
+            </div>
+          ) : null}
+
+          {/* Secret (per type) */}
           <div className="space-y-1.5">
-            <Label htmlFor="channel-webhook" className="text-xs">
-              Webhook URL
+            <Label htmlFor="channel-secret" className="text-xs">
+              {secret.label}
+              {secret.optional ? (
+                <span className="ml-1 text-muted-foreground">（可选）</span>
+              ) : null}
             </Label>
-            <Input
-              id="channel-webhook"
-              value={draft.webhook_url}
-              onChange={(event) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  webhook_url: event.target.value,
-                }))
-              }
-              placeholder="https://example.com/webhook"
-            />
+            <div className="flex gap-2">
+              <Input
+                id="channel-secret"
+                type="password"
+                value={draft.token}
+                onChange={(event) => updateDraft({ token: event.target.value })}
+                placeholder={
+                  editingChannel?.has_token
+                    ? '已保存，留空保持不变'
+                    : secret.placeholder
+                }
+              />
+              {editingChannel?.has_token ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 text-xs"
+                  onClick={() => void removeToken()}
+                >
+                  移除
+                </Button>
+              ) : null}
+            </div>
+            {draft.kind === 'weixin' ? (
+              <p className="text-[11px] text-muted-foreground">
+                企业微信群机器人：群设置 → 添加群机器人，复制 Webhook 链接里 key= 后面的值。
+              </p>
+            ) : null}
           </div>
 
           <div className="flex items-center justify-between gap-4">
@@ -599,66 +786,32 @@ export function ChatChannelSettings() {
               className="settings-switch"
               checked={draft.enabled}
               onCheckedChange={(checked: boolean) =>
-                setDraft((previous) => ({ ...previous, enabled: checked }))
+                updateDraft({ enabled: checked })
               }
             />
           </div>
 
           {editingChannel ? (
-            <div className="space-y-3 rounded-lg border border-[var(--border-content)] bg-[var(--surface-control)] p-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">访问 Token</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    value={tokenDraft}
-                    onChange={(event) => setTokenDraft(event.target.value)}
-                    placeholder={
-                      editingChannel.has_token
-                        ? '已保存，输入新值可替换'
-                        : '可选 token'
-                    }
-                  />
-                  <Button
-                    size="sm"
-                    className="h-8 shrink-0 text-xs"
-                    onClick={() => void saveToken()}
-                    disabled={!tokenDraft.trim() || saving}
-                  >
-                    <KeyRound className="mr-1 h-3.5 w-3.5" />
-                    保存
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0 text-xs"
-                    onClick={() => void deleteToken()}
-                    disabled={!editingChannel.has_token}
-                  >
-                    移除
-                  </Button>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => void testChannel()}
-                disabled={testing || !editingChannel.enabled}
-              >
-                {testing ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <SendHorizontal className="mr-1 h-3.5 w-3.5" />
-                )}
-                测试发送
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-full text-xs"
+              onClick={() => void testChannel()}
+              disabled={testing || !editingChannel.enabled}
+            >
+              {testing ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <SendHorizontal className="mr-1 h-3.5 w-3.5" />
+              )}
+              测试发送
+            </Button>
           ) : null}
         </DialogContent>
 
         <DialogFooter>
           <Button
+            type="button"
             variant="outline"
             size="sm"
             className="h-8 text-xs"

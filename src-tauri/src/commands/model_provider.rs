@@ -6,6 +6,10 @@
 //! `~/.codex/config.toml` + `auth.json`, `~/.gemini/.env` + `settings.json`,
 //! `~/.config/opencode/opencode.json`, `~/.openclaw/openclaw.json`,
 //! `~/.hermes/config.yaml`). Every write is backed up + atomic.
+//!
+//! Writing is a two-step pipeline: `render_*` builds the file contents in
+//! memory (used for the live preview), then `write_rendered` persists them
+//! (honoring any per-file manual override stored with the provider).
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -25,6 +29,8 @@ const SECRETS_FILE_NAME: &str = "model-provider-secrets.json";
 const STORE_VERSION: u32 = 2;
 const BACKUP_KEEP: usize = 10;
 
+const AUTH_ANTHROPIC: &str = "anthropic";
+
 /// Agents whose provider config we know how to manage.
 const SUPPORTED_AGENTS: &[&str] = &[
     "claude_code",
@@ -42,6 +48,10 @@ fn supports_apply(agent: &str) -> bool {
     !matches!(agent, "cline")
 }
 
+fn is_anthropic(record: &ProviderRecord) -> bool {
+    record.auth_type.as_deref() == Some(AUTH_ANTHROPIC)
+}
+
 // ---------------------------------------------------------------------------
 // Persistent model
 // ---------------------------------------------------------------------------
@@ -55,9 +65,15 @@ struct ProviderRecord {
     default_model: Option<String>,
     #[serde(default)]
     models: Vec<String>,
+    /// Provider protocol: "openai_compatible" (default) or "anthropic".
+    #[serde(default)]
+    auth_type: Option<String>,
     /// Codex wire protocol: "chat" (default) or "responses".
     #[serde(default)]
     wire_api: Option<String>,
+    /// Manual per-file overrides keyed by file id (e.g. "config.toml").
+    #[serde(default)]
+    config_overrides: HashMap<String, String>,
     created_at: String,
     updated_at: String,
 }
@@ -114,6 +130,8 @@ struct LegacyProvider {
     agent_types: Vec<String>,
     api_url: String,
     #[serde(default)]
+    auth_type: Option<String>,
+    #[serde(default)]
     default_model: Option<String>,
     #[serde(default)]
     created_at: String,
@@ -132,7 +150,9 @@ pub struct ProviderView {
     api_url: String,
     default_model: Option<String>,
     models: Vec<String>,
+    auth_type: Option<String>,
     wire_api: Option<String>,
+    config_overrides: HashMap<String, String>,
     has_api_key: bool,
     is_current: bool,
     created_at: String,
@@ -148,6 +168,16 @@ pub struct AgentProvidersView {
     config_path: Option<String>,
 }
 
+/// A config file rendered in memory for preview / write.
+#[derive(Debug, Clone, Serialize)]
+pub struct RenderedFile {
+    /// Stable logical id (file basename), used to key manual overrides.
+    id: String,
+    path: String,
+    language: String,
+    content: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderPayload {
     pub name: String,
@@ -157,9 +187,12 @@ pub struct ProviderPayload {
     #[serde(default)]
     pub models: Vec<String>,
     #[serde(default)]
+    pub auth_type: Option<String>,
+    #[serde(default)]
     pub wire_api: Option<String>,
-    /// Optional API key set directly from the form. Empty/absent leaves the
-    /// stored key unchanged on update.
+    #[serde(default)]
+    pub config_overrides: HashMap<String, String>,
+    /// Optional; empty/absent leaves a stored key unchanged on update.
     #[serde(default)]
     pub api_key: Option<String>,
 }
@@ -303,7 +336,9 @@ fn migrate_legacy(
                 api_url: lp.api_url.clone(),
                 default_model: lp.default_model.clone(),
                 models: Vec::new(),
+                auth_type: lp.auth_type.clone(),
                 wire_api: None,
+                config_overrides: HashMap::new(),
                 created_at,
                 updated_at,
             });
@@ -361,7 +396,14 @@ fn record_from_payload(id: String, payload: &ProviderPayload, created_at: String
             .map(|m| m.trim().to_string())
             .filter(|m| !m.is_empty())
             .collect(),
+        auth_type: opt_trim(&payload.auth_type),
         wire_api: opt_trim(&payload.wire_api),
+        config_overrides: payload
+            .config_overrides
+            .iter()
+            .filter(|(_, content)| !content.trim().is_empty())
+            .map(|(id, content)| (id.clone(), content.clone()))
+            .collect(),
         created_at,
         updated_at: Utc::now().to_rfc3339(),
     }
@@ -379,7 +421,9 @@ fn build_view(agent: &str, store: &ProviderStore, secrets: &ProviderSecrets) -> 
             api_url: record.api_url.clone(),
             default_model: record.default_model.clone(),
             models: record.models.clone(),
+            auth_type: record.auth_type.clone(),
             wire_api: record.wire_api.clone(),
+            config_overrides: record.config_overrides.clone(),
             has_api_key: secrets.api_keys.contains_key(&record.id),
             is_current: current.as_deref() == Some(record.id.as_str()),
             created_at: record.created_at.clone(),
@@ -396,7 +440,11 @@ fn build_view(agent: &str, store: &ProviderStore, secrets: &ProviderSecrets) -> 
     }
 }
 
-fn find_record<'a>(store: &'a ProviderStore, agent: &str, provider_id: &str) -> Option<&'a ProviderRecord> {
+fn find_record<'a>(
+    store: &'a ProviderStore,
+    agent: &str,
+    provider_id: &str,
+) -> Option<&'a ProviderRecord> {
     store
         .agents
         .get(agent)
@@ -501,8 +549,7 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
         .map_err(|e| AppError::Internal(format!("Failed to replace {}: {e}", path.display())))
 }
 
-/// Best-effort backup of an existing file before overwriting it. Failures are
-/// logged but never block the write.
+/// Best-effort backup of an existing file before overwriting it.
 fn backup_existing(path: &Path, agent: &str) {
     if !path.exists() {
         return;
@@ -553,7 +600,7 @@ fn rotate_backups(dir: &Path, base: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// Typed read/write helpers per file format
+// Typed read helpers per file format
 // ---------------------------------------------------------------------------
 
 fn read_json_file(path: &Path) -> Result<Value, AppError> {
@@ -567,13 +614,6 @@ fn read_json_file(path: &Path) -> Result<Value, AppError> {
     }
     serde_json::from_str(&raw)
         .map_err(|e| AppError::BadRequest(format!("invalid JSON at {}: {e}", path.display())))
-}
-
-fn write_json_file(path: &Path, agent: &str, value: &Value) -> Result<(), AppError> {
-    backup_existing(path, agent);
-    let serialized = serde_json::to_string_pretty(value)
-        .map_err(|e| AppError::Internal(format!("Failed to serialize JSON: {e}")))?;
-    atomic_write_bytes(path, format!("{serialized}\n").as_bytes())
 }
 
 fn read_toml_file(path: &Path) -> Result<toml::Value, AppError> {
@@ -597,13 +637,6 @@ fn read_toml_file(path: &Path) -> Result<toml::Value, AppError> {
     Ok(parsed)
 }
 
-fn write_toml_file(path: &Path, agent: &str, value: &toml::Value) -> Result<(), AppError> {
-    backup_existing(path, agent);
-    let serialized = toml::to_string_pretty(value)
-        .map_err(|e| AppError::Internal(format!("Failed to serialize TOML: {e}")))?;
-    atomic_write_bytes(path, serialized.as_bytes())
-}
-
 fn read_yaml_file(path: &Path) -> Result<serde_yaml::Value, AppError> {
     if !path.exists() {
         return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
@@ -615,13 +648,6 @@ fn read_yaml_file(path: &Path) -> Result<serde_yaml::Value, AppError> {
     }
     serde_yaml::from_str(&raw)
         .map_err(|e| AppError::BadRequest(format!("invalid YAML at {}: {e}", path.display())))
-}
-
-fn write_yaml_file(path: &Path, agent: &str, value: &serde_yaml::Value) -> Result<(), AppError> {
-    backup_existing(path, agent);
-    let serialized = serde_yaml::to_string(value)
-        .map_err(|e| AppError::Internal(format!("Failed to serialize YAML: {e}")))?;
-    atomic_write_bytes(path, serialized.as_bytes())
 }
 
 fn read_dotenv(path: &Path) -> BTreeMap<String, String> {
@@ -640,13 +666,29 @@ fn read_dotenv(path: &Path) -> BTreeMap<String, String> {
     map
 }
 
-fn write_dotenv(path: &Path, agent: &str, map: &BTreeMap<String, String>) -> Result<(), AppError> {
-    backup_existing(path, agent);
+// Serializers producing the final file content (with trailing newline).
+fn json_content(value: &Value) -> Result<String, AppError> {
+    let serialized = serde_json::to_string_pretty(value)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize JSON: {e}")))?;
+    Ok(format!("{serialized}\n"))
+}
+
+fn toml_content(value: &toml::Value) -> Result<String, AppError> {
+    toml::to_string_pretty(value)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize TOML: {e}")))
+}
+
+fn yaml_content(value: &serde_yaml::Value) -> Result<String, AppError> {
+    serde_yaml::to_string(value)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize YAML: {e}")))
+}
+
+fn dotenv_content(map: &BTreeMap<String, String>) -> String {
     let mut out = String::new();
     for (key, value) in map {
         out.push_str(&format!("{key}={value}\n"));
     }
-    atomic_write_bytes(path, out.as_bytes())
+    out
 }
 
 // JSON object helpers.
@@ -679,22 +721,31 @@ fn ystr(value: &str) -> serde_yaml::Value {
     serde_yaml::Value::String(value.to_string())
 }
 
+fn rendered(id: &str, path: PathBuf, language: &str, content: String) -> RenderedFile {
+    RenderedFile {
+        id: id.to_string(),
+        path: path.display().to_string(),
+        language: language.to_string(),
+        content,
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Per-agent config writers
+// Per-agent renderers (in-memory; no write)
 // ---------------------------------------------------------------------------
 
-fn apply_provider_config(
+fn render_provider_config(
     agent: &str,
     record: &ProviderRecord,
     api_key: Option<&str>,
-) -> Result<Vec<String>, AppError> {
+) -> Result<Vec<RenderedFile>, AppError> {
     match agent {
-        "claude_code" => apply_claude(record, api_key),
-        "codex" => apply_codex(record, api_key),
-        "gemini" => apply_gemini(record, api_key),
-        "open_code" => apply_opencode(record, api_key),
-        "open_claw" => apply_openclaw(record, api_key),
-        "hermes" => apply_hermes(record, api_key),
+        "claude_code" => render_claude(record, api_key),
+        "codex" => render_codex(record, api_key),
+        "gemini" => render_gemini(record, api_key),
+        "open_code" => render_opencode(record, api_key),
+        "open_claw" => render_openclaw(record, api_key),
+        "hermes" => render_hermes(record, api_key),
         "cline" => Err(AppError::BadRequest(
             "Cline 的供应商配置存储在 VS Code 扩展状态中，暂不支持从 VibeX 切换。".to_string(),
         )),
@@ -702,7 +753,7 @@ fn apply_provider_config(
     }
 }
 
-fn apply_claude(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+fn render_claude(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
     let path = home_dir().join(".claude").join("settings.json");
     let mut root = read_json_file(&path)?;
     {
@@ -725,11 +776,15 @@ fn apply_claude(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<St
             env.insert("ANTHROPIC_MODEL".to_string(), Value::String(model.clone()));
         }
     }
-    write_json_file(&path, "claude_code", &root)?;
-    Ok(vec![path.display().to_string()])
+    Ok(vec![rendered(
+        "settings.json",
+        path,
+        "json",
+        json_content(&root)?,
+    )])
 }
 
-fn apply_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+fn render_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
     let home = codex_home_dir();
     let toml_path = home.join("config.toml");
     let auth_path = home.join("auth.json");
@@ -767,22 +822,22 @@ fn apply_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<Str
         );
         providers.insert(key_name, toml::Value::Table(entry));
     }
-    write_toml_file(&toml_path, "codex", &root)?;
-    let mut written = vec![toml_path.display().to_string()];
+    let mut files = vec![rendered("config.toml", toml_path, "toml", toml_content(&root)?)];
 
-    if let Some(key) = api_key {
+    if api_key.is_some() || auth_path.exists() {
         let mut auth = read_json_file(&auth_path)?;
-        ensure_object(&mut auth).insert(
-            "OPENAI_API_KEY".to_string(),
-            Value::String(key.to_string()),
-        );
-        write_json_file(&auth_path, "codex", &auth)?;
-        written.push(auth_path.display().to_string());
+        if let Some(key) = api_key {
+            ensure_object(&mut auth).insert(
+                "OPENAI_API_KEY".to_string(),
+                Value::String(key.to_string()),
+            );
+        }
+        files.push(rendered("auth.json", auth_path, "json", json_content(&auth)?));
     }
-    Ok(written)
+    Ok(files)
 }
 
-fn apply_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+fn render_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
     let dir = home_dir().join(".gemini");
     let env_path = dir.join(".env");
     let settings_path = dir.join("settings.json");
@@ -798,7 +853,6 @@ fn apply_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<St
     if let Some(model) = &record.default_model {
         env.insert("GEMINI_MODEL".to_string(), model.clone());
     }
-    write_dotenv(&env_path, "gemini", &env)?;
 
     let mut settings = read_json_file(&settings_path)?;
     set_nested(
@@ -806,20 +860,24 @@ fn apply_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<St
         &["security", "auth", "selectedType"],
         Value::String("gemini-api-key".to_string()),
     );
-    write_json_file(&settings_path, "gemini", &settings)?;
 
     Ok(vec![
-        env_path.display().to_string(),
-        settings_path.display().to_string(),
+        rendered(".env", env_path, "dotenv", dotenv_content(&env)),
+        rendered("settings.json", settings_path, "json", json_content(&settings)?),
     ])
 }
 
-fn apply_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+fn render_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
     let path = home_dir()
         .join(".config")
         .join("opencode")
         .join("opencode.json");
     let key_name = slug(&record.name);
+    let npm = if is_anthropic(record) {
+        "@ai-sdk/anthropic"
+    } else {
+        "@ai-sdk/openai-compatible"
+    };
     let mut root = read_json_file(&path)?;
     {
         let obj = ensure_object(&mut root);
@@ -831,7 +889,7 @@ fn apply_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<
             models.insert(model, json!({}));
         }
         let block = json!({
-            "npm": "@ai-sdk/openai-compatible",
+            "npm": npm,
             "name": record.name,
             "options": {
                 "baseURL": record.api_url,
@@ -853,13 +911,13 @@ fn apply_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<
             );
         }
     }
-    write_json_file(&path, "open_code", &root)?;
-    Ok(vec![path.display().to_string()])
+    Ok(vec![rendered("opencode.json", path, "json", json_content(&root)?)])
 }
 
-fn apply_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+fn render_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
     let path = home_dir().join(".openclaw").join("openclaw.json");
     let key_name = slug(&record.name);
+    let api_kind = if is_anthropic(record) { "anthropic" } else { "openai" };
     let mut root = read_json_file(&path)?;
     {
         let obj = ensure_object(&mut root);
@@ -873,7 +931,7 @@ fn apply_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<
         if let Some(key) = api_key {
             block.insert("apiKey".to_string(), Value::String(key.to_string()));
         }
-        block.insert("api".to_string(), Value::String("openai".to_string()));
+        block.insert("api".to_string(), Value::String(api_kind.to_string()));
         block.insert("models".to_string(), Value::Array(model_entries));
 
         let models_root = obj
@@ -886,11 +944,10 @@ fn apply_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<
             .or_insert_with(|| Value::Object(Map::new()));
         ensure_object(providers).insert(key_name, Value::Object(block));
     }
-    write_json_file(&path, "open_claw", &root)?;
-    Ok(vec![path.display().to_string()])
+    Ok(vec![rendered("openclaw.json", path, "json", json_content(&root)?)])
 }
 
-fn apply_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+fn render_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<RenderedFile>, AppError> {
     let path = hermes_home_dir().join("config.yaml");
     let mut root = read_yaml_file(&path)?;
     {
@@ -919,7 +976,10 @@ fn apply_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<St
         }
         let mut models_map = serde_yaml::Mapping::new();
         for model in model_list(record) {
-            models_map.insert(ystr(&model), serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+            models_map.insert(
+                ystr(&model),
+                serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+            );
         }
         if !models_map.is_empty() {
             entry.insert(ystr("models"), serde_yaml::Value::Mapping(models_map));
@@ -938,8 +998,27 @@ fn apply_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<St
             None => seq.push(serde_yaml::Value::Mapping(entry)),
         }
     }
-    write_yaml_file(&path, "hermes", &root)?;
-    Ok(vec![path.display().to_string()])
+    Ok(vec![rendered("config.yaml", path, "yaml", yaml_content(&root)?)])
+}
+
+/// Persist rendered files, substituting any manual per-file override.
+fn write_rendered(
+    agent: &str,
+    files: &[RenderedFile],
+    overrides: &HashMap<String, String>,
+) -> Result<Vec<String>, AppError> {
+    let mut written = Vec::new();
+    for file in files {
+        let content = match overrides.get(&file.id) {
+            Some(override_content) if !override_content.trim().is_empty() => override_content.clone(),
+            _ => file.content.clone(),
+        };
+        let path = PathBuf::from(&file.path);
+        backup_existing(&path, agent);
+        atomic_write_bytes(&path, content.as_bytes())?;
+        written.push(file.path.clone());
+    }
+    Ok(written)
 }
 
 // ---------------------------------------------------------------------------
@@ -1030,7 +1109,8 @@ pub async fn update_agent_provider(
     if is_current && supports_apply(&agent) {
         if let Some(record) = find_record(&store, &agent, &provider_id) {
             let key = secrets.api_keys.get(&provider_id).map(String::as_str);
-            apply_provider_config(&agent, record, key)?;
+            let files = render_provider_config(&agent, record, key)?;
+            write_rendered(&agent, &files, &record.config_overrides)?;
         }
     }
 
@@ -1086,13 +1166,44 @@ pub async fn apply_agent_provider(
         .cloned()
         .ok_or_else(|| AppError::NotFound(format!("供应商不存在：{provider_id}")))?;
     let key = secrets.api_keys.get(&provider_id).map(String::as_str);
-    apply_provider_config(&agent, &record, key)?;
+    let files = render_provider_config(&agent, &record, key)?;
+    write_rendered(&agent, &files, &record.config_overrides)?;
 
     if let Some(agent_providers) = store.agents.get_mut(&agent) {
         agent_providers.current = Some(provider_id);
     }
     save_store(&store).await?;
     Ok(build_view(&agent, &store, &secrets))
+}
+
+/// Render (without writing) the config files a payload would produce, for the
+/// live preview. Validation is intentionally lenient so partial form state
+/// still previews.
+#[tauri::command]
+pub async fn preview_agent_provider(
+    agent_type: String,
+    payload: ProviderPayload,
+    provider_id: Option<String>,
+) -> Result<Vec<RenderedFile>, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    if !supports_apply(&agent) {
+        return Ok(Vec::new());
+    }
+
+    let secrets = load_secrets().await?;
+    let id = provider_id.unwrap_or_default();
+    let record = record_from_payload(
+        if id.is_empty() { "preview".to_string() } else { id.clone() },
+        &payload,
+        Utc::now().to_rfc3339(),
+    );
+    let key = match opt_trim(&payload.api_key) {
+        Some(key) => Some(key),
+        None if !id.is_empty() => secrets.api_keys.get(&id).cloned(),
+        None => None,
+    };
+
+    render_provider_config(&agent, &record, key.as_deref())
 }
 
 #[tauri::command]

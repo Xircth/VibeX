@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
-  Bell,
   Download,
   ExternalLink,
   Gauge,
-  Lightbulb,
   Loader2,
   Network,
   PackageCheck,
@@ -13,12 +11,10 @@ import {
   Save,
   Trash2,
   Undo2,
-  Volume2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { SoundFile, type Config } from 'shared/types';
+import { type Config } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { LocalDependencyStatusBadge } from '@/components/settings/LocalDependencyStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,94 +26,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import {
   backupApi,
   configApi,
   systemSettingsApi,
   type BackupPreview,
-  type LocalToolStatus,
   type SystemProxySettings,
   type SystemRenderingSettings,
   type SystemMaintenanceStatus,
 } from '@/lib/api';
-import {
-  getLocalDependencyStatusPresentation,
-  getLocalDependencyVersionSummary,
-} from '@/lib/localDependencyMaintenance';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
-import { toPrettyCase } from '@/utils/string';
 
-import { SettingsSection } from './settings-ui';
+import { SettingsSection } from './SettingsUi';
 
 type SystemSettingsConfig = Config;
-
-const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
-
-Your job is to rewrite the user's draft prompt into a clearer, tighter, more actionable prompt.
-
-Rules:
-1. Be fast: do not explain your reasoning, just produce the optimized prompt.
-2. Be accurate: use the recent conversation context only when it materially improves the prompt.
-3. Optimize the prompt itself, not the conversation summary.
-4. Do not echo or expose session context unless the user's prompt is clearly ambiguous without it.
-5. Do not add sections like "related context" unless absolutely necessary.
-6. Follow basic prompt design principles: clearly state the task, goal, constraints, and any helpful decomposition.
-7. Avoid bloated prompt frameworks, unnecessary ceremony, and redundant wording.
-8. Keep the user's original intent unchanged.
-9. Output JSON only, with exactly one top-level field named EnhancedPrompt.
-10. Do not return Markdown fences, commentary, or any extra fields.
-
-Output shape:
-{"EnhancedPrompt":"..."}`;
-
-const FALLBACK_OPENCODE_MODELS = [
-  'opencode/claude-opus-4-7',
-  'opencode/claude-opus-4-6',
-  'opencode/claude-opus-4-5',
-  'opencode/claude-opus-4-1',
-  'opencode/claude-sonnet-4-6',
-  'opencode/claude-sonnet-4-5',
-  'opencode/claude-sonnet-4',
-  'opencode/claude-haiku-4-5',
-  'opencode/gemini-3.1-pro',
-  'opencode/gemini-3-flash',
-  'opencode/gpt-5.5',
-  'opencode/gpt-5.5-pro',
-  'opencode/gpt-5.4',
-  'opencode/gpt-5.4-pro',
-  'opencode/gpt-5.4-mini',
-  'opencode/gpt-5.4-nano',
-  'opencode/gpt-5.3-codex-spark',
-  'opencode/gpt-5.3-codex',
-  'opencode/gpt-5.2',
-  'opencode/gpt-5.2-codex',
-  'opencode/gpt-5.1',
-  'opencode/gpt-5.1-codex-max',
-  'opencode/gpt-5.1-codex',
-  'opencode/gpt-5.1-codex-mini',
-  'opencode/gpt-5',
-  'opencode/gpt-5-codex',
-  'opencode/gpt-5-nano',
-  'opencode/glm-5.1',
-  'opencode/glm-5',
-  'opencode/minimax-m2.7',
-  'opencode/minimax-m2.5',
-  'opencode/kimi-k2.6',
-  'opencode/kimi-k2.5',
-  'opencode/qwen3.6-plus',
-  'opencode/qwen3.5-plus',
-  'opencode/big-pickle',
-  'opencode/minimax-m2.5-free',
-  'opencode/hy3-preview-free',
-  'opencode/ling-2.6-flash-free',
-  'opencode/trinity-large-preview-free',
-  'opencode/nemotron-3-super-free',
-] as const;
-
-function isFreeOpenCodeModel(model: string): boolean {
-  return model.toLowerCase().includes('-free');
-}
 
 const CLEAR_LOCAL_DATA_TITLE = '清除 VibeX 本地数据';
 const DEFAULT_PROXY_SETTINGS: SystemProxySettings = {
@@ -201,14 +123,10 @@ export function SystemSettings() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [opencodeModels, setOpencodeModels] = useState<string[]>([]);
-  const [opencodeModelsLoading, setOpencodeModelsLoading] = useState(false);
   const [isClearingLocalData, setIsClearingLocalData] = useState(false);
   const [maintenanceStatus, setMaintenanceStatus] =
     useState<SystemMaintenanceStatus | null>(null);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
-  const [dependencyInstallRunning, setDependencyInstallRunning] =
-    useState(false);
   const [proxySettings, setProxySettings] = useState<SystemProxySettings>(
     DEFAULT_PROXY_SETTINGS
   );
@@ -219,8 +137,9 @@ export function SystemSettings() {
   const [proxySaving, setProxySaving] = useState(false);
   const [renderingSettings, setRenderingSettings] =
     useState<SystemRenderingSettings>(DEFAULT_RENDERING_SETTINGS);
-  const [renderingDraft, setRenderingDraft] =
-    useState<SystemRenderingSettings>(DEFAULT_RENDERING_SETTINGS);
+  const [renderingDraft, setRenderingDraft] = useState<SystemRenderingSettings>(
+    DEFAULT_RENDERING_SETTINGS
+  );
   const [renderingLoading, setRenderingLoading] = useState(true);
   const [renderingSaving, setRenderingSaving] = useState(false);
   const [backupPath, setBackupPath] = useState('');
@@ -239,22 +158,6 @@ export function SystemSettings() {
 
     setDraft(structuredClone(config as SystemSettingsConfig));
   }, [config, dirty]);
-
-  const refreshOpencodeModels = useCallback(async () => {
-    setOpencodeModelsLoading(true);
-
-    try {
-      const result = await configApi.listOpencodeModels();
-      setOpencodeModels(result.models);
-      toast.success('模型列表已刷新');
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : '读取模型列表失败，请稍后重试'
-      );
-    } finally {
-      setOpencodeModelsLoading(false);
-    }
-  }, []);
 
   const refreshMaintenanceStatus = useCallback(async () => {
     setMaintenanceLoading(true);
@@ -297,45 +200,6 @@ export function SystemSettings() {
     void refreshSystemSettings();
   }, [refreshSystemSettings]);
 
-  const installDependencies = useCallback(
-    async ({
-      forceUpdate,
-      toolIds,
-      loadingMessage,
-      successMessage,
-      emptyMessage,
-    }: {
-      forceUpdate: boolean;
-      toolIds?: string[];
-      loadingMessage: string;
-      successMessage: string;
-      emptyMessage: string;
-    }) => {
-      setDependencyInstallRunning(true);
-      const toastId = toast.loading(loadingMessage);
-
-      try {
-        const result = await configApi.installSystemDependencies(
-          forceUpdate,
-          toolIds
-        );
-        setMaintenanceStatus(result.status);
-        const count = result.installed_or_updated.length;
-        toast.success(count > 0 ? successMessage : emptyMessage, {
-          id: toastId,
-        });
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : '本地依赖安装失败',
-          { id: toastId }
-        );
-      } finally {
-        setDependencyInstallRunning(false);
-      }
-    },
-    []
-  );
-
   const hasUnsavedChanges = useMemo(() => {
     if (!draft || !config) {
       return false;
@@ -343,38 +207,6 @@ export function SystemSettings() {
 
     return !deepEqual(draft, config);
   }, [config, draft]);
-
-  const promptEnhancementModels = useMemo(() => {
-    const models = [...opencodeModels, ...FALLBACK_OPENCODE_MODELS];
-    const current = draft?.prompt_enhancement_model?.trim();
-    const uniqueModels: string[] = [];
-
-    for (const model of models) {
-      if (model && !uniqueModels.includes(model)) {
-        uniqueModels.push(model);
-      }
-    }
-
-    if (current && !uniqueModels.includes(current)) {
-      uniqueModels.push(current);
-    }
-
-    return uniqueModels.sort((a, b) => {
-      const aIsFree = isFreeOpenCodeModel(a);
-      const bIsFree = isFreeOpenCodeModel(b);
-
-      if (aIsFree !== bIsFree) {
-        return aIsFree ? -1 : 1;
-      }
-
-      return a.localeCompare(b);
-    });
-  }, [draft?.prompt_enhancement_model, opencodeModels]);
-
-  const visibleMaintenanceTools = useMemo(
-    () => (maintenanceStatus?.tools ?? []).filter((tool) => tool.user_visible),
-    [maintenanceStatus?.tools]
-  );
 
   const proxyDirty = useMemo(
     () => !deepEqual(proxyDraft, proxySettings),
@@ -384,19 +216,6 @@ export function SystemSettings() {
   const renderingDirty = useMemo(
     () => !deepEqual(renderingDraft, renderingSettings),
     [renderingDraft, renderingSettings]
-  );
-
-  const handleInstallDependencyGroup = useCallback(
-    async (tool: LocalToolStatus) => {
-      await installDependencies({
-        forceUpdate: false,
-        toolIds: [tool.id],
-        loadingMessage: `正在处理 ${tool.label}...`,
-        successMessage: `${tool.label} 及隐藏依赖已更新。`,
-        emptyMessage: `${tool.label} 当前无需处理。`,
-      });
-    },
-    [installDependencies]
   );
 
   const updateDraft = useCallback(
@@ -430,14 +249,6 @@ export function SystemSettings() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
 
-  const playSound = async (soundFile: SoundFile) => {
-    try {
-      await configApi.playNotificationSound(soundFile);
-    } catch (error) {
-      console.error('Failed to play notification sound:', error);
-    }
-  };
-
   const handleSaveProxy = async () => {
     setProxySaving(true);
     try {
@@ -446,7 +257,9 @@ export function SystemSettings() {
       setProxyDraft(saved);
       toast.success('网络代理设置已保存');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '网络代理设置保存失败');
+      toast.error(
+        error instanceof Error ? error.message : '网络代理设置保存失败'
+      );
     } finally {
       setProxySaving(false);
     }
@@ -527,9 +340,7 @@ export function SystemSettings() {
       setBackupPreview(result.preview);
       setBackupPreviewPath(path);
       toast.success(
-        result.requires_reload
-          ? '备份已恢复，建议重启应用'
-          : '备份已恢复',
+        result.requires_reload ? '备份已恢复，建议重启应用' : '备份已恢复',
         { id: toastId }
       );
     } catch (error) {
@@ -707,7 +518,7 @@ export function SystemSettings() {
               />
             </div>
 
-            <div className="settings-inline-group p-3">
+            <div className="rounded-lg border bg-card p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold">应用版本</div>
@@ -767,7 +578,6 @@ export function SystemSettings() {
                 </div>
               </div>
             </div>
-
           </div>
         </SettingsSection>
 
@@ -835,7 +645,8 @@ export function SystemSettings() {
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                支持 HTTP、HTTPS 和 SOCKS 代理；已运行的代理进程可能需要重启后继承。
+                支持 HTTP、HTTPS 和 SOCKS
+                代理；已运行的代理进程可能需要重启后继承。
               </p>
             </div>
           </div>
@@ -878,7 +689,9 @@ export function SystemSettings() {
                 size="sm"
                 className="h-8 shrink-0 text-xs"
                 onClick={() => void handleSaveRendering()}
-                disabled={renderingLoading || renderingSaving || !renderingDirty}
+                disabled={
+                  renderingLoading || renderingSaving || !renderingDirty
+                }
               >
                 {renderingSaving ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -992,7 +805,10 @@ export function SystemSettings() {
                   <div>版本：{backupPreview.manifest.version}</div>
                   <div>应用：{backupPreview.manifest.app_version}</div>
                   <div>
-                    创建：{new Date(backupPreview.manifest.created_at).toLocaleString()}
+                    创建：
+                    {new Date(
+                      backupPreview.manifest.created_at
+                    ).toLocaleString()}
                   </div>
                 </div>
                 <div className="mt-3 max-h-32 overflow-y-auto rounded-md border border-border/70">
@@ -1071,9 +887,7 @@ export function SystemSettings() {
             </div>
           </div>
           {saveError ? (
-            <p className="mx-auto mt-2 max-w-2xl text-xs text-destructive">
-              {saveError}
-            </p>
+            <p className="mt-2 text-xs text-destructive">{saveError}</p>
           ) : null}
         </div>
       ) : null}

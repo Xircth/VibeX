@@ -112,7 +112,15 @@ describe('buildStreamingTurns', () => {
       promptStarted(1, 'p1'),
       event(2, { kind: 'message_chunk', content: { kind: 'text', text: 'Hello ' } }),
       event(3, { kind: 'message_chunk', content: { kind: 'text', text: 'world' } }),
-      event(4, { kind: 'tool_call', tool_call: { id: 't1', title: 'read', kind: 'read' } }),
+      event(4, {
+        kind: 'tool_call',
+        tool_call: {
+          id: 't1',
+          title: 'read',
+          kind: 'read',
+          input_preview: '{"path":"a.txt"}',
+        },
+      }),
       event(5, {
         kind: 'tool_call_update',
         update: { id: 't1', status: 'in_progress', content: 'partial' },
@@ -125,7 +133,13 @@ describe('buildStreamingTurns', () => {
     expect(turns[0]).toMatchObject({ id: 'live-c-p1', role: 'assistant' });
     expect(turns[0].blocks).toEqual([
       { type: 'text', text: 'Hello world' },
-      { type: 'tool_use', tool_use_id: 't1', tool_name: 'read', input_preview: 'read', meta: null },
+      {
+        type: 'tool_use',
+        tool_use_id: 't1',
+        tool_name: 'read',
+        input_preview: '{"path":"a.txt"}',
+        meta: null,
+      },
       { type: 'tool_result', tool_use_id: 't1', output_preview: 'partial', is_error: false, agent_stats: null },
     ]);
     expect(inProgressToolCallIds.has('t1')).toBe(true);

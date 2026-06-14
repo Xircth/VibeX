@@ -780,7 +780,7 @@ export type AgentTerminalOutputSnapshot = { terminal_id: AgentTerminalId, output
 
 export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args: Array<string>, cwd?: string | null, };
 
-export type AgentToolCall = { id: string, title: string, kind?: string | null, };
+export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, };
 
 export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null, };
 
@@ -867,3 +867,5 @@ export type PlanEntry = { content: string,
  * Normalized: `pending` | `in_progress` | `completed`.
  */
 status: string, priority?: string | null, };
+
+export type DelegationResultSummary = { "kind": "ok", duration_ms?: bigint | null, text_preview?: string | null, } | { "kind": "err", error_code: string, };

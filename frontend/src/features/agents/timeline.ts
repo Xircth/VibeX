@@ -269,7 +269,8 @@ export function buildStreamingTurns(
           type: 'tool_use',
           tool_use_id: event.tool_call.id,
           tool_name: event.tool_call.title,
-          input_preview: event.tool_call.kind ?? null,
+          input_preview:
+            event.tool_call.input_preview ?? event.tool_call.kind ?? null,
           meta: null,
         });
         break;

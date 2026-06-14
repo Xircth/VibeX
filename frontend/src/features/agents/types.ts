@@ -259,7 +259,12 @@ export type AgentEvent =
   | { kind: 'thought_chunk'; content: AgentContentBlock }
   | {
       kind: 'tool_call';
-      tool_call: { id: string; title: string; kind?: string | null };
+      tool_call: {
+        id: string;
+        title: string;
+        kind?: string | null;
+        input_preview?: string | null;
+      };
     }
   | {
       kind: 'tool_call_update';

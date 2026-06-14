@@ -8,16 +8,13 @@ interface SettingsPageHeaderProps {
   description?: string;
 }
 
-export function SettingsPageHeader({
-  title,
-  description,
-}: SettingsPageHeaderProps) {
-  return (
-    <div className="settings-page-header">
-      <h2>{title}</h2>
-      {description ? <p>{description}</p> : null}
-    </div>
-  );
+/**
+ * Page-level title/description header. Intentionally renders nothing: each
+ * settings page is reached via the sidebar item that already names it, so the
+ * in-page heading was redundant. Kept as a no-op so call sites stay valid.
+ */
+export function SettingsPageHeader(_props: SettingsPageHeaderProps) {
+  return null;
 }
 
 interface SettingsSectionProps {
@@ -25,28 +22,48 @@ interface SettingsSectionProps {
   title: string;
   description?: string;
   children: ReactNode;
+  /** Optional extra classes applied to the content card. */
   className?: string;
+  /** Optional action rendered on the right side of the group label. */
+  action?: ReactNode;
 }
 
+/**
+ * Grouped settings section. The label (icon + title + description) sits OUTSIDE
+ * the content card so the card holds only the actual settings — matching the
+ * native macOS grouped-form pattern used across the app.
+ */
 export function SettingsSection({
   icon: Icon,
   title,
   description,
   children,
   className,
+  action,
 }: SettingsSectionProps) {
   return (
-    <section className={`settings-card${className ? ` ${className}` : ''}`}>
-      <div className="settings-card__header">
-        <div>
-          <h3 className="flex items-center gap-2">
-            <Icon className="h-4 w-4" />
+    <section className="settings-section space-y-3">
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <Icon className="h-4 w-4 text-muted-foreground" />
             <span>{title}</span>
           </h3>
-          {description ? <p>{description}</p> : null}
+          {description ? (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
         </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      {children}
+      <div
+        className={`settings-card overflow-hidden rounded-lg border${
+          className ? ` ${className}` : ''
+        }`}
+      >
+        {children}
+      </div>
     </section>
   );
 }

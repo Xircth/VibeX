@@ -93,11 +93,7 @@ export function ShortcutSettings() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold">交互</h2>
-      </div>
-
+    <div className="settings-content">
       <div className="space-y-3">
         <section className="settings-section space-y-3">
           <div className="flex items-center gap-2">
@@ -138,7 +134,7 @@ export function ShortcutSettings() {
             <Keyboard className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-sm font-semibold">快捷键</h3>
           </div>
-          <div className="settings-card overflow-hidden rounded-lg border">
+          <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
             {IMPLEMENTED_SHORTCUTS.map((item) => (
               <div
                 key={item.id}
@@ -172,8 +168,8 @@ export function ShortcutSettings() {
       </div>
 
       {hasUnsavedChanges ? (
-        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
-          <div className="mx-auto flex max-w-2xl items-center justify-between">
+        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 py-3">
+          <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
               有未保存的更改
             </span>

@@ -48,6 +48,8 @@ import {
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { toPrettyCase } from '@/utils/string';
 
+import { SettingsSection } from './settings-ui';
+
 type SystemSettingsConfig = Config;
 
 const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
@@ -188,33 +190,6 @@ function sanitizeDraft(draft: SystemSettingsConfig): SystemSettingsConfig {
       remote_ssh_user: null,
     },
   };
-}
-
-function SettingsSection({
-  icon: Icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="settings-section space-y-3">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">{title}</h2>
-      </div>
-      {description ? (
-        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
-      ) : null}
-      <div className="settings-card overflow-hidden rounded-lg border">
-        {children}
-      </div>
-    </section>
-  );
 }
 
 export function SystemSettings() {
@@ -680,11 +655,7 @@ export function SystemSettings() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold">系统设置</h2>
-      </div>
-
+    <div className="settings-content">
       <div className="space-y-7">
         <SettingsSection
           icon={PackageCheck}
@@ -737,8 +708,8 @@ export function SystemSettings() {
             </div>
 
             <div className="settings-inline-group p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
                   <div className="text-xs font-semibold">应用版本</div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
                     当前版本：{' '}
@@ -797,257 +768,6 @@ export function SystemSettings() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-xs font-semibold">本地依赖</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    npm:{' '}
-                    {maintenanceStatus?.npm.available
-                      ? maintenanceStatus.npm.path
-                      : (maintenanceStatus?.npm.message ?? '未检查')}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() =>
-                      void installDependencies({
-                        forceUpdate: false,
-                        loadingMessage: '正在安装缺失的本地依赖...',
-                        successMessage: '缺失依赖已补齐。',
-                        emptyMessage: '当前没有缺失依赖。',
-                      })
-                    }
-                    disabled={
-                      dependencyInstallRunning ||
-                      maintenanceLoading ||
-                      maintenanceStatus?.npm.available === false
-                    }
-                  >
-                    {dependencyInstallRunning ? (
-                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Download className="mr-1 h-3.5 w-3.5" />
-                    )}
-                    安装缺失
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() =>
-                      void installDependencies({
-                        forceUpdate: true,
-                        loadingMessage: '正在更新全部本地依赖...',
-                        successMessage: '可见依赖及其隐藏依赖已全部更新。',
-                        emptyMessage: '本地依赖已是最新状态。',
-                      })
-                    }
-                    disabled={
-                      dependencyInstallRunning ||
-                      maintenanceLoading ||
-                      maintenanceStatus?.npm.available === false
-                    }
-                  >
-                    <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                    全部更新
-                  </Button>
-                </div>
-              </div>
-
-              <div className="settings-inline-group divide-y divide-border/70 overflow-hidden">
-                {visibleMaintenanceTools.map((tool) => {
-                  const presentation =
-                    getLocalDependencyStatusPresentation(tool);
-
-                  return (
-                    <div
-                      key={tool.id}
-                      className="flex flex-wrap items-start justify-between gap-3 px-3 py-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="truncate text-xs font-medium">
-                            {tool.label}
-                          </div>
-                          <LocalDependencyStatusBadge tool={tool} />
-                        </div>
-                        <div className="mt-1 break-words text-[11px] text-muted-foreground">
-                          {getLocalDependencyVersionSummary(tool)}
-                        </div>
-                      </div>
-                      <div className="shrink-0">
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={() =>
-                            void handleInstallDependencyGroup(tool)
-                          }
-                          disabled={
-                            dependencyInstallRunning ||
-                            maintenanceLoading ||
-                            maintenanceStatus?.npm.available === false ||
-                            !presentation.actionLabel
-                          }
-                        >
-                          {dependencyInstallRunning &&
-                          presentation.actionLabel ? (
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          ) : presentation.actionLabel === '安装' ? (
-                            <Download className="mr-1 h-3 w-3" />
-                          ) : presentation.actionLabel ? (
-                            <RefreshCw className="mr-1 h-3 w-3" />
-                          ) : null}
-                          {presentation.actionLabel ?? '已兼容'}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-                {!maintenanceStatus && !maintenanceLoading ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                    尚未检查本地环境。
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={Lightbulb}
-          title="提示词优化"
-          description="配置输入框提示词优化功能和使用的 OpenCode 模型。"
-        >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-4">
-              <Label
-                htmlFor="prompt-enhancement-enabled"
-                className="cursor-pointer text-xs"
-              >
-                启用提示词优化按钮
-              </Label>
-              <Switch
-                id="prompt-enhancement-enabled"
-                className="settings-switch"
-                checked={draft.prompt_enhancement_enabled ?? false}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({ prompt_enhancement_enabled: checked })
-                }
-              />
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              在会话输入框中显示提示词优化入口，帮助改写当前输入。
-            </p>
-          </div>
-
-          <div className="flex items-center justify-between gap-4">
-            <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-              OpenCode 模型
-            </Label>
-            <div className="flex items-center justify-end gap-2">
-              <Select
-                value={draft.prompt_enhancement_model}
-                onValueChange={(value: string) =>
-                  updateDraft({ prompt_enhancement_model: value })
-                }
-                disabled={promptEnhancementModels.length === 0}
-              >
-                <SelectTrigger className="!w-72">
-                  <SelectValue placeholder="选择模型" />
-                </SelectTrigger>
-                <SelectContent align="start" className="max-h-72">
-                  {promptEnhancementModels.map((model) => {
-                    const isFree = isFreeOpenCodeModel(model);
-
-                    return (
-                      <SelectItem
-                        key={model}
-                        value={model}
-                        textValue={model}
-                        className={
-                          isFree
-                            ? 'settings-status-free font-medium focus:text-[hsl(var(--success))]'
-                            : undefined
-                        }
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="truncate">{model}</span>
-                          {isFree ? (
-                            <span className="settings-status-free-badge shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none">
-                              FREE
-                            </span>
-                          ) : null}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => void refreshOpencodeModels()}
-                disabled={opencodeModelsLoading}
-                title="刷新模型列表"
-                aria-label="刷新模型列表"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${
-                    opencodeModelsLoading ? 'animate-spin' : ''
-                  }`}
-                />
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-4">
-              <Label
-                htmlFor="use-custom-pe-prompt"
-                className="cursor-pointer text-xs"
-              >
-                使用自定义优化提示词
-              </Label>
-              <Switch
-                id="use-custom-pe-prompt"
-                className="settings-switch"
-                checked={draft.prompt_enhancement_prompt != null}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({
-                    prompt_enhancement_prompt: checked
-                      ? DEFAULT_PROMPT_ENHANCEMENT_PROMPT
-                      : null,
-                  })
-                }
-              />
-            </div>
-            <Textarea
-              value={
-                draft.prompt_enhancement_prompt ??
-                DEFAULT_PROMPT_ENHANCEMENT_PROMPT
-              }
-              disabled={draft.prompt_enhancement_prompt == null}
-              onChange={(event) =>
-                updateDraft({
-                  prompt_enhancement_prompt: event.target.value,
-                })
-              }
-              placeholder="输入提示词优化系统提示词"
-              className={`min-h-32 font-mono text-xs ${
-                draft.prompt_enhancement_prompt == null
-                  ? 'cursor-not-allowed opacity-50'
-                  : ''
-              }`}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              关闭自定义时使用内置默认提示词；开启后可直接编辑。
-            </p>
           </div>
         </SettingsSection>
 
@@ -1298,95 +1018,6 @@ export function SystemSettings() {
           </div>
         </SettingsSection>
 
-        <SettingsSection
-          icon={Bell}
-          title="通知"
-          description="配置声音和系统推送通知。"
-        >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <Label htmlFor="sound-enabled" className="cursor-pointer text-xs">
-                声音通知
-              </Label>
-              <Switch
-                id="sound-enabled"
-                className="settings-switch"
-                checked={draft.notifications.sound_enabled}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({
-                    notifications: {
-                      ...draft.notifications,
-                      sound_enabled: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-
-            {draft.notifications.sound_enabled ? (
-              <div className="flex items-center justify-between gap-4">
-                <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                  声音
-                </Label>
-                <div className="flex items-center justify-end gap-2">
-                  <Select
-                    value={draft.notifications.sound_file}
-                    onValueChange={(value: SoundFile) =>
-                      updateDraft({
-                        notifications: {
-                          ...draft.notifications,
-                          sound_file: value,
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger className="!w-36">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      {Object.values(SoundFile).map((soundFile) => (
-                        <SelectItem key={soundFile} value={soundFile}>
-                          {toPrettyCase(soundFile)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={() => playSound(draft.notifications.sound_file)}
-                  >
-                    <Volume2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="flex items-center justify-between gap-4">
-              <Label
-                htmlFor="push-notifications"
-                className="cursor-pointer text-xs"
-              >
-                系统推送通知
-              </Label>
-              <Switch
-                id="push-notifications"
-                className="settings-switch"
-                checked={draft.notifications.push_enabled}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({
-                    notifications: {
-                      ...draft.notifications,
-                      push_enabled: checked,
-                    },
-                  })
-                }
-              />
-            </div>
-          </div>
-        </SettingsSection>
-
         <SettingsSection icon={Trash2} title={CLEAR_LOCAL_DATA_TITLE}>
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm font-medium">清除本机配置和缓存</span>
@@ -1408,8 +1039,8 @@ export function SystemSettings() {
       </div>
 
       {hasUnsavedChanges ? (
-        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 -mx-4 px-4 py-3">
-          <div className="mx-auto flex max-w-2xl items-center justify-between">
+        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 py-3">
+          <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
               设置已修改，保存后生效。
             </span>

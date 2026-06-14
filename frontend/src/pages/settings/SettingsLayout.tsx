@@ -146,15 +146,15 @@ export function SettingsLayout() {
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    'settings-nav-button w-full justify-start',
+                    'settings-nav-button h-8 w-full justify-start text-sm',
                     active && 'is-active'
                   )}
                   type="button"
                   onClick={() => navigateTo(item.path)}
                   aria-current={active ? 'page' : undefined}
                 >
-                  <span className="inline-flex items-center gap-1">
-                    <Icon className="h-3.5 w-3.5" />
+                  <span className="inline-flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
                     {item.label}
                   </span>
                 </Button>

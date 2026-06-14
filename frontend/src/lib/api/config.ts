@@ -385,27 +385,40 @@ export const webServiceApi = {
   },
 };
 
-export interface ModelProvider {
+/** A model provider configured for a specific agent. */
+export interface AgentProvider {
   id: string;
   name: string;
-  agent_types: string[];
   api_url: string;
-  auth_type: string;
   default_model: string | null;
-  config_json: string | null;
-  active_agents: string[];
+  models: string[];
+  /** Codex wire protocol: "chat" | "responses". */
+  wire_api: string | null;
   has_api_key: boolean;
+  is_current: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export interface ModelProviderPayload {
+/** The provider set for one agent, plus its apply capability/target. */
+export interface AgentProvidersView {
+  agent_type: string;
+  providers: AgentProvider[];
+  current: string | null;
+  /** False for agents (e.g. cline) whose config cannot be switched via files. */
+  supports_apply: boolean;
+  /** Primary config file written when applying, for display. */
+  config_path: string | null;
+}
+
+export interface AgentProviderPayload {
   name: string;
-  agent_types: string[];
   api_url: string;
-  auth_type: string;
   default_model?: string | null;
-  config_json?: string | null;
+  models?: string[];
+  wire_api?: string | null;
+  /** Optional; empty/absent leaves a stored key unchanged on update. */
+  api_key?: string | null;
 }
 
 export interface ProviderModelsResult {
@@ -415,55 +428,64 @@ export interface ProviderModelsResult {
 }
 
 export const modelProviderApi = {
-  list: async (): Promise<ModelProvider[]> => {
-    return tauriInvoke<ModelProvider[]>('list_model_providers');
+  list: async (agentType: string): Promise<AgentProvidersView> => {
+    return tauriInvoke<AgentProvidersView>('list_agent_providers', {
+      agentType,
+    });
   },
-  create: async (payload: ModelProviderPayload): Promise<ModelProvider> => {
-    return tauriInvoke<ModelProvider>('create_model_provider', { payload });
+  create: async (
+    agentType: string,
+    payload: AgentProviderPayload
+  ): Promise<AgentProvidersView> => {
+    return tauriInvoke<AgentProvidersView>('create_agent_provider', {
+      agentType,
+      payload,
+    });
   },
   update: async (
+    agentType: string,
     providerId: string,
-    payload: ModelProviderPayload
-  ): Promise<ModelProvider> => {
-    return tauriInvoke<ModelProvider>('update_model_provider', {
+    payload: AgentProviderPayload
+  ): Promise<AgentProvidersView> => {
+    return tauriInvoke<AgentProvidersView>('update_agent_provider', {
+      agentType,
       providerId,
       payload,
     });
   },
-  delete: async (providerId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_model_provider', { providerId });
-  },
-  activate: async (
-    providerId: string,
-    agentType: string
-  ): Promise<ModelProvider> => {
-    return tauriInvoke<ModelProvider>('activate_model_provider', {
-      providerId,
+  delete: async (
+    agentType: string,
+    providerId: string
+  ): Promise<AgentProvidersView> => {
+    return tauriInvoke<AgentProvidersView>('delete_agent_provider', {
       agentType,
-    });
-  },
-  deactivate: async (agentType: string): Promise<void> => {
-    return tauriInvoke<void>('deactivate_model_provider', { agentType });
-  },
-  saveApiKey: async (
-    providerId: string,
-    apiKey: string
-  ): Promise<ModelProvider> => {
-    return tauriInvoke<ModelProvider>('save_model_provider_api_key', {
-      providerId,
-      apiKey,
-    });
-  },
-  hasApiKey: async (providerId: string): Promise<boolean> => {
-    return tauriInvoke<boolean>('get_model_provider_has_api_key', {
       providerId,
     });
   },
-  deleteApiKey: async (providerId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_model_provider_api_key', { providerId });
+  apply: async (
+    agentType: string,
+    providerId: string
+  ): Promise<AgentProvidersView> => {
+    return tauriInvoke<AgentProvidersView>('apply_agent_provider', {
+      agentType,
+      providerId,
+    });
   },
-  fetchModels: async (providerId: string): Promise<ProviderModelsResult> => {
-    return tauriInvoke<ProviderModelsResult>('fetch_provider_models', {
+  clearApiKey: async (
+    agentType: string,
+    providerId: string
+  ): Promise<AgentProvidersView> => {
+    return tauriInvoke<AgentProvidersView>('clear_agent_provider_key', {
+      agentType,
+      providerId,
+    });
+  },
+  fetchModels: async (
+    agentType: string,
+    providerId: string
+  ): Promise<ProviderModelsResult> => {
+    return tauriInvoke<ProviderModelsResult>('fetch_agent_provider_models', {
+      agentType,
       providerId,
     });
   },

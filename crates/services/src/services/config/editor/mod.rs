@@ -53,6 +53,9 @@ pub enum EditorType {
     Xcode,
     GoogleAntigravity,
     Custom,
+    /// The OS file manager (Explorer / Finder / xdg-open) — opens the path's
+    /// location rather than a code editor.
+    FileManager,
 }
 
 impl Default for EditorConfig {
@@ -96,6 +99,15 @@ impl EditorConfig {
                 // Custom editor - use user-provided command or fallback to VSCode
                 self.custom_command.as_deref().unwrap_or("code")
             }
+            EditorType::FileManager => {
+                if cfg!(target_os = "windows") {
+                    "explorer"
+                } else if cfg!(target_os = "macos") {
+                    "open"
+                } else {
+                    "xdg-open"
+                }
+            }
         };
         CommandBuilder::new(base_command)
     }
@@ -129,7 +141,48 @@ impl EditorConfig {
     /// Check if the editor is available on the system.
     /// Uses the same command resolution logic as spawn_local().
     pub async fn check_availability(&self) -> bool {
+        // The OS file manager is always present.
+        if matches!(self.editor_type, EditorType::FileManager) {
+            return true;
+        }
         self.resolve_command().await.is_ok()
+    }
+
+    /// Reveal a path in the OS file manager (Explorer / Finder / xdg-open).
+    fn reveal_in_file_manager(&self, path: &Path) -> Result<(), EditorOpenError> {
+        let fail = |details: String| EditorOpenError::LaunchFailed {
+            executable: "file-manager".to_string(),
+            details,
+            editor_type: EditorType::FileManager,
+        };
+        let no_args: Vec<String> = Vec::new();
+        let mut cmd;
+        if cfg!(target_os = "windows") {
+            cmd = utils::process::new_hidden_std_command("explorer", &no_args);
+            if path.is_file() {
+                // `/select,<file>` highlights the file in its folder.
+                cmd.arg(format!("/select,{}", path.display()));
+            } else {
+                cmd.arg(path);
+            }
+        } else if cfg!(target_os = "macos") {
+            cmd = utils::process::new_hidden_std_command("open", &no_args);
+            if path.is_file() {
+                cmd.arg("-R");
+            }
+            cmd.arg(path);
+        } else {
+            let target = if path.is_file() {
+                path.parent().unwrap_or(path)
+            } else {
+                path
+            };
+            cmd = utils::process::new_hidden_std_command("xdg-open", &no_args);
+            cmd.arg(target);
+        }
+        // Note: Explorer exits non-zero even on success, so we only spawn.
+        cmd.spawn().map_err(|e| fail(e.to_string()))?;
+        Ok(())
     }
 
     fn supports_vscode_extensions(&self) -> bool {
@@ -194,6 +247,10 @@ impl EditorConfig {
     }
 
     pub async fn open_file(&self, path: &Path) -> Result<Option<String>, EditorOpenError> {
+        if matches!(self.editor_type, EditorType::FileManager) {
+            self.reveal_in_file_manager(path)?;
+            return Ok(None);
+        }
         if let Some(url) = self.remote_url(path) {
             return Ok(Some(url));
         }

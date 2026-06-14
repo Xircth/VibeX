@@ -619,9 +619,8 @@
     padding: 0.75rem 1rem;
   }
 
-  .settings-page .settings-card > :not([hidden]) + :not([hidden]) {
-    border-top: 1px solid var(--border-content);
-  }
+  /* Grouped settings cards rely on spacing, not hairlines, to separate rows.
+     Tables that genuinely need row separators opt in with their own divider. */
 
   .settings-page .settings-row {
     display: flex;

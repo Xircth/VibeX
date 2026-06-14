@@ -1,19 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
+  CheckCircle2,
   KeyRound,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
-  Search,
+  Server,
   Trash2,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,17 +33,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import type { AgentType } from '@/features/agents/types';
 import {
   modelProviderApi,
-  type ModelProvider,
-  type ModelProviderPayload,
+  type AgentProvider,
+  type AgentProviderPayload,
+  type AgentProvidersView,
 } from '@/lib/api';
 
-import { SettingsPageHeader } from './settings-ui';
+import { SettingsPageHeader, SettingsSection } from './settings-ui';
 
-const AGENT_OPTIONS: { value: string; label: string }[] = [
+const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
   { value: 'open_code', label: 'OpenCode' },
@@ -43,81 +53,43 @@ const AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'hermes', label: 'Hermes' },
 ];
 
-const ALL_AGENTS = AGENT_OPTIONS.map((agent) => agent.value);
-
 const PROVIDER_PRESETS = [
-  {
-    id: 'openai',
-    label: 'OpenAI',
-    api_url: 'https://api.openai.com/v1',
-    auth_type: 'openai_compatible',
-  },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    api_url: 'https://api.deepseek.com/v1',
-    auth_type: 'openai_compatible',
-  },
+  { id: 'openai', label: 'OpenAI', api_url: 'https://api.openai.com/v1' },
+  { id: 'deepseek', label: 'DeepSeek', api_url: 'https://api.deepseek.com/v1' },
   {
     id: 'openrouter',
     label: 'OpenRouter',
     api_url: 'https://openrouter.ai/api/v1',
-    auth_type: 'openai_compatible',
   },
-  {
-    id: 'custom',
-    label: '自定义 OpenAI 兼容',
-    api_url: 'https://example.com/v1',
-    auth_type: 'openai_compatible',
-  },
+  { id: 'custom', label: '自定义 OpenAI 兼容', api_url: 'https://example.com/v1' },
 ] as const;
 
 interface ProviderDraft {
   name: string;
-  agent_types: string[];
   api_url: string;
-  auth_type: string;
+  api_key: string;
   default_model: string;
-  config_json: string;
+  wire_api: string;
 }
 
 function emptyDraft(): ProviderDraft {
   return {
     name: '',
-    agent_types: [...ALL_AGENTS],
     api_url: 'https://api.openai.com/v1',
-    auth_type: 'openai_compatible',
+    api_key: '',
     default_model: '',
-    config_json: '',
+    wire_api: 'chat',
   };
 }
 
-function draftFromProvider(provider: ModelProvider): ProviderDraft {
+function draftFromProvider(provider: AgentProvider): ProviderDraft {
   return {
     name: provider.name,
-    agent_types: provider.agent_types.length
-      ? provider.agent_types
-      : [...ALL_AGENTS],
     api_url: provider.api_url,
-    auth_type: provider.auth_type,
+    api_key: '',
     default_model: provider.default_model ?? '',
-    config_json: provider.config_json ?? '',
+    wire_api: provider.wire_api ?? 'chat',
   };
-}
-
-function payloadFromDraft(draft: ProviderDraft): ModelProviderPayload {
-  return {
-    name: draft.name,
-    agent_types: draft.agent_types,
-    api_url: draft.api_url,
-    auth_type: draft.auth_type,
-    default_model: draft.default_model.trim() || null,
-    config_json: draft.config_json.trim() || null,
-  };
-}
-
-function sameDraft(a: ProviderDraft, b: ProviderDraft): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function errorMessage(error: unknown): string {
@@ -125,74 +97,56 @@ function errorMessage(error: unknown): string {
 }
 
 export function ModelProviderSettings() {
-  const [providers, setProviders] = useState<ModelProvider[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [draft, setDraft] = useState<ProviderDraft>(() => emptyDraft());
-  const [baseline, setBaseline] = useState<ProviderDraft>(() => emptyDraft());
-  const [apiKeyDraft, setApiKeyDraft] = useState('');
-  const [models, setModels] = useState<string[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<AgentType>('claude_code');
+  const [view, setView] = useState<AgentProvidersView | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Create / edit dialog state.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<AgentProvider | null>(
+    null
+  );
+  const [draft, setDraft] = useState<ProviderDraft>(() => emptyDraft());
+  const [models, setModels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
-  const selectedProvider = useMemo(
-    () => providers.find((provider) => provider.id === selectedId) ?? null,
-    [providers, selectedId]
-  );
+  const isCodex = selectedAgent === 'codex';
 
-  const dirty = useMemo(() => !sameDraft(draft, baseline), [baseline, draft]);
-
-  const visibleProviders = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return providers;
-    return providers.filter(
-      (provider) =>
-        provider.name.toLowerCase().includes(query) ||
-        provider.api_url.toLowerCase().includes(query)
-    );
-  }, [providers, search]);
-
-  const refresh = useCallback(async () => {
+  const load = useCallback(async (agent: AgentType) => {
     setLoading(true);
     try {
-      const list = await modelProviderApi.list();
-      setProviders(list);
-      if (selectedId && !list.some((provider) => provider.id === selectedId)) {
-        setSelectedId(null);
-        const next = emptyDraft();
-        setDraft(next);
-        setBaseline(next);
-      }
+      const result = await modelProviderApi.list(agent);
+      setView(result);
     } catch (error) {
       toast.error('模型供应商加载失败', { description: errorMessage(error) });
+      setView(null);
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void load(selectedAgent);
+  }, [load, selectedAgent]);
 
-  useEffect(() => {
-    if (!selectedProvider) {
-      return;
-    }
-    const next = draftFromProvider(selectedProvider);
-    setDraft(next);
-    setBaseline(next);
-    setApiKeyDraft('');
-    setModels([]);
-  }, [selectedProvider]);
+  const providers = view?.providers ?? [];
+  const supportsApply = view?.supports_apply ?? true;
+  const configPath = view?.config_path ?? null;
 
-  const startCreate = () => {
-    const next = emptyDraft();
-    setSelectedId(null);
-    setDraft(next);
-    setBaseline(next);
-    setApiKeyDraft('');
+  const openCreate = () => {
+    setEditingProvider(null);
+    setDraft(emptyDraft());
     setModels([]);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (provider: AgentProvider) => {
+    setEditingProvider(provider);
+    setDraft(draftFromProvider(provider));
+    setModels(provider.models ?? []);
+    setDialogOpen(true);
   };
 
   const applyPreset = (presetId: string) => {
@@ -202,32 +156,39 @@ export function ModelProviderSettings() {
       ...previous,
       name: previous.name || preset.label,
       api_url: preset.api_url,
-      auth_type: preset.auth_type,
     }));
   };
 
-  const toggleAgent = (agentType: string, checked: boolean) => {
-    setDraft((previous) => ({
-      ...previous,
-      agent_types: checked
-        ? [...new Set([...previous.agent_types, agentType])]
-        : previous.agent_types.filter((agent) => agent !== agentType),
-    }));
-  };
+  const payloadFromDraft = useCallback(
+    (current: ProviderDraft): AgentProviderPayload => ({
+      name: current.name,
+      api_url: current.api_url,
+      default_model: current.default_model.trim() || null,
+      models,
+      wire_api: isCodex ? current.wire_api : null,
+      api_key: current.api_key.trim() ? current.api_key.trim() : null,
+    }),
+    [isCodex, models]
+  );
 
   const saveProvider = async () => {
+    if (!draft.name.trim()) {
+      toast.error('请填写供应商名称');
+      return;
+    }
     setSaving(true);
     try {
       const payload = payloadFromDraft(draft);
-      const provider = selectedProvider
-        ? await modelProviderApi.update(selectedProvider.id, payload)
-        : await modelProviderApi.create(payload);
-      await refresh();
-      setSelectedId(provider.id);
-      const next = draftFromProvider(provider);
-      setDraft(next);
-      setBaseline(next);
-      toast.success(selectedProvider ? '供应商已保存' : '供应商已创建');
+      const result = editingProvider
+        ? await modelProviderApi.update(
+            selectedAgent,
+            editingProvider.id,
+            payload
+          )
+        : await modelProviderApi.create(selectedAgent, payload);
+      setView(result);
+      toast.success(editingProvider ? '供应商已保存' : '供应商已创建');
+      setDialogOpen(false);
     } catch (error) {
       toast.error('供应商保存失败', { description: errorMessage(error) });
     } finally {
@@ -235,75 +196,57 @@ export function ModelProviderSettings() {
     }
   };
 
-  const deleteProvider = () => {
-    if (!selectedProvider) return;
-    const toastId = toast.warning(`删除 ${selectedProvider.name}？`, {
+  const applyProvider = async (provider: AgentProvider) => {
+    setApplyingId(provider.id);
+    try {
+      const result = await modelProviderApi.apply(selectedAgent, provider.id);
+      setView(result);
+      toast.success(`已应用「${provider.name}」`, {
+        description: result.config_path
+          ? `已写入 ${result.config_path}`
+          : undefined,
+      });
+    } catch (error) {
+      toast.error('应用供应商失败', { description: errorMessage(error) });
+    } finally {
+      setApplyingId(null);
+    }
+  };
+
+  const deleteProvider = (provider: AgentProvider) => {
+    const toastId = toast.warning(`删除 ${provider.name}？`, {
       duration: 8000,
       action: {
         label: '删除',
         onClick: async () => {
           toast.dismiss(toastId);
           try {
-            await modelProviderApi.delete(selectedProvider.id);
+            const result = await modelProviderApi.delete(
+              selectedAgent,
+              provider.id
+            );
+            setView(result);
+            if (editingProvider?.id === provider.id) {
+              setDialogOpen(false);
+            }
             toast.success('供应商已删除');
-            startCreate();
-            await refresh();
           } catch (error) {
             toast.error('供应商删除失败', { description: errorMessage(error) });
           }
         },
       },
-      cancel: {
-        label: '取消',
-        onClick: () => toast.dismiss(toastId),
-      },
+      cancel: { label: '取消', onClick: () => toast.dismiss(toastId) },
     });
   };
 
-  const saveApiKey = async () => {
-    if (!selectedProvider) return;
-    setSaving(true);
-    try {
-      const updated = await modelProviderApi.saveApiKey(
-        selectedProvider.id,
-        apiKeyDraft
-      );
-      setProviders((previous) =>
-        previous.map((provider) =>
-          provider.id === updated.id ? updated : provider
-        )
-      );
-      setApiKeyDraft('');
-      toast.success('API Key 已保存');
-    } catch (error) {
-      toast.error('API Key 保存失败', { description: errorMessage(error) });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteApiKey = async () => {
-    if (!selectedProvider) return;
-    try {
-      await modelProviderApi.deleteApiKey(selectedProvider.id);
-      setProviders((previous) =>
-        previous.map((provider) =>
-          provider.id === selectedProvider.id
-            ? { ...provider, has_api_key: false }
-            : provider
-        )
-      );
-      toast.success('API Key 已移除');
-    } catch (error) {
-      toast.error('API Key 移除失败', { description: errorMessage(error) });
-    }
-  };
-
   const fetchModels = async () => {
-    if (!selectedProvider) return;
+    if (!editingProvider) return;
     setModelsLoading(true);
     try {
-      const result = await modelProviderApi.fetchModels(selectedProvider.id);
+      const result = await modelProviderApi.fetchModels(
+        selectedAgent,
+        editingProvider.id
+      );
       setModels(result.models);
       toast.success(`已同步 ${result.models.length} 个模型`);
     } catch (error) {
@@ -313,217 +256,273 @@ export function ModelProviderSettings() {
     }
   };
 
-  const activateForAgent = async (agentType: string) => {
-    if (!selectedProvider) return;
+  const clearApiKey = async () => {
+    if (!editingProvider) return;
     try {
-      await modelProviderApi.activate(selectedProvider.id, agentType);
-      await refresh();
-      toast.success('已设为该 Agent 的默认供应商');
+      const result = await modelProviderApi.clearApiKey(
+        selectedAgent,
+        editingProvider.id
+      );
+      setView(result);
+      setEditingProvider(
+        result.providers.find((p) => p.id === editingProvider.id) ?? null
+      );
+      toast.success('API Key 已移除');
     } catch (error) {
-      toast.error('激活供应商失败', { description: errorMessage(error) });
+      toast.error('API Key 移除失败', { description: errorMessage(error) });
     }
   };
+
+  const sectionDescription = useMemo(() => {
+    const agentLabel =
+      AGENT_OPTIONS.find((agent) => agent.value === selectedAgent)?.label ??
+      selectedAgent;
+    if (!supportsApply) {
+      return `${agentLabel} 的供应商配置由其客户端自行管理，VibeX 暂不支持切换写入。`;
+    }
+    return configPath
+      ? `应用后写入 ${configPath}（自动备份原文件）。`
+      : `配置 ${agentLabel} 使用的 OpenAI-compatible 供应商。`;
+  }, [configPath, selectedAgent, supportsApply]);
 
   return (
     <div className="settings-content">
       <SettingsPageHeader
         title="模型供应商"
-        description="管理 OpenAI-compatible 供应商、密钥、模型列表与 Agent 默认供应商。"
+        description="先选择 Agent，再为其配置供应商；应用后写入该 Agent 的真实配置文件。"
       />
 
-      <div className="grid min-h-[560px] grid-cols-[280px_minmax(0,1fr)] gap-4">
-        <aside className="settings-card flex min-h-0 flex-col">
-          <div className="settings-card__header">
-            <div>
-              <h3>供应商</h3>
-              <p>{providers.length} 个本地配置</p>
-            </div>
-            <Button
-              size="sm"
-              className="h-8 text-xs"
-              onClick={startCreate}
+      {/* Agent selector */}
+      <div className="settings-agent-strip mb-4 flex gap-1 overflow-x-auto rounded-lg border p-1">
+        {AGENT_OPTIONS.map((agent) => {
+          const active = agent.value === selectedAgent;
+          return (
+            <button
+              key={agent.value}
+              type="button"
+              onClick={() => setSelectedAgent(agent.value)}
+              className={`settings-agent-tab flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                active ? 'is-active' : ''
+              }`}
             >
+              <AgentTypeIcon agentType={agent.value} className="h-4 w-4" />
+              {agent.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="settings-sections">
+        <SettingsSection
+          icon={Server}
+          title="供应商"
+          description={sectionDescription}
+          action={
+            <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <Plus className="mr-1 h-3.5 w-3.5" />
-              新建
+              新建供应商
             </Button>
-          </div>
-
-          <div className="border-b border-border/70 p-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索供应商"
-                className="pl-8"
-              />
+          }
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : providers.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <Server className="h-8 w-8 text-muted-foreground/60" />
+              <div>
+                <p className="text-sm font-medium">还没有供应商</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  新建一个 OpenAI-compatible 供应商，应用后即可切换该 Agent 的模型接入。
+                </p>
               </div>
-            ) : visibleProviders.length === 0 ? (
-              <div className="settings-empty-state">暂无供应商</div>
-            ) : (
-              visibleProviders.map((provider) => {
-                const selected = provider.id === selectedId;
-                return (
+              <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                新建供应商
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {providers.map((provider) => (
+                <div
+                  key={provider.id}
+                  className="group flex items-center gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-[var(--surface-control-hover)]"
+                >
                   <button
-                    key={provider.id}
                     type="button"
-                    onClick={() => setSelectedId(provider.id)}
-                    className={`mb-1 w-full rounded-md px-3 py-2 text-left transition-colors ${
-                      selected
-                        ? 'bg-primary/10 text-foreground'
-                        : 'hover:bg-muted/70'
-                    }`}
+                    onClick={() => openEdit(provider)}
+                    className="min-w-0 flex-1 text-left"
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-medium">
                         {provider.name}
                       </span>
+                      {provider.is_current ? (
+                        <span className="settings-status-pill-success inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium">
+                          <CheckCircle2 className="h-3 w-3" />
+                          当前
+                        </span>
+                      ) : null}
                       {provider.has_api_key ? (
-                        <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+                          <KeyRound className="h-3 w-3" />
+                          Key
+                        </span>
                       ) : null}
                     </div>
-                    <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                       {provider.api_url}
+                      {provider.default_model
+                        ? ` · ${provider.default_model}`
+                        : ''}
                     </div>
-                    {provider.active_agents.length ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {provider.active_agents.map((agent) => (
-                          <span
-                            key={agent}
-                            className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary"
-                          >
-                            {agent}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
                   </button>
-                );
-              })
-            )}
-          </div>
-        </aside>
 
-        <section className="settings-card min-w-0 overflow-hidden">
-          <div className="settings-card__header">
-            <div>
-              <h3>{selectedProvider ? selectedProvider.name : '新建供应商'}</h3>
-              <p>
-                {selectedProvider
-                  ? '编辑供应商配置并管理密钥'
-                  : '创建新的 OpenAI-compatible 供应商'}
-              </p>
+                  {supportsApply ? (
+                    <Button
+                      variant={provider.is_current ? 'outline' : 'default'}
+                      size="sm"
+                      className="h-8 shrink-0 text-xs"
+                      onClick={() => void applyProvider(provider)}
+                      disabled={applyingId === provider.id}
+                    >
+                      {applyingId === provider.id ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {provider.is_current ? '重新应用' : '应用'}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                    onClick={() => openEdit(provider)}
+                    title="编辑"
+                    aria-label="编辑供应商"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                    onClick={() => deleteProvider(provider)}
+                    title="删除"
+                    aria-label="删除供应商"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
             </div>
+          )}
+        </SettingsSection>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>
+            {editingProvider ? '编辑供应商' : '新建供应商'}
+          </DialogTitle>
+          <DialogDescription>
+            {editingProvider
+              ? '更新供应商配置与密钥；若该供应商为当前项，保存后会同步写入配置文件。'
+              : '创建新的 OpenAI-compatible 供应商。'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogContent>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="provider-name" className="text-xs">
+                名称
+              </Label>
+              <Input
+                id="provider-name"
+                value={draft.name}
+                onChange={(event) =>
+                  setDraft((previous) => ({
+                    ...previous,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="OpenAI"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">预设</Label>
+              <Select value="" onValueChange={applyPreset}>
+                <SelectTrigger>
+                  <SelectValue placeholder="应用供应商预设" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVIDER_PRESETS.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="provider-url" className="text-xs">
+              API 地址
+            </Label>
+            <Input
+              id="provider-url"
+              value={draft.api_url}
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  api_url: event.target.value,
+                }))
+              }
+              placeholder="https://api.openai.com/v1"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="provider-key" className="text-xs">
+              API 密钥
+            </Label>
             <div className="flex gap-2">
-              {selectedProvider ? (
+              <Input
+                id="provider-key"
+                type="password"
+                value={draft.api_key}
+                onChange={(event) =>
+                  setDraft((previous) => ({
+                    ...previous,
+                    api_key: event.target.value,
+                  }))
+                }
+                placeholder={
+                  editingProvider?.has_api_key
+                    ? '已保存，留空保持不变'
+                    : '输入 API Key'
+                }
+              />
+              {editingProvider?.has_api_key ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 text-xs"
-                  onClick={deleteProvider}
+                  className="h-8 shrink-0 text-xs"
+                  onClick={() => void clearApiKey()}
                 >
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
-                  删除
+                  移除
                 </Button>
               ) : null}
-              <Button
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => void saveProvider()}
-                disabled={saving || (!dirty && !!selectedProvider)}
-              >
-                {saving ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3.5 w-3.5" />
-                )}
-                保存
-              </Button>
             </div>
           </div>
 
-          <div className="space-y-4 p-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="provider-name" className="text-xs">
-                  名称
-                </Label>
-                <Input
-                  id="provider-name"
-                  value={draft.name}
-                  onChange={(event) =>
-                    setDraft((previous) => ({
-                      ...previous,
-                      name: event.target.value,
-                    }))
-                  }
-                  placeholder="OpenAI"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">预设</Label>
-                <Select value="" onValueChange={applyPreset}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="应用供应商预设" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PROVIDER_PRESETS.map((preset) => (
-                      <SelectItem key={preset.id} value={preset.id}>
-                        {preset.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="provider-url" className="text-xs">
-                  API 地址
-                </Label>
-                <Input
-                  id="provider-url"
-                  value={draft.api_url}
-                  onChange={(event) =>
-                    setDraft((previous) => ({
-                      ...previous,
-                      api_url: event.target.value,
-                    }))
-                  }
-                  placeholder="https://api.openai.com/v1"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">认证类型</Label>
-                <Select
-                  value={draft.auth_type}
-                  onValueChange={(value) =>
-                    setDraft((previous) => ({ ...previous, auth_type: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai_compatible">
-                      OpenAI Compatible
-                    </SelectItem>
-                    <SelectItem value="anthropic">Anthropic</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
+          <div
+            className={`grid gap-3 ${isCodex ? 'grid-cols-[minmax(0,1fr)_160px]' : 'grid-cols-1'}`}
+          >
             <div className="space-y-1.5">
               <Label htmlFor="provider-model" className="text-xs">
                 默认模型
@@ -540,162 +539,101 @@ export function ModelProviderSettings() {
                 placeholder="gpt-4o-mini"
               />
             </div>
-
-            <div className="space-y-2">
-              <Label className="text-xs">可用 Agent</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {AGENT_OPTIONS.map((agent) => {
-                  const checked = draft.agent_types.includes(agent.value);
-                  return (
-                    <button
-                      key={agent.value}
-                      type="button"
-                      onClick={() => toggleAgent(agent.value, !checked)}
-                      className="flex items-center gap-2 rounded-md border border-border/70 px-2.5 py-2 text-left text-xs hover:bg-muted/70"
-                    >
-                      <Checkbox checked={checked} className="pointer-events-none" />
-                      <AgentTypeIcon
-                        agentType={agent.value as AgentType}
-                        className="h-4 w-4"
-                      />
-                      <span>{agent.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="provider-json" className="text-xs">
-                自定义 JSON
-              </Label>
-              <Textarea
-                id="provider-json"
-                value={draft.config_json}
-                onChange={(event) =>
-                  setDraft((previous) => ({
-                    ...previous,
-                    config_json: event.target.value,
-                  }))
-                }
-                placeholder='{"headers":{"X-Provider":"vibex"}}'
-                className="min-h-24 font-mono text-xs"
-              />
-            </div>
-
-            {selectedProvider ? (
-              <div className="space-y-4 border-t border-border/70 pt-4">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">API Key</Label>
-                    <Input
-                      type="password"
-                      value={apiKeyDraft}
-                      onChange={(event) => setApiKeyDraft(event.target.value)}
-                      placeholder={
-                        selectedProvider.has_api_key
-                          ? '已保存，输入新值可替换'
-                          : '输入 API Key'
-                      }
-                    />
-                  </div>
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => void saveApiKey()}
-                    disabled={!apiKeyDraft.trim() || saving}
-                  >
-                    <KeyRound className="mr-1 h-3.5 w-3.5" />
-                    保存密钥
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => void deleteApiKey()}
-                    disabled={!selectedProvider.has_api_key}
-                  >
-                    移除
-                  </Button>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="text-xs font-semibold">模型列表</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        从供应商的 OpenAI-compatible `/v1/models` 同步。
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => void fetchModels()}
-                      disabled={modelsLoading}
-                    >
-                      {modelsLoading ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      同步模型
-                    </Button>
-                  </div>
-                  {models.length ? (
-                    <div className="max-h-32 overflow-y-auto rounded-md border border-border/70">
-                      {models.slice(0, 20).map((model) => (
-                        <button
-                          key={model}
-                          type="button"
-                          className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-muted/70"
-                          onClick={() =>
-                            setDraft((previous) => ({
-                              ...previous,
-                              default_model: model,
-                            }))
-                          }
-                        >
-                          <span className="min-w-0 truncate">{model}</span>
-                          {draft.default_model === model ? (
-                            <Check className="h-3.5 w-3.5 text-primary" />
-                          ) : null}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold">Agent 默认供应商</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {AGENT_OPTIONS.map((agent) => {
-                      const active = selectedProvider.active_agents.includes(
-                        agent.value
-                      );
-                      return (
-                        <Button
-                          key={agent.value}
-                          variant={active ? 'default' : 'outline'}
-                          size="sm"
-                          className="h-8 justify-start text-xs"
-                          onClick={() => void activateForAgent(agent.value)}
-                        >
-                          <AgentTypeIcon
-                            agentType={agent.value as AgentType}
-                            className="mr-1 h-3.5 w-3.5"
-                          />
-                          {agent.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
+            {isCodex ? (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Wire API</Label>
+                <Select
+                  value={draft.wire_api}
+                  onValueChange={(value) =>
+                    setDraft((previous) => ({ ...previous, wire_api: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="chat">chat</SelectItem>
+                    <SelectItem value="responses">responses</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             ) : null}
           </div>
-        </section>
-      </div>
+
+          {editingProvider ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs">模型列表</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => void fetchModels()}
+                  disabled={modelsLoading}
+                >
+                  {modelsLoading ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  同步模型
+                </Button>
+              </div>
+              {models.length ? (
+                <div className="max-h-32 overflow-y-auto rounded-md border border-[var(--border-content)]">
+                  {models.slice(0, 30).map((model) => (
+                    <button
+                      key={model}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-control-hover)]"
+                      onClick={() =>
+                        setDraft((previous) => ({
+                          ...previous,
+                          default_model: model,
+                        }))
+                      }
+                    >
+                      <span className="min-w-0 truncate">{model}</span>
+                      {draft.default_model === model ? (
+                        <Check className="h-3.5 w-3.5 text-primary" />
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  从供应商的 `/v1/models` 同步可用模型，点击即可设为默认模型。
+                </p>
+              )}
+            </div>
+          ) : null}
+        </DialogContent>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => setDialogOpen(false)}
+          >
+            取消
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => void saveProvider()}
+            disabled={saving}
+          >
+            {saving ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="mr-1 h-3.5 w-3.5" />
+            )}
+            {editingProvider ? '保存' : '创建'}
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

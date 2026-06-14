@@ -1,65 +1,167 @@
-use std::{collections::HashMap, path::PathBuf};
+//! Per-agent model provider configuration.
+//!
+//! Aligned with the cc-switch model: providers are organized **per agent**, one
+//! provider can be marked "current", and applying a provider writes its config
+//! into that agent CLI's real config file (`~/.claude/settings.json`,
+//! `~/.codex/config.toml` + `auth.json`, `~/.gemini/.env` + `settings.json`,
+//! `~/.config/opencode/opencode.json`, `~/.openclaw/openclaw.json`,
+//! `~/.hermes/config.yaml`). Every write is backed up + atomic.
+
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+};
 
 use chrono::Utc;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
 use crate::error::AppError;
 
 const SETTINGS_FILE_NAME: &str = "model-provider-settings.json";
 const SECRETS_FILE_NAME: &str = "model-provider-secrets.json";
+const STORE_VERSION: u32 = 2;
+const BACKUP_KEEP: usize = 10;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelProvider {
-    pub id: String,
-    pub name: String,
-    pub agent_types: Vec<String>,
-    pub api_url: String,
-    pub auth_type: String,
-    pub default_model: Option<String>,
-    pub config_json: Option<String>,
-    pub active_agents: Vec<String>,
-    pub has_api_key: bool,
-    pub created_at: String,
-    pub updated_at: String,
+/// Agents whose provider config we know how to manage.
+const SUPPORTED_AGENTS: &[&str] = &[
+    "claude_code",
+    "codex",
+    "gemini",
+    "open_code",
+    "open_claw",
+    "hermes",
+    "cline",
+];
+
+/// `cline` keeps its provider config inside the VS Code extension's global
+/// state, not a switchable file, so file-based apply is unavailable for it.
+fn supports_apply(agent: &str) -> bool {
+    !matches!(agent, "cline")
 }
 
+// ---------------------------------------------------------------------------
+// Persistent model
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModelProviderRecord {
-    pub id: String,
-    pub name: String,
-    pub agent_types: Vec<String>,
-    pub api_url: String,
-    pub auth_type: String,
-    pub default_model: Option<String>,
-    pub config_json: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
+struct ProviderRecord {
+    id: String,
+    name: String,
+    api_url: String,
+    #[serde(default)]
+    default_model: Option<String>,
+    #[serde(default)]
+    models: Vec<String>,
+    /// Codex wire protocol: "chat" (default) or "responses".
+    #[serde(default)]
+    wire_api: Option<String>,
+    created_at: String,
+    updated_at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct ModelProviderStore {
+struct AgentProviders {
     #[serde(default)]
-    providers: Vec<ModelProviderRecord>,
+    providers: Vec<ProviderRecord>,
     #[serde(default)]
-    active_by_agent: HashMap<String, String>,
+    current: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProviderStore {
+    #[serde(default = "default_version")]
+    version: u32,
+    #[serde(default)]
+    agents: HashMap<String, AgentProviders>,
+}
+
+impl Default for ProviderStore {
+    fn default() -> Self {
+        Self {
+            version: STORE_VERSION,
+            agents: HashMap::new(),
+        }
+    }
+}
+
+fn default_version() -> u32 {
+    STORE_VERSION
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct ModelProviderSecrets {
+struct ProviderSecrets {
     #[serde(default)]
     api_keys: HashMap<String, String>,
 }
 
+// Legacy (v1) shape, kept only for one-time migration.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct LegacyStore {
+    #[serde(default)]
+    providers: Vec<LegacyProvider>,
+    #[serde(default)]
+    active_by_agent: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
-pub struct ModelProviderPayload {
+struct LegacyProvider {
+    id: String,
+    name: String,
+    #[serde(default)]
+    agent_types: Vec<String>,
+    api_url: String,
+    #[serde(default)]
+    default_model: Option<String>,
+    #[serde(default)]
+    created_at: String,
+    #[serde(default)]
+    updated_at: String,
+}
+
+// ---------------------------------------------------------------------------
+// DTOs (frontend-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderView {
+    id: String,
+    name: String,
+    api_url: String,
+    default_model: Option<String>,
+    models: Vec<String>,
+    wire_api: Option<String>,
+    has_api_key: bool,
+    is_current: bool,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentProvidersView {
+    agent_type: String,
+    providers: Vec<ProviderView>,
+    current: Option<String>,
+    supports_apply: bool,
+    config_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProviderPayload {
     pub name: String,
-    pub agent_types: Vec<String>,
     pub api_url: String,
-    pub auth_type: String,
+    #[serde(default)]
     pub default_model: Option<String>,
-    pub config_json: Option<String>,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub wire_api: Option<String>,
+    /// Optional API key set directly from the form. Empty/absent leaves the
+    /// stored key unchanged on update.
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +181,10 @@ struct OpenAiModel {
     id: String,
 }
 
+// ---------------------------------------------------------------------------
+// Store IO (VibeX-owned settings + secrets)
+// ---------------------------------------------------------------------------
+
 fn settings_path() -> PathBuf {
     utils::assets::asset_dir().join(SETTINGS_FILE_NAME)
 }
@@ -87,138 +193,241 @@ fn secrets_path() -> PathBuf {
     utils::assets::asset_dir().join(SECRETS_FILE_NAME)
 }
 
-async fn read_json<T>(path: PathBuf) -> Result<T, AppError>
+async fn read_store_json<T>(path: PathBuf) -> Result<T, AppError>
 where
     T: Default + for<'de> Deserialize<'de>,
 {
     if !path.exists() {
         return Ok(T::default());
     }
-
-    let content = tokio::fs::read_to_string(&path).await.map_err(|error| {
-        AppError::Internal(format!("Failed to read {}: {error}", path.display()))
-    })?;
+    let content = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    if content.trim().is_empty() {
+        return Ok(T::default());
+    }
     serde_json::from_str(&content)
-        .map_err(|error| AppError::Internal(format!("Invalid {}: {error}", path.display())))
+        .map_err(|e| AppError::Internal(format!("Invalid {}: {e}", path.display())))
 }
 
-async fn write_json<T>(path: PathBuf, value: &T) -> Result<(), AppError>
+async fn write_store_json<T>(path: PathBuf, value: &T) -> Result<(), AppError>
 where
     T: Serialize,
 {
     if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            AppError::Internal(format!("Failed to create {}: {error}", parent.display()))
-        })?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to create {}: {e}", parent.display())))?;
     }
     let content = serde_json::to_string_pretty(value)
-        .map_err(|error| AppError::Internal(format!("Failed to serialize JSON: {error}")))?;
+        .map_err(|e| AppError::Internal(format!("Failed to serialize JSON: {e}")))?;
     tokio::fs::write(&path, content)
         .await
-        .map_err(|error| AppError::Internal(format!("Failed to write {}: {error}", path.display())))
+        .map_err(|e| AppError::Internal(format!("Failed to write {}: {e}", path.display())))
 }
 
-async fn load_store() -> Result<ModelProviderStore, AppError> {
-    read_json(settings_path()).await
+async fn save_store(store: &ProviderStore) -> Result<(), AppError> {
+    write_store_json(settings_path(), store).await
 }
 
-async fn save_store(store: &ModelProviderStore) -> Result<(), AppError> {
-    write_json(settings_path(), store).await
+async fn load_secrets() -> Result<ProviderSecrets, AppError> {
+    read_store_json(secrets_path()).await
 }
 
-async fn load_secrets() -> Result<ModelProviderSecrets, AppError> {
-    read_json(secrets_path()).await
+async fn save_secrets(secrets: &ProviderSecrets) -> Result<(), AppError> {
+    write_store_json(secrets_path(), secrets).await
 }
 
-async fn save_secrets(secrets: &ModelProviderSecrets) -> Result<(), AppError> {
-    write_json(secrets_path(), secrets).await
-}
+/// Load the store, migrating a legacy (v1) file to the per-agent layout on the
+/// fly (and persisting the migration + remapped secrets).
+async fn load_store() -> Result<ProviderStore, AppError> {
+    let path = settings_path();
+    if !path.exists() {
+        return Ok(ProviderStore::default());
+    }
+    let content = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    if content.trim().is_empty() {
+        return Ok(ProviderStore::default());
+    }
+    let value: Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Internal(format!("Invalid {}: {e}", path.display())))?;
 
-fn normalize_payload(payload: ModelProviderPayload) -> Result<ModelProviderPayload, AppError> {
-    let name = payload.name.trim().to_string();
-    if name.is_empty() {
-        return Err(AppError::BadRequest(
-            "Provider name cannot be empty".to_string(),
-        ));
+    if value.get("agents").is_some() {
+        return serde_json::from_value(value)
+            .map_err(|e| AppError::Internal(format!("Invalid {}: {e}", path.display())));
     }
 
-    let api_url = payload.api_url.trim().trim_end_matches('/').to_string();
-    Url::parse(&api_url)
-        .map_err(|error| AppError::BadRequest(format!("Invalid API URL: {error}")))?;
-
-    if let Some(config_json) = payload.config_json.as_deref()
-        && !config_json.trim().is_empty()
-    {
-        serde_json::from_str::<serde_json::Value>(config_json).map_err(|error| {
-            AppError::BadRequest(format!("Invalid custom JSON config: {error}"))
-        })?;
-    }
-
-    let mut agent_types = payload
-        .agent_types
-        .into_iter()
-        .map(|agent| agent.trim().to_string())
-        .filter(|agent| !agent.is_empty())
-        .collect::<Vec<_>>();
-    agent_types.sort();
-    agent_types.dedup();
-
-    Ok(ModelProviderPayload {
-        name,
-        agent_types,
-        api_url,
-        auth_type: payload.auth_type.trim().to_string(),
-        default_model: payload
-            .default_model
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
-        config_json: payload
-            .config_json
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
-    })
+    // Legacy v1 -> v2 migration.
+    let legacy: LegacyStore = serde_json::from_value(value).unwrap_or_default();
+    let legacy_secrets = load_secrets().await?;
+    let (store, secrets) = migrate_legacy(legacy, legacy_secrets);
+    save_store(&store).await?;
+    save_secrets(&secrets).await?;
+    Ok(store)
 }
 
-fn hydrate_provider(
-    record: &ModelProviderRecord,
-    store: &ModelProviderStore,
-    secrets: &ModelProviderSecrets,
-) -> ModelProvider {
-    let mut active_agents = store
-        .active_by_agent
-        .iter()
-        .filter_map(|(agent, provider_id)| (provider_id == &record.id).then_some(agent.clone()))
-        .collect::<Vec<_>>();
-    active_agents.sort();
+fn migrate_legacy(
+    legacy: LegacyStore,
+    legacy_secrets: ProviderSecrets,
+) -> (ProviderStore, ProviderSecrets) {
+    let mut store = ProviderStore::default();
+    let mut secrets = ProviderSecrets::default();
 
-    ModelProvider {
-        id: record.id.clone(),
-        name: record.name.clone(),
-        agent_types: record.agent_types.clone(),
-        api_url: record.api_url.clone(),
-        auth_type: record.auth_type.clone(),
-        default_model: record.default_model.clone(),
-        config_json: record.config_json.clone(),
-        active_agents,
-        has_api_key: secrets.api_keys.contains_key(&record.id),
-        created_at: record.created_at.clone(),
-        updated_at: record.updated_at.clone(),
+    for lp in &legacy.providers {
+        let agents: Vec<String> = lp
+            .agent_types
+            .iter()
+            .filter(|agent| SUPPORTED_AGENTS.contains(&agent.as_str()))
+            .cloned()
+            .collect();
+
+        for agent in agents {
+            let new_id = Uuid::new_v4().to_string();
+            let created_at = if lp.created_at.is_empty() {
+                Utc::now().to_rfc3339()
+            } else {
+                lp.created_at.clone()
+            };
+            let updated_at = if lp.updated_at.is_empty() {
+                Utc::now().to_rfc3339()
+            } else {
+                lp.updated_at.clone()
+            };
+
+            let entry = store.agents.entry(agent.clone()).or_default();
+            entry.providers.push(ProviderRecord {
+                id: new_id.clone(),
+                name: lp.name.clone(),
+                api_url: lp.api_url.clone(),
+                default_model: lp.default_model.clone(),
+                models: Vec::new(),
+                wire_api: None,
+                created_at,
+                updated_at,
+            });
+            if legacy.active_by_agent.get(&agent) == Some(&lp.id) {
+                entry.current = Some(new_id.clone());
+            }
+            if let Some(key) = legacy_secrets.api_keys.get(&lp.id) {
+                secrets.api_keys.insert(new_id, key.clone());
+            }
+        }
+    }
+
+    (store, secrets)
+}
+
+// ---------------------------------------------------------------------------
+// Validation / helpers
+// ---------------------------------------------------------------------------
+
+fn normalize_agent(agent: &str) -> Result<String, AppError> {
+    let agent = agent.trim();
+    if SUPPORTED_AGENTS.contains(&agent) {
+        Ok(agent.to_string())
+    } else {
+        Err(AppError::BadRequest(format!("未知 Agent：{agent}")))
     }
 }
 
-fn find_provider_mut<'a>(
-    store: &'a mut ModelProviderStore,
-    provider_id: &str,
-) -> Result<&'a mut ModelProviderRecord, AppError> {
-    store
+fn opt_trim(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+}
+
+fn validate_payload(payload: &ProviderPayload) -> Result<(), AppError> {
+    if payload.name.trim().is_empty() {
+        return Err(AppError::BadRequest("供应商名称不能为空".to_string()));
+    }
+    let api_url = payload.api_url.trim().trim_end_matches('/');
+    Url::parse(api_url).map_err(|e| AppError::BadRequest(format!("API 地址无效：{e}")))?;
+    Ok(())
+}
+
+fn record_from_payload(id: String, payload: &ProviderPayload, created_at: String) -> ProviderRecord {
+    ProviderRecord {
+        id,
+        name: payload.name.trim().to_string(),
+        api_url: payload.api_url.trim().trim_end_matches('/').to_string(),
+        default_model: opt_trim(&payload.default_model),
+        models: payload
+            .models
+            .iter()
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty())
+            .collect(),
+        wire_api: opt_trim(&payload.wire_api),
+        created_at,
+        updated_at: Utc::now().to_rfc3339(),
+    }
+}
+
+fn build_view(agent: &str, store: &ProviderStore, secrets: &ProviderSecrets) -> AgentProvidersView {
+    let agent_providers = store.agents.get(agent).cloned().unwrap_or_default();
+    let current = agent_providers.current.clone();
+    let providers = agent_providers
         .providers
-        .iter_mut()
-        .find(|provider| provider.id == provider_id)
-        .ok_or_else(|| AppError::NotFound(format!("Model provider not found: {provider_id}")))
+        .iter()
+        .map(|record| ProviderView {
+            id: record.id.clone(),
+            name: record.name.clone(),
+            api_url: record.api_url.clone(),
+            default_model: record.default_model.clone(),
+            models: record.models.clone(),
+            wire_api: record.wire_api.clone(),
+            has_api_key: secrets.api_keys.contains_key(&record.id),
+            is_current: current.as_deref() == Some(record.id.as_str()),
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
+        })
+        .collect();
+
+    AgentProvidersView {
+        agent_type: agent.to_string(),
+        providers,
+        current,
+        supports_apply: supports_apply(agent),
+        config_path: display_config_path(agent),
+    }
+}
+
+fn find_record<'a>(store: &'a ProviderStore, agent: &str, provider_id: &str) -> Option<&'a ProviderRecord> {
+    store
+        .agents
+        .get(agent)
+        .and_then(|ap| ap.providers.iter().find(|p| p.id == provider_id))
+}
+
+fn slug(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let trimmed = cleaned.trim_matches('_').to_string();
+    if trimmed.is_empty() {
+        "provider".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn model_list(record: &ProviderRecord) -> Vec<String> {
+    if !record.models.is_empty() {
+        return record.models.clone();
+    }
+    record
+        .default_model
+        .clone()
+        .into_iter()
+        .filter(|m| !m.is_empty())
+        .collect()
 }
 
 fn models_url(api_url: &str) -> String {
@@ -232,191 +441,708 @@ fn models_url(api_url: &str) -> String {
     }
 }
 
-#[tauri::command]
-pub async fn list_model_providers() -> Result<Vec<ModelProvider>, AppError> {
-    let store = load_store().await?;
-    let secrets = load_secrets().await?;
-    Ok(store
-        .providers
-        .iter()
-        .map(|record| hydrate_provider(record, &store, &secrets))
-        .collect())
+// ---------------------------------------------------------------------------
+// Config file paths
+// ---------------------------------------------------------------------------
+
+fn home_dir() -> PathBuf {
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
-#[tauri::command]
-pub async fn create_model_provider(
-    payload: ModelProviderPayload,
-) -> Result<ModelProvider, AppError> {
-    let payload = normalize_payload(payload)?;
-    let mut store = load_store().await?;
-    let secrets = load_secrets().await?;
-    let now = Utc::now().to_rfc3339();
-    let record = ModelProviderRecord {
-        id: Uuid::new_v4().to_string(),
-        name: payload.name,
-        agent_types: payload.agent_types,
-        api_url: payload.api_url,
-        auth_type: payload.auth_type,
-        default_model: payload.default_model,
-        config_json: payload.config_json,
-        created_at: now.clone(),
-        updated_at: now,
+fn codex_home_dir() -> PathBuf {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".codex"))
+}
+
+fn hermes_home_dir() -> PathBuf {
+    std::env::var_os("HERMES_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".hermes"))
+}
+
+fn display_config_path(agent: &str) -> Option<String> {
+    let path = match agent {
+        "claude_code" => home_dir().join(".claude").join("settings.json"),
+        "codex" => codex_home_dir().join("config.toml"),
+        "gemini" => home_dir().join(".gemini").join("settings.json"),
+        "open_code" => home_dir()
+            .join(".config")
+            .join("opencode")
+            .join("opencode.json"),
+        "open_claw" => home_dir().join(".openclaw").join("openclaw.json"),
+        "hermes" => hermes_home_dir().join("config.yaml"),
+        _ => return None,
     };
-    let provider = hydrate_provider(&record, &store, &secrets);
-    store.providers.push(record);
-    save_store(&store).await?;
-    Ok(provider)
+    Some(path.display().to_string())
 }
 
-#[tauri::command]
-pub async fn update_model_provider(
-    provider_id: String,
-    payload: ModelProviderPayload,
-) -> Result<ModelProvider, AppError> {
-    let payload = normalize_payload(payload)?;
-    let mut store = load_store().await?;
-    {
-        let record = find_provider_mut(&mut store, &provider_id)?;
-        record.name = payload.name;
-        record.agent_types = payload.agent_types;
-        record.api_url = payload.api_url;
-        record.auth_type = payload.auth_type;
-        record.default_model = payload.default_model;
-        record.config_json = payload.config_json;
-        record.updated_at = Utc::now().to_rfc3339();
+// ---------------------------------------------------------------------------
+// Atomic write + rotating backups
+// ---------------------------------------------------------------------------
+
+fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AppError::Internal(format!("Failed to create {}: {e}", parent.display())))?;
     }
-    save_store(&store).await?;
-    let secrets = load_secrets().await?;
-    let record = store
-        .providers
-        .iter()
-        .find(|provider| provider.id == provider_id)
-        .expect("provider exists after update");
-    Ok(hydrate_provider(record, &store, &secrets))
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".vibextmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, bytes)
+        .map_err(|e| AppError::Internal(format!("Failed to write {}: {e}", tmp.display())))?;
+    #[cfg(windows)]
+    {
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    std::fs::rename(&tmp, path)
+        .map_err(|e| AppError::Internal(format!("Failed to replace {}: {e}", path.display())))
 }
 
-#[tauri::command]
-pub async fn delete_model_provider(provider_id: String) -> Result<(), AppError> {
-    let mut store = load_store().await?;
-    let original_len = store.providers.len();
-    store.providers.retain(|provider| provider.id != provider_id);
-    if store.providers.len() == original_len {
-        return Err(AppError::NotFound(format!(
-            "Model provider not found: {provider_id}"
+/// Best-effort backup of an existing file before overwriting it. Failures are
+/// logged but never block the write.
+fn backup_existing(path: &Path, agent: &str) {
+    if !path.exists() {
+        return;
+    }
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let dir = home
+        .join(".vibex")
+        .join("provider-backups")
+        .join(agent);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let base = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "config".to_string());
+    let stamp = Utc::now().format("%Y%m%dT%H%M%S%3f");
+    let dest = dir.join(format!("{base}.{stamp}.bak"));
+    if std::fs::copy(path, &dest).is_err() {
+        tracing::warn!(path = %path.display(), "Failed to back up provider config");
+        return;
+    }
+    rotate_backups(&dir, &base);
+}
+
+fn rotate_backups(dir: &Path, base: &str) {
+    let prefix = format!("{base}.");
+    let mut entries: Vec<PathBuf> = match std::fs::read_dir(dir) {
+        Ok(read) => read
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(prefix.as_str())
+            })
+            .map(|entry| entry.path())
+            .collect(),
+        Err(_) => return,
+    };
+    entries.sort();
+    while entries.len() > BACKUP_KEEP {
+        let old = entries.remove(0);
+        let _ = std::fs::remove_file(old);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Typed read/write helpers per file format
+// ---------------------------------------------------------------------------
+
+fn read_json_file(path: &Path) -> Result<Value, AppError> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| AppError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    if raw.trim().is_empty() {
+        return Ok(json!({}));
+    }
+    serde_json::from_str(&raw)
+        .map_err(|e| AppError::BadRequest(format!("invalid JSON at {}: {e}", path.display())))
+}
+
+fn write_json_file(path: &Path, agent: &str, value: &Value) -> Result<(), AppError> {
+    backup_existing(path, agent);
+    let serialized = serde_json::to_string_pretty(value)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize JSON: {e}")))?;
+    atomic_write_bytes(path, format!("{serialized}\n").as_bytes())
+}
+
+fn read_toml_file(path: &Path) -> Result<toml::Value, AppError> {
+    if !path.exists() {
+        return Ok(toml::Value::Table(toml::map::Map::new()));
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| AppError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    if raw.trim().is_empty() {
+        return Ok(toml::Value::Table(toml::map::Map::new()));
+    }
+    let parsed: toml::Value = raw
+        .parse()
+        .map_err(|e| AppError::BadRequest(format!("invalid TOML at {}: {e}", path.display())))?;
+    if !parsed.is_table() {
+        return Err(AppError::BadRequest(format!(
+            "invalid TOML root at {}: expected table",
+            path.display()
         )));
     }
-    store
-        .active_by_agent
-        .retain(|_, active_provider_id| active_provider_id != &provider_id);
-    save_store(&store).await?;
+    Ok(parsed)
+}
 
-    let mut secrets = load_secrets().await?;
-    secrets.api_keys.remove(&provider_id);
-    save_secrets(&secrets).await
+fn write_toml_file(path: &Path, agent: &str, value: &toml::Value) -> Result<(), AppError> {
+    backup_existing(path, agent);
+    let serialized = toml::to_string_pretty(value)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize TOML: {e}")))?;
+    atomic_write_bytes(path, serialized.as_bytes())
+}
+
+fn read_yaml_file(path: &Path) -> Result<serde_yaml::Value, AppError> {
+    if !path.exists() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| AppError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    if raw.trim().is_empty() {
+        return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+    }
+    serde_yaml::from_str(&raw)
+        .map_err(|e| AppError::BadRequest(format!("invalid YAML at {}: {e}", path.display())))
+}
+
+fn write_yaml_file(path: &Path, agent: &str, value: &serde_yaml::Value) -> Result<(), AppError> {
+    backup_existing(path, agent);
+    let serialized = serde_yaml::to_string(value)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize YAML: {e}")))?;
+    atomic_write_bytes(path, serialized.as_bytes())
+}
+
+fn read_dotenv(path: &Path) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    if let Ok(raw) = std::fs::read_to_string(path) {
+        for line in raw.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                map.insert(key.trim().to_string(), value.trim().to_string());
+            }
+        }
+    }
+    map
+}
+
+fn write_dotenv(path: &Path, agent: &str, map: &BTreeMap<String, String>) -> Result<(), AppError> {
+    backup_existing(path, agent);
+    let mut out = String::new();
+    for (key, value) in map {
+        out.push_str(&format!("{key}={value}\n"));
+    }
+    atomic_write_bytes(path, out.as_bytes())
+}
+
+// JSON object helpers.
+fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
+    if !value.is_object() {
+        *value = Value::Object(Map::new());
+    }
+    match value {
+        Value::Object(map) => map,
+        _ => unreachable!(),
+    }
+}
+
+fn set_nested(root: &mut Value, path: &[&str], leaf: Value) {
+    let mut current = ensure_object(root);
+    let (last, parents) = path.split_last().expect("non-empty path");
+    for key in parents {
+        let entry = current
+            .entry((*key).to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !entry.is_object() {
+            *entry = Value::Object(Map::new());
+        }
+        current = entry.as_object_mut().expect("object");
+    }
+    current.insert((*last).to_string(), leaf);
+}
+
+fn ystr(value: &str) -> serde_yaml::Value {
+    serde_yaml::Value::String(value.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Per-agent config writers
+// ---------------------------------------------------------------------------
+
+fn apply_provider_config(
+    agent: &str,
+    record: &ProviderRecord,
+    api_key: Option<&str>,
+) -> Result<Vec<String>, AppError> {
+    match agent {
+        "claude_code" => apply_claude(record, api_key),
+        "codex" => apply_codex(record, api_key),
+        "gemini" => apply_gemini(record, api_key),
+        "open_code" => apply_opencode(record, api_key),
+        "open_claw" => apply_openclaw(record, api_key),
+        "hermes" => apply_hermes(record, api_key),
+        "cline" => Err(AppError::BadRequest(
+            "Cline 的供应商配置存储在 VS Code 扩展状态中，暂不支持从 VibeX 切换。".to_string(),
+        )),
+        other => Err(AppError::BadRequest(format!("未知 Agent：{other}"))),
+    }
+}
+
+fn apply_claude(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+    let path = home_dir().join(".claude").join("settings.json");
+    let mut root = read_json_file(&path)?;
+    {
+        let obj = ensure_object(&mut root);
+        let env = obj
+            .entry("env".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        let env = ensure_object(env);
+        env.insert(
+            "ANTHROPIC_BASE_URL".to_string(),
+            Value::String(record.api_url.clone()),
+        );
+        if let Some(key) = api_key {
+            env.insert(
+                "ANTHROPIC_AUTH_TOKEN".to_string(),
+                Value::String(key.to_string()),
+            );
+        }
+        if let Some(model) = &record.default_model {
+            env.insert("ANTHROPIC_MODEL".to_string(), Value::String(model.clone()));
+        }
+    }
+    write_json_file(&path, "claude_code", &root)?;
+    Ok(vec![path.display().to_string()])
+}
+
+fn apply_codex(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+    let home = codex_home_dir();
+    let toml_path = home.join("config.toml");
+    let auth_path = home.join("auth.json");
+    let key_name = slug(&record.name);
+
+    let mut root = read_toml_file(&toml_path)?;
+    {
+        let table = root.as_table_mut().expect("toml table");
+        table.insert(
+            "model_provider".to_string(),
+            toml::Value::String(key_name.clone()),
+        );
+        if let Some(model) = &record.default_model {
+            table.insert("model".to_string(), toml::Value::String(model.clone()));
+        }
+        let providers = table
+            .entry("model_providers".to_string())
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+        let providers = providers.as_table_mut().ok_or_else(|| {
+            AppError::BadRequest("codex model_providers 必须是 table".to_string())
+        })?;
+        let mut entry = toml::map::Map::new();
+        entry.insert("name".to_string(), toml::Value::String(record.name.clone()));
+        entry.insert(
+            "base_url".to_string(),
+            toml::Value::String(record.api_url.clone()),
+        );
+        entry.insert(
+            "wire_api".to_string(),
+            toml::Value::String(record.wire_api.clone().unwrap_or_else(|| "chat".to_string())),
+        );
+        entry.insert(
+            "env_key".to_string(),
+            toml::Value::String("OPENAI_API_KEY".to_string()),
+        );
+        providers.insert(key_name, toml::Value::Table(entry));
+    }
+    write_toml_file(&toml_path, "codex", &root)?;
+    let mut written = vec![toml_path.display().to_string()];
+
+    if let Some(key) = api_key {
+        let mut auth = read_json_file(&auth_path)?;
+        ensure_object(&mut auth).insert(
+            "OPENAI_API_KEY".to_string(),
+            Value::String(key.to_string()),
+        );
+        write_json_file(&auth_path, "codex", &auth)?;
+        written.push(auth_path.display().to_string());
+    }
+    Ok(written)
+}
+
+fn apply_gemini(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+    let dir = home_dir().join(".gemini");
+    let env_path = dir.join(".env");
+    let settings_path = dir.join("settings.json");
+
+    let mut env = read_dotenv(&env_path);
+    if let Some(key) = api_key {
+        env.insert("GEMINI_API_KEY".to_string(), key.to_string());
+    }
+    env.insert(
+        "GOOGLE_GEMINI_BASE_URL".to_string(),
+        record.api_url.clone(),
+    );
+    if let Some(model) = &record.default_model {
+        env.insert("GEMINI_MODEL".to_string(), model.clone());
+    }
+    write_dotenv(&env_path, "gemini", &env)?;
+
+    let mut settings = read_json_file(&settings_path)?;
+    set_nested(
+        &mut settings,
+        &["security", "auth", "selectedType"],
+        Value::String("gemini-api-key".to_string()),
+    );
+    write_json_file(&settings_path, "gemini", &settings)?;
+
+    Ok(vec![
+        env_path.display().to_string(),
+        settings_path.display().to_string(),
+    ])
+}
+
+fn apply_opencode(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+    let path = home_dir()
+        .join(".config")
+        .join("opencode")
+        .join("opencode.json");
+    let key_name = slug(&record.name);
+    let mut root = read_json_file(&path)?;
+    {
+        let obj = ensure_object(&mut root);
+        obj.entry("$schema".to_string())
+            .or_insert_with(|| Value::String("https://opencode.ai/config.json".to_string()));
+
+        let mut models = Map::new();
+        for model in model_list(record) {
+            models.insert(model, json!({}));
+        }
+        let block = json!({
+            "npm": "@ai-sdk/openai-compatible",
+            "name": record.name,
+            "options": {
+                "baseURL": record.api_url,
+                "apiKey": api_key.unwrap_or(""),
+            },
+            "models": Value::Object(models),
+        });
+
+        {
+            let providers = obj
+                .entry("provider".to_string())
+                .or_insert_with(|| Value::Object(Map::new()));
+            ensure_object(providers).insert(key_name.clone(), block);
+        }
+        if let Some(model) = &record.default_model {
+            obj.insert(
+                "model".to_string(),
+                Value::String(format!("{key_name}/{model}")),
+            );
+        }
+    }
+    write_json_file(&path, "open_code", &root)?;
+    Ok(vec![path.display().to_string()])
+}
+
+fn apply_openclaw(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+    let path = home_dir().join(".openclaw").join("openclaw.json");
+    let key_name = slug(&record.name);
+    let mut root = read_json_file(&path)?;
+    {
+        let obj = ensure_object(&mut root);
+        let model_entries: Vec<Value> = model_list(record)
+            .into_iter()
+            .map(|model| json!({ "id": model }))
+            .collect();
+
+        let mut block = Map::new();
+        block.insert("baseUrl".to_string(), Value::String(record.api_url.clone()));
+        if let Some(key) = api_key {
+            block.insert("apiKey".to_string(), Value::String(key.to_string()));
+        }
+        block.insert("api".to_string(), Value::String("openai".to_string()));
+        block.insert("models".to_string(), Value::Array(model_entries));
+
+        let models_root = obj
+            .entry("models".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        let models_root = ensure_object(models_root);
+        models_root.insert("mode".to_string(), Value::String("merge".to_string()));
+        let providers = models_root
+            .entry("providers".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        ensure_object(providers).insert(key_name, Value::Object(block));
+    }
+    write_json_file(&path, "open_claw", &root)?;
+    Ok(vec![path.display().to_string()])
+}
+
+fn apply_hermes(record: &ProviderRecord, api_key: Option<&str>) -> Result<Vec<String>, AppError> {
+    let path = hermes_home_dir().join("config.yaml");
+    let mut root = read_yaml_file(&path)?;
+    {
+        let map = root.as_mapping_mut().ok_or_else(|| {
+            AppError::BadRequest("hermes config.yaml 根节点必须是 mapping".to_string())
+        })?;
+        let cp_key = ystr("custom_providers");
+        if !map.contains_key(&cp_key) {
+            map.insert(cp_key.clone(), serde_yaml::Value::Sequence(Vec::new()));
+        }
+        let seq = map
+            .get_mut(&cp_key)
+            .and_then(|value| value.as_sequence_mut())
+            .ok_or_else(|| {
+                AppError::BadRequest("hermes custom_providers 必须是序列".to_string())
+            })?;
+
+        let mut entry = serde_yaml::Mapping::new();
+        entry.insert(ystr("name"), ystr(&record.name));
+        entry.insert(ystr("base_url"), ystr(&record.api_url));
+        if let Some(key) = api_key {
+            entry.insert(ystr("api_key"), ystr(key));
+        }
+        if let Some(model) = &record.default_model {
+            entry.insert(ystr("model"), ystr(model));
+        }
+        let mut models_map = serde_yaml::Mapping::new();
+        for model in model_list(record) {
+            models_map.insert(ystr(&model), serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+        }
+        if !models_map.is_empty() {
+            entry.insert(ystr("models"), serde_yaml::Value::Mapping(models_map));
+        }
+
+        let name_key = ystr("name");
+        let existing = seq.iter().position(|value| {
+            value
+                .as_mapping()
+                .and_then(|m| m.get(&name_key))
+                .and_then(|n| n.as_str())
+                == Some(record.name.as_str())
+        });
+        match existing {
+            Some(index) => seq[index] = serde_yaml::Value::Mapping(entry),
+            None => seq.push(serde_yaml::Value::Mapping(entry)),
+        }
+    }
+    write_yaml_file(&path, "hermes", &root)?;
+    Ok(vec![path.display().to_string()])
+}
+
+// ---------------------------------------------------------------------------
+// Tauri commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_agent_providers(agent_type: String) -> Result<AgentProvidersView, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    let store = load_store().await?;
+    let secrets = load_secrets().await?;
+    Ok(build_view(&agent, &store, &secrets))
 }
 
 #[tauri::command]
-pub async fn activate_model_provider(
-    provider_id: String,
+pub async fn create_agent_provider(
     agent_type: String,
-) -> Result<ModelProvider, AppError> {
-    let mut store = load_store().await?;
-    let provider = store
-        .providers
-        .iter()
-        .find(|provider| provider.id == provider_id)
-        .cloned()
-        .ok_or_else(|| AppError::NotFound(format!("Model provider not found: {provider_id}")))?;
+    payload: ProviderPayload,
+) -> Result<AgentProvidersView, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    validate_payload(&payload)?;
 
-    let agent_type = agent_type.trim().to_string();
-    if agent_type.is_empty() {
+    let mut store = load_store().await?;
+    let mut secrets = load_secrets().await?;
+    let id = Uuid::new_v4().to_string();
+    let record = record_from_payload(id.clone(), &payload, Utc::now().to_rfc3339());
+
+    store
+        .agents
+        .entry(agent.clone())
+        .or_default()
+        .providers
+        .push(record);
+
+    let mut secrets_dirty = false;
+    if let Some(key) = opt_trim(&payload.api_key) {
+        secrets.api_keys.insert(id, key);
+        secrets_dirty = true;
+    }
+
+    save_store(&store).await?;
+    if secrets_dirty {
+        save_secrets(&secrets).await?;
+    }
+    Ok(build_view(&agent, &store, &secrets))
+}
+
+#[tauri::command]
+pub async fn update_agent_provider(
+    agent_type: String,
+    provider_id: String,
+    payload: ProviderPayload,
+) -> Result<AgentProvidersView, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    validate_payload(&payload)?;
+
+    let mut store = load_store().await?;
+    let mut secrets = load_secrets().await?;
+
+    let is_current;
+    {
+        let agent_providers = store
+            .agents
+            .get_mut(&agent)
+            .ok_or_else(|| AppError::NotFound(format!("供应商不存在：{provider_id}")))?;
+        let record = agent_providers
+            .providers
+            .iter_mut()
+            .find(|p| p.id == provider_id)
+            .ok_or_else(|| AppError::NotFound(format!("供应商不存在：{provider_id}")))?;
+        let created_at = record.created_at.clone();
+        *record = record_from_payload(provider_id.clone(), &payload, created_at);
+        is_current = agent_providers.current.as_deref() == Some(provider_id.as_str());
+    }
+
+    let mut secrets_dirty = false;
+    if let Some(key) = opt_trim(&payload.api_key) {
+        secrets.api_keys.insert(provider_id.clone(), key);
+        secrets_dirty = true;
+    }
+
+    save_store(&store).await?;
+    if secrets_dirty {
+        save_secrets(&secrets).await?;
+    }
+
+    // Keep the live config in sync when editing the active provider.
+    if is_current && supports_apply(&agent) {
+        if let Some(record) = find_record(&store, &agent, &provider_id) {
+            let key = secrets.api_keys.get(&provider_id).map(String::as_str);
+            apply_provider_config(&agent, record, key)?;
+        }
+    }
+
+    Ok(build_view(&agent, &store, &secrets))
+}
+
+#[tauri::command]
+pub async fn delete_agent_provider(
+    agent_type: String,
+    provider_id: String,
+) -> Result<AgentProvidersView, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    let mut store = load_store().await?;
+    let mut secrets = load_secrets().await?;
+
+    let agent_providers = store
+        .agents
+        .get_mut(&agent)
+        .ok_or_else(|| AppError::NotFound(format!("供应商不存在：{provider_id}")))?;
+    let before = agent_providers.providers.len();
+    agent_providers.providers.retain(|p| p.id != provider_id);
+    if agent_providers.providers.len() == before {
+        return Err(AppError::NotFound(format!("供应商不存在：{provider_id}")));
+    }
+    if agent_providers.current.as_deref() == Some(provider_id.as_str()) {
+        agent_providers.current = None;
+    }
+
+    let secrets_dirty = secrets.api_keys.remove(&provider_id).is_some();
+    save_store(&store).await?;
+    if secrets_dirty {
+        save_secrets(&secrets).await?;
+    }
+    Ok(build_view(&agent, &store, &secrets))
+}
+
+#[tauri::command]
+pub async fn apply_agent_provider(
+    agent_type: String,
+    provider_id: String,
+) -> Result<AgentProvidersView, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    if !supports_apply(&agent) {
         return Err(AppError::BadRequest(
-            "Agent type cannot be empty".to_string(),
+            "该 Agent 暂不支持从 VibeX 切换供应商配置。".to_string(),
         ));
     }
-    store.active_by_agent.insert(agent_type, provider_id);
-    save_store(&store).await?;
-    let secrets = load_secrets().await?;
-    Ok(hydrate_provider(&provider, &store, &secrets))
-}
 
-#[tauri::command]
-pub async fn deactivate_model_provider(agent_type: String) -> Result<(), AppError> {
     let mut store = load_store().await?;
-    store.active_by_agent.remove(agent_type.trim());
-    save_store(&store).await
-}
-
-#[tauri::command]
-pub async fn save_model_provider_api_key(
-    provider_id: String,
-    api_key: String,
-) -> Result<ModelProvider, AppError> {
-    let store = load_store().await?;
-    let record = store
-        .providers
-        .iter()
-        .find(|provider| provider.id == provider_id)
-        .ok_or_else(|| AppError::NotFound(format!("Model provider not found: {provider_id}")))?;
-    let trimmed = api_key.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::BadRequest("API key cannot be empty".to_string()));
-    }
-
-    let mut secrets = load_secrets().await?;
-    secrets
-        .api_keys
-        .insert(provider_id.clone(), trimmed.to_string());
-    save_secrets(&secrets).await?;
-    Ok(hydrate_provider(record, &store, &secrets))
-}
-
-#[tauri::command]
-pub async fn get_model_provider_has_api_key(provider_id: String) -> Result<bool, AppError> {
     let secrets = load_secrets().await?;
-    Ok(secrets.api_keys.contains_key(&provider_id))
+
+    let record = find_record(&store, &agent, &provider_id)
+        .cloned()
+        .ok_or_else(|| AppError::NotFound(format!("供应商不存在：{provider_id}")))?;
+    let key = secrets.api_keys.get(&provider_id).map(String::as_str);
+    apply_provider_config(&agent, &record, key)?;
+
+    if let Some(agent_providers) = store.agents.get_mut(&agent) {
+        agent_providers.current = Some(provider_id);
+    }
+    save_store(&store).await?;
+    Ok(build_view(&agent, &store, &secrets))
 }
 
 #[tauri::command]
-pub async fn delete_model_provider_api_key(provider_id: String) -> Result<(), AppError> {
+pub async fn clear_agent_provider_key(
+    agent_type: String,
+    provider_id: String,
+) -> Result<AgentProvidersView, AppError> {
+    let agent = normalize_agent(&agent_type)?;
+    let store = load_store().await?;
     let mut secrets = load_secrets().await?;
-    secrets.api_keys.remove(&provider_id);
-    save_secrets(&secrets).await
+    if secrets.api_keys.remove(&provider_id).is_some() {
+        save_secrets(&secrets).await?;
+    }
+    Ok(build_view(&agent, &store, &secrets))
 }
 
 #[tauri::command]
-pub async fn fetch_provider_models(
+pub async fn fetch_agent_provider_models(
+    agent_type: String,
     provider_id: String,
 ) -> Result<ProviderModelsResult, AppError> {
+    let agent = normalize_agent(&agent_type)?;
     let store = load_store().await?;
-    let provider = store
-        .providers
-        .iter()
-        .find(|provider| provider.id == provider_id)
-        .ok_or_else(|| AppError::NotFound(format!("Model provider not found: {provider_id}")))?;
     let secrets = load_secrets().await?;
-    let mut request = reqwest::Client::new().get(models_url(&provider.api_url));
-    if let Some(api_key) = secrets.api_keys.get(&provider.id)
+
+    let record = find_record(&store, &agent, &provider_id)
+        .ok_or_else(|| AppError::NotFound(format!("供应商不存在：{provider_id}")))?;
+
+    let mut request = reqwest::Client::new().get(models_url(&record.api_url));
+    if let Some(api_key) = secrets.api_keys.get(&provider_id)
         && !api_key.trim().is_empty()
     {
         request = request.bearer_auth(api_key);
     }
 
-    let response = request.send().await.map_err(|error| {
-        AppError::Internal(format!("Failed to fetch provider models: {error}"))
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("获取模型列表失败：{e}")))?;
     let status = response.status();
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
-        return Err(AppError::BadRequest(format!(
-            "Provider returned {status}: {detail}"
-        )));
+        return Err(AppError::BadRequest(format!("供应商返回 {status}：{detail}")));
     }
 
-    let models: OpenAiModelsResponse = response.json().await.map_err(|error| {
-        AppError::Internal(format!("Failed to parse provider models: {error}"))
-    })?;
-    let mut models = models
+    let parsed: OpenAiModelsResponse = response
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("解析模型列表失败：{e}")))?;
+    let mut models = parsed
         .data
         .into_iter()
         .map(|model| model.id)

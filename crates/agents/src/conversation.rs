@@ -130,6 +130,23 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_stats: Option<AgentExecutionStats>,
     },
+    /// First-class plan/todo checklist (e.g. Claude `TodoWrite`, Codex
+    /// `update_plan`). Parsed from the tool input so the renderer can show a
+    /// dedicated checklist instead of a generic tool card.
+    Plan {
+        entries: Vec<PlanEntry>,
+    },
+}
+
+/// One step in a [`ContentBlock::Plan`] checklist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PlanEntry {
+    pub content: String,
+    /// Normalized: `pending` | `in_progress` | `completed`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
 }
 
 /// The atomic rendered unit of a conversation: one role's contiguous output.

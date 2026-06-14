@@ -19,7 +19,7 @@ use agents::{
 };
 use agents::conversation::{
     AgentExecutionStats, ContentBlock, ConversationDetail, ConversationSummary, ImageData,
-    MessageTurn, SessionStats, SubAgentToolCall, TurnRole, TurnUsage,
+    MessageTurn, PlanEntry, SessionStats, SubAgentToolCall, TurnRole, TurnUsage,
 };
 use db::models::{
     conversation::DbConversationSummary,
@@ -277,6 +277,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ImageData>(&mut decls);
     insert_declaration::<SubAgentToolCall>(&mut decls);
     insert_declaration::<AgentExecutionStats>(&mut decls);
+    insert_declaration::<PlanEntry>(&mut decls);
     insert_declaration::<ContentBlock>(&mut decls);
     insert_declaration::<MessageTurn>(&mut decls);
     insert_declaration::<SessionStats>(&mut decls);

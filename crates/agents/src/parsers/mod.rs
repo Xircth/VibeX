@@ -13,13 +13,62 @@ pub mod codex;
 pub mod loader;
 
 use chrono::{DateTime, Utc};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::conversation::{
-    ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, SessionStats, TurnRole,
-    TurnUsage,
+    ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, PlanEntry, SessionStats,
+    TurnRole, TurnUsage,
 };
 use crate::registry::AgentType;
+
+/// True for plan/todo tools whose input should render as a [`ContentBlock::Plan`]
+/// checklist rather than a generic tool card (mirrors codeg's `isPlanLikeToolName`).
+pub fn is_plan_tool(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower == "todowrite" || lower == "todo_write" || lower.contains("plan")
+}
+
+/// Extract checklist entries from a plan/todo tool's input, looking under the
+/// common array keys (`todos` / `entries` / `plan` / `steps`).
+pub fn plan_entries_from_input(input: Option<&Value>) -> Option<Vec<PlanEntry>> {
+    let input = input?;
+    let array = ["todos", "entries", "plan", "steps"]
+        .into_iter()
+        .find_map(|key| input.get(key).and_then(Value::as_array))?;
+    let entries: Vec<PlanEntry> = array.iter().filter_map(plan_entry_from_value).collect();
+    (!entries.is_empty()).then_some(entries)
+}
+
+fn plan_entry_from_value(value: &Value) -> Option<PlanEntry> {
+    let content = ["content", "step", "title", "name", "description"]
+        .into_iter()
+        .find_map(|key| value.get(key).and_then(Value::as_str))?
+        .to_string();
+    let status = value
+        .get("status")
+        .and_then(Value::as_str)
+        .map(normalize_plan_status)
+        .unwrap_or_else(|| "pending".to_string());
+    let priority = value
+        .get("priority")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Some(PlanEntry {
+        content,
+        status,
+        priority,
+    })
+}
+
+fn normalize_plan_status(status: &str) -> String {
+    match status.to_ascii_lowercase().as_str() {
+        "completed" | "complete" | "done" => "completed",
+        "in_progress" | "in-progress" | "running" | "active" => "in_progress",
+        _ => "pending",
+    }
+    .to_string()
+}
 
 #[derive(Debug, Error)]
 pub enum ParseError {

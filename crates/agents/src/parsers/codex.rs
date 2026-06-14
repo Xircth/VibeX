@@ -12,11 +12,13 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use super::{
-    build_detail, group_into_turns, ConversationParser, ParseContext, ParseError, ParsedRecord,
+    build_detail, group_into_turns, is_plan_tool, plan_entries_from_input, ConversationParser,
+    ParseContext, ParseError, ParsedRecord,
 };
-use crate::conversation::{ContentBlock, ConversationDetail, TurnRole};
+use crate::conversation::{ContentBlock, ConversationDetail, PlanEntry, TurnRole};
 
-const PREVIEW_LIMIT: usize = 2000;
+/// Cap for tool *output* display text (not JSON-parsed, so truncation is safe).
+const PREVIEW_LIMIT: usize = 16384;
 
 pub struct CodexParser;
 
@@ -72,22 +74,24 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
             }
             (TurnRole::Assistant, ContentBlock::Thinking { text })
         }
-        "function_call" => (
-            TurnRole::Assistant,
-            ContentBlock::ToolUse {
-                tool_use_id: payload
-                    .get("call_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                tool_name: payload
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-                    .to_string(),
-                input_preview: payload.get("arguments").map(preview_value),
-                meta: None,
-            },
-        ),
+        "function_call" => {
+            let name = payload.get("name").and_then(Value::as_str).unwrap_or("tool");
+            let block = match plan_entries_from_codex_args(payload.get("arguments")) {
+                Some(entries) if is_plan_tool(name) => ContentBlock::Plan { entries },
+                _ => ContentBlock::ToolUse {
+                    tool_use_id: payload
+                        .get("call_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    tool_name: name.to_string(),
+                    // Codex passes arguments as a JSON string; carry it as-is so
+                    // the renderer can parse it into a rich tool card.
+                    input_preview: payload.get("arguments").map(codex_tool_input),
+                    meta: None,
+                },
+            };
+            (TurnRole::Assistant, block)
+        }
         "function_call_output" => (
             TurnRole::Assistant,
             ContentBlock::ToolResult {
@@ -154,11 +158,22 @@ fn function_output_text(value: &Value) -> String {
     }
 }
 
-fn preview_value(value: &Value) -> String {
+/// Codex tool arguments arrive as a JSON string; use it directly (it is already
+/// valid JSON), falling back to serializing a non-string value.
+fn codex_tool_input(value: &Value) -> String {
     match value {
-        Value::String(text) => preview(text),
-        other => preview(&other.to_string()),
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
     }
+}
+
+/// Parse Codex's stringified `arguments` and extract plan entries, if any.
+fn plan_entries_from_codex_args(args: Option<&Value>) -> Option<Vec<PlanEntry>> {
+    let parsed = match args? {
+        Value::String(text) => serde_json::from_str::<Value>(text).ok()?,
+        other => other.clone(),
+    };
+    plan_entries_from_input(Some(&parsed))
 }
 
 fn preview(text: &str) -> String {
@@ -218,5 +233,22 @@ mod tests {
             ContentBlock::ToolResult { .. }
         ));
         assert!(matches!(assistant.blocks[3], ContentBlock::Text { .. }));
+    }
+
+    const PLAN_FIXTURE: &str = r#"
+{"timestamp":"2026-06-14T00:00:00Z","type":"response_item","payload":{"type":"function_call","name":"update_plan","arguments":"{\"plan\":[{\"step\":\"Do X\",\"status\":\"in_progress\"},{\"step\":\"Do Y\",\"status\":\"pending\"}]}","call_id":"p1"}}
+"#;
+
+    #[test]
+    fn parses_update_plan_into_plan_block() {
+        let detail = CodexParser.parse(PLAN_FIXTURE, &ctx()).unwrap();
+        match &detail.turns[0].blocks[0] {
+            ContentBlock::Plan { entries } => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].content, "Do X");
+                assert_eq!(entries[0].status, "in_progress");
+            }
+            other => panic!("expected Plan block, got {other:?}"),
+        }
     }
 }

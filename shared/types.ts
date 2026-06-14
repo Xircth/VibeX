@@ -811,7 +811,7 @@ export type ContentBlock = { "type": "text", text: string, } | { "type": "thinki
 /**
  * Free-form metadata (e.g. delegation binding).
  */
-meta?: JsonValue | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, };
+meta?: JsonValue | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, };
 
 export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
 
@@ -850,3 +850,9 @@ export type DbConversationDetail = { summary: DbConversationSummary, turns: Arra
  * seamlessly. (Populated by the live pipeline; `None` for settled loads.)
  */
 in_flight_user_turn_id?: string | null, };
+
+export type PlanEntry = { content: string,
+/**
+ * Normalized: `pending` | `in_progress` | `completed`.
+ */
+status: string, priority?: string | null, };

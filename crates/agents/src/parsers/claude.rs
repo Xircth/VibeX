@@ -10,11 +10,13 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use super::{
-    build_detail, group_into_turns, ConversationParser, ParseContext, ParseError, ParsedRecord,
+    build_detail, group_into_turns, is_plan_tool, plan_entries_from_input, ConversationParser,
+    ParseContext, ParseError, ParsedRecord,
 };
 use crate::conversation::{ContentBlock, ConversationDetail, TurnRole, TurnUsage};
 
-const PREVIEW_LIMIT: usize = 2000;
+/// Cap for tool *output* display text (not JSON-parsed, so truncation is safe).
+const PREVIEW_LIMIT: usize = 16384;
 
 pub struct ClaudeParser;
 
@@ -95,16 +97,22 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
                 .and_then(Value::as_str)?
                 .to_string(),
         }),
-        "tool_use" => Some(ContentBlock::ToolUse {
-            tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),
-            tool_name: item
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("tool")
-                .to_string(),
-            input_preview: item.get("input").map(preview_json),
-            meta: None,
-        }),
+        "tool_use" => {
+            let name = item.get("name").and_then(Value::as_str).unwrap_or("tool");
+            if is_plan_tool(name) {
+                if let Some(entries) = plan_entries_from_input(item.get("input")) {
+                    return Some(ContentBlock::Plan { entries });
+                }
+            }
+            Some(ContentBlock::ToolUse {
+                tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),
+                tool_name: name.to_string(),
+                // Full input JSON (not truncated) so the renderer can parse it
+                // into a rich tool card.
+                input_preview: item.get("input").map(|input| input.to_string()),
+                meta: None,
+            })
+        }
         "tool_result" => Some(ContentBlock::ToolResult {
             tool_use_id: item
                 .get("tool_use_id")
@@ -150,10 +158,6 @@ fn tool_result_text(content: &Value) -> String {
         }
         other => truncate(&other.to_string()),
     }
-}
-
-fn preview_json(value: &Value) -> String {
-    truncate(&value.to_string())
 }
 
 fn truncate(text: &str) -> String {
@@ -224,5 +228,37 @@ mod tests {
         ));
         assert_eq!(assistant.model.as_deref(), Some("claude-x"));
         assert!(assistant.usage.is_some());
+    }
+
+    const TODO_FIXTURE: &str = r#"
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"p1","name":"TodoWrite","input":{"todos":[{"content":"Read repo","status":"completed","priority":"high"},{"content":"Fix bug","status":"in_progress"}]}}]},"timestamp":"2026-06-14T00:00:01Z"}
+"#;
+
+    #[test]
+    fn parses_todowrite_into_plan_block() {
+        let detail = ClaudeParser.parse(TODO_FIXTURE, &ctx()).unwrap();
+        let assistant = &detail.turns[0];
+        match &assistant.blocks[0] {
+            ContentBlock::Plan { entries } => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].content, "Read repo");
+                assert_eq!(entries[0].status, "completed");
+                assert_eq!(entries[0].priority.as_deref(), Some("high"));
+                assert_eq!(entries[1].status, "in_progress");
+            }
+            other => panic!("expected Plan block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn carries_full_tool_input_as_valid_json() {
+        let detail = ClaudeParser.parse(FIXTURE, &ctx()).unwrap();
+        let assistant = &detail.turns[1];
+        let ContentBlock::ToolUse { input_preview, .. } = &assistant.blocks[2] else {
+            panic!("expected ToolUse block");
+        };
+        let parsed: serde_json::Value =
+            serde_json::from_str(input_preview.as_deref().unwrap()).expect("input is valid JSON");
+        assert_eq!(parsed["path"], "a.txt");
     }
 }

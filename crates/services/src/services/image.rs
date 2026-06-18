@@ -119,7 +119,9 @@ impl ImageService {
         let clean_name = sanitize_filename(original_filename);
         let new_filename = format!("{}_{}.{}", Uuid::new_v4(), clean_name, extension);
         let cached_path = self.cache_dir.join(&new_filename);
-        fs::write(&cached_path, data)?;
+        // store_image runs in an async context (it awaits DB calls); keep the
+        // potentially multi-MB write off the async worker thread.
+        tokio::fs::write(&cached_path, data).await?;
 
         let image = Image::create(
             &self.pool,

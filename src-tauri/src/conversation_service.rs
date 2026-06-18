@@ -543,7 +543,13 @@ impl<'a> ConversationSessionService<'a> {
     ) -> Result<db::models::conversation_event::ConversationEventRecord, AppError> {
         let value =
             serde_json::to_value(&event).map_err(|error| AppError::Internal(error.to_string()))?;
-        let event_kind = value["kind"].as_str().unwrap_or("unknown").to_string();
+        // `ConversationEvent` is `#[serde(tag = "kind")]`, so its serialized form
+        // always carries a string `kind`. Assert the invariant instead of masking
+        // a would-be-impossible failure as the literal "unknown".
+        let event_kind = value["kind"]
+            .as_str()
+            .expect("serialized ConversationEvent always has a string `kind` tag")
+            .to_string();
         let normalized_json =
             serde_json::to_string(&event).map_err(|error| AppError::Internal(error.to_string()))?;
         ConversationEventAppender::append(

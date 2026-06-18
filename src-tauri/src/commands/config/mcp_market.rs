@@ -1974,20 +1974,40 @@ async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceIt
 }
 
 async fn fetch_smithery_server_summary(server_id: &str) -> Option<SmitheryServerSummary> {
-    let client = marketplace_http_client().ok()?;
-    let response = send_request_with_retry("failed to fetch smithery server summary", || {
+    // A missing summary (no match / non-2xx) is a legitimate `None`; network and
+    // parse failures are not — log those so a silently-empty marketplace detail
+    // is diagnosable instead of indistinguishable from "no summary".
+    let client = match marketplace_http_client() {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::warn!(error = ?e, "smithery summary: failed to build HTTP client");
+            return None;
+        }
+    };
+    let response = match send_request_with_retry("failed to fetch smithery server summary", || {
         client
             .get("https://api.smithery.ai/servers")
             .query(&[("limit", "30"), ("q", server_id)])
     })
     .await
-    .ok()?;
+    {
+        Ok(response) => response,
+        Err(e) => {
+            tracing::warn!(server_id, error = ?e, "smithery summary: request failed");
+            return None;
+        }
+    };
     if !response.status().is_success() {
         return None;
     }
-    let payload = parse_json_response::<SmitheryServerListResponse>(response, "summary")
-        .await
-        .ok()?;
+    let payload = match parse_json_response::<SmitheryServerListResponse>(response, "summary").await
+    {
+        Ok(payload) => payload,
+        Err(e) => {
+            tracing::warn!(server_id, error = ?e, "smithery summary: failed to parse response");
+            return None;
+        }
+    };
     payload
         .servers
         .into_iter()

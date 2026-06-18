@@ -55,13 +55,10 @@ impl ConversationEventRecord {
         pool: &SqlitePool,
         input: AppendConversationEvent<'_>,
     ) -> Result<Self, sqlx::Error> {
-        if let Some(existing) =
-            existing_event_by_idempotency_key(pool, input.conversation_id, input.idempotency_key)
-                .await?
-        {
-            return Ok(existing);
-        }
-
+        // Dedup is handled inside the transaction (see
+        // `append_conversation_event_on_connection`) plus the UNIQUE index; the
+        // previous pool-level pre-check added a redundant SELECT on the hot
+        // append path, whose common case is a brand-new event.
         let mut conn = pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
@@ -100,26 +97,6 @@ impl ConversationEventRecord {
         .fetch_all(pool)
         .await
     }
-}
-
-async fn existing_event_by_idempotency_key(
-    pool: &SqlitePool,
-    conversation_id: Uuid,
-    idempotency_key: Option<&str>,
-) -> Result<Option<ConversationEventRecord>, sqlx::Error> {
-    let Some(idempotency_key) = idempotency_key else {
-        return Ok(None);
-    };
-
-    sqlx::query_as::<_, ConversationEventRecord>(&format!(
-        r#"SELECT {EVENT_COLUMNS}
-           FROM conversation_events
-           WHERE conversation_id = ? AND idempotency_key = ?"#
-    ))
-    .bind(conversation_id)
-    .bind(idempotency_key)
-    .fetch_optional(pool)
-    .await
 }
 
 pub async fn append_conversation_event(

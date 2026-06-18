@@ -1,5 +1,4 @@
 import { tauriInvoke } from '@/lib/tauriApi';
-import type { DbConversationDetail, DbConversationSummary } from 'shared/types';
 import type {
   AgentAvailableCommand,
   AgentConfigSurface,
@@ -179,14 +178,6 @@ export const agentsApi = {
 
   writeMcp: (request: AgentTypeRequest & { config: unknown }): Promise<void> =>
     tauriInvoke('agent_mcp_write', { request }),
-
-  // Conversation metadata + projected timeline from the durable VibeX event log.
-  // `sessionId` is the local VibeX conversation row id.
-  conversationDetail: (sessionId: string): Promise<DbConversationDetail | null> =>
-    tauriInvoke('conversation_detail', { sessionId }),
-
-  conversationList: (workspaceId: string): Promise<DbConversationSummary[]> =>
-    tauriInvoke('conversation_list', { workspaceId }),
 
   // Restore the workspace to the checkpoint recorded before the Nth user message
   // (ordinal). Destructive when performGitReset; the ACP transcript is not

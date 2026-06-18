@@ -32,7 +32,15 @@ pub(crate) fn stop_exit_code_for_status(status: &ExecutionProcessStatus) -> Opti
 pub(crate) fn executor_signal_exit_status(result: Option<ExecutorExitResult>) -> ExitStatus {
     match result {
         Some(ExecutorExitResult::Failure) => failure_exit_status(),
-        Some(ExecutorExitResult::Success) | None => success_exit_status(),
+        Some(ExecutorExitResult::Success) => success_exit_status(),
+        None => {
+            // The executor signal channel closed without delivering a result
+            // (e.g. the executor task was dropped or panicked). We preserve the
+            // historical "assume success" behavior but log it: a silently
+            // dropped executor reported as exit 0 is otherwise invisible.
+            tracing::warn!("executor signal channel closed without a result; assuming success");
+            success_exit_status()
+        }
     }
 }
 

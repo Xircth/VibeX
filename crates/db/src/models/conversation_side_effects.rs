@@ -223,7 +223,7 @@ impl ConversationPermissionRecord {
         permission_id: &str,
         response_json: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let result = sqlx::query(
             r#"UPDATE conversation_permissions
                SET status = 'responded',
                    response_json = ?,
@@ -235,6 +235,14 @@ impl ConversationPermissionRecord {
         .bind(permission_id)
         .execute(pool)
         .await?;
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                %conversation_id,
+                permission_id,
+                "respond() matched no conversation_permissions row; the permission will \
+                 remain pending (unknown or already-responded permission_id)"
+            );
+        }
         Ok(())
     }
 

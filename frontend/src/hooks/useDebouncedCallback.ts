@@ -11,11 +11,18 @@ export function useDebouncedCallback<Args extends unknown[]>(
 ): { debounced: (...args: Args) => void; cancel: () => void } {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef(callback);
+  const delayRef = useRef(delay);
 
   // Keep callback ref up to date
   useEffect(() => {
     callbackRef.current = callback;
   }, [callback]);
+
+  // Keep delay ref up to date: the stable debounced closure below captured the
+  // first render's `delay`, so without this a changed delay never takes effect.
+  useEffect(() => {
+    delayRef.current = delay;
+  }, [delay]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -33,7 +40,7 @@ export function useDebouncedCallback<Args extends unknown[]>(
     }
     timeoutRef.current = setTimeout(() => {
       callbackRef.current(...args);
-    }, delay);
+    }, delayRef.current);
   });
 
   // Cancel function to clear pending timeout

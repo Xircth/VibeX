@@ -64,6 +64,10 @@ impl GitService {
                 Ok(sha)
             }
             None => {
+                // No checked-out worktree holds the base branch, so (unlike the
+                // CLI path above) there is no working tree that could carry staged
+                // changes — the squash is written straight to refs via git2. The
+                // staged-changes guard is therefore intentionally not applicable here.
                 let task_branch = Self::find_branch(&task_repo, task_branch_name)?;
                 let base_branch = Self::find_branch(&task_repo, base_branch_name)?;
                 let base_commit = base_branch.get().peel_to_commit()?;

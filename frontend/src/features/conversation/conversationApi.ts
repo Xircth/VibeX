@@ -9,7 +9,6 @@ import type {
   ConversationTimelinePage,
   ConversationTurnSnapshot,
   DbConversationDetail,
-  DbConversationSummary,
   ExecutorProfileId,
 } from 'shared/types';
 
@@ -79,9 +78,7 @@ const serializeSequenceForIpc = (sequence: bigint | number): number => {
 };
 
 export const conversationApi = {
-  list: (workspaceId: string): Promise<DbConversationSummary[]> =>
-    tauriInvoke('conversation_list', { workspaceId }),
-
+  // Conversation detail (metadata + projected timeline) from the durable event log.
   detail: (sessionId: string): Promise<DbConversationDetail | null> =>
     tauriInvoke('conversation_detail', { sessionId }),
 

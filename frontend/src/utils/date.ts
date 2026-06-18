@@ -16,19 +16,23 @@ export function formatDateShortWithTime(dateString: string): string {
 }
 
 /**
- * Format a date string as a relative time (e.g., "just now", "5m ago", "2h ago", "3d ago").
+ * Relative time in Chinese — the single source of truth for relative-time
+ * display (Chinese baseline). Accepts an ISO string, ms timestamp, or Date.
+ * e.g. "刚刚", "5 分钟前", "2 小时前", "3 天前", "4 个月前", "1 年前".
  */
-export function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
+export function formatRelativeTime(value: string | number | Date): string {
+  const diffMs = Date.now() - dateTimestamp(value);
+  const seconds = Math.max(Math.round(Math.abs(diffMs) / 1000), 1);
+  const suffix = diffMs < 0 ? '后' : '前';
 
-  if (diffSecs < 60) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${diffDays}d ago`;
+  if (seconds < 60) return '刚刚';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟${suffix}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} 小时${suffix}`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} 天${suffix}`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months} 个月${suffix}`;
+  return `${Math.round(months / 12)} 年${suffix}`;
 }

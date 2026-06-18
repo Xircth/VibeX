@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::{LazyLock, Mutex},
+};
 
 use agents::conversation::{
     ContentBlock, ConversationDelegationView, ConversationErrorView, ConversationEvent,
@@ -202,10 +205,64 @@ impl ConversationStateApplier {
                     }
                 }
             }
+            // Question/feedback responses are not yet projected to side tables
+            // (there are no questions/feedback tables, unlike conversation_permissions).
+            // Listed explicitly so this gap is visible rather than silently swallowed
+            // by the catch-all: until projection + schema land, a replayed
+            // conversation will not reflect these as answered.
+            ConversationEvent::QuestionResponded { .. }
+            | ConversationEvent::FeedbackSubmitted { .. } => {}
             _ => {}
         }
 
         Ok(())
+    }
+}
+
+/// Intermediate fold state for the conversation projection. The full fold is
+/// always the source of truth; this is also cached in-process so a read replays
+/// only events appended since the last fold. A cold or evicted cache simply
+/// folds from sequence 0 (an empty state), so the cache can never change the
+/// projected result — only how much work a read does.
+#[derive(Default, Clone)]
+struct ProjectionFoldState {
+    turns: BTreeMap<Uuid, ProjectedTurn>,
+    turn_order: Vec<Uuid>,
+    side_rows: Vec<ConversationTimelineRow>,
+    last_sequence: i64,
+}
+
+const PROJECTION_CACHE_CAP: usize = 128;
+
+static PROJECTION_CACHE: LazyLock<Mutex<HashMap<Uuid, ProjectionFoldState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn projection_cache_get(conversation_id: Uuid) -> ProjectionFoldState {
+    PROJECTION_CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&conversation_id).cloned())
+        .unwrap_or_default()
+}
+
+fn projection_cache_put(conversation_id: Uuid, state: &ProjectionFoldState) {
+    if let Ok(mut cache) = PROJECTION_CACHE.lock() {
+        if cache.len() >= PROJECTION_CACHE_CAP
+            && !cache.contains_key(&conversation_id)
+            && let Some(&evict) = cache.keys().next()
+        {
+            cache.remove(&evict);
+        }
+        cache.insert(conversation_id, state.clone());
+    }
+}
+
+/// Drop the cached projection state for a conversation, forcing the next read to
+/// re-fold from sequence 0. The event log is otherwise append-only, so the cache
+/// stays valid without explicit invalidation.
+pub fn invalidate_projection_cache(conversation_id: Uuid) {
+    if let Ok(mut cache) = PROJECTION_CACHE.lock() {
+        cache.remove(&conversation_id);
     }
 }
 
@@ -216,19 +273,44 @@ impl ConversationProjector {
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<ConversationTimeline, sqlx::Error> {
-        let events =
-            ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
-        Self::project_records(conversation_id, &events)
+        // Resume from the cached fold state and replay only newly-appended
+        // events. The full fold stays the source of truth: a cold or evicted
+        // cache starts from an empty state (last_sequence 0) and folds all.
+        let mut state = projection_cache_get(conversation_id);
+        let tail = ConversationEventRecord::events_since(
+            pool,
+            conversation_id,
+            state.last_sequence,
+            i64::MAX,
+        )
+        .await?;
+        if !tail.is_empty() {
+            Self::fold_into(&mut state, &tail)?;
+            projection_cache_put(conversation_id, &state);
+        }
+        Ok(Self::finalize(conversation_id, state))
     }
 
     pub fn project_records(
         conversation_id: Uuid,
         records: &[ConversationEventRecord],
     ) -> Result<ConversationTimeline, sqlx::Error> {
-        let mut turns: BTreeMap<Uuid, ProjectedTurn> = BTreeMap::new();
-        let mut turn_order: Vec<Uuid> = Vec::new();
-        let mut side_rows: Vec<ConversationTimelineRow> = Vec::new();
-        let mut last_sequence = 0;
+        let mut state = ProjectionFoldState::default();
+        Self::fold_into(&mut state, records)?;
+        Ok(Self::finalize(conversation_id, state))
+    }
+
+    /// Fold `records` into `state` in place. Folding the full event list at once
+    /// or incrementally across calls (replay from a cached state) yields the
+    /// same result, since this is a left fold over the ordered event stream.
+    fn fold_into(
+        state: &mut ProjectionFoldState,
+        records: &[ConversationEventRecord],
+    ) -> Result<(), sqlx::Error> {
+        let mut turns = std::mem::take(&mut state.turns);
+        let mut turn_order = std::mem::take(&mut state.turn_order);
+        let mut side_rows = std::mem::take(&mut state.side_rows);
+        let mut last_sequence = state.last_sequence;
 
         for record in records {
             last_sequence = last_sequence.max(record.sequence);
@@ -432,6 +514,22 @@ impl ConversationProjector {
             }
         }
 
+        state.turns = turns;
+        state.turn_order = turn_order;
+        state.side_rows = side_rows;
+        state.last_sequence = last_sequence;
+        Ok(())
+    }
+
+    /// Build the timeline from a fully-folded state.
+    fn finalize(conversation_id: Uuid, state: ProjectionFoldState) -> ConversationTimeline {
+        let ProjectionFoldState {
+            mut turns,
+            turn_order,
+            side_rows,
+            last_sequence,
+        } = state;
+
         let mut rows = Vec::new();
         for turn_id in turn_order {
             if let Some(turn) = turns.remove(&turn_id) {
@@ -449,15 +547,16 @@ impl ConversationProjector {
         }
         rows.extend(side_rows);
 
-        Ok(ConversationTimeline {
+        ConversationTimeline {
             conversation_id,
             projection_version: CONVERSATION_PROJECTION_VERSION,
             last_sequence,
             rows,
-        })
+        }
     }
 }
 
+#[derive(Clone)]
 struct ProjectedTurn {
     user: MessageTurn,
     assistant: MessageTurn,
@@ -667,6 +766,75 @@ mod tests {
         .expect_err("invalid normalized event should fail loudly");
 
         assert!(matches!(error, sqlx::Error::Decode(_)));
+    }
+
+    #[tokio::test]
+    async fn incremental_fold_matches_full_fold() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "hel".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::AssistantTextDelta {
+                text: "lo".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let all = ConversationEventRecord::events_since(&pool, conversation_id, 0, i64::MAX)
+            .await
+            .expect("load events");
+        assert!(all.len() >= 4);
+
+        let full =
+            ConversationProjector::project_records(conversation_id, &all).expect("full projection");
+
+        // Replay in two chunks split mid-stream (between the two text deltas) to
+        // exercise cross-chunk turn mutation (block append + phase change).
+        let split = 2;
+        let mut state = ProjectionFoldState::default();
+        ConversationProjector::fold_into(&mut state, &all[..split]).expect("chunk 1");
+        ConversationProjector::fold_into(&mut state, &all[split..]).expect("chunk 2");
+        let incremental = ConversationProjector::finalize(conversation_id, state);
+
+        assert_eq!(full, incremental);
     }
 
     #[test]

@@ -77,8 +77,14 @@ impl Config {
 
         // Validate and convert ProfileVariantLabel
         let old_coding_agent = old_config.profile.profile.to_uppercase();
-        let base_coding_agent =
-            BaseCodingAgent::from_str(&old_coding_agent).unwrap_or(BaseCodingAgent::ClaudeCode);
+        let base_coding_agent = BaseCodingAgent::from_str(&old_coding_agent).unwrap_or_else(|_| {
+            tracing::warn!(
+                executor = %old_coding_agent,
+                "v5→v6 migration: unknown executor in profiles; defaulting to ClaudeCode. \
+                 Review your executor_profile after migration."
+            );
+            BaseCodingAgent::ClaudeCode
+        });
         let executor_profile = ExecutorProfileId::new(base_coding_agent);
 
         Ok(Self {

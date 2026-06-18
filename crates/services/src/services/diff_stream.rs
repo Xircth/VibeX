@@ -48,9 +48,14 @@ pub async fn compute_diff_stats(
     let container_ref = workspace.container_ref.as_ref()?;
 
     let workspace_repos =
-        WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace.id)
-            .await
-            .ok()?;
+        match WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace.id).await {
+            Ok(repos) => repos,
+            Err(e) => {
+                tracing::warn!(workspace_id = %workspace.id, error = %e,
+                    "compute_diff_stats: failed to load workspace repos; returning no stats");
+                return None;
+            }
+        };
 
     let mut stats = DiffStats::default();
 
@@ -71,7 +76,16 @@ pub async fn compute_diff_stats(
 
         let base_commit = match base_commit_result {
             Ok(Ok(commit)) => commit,
-            _ => continue,
+            Ok(Err(e)) => {
+                tracing::warn!(repo_path = ?repo_path, error = %e,
+                    "compute_diff_stats: no base commit for repo; skipping (stats may undercount)");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(repo_path = ?repo_path, error = %e,
+                    "compute_diff_stats: base-commit task failed; skipping");
+                continue;
+            }
         };
 
         let diffs_result = tokio::task::spawn_blocking({
@@ -89,12 +103,18 @@ pub async fn compute_diff_stats(
         })
         .await;
 
-        if let Ok(Ok(diffs)) = diffs_result {
-            for diff in diffs {
-                stats.files_changed += 1;
-                stats.lines_added += diff.additions.unwrap_or(0);
-                stats.lines_removed += diff.deletions.unwrap_or(0);
+        match diffs_result {
+            Ok(Ok(diffs)) => {
+                for diff in diffs {
+                    stats.files_changed += 1;
+                    stats.lines_added += diff.additions.unwrap_or(0);
+                    stats.lines_removed += diff.deletions.unwrap_or(0);
+                }
             }
+            Ok(Err(e)) => tracing::warn!(error = %e,
+                "compute_diff_stats: diff failed for repo; stats may undercount"),
+            Err(e) => tracing::warn!(error = %e,
+                "compute_diff_stats: diff task failed for repo; stats may undercount"),
         }
     }
 

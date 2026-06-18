@@ -554,29 +554,34 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
         .map_err(|e| AppError::Internal(format!("Failed to replace {}: {e}", path.display())))
 }
 
-/// Best-effort backup of an existing file before overwriting it.
-fn backup_existing(path: &Path, agent: &str) {
+/// Back up an existing file before overwriting it. Fails loudly if a backup was
+/// required but could not be made, so callers never overwrite a user's real CLI
+/// config after a silently-skipped backup.
+fn backup_existing(path: &Path, agent: &str) -> Result<(), AppError> {
     if !path.exists() {
-        return;
+        return Ok(());
     }
-    let Some(home) = dirs::home_dir() else {
-        return;
-    };
+    let home = dirs::home_dir().ok_or_else(|| {
+        AppError::Internal("cannot locate home dir to back up provider config".to_string())
+    })?;
     let dir = home.join(".vibex").join("provider-backups").join(agent);
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        AppError::Internal(format!("failed to create backup dir {}: {e}", dir.display()))
+    })?;
     let base = path
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "config".to_string());
     let stamp = Utc::now().format("%Y%m%dT%H%M%S%3f");
     let dest = dir.join(format!("{base}.{stamp}.bak"));
-    if std::fs::copy(path, &dest).is_err() {
-        tracing::warn!(path = %path.display(), "Failed to back up provider config");
-        return;
-    }
+    std::fs::copy(path, &dest).map_err(|e| {
+        AppError::Internal(format!(
+            "failed to back up provider config {}: {e}",
+            path.display()
+        ))
+    })?;
     rotate_backups(&dir, &base);
+    Ok(())
 }
 
 fn rotate_backups(dir: &Path, base: &str) {
@@ -800,7 +805,12 @@ fn render_codex(
 
     let mut root = read_toml_file(&toml_path)?;
     {
-        let table = root.as_table_mut().expect("toml table");
+        let table = root.as_table_mut().ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "{} 根节点不是 TOML 表，无法写入供应商配置",
+                toml_path.display()
+            ))
+        })?;
         table.insert(
             "model_provider".to_string(),
             toml::Value::String(key_name.clone()),
@@ -1070,7 +1080,7 @@ fn write_rendered(
             _ => file.content.clone(),
         };
         let path = PathBuf::from(&file.path);
-        backup_existing(&path, agent);
+        backup_existing(&path, agent)?;
         atomic_write_bytes(&path, content.as_bytes())?;
         written.push(file.path.clone());
     }
@@ -1307,9 +1317,13 @@ pub async fn fetch_agent_provider_models(
     let status = response.status();
     if !status.is_success() {
         let detail = response.text().await.unwrap_or_default();
-        return Err(AppError::BadRequest(format!(
-            "供应商返回 {status}：{detail}"
-        )));
+        let message = format!("供应商返回 {status}：{detail}");
+        // 4xx = 客户端/配置错误；5xx 等非成功 = 上游/服务端错误，不应误报为 BadRequest。
+        return Err(if status.is_client_error() {
+            AppError::BadRequest(message)
+        } else {
+            AppError::Internal(message)
+        });
     }
 
     let parsed: OpenAiModelsResponse = response

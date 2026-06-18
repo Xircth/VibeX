@@ -21,10 +21,16 @@ impl GitService {
         let branch_name = git.get_current_branch(worktree_path).unwrap_or_default();
         let repo = self.open_repo(worktree_path)?;
 
-        let staged_numstat = git.get_numstat_staged(worktree_path).unwrap_or_default();
+        let staged_numstat = git.get_numstat_staged(worktree_path).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "git numstat (staged) failed; reporting zero line counts");
+            String::new()
+        });
         let staged_stats = parse_numstat(&staged_numstat);
 
-        let all_numstat = git.get_numstat(worktree_path).unwrap_or_default();
+        let all_numstat = git.get_numstat(worktree_path).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "git numstat failed; reporting zero line counts");
+            String::new()
+        });
         let all_stats = parse_numstat(&all_numstat);
 
         let mut staged_files = Vec::new();

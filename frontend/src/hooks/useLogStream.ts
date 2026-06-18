@@ -17,6 +17,17 @@ type TauriLogMsg =
   | 'Ready'
   | 'Finished';
 
+// Cap retained log entries so a long-running process can't grow the array (and
+// its per-append copy cost) without bound; keep the most recent N.
+const MAX_LOG_ENTRIES = 5000;
+
+function appendCappedLogs(prev: LogEntry[], next: LogEntry[]): LogEntry[] {
+  const merged = [...prev, ...next];
+  return merged.length > MAX_LOG_ENTRIES
+    ? merged.slice(merged.length - MAX_LOG_ENTRIES)
+    : merged;
+}
+
 export const useLogStream = (processId: string): UseLogStreamResult => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -50,19 +61,21 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
             try {
               // Handle Stdout
               if (typeof msg === 'object' && msg !== null && 'Stdout' in msg) {
-                setLogs((prev) => [
-                  ...prev,
-                  { type: 'STDOUT', content: msg.Stdout },
-                ]);
+                setLogs((prev) =>
+                  appendCappedLogs(prev, [
+                    { type: 'STDOUT', content: msg.Stdout },
+                  ])
+                );
                 return;
               }
 
               // Handle Stderr
               if (typeof msg === 'object' && msg !== null && 'Stderr' in msg) {
-                setLogs((prev) => [
-                  ...prev,
-                  { type: 'STDERR', content: msg.Stderr },
-                ]);
+                setLogs((prev) =>
+                  appendCappedLogs(prev, [
+                    { type: 'STDERR', content: msg.Stderr },
+                  ])
+                );
                 return;
               }
 
@@ -85,7 +98,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
                   }
                 }
                 if (newEntries.length > 0) {
-                  setLogs((prev) => [...prev, ...newEntries]);
+                  setLogs((prev) => appendCappedLogs(prev, newEntries));
                 }
                 return;
               }

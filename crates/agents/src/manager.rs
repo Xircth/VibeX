@@ -437,6 +437,17 @@ struct PendingPermission {
     tx: oneshot::Sender<AgentPermissionResponse>,
 }
 
+/// Owned inputs for [`AgentConnectionRunner::run_prompt`], bundled into one
+/// struct so the method stays under clippy's argument-count threshold.
+struct RunPromptRequest {
+    acp_session_id: String,
+    session_id: AgentSessionId,
+    prompt_id: AgentPromptId,
+    blocks: Vec<AgentContentBlock>,
+    mode_override: Option<String>,
+    config_overrides: Vec<AgentSessionConfigOverride>,
+}
+
 impl AgentConnectionRunner {
     fn new(
         snapshot: ManagedAgentConnectionSnapshot,
@@ -912,12 +923,14 @@ impl AgentConnectionRunner {
                             runner
                                 .run_prompt(
                                     &conn,
-                                    acp_session_id,
-                                    session_id,
-                                    prompt_id,
-                                    blocks,
-                                    mode_override,
-                                    config_overrides,
+                                    RunPromptRequest {
+                                        acp_session_id,
+                                        session_id,
+                                        prompt_id,
+                                        blocks,
+                                        mode_override,
+                                        config_overrides,
+                                    },
                                     &mut cmd_rx,
                                 )
                                 .await?;
@@ -1260,14 +1273,17 @@ impl AgentConnectionRunner {
     async fn run_prompt(
         &self,
         conn: &ConnectionTo<Agent>,
-        acp_session_id: String,
-        session_id: AgentSessionId,
-        prompt_id: AgentPromptId,
-        blocks: Vec<AgentContentBlock>,
-        mode_override: Option<String>,
-        config_overrides: Vec<AgentSessionConfigOverride>,
+        request: RunPromptRequest,
         cmd_rx: &mut mpsc::Receiver<AgentConnectionCommand>,
     ) -> Result<(), acp::Error> {
+        let RunPromptRequest {
+            acp_session_id,
+            session_id,
+            prompt_id,
+            blocks,
+            mode_override,
+            config_overrides,
+        } = request;
         self.apply_session_overrides(
             conn,
             &acp_session_id,
@@ -1567,10 +1583,16 @@ impl AcpClientBridge {
         args: RequestPermissionRequest,
     ) -> Result<RequestPermissionResponse, acp::Error> {
         let permission_id = AgentPermissionId::new();
-        let session_id = self
-            .agent_session_for_acp(args.session_id.0.to_string())
-            .await
-            .unwrap_or_default();
+        let acp_session = args.session_id.0.to_string();
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await
+        else {
+            tracing::warn!(
+                acp_session = %acp_session,
+                "request_permission for unknown ACP session — rejecting instead of \
+                 routing to a phantom session the UI can never answer"
+            );
+            return Err(acp::Error::invalid_params());
+        };
         let request = AgentPermissionRequest {
             id: permission_id,
             session_id,
@@ -1732,12 +1754,19 @@ impl AcpClientBridge {
         &self,
         args: agent_client_protocol::schema::CreateTerminalRequest,
     ) -> Result<CreateTerminalResponse, acp::Error> {
+        let acp_session = args.session_id.0.to_string();
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await
+        else {
+            tracing::warn!(
+                acp_session = %acp_session,
+                "create_terminal for unknown ACP session — rejecting instead of \
+                 routing to a phantom session"
+            );
+            return Err(acp::Error::invalid_params());
+        };
         let terminal_id = agent_terminal_registry()
             .create_terminal(&AgentTerminalCreateRequest {
-                session_id: self
-                    .agent_session_for_acp(args.session_id.0.to_string())
-                    .await
-                    .unwrap_or_default(),
+                session_id,
                 command: args.command,
                 args: args.args,
                 cwd: args.cwd.map(|cwd| cwd.display().to_string()),

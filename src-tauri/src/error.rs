@@ -123,6 +123,28 @@ impl From<services::services::config::ConfigError> for AppError {
     }
 }
 
+impl From<services::services::mcp::McpError> for AppError {
+    fn from(e: services::services::mcp::McpError) -> Self {
+        use services::services::mcp::McpError;
+        match e {
+            McpError::NotFound(message) => AppError::NotFound(message),
+            McpError::BadRequest(message) => AppError::BadRequest(message),
+            McpError::Internal(message) => AppError::Internal(message),
+        }
+    }
+}
+
+impl From<services::services::provider_config::ProviderConfigError> for AppError {
+    fn from(e: services::services::provider_config::ProviderConfigError) -> Self {
+        use services::services::provider_config::ProviderConfigError;
+        match e {
+            ProviderConfigError::NotFound(message) => AppError::NotFound(message),
+            ProviderConfigError::BadRequest(message) => AppError::BadRequest(message),
+            ProviderConfigError::Internal(message) => AppError::Internal(message),
+        }
+    }
+}
+
 impl From<services::services::repo::RepoError> for AppError {
     fn from(e: services::services::repo::RepoError) -> Self {
         AppError::Internal(e.to_string())

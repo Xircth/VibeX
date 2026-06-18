@@ -11,9 +11,11 @@ pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod git_host;
 pub mod image;
+pub mod mcp;
 pub mod notification;
 pub mod pr_monitor;
 pub mod project;
+pub mod provider_config;
 #[cfg(feature = "qa-mode")]
 pub mod qa_repos;
 pub mod repo;

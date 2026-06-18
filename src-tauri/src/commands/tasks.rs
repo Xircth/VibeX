@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use agents::{
     AgentAutoApproveMode, AgentContentBlock, AgentSessionId, EnsureAgentSessionInput,
-    SendAgentPromptInput, agent_type_from_executor_key,
+    SendAgentPromptInput,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use db::models::{
@@ -14,22 +14,15 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use deployment::Deployment;
-use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+use executors::profile::ExecutorProfileId;
 use git::GitService;
 use services::services::{container::ContainerService, workspace_manager::WorkspaceManager};
 use uuid::Uuid;
 
 use crate::{
-    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+    bridge::agent_type_from_executor, error::AppError, state::AppState,
+    workspace_paths::resolve_workspace_agent_working_dir,
 };
-
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<agents::AgentType, AppError> {
-    agent_type_from_executor_key(&executor.to_string()).ok_or_else(|| {
-        AppError::BadRequest(format!(
-            "{executor} is not available through the ACP-native agent runtime"
-        ))
-    })
-}
 
 // --- Query / Input types ---
 

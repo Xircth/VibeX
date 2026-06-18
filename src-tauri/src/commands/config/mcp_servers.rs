@@ -1,26 +1,20 @@
 use std::collections::HashMap;
 
 use agents::{
-    AgentMcpConfig, agent_type_from_executor_key, default_mcp_config_path, mcp_file_config,
-    read_agent_mcp_config, write_agent_mcp_config,
+    AgentMcpConfig, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
+    write_agent_mcp_config,
 };
 use executors::executors::BaseCodingAgent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs;
 
-use crate::{error::AppError, state::AppState};
+use crate::{bridge::agent_type_from_executor, error::AppError, state::AppState};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetMcpServerResponse {
     pub mcp_config: AgentMcpConfig,
     pub config_path: String,
-}
-
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<agents::AgentType, AppError> {
-    agent_type_from_executor_key(&executor.to_string()).ok_or_else(|| {
-        AppError::BadRequest(format!("{executor} does not have an ACP registry entry"))
-    })
 }
 
 pub(crate) async fn get_mcp_servers(

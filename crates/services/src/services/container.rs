@@ -228,7 +228,7 @@ pub enum ContainerError {
 }
 
 #[async_trait]
-pub trait ContainerService {
+pub trait ContainerService: Send + Sync {
     fn msg_stores(&self) -> &Arc<RwLock<HashMap<Uuid, Arc<MsgStore>>>>;
 
     fn db(&self) -> &DBService;

@@ -10,7 +10,6 @@ use db::models::{
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
-use deployment::Deployment;
 use git::GitCli;
 use uuid::Uuid;
 

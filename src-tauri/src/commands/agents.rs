@@ -21,10 +21,8 @@ use db::models::{
     agent_runtime::{AgentRuntimeStore, InsertAgentHistoryImport},
     agent_setting::AgentSetting,
 };
-use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use services::services::container::ContainerService;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};

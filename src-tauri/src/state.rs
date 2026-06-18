@@ -5,7 +5,7 @@ use std::{
 
 use agents::AgentRuntime;
 use deployment::Deployment;
-use local_deployment::LocalDeployment;
+use local_deployment::{LocalDeployment, pty::PtyService};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -30,7 +30,12 @@ pub struct LocalUsageCacheEntry {
 }
 
 pub struct AppState {
-    pub deployment: Arc<LocalDeployment>,
+    pub deployment: Arc<dyn Deployment>,
+    /// PTY session registry for terminal commands. A shared (Arc-backed) handle to the
+    /// same registry the deployment owns — kept as a first-class field because
+    /// `PtyService` lives in `local-deployment` and cannot be exposed through the
+    /// object-safe `Deployment` trait without an upward crate dependency.
+    pub pty: PtyService,
     pub file_tree_watchers: Arc<Mutex<HashSet<String>>>,
     pub conversation_streams: Arc<Mutex<HashSet<String>>>,
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
@@ -45,6 +50,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new() -> Result<Self, deployment::DeploymentError> {
         let deployment = LocalDeployment::new().await?;
+        let pty = deployment.pty().clone();
         let pool = deployment.db().pool.clone();
         let agent_runtime = Arc::new(AgentRuntime::new(agent_runtime_sink(pool.clone())));
         // Build the delegation broker over the runtime + DB and start its
@@ -53,6 +59,7 @@ impl AppState {
         let delegation = crate::delegation::build_delegation(agent_runtime.clone(), pool);
         Ok(Self {
             deployment: Arc::new(deployment),
+            pty,
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),

@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use agents::{ids::AgentTerminalId, terminal::agent_terminal_registry};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use db::models::{workspace::Workspace, workspace_repo::WorkspaceRepo};
-use deployment::Deployment;
-use services::services::container::ContainerService;
 use tauri::Emitter;
 use uuid::Uuid;
 
@@ -85,8 +83,7 @@ pub async fn create_terminal(
 
     // Create PTY session
     let (session_id, output_rx) = state
-        .deployment
-        .pty()
+        .pty
         .create_session(working_dir, cols, rows, shell, session_id)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -104,10 +101,9 @@ pub async fn attach_terminal(
     state: tauri::State<'_, AppState>,
     session_id: Uuid,
 ) -> Result<Uuid, AppError> {
-    if state.deployment.pty().session_exists(&session_id) {
+    if state.pty.session_exists(&session_id) {
         let output_rx = state
-            .deployment
-            .pty()
+            .pty
             .subscribe_output(session_id)
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -146,8 +142,7 @@ pub async fn write_terminal(
         .decode(&data)
         .map_err(|e| AppError::BadRequest(format!("Invalid base64: {}", e)))?;
     state
-        .deployment
-        .pty()
+        .pty
         .write(session_id, &bytes)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -170,8 +165,7 @@ pub async fn resize_terminal(
     }
 
     state
-        .deployment
-        .pty()
+        .pty
         .resize(session_id, cols, rows)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -192,8 +186,7 @@ pub async fn close_terminal(
     }
 
     state
-        .deployment
-        .pty()
+        .pty
         .close_session(session_id)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;

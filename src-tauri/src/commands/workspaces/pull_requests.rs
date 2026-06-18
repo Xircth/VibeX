@@ -13,11 +13,9 @@ use db::models::{
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use deployment::Deployment;
 use git::{GitCliError, GitServiceError};
 use services::services::{
     config::DEFAULT_PR_DESCRIPTION_PROMPT,
-    container::ContainerService,
     git_host::{self, CreatePrRequest, GitHostError, GitHostProvider},
 };
 use uuid::Uuid;

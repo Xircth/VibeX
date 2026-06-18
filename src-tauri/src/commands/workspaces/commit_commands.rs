@@ -1,4 +1,3 @@
-use deployment::Deployment;
 use uuid::Uuid;
 
 use super::workspace_queries::resolve_worktree_path;

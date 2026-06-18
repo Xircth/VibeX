@@ -76,9 +76,10 @@ pub struct LocalDeployment {
     pty: PtyService,
 }
 
-#[async_trait]
-impl Deployment for LocalDeployment {
-    async fn new() -> Result<Self, DeploymentError> {
+impl LocalDeployment {
+    // Inherent constructor: `new` is intentionally not on the `Deployment` trait (it
+    // returns `Self`, which would break the object-safety needed for `Arc<dyn Deployment>`).
+    pub async fn new() -> Result<Self, DeploymentError> {
         let mut raw_config = load_config_from_file(&config_path()).await;
 
         let profiles = ExecutorConfigs::get_cached();
@@ -182,7 +183,10 @@ impl Deployment for LocalDeployment {
 
         Ok(deployment)
     }
+}
 
+#[async_trait]
+impl Deployment for LocalDeployment {
     fn user_id(&self) -> &str {
         &self.user_id
     }
@@ -195,7 +199,7 @@ impl Deployment for LocalDeployment {
         &self.db
     }
 
-    fn container(&self) -> &impl ContainerService {
+    fn container(&self) -> &dyn ContainerService {
         &self.container
     }
 

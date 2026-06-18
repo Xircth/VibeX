@@ -2,8 +2,6 @@ use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     execution_process_repo_state::ExecutionProcessRepoState,
 };
-use deployment::Deployment;
-use services::services::container::ContainerService;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};

@@ -5,7 +5,6 @@ use db::models::{
     project_repo::{CreateProjectRepo, ProjectRepo},
     repo::Repo,
 };
-use deployment::Deployment;
 use services::services::{file_search::SearchQuery, project::ProjectServiceError};
 use uuid::Uuid;
 

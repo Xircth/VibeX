@@ -10,10 +10,8 @@ use db::models::{
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use deployment::Deployment;
 use git::{self, ConflictOp, GitCliError, GitServiceError};
 use git2::BranchType;
-use services::services::container::ContainerService;
 use uuid::Uuid;
 
 use super::{

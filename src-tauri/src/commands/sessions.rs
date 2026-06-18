@@ -11,9 +11,7 @@ use db::models::{
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
-use deployment::Deployment;
 use serde::Serialize;
-use services::services::container::ContainerService;
 use sqlx::types::chrono::{DateTime, Utc};
 use ts_rs::TS;
 use uuid::Uuid;

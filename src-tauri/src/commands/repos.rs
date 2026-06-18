@@ -4,7 +4,6 @@ use db::models::{
     project::SearchResult,
     repo::{Repo, UpdateRepo},
 };
-use deployment::Deployment;
 use git::{self, GitBranch, GitRemote};
 use reqwest::header::{ACCEPT, USER_AGENT};
 use serde::Deserialize;

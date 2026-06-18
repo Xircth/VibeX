@@ -12,9 +12,8 @@ use db::models::{
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
-use deployment::Deployment;
 use git::GitService;
-use services::services::{container::ContainerService, workspace_manager::WorkspaceManager};
+use services::services::{workspace_manager::WorkspaceManager};
 use uuid::Uuid;
 
 use super::{

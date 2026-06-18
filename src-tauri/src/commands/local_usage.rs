@@ -12,7 +12,6 @@ use std::{
 };
 
 use db::models::{project::Project, project_repo::ProjectRepo, workspace::Workspace};
-use deployment::Deployment;
 use uuid::Uuid;
 
 use services::services::usage::{

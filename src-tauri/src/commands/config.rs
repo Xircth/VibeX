@@ -5,7 +5,6 @@ use agents::{
     agent_type_from_executor_key,
 };
 use db::models::execution_process::ExecutionProcess;
-use deployment::Deployment;
 use executors::{executors::BaseCodingAgent, profile::ExecutorConfigs};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,7 +14,6 @@ use services::services::{
         editor::{EditorConfig, EditorType},
         save_config_to_file,
     },
-    container::ContainerService,
     worktree_manager::WorktreeManager,
 };
 use sqlx::Acquire;

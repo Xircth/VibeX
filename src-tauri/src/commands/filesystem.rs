@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use deployment::Deployment;
 use services::services::filesystem::{DirectoryEntry, DirectoryListResponse};
 
 use crate::{error::AppError, state::AppState};

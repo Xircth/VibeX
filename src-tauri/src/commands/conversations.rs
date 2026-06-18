@@ -25,7 +25,6 @@ use db::models::{
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
 };
-use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;

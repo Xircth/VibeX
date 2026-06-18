@@ -1257,6 +1257,10 @@ impl AgentConnectionRunner {
         );
     }
 
+    // Cohesive prompt-execution context (connection + session/prompt ids + blocks +
+    // overrides + command channel); bundling into a struct adds indirection without
+    // value, matching how the rest of the codebase handles this lint.
+    #[allow(clippy::too_many_arguments)]
     async fn run_prompt(
         &self,
         conn: &ConnectionTo<Agent>,

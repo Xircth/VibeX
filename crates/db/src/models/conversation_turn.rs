@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -124,8 +124,11 @@ impl ConversationTurnRecord {
         .await
     }
 
-    pub async fn mark_queued(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
-        Self::mark_simple_status(pool, id, "queued").await
+    pub async fn mark_queued<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        Self::mark_simple_status(executor, id, "queued").await
     }
 
     pub async fn set_prompt_id(
@@ -145,7 +148,10 @@ impl ConversationTurnRecord {
         Ok(())
     }
 
-    pub async fn mark_running(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
+    pub async fn mark_running<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET status = 'running',
@@ -154,22 +160,28 @@ impl ConversationTurnRecord {
                WHERE id = ?"#,
         )
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
-    pub async fn mark_blocked(pool: &SqlitePool, id: Uuid) -> Result<(), sqlx::Error> {
-        Self::mark_simple_status(pool, id, "blocked").await
+    pub async fn mark_blocked<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        Self::mark_simple_status(executor, id, "blocked").await
     }
 
-    pub async fn mark_completed(
-        pool: &SqlitePool,
+    pub async fn mark_completed<'e, E>(
+        executor: E,
         id: Uuid,
         stop_reason: Option<&str>,
         model: Option<&str>,
         usage_json: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET status = 'completed',
@@ -184,16 +196,19 @@ impl ConversationTurnRecord {
         .bind(model)
         .bind(usage_json)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
-    pub async fn mark_failed(
-        pool: &SqlitePool,
+    pub async fn mark_failed<'e, E>(
+        executor: E,
         id: Uuid,
         error_json: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET status = 'failed',
@@ -204,16 +219,19 @@ impl ConversationTurnRecord {
         )
         .bind(error_json)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
-    pub async fn mark_cancelled(
-        pool: &SqlitePool,
+    pub async fn mark_cancelled<'e, E>(
+        executor: E,
         id: Uuid,
         reason_json: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET status = 'cancelled',
@@ -224,16 +242,19 @@ impl ConversationTurnRecord {
         )
         .bind(reason_json)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
-    async fn mark_simple_status(
-        pool: &SqlitePool,
+    async fn mark_simple_status<'e, E>(
+        executor: E,
         id: Uuid,
         status: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET status = ?, updated_at = datetime('now', 'subsec')
@@ -241,7 +262,7 @@ impl ConversationTurnRecord {
         )
         .bind(status)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -57,10 +57,13 @@ const TOOL_COLUMNS: &str = r#"id,
     updated_at"#;
 
 impl ConversationToolCallRecord {
-    pub async fn upsert(
-        pool: &SqlitePool,
+    pub async fn upsert<'e, E>(
+        executor: E,
         input: UpsertConversationToolCall<'_>,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_tool_calls (
                    id, conversation_id, turn_id, tool_call_id, title, kind,
@@ -95,7 +98,7 @@ impl ConversationToolCallRecord {
         .bind(input.locations_json)
         .bind(input.metadata_json)
         .bind(input.images_json)
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await
     }
 

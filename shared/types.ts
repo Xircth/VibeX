@@ -934,7 +934,17 @@ export type ConversationTimeline = { conversation_id: string, projection_version
 
 export type ConversationTimelinePage = { conversation_id: string, projection_version: number, cursor: string | null, next_cursor: string | null, rows: Array<ConversationTimelineRow>, };
 
-export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTurn, phase: string, } | { "kind": "permission_request", request: ConversationPermissionView, } | { "kind": "question_request", request: ConversationQuestionRequest, } | { "kind": "feedback_request", request: ConversationFeedbackRequest, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
+export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTurn, phase: string, } | { "kind": "permission_request", request: ConversationPermissionView, } | { "kind": "question_request", request: ConversationQuestionRequest,
+/**
+ * Folded from a later `QuestionResponded` event. `None` while still pending;
+ * `Some` once answered — so a rebuilt projection no longer shows answered
+ * questions as perpetually pending.
+ */
+response?: ConversationQuestionResponse | null, } | { "kind": "feedback_request", request: ConversationFeedbackRequest,
+/**
+ * Folded from a later `FeedbackSubmitted` event. `None` while still pending.
+ */
+response?: ConversationFeedbackResponse | null, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
 
 export type ConversationToolCallPatch = { tool_call_id: string, title?: string | null, kind?: string | null, status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, raw_output_append?: string | null, content?: JsonValue | null, locations?: Array<ConversationFileLocation> | null, metadata?: JsonValue | null, images: Array<ImageData>, };
 

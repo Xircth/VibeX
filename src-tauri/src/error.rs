@@ -156,6 +156,16 @@ impl From<services::services::prompt_enhancement::PromptEnhancementError> for Ap
     }
 }
 
+impl From<services::services::chat_delivery::NotificationError> for AppError {
+    fn from(e: services::services::chat_delivery::NotificationError) -> Self {
+        use services::services::chat_delivery::NotificationError;
+        match e {
+            NotificationError::BadRequest(message) => AppError::BadRequest(message),
+            NotificationError::Internal(message) => AppError::Internal(message),
+        }
+    }
+}
+
 impl From<services::services::repo::RepoError> for AppError {
     fn from(e: services::services::repo::RepoError) -> Self {
         AppError::Internal(e.to_string())

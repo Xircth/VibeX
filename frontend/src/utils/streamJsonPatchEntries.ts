@@ -84,8 +84,12 @@ export function streamJsonPatchEntries<E = unknown>(
         const raw = data.JsonPatch as Operation[];
         const ops = dedupeOps(raw);
 
-        // Apply to a working copy (applyPatch mutates)
-        const next = structuredClone(snapshot);
+        // Apply to a structurally-shared copy: a fresh container with a
+        // shallow-copied entries array. applyUpsertPatch replaces whole elements
+        // at /entries/N, so untouched entries stay shared by reference rather
+        // than being deep-cloned every frame — far cheaper for long streams, and
+        // it lets memoized consumers skip rows that did not change.
+        const next: PatchContainer<E> = { entries: snapshot.entries.slice() };
         applyUpsertPatch(next, ops);
 
         snapshot = next;

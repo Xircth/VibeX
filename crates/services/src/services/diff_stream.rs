@@ -261,8 +261,11 @@ impl DiffStreamManager {
             };
         let _git_guard = git_debouncer;
 
+        // This timer only detects an out-of-band target-branch change (a rare
+        // user action), so 5s keeps detection prompt while cutting the per-stream
+        // DB poll rate 5× (was 1Hz on every open diff stream).
         let mut target_interval =
-            IntervalStream::new(tokio::time::interval(Duration::from_secs(1)));
+            IntervalStream::new(tokio::time::interval(Duration::from_secs(5)));
 
         loop {
             let event = tokio::select! {

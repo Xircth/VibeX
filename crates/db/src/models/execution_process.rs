@@ -53,6 +53,11 @@ pub enum ExecutionProcessRunReason {
     SetupScript,
     CleanupScript,
     ArchiveScript,
+    /// Legacy / transitional (架构报告 A-6). Agent turns are now owned by the ACP-native
+    /// `agents` runtime, NOT by `execution_processes`: no new execution process is
+    /// spawned with this reason for an ACP agent, and it does NOT drive a CLI. It is
+    /// retained only for historical rows during the executor↔agent_type cutover. Treat
+    /// it as "an agent session ran here", not "a coding-agent CLI process ran here".
     CodingAgent,
     DevServer,
 }

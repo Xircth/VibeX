@@ -462,6 +462,8 @@ pub async fn agent_send_prompt(
             connection_id: parse_agent_connection_id(&request.connection_id)?,
             session_id: parse_agent_session_id(&request.session_id)?,
             blocks: text_prompt_blocks(request.text),
+            mode_override: None,
+            config_overrides: Vec::new(),
         })
         .await
         .map_err(Into::into)

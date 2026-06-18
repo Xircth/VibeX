@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { conversationApi } from './conversationApi';
 
 const { tauriInvokeMock } = vi.hoisted(() => ({
@@ -10,6 +10,10 @@ vi.mock('@/lib/tauriApi', () => ({
 }));
 
 describe('conversationApi', () => {
+  beforeEach(() => {
+    tauriInvokeMock.mockReset();
+  });
+
   it('starts turns through conversation_start_turn', async () => {
     tauriInvokeMock.mockResolvedValue({
       conversationId: 'conversation-1',
@@ -51,10 +55,12 @@ describe('conversationApi', () => {
       limit: 100,
     });
 
+    const [, args] = tauriInvokeMock.mock.calls[0];
+    expect(() => JSON.stringify(args)).not.toThrow();
     expect(tauriInvokeMock).toHaveBeenCalledWith('conversation_events_since', {
       request: {
         conversationId: 'conversation-1',
-        afterSequence: 4n,
+        afterSequence: 4,
         limit: 100,
       },
     });

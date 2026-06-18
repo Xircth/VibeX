@@ -45,6 +45,7 @@ export async function sendAgentRuntimeTurn({
     agentType: agentTypeFromExecutor(executorProfileId.executor),
     workspaceId,
     conversationId: sessionId,
+    executorProfileId,
     text: displayText ?? text,
     images,
   });

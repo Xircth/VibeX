@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Sqlite, SqlitePool, Transaction};
+use sqlx::{FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -55,9 +55,29 @@ impl ConversationEventRecord {
         pool: &SqlitePool,
         input: AppendConversationEvent<'_>,
     ) -> Result<Self, sqlx::Error> {
-        let mut tx = pool.begin().await?;
-        let record = append_conversation_event(&mut tx, input).await?;
-        tx.commit().await?;
+        if let Some(existing) =
+            existing_event_by_idempotency_key(pool, input.conversation_id, input.idempotency_key)
+                .await?
+        {
+            return Ok(existing);
+        }
+
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+        let record = match append_conversation_event_on_connection(&mut conn, input).await {
+            Ok(record) => record,
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err(error);
+            }
+        };
+
+        if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(error);
+        }
+
         Ok(record)
     }
 
@@ -82,8 +102,35 @@ impl ConversationEventRecord {
     }
 }
 
+async fn existing_event_by_idempotency_key(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    idempotency_key: Option<&str>,
+) -> Result<Option<ConversationEventRecord>, sqlx::Error> {
+    let Some(idempotency_key) = idempotency_key else {
+        return Ok(None);
+    };
+
+    sqlx::query_as::<_, ConversationEventRecord>(&format!(
+        r#"SELECT {EVENT_COLUMNS}
+           FROM conversation_events
+           WHERE conversation_id = ? AND idempotency_key = ?"#
+    ))
+    .bind(conversation_id)
+    .bind(idempotency_key)
+    .fetch_optional(pool)
+    .await
+}
+
 pub async fn append_conversation_event(
     tx: &mut Transaction<'_, Sqlite>,
+    input: AppendConversationEvent<'_>,
+) -> Result<ConversationEventRecord, sqlx::Error> {
+    append_conversation_event_on_connection(tx, input).await
+}
+
+async fn append_conversation_event_on_connection(
+    conn: &mut SqliteConnection,
     input: AppendConversationEvent<'_>,
 ) -> Result<ConversationEventRecord, sqlx::Error> {
     if let Some(idempotency_key) = input.idempotency_key
@@ -94,7 +141,7 @@ pub async fn append_conversation_event(
         ))
         .bind(input.conversation_id)
         .bind(idempotency_key)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *conn)
         .await?
     {
         return Ok(existing);
@@ -106,7 +153,7 @@ pub async fn append_conversation_event(
            WHERE conversation_id = ?"#,
     )
     .bind(input.conversation_id)
-    .fetch_one(&mut **tx)
+    .fetch_one(&mut *conn)
     .await?;
 
     sqlx::query_as::<_, ConversationEventRecord>(&format!(
@@ -130,20 +177,23 @@ pub async fn append_conversation_event(
     .bind(input.normalized_json)
     .bind(input.raw_json)
     .bind(input.idempotency_key)
-    .fetch_one(&mut **tx)
+    .fetch_one(&mut *conn)
     .await
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{str::FromStr, time::Duration};
 
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 
     use super::*;
     use crate::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        project::{CreateProject, Project},
+        task::{CreateTask, Task},
+        workspace::{CreateWorkspace, Workspace},
     };
 
     async fn setup_pool() -> SqlitePool {
@@ -164,6 +214,43 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    async fn setup_concurrent_file_pool() -> (SqlitePool, String) {
+        let db_path = std::env::temp_dir().join(format!(
+            "vibex-conversation-events-{}.sqlite",
+            Uuid::new_v4()
+        ));
+        let db_path = db_path.to_string_lossy().to_string();
+        let database_url = format!("sqlite://{db_path}");
+        let options = SqliteConnectOptions::from_str(&database_url)
+            .expect("sqlite options")
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5))
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(8)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("PRAGMA foreign_keys = OFF")
+                        .execute(conn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
+            .await
+            .expect("connect file db");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        (pool, db_path)
     }
 
     #[tokio::test]
@@ -263,5 +350,119 @@ mod tests {
             .expect("events since");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].sequence, 2);
+    }
+
+    #[tokio::test]
+    async fn conversation_event_append_serializes_concurrent_sequence_allocation() {
+        let (pool, db_path) = setup_concurrent_file_pool().await;
+        let project_id = Uuid::new_v4();
+        Project::create(
+            &pool,
+            &CreateProject {
+                name: "Test Project".to_string(),
+                repositories: Vec::new(),
+            },
+            project_id,
+        )
+        .await
+        .expect("create project");
+        let task_id = Uuid::new_v4();
+        Task::create(
+            &pool,
+            &CreateTask {
+                project_id,
+                title: "Test Task".to_string(),
+                description: None,
+                status: None,
+                parent_workspace_id: None,
+                image_ids: None,
+            },
+            task_id,
+        )
+        .await
+        .expect("create task");
+        let workspace_id = Uuid::new_v4();
+        Workspace::create(
+            &pool,
+            &CreateWorkspace {
+                project_id,
+                parent_workspace_id: None,
+                branch: "main".to_string(),
+                container_ref: None,
+                use_worktree: false,
+                agent_working_dir: None,
+            },
+            workspace_id,
+            task_id,
+        )
+        .await
+        .expect("create workspace");
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id,
+                task_id: Some(task_id),
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let turn = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-1"),
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+
+        let mut join_set = tokio::task::JoinSet::new();
+        for index in 0..24 {
+            let pool = pool.clone();
+            let turn_id = turn.id;
+            join_set.spawn(async move {
+                let idempotency_key = format!("event:{index}");
+                ConversationEventRecord::append(
+                    &pool,
+                    AppendConversationEvent {
+                        id: Uuid::new_v4(),
+                        conversation_id,
+                        turn_id: Some(turn_id),
+                        binding_id: None,
+                        connection_id: Some("connection-1"),
+                        prompt_id: Some("prompt-1"),
+                        source: "acp",
+                        event_kind: "assistant_text_delta",
+                        normalized_json: r#"{"kind":"assistant_text_delta","text":"hi"}"#,
+                        raw_json: Some(r#"{"method":"session/update"}"#),
+                        idempotency_key: Some(idempotency_key.as_str()),
+                    },
+                )
+                .await
+            });
+        }
+
+        let mut sequences = Vec::new();
+        while let Some(result) = join_set.join_next().await {
+            let record = result.expect("join task").expect("append event");
+            sequences.push(record.sequence);
+        }
+
+        sequences.sort_unstable();
+        assert_eq!(sequences, (1..=24).collect::<Vec<_>>());
+
+        pool.close().await;
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{db_path}{suffix}"));
+        }
     }
 }

@@ -11,7 +11,12 @@ import {
 import { Loader2 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { BaseCodingAgent } from 'shared/types';
-import type { ConversationTimelineRow, MessageTurn, TaskWithAttemptStatus } from 'shared/types';
+import type {
+  ConversationTimelineRow,
+  MessageTurn,
+  TaskWithAttemptStatus,
+  TokenUsageInfo,
+} from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
 import { agentsApi } from '@/features/agents/api';
@@ -25,10 +30,11 @@ import {
   findActiveConversationMessageNavEntry,
   type ConversationMessageNavEntry,
 } from '@/components/conversation-thread/messageNavEntries';
-import {
-  type ConversationTimelineTurn,
-} from '@/features/conversation/conversationStore';
+import { type ConversationTimelineTurn } from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
+import { useOptionalEntries } from '@/contexts/EntriesContext';
+import { useAttemptRepo } from '@/hooks/useAttemptRepo';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { cn } from '@/lib/utils';
 import {
   findPreviousUserMessageVirtualIndex,
@@ -63,7 +69,14 @@ export function buildTimelineNavEntries(
         .trim()
         .replace(/\s+/g, ' ')
         .slice(0, 80) || `User message ${ordinal}`;
-    entries.push({ key: row.key, index, ordinal, preview, additions: 0, deletions: 0 });
+    entries.push({
+      key: row.key,
+      index,
+      ordinal,
+      preview,
+      additions: 0,
+      deletions: 0,
+    });
   });
   return entries;
 }
@@ -72,6 +85,33 @@ function assistantCopyText(turn: MessageTurn): string {
   return turn.blocks
     .flatMap((block) => (block.type === 'text' ? [block.text] : []))
     .join('\n\n');
+}
+
+/**
+ * Latest assistant-turn token usage for the composer's context-usage ring,
+ * shaped from the agent-reported context window. Returns null (which hides the
+ * indicator) unless a turn carries a real context_window_max — agents that
+ * don't report a window simply don't show the ratio.
+ */
+function latestTokenUsage(
+  timeline: ConversationTimelineTurn[]
+): TokenUsageInfo | null {
+  for (let index = timeline.length - 1; index >= 0; index--) {
+    const turn = timeline[index]?.turn;
+    const usage = turn?.usage;
+    if (!turn || turn.role !== 'assistant' || !usage) continue;
+    const window =
+      usage.context_window_max != null ? Number(usage.context_window_max) : 0;
+    if (window <= 0) continue;
+    const total =
+      Number(usage.input_tokens) +
+      Number(usage.output_tokens) +
+      Number(usage.cache_creation_input_tokens) +
+      Number(usage.cache_read_input_tokens);
+    if (total <= 0) continue;
+    return { total_tokens: total, model_context_window: window };
+  }
+  return null;
 }
 
 /** Turn stats for a settled assistant turn, sourced from the parsed MessageTurn. */
@@ -108,7 +148,9 @@ function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
               key={`permission-${row.request.permission_id}-${index}`}
               className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100"
             >
-              <div className="font-medium">{row.request.title ?? 'Permission requested'}</div>
+              <div className="font-medium">
+                {row.request.title ?? 'Permission requested'}
+              </div>
               <div className="mt-1 text-amber-800/80 dark:text-amber-100/75">
                 {row.request.status}
               </div>
@@ -170,7 +212,9 @@ function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
                 Delegation {row.delegation.status}
               </div>
               {row.delegation.task_preview ? (
-                <div className="mt-1 truncate">{row.delegation.task_preview}</div>
+                <div className="mt-1 truncate">
+                  {row.delegation.task_preview}
+                </div>
               ) : null}
             </div>
           );
@@ -197,7 +241,9 @@ function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
               key={`notice-${index}`}
               className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
             >
-              <div className="font-medium text-foreground">{row.notice.title}</div>
+              <div className="font-medium text-foreground">
+                {row.notice.title}
+              </div>
               {row.notice.message ? (
                 <div className="mt-1 whitespace-pre-wrap break-words">
                   {row.notice.message}
@@ -226,6 +272,12 @@ const AgentTimelineConversation = forwardRef<
 >(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
   const { config } = useUserSystem();
   const collapseProcess = config?.ai_message_default_collapsed ?? false;
+  const prefersReducedMotion = useMediaQuery(
+    '(prefers-reduced-motion: reduce)'
+  );
+  const scrollBehavior: ScrollBehavior = prefersReducedMotion
+    ? 'auto'
+    : 'smooth';
   const containerRef = useRef<HTMLDivElement | null>(null);
   const virtualListRef = useRef<HTMLDivElement | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
@@ -233,6 +285,11 @@ const AgentTimelineConversation = forwardRef<
   const isAtBottomRef = useRef(true);
 
   const sessionId = attempt.session?.id ?? null;
+  // Absolute workspace root for resolving clickable file paths in messages.
+  // Non-worktree workspaces leave container_ref null, so fall back to the repo
+  // path — otherwise a relative "README.md" can't be opened in a preview tab.
+  const { repos } = useAttemptRepo(attempt.id);
+  const workspaceRoot = attempt.container_ref ?? repos[0]?.path ?? null;
   const conversation = useConversationTimeline(sessionId);
   const timeline = conversation.timeline;
   const detailLoading = conversation.loading;
@@ -240,6 +297,18 @@ const AgentTimelineConversation = forwardRef<
   const turnErrors = sideRows.flatMap((row) =>
     row.kind === 'turn_error' ? [row.error.error.message] : []
   );
+
+  // Feed the composer's context-usage ring (EntriesContext). The setter is
+  // stable, and useOptionalEntries no-ops outside a provider (e.g. logs panel).
+  const entries = useOptionalEntries();
+  const setTokenUsageInfo = entries?.setTokenUsageInfo;
+  const composerTokenUsage = useMemo(
+    () => latestTokenUsage(timeline),
+    [timeline]
+  );
+  useEffect(() => {
+    setTokenUsageInfo?.(composerTokenUsage);
+  }, [setTokenUsageInfo, composerTokenUsage]);
 
   const liveStats = useMemo<TurnStatsData>(
     () => ({
@@ -250,7 +319,10 @@ const AgentTimelineConversation = forwardRef<
     []
   );
 
-  const navEntries = useMemo(() => buildTimelineNavEntries(timeline), [timeline]);
+  const navEntries = useMemo(
+    () => buildTimelineNavEntries(timeline),
+    [timeline]
+  );
   const userMessageIndexes = useMemo(
     () =>
       timeline.flatMap((row, index) =>
@@ -327,10 +399,14 @@ const AgentTimelineConversation = forwardRef<
     (index: number) => {
       if (index < 0 || index >= timeline.length) return;
       detachFromBottom();
-      rowVirtualizer.scrollToIndex(index, { align: 'center', behavior: 'smooth' });
+      // Nav-dot jumps pin the target user message to the top of the panel.
+      rowVirtualizer.scrollToIndex(index, {
+        align: 'start',
+        behavior: scrollBehavior,
+      });
       setActiveIndex(index);
     },
-    [detachFromBottom, rowVirtualizer, timeline.length]
+    [detachFromBottom, rowVirtualizer, scrollBehavior, timeline.length]
   );
 
   const updateScrollMargin = useCallback(() => {
@@ -343,7 +419,9 @@ const AgentTimelineConversation = forwardRef<
         container.getBoundingClientRect().top +
         container.scrollTop
     );
-    setScrollMargin((current) => (Math.abs(current - next) > 1 ? next : current));
+    setScrollMargin((current) =>
+      Math.abs(current - next) > 1 ? next : current
+    );
   }, []);
 
   useLayoutEffect(() => {
@@ -369,14 +447,16 @@ const AgentTimelineConversation = forwardRef<
     ref,
     () => ({
       scrollToBottom() {
-        scrollToBottom('smooth');
+        scrollToBottom(scrollBehavior);
       },
       scrollToIndex(index, options) {
         if (index < 0 || index >= timeline.length) return;
-        if ((options?.behavior ?? 'smooth') === 'smooth') detachFromBottom();
+        if ((options?.behavior ?? scrollBehavior) === 'smooth') {
+          detachFromBottom();
+        }
         rowVirtualizer.scrollToIndex(index, {
           align: options?.align ?? 'center',
-          behavior: options?.behavior ?? 'smooth',
+          behavior: options?.behavior ?? scrollBehavior,
         });
       },
       scrollToPreviousUserMessage() {
@@ -395,11 +475,18 @@ const AgentTimelineConversation = forwardRef<
         detachFromBottom();
         rowVirtualizer.scrollToIndex(target, {
           align: 'center',
-          behavior: 'smooth',
+          behavior: scrollBehavior,
         });
       },
     }),
-    [detachFromBottom, rowVirtualizer, scrollToBottom, timeline.length, userMessageIndexes]
+    [
+      detachFromBottom,
+      rowVirtualizer,
+      scrollBehavior,
+      scrollToBottom,
+      timeline.length,
+      userMessageIndexes,
+    ]
   );
 
   useEffect(() => {
@@ -407,8 +494,7 @@ const AgentTimelineConversation = forwardRef<
     onAtBottomChange?.(true);
   }, [onAtBottomChange, sessionId]);
 
-  // Inline turn stats after each assistant turn, in the same position as the
-  // legacy path — re-sourced from the parsed MessageTurn / live usage.
+  // Inline turn stats are sourced from the parsed MessageTurn / live usage.
   const renderTurnStats = useCallback(
     (row: ConversationTimelineTurn, index: number) => {
       if (row.turn.role !== 'assistant') return null;
@@ -423,7 +509,7 @@ const AgentTimelineConversation = forwardRef<
               detachFromBottom();
               rowVirtualizer.scrollToIndex(jumpTarget, {
                 align: 'center',
-                behavior: 'smooth',
+                behavior: scrollBehavior,
               });
             };
       const copyText = assistantCopyText(row.turn);
@@ -446,6 +532,7 @@ const AgentTimelineConversation = forwardRef<
       detachFromBottom,
       liveStats,
       rowVirtualizer,
+      scrollBehavior,
       userMessageIndexes,
     ]
   );
@@ -510,8 +597,8 @@ const AgentTimelineConversation = forwardRef<
           </div>
         </div>
       ) : (
-        <div className="mx-auto flex w-full max-w-6xl items-start gap-3">
-          <div className="min-w-0 flex-1">
+        <div className="conv-thread-shell relative mx-auto w-full max-w-6xl">
+          <div className="conv-thread-content min-w-0">
             {turnErrors.length > 0 ? (
               <div className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 <div className="font-medium">会话出错</div>
@@ -548,8 +635,10 @@ const AgentTimelineConversation = forwardRef<
                   >
                     <MessageTurnView
                       turn={row.turn}
+                      phase={row.phase}
                       attempt={attempt}
                       task={task}
+                      workspacePath={workspaceRoot}
                       onRetry={
                         row.turn.role === 'user'
                           ? () =>
@@ -567,11 +656,13 @@ const AgentTimelineConversation = forwardRef<
               })}
             </div>
           </div>
-          <ConversationMessageNav
-            entries={navEntries}
-            activeIndex={activeIndex}
-            onSelect={scrollToIndex}
-          />
+          <div className="conv-message-nav-anchor">
+            <ConversationMessageNav
+              entries={navEntries}
+              activeIndex={activeIndex}
+              onSelect={scrollToIndex}
+            />
+          </div>
         </div>
       )}
     </div>

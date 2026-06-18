@@ -2,8 +2,9 @@ use std::{path::PathBuf, sync::Arc};
 
 use agents::{
     AgentConnectionId, AgentContentBlock, AgentPermissionId, AgentPermissionResponse,
-    AgentPromptId, AgentPromptSnapshot, AgentSessionId, AgentType, CancelAgentPromptInput,
-    EnsureAgentSessionInput, RespondAgentPermissionInput, SendAgentPromptInput,
+    AgentPromptId, AgentPromptSnapshot, AgentSessionConfigOverride, AgentSessionId, AgentType,
+    CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentPermissionInput,
+    SendAgentPromptInput, agent_type_from_executor_key,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
@@ -25,6 +26,10 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
+use executors::{
+    executors::{BaseCodingAgent, CodingAgent},
+    profile::{ExecutorConfigs, ExecutorProfileId, canonical_variant_key},
+};
 use git::{Commit, DiffTarget};
 use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
@@ -78,8 +83,15 @@ pub struct ConversationStartTurnInput {
     pub agent_type: AgentType,
     pub workspace_id: Uuid,
     pub conversation_id: Uuid,
+    pub executor_profile_id: Option<ExecutorProfileId>,
     pub text: String,
     pub images: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AgentPromptOverrides {
+    mode_override: Option<String>,
+    config_overrides: Vec<AgentSessionConfigOverride>,
 }
 
 pub struct ConversationSessionService<'a> {
@@ -494,6 +506,10 @@ impl<'a> ConversationSessionService<'a> {
             }
         }
 
+        let prompt_overrides = agent_prompt_overrides_from_profile(
+            input.agent_type,
+            input.executor_profile_id.as_ref(),
+        );
         let prompt = self
             .state
             .agent_runtime
@@ -501,6 +517,8 @@ impl<'a> ConversationSessionService<'a> {
                 connection_id: session.connection_id,
                 session_id: session.id,
                 blocks,
+                mode_override: prompt_overrides.mode_override,
+                config_overrides: prompt_overrides.config_overrides,
             })
             .await?;
 
@@ -864,6 +882,168 @@ fn default_capabilities() -> AcpCapabilitySnapshot {
         close_session: true,
         terminal: true,
         ..Default::default()
+    }
+}
+
+fn agent_prompt_overrides_from_profile(
+    agent_type: AgentType,
+    profile: Option<&ExecutorProfileId>,
+) -> AgentPromptOverrides {
+    let Some(profile) = profile else {
+        return AgentPromptOverrides::default();
+    };
+
+    if agent_type_from_executor_key(&profile.executor.to_string()) != Some(agent_type) {
+        tracing::warn!(
+            requested_agent = ?agent_type,
+            profile_executor = %profile.executor,
+            "Ignoring executor profile overrides for mismatched ACP agent"
+        );
+        return AgentPromptOverrides::default();
+    }
+
+    let configs = ExecutorConfigs::get_cached();
+    let variant_key = profile
+        .variant
+        .as_deref()
+        .map(canonical_variant_key)
+        .unwrap_or_else(|| "DEFAULT".to_string());
+    let config = configs
+        .executors
+        .get(&profile.executor)
+        .and_then(|executor_profile| {
+            executor_profile
+                .configurations
+                .get(&variant_key)
+                .or_else(|| executor_profile.configurations.get("DEFAULT"))
+        });
+
+    let mut overrides = AgentPromptOverrides::default();
+
+    match (profile.executor, config) {
+        (BaseCodingAgent::ClaudeCode, Some(CodingAgent::ClaudeCode(config))) => {
+            push_config_override(
+                &mut overrides.config_overrides,
+                "model",
+                profile.model.clone().or_else(|| config.model.clone()),
+            );
+            let permission = if config.plan.unwrap_or(false) {
+                overrides.mode_override = Some("plan".to_string());
+                "plan"
+            } else if config.approvals.unwrap_or(false) {
+                "ask"
+            } else {
+                "auto"
+            };
+            push_config_override(
+                &mut overrides.config_overrides,
+                "permission_mode",
+                Some(permission.to_string()),
+            );
+        }
+        (BaseCodingAgent::Codex, Some(CodingAgent::Codex(config))) => {
+            push_config_override(
+                &mut overrides.config_overrides,
+                "model",
+                profile.model.clone().or_else(|| config.model.clone()),
+            );
+            push_config_override(
+                &mut overrides.config_overrides,
+                "sandbox",
+                config
+                    .sandbox
+                    .as_ref()
+                    .map(|value| value.as_ref().to_string()),
+            );
+            if let Some(approval) = &config.ask_for_approval {
+                let value = approval.as_ref().to_string();
+                let permission_mode = if value == "never" { "auto" } else { "ask" };
+                push_config_override(
+                    &mut overrides.config_overrides,
+                    "approval_policy",
+                    Some(value),
+                );
+                push_config_override(
+                    &mut overrides.config_overrides,
+                    "permission_mode",
+                    Some(permission_mode.to_string()),
+                );
+            }
+            push_config_override(
+                &mut overrides.config_overrides,
+                "reasoning_effort",
+                profile.reasoning_effort.clone().or_else(|| {
+                    config
+                        .model_reasoning_effort
+                        .as_ref()
+                        .map(|value| value.as_ref().to_string())
+                }),
+            );
+        }
+        (BaseCodingAgent::Opencode, Some(CodingAgent::Opencode(config))) => {
+            push_config_override(
+                &mut overrides.config_overrides,
+                "model",
+                profile.model.clone().or_else(|| config.model.clone()),
+            );
+            if let Some(agent_mode) = &config.agent {
+                overrides.mode_override = Some(agent_mode.clone());
+                push_config_override(
+                    &mut overrides.config_overrides,
+                    "mode",
+                    Some(agent_mode.clone()),
+                );
+            }
+            push_config_override(
+                &mut overrides.config_overrides,
+                "permission_mode",
+                Some(if config.auto_approve { "auto" } else { "ask" }.to_string()),
+            );
+        }
+        _ => {
+            push_config_override(
+                &mut overrides.config_overrides,
+                "model",
+                profile.model.clone(),
+            );
+            push_config_override(
+                &mut overrides.config_overrides,
+                "reasoning_effort",
+                profile.reasoning_effort.clone(),
+            );
+        }
+    }
+
+    if let Some(fast_mode) = profile.fast_mode {
+        push_config_override(
+            &mut overrides.config_overrides,
+            "fast_mode",
+            Some(fast_mode.to_string()),
+        );
+    }
+
+    overrides
+}
+
+fn push_config_override(
+    overrides: &mut Vec<AgentSessionConfigOverride>,
+    key: &'static str,
+    value: Option<String>,
+) {
+    let Some(value) = value.map(|value| value.trim().to_string()) else {
+        return;
+    };
+    if value.is_empty() {
+        return;
+    }
+
+    if let Some(existing) = overrides.iter_mut().find(|item| item.key == key) {
+        existing.value = value;
+    } else {
+        overrides.push(AgentSessionConfigOverride {
+            key: key.to_string(),
+            value,
+        });
     }
 }
 

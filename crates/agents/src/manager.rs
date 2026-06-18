@@ -19,9 +19,10 @@ use agent_client_protocol::{
         PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
         RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
         SelectedPermissionOutcome, SessionConfigKind,
-        SessionConfigOption as AcpSessionConfigOption, SessionConfigSelectOption,
-        SessionConfigSelectOptions, SessionId, SessionModeState, SessionNotification,
-        SessionUpdate, TerminalId, TerminalOutputResponse, TextContent,
+        SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
+        SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeId,
+        SessionModeState, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+        SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
         WaitForTerminalExitResponse,
     },
 };
@@ -43,9 +44,10 @@ use crate::{
     AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
-    AgentSessionConfigOption, AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest,
-    AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentType,
-    AgentUsage, CommandBuildInput, current_platform, decide_auto_permission_response,
+    AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionId, AgentSessionMode,
+    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall,
+    AgentToolCallUpdate, AgentType, AgentUsage, CommandBuildInput, current_platform,
+    decide_auto_permission_response,
     delegation_inject::DelegationInjector,
     registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
@@ -155,6 +157,8 @@ pub enum AgentConnectionCommand {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
+        mode_override: Option<String>,
+        config_overrides: Vec<AgentSessionConfigOverride>,
     },
     Cancel {
         session_id: AgentSessionId,
@@ -290,6 +294,8 @@ impl AgentConnectionManager {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
+        mode_override: Option<String>,
+        config_overrides: Vec<AgentSessionConfigOverride>,
     ) -> AgentResult<()> {
         self.send_command(
             connection_id,
@@ -297,6 +303,8 @@ impl AgentConnectionManager {
                 session_id,
                 prompt_id,
                 blocks,
+                mode_override,
+                config_overrides,
             },
         )
         .await
@@ -410,9 +418,16 @@ struct AgentConnectionRunner {
     snapshot: ManagedAgentConnectionSnapshot,
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+    session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     auto_approve_mode: AgentAutoApproveMode,
     delegation_injector: Option<Arc<dyn DelegationInjector>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SessionControlState {
+    modes: Option<SessionModeState>,
+    config_options: Vec<AcpSessionConfigOption>,
 }
 
 #[derive(Debug)]
@@ -433,6 +448,7 @@ impl AgentConnectionRunner {
             snapshot,
             event_tx,
             session_map: Arc::new(RwLock::new(HashMap::new())),
+            session_controls: Arc::new(RwLock::new(HashMap::new())),
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
             auto_approve_mode,
             delegation_injector,
@@ -478,6 +494,7 @@ impl AgentConnectionRunner {
                     session_id,
                     prompt_id,
                     blocks,
+                    ..
                 } => {
                     let text = blocks
                         .into_iter()
@@ -886,6 +903,8 @@ impl AgentConnectionRunner {
                             session_id,
                             prompt_id,
                             blocks,
+                            mode_override,
+                            config_overrides,
                         } => {
                             let acp_session_id = runner
                                 .ensure_acp_session(&conn, &working_dir, session_id)
@@ -897,6 +916,8 @@ impl AgentConnectionRunner {
                                     session_id,
                                     prompt_id,
                                     blocks,
+                                    mode_override,
+                                    config_overrides,
                                     &mut cmd_rx,
                                 )
                                 .await?;
@@ -982,7 +1003,8 @@ impl AgentConnectionRunner {
                         .write()
                         .await
                         .insert(session_id, external_session_id.clone());
-                    self.emit_session_controls(session_id, response.modes, response.config_options);
+                    self.emit_session_controls(session_id, response.modes, response.config_options)
+                        .await;
                     return Ok(external_session_id);
                 }
                 Err(error) => {
@@ -1030,16 +1052,28 @@ impl AgentConnectionRunner {
                 agent_type: self.snapshot.agent_type,
             },
         );
-        self.emit_session_controls(session_id, response.modes, response.config_options);
+        self.emit_session_controls(session_id, response.modes, response.config_options)
+            .await;
         Ok(acp_session_id)
     }
 
-    fn emit_session_controls(
+    async fn emit_session_controls(
         &self,
         session_id: AgentSessionId,
         modes: Option<SessionModeState>,
         config_options: Option<Vec<AcpSessionConfigOption>>,
     ) {
+        {
+            let mut controls = self.session_controls.write().await;
+            let entry = controls.entry(session_id).or_default();
+            if let Some(modes) = modes.clone() {
+                entry.modes = Some(modes);
+            }
+            if let Some(options) = config_options.clone() {
+                entry.config_options = options;
+            }
+        }
+
         if let Some(modes) = modes {
             let (modes, current) = agent_session_modes_from_acp(modes);
             self.emit(
@@ -1068,6 +1102,161 @@ impl AgentConnectionRunner {
         );
     }
 
+    async fn apply_session_overrides(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        mode_override: Option<String>,
+        config_overrides: Vec<AgentSessionConfigOverride>,
+    ) -> Result<(), acp::Error> {
+        if let Some(mode) = mode_override.as_deref().and_then(non_empty_trimmed) {
+            self.apply_mode_override(conn, acp_session_id, session_id, mode)
+                .await?;
+        }
+
+        for override_item in config_overrides {
+            let Some(key) = non_empty_trimmed(&override_item.key) else {
+                continue;
+            };
+            let Some(value) = non_empty_trimmed(&override_item.value) else {
+                continue;
+            };
+            self.apply_config_override(conn, acp_session_id, session_id, key, value)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn apply_mode_override(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        requested_mode: &str,
+    ) -> Result<(), acp::Error> {
+        let modes = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .and_then(|controls| controls.modes.clone());
+        let Some(modes) = modes else {
+            self.emit_override_diagnostic(session_id, "mode_controls_missing", requested_mode);
+            return Ok(());
+        };
+        let Some(mode_id) = find_matching_mode_id(&modes, requested_mode) else {
+            self.emit_override_diagnostic(session_id, "mode_not_found", requested_mode);
+            return Ok(());
+        };
+        let mode_id = mode_id.to_string();
+        if modes.current_mode_id.0.as_ref() == mode_id {
+            return Ok(());
+        }
+
+        conn.send_request(SetSessionModeRequest::new(
+            SessionId::new(acp_session_id.to_string()),
+            mode_id.clone(),
+        ))
+        .block_task()
+        .await?;
+        self.session_controls
+            .write()
+            .await
+            .entry(session_id)
+            .or_default()
+            .modes
+            .get_or_insert(modes)
+            .current_mode_id = SessionModeId::new(mode_id.clone());
+        self.emit(Some(session_id), None, AgentEvent::ModeChanged { mode_id });
+        Ok(())
+    }
+
+    async fn apply_config_override(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        key: &str,
+        value: &str,
+    ) -> Result<(), acp::Error> {
+        let config_options = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .map(|controls| controls.config_options.clone())
+            .unwrap_or_default();
+        if config_options.is_empty() {
+            self.emit_override_diagnostic(session_id, "config_controls_missing", key);
+            return Ok(());
+        }
+
+        let Some(selection) = find_config_override_selection(&config_options, key, value) else {
+            self.emit_override_diagnostic(
+                session_id,
+                "config_choice_not_found",
+                &format!("{key}={value}"),
+            );
+            return Ok(());
+        };
+        if selection.already_selected {
+            return Ok(());
+        }
+
+        let response = conn
+            .send_request(SetSessionConfigOptionRequest::new(
+                SessionId::new(acp_session_id.to_string()),
+                selection.config_id.clone(),
+                selection.value_id.as_str(),
+            ))
+            .block_task()
+            .await?;
+        let mapped_options = agent_session_config_options_from_acp(response.config_options.clone());
+        self.session_controls
+            .write()
+            .await
+            .entry(session_id)
+            .or_default()
+            .config_options = response.config_options;
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionConfigOptions {
+                options: mapped_options,
+            },
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::ConfigChanged {
+                key: selection.config_id,
+                value: serde_json::json!(selection.value_id),
+            },
+        );
+        Ok(())
+    }
+
+    fn emit_override_diagnostic(
+        &self,
+        session_id: AgentSessionId,
+        reason: &'static str,
+        requested: &str,
+    ) {
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::RawAcpDiagnostic {
+                raw: serde_json::json!({
+                    "kind": "session_config_override_skipped",
+                    "reason": reason,
+                    "requested": requested,
+                }),
+            },
+        );
+    }
+
     async fn run_prompt(
         &self,
         conn: &ConnectionTo<Agent>,
@@ -1075,8 +1264,18 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
         blocks: Vec<AgentContentBlock>,
+        mode_override: Option<String>,
+        config_overrides: Vec<AgentSessionConfigOverride>,
         cmd_rx: &mut mpsc::Receiver<AgentConnectionCommand>,
     ) -> Result<(), acp::Error> {
+        self.apply_session_overrides(
+            conn,
+            &acp_session_id,
+            session_id,
+            mode_override,
+            config_overrides,
+        )
+        .await?;
         let request = PromptRequest::new(
             SessionId::new(acp_session_id.clone()),
             blocks.into_iter().map(agent_block_to_acp).collect(),
@@ -1578,6 +1777,200 @@ fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
     uuid::Uuid::parse_str(id.0.as_ref()).map_err(|_| acp::Error::invalid_params())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConfigOverrideSelection {
+    config_id: String,
+    value_id: String,
+    already_selected: bool,
+}
+
+fn non_empty_trimmed(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty()).then_some(value)
+}
+
+fn find_matching_mode_id<'a>(modes: &'a SessionModeState, requested_mode: &str) -> Option<&'a str> {
+    let requested = normalize_config_token(requested_mode);
+    modes
+        .available_modes
+        .iter()
+        .find(|mode| {
+            let id = normalize_config_token(mode.id.0.as_ref());
+            let name = normalize_config_token(&mode.name);
+            id == requested
+                || name == requested
+                || (requested.len() > 3 && id.contains(&requested))
+                || (requested.len() > 3 && name.contains(&requested))
+        })
+        .map(|mode| mode.id.0.as_ref())
+}
+
+fn find_config_override_selection(
+    options: &[AcpSessionConfigOption],
+    key: &str,
+    value: &str,
+) -> Option<ConfigOverrideSelection> {
+    for option in options {
+        if !config_option_matches(option, key) {
+            continue;
+        }
+        let SessionConfigKind::Select(select) = &option.kind else {
+            continue;
+        };
+        if let Some(choice) = find_select_choice(select, key, value) {
+            return Some(ConfigOverrideSelection {
+                config_id: option.id.0.to_string(),
+                value_id: choice.value.0.to_string(),
+                already_selected: select.current_value == choice.value,
+            });
+        }
+    }
+    None
+}
+
+fn config_option_matches(option: &AcpSessionConfigOption, key: &str) -> bool {
+    let key = normalize_config_token(key);
+    let id = normalize_config_token(option.id.0.as_ref());
+    let name = normalize_config_token(&option.name);
+    let category = option.category.as_ref();
+
+    match key.as_str() {
+        "model" => {
+            matches!(category, Some(SessionConfigOptionCategory::Model))
+                || id.contains("model")
+                || name.contains("model")
+        }
+        "reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel" => {
+            matches!(category, Some(SessionConfigOptionCategory::ThoughtLevel))
+                || id.contains("reason")
+                || name.contains("reason")
+                || id.contains("thought")
+                || name.contains("thought")
+                || id.contains("effort")
+                || name.contains("effort")
+        }
+        "sandbox" => id.contains("sandbox") || name.contains("sandbox"),
+        "fast" | "fastmode" => id.contains("fast") || name.contains("fast"),
+        "approval" | "approvalpolicy" | "permission" | "permissionmode" => {
+            id.contains("approval")
+                || name.contains("approval")
+                || id.contains("permission")
+                || name.contains("permission")
+        }
+        "mode" => {
+            matches!(category, Some(SessionConfigOptionCategory::Mode))
+                || id.contains("mode")
+                || name.contains("mode")
+        }
+        _ => id == key || name == key,
+    }
+}
+
+fn find_select_choice<'a>(
+    select: &'a agent_client_protocol::schema::SessionConfigSelect,
+    key: &str,
+    value: &str,
+) -> Option<&'a SessionConfigSelectOption> {
+    let aliases = config_value_aliases(key, value);
+    match &select.options {
+        SessionConfigSelectOptions::Ungrouped(options) => options
+            .iter()
+            .find(|option| select_choice_matches(option, &aliases)),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .find(|option| select_choice_matches(option, &aliases)),
+        #[allow(unreachable_patterns)]
+        _ => None,
+    }
+}
+
+fn select_choice_matches(option: &SessionConfigSelectOption, aliases: &[String]) -> bool {
+    let mut values = vec![
+        normalize_config_token(option.value.0.as_ref()),
+        normalize_config_token(&option.name),
+    ];
+    if let Some(description) = &option.description {
+        values.push(normalize_config_token(description));
+    }
+
+    values.iter().any(|value| {
+        aliases.iter().any(|alias| {
+            if value == alias {
+                return true;
+            }
+            let meaningful_alias = alias.len() > 3;
+            let meaningful_value = value.len() > 3;
+            (meaningful_alias && value.contains(alias))
+                || (meaningful_value && alias.contains(value))
+        })
+    })
+}
+
+fn config_value_aliases(key: &str, value: &str) -> Vec<String> {
+    let key = normalize_config_token(key);
+    let value = normalize_config_token(value);
+    let mut aliases = vec![value.clone()];
+
+    match (key.as_str(), value.as_str()) {
+        ("approval" | "approvalpolicy" | "permission" | "permissionmode", "ask") => {
+            aliases.extend(
+                [
+                    "manual",
+                    "confirm",
+                    "approval",
+                    "approvals",
+                    "onrequest",
+                    "unlesstrusted",
+                ]
+                .into_iter()
+                .map(str::to_string),
+            );
+        }
+        ("approval" | "approvalpolicy" | "permission" | "permissionmode", "auto") => {
+            aliases.extend(
+                [
+                    "allow",
+                    "always",
+                    "never",
+                    "skip",
+                    "autoapprove",
+                    "dangerfullaccess",
+                    "dangerouslyskippermissions",
+                ]
+                .into_iter()
+                .map(str::to_string),
+            );
+        }
+        ("reasoning" | "reasoningeffort" | "thoughteffort" | "thoughtlevel", "xhigh") => {
+            aliases.push("extrahigh".to_string());
+        }
+        ("fast" | "fastmode", "true") => {
+            aliases.extend(["enabled", "on", "fast"].into_iter().map(str::to_string));
+        }
+        ("fast" | "fastmode", "false") => {
+            aliases.extend(
+                ["disabled", "off", "normal"]
+                    .into_iter()
+                    .map(str::to_string),
+            );
+        }
+        _ => {}
+    }
+
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
+fn normalize_config_token(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
 fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
     match block {
         AgentContentBlock::Text { text } => ContentBlock::Text(TextContent::new(text)),
@@ -1783,6 +2176,8 @@ mod tests {
                 vec![AgentContentBlock::Text {
                     text: "hello".to_string(),
                 }],
+                None,
+                Vec::new(),
             )
             .await
             .unwrap_err();
@@ -1824,6 +2219,8 @@ mod tests {
                 vec![AgentContentBlock::Text {
                     text: "hello".to_string(),
                 }],
+                None,
+                Vec::new(),
             )
             .await
             .unwrap_err();
@@ -1934,6 +2331,58 @@ mod tests {
             Some("Balanced")
         );
         assert_eq!(mapped[1].choices[0].value, serde_json::json!("high"));
+    }
+
+    #[test]
+    fn matches_model_override_to_acp_model_category_choices() {
+        let options = vec![
+            AcpSessionConfigOption::select(
+                "preferred-model",
+                "Model",
+                "claude-opus-4-8",
+                vec![
+                    agent_client_protocol::schema::SessionConfigSelectOption::new(
+                        "claude-opus-4-8",
+                        "Claude Opus 4.8",
+                    ),
+                    agent_client_protocol::schema::SessionConfigSelectOption::new(
+                        "claude-sonnet-4-5",
+                        "Claude Sonnet 4.5",
+                    ),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::Model)),
+        ];
+
+        let selection = find_config_override_selection(&options, "model", "sonnet")
+            .expect("sonnet should match ACP model choices");
+
+        assert_eq!(selection.config_id, "preferred-model");
+        assert_eq!(selection.value_id, "claude-sonnet-4-5");
+        assert!(!selection.already_selected);
+    }
+
+    #[test]
+    fn matches_permission_override_aliases_to_acp_choices() {
+        let options = vec![AcpSessionConfigOption::select(
+            "permission-mode",
+            "Permissions",
+            "ask",
+            vec![
+                agent_client_protocol::schema::SessionConfigSelectOption::new("ask", "Ask"),
+                agent_client_protocol::schema::SessionConfigSelectOption::new(
+                    "auto",
+                    "Auto Approve",
+                ),
+            ],
+        )];
+
+        let selection = find_config_override_selection(&options, "permission_mode", "auto")
+            .expect("auto should match permission choices");
+
+        assert_eq!(selection.config_id, "permission-mode");
+        assert_eq!(selection.value_id, "auto");
+        assert!(!selection.already_selected);
     }
 
     #[test]

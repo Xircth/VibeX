@@ -25,7 +25,11 @@ describe('sendAgentRuntimeTurn', () => {
     await sendAgentRuntimeTurn({
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
-      executorProfileId: { executor: BaseCodingAgent.CODEX, variant: null },
+      executorProfileId: {
+        executor: BaseCodingAgent.CODEX,
+        variant: null,
+        model: 'gpt-5.4',
+      },
       text: 'backend text',
       displayText: 'visible text',
       images: ['.vibe-images/screen.png'],
@@ -35,6 +39,11 @@ describe('sendAgentRuntimeTurn', () => {
       agentType: 'codex',
       workspaceId: 'workspace-1',
       conversationId: 'session-1',
+      executorProfileId: {
+        executor: BaseCodingAgent.CODEX,
+        variant: null,
+        model: 'gpt-5.4',
+      },
       text: 'visible text',
       images: ['.vibe-images/screen.png'],
     });

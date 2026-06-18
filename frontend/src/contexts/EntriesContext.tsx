@@ -175,3 +175,7 @@ export const useTokenUsage = () => {
   }
   return context.tokenUsageInfo;
 };
+
+/** Non-throwing accessor for callers that may render outside an EntriesProvider. */
+export const useOptionalEntries = (): EntriesContextType | null =>
+  useContext(EntriesContext);

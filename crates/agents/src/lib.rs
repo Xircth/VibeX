@@ -54,8 +54,8 @@ pub use error::{AgentError, AgentResult};
 pub use events::{
     AgentAvailableCommand, AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
     AgentPlan, AgentPromptFinished, AgentSessionConfigChoice, AgentSessionConfigOption,
-    AgentSessionMode, AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall,
-    AgentToolCallUpdate, AgentUsage, DelegationResultSummary,
+    AgentSessionConfigOverride, AgentSessionMode, AgentTerminalOutput, AgentTerminalSnapshot,
+    AgentToolCall, AgentToolCallUpdate, AgentUsage, DelegationResultSummary,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use history::{

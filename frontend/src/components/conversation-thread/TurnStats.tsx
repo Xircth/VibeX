@@ -5,7 +5,6 @@ import {
   Copy,
   CornerUpLeft,
   Cpu,
-  Database,
   Gauge,
   Timer,
 } from 'lucide-react';
@@ -25,12 +24,16 @@ function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-export function formatTokenCount(value: number | null | undefined): string | null {
+export function formatTokenCount(
+  value: number | null | undefined
+): string | null {
   if (!isFiniteNumber(value)) return null;
   return Math.max(0, Math.floor(value)).toLocaleString();
 }
 
-export function formatTurnDuration(ms: number | null | undefined): string | null {
+export function formatTurnDuration(
+  ms: number | null | undefined
+): string | null {
   if (!isFiniteNumber(ms)) return null;
 
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -92,8 +95,6 @@ export function TurnStats({
     const contextWindow = formatTokenCount(stats?.contextWindow);
     return contextWindow ? `${totalTokens} / ${contextWindow}` : totalTokens;
   })();
-  const cacheReadText = formatTokenCount(stats?.cacheReadTokens);
-  const cacheWriteText = formatTokenCount(stats?.cacheWriteTokens);
   const elapsedText = formatTurnDuration(stats?.elapsedMs);
   const completedAtText = formatCompletionTime(stats?.completedAt);
   const modelText = stats?.model?.trim() || null;
@@ -101,8 +102,6 @@ export function TurnStats({
   const hasStats = Boolean(
     modelText ||
       tokenText ||
-      cacheReadText ||
-      cacheWriteText ||
       elapsedText ||
       completedAtText ||
       stopReasonText ||
@@ -156,20 +155,12 @@ export function TurnStats({
           ) : null}
         </div>
         <div className="conv-turn-stats-items">
-          {live ? (
-            <StatItem icon={Gauge} label="状态" value="生成中" />
-          ) : null}
+          {live ? <StatItem icon={Gauge} label="状态" value="生成中" /> : null}
           {modelText ? (
             <StatItem icon={Cpu} label="模型" value={modelText} />
           ) : null}
           {tokenText ? (
             <StatItem icon={Gauge} label="Token" value={tokenText} />
-          ) : null}
-          {cacheReadText ? (
-            <StatItem icon={Database} label="缓存读" value={cacheReadText} />
-          ) : null}
-          {cacheWriteText ? (
-            <StatItem icon={Database} label="缓存写" value={cacheWriteText} />
           ) : null}
           {elapsedText ? (
             <StatItem icon={Timer} label="耗时" value={elapsedText} />
@@ -185,4 +176,3 @@ export function TurnStats({
     </div>
   );
 }
-

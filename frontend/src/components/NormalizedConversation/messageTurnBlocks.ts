@@ -25,6 +25,8 @@ export type TurnRenderItem =
   | { kind: 'plan'; entries: PlanEntry[] }
   | { kind: 'tool'; use: ToolUseBlock | null; result: ToolResultBlock | null };
 
+type ToolRenderItem = Extract<TurnRenderItem, { kind: 'tool' }>;
+
 export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
   const toolUseIds = new Set<string>();
   const resultByToolId = new Map<string, ToolResultBlock>();
@@ -37,6 +39,13 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
   }
 
   const items: TurnRenderItem[] = [];
+  // Tool cards still awaiting a result, in document order. The persisted
+  // projection (conversation_projection.rs) emits a ToolResult with a null
+  // tool_use_id immediately after its ToolUse, so an id-less result attaches to
+  // the most recent unmatched tool card — restoring its output and status dot
+  // on reload. The live/stream path carries ids on both and pairs by id below.
+  const pendingTools: ToolRenderItem[] = [];
+
   for (const block of blocks) {
     switch (block.type) {
       case 'text':
@@ -63,21 +72,30 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
       case 'plan':
         items.push({ kind: 'plan', entries: block.entries });
         break;
-      case 'tool_use':
-        items.push({
-          kind: 'tool',
-          use: block,
-          result: block.tool_use_id
-            ? resultByToolId.get(block.tool_use_id) ?? null
-            : null,
-        });
+      case 'tool_use': {
+        const result = block.tool_use_id
+          ? (resultByToolId.get(block.tool_use_id) ?? null)
+          : null;
+        const item: ToolRenderItem = { kind: 'tool', use: block, result };
+        items.push(item);
+        if (!result) pendingTools.push(item);
         break;
-      case 'tool_result':
-        // Consumed by its tool_use above; render standalone only when orphaned.
-        if (!(block.tool_use_id != null && toolUseIds.has(block.tool_use_id))) {
+      }
+      case 'tool_result': {
+        // Already attached to its tool_use by id at creation — consume silently.
+        if (block.tool_use_id != null && toolUseIds.has(block.tool_use_id)) {
+          break;
+        }
+        // Id-less result: attach to the most recent unmatched tool card; a truly
+        // orphaned result (no preceding tool_use) still renders standalone.
+        const owner = pendingTools.pop();
+        if (owner) {
+          owner.result = block;
+        } else {
           items.push({ kind: 'tool', use: null, result: block });
         }
         break;
+      }
     }
   }
   return items;

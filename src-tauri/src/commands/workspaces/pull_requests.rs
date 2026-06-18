@@ -310,6 +310,8 @@ async fn trigger_pr_description_continuation(
             connection_id: agent_session.connection_id,
             session_id: agent_session.id,
             blocks: vec![AgentContentBlock::Text { text: prompt }],
+            mode_override: None,
+            config_overrides: Vec::new(),
         })
         .await?;
 

@@ -24,12 +24,12 @@ export type CommentAnnotation =
  * Maps VibeX's DiffChangeKind to pierre/diffs ChangeTypes.
  *
  * Mapping:
- * - 'added' 鈫?'new'
- * - 'deleted' 鈫?'deleted'
- * - 'modified' 鈫?'change'
- * - 'renamed' 鈫?'rename-pure' or 'rename-changed' (based on content diff)
- * - 'copied' 鈫?'change'
- * - 'permissionChange' 鈫?'change'
+ * - 'added' → 'new'
+ * - 'deleted' → 'deleted'
+ * - 'modified' → 'change'
+ * - 'renamed' → 'rename-pure' or 'rename-changed' (based on content diff)
+ * - 'copied' → 'change'
+ * - 'permissionChange' → 'change'
  */
 function mapChangeKindToChangeType(
   kind: DiffChangeKind,

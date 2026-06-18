@@ -64,6 +64,8 @@ async fn run_agent_fixture_gate(
             blocks: vec![AgentContentBlock::Text {
                 text: FULL_GATE_FIXTURE_PROMPT.to_string(),
             }],
+            mode_override: None,
+            config_overrides: Vec::new(),
         })
         .await
         .unwrap();
@@ -181,6 +183,8 @@ async fn run_agent_fixture_gate(
             blocks: vec![AgentContentBlock::Text {
                 text: "interrupt me".to_string(),
             }],
+            mode_override: None,
+            config_overrides: Vec::new(),
         })
         .await
         .unwrap();
@@ -194,6 +198,8 @@ async fn run_agent_fixture_gate(
             blocks: vec![AgentContentBlock::Text {
                 text: "retry after interrupt".to_string(),
             }],
+            mode_override: None,
+            config_overrides: Vec::new(),
         })
         .await
         .unwrap();

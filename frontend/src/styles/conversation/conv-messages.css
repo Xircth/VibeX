@@ -28,18 +28,74 @@
   --conv-user-action-button-hover-bg: rgba(255, 255, 255, 0.12);
 }
 
+/* Right-aligned user turn: the bubble hugs the right edge and shrinks to its
+   content, while the action rail floats in the left gutter on hover. */
+.conv-user-turn {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 4px;
+}
+
+.conv-user-bubble-wrap {
+  position: relative;
+  min-width: 0;
+  max-width: 82%;
+}
+
+.conv-user-actions {
+  position: absolute;
+  right: 100%;
+  top: 4px;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transform: translateX(4px);
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.conv-user-turn:hover .conv-user-actions,
+.conv-user-actions:focus-within {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.conv-user-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  color: var(--conv-user-action-button-color);
+  background: var(--conv-user-action-button-bg);
+  border: 1px solid var(--conv-user-action-button-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  transition:
+    color 0.15s,
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.conv-user-action-btn:hover {
+  color: var(--conv-user-action-button-hover-color);
+  background: var(--conv-user-action-button-hover-bg);
+}
+
 .conv-user-bubble {
   background:
-    linear-gradient(
-      180deg,
-      hsl(var(--primary-foreground) / 0.12),
-      transparent
-    ),
+    linear-gradient(180deg, hsl(var(--primary-foreground) / 0.12), transparent),
     var(--conv-user-bg);
   color: var(--conv-user-text);
   border-radius: 14px 14px 4px 14px;
   border: 1px solid hsl(var(--primary-foreground) / 0.1);
-  max-width: 85%;
+  max-width: 100%;
   padding: 10px 14px;
   font-size: 14px;
   line-height: 1.5;
@@ -79,6 +135,31 @@
 .conv-user-bubble h6,
 .conv-user-bubble strong,
 .conv-user-bubble em {
+  color: var(--conv-user-text) !important;
+}
+
+/* The bubble now renders via the Markdown component (.conv-markdown), not the
+   legacy editor — force white-on-blue for its prose too. */
+.conv-user-bubble .conv-markdown,
+.conv-user-bubble
+  .conv-markdown
+  :where(
+    p,
+    li,
+    span,
+    strong,
+    em,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    td,
+    th,
+    blockquote,
+    a
+  ) {
   color: var(--conv-user-text) !important;
 }
 

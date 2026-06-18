@@ -9,7 +9,7 @@ const { ensureBinary, BINARY_TAG, CACHE_DIR, LOCAL_DEV_MODE, LOCAL_DIST_DIR, R2_
 const CLI_VERSION = require("../package.json").version;
 
 // Resolve effective arch for our published 64-bit binaries only.
-// Any ARM 鈫?arm64; anything else 鈫?x64. On macOS, handle Rosetta.
+// Any ARM → arm64; anything else → x64. On macOS, handle Rosetta.
 function getEffectiveArch() {
   const platform = process.platform;
   const nodeArch = process.arch;
@@ -25,7 +25,7 @@ function getEffectiveArch() {
       }).trim();
       if (translated === "1") return "arm64";
     } catch {
-      // sysctl key not present 鈫?assume true Intel
+      // sysctl key not present → assume true Intel
     }
     return "x64";
   }

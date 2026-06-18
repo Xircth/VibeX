@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * Renders a unified-timeline `Plan` block (parsed from TodoWrite / update_plan)
- * as a checklist — mirrors the legacy PlanCard look but consumes the codeg-aligned
+ * as a checklist, consuming the codeg-aligned
  * `PlanEntry[]` directly instead of a NormalizedEntry. VibeX-authored.
  */
 
@@ -19,7 +19,9 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 export function TimelinePlanCard({ entries }: { entries: PlanEntry[] }) {
-  const completed = entries.filter((entry) => entry.status === 'completed').length;
+  const completed = entries.filter(
+    (entry) => entry.status === 'completed'
+  ).length;
   return (
     <div className="conv-tool-card">
       <div className="flex items-center gap-2 px-2.5 py-1.5 text-sm">

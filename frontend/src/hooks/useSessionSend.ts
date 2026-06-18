@@ -65,8 +65,7 @@ export function useSessionSend({
           const session = await createSession({
             workspaceId,
             prompt: trimmed,
-            variant,
-            executor: effectiveExecutor,
+            executorProfileId: { executor: effectiveExecutor, variant },
           });
           onSelectSession?.(session.id);
           return true;

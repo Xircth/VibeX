@@ -99,7 +99,7 @@ export function ToolCardShell({
             {icon ? (
               <span className="shrink-0 conv-tool-icon">{icon}</span>
             ) : null}
-            <span className="conv-tool-label shrink-0">{label}</span>
+            <span className="conv-tool-label min-w-0 truncate">{label}</span>
             {detail ? (
               <span className="conv-tool-detail font-mono truncate min-w-0">
                 {detail}
@@ -111,7 +111,7 @@ export function ToolCardShell({
             {icon ? (
               <span className="shrink-0 conv-tool-icon">{icon}</span>
             ) : null}
-            <span className="conv-tool-label shrink-0">{label}</span>
+            <span className="conv-tool-label min-w-0 truncate">{label}</span>
             {detail ? (
               <span className="conv-tool-detail font-mono truncate min-w-0">
                 {detail}

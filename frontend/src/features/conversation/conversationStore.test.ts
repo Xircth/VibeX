@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { ConversationEventEnvelope, DbConversationDetail } from 'shared/types';
+import type {
+  ConversationEventEnvelope,
+  DbConversationDetail,
+} from 'shared/types';
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
@@ -86,6 +89,171 @@ describe('conversationStoreReducer', () => {
     ]);
   });
 
+  it('shows a pending assistant turn while the agent is thinking', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'user_turn_created',
+        blocks: [{ kind: 'text', text: 'think about this' }],
+      }),
+    });
+
+    const turns = timelineTurnsForEntry(
+      state.byConversationId['conversation-1']
+    );
+    expect(turns.map((row) => row.turn.role)).toEqual(['user', 'assistant']);
+    expect(turns[1]).toMatchObject({
+      phase: 'streaming',
+      turn: {
+        id: 'turn-1:assistant',
+        role: 'assistant',
+        blocks: [],
+      },
+    });
+  });
+
+  it('shows a pending assistant turn immediately after an optimistic user turn', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: 'conversation-1',
+      turn: {
+        id: 'optimistic-turn',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'start now' }],
+        timestamp: '2026-06-14T00:00:00.000Z',
+      },
+    });
+
+    const turns = timelineTurnsForEntry(
+      state.byConversationId['conversation-1']
+    );
+    expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
+      ['user', 'optimistic'],
+      ['assistant', 'streaming'],
+    ]);
+    expect(turns[1].turn).toMatchObject({
+      id: 'optimistic-turn:assistant',
+      blocks: [],
+    });
+  });
+
+  it('shows optimistic pending assistant after a previous turn has settled', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'user_turn_created',
+        blocks: [{ kind: 'text', text: 'first' }],
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, {
+        kind: 'turn_completed',
+        stop_reason: null,
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: 'conversation-1',
+      turn: {
+        id: 'optimistic-second',
+        role: 'user',
+        blocks: [{ type: 'text', text: 'second' }],
+        timestamp: '2026-06-14T00:00:01.000Z',
+      },
+    });
+
+    const turns = timelineTurnsForEntry(
+      state.byConversationId['conversation-1']
+    );
+    expect(turns.map((row) => [row.turn.id, row.turn.role, row.phase])).toEqual(
+      [
+        ['turn-1:user', 'user', 'settled'],
+        ['optimistic-second', 'user', 'optimistic'],
+        ['optimistic-second:assistant', 'assistant', 'streaming'],
+      ]
+    );
+  });
+
+  it('replaces the pending assistant turn when assistant content arrives', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'user_turn_created',
+        blocks: [{ kind: 'text', text: 'hello' }],
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, {
+        kind: 'assistant_text_delta',
+        text: 'hi',
+        message_id: null,
+      }),
+    });
+
+    const assistantTurns = timelineTurnsForEntry(
+      state.byConversationId['conversation-1']
+    ).filter((row) => row.turn.role === 'assistant');
+    expect(assistantTurns).toHaveLength(1);
+    expect(assistantTurns[0].turn.blocks).toEqual([
+      { type: 'text', text: 'hi' },
+    ]);
+  });
+
+  it('removes the pending assistant turn when a turn settles without content', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'user_turn_created',
+        blocks: [{ kind: 'text', text: 'stop early' }],
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, {
+        kind: 'turn_completed',
+        stop_reason: null,
+      }),
+    });
+
+    expect(
+      timelineTurnsForEntry(state.byConversationId['conversation-1']).map(
+        (row) => row.turn.role
+      )
+    ).toEqual(['user']);
+  });
+
   it('detects sequence gaps before applying an event', () => {
     const state = conversationStoreReducer(
       {
@@ -119,6 +287,34 @@ describe('conversationStoreReducer', () => {
       expectedSequence: 4n,
       receivedSequence: 5n,
     });
+  });
+
+  it('does not let a stale detail response erase newer realtime turns', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'user_turn_created',
+        blocks: [{ kind: 'text', text: 'visible message' }],
+      }),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    const entry = state.byConversationId['conversation-1'];
+    expect(entry.lastSequence).toBe(1n);
+    expect(timelineTurnsForEntry(entry).map((row) => row.turn.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
   });
 
   it('applies canonical realtime side rows for interaction and delegation events', () => {
@@ -180,7 +376,6 @@ describe('conversationStoreReducer', () => {
       'question_request',
       'feedback_request',
       'delegation',
-      'session_notice',
       'session_notice',
     ]);
   });

@@ -1967,6 +1967,8 @@ async fn send_task(
             blocks: vec![AgentContentBlock::Text {
                 text: args.to_string(),
             }],
+            mode_override: None,
+            config_overrides: Vec::new(),
         })
         .await
     {

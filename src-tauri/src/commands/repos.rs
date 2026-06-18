@@ -559,7 +559,7 @@ pub async fn open_repo_in_editor(
     }
 }
 
-// 鈹€鈹€鈹€ Repo-level Git operations 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── Repo-level Git operations ───────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_repo_git_status(

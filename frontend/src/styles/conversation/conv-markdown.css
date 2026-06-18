@@ -19,6 +19,16 @@
   color: var(--conv-text-primary);
 }
 
+.conv-streaming-markdown {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--conv-text-primary);
+}
+
 .conv-markdown > * {
   margin: 0;
 }

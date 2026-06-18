@@ -41,6 +41,41 @@
   animation: conv-spinner 1s linear infinite;
 }
 
+.conv-thinking-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--conv-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.conv-thinking-placeholder .conv-spinner {
+  flex: 0 0 auto;
+}
+
+.conv-streaming-status-tail {
+  align-self: flex-start;
+  min-height: 20px;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--conv-text-tertiary);
+}
+
+.conv-streaming-status-tail .conv-spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-shimmer-text,
+  .conv-spinner {
+    animation: none;
+  }
+}
+
 /* =========================================
  * Copy Button
  * ========================================= */
@@ -67,6 +102,30 @@
   position: relative;
   border-radius: 12px;
   padding: 2px 0;
+}
+
+/* Vertical rhythm between an assistant turn's paragraphs, tool/terminal cards,
+   thinking blocks and streaming previews. Without this they render flush. */
+.conv-assistant-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Let every child shrink so long tool labels/commands truncate instead of
+   pushing past the right edge. */
+.conv-assistant-body > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Top-level tool cards line up with the prose: the legacy DisplayConversationEntry
+   wrapper adds its own px-4, which double-indents tool cards relative to text.
+   Strip it here, but keep the padding inside aggregated timelines (nested). */
+.conv-assistant-body > .conv-entry-item > div:not(.conv-agg-timeline) {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 /* =========================================

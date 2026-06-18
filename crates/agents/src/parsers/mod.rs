@@ -120,6 +120,7 @@ fn sum_usage(a: Option<TurnUsage>, b: Option<TurnUsage>) -> Option<TurnUsage> {
             cache_creation_input_tokens: x.cache_creation_input_tokens
                 + y.cache_creation_input_tokens,
             cache_read_input_tokens: x.cache_read_input_tokens + y.cache_read_input_tokens,
+            context_window_max: x.context_window_max.or(y.context_window_max),
         }),
     }
 }

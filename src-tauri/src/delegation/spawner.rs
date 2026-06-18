@@ -117,6 +117,8 @@ impl ConnectionSpawner for RuntimeSpawner {
                 connection_id: conn,
                 session_id,
                 blocks: vec![AgentContentBlock::Text { text: task }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;

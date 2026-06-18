@@ -18,7 +18,7 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('Logo 缁勪欢涓庤缃〉灞曠ず VibeX 鍐呴儴鍝佺墝', () => {
+test('Logo 组件与设置页展示 VibeX 内部品牌', () => {
   const logoSource = readFrontendFile('src/components/Logo.tsx');
   const settingsSource = readFrontendFile('src/pages/settings/SettingsLayout.tsx');
 
@@ -27,7 +27,7 @@ test('Logo 缁勪欢涓庤缃〉灞曠ず VibeX 鍐呴儴鍝佺墝', () =>
   assert.match(settingsSource, /Logo/);
 });
 
-test('鍏抽敭鍓嶇椤甸潰鍝佺墝鏂囨鏇存柊涓?VibeX', () => {
+test('关键前端页面品牌文案更新为 VibeX', () => {
   const welcomeSource = readFrontendFile('src/components/welcome/WelcomePage.tsx');
   const statusBarSource = readFrontendFile('src/components/layout/StatusBar.tsx');
   const onboardingSource = readFrontendFile(
@@ -50,7 +50,7 @@ test('鍏抽敭鍓嶇椤甸潰鍝佺墝鏂囨鏇存柊涓?VibeX', () => {
   assert.match(projectContextSource, brandPattern);
 });
 
-test('妗岄潰瀹夸富椤典笉鍐嶆毚闇茬嫭绔?Web/PWA 鍥炬爣鍏ュ彛', () => {
+test('桌面宿主页不再暴露独立 Web/PWA 图标入口', () => {
   const indexSource = readFrontendFile('index.html');
 
   assert.doesNotMatch(indexSource, /favicon-vk/);
@@ -58,14 +58,14 @@ test('妗岄潰瀹夸富椤典笉鍐嶆毚闇茬嫭绔?Web/PWA 鍥炬爣鍏ュ�
   assert.match(indexSource, /<title>VibeX<\/title>/);
 });
 
-test('Tauri 妗岄潰搴旂敤鍚嶇О鏇存柊涓?VibeX', () => {
+test('Tauri 桌面应用名称更新为 VibeX', () => {
   const tauriConfigSource = readRepoFile('src-tauri/tauri.conf.json');
 
   assert.match(tauriConfigSource, /"productName":\s*"VibeX"/);
   assert.match(tauriConfigSource, /"title":\s*"VibeX"/);
 });
 
-test('鍒涘缓 PR 瀵硅瘽妗嗕娇鐢ㄦ柊鐨勫搧鐗屽悗缂€', () => {
+test('创建 PR 对话框使用新的品牌后缀', () => {
   const createPrSource = readFrontendFile(
     'src/components/dialogs/tasks/CreatePRDialog.tsx'
   );

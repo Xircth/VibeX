@@ -15,7 +15,7 @@ function readFile(relativePath) {
 test('settings header no longer shows the VibeX desktop wording', () => {
   const source = readFile('src/pages/settings/SettingsLayout.tsx');
 
-  assert.doesNotMatch(source, /VibeX 婵℃鐭傚鎵博椤栨繍鍟庣紓?/);
+  assert.doesNotMatch(source, /VibeX 桌面端设置/);
 });
 
 test('branding tagline stays on the multi-task Vibe Coding copy', () => {

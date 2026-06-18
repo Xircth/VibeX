@@ -38,6 +38,10 @@ pub struct TurnUsage {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    /// Context-window size reported by the agent (ACP usage `size`), when
+    /// provided. None for agents/transcripts that don't report a window.
+    #[serde(default)]
+    pub context_window_max: Option<u64>,
 }
 
 /// A base64-encoded image payload referenced by image content blocks.
@@ -401,6 +405,10 @@ pub struct ConversationUsage {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    /// Context-window size reported by the agent (ACP usage `size`), when
+    /// provided. None for agents that don't report a window.
+    #[serde(default)]
+    pub context_window_max: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

@@ -10,12 +10,14 @@ import type {
   ConversationTurnSnapshot,
   DbConversationDetail,
   DbConversationSummary,
+  ExecutorProfileId,
 } from 'shared/types';
 
 export type ConversationStartTurnRequest = {
   agentType: AgentType;
   workspaceId: string;
   conversationId: string;
+  executorProfileId?: ExecutorProfileId | null;
   text: string;
   images?: string[];
 };
@@ -58,6 +60,24 @@ export type ConversationImportRequest = {
   bundle: ConversationBundlePayload;
 };
 
+const serializeSequenceForIpc = (sequence: bigint | number): number => {
+  if (typeof sequence === 'number') {
+    if (!Number.isSafeInteger(sequence)) {
+      throw new Error('Conversation sequence must be a JSON-safe integer');
+    }
+    return sequence;
+  }
+
+  if (
+    sequence < BigInt(Number.MIN_SAFE_INTEGER) ||
+    sequence > BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    throw new Error('Conversation sequence exceeds JSON-safe integer range');
+  }
+
+  return Number(sequence);
+};
+
 export const conversationApi = {
   list: (workspaceId: string): Promise<DbConversationSummary[]> =>
     tauriInvoke('conversation_list', { workspaceId }),
@@ -78,7 +98,12 @@ export const conversationApi = {
   eventsSince: (
     request: ConversationEventsSinceRequest
   ): Promise<ConversationEventsPage> =>
-    tauriInvoke('conversation_events_since', { request }),
+    tauriInvoke('conversation_events_since', {
+      request: {
+        ...request,
+        afterSequence: serializeSequenceForIpc(request.afterSequence),
+      },
+    }),
 
   timelinePage: (
     request: ConversationTimelinePageRequest

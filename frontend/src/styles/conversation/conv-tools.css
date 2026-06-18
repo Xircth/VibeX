@@ -23,43 +23,20 @@
   background: var(--conv-surface-control-hover) !important;
 }
 
-.conv-tool-card-success {
-  border-color: color-mix(
-    in srgb,
-    var(--conv-tool-success) 45%,
-    var(--conv-border-subtle)
-  ) !important;
-  background: color-mix(
-    in srgb,
-    var(--conv-tool-success) 8%,
-    var(--conv-surface-control)
-  ) !important;
-}
-
-.conv-tool-card-error {
-  border-color: color-mix(
-    in srgb,
-    var(--conv-tool-error) 48%,
-    var(--conv-border-subtle)
-  ) !important;
-  background: color-mix(
-    in srgb,
-    var(--conv-tool-error) 8%,
-    var(--conv-surface-control)
-  ) !important;
-}
-
+/* Status is carried by the small status dot only — the card surface stays
+   neutral (matches the pre-ACP style; avoids a wall of green/amber/red cards). */
+.conv-tool-card-success,
+.conv-tool-card-error,
 .conv-tool-card-pending {
-  border-color: color-mix(
-    in srgb,
-    var(--conv-tool-pending) 48%,
-    var(--conv-border-subtle)
-  ) !important;
-  background: color-mix(
-    in srgb,
-    var(--conv-tool-pending) 8%,
-    var(--conv-surface-control)
-  ) !important;
+  border-color: var(--conv-border-subtle) !important;
+  background: var(--conv-surface-control) !important;
+}
+
+.conv-tool-card-success:hover,
+.conv-tool-card-error:hover,
+.conv-tool-card-pending:hover {
+  border-color: var(--conv-border-strong) !important;
+  background: var(--conv-surface-control-hover) !important;
 }
 
 /* Tool card label */
@@ -355,28 +332,51 @@
  * Conversation Message Nav
  * ========================================= */
 
+/* The nav floats over the right gutter so the message stream keeps full width.
+   The anchor spans the full thread height; the rail sticks within the viewport. */
+.conv-message-nav-anchor {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  pointer-events: none;
+}
+
 .conv-message-nav-rail {
   position: sticky;
   top: 8px;
-  display: none;
-  align-self: flex-start;
   max-height: calc(100vh - 96px);
   overflow: hidden;
+  pointer-events: auto;
 }
 
 @media (min-width: 1120px) {
-  .conv-message-nav-rail {
+  .conv-message-nav-anchor {
     display: block;
+  }
+
+  /* Reserve room so left-aligned content never slides under the floating rail. */
+  .conv-thread-content {
+    padding-right: 24px;
   }
 }
 
+/* A floating pill of dots — one per user message, newest at the bottom. The
+   active dot stretches into a thumb to read as "you are here", like a
+   message-indexed scrollbar. */
 .conv-message-nav-list {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   overflow: auto;
-  padding: 4px 6px;
+  padding: 8px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--conv-surface-card) 86%, transparent);
+  border: 1px solid var(--conv-border-subtle);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(6px);
 }
 
 .conv-message-nav-dot {
@@ -386,21 +386,27 @@
   padding: 0;
   border: none;
   border-radius: 999px;
-  background: var(--conv-border-subtle);
+  background: color-mix(in srgb, var(--conv-text-tertiary) 55%, transparent);
   cursor: pointer;
   transition:
     background-color 0.15s ease,
+    height 0.15s ease,
     transform 0.15s ease;
 }
 
 .conv-message-nav-dot:hover {
-  background: var(--conv-text-tertiary);
-  transform: scale(1.35);
+  background: var(--conv-tool-icon);
+  transform: scale(1.3);
+}
+
+.conv-message-nav-dot:focus-visible {
+  outline: 2px solid var(--conv-tool-icon);
+  outline-offset: 2px;
 }
 
 .conv-message-nav-dot.is-active {
+  height: 16px;
   background: var(--conv-tool-icon);
-  transform: scale(1.35);
 }
 
 /* =========================================

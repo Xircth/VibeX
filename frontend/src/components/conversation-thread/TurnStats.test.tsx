@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedEntryType } from 'shared/types';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
@@ -61,10 +67,10 @@ describe('TurnStats', () => {
     expect(screen.getByText('模型')).toBeInTheDocument();
     expect(screen.getByText('gpt-5-codex')).toBeInTheDocument();
     expect(screen.getByText('12,345 / 100,000')).toBeInTheDocument();
-    expect(screen.getByText('缓存读')).toBeInTheDocument();
-    expect(screen.getByText('300')).toBeInTheDocument();
-    expect(screen.getByText('缓存写')).toBeInTheDocument();
-    expect(screen.getByText('45')).toBeInTheDocument();
+    expect(screen.queryByText('缓存读')).not.toBeInTheDocument();
+    expect(screen.queryByText('缓存写')).not.toBeInTheDocument();
+    expect(screen.queryByText('300')).not.toBeInTheDocument();
+    expect(screen.queryByText('45')).not.toBeInTheDocument();
     expect(screen.getByText('1m 5s')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '复制回复' }));
@@ -72,9 +78,7 @@ describe('TurnStats', () => {
       expect(clipboardWrite).toHaveBeenCalledWith('assistant answer')
     );
 
-    fireEvent.click(
-      screen.getByRole('button', { name: '回到上一条用户消息' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: '回到上一条用户消息' }));
     expect(onJumpBack).toHaveBeenCalledTimes(1);
   });
 

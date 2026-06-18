@@ -492,7 +492,7 @@
   // =============================================================================
 
   // --- Helper: extract component name from file path ---
-  // e.g. '/src/components/AppHeader.vue' 鈫?'AppHeader'
+  // e.g. '/src/components/AppHeader.vue' → 'AppHeader'
   function extractNameFromFile(filePath) {
     if (!filePath || typeof filePath !== 'string') return null;
     var parts = filePath.replace(/\\/g, '/').split('/');
@@ -632,7 +632,7 @@
   }
 
   // --- Helper: extract component name from Svelte file path ---
-  // e.g. 'src/routes/+page.svelte' 鈫?'+page', 'src/lib/Button.svelte' 鈫?'Button'
+  // e.g. 'src/routes/+page.svelte' → '+page', 'src/lib/Button.svelte' → 'Button'
   function extractSvelteComponentName(filePath) {
     if (!filePath || typeof filePath !== 'string') return null;
     var parts = filePath.replace(/\\/g, '/').split('/');
@@ -662,7 +662,7 @@
       // Also check for svelte-* CSS class as a hint, but only return true
       // if __svelte_meta is actually found somewhere
       if (findSvelteMeta(element)) return true;
-      // Svelte CSS class hint present but no __svelte_meta found 鈥?not enough
+      // Svelte CSS class hint present but no __svelte_meta found — not enough
       return false;
     },
 
@@ -710,7 +710,7 @@
   // =============================================================================
 
   // --- Helper: extract component name from Astro component-url ---
-  // e.g. '/src/components/Counter.jsx' 鈫?'Counter'
+  // e.g. '/src/components/Counter.jsx' → 'Counter'
   function extractAstroComponentName(componentUrl) {
     if (!componentUrl || typeof componentUrl !== 'string') return null;
     var clean = componentUrl.split('?')[0].split('#')[0];
@@ -890,7 +890,7 @@
   }
 
   // --- Dispatcher: iterate adapters, first match wins, fallback to HTML ---
-  // Returns raw ComponentPayload (v2 protocol 鈥?no markdown conversion)
+  // Returns raw ComponentPayload (v2 protocol — no markdown conversion)
   function getElementContext(element) {
     for (var i = 0; i < adapters.length; i++) {
       if (adapters[i].detect(element)) {

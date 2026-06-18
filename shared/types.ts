@@ -608,7 +608,7 @@ export type PatchType = { "type": "NORMALIZED_ENTRY", "content": NormalizedEntry
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 
-// 鈹€鈹€ Git Panel Types (from crates/git/src/lib.rs) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ── Git Panel Types (from crates/git/src/lib.rs) ────────────────────
 
 export type GitFileStatusEntry = {
   path: string;
@@ -670,7 +670,7 @@ export type CommitDetail = {
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-// 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─────────────────────────────────────────────────────────────────────
 
 export const DEFAULT_PR_DESCRIPTION_PROMPT = "Update the PR that was just created with a better title and description.\nThe PR number is #{pr_number} and the URL is {pr_url}.\n\nAnalyze the changes in this branch and write:\n1. A concise, descriptive title that summarizes the changes, postfixed with \"(VibeX)\"\n2. A detailed description that explains:\n   - What changes were made\n   - Why they were made (based on the task context)\n   - Any important implementation details\n   - At the end, include a note: \"This PR was written using [VibeX](https://vibex.com)\"\n\nUse the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps).";
 
@@ -842,7 +842,12 @@ export type SubAgentToolCall = { tool_name: string, input_preview?: string | nul
 
 export type TurnRole = "user" | "assistant" | "system";
 
-export type TurnUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint, };
+export type TurnUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint,
+/**
+ * Context-window size reported by the agent (ACP usage `size`), when
+ * provided. None for agents/transcripts that don't report a window.
+ */
+context_window_max: bigint | null, };
 
 export type DbConversationSummary = { id: string, workspace_id: string, task_id: string | null,
 /**
@@ -933,7 +938,12 @@ export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTur
 
 export type ConversationToolCallPatch = { tool_call_id: string, title?: string | null, kind?: string | null, status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, raw_output_append?: string | null, content?: JsonValue | null, locations?: Array<ConversationFileLocation> | null, metadata?: JsonValue | null, images: Array<ImageData>, };
 
-export type ConversationUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint, };
+export type ConversationUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint,
+/**
+ * Context-window size reported by the agent (ACP usage `size`), when
+ * provided. None for agents that don't report a window.
+ */
+context_window_max: bigint | null, };
 
 export type SessionLoadFailureReason = { "kind": "resource_not_found" } | { "kind": "authentication_required", message: string, } | { "kind": "unsupported" } | { "kind": "other", message: string, };
 

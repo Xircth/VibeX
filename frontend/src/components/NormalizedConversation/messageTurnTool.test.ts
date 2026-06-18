@@ -24,7 +24,11 @@ function result(output: string, isError = false): ToolResultBlock {
 
 describe('toolBlockToNormalizedEntry', () => {
   it('maps read to a file_read action', () => {
-    const entry = toolBlockToNormalizedEntry(use('Read', { file_path: 'a.ts' }), null, null);
+    const entry = toolBlockToNormalizedEntry(
+      use('Read', { file_path: 'a.ts' }),
+      null,
+      null
+    );
     expect(entry.entry_type).toMatchObject({
       type: 'tool_use',
       action_type: { action: 'file_read', path: 'a.ts' },
@@ -39,13 +43,21 @@ describe('toolBlockToNormalizedEntry', () => {
       null
     );
     expect(entry.entry_type).toMatchObject({
-      action_type: { action: 'command_run', command: 'ls -la', result: { output: 'file list' } },
+      action_type: {
+        action: 'command_run',
+        command: 'ls -la',
+        result: { output: 'file list' },
+      },
       status: { status: 'success' },
     });
   });
 
   it('maps grep to a search action', () => {
-    const entry = toolBlockToNormalizedEntry(use('grep', { pattern: 'foo' }), null, null);
+    const entry = toolBlockToNormalizedEntry(
+      use('grep', { pattern: 'foo' }),
+      null,
+      null
+    );
     expect(entry.entry_type).toMatchObject({
       action_type: { action: 'search', query: 'foo' },
     });
@@ -68,7 +80,152 @@ describe('toolBlockToNormalizedEntry', () => {
   });
 
   it('flags failed results', () => {
-    const entry = toolBlockToNormalizedEntry(use('bash', { command: 'x' }), result('boom', true), null);
+    const entry = toolBlockToNormalizedEntry(
+      use('bash', { command: 'x' }),
+      result('boom', true),
+      null
+    );
     expect(entry.entry_type).toMatchObject({ status: { status: 'failed' } });
+  });
+
+  it('infers a terminal card from an opaque call id with a command field', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('call_nxYPkqUD6iG01JU4bkloUcPP', { command: 'Get-ChildItem' }),
+      result('ok'),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'command_run', command: 'Get-ChildItem' },
+    });
+  });
+
+  it('recognizes a PowerShell cmdlet tool title as a terminal', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('Get-ChildItem -Recurse -File', undefined),
+      result('listing'),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'command_run',
+        command: 'Get-ChildItem -Recurse -File',
+      },
+    });
+  });
+
+  it('recognizes a flagged CLI command title as a terminal', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('git status --short', undefined),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'command_run', command: 'git status --short' },
+    });
+  });
+
+  it('keeps a plain single-word tool name generic (not a terminal)', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('TodoWrite', { todos: [] }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'tool', tool_name: 'TodoWrite' },
+    });
+  });
+
+  it('treats a bare-string tool input as a terminal command', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('exec', 'Get-ChildItem -Force'),
+      result('listing'),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'command_run', command: 'Get-ChildItem -Force' },
+    });
+  });
+
+  it('joins an argv-array command (Codex shell calls)', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('local_shell', { command: ['bash', '-lc', 'echo hi'] }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'command_run', command: 'bash -lc echo hi' },
+    });
+  });
+
+  it('gives an opaque call id a clean label when nothing can be inferred', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('call_IAoqgnGcy7OXY2fhczF8F5iV', { foo: 'bar' }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'tool', tool_name: '工具调用' },
+    });
+  });
+
+  it('maps a structured edit to a file_edit diff card (not a read or a generic card)', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('call_abc123def456', {
+        file_path: 'a.ts',
+        old_string: 'x',
+        new_string: 'y',
+      }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'file_edit', path: 'a.ts' },
+    });
+    const action = entry.entry_type;
+    if (
+      action.type === 'tool_use' &&
+      action.action_type.action === 'file_edit'
+    ) {
+      expect(action.action_type.changes[0]).toMatchObject({ action: 'edit' });
+      expect(action.action_type.changes[0]).toHaveProperty('unified_diff');
+    }
+  });
+
+  it('maps a Codex apply_patch envelope to a file_edit card with the patched path', () => {
+    const patch =
+      '*** Begin Patch\n*** Update File: src/app.ts\n@@\n-old\n+new\n*** End Patch';
+    const entry = toolBlockToNormalizedEntry(
+      use('apply_patch', { input: patch }),
+      result('done'),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'file_edit', path: 'src/app.ts' },
+    });
+  });
+
+  it('maps a ready-made unified diff field to a file_edit card', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('Edit', { file_path: 'b.ts', diff: '@@ -1 +1 @@\n-a\n+b' }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'file_edit', path: 'b.ts' },
+    });
+  });
+
+  it('marks a completed command as a successful exit so the status dot is green', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('bash', { command: 'ls' }),
+      result('files'),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'command_run',
+        result: { exit_status: { type: 'success', success: true } },
+      },
+    });
   });
 });

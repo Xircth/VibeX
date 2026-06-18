@@ -1,8 +1,21 @@
-import { memo, useMemo, useState, type ReactNode } from 'react';
-import { ChevronDown, RotateCcw, Wrench } from 'lucide-react';
-import type { MessageTurn, TaskWithAttemptStatus } from 'shared/types';
+import { memo, useCallback, useMemo, useState, type ReactNode } from 'react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clipboard,
+  RotateCcw,
+  Wrench,
+} from 'lucide-react';
+import {
+  BaseCodingAgent,
+  type MessageTurn,
+  type TaskWithAttemptStatus,
+} from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { cn } from '@/lib/utils';
+import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
+import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { Markdown } from './Markdown';
 import { ThinkingEntry } from './ThinkingEntry';
@@ -15,12 +28,20 @@ import {
   type ToolResultBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
+import { AGGREGATION_LABELS } from './conversation-entry-utils';
+import {
+  groupTurnRenderItems,
+  type IndexedTurnItem,
+  type TurnAggregationType,
+} from './messageTurnAggregate';
 
 export interface MessageTurnContext {
   taskAttemptId?: string;
   taskId?: string;
   workspacePath?: string | null;
 }
+
+type MessageTurnPhase = 'persisted' | 'optimistic' | 'streaming' | 'settled';
 
 function OrphanToolResultCard({
   result,
@@ -108,19 +129,99 @@ function renderItem(
       return <TimelinePlanCard key={key} entries={item.entries} />;
     case 'tool':
       return (
-        <OrphanToolResultCard key={key} result={item.result} context={context} />
+        <OrphanToolResultCard
+          key={key}
+          result={item.result}
+          context={context}
+        />
       );
   }
+}
+
+function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
+  const label = hasContent ? 'AI 正在输出...' : 'AI 正在思考中...';
+  return (
+    <div
+      className={cn(
+        'conv-thinking-placeholder',
+        hasContent && 'conv-streaming-status-tail'
+      )}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <span className="conv-spinner" aria-hidden="true" />
+      <span className="conv-shimmer-text">{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Hover-revealed action rail anchored to the left of a user bubble. Copy is
+ * always available (client-side); Retry re-sends this turn, optionally
+ * restoring workspace files first. Mirrors the pre-ACP user-message controls.
+ */
+function UserMessageActions({
+  text,
+  onRetry,
+}: {
+  text: string;
+  onRetry?: () => void;
+}) {
+  const [copied, triggerCopied] = useTemporaryFlag(1600);
+
+  const handleCopy = useCallback(async () => {
+    if (!text) return;
+    try {
+      await writeClipboardViaBridge(text);
+      triggerCopied();
+    } catch {
+      // Clipboard can be unavailable in embedded webviews — ignore.
+    }
+  }, [text, triggerCopied]);
+
+  if (!text && !onRetry) return null;
+
+  return (
+    <div className="conv-user-actions">
+      {text ? (
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="conv-user-action-btn"
+          title={copied ? '已复制' : '复制消息'}
+          aria-label={copied ? '已复制' : '复制消息'}
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Clipboard className="h-3.5 w-3.5" />
+          )}
+        </button>
+      ) : null}
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="conv-user-action-btn"
+          title="重发：可选择先恢复文件再重新发送"
+          aria-label="重发"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function CollapsedProcessGroup({
   turnId,
   items,
-  renderItem: render,
+  renderUnits,
 }: {
   turnId: string;
   items: TurnRenderItem[];
-  renderItem: (item: TurnRenderItem, key: string) => ReactNode;
+  renderUnits: (list: TurnRenderItem[], offset: number) => ReactNode[];
 }) {
   const [expanded, toggle] = useExpandable(`process:${turnId}`, false);
   return (
@@ -137,37 +238,113 @@ function CollapsedProcessGroup({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>Collapsed {items.length} process messages</span>
+        <span>已折叠 {items.length} 条消息</span>
       </button>
-      {expanded
-        ? items.map((item, index) =>
-            render(item, `${turnId}-prelude-${index}`)
-          )
-        : null}
+      {expanded ? (
+        <div className="conv-assistant-body mt-1">{renderUnits(items, 0)}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Folds a run of same-kind tool calls into one "终端 N"-style card with a count
+ * badge, expanding to the individual cards on a timeline. Mirrors the pre-ACP
+ * AggregatedGroupCard look (same classes/tokens), driven by the turn's blocks.
+ */
+function TurnToolGroupCard({
+  turnId,
+  groupKey,
+  offset,
+  aggregationType,
+  items,
+  renderTurnItem: render,
+}: {
+  turnId: string;
+  groupKey: number;
+  offset: number;
+  aggregationType: TurnAggregationType;
+  items: IndexedTurnItem[];
+  renderTurnItem: (item: TurnRenderItem, key: string) => ReactNode;
+}) {
+  const [expanded, toggle] = useExpandable(
+    `turn-tool-group:${turnId}:${groupKey}`,
+    false
+  );
+  // Generic tool calls have no AGGREGATION_LABELS entry — give them a Wrench.
+  const { icon, label } =
+    aggregationType === 'tool'
+      ? { icon: <Wrench className="h-3 w-3" />, label: '工具调用' }
+      : AGGREGATION_LABELS[aggregationType];
+  // Sub-agent groups fold the count into the label (no separate badge), matching
+  // the pre-ACP AggregatedGroupCard.
+  const isTaskCreate = aggregationType === 'task_create';
+  const displayLabel = isTaskCreate
+    ? `正在生成 ${items.length} 个智能体`
+    : label;
+  return (
+    <div className="conv-entry-item">
+      <button
+        type="button"
+        onClick={() => toggle()}
+        aria-expanded={expanded}
+        className="conv-tool-card flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-sm"
+      >
+        <span className="conv-tool-icon shrink-0">{icon}</span>
+        <span className="conv-tool-label shrink-0">{displayLabel}</span>
+        {isTaskCreate ? null : (
+          <span className="conv-count-badge">{items.length}</span>
+        )}
+        <ChevronRight
+          className={cn(
+            'ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-90'
+          )}
+        />
+      </button>
+      {expanded ? (
+        <div className="conv-agg-timeline mt-1">
+          {items.map(({ item, index }) => (
+            <div
+              key={`${turnId}-${offset + index}`}
+              className="conv-agg-timeline-item"
+            >
+              {render(item, `${turnId}-${offset + index}`)}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export const MessageTurnView = memo(function MessageTurnView({
   turn,
+  phase = 'persisted',
   attempt,
   task,
   onRetry,
   collapseProcess = false,
+  workspacePath,
 }: {
   turn: MessageTurn;
+  phase?: MessageTurnPhase;
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
   onRetry?: () => void;
   collapseProcess?: boolean;
+  workspacePath?: string | null;
 }) {
+  // Prefer the resolved absolute root (caller may supply the repo path when the
+  // workspace has no container_ref) so clickable file paths open a real file.
+  const resolvedWorkspacePath = workspacePath ?? attempt.container_ref;
   const context = useMemo<MessageTurnContext>(
     () => ({
       taskAttemptId: attempt.id,
       taskId: task?.id ?? attempt.task_id ?? undefined,
-      workspacePath: attempt.container_ref,
+      workspacePath: resolvedWorkspacePath,
     }),
-    [attempt.container_ref, attempt.id, attempt.task_id, task?.id]
+    [resolvedWorkspacePath, attempt.id, attempt.task_id, task?.id]
   );
 
   if (turn.role === 'user') {
@@ -175,26 +352,18 @@ export const MessageTurnView = memo(function MessageTurnView({
       .flatMap((block) => (block.type === 'text' ? [block.text] : []))
       .join('\n\n');
     return (
-      <div className="conv-entry-item conv-user-turn group relative">
-        <div className="conv-user-bubble">
-          <Markdown
-            value={text}
-            taskAttemptId={context.taskAttemptId}
-            taskId={context.taskId}
-            workspacePath={context.workspacePath}
-          />
+      <div className="conv-entry-item conv-user-turn group">
+        <div className="conv-user-bubble-wrap">
+          <UserMessageActions text={text} onRetry={onRetry} />
+          <div className="conv-user-bubble">
+            <Markdown
+              value={text}
+              taskAttemptId={context.taskAttemptId}
+              taskId={context.taskId}
+              workspacePath={context.workspacePath}
+            />
+          </div>
         </div>
-        {onRetry ? (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="conv-copy-btn absolute right-1 top-1 rounded p-1 text-muted-foreground hover:text-foreground"
-            title="Retry: optionally restore files before resending"
-            aria-label="Retry"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
       </div>
     );
   }
@@ -218,7 +387,40 @@ export const MessageTurnView = memo(function MessageTurnView({
     return renderItem(item, key, context);
   };
 
-  const items = planTurnBlocks(turn.blocks);
+  // Fold consecutive same-kind tool calls into "终端 N" group cards (early style).
+  const renderUnits = (list: TurnRenderItem[], offset: number): ReactNode[] =>
+    groupTurnRenderItems(list).map((unit) => {
+      if (unit.kind === 'single') {
+        return renderTurnItem(unit.item, `${turn.id}-${offset + unit.index}`);
+      }
+      const startIndex = offset + unit.items[0].index;
+      return (
+        <TurnToolGroupCard
+          key={`${turn.id}-toolgroup-${startIndex}`}
+          turnId={turn.id}
+          groupKey={startIndex}
+          offset={offset}
+          aggregationType={unit.aggregationType}
+          items={unit.items}
+          renderTurnItem={renderTurnItem}
+        />
+      );
+    });
+
+  const hideThinking =
+    attempt.session?.executor === BaseCodingAgent.CLAUDE_CODE;
+  const plannedItems = planTurnBlocks(turn.blocks);
+  const items = hideThinking
+    ? plannedItems.filter((item) => item.kind !== 'thinking')
+    : plannedItems;
+  if (phase === 'streaming' && items.length === 0) {
+    return (
+      <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
+        <AssistantStreamingStatus hasContent={hideThinking} />
+      </div>
+    );
+  }
+
   let body: ReactNode[];
 
   if (collapseProcess) {
@@ -236,23 +438,24 @@ export const MessageTurnView = memo(function MessageTurnView({
               key={`${turn.id}-collapsed`}
               turnId={turn.id}
               items={prelude}
-              renderItem={renderTurnItem}
+              renderUnits={renderUnits}
             />,
           ]
         : []),
-      ...rest.map((item, index) =>
-        renderTurnItem(item, `${turn.id}-${collapsibleEnd + index}`)
-      ),
+      ...renderUnits(rest, collapsibleEnd),
     ];
   } else {
-    body = items.map((item, index) =>
-      renderTurnItem(item, `${turn.id}-${index}`)
-    );
+    body = renderUnits(items, 0);
   }
 
   return (
     <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
-      {body}
+      <div className="conv-assistant-body">
+        {body}
+        {phase === 'streaming' ? (
+          <AssistantStreamingStatus hasContent={items.length > 0} />
+        ) : null}
+      </div>
     </div>
   );
 });

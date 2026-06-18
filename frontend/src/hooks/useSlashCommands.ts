@@ -66,24 +66,34 @@ export function useSlashCommands(
   const executor = executorProfile?.executor;
   const variant = executorProfile?.variant ?? null;
 
-  const variantStr = variant ?? 'default';
+  const profileStr = [
+    executor ?? 'none',
+    variant ?? 'default',
+    executorProfile?.model ?? 'default-model',
+    executorProfile?.fast_mode == null
+      ? 'default-fast'
+      : String(executorProfile.fast_mode),
+    executorProfile?.reasoning_effort ?? 'default-reasoning',
+  ]
+    .join(':')
+    .replace(/[^a-zA-Z0-9_.:-]/g, '_');
   const wsStr = workspaceId ?? 'none';
   const repoStr = repoId ?? 'none';
 
   const eventChannel = executor
-    ? `slash-commands-stream:${executor}:${variantStr}:${wsStr}:${repoStr}`
+    ? `slash-commands-stream:${profileStr}:${wsStr}:${repoStr}`
     : '';
 
   const subscribeArgs = useMemo(
     () =>
-      executor
+      executorProfile
         ? {
-            executorProfileId: { executor, variant },
+            executorProfileId: executorProfile,
             workspaceId: workspaceId ?? null,
             repoId: repoId ?? null,
           }
         : undefined,
-    [executor, variant, workspaceId, repoId]
+    [executorProfile, workspaceId, repoId]
   );
 
   const initialData = useCallback(

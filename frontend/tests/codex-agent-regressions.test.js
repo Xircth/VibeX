@@ -17,7 +17,7 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('鎺掗槦涓殑 follow-up 浼氬湪鍘嗗彶鍖哄厛浠ョ敤鎴锋秷鎭疄鏃舵覆鏌?, () => {
+test('排队中的 follow-up 会在历史区先以用户消息实时渲染', () => {
   const source = readFrontendFile(
     'src/hooks/useConversationHistory/useConversationHistory.ts'
   );
@@ -29,7 +29,7 @@ test('鎺掗槦涓殑 follow-up 浼氬湪鍘嗗彶鍖哄厛浠ョ敤鎴锋秷
   assert.match(source, /type:\s*'user_message'/);
 });
 
-test('涓婚鎻愪緵鍣ㄤ細鐩戝惉绯荤粺涓婚鍒囨崲锛岄瑙堢紪杈戝櫒璺熼殢鏄庢殫涓婚', () => {
+test('主题提供器会监听系统主题切换，预览编辑器跟随明暗主题', () => {
   const themeProvider = readFrontendFile('src/components/ThemeProvider.tsx');
   const previewPanel = readFrontendFile(
     'src/components/panels/DockviewPreviewPanel.tsx'
@@ -43,7 +43,7 @@ test('涓婚鎻愪緵鍣ㄤ細鐩戝惉绯荤粺涓婚鍒囨崲锛岄�
   assert.match(previewPanel, /resolvedTheme === 'dark' \? 'vs-dark' : 'vs'/);
 });
 
-test('Windows 閫氱煡鏄惧紡浣跨敤 VibeX 鐨?AppId 浣滀负 toast sender', () => {
+test('Windows 通知显式使用 VibeX 的 AppId 作为 toast sender', () => {
   const notificationService = readRepoFile(
     'crates/services/src/services/notification.rs'
   );
@@ -57,7 +57,7 @@ test('Windows 閫氱煡鏄惧紡浣跨敤 VibeX 鐨?AppId 浣滀负 toast sender
   assert.match(toastScript, /CreateToastNotifier\(\$AppId\)/);
 });
 
-test('rebase 鍐茬獊浼氬脊鍑哄彂閫佺粰 AI 鐨勫浐瀹氭ā鏉垮璇濇', () => {
+test('rebase 冲突会弹出发送给 AI 的固定模板对话框', () => {
   const gitOperations = readFrontendFile(
     'src/components/tasks/Toolbar/GitOperations.tsx'
   );

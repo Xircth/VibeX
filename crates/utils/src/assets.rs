@@ -19,9 +19,9 @@ pub fn asset_dir() -> std::path::PathBuf {
     }
 
     path
-    // 鉁?macOS 鈫?~/Library/Application Support/MyApp
-    // 鉁?Linux 鈫?~/.local/share/myapp   (respects XDG_DATA_HOME)
-    // 鉁?Windows 鈫?%APPDATA%\Example\MyApp
+    // ✅ macOS → ~/Library/Application Support/MyApp
+    // ✅ Linux → ~/.local/share/myapp   (respects XDG_DATA_HOME)
+    // ✅ Windows → %APPDATA%\Example\MyApp
 }
 
 pub fn config_path() -> std::path::PathBuf {

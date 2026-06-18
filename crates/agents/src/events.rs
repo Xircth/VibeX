@@ -109,6 +109,12 @@ pub struct AgentSessionConfigOption {
     pub choices: Vec<AgentSessionConfigChoice>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSessionConfigOverride {
+    pub key: String,
+    pub value: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentAvailableCommand {

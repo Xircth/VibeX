@@ -513,6 +513,8 @@ pub async fn create_task_and_start(
                         .filter(|prompt| !prompt.trim().is_empty())
                         .unwrap_or_else(|| task.to_prompt()),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await?;
 

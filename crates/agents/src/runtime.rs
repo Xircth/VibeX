@@ -1,4 +1,4 @@
-use std::{
+﻿use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::Arc,
@@ -15,8 +15,8 @@ use crate::{
     AgentConnectionManagerEvent, AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope,
     AgentPermissionId, AgentPermissionRequest, AgentPermissionResponse, AgentPromptId,
     AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult,
-    AgentSessionId, AgentSessionSnapshot, AgentSessionStatus, AgentType, QueueTransition,
-    registry_entry,
+    AgentSessionConfigOverride, AgentSessionId, AgentSessionSnapshot, AgentSessionStatus,
+    AgentType, QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -45,6 +45,8 @@ pub struct SendAgentPromptInput {
     pub connection_id: AgentConnectionId,
     pub session_id: AgentSessionId,
     pub blocks: Vec<AgentContentBlock>,
+    pub mode_override: Option<String>,
+    pub config_overrides: Vec<AgentSessionConfigOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,7 +116,14 @@ struct RuntimeState {
     sessions: HashMap<AgentSessionId, RuntimeSession>,
     prompts: HashMap<AgentPromptId, AgentPromptSnapshot>,
     prompt_blocks: HashMap<AgentPromptId, Vec<AgentContentBlock>>,
+    prompt_options: HashMap<AgentPromptId, PromptDispatchOptions>,
     recent_events: VecDeque<AgentEventEnvelope>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PromptDispatchOptions {
+    mode_override: Option<String>,
+    config_overrides: Vec<AgentSessionConfigOverride>,
 }
 
 const MAX_RECENT_EVENTS: usize = 2_000;
@@ -190,7 +199,12 @@ impl AgentRuntime {
                             .get(&session_id)
                             .and_then(|session| session.queue.active())?;
                         let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
-                        Some((session_id, prompt_id, blocks))
+                        let options = state
+                            .prompt_options
+                            .get(&prompt_id)
+                            .cloned()
+                            .unwrap_or_default();
+                        Some((session_id, prompt_id, blocks, options))
                     });
                     Self::emit_with_parts_locked(
                         &mut state,
@@ -203,9 +217,16 @@ impl AgentRuntime {
                     next_prompt
                 };
 
-                if let Some((session_id, prompt_id, blocks)) = next_prompt {
+                if let Some((session_id, prompt_id, blocks, options)) = next_prompt {
                     let _ = connection_manager
-                        .send_prompt(manager_event.connection_id, session_id, prompt_id, blocks)
+                        .send_prompt(
+                            manager_event.connection_id,
+                            session_id,
+                            prompt_id,
+                            blocks,
+                            options.mode_override,
+                            options.config_overrides,
+                        )
                         .await;
                 }
             }
@@ -604,10 +625,16 @@ impl AgentRuntime {
             },
         };
 
-        let blocks = input.blocks;
+        let SendAgentPromptInput {
+            connection_id,
+            session_id,
+            blocks,
+            mode_override,
+            config_overrides,
+        } = input;
         let prompt = AgentPromptSnapshot {
             id: prompt_id,
-            session_id: input.session_id,
+            session_id,
             status,
             text_preview: preview_text_from_blocks(&blocks),
             created_at: now,
@@ -615,11 +642,18 @@ impl AgentRuntime {
         };
         state.prompts.insert(prompt.id, prompt.clone());
         state.prompt_blocks.insert(prompt.id, blocks.clone());
+        state.prompt_options.insert(
+            prompt.id,
+            PromptDispatchOptions {
+                mode_override: mode_override.clone(),
+                config_overrides: config_overrides.clone(),
+            },
+        );
         self.emit_locked(
             &mut state,
             workspace_id,
-            input.connection_id,
-            Some(input.session_id),
+            connection_id,
+            Some(session_id),
             AgentEvent::PromptStarted {
                 snapshot: prompt.clone(),
             },
@@ -629,7 +663,14 @@ impl AgentRuntime {
         if matches!(prompt.status, AgentPromptStatus::Running)
             && let Err(error) = self
                 .connection_manager
-                .send_prompt(input.connection_id, input.session_id, prompt.id, blocks)
+                .send_prompt(
+                    connection_id,
+                    session_id,
+                    prompt.id,
+                    blocks,
+                    mode_override,
+                    config_overrides,
+                )
                 .await
         {
             let mut state = self.state.write().await;
@@ -639,7 +680,7 @@ impl AgentRuntime {
                 };
                 prompt.updated_at = Utc::now();
             }
-            if let Some(connection) = state.connections.get_mut(&input.connection_id) {
+            if let Some(connection) = state.connections.get_mut(&connection_id) {
                 connection.snapshot.status = AgentConnectionStatus::Failed;
                 connection.snapshot.status_message = Some(error.to_string());
                 connection.snapshot.updated_at = Utc::now();
@@ -703,6 +744,7 @@ impl AgentRuntime {
                 }
                 if !was_active {
                     state.prompt_blocks.remove(&input.prompt_id);
+                    state.prompt_options.remove(&input.prompt_id);
                 }
                 Self::emit_with_parts_locked(
                     &mut state,
@@ -866,6 +908,7 @@ impl AgentRuntime {
                     }
                 }
                 state.prompt_blocks.remove(&finished.prompt_id);
+                state.prompt_options.remove(&finished.prompt_id);
             }
             AgentEvent::Error { error } => {
                 if let (Some(session_id), Some(prompt_id)) =
@@ -939,6 +982,7 @@ fn fail_prompt_locked(
     }
 
     state.prompt_blocks.remove(&prompt_id);
+    state.prompt_options.remove(&prompt_id);
 }
 
 fn fail_connection_sessions_locked(
@@ -980,6 +1024,7 @@ fn fail_connection_sessions_locked(
                     prompt.updated_at = now;
                 }
                 state.prompt_blocks.remove(&prompt_id);
+                state.prompt_options.remove(&prompt_id);
             }
         }
     }
@@ -1062,6 +1107,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "hello".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1098,6 +1145,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "first".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1108,6 +1157,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "second".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1364,6 +1415,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "active".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1374,6 +1427,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "queued".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1471,6 +1526,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "active".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1481,6 +1538,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "queued".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1565,6 +1624,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "after reconnect".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1688,6 +1749,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "hello".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1758,6 +1821,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: text.to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();
@@ -1782,6 +1847,8 @@ mod tests {
                 blocks: vec![AgentContentBlock::Text {
                     text: "queued prompt".to_string(),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await
             .unwrap();

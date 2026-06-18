@@ -5,6 +5,7 @@ use agents::conversation::{
     ConversationPermissionView, ConversationSessionNotice, ConversationTerminalView,
     ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry, TurnRole, TurnUsage,
 };
+use serde::Serialize;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -40,9 +41,7 @@ impl ConversationStateApplier {
         pool: &SqlitePool,
         record: &ConversationEventRecord,
     ) -> Result<(), sqlx::Error> {
-        let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) else {
-            return Ok(());
-        };
+        let event = conversation_event_from_record(record)?;
 
         match event {
             ConversationEvent::UserTurnQueued => {
@@ -74,8 +73,7 @@ impl ConversationStateApplier {
             }
             ConversationEvent::TurnFailed { error } => {
                 if let Some(turn_id) = record.turn_id {
-                    let error_json =
-                        serde_json::to_string(&error).unwrap_or_else(|_| "{}".to_string());
+                    let error_json = json_string(&error)?;
                     ConversationTurnRecord::mark_failed(pool, turn_id, &error_json).await?;
                 }
             }
@@ -89,15 +87,15 @@ impl ConversationStateApplier {
             }
             ConversationEvent::ToolCallUpsert { tool_call } => {
                 if let Some(turn_id) = record.turn_id {
-                    let raw_input_json = json_string_ref(&tool_call.raw_input);
-                    let raw_output_json = json_string_ref(&tool_call.raw_output);
-                    let content_json = json_string_ref(&tool_call.content);
-                    let locations_json = json_string_ref(&tool_call.locations);
-                    let metadata_json = json_string_ref(&tool_call.metadata);
+                    let raw_input_json = json_string_ref(&tool_call.raw_input)?;
+                    let raw_output_json = json_string_ref(&tool_call.raw_output)?;
+                    let content_json = json_string_ref(&tool_call.content)?;
+                    let locations_json = json_string_ref(&tool_call.locations)?;
+                    let metadata_json = json_string_ref(&tool_call.metadata)?;
                     let images_json = if tool_call.images.is_empty() {
                         None
                     } else {
-                        serde_json::to_string(&tool_call.images).ok()
+                        Some(json_string(&tool_call.images)?)
                     };
                     ConversationToolCallRecord::upsert(
                         pool,
@@ -126,12 +124,10 @@ impl ConversationStateApplier {
                         .request
                         .details
                         .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()
-                        .unwrap_or_else(|_| Some("{}".to_string()))
+                        .map(json_string)
+                        .transpose()?
                         .unwrap_or_else(|| "{}".to_string());
-                    let options_json = serde_json::to_string(&request.request.options)
-                        .unwrap_or_else(|_| "[]".to_string());
+                    let options_json = json_string(&request.request.options)?;
                     ConversationPermissionRecord::upsert_pending(
                         pool,
                         UpsertConversationPermission {
@@ -152,8 +148,7 @@ impl ConversationStateApplier {
                 permission_id,
                 response,
             } => {
-                let response_json =
-                    serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+                let response_json = json_string(&response)?;
                 ConversationPermissionRecord::respond(
                     pool,
                     record.conversation_id,
@@ -164,9 +159,8 @@ impl ConversationStateApplier {
             }
             ConversationEvent::TerminalUpdated { terminal } => {
                 if let Some(turn_id) = record.turn_id {
-                    let args_json =
-                        serde_json::to_string(&terminal.args).unwrap_or_else(|_| "[]".to_string());
-                    let exit_status_json = json_string_ref(&terminal.exit_status);
+                    let args_json = json_string(&terminal.args)?;
+                    let exit_status_json = json_string_ref(&terminal.exit_status)?;
                     ConversationTerminalRecord::upsert(
                         pool,
                         UpsertConversationTerminal {
@@ -224,13 +218,13 @@ impl ConversationProjector {
     ) -> Result<ConversationTimeline, sqlx::Error> {
         let events =
             ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
-        Ok(Self::project_records(conversation_id, &events))
+        Self::project_records(conversation_id, &events)
     }
 
     pub fn project_records(
         conversation_id: Uuid,
         records: &[ConversationEventRecord],
-    ) -> ConversationTimeline {
+    ) -> Result<ConversationTimeline, sqlx::Error> {
         let mut turns: BTreeMap<Uuid, ProjectedTurn> = BTreeMap::new();
         let mut turn_order: Vec<Uuid> = Vec::new();
         let mut side_rows: Vec<ConversationTimelineRow> = Vec::new();
@@ -238,10 +232,7 @@ impl ConversationProjector {
 
         for record in records {
             last_sequence = last_sequence.max(record.sequence);
-            let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json)
-            else {
-                continue;
-            };
+            let event = conversation_event_from_record(record)?;
 
             match event {
                 ConversationEvent::UserTurnCreated { blocks } => {
@@ -332,6 +323,7 @@ impl ConversationProjector {
                             output_tokens: usage.output_tokens,
                             cache_creation_input_tokens: usage.cache_creation_input_tokens,
                             cache_read_input_tokens: usage.cache_read_input_tokens,
+                            context_window_max: usage.context_window_max,
                         });
                     }
                 }
@@ -436,15 +428,6 @@ impl ConversationProjector {
                         });
                     }
                 }
-                ConversationEvent::RawDiagnosticRecorded { label } => {
-                    side_rows.push(ConversationTimelineRow::SessionNotice {
-                        notice: ConversationSessionNotice {
-                            title: "Agent diagnostic".into(),
-                            message: Some(label),
-                            severity: "info".into(),
-                        },
-                    });
-                }
                 _ => {}
             }
         }
@@ -466,12 +449,12 @@ impl ConversationProjector {
         }
         rows.extend(side_rows);
 
-        ConversationTimeline {
+        Ok(ConversationTimeline {
             conversation_id,
             projection_version: CONVERSATION_PROJECTION_VERSION,
             last_sequence,
             rows,
-        }
+        })
     }
 }
 
@@ -536,13 +519,22 @@ fn append_thinking_block(blocks: &mut Vec<ContentBlock>, text: String) {
     }
 }
 
-fn json_string_ref<T: serde::Serialize>(value: &Option<T>) -> Option<String> {
-    value
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()
-        .ok()
-        .flatten()
+fn conversation_event_from_record(
+    record: &ConversationEventRecord,
+) -> Result<ConversationEvent, sqlx::Error> {
+    serde_json::from_str::<ConversationEvent>(&record.normalized_json).map_err(json_decode_error)
+}
+
+fn json_string<T: Serialize>(value: &T) -> Result<String, sqlx::Error> {
+    serde_json::to_string(value).map_err(json_decode_error)
+}
+
+fn json_string_ref<T: Serialize>(value: &Option<T>) -> Result<Option<String>, sqlx::Error> {
+    value.as_ref().map(json_string).transpose()
+}
+
+fn json_decode_error(error: serde_json::Error) -> sqlx::Error {
+    sqlx::Error::Decode(Box::new(error))
 }
 
 #[cfg(test)]
@@ -627,10 +619,8 @@ mod tests {
         event: ConversationEvent,
         idempotency_key: Option<&'static str>,
     ) -> ConversationEventRecord {
-        let event_kind = serde_json::to_value(&event)
-            .ok()
-            .and_then(|value| value["kind"].as_str().map(str::to_string))
-            .unwrap_or_else(|| "unknown".into());
+        let value = serde_json::to_value(&event).expect("event value");
+        let event_kind = value["kind"].as_str().expect("event kind").to_string();
         let normalized_json = serde_json::to_string(&event).expect("event json");
         ConversationEventAppender::append(
             pool,
@@ -650,6 +640,33 @@ mod tests {
         )
         .await
         .expect("append event")
+    }
+
+    #[tokio::test]
+    async fn conversation_state_applier_rejects_invalid_event_json() {
+        let pool = setup_pool().await;
+        let error = ConversationStateApplier::apply_record(
+            &pool,
+            &ConversationEventRecord {
+                id: Uuid::new_v4(),
+                conversation_id: Uuid::new_v4(),
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                sequence: 1,
+                source: "test".to_string(),
+                event_kind: "invalid".to_string(),
+                normalized_json: r#"{"kind":"not_a_conversation_event"}"#.to_string(),
+                raw_json: None,
+                idempotency_key: None,
+                created_at: chrono::Utc::now(),
+            },
+        )
+        .await
+        .expect_err("invalid normalized event should fail loudly");
+
+        assert!(matches!(error, sqlx::Error::Decode(_)));
     }
 
     #[test]
@@ -1101,7 +1118,7 @@ mod tests {
             kinds.iter().filter(|kind| **kind == "delegation").count(),
             2
         );
-        assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 2);
+        assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 1);
     }
 
     #[tokio::test]
@@ -1157,6 +1174,7 @@ mod tests {
                     output_tokens: 2,
                     cache_creation_input_tokens: 0,
                     cache_read_input_tokens: 0,
+                    context_window_max: None,
                 },
             },
             None,

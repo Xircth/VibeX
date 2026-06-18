@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use agents::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock, AgentEvent,
@@ -29,6 +29,7 @@ use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
+use tokio::time::{self, Duration, MissedTickBehavior};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -39,6 +40,8 @@ pub mod channels {
     pub const CONVERSATION_EVENTS: &str = "conversation-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
 }
+
+const CONVERSATION_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(32);
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -121,71 +124,92 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
     let mut agent_events = state.agent_runtime.subscribe_events();
 
     tauri::async_runtime::spawn(async move {
+        let mut coalescer = ConversationEventCoalescer::default();
+        let mut active_turn_cache: HashMap<Uuid, Option<Uuid>> = HashMap::new();
+        let mut flush_interval = time::interval(CONVERSATION_STREAM_FLUSH_INTERVAL);
+        flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
         loop {
-            match agent_events.recv().await {
-                Ok(event) => {
-                    let notification_event = event.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(error) =
-                            crate::commands::chat_channel::notify_agent_event(&notification_event)
-                                .await
-                        {
-                            tracing::warn!("Failed to dispatch chat channel event: {}", error);
-                        }
-                    });
-                    match persist_conversation_event(&conversation_pool, &event).await {
-                        Ok(Some(conversation_event)) => {
-                            if app_handle
-                                .emit(channels::CONVERSATION_EVENTS, &conversation_event)
-                                .is_err()
-                            {
-                                break;
-                            }
-                            if is_terminal_conversation_event(&conversation_event.event)
-                                && let Some(turn_id) = conversation_event.turn_id
-                            {
-                                match crate::conversation_service::finalize_checkpoint_file_changes(
-                                    deployment.as_ref(),
-                                    conversation_event.conversation_id,
-                                    turn_id,
-                                )
-                                .await
-                                {
-                                    Ok(Some(file_event)) => {
-                                        if app_handle
-                                            .emit(channels::CONVERSATION_EVENTS, &file_event)
-                                            .is_err()
-                                        {
-                                            break;
-                                        }
-                                    }
-                                    Ok(None) => {}
-                                    Err(error) => {
-                                        tracing::warn!(
-                                            conversation_id = %conversation_event.conversation_id,
-                                            turn_id = %turn_id,
-                                            %error,
-                                            "Failed to finalize conversation checkpoint diff"
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            tracing::warn!(
-                                sequence = event.sequence,
-                                error = %error,
-                                "Failed to persist and emit conversation event"
-                            );
-                        }
-                    }
-                    if app_handle.emit(channels::AGENT_EVENTS, &event).is_err() {
+            tokio::select! {
+                _ = flush_interval.tick() => {
+                    if !flush_pending_conversation_events(
+                        &conversation_pool,
+                        deployment.as_ref(),
+                        &app_handle,
+                        &mut coalescer,
+                    )
+                    .await
+                    {
                         break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                received = agent_events.recv() => {
+                    match received {
+                        Ok(event) => {
+                            if should_dispatch_chat_channel_event(&event.event) {
+                                let notification_event = event.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    if let Err(error) =
+                                        crate::commands::chat_channel::notify_agent_event(&notification_event)
+                                            .await
+                                    {
+                                        tracing::warn!("Failed to dispatch chat channel event: {}", error);
+                                    }
+                                });
+                            }
+                            match map_conversation_event_record(
+                                &conversation_pool,
+                                &event,
+                                &mut active_turn_cache,
+                            )
+                            .await
+                            {
+                                Ok(Some(record)) => {
+                                    let ready_events = coalescer.push(record);
+                                    if !append_and_emit_conversation_events(
+                                        &conversation_pool,
+                                        deployment.as_ref(),
+                                        &app_handle,
+                                        ready_events,
+                                    )
+                                    .await
+                                    {
+                                        break;
+                                    }
+                                }
+                                Ok(None) => {}
+                                Err(error) => {
+                                    tracing::warn!(
+                                        sequence = event.sequence,
+                                        error = %error,
+                                        "Failed to map conversation event"
+                                    );
+                                }
+                            }
+                            if should_emit_agent_event(&event.event)
+                                && app_handle.emit(channels::AGENT_EVENTS, &event).is_err()
+                            {
+                                break;
+                            }
+                            if is_terminal_agent_event(&event.event)
+                                && let Some(session_id) = event.session_id
+                            {
+                                active_turn_cache.remove(&session_id.0);
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            let _ = flush_pending_conversation_events(
+                                &conversation_pool,
+                                deployment.as_ref(),
+                                &app_handle,
+                                &mut coalescer,
+                            )
+                            .await;
+                            break;
+                        }
+                    }
+                }
             }
         }
     });
@@ -197,6 +221,15 @@ fn is_terminal_conversation_event(event: &ConversationEvent) -> bool {
         ConversationEvent::TurnCompleted { .. }
             | ConversationEvent::TurnFailed { .. }
             | ConversationEvent::TurnCancelled { .. }
+    )
+}
+
+fn is_terminal_agent_event(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::TurnCompleted { .. }
+            | AgentEvent::PromptFinished { .. }
+            | AgentEvent::Error { .. }
     )
 }
 
@@ -342,8 +375,6 @@ async fn persist_agent_event(
         _ => {}
     }
 
-    persist_conversation_event(pool, envelope).await?;
-
     // The `agent_events` table is a runtime/debug audit log. Product
     // conversations are rebuilt from `conversation_events`, while the runtime
     // snapshot serves recent agent events from memory. Persisting every
@@ -377,16 +408,163 @@ async fn persist_agent_event(
     Ok(())
 }
 
-async fn persist_conversation_event(
+#[derive(Debug, Clone)]
+struct MappedConversationEventRecord {
+    conversation_id: Uuid,
+    turn_id: Option<Uuid>,
+    connection_id: String,
+    source: &'static str,
+    event_kind: String,
+    event: ConversationEvent,
+    raw_json: String,
+    idempotency_key: String,
+    first_agent_sequence: i64,
+    last_agent_sequence: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoalescedDeltaKind {
+    AssistantText,
+    AssistantReasoning,
+}
+
+#[derive(Debug, Clone)]
+struct PendingConversationDelta {
+    base: MappedConversationEventRecord,
+    kind: CoalescedDeltaKind,
+    text: String,
+    message_id: Option<String>,
+    chunk_count: usize,
+}
+
+#[derive(Debug, Default)]
+struct ConversationEventCoalescer {
+    pending: Option<PendingConversationDelta>,
+}
+
+impl ConversationEventCoalescer {
+    fn push(
+        &mut self,
+        record: MappedConversationEventRecord,
+    ) -> Vec<MappedConversationEventRecord> {
+        match streaming_delta_parts(&record.event) {
+            Some((kind, text, message_id)) => self.push_delta(record, kind, text, message_id),
+            None => {
+                let mut ready = self.flush();
+                ready.push(record);
+                ready
+            }
+        }
+    }
+
+    fn flush(&mut self) -> Vec<MappedConversationEventRecord> {
+        self.pending
+            .take()
+            .map(PendingConversationDelta::into_record)
+            .into_iter()
+            .collect()
+    }
+
+    fn push_delta(
+        &mut self,
+        record: MappedConversationEventRecord,
+        kind: CoalescedDeltaKind,
+        text: String,
+        message_id: Option<String>,
+    ) -> Vec<MappedConversationEventRecord> {
+        if let Some(pending) = &mut self.pending
+            && pending.can_merge(&record, kind, &message_id)
+        {
+            pending.text.push_str(&text);
+            pending.base.last_agent_sequence = record.last_agent_sequence;
+            pending.chunk_count += 1;
+            return Vec::new();
+        }
+
+        let ready = self.flush();
+        self.pending = Some(PendingConversationDelta {
+            base: record,
+            kind,
+            text,
+            message_id,
+            chunk_count: 1,
+        });
+        ready
+    }
+}
+
+impl PendingConversationDelta {
+    fn can_merge(
+        &self,
+        record: &MappedConversationEventRecord,
+        kind: CoalescedDeltaKind,
+        message_id: &Option<String>,
+    ) -> bool {
+        self.kind == kind
+            && self.base.conversation_id == record.conversation_id
+            && self.base.turn_id == record.turn_id
+            && self.base.connection_id == record.connection_id
+            && self.base.source == record.source
+            && &self.message_id == message_id
+    }
+
+    fn into_record(mut self) -> MappedConversationEventRecord {
+        self.base.event = match self.kind {
+            CoalescedDeltaKind::AssistantText => ConversationEvent::AssistantTextDelta {
+                text: self.text,
+                message_id: self.message_id,
+            },
+            CoalescedDeltaKind::AssistantReasoning => ConversationEvent::AssistantReasoningDelta {
+                text: self.text,
+                message_id: self.message_id,
+            },
+        };
+        self.base.event_kind = conversation_event_kind(&self.base.event);
+        self.base.idempotency_key = format!(
+            "agent:{}-{}:{}",
+            self.base.first_agent_sequence, self.base.last_agent_sequence, self.base.event_kind
+        );
+        self.base.raw_json = serde_json::json!({
+            "coalesced": true,
+            "first_sequence": self.base.first_agent_sequence,
+            "last_sequence": self.base.last_agent_sequence,
+            "chunk_count": self.chunk_count,
+            "kind": self.base.event_kind,
+        })
+        .to_string();
+        self.base
+    }
+}
+
+fn streaming_delta_parts(
+    event: &ConversationEvent,
+) -> Option<(CoalescedDeltaKind, String, Option<String>)> {
+    match event {
+        ConversationEvent::AssistantTextDelta { text, message_id } => Some((
+            CoalescedDeltaKind::AssistantText,
+            text.clone(),
+            message_id.clone(),
+        )),
+        ConversationEvent::AssistantReasoningDelta { text, message_id } => Some((
+            CoalescedDeltaKind::AssistantReasoning,
+            text.clone(),
+            message_id.clone(),
+        )),
+        _ => None,
+    }
+}
+
+async fn map_conversation_event_record(
     pool: &SqlitePool,
     envelope: &AgentEventEnvelope,
-) -> Result<Option<ConversationEventEnvelope>, anyhow::Error> {
+    active_turn_cache: &mut HashMap<Uuid, Option<Uuid>>,
+) -> Result<Option<MappedConversationEventRecord>, anyhow::Error> {
     let Some(session_id) = envelope.session_id else {
         return Ok(None);
     };
 
     let conversation_id = session_id.0;
-    let turn_id = match active_turn_id(pool, conversation_id).await {
+    let turn_id = match active_turn_id_cached(pool, active_turn_cache, conversation_id).await {
         Ok(turn_id) => turn_id,
         Err(sqlx::Error::Database(error)) if error.message().contains("no such table") => {
             return Ok(None);
@@ -396,10 +574,8 @@ async fn persist_conversation_event(
     let Some(event) = map_agent_event_to_conversation_event(envelope, turn_id) else {
         return Ok(None);
     };
-    let value = serde_json::to_value(&event)?;
-    let event_kind = value["kind"].as_str().unwrap_or("unknown").to_string();
-    let normalized_json = serde_json::to_string(&event)?;
     let raw_json = serde_json::to_string(&envelope.event)?;
+    let event_kind = conversation_event_kind(&event);
     let idempotency_key = format!("agent:{}:{event_kind}", envelope.sequence);
 
     if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event
@@ -415,26 +591,110 @@ async fn persist_conversation_event(
         .await?;
     }
 
+    Ok(Some(MappedConversationEventRecord {
+        conversation_id,
+        turn_id,
+        connection_id: envelope.connection_id.to_string(),
+        source: conversation_event_source(&envelope.event),
+        event_kind,
+        event,
+        raw_json,
+        idempotency_key,
+        first_agent_sequence: envelope.sequence,
+        last_agent_sequence: envelope.sequence,
+    }))
+}
+
+async fn flush_pending_conversation_events<D: Deployment>(
+    pool: &SqlitePool,
+    deployment: &D,
+    app_handle: &AppHandle,
+    coalescer: &mut ConversationEventCoalescer,
+) -> bool {
+    append_and_emit_conversation_events(pool, deployment, app_handle, coalescer.flush()).await
+}
+
+async fn append_and_emit_conversation_events<D: Deployment>(
+    pool: &SqlitePool,
+    deployment: &D,
+    app_handle: &AppHandle,
+    records: Vec<MappedConversationEventRecord>,
+) -> bool {
+    for record in records {
+        match append_conversation_event_record(pool, record).await {
+            Ok(conversation_event) => {
+                if app_handle
+                    .emit(channels::CONVERSATION_EVENTS, &conversation_event)
+                    .is_err()
+                {
+                    return false;
+                }
+                if is_terminal_conversation_event(&conversation_event.event)
+                    && let Some(turn_id) = conversation_event.turn_id
+                {
+                    match crate::conversation_service::finalize_checkpoint_file_changes(
+                        deployment,
+                        conversation_event.conversation_id,
+                        turn_id,
+                    )
+                    .await
+                    {
+                        Ok(Some(file_event)) => {
+                            if app_handle
+                                .emit(channels::CONVERSATION_EVENTS, &file_event)
+                                .is_err()
+                            {
+                                return false;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                conversation_id = %conversation_event.conversation_id,
+                                turn_id = %turn_id,
+                                %error,
+                                "Failed to finalize conversation checkpoint diff"
+                            );
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "Failed to append and emit conversation event"
+                );
+            }
+        }
+    }
+    true
+}
+
+async fn append_conversation_event_record(
+    pool: &SqlitePool,
+    record: MappedConversationEventRecord,
+) -> Result<ConversationEventEnvelope, anyhow::Error> {
+    let normalized_json = serde_json::to_string(&record.event)?;
     let record = ConversationEventAppender::append(
         pool,
         AppendConversationEvent {
             id: Uuid::new_v4(),
-            conversation_id,
-            turn_id,
+            conversation_id: record.conversation_id,
+            turn_id: record.turn_id,
             binding_id: None,
-            connection_id: Some(&envelope.connection_id.to_string()),
+            connection_id: Some(&record.connection_id),
             prompt_id: None,
-            source: conversation_event_source(&envelope.event),
-            event_kind: &event_kind,
+            source: record.source,
+            event_kind: &record.event_kind,
             normalized_json: &normalized_json,
-            raw_json: Some(&raw_json),
-            idempotency_key: Some(&idempotency_key),
+            raw_json: Some(&record.raw_json),
+            idempotency_key: Some(&record.idempotency_key),
         },
     )
     .await?;
 
     let event = serde_json::from_str::<ConversationEvent>(&record.normalized_json)?;
-    Ok(Some(ConversationEventEnvelope {
+    Ok(ConversationEventEnvelope {
         id: record.id,
         conversation_id: record.conversation_id,
         turn_id: record.turn_id,
@@ -442,7 +702,14 @@ async fn persist_conversation_event(
         source: record.source,
         event,
         created_at: record.created_at,
-    }))
+    })
+}
+
+fn conversation_event_kind(event: &ConversationEvent) -> String {
+    serde_json::to_value(event)
+        .ok()
+        .and_then(|value| value["kind"].as_str().map(str::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 async fn active_turn_id(
@@ -453,6 +720,20 @@ async fn active_turn_id(
         .bind(conversation_id)
         .fetch_optional(pool)
         .await
+}
+
+async fn active_turn_id_cached(
+    pool: &SqlitePool,
+    cache: &mut HashMap<Uuid, Option<Uuid>>,
+    conversation_id: Uuid,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    if let Some(turn_id) = cache.get(&conversation_id).copied() {
+        return Ok(turn_id);
+    }
+
+    let turn_id = active_turn_id(pool, conversation_id).await?;
+    cache.insert(conversation_id, turn_id);
+    Ok(turn_id)
 }
 
 async fn latest_binding_id(
@@ -564,6 +845,9 @@ fn map_agent_event_to_conversation_event(
                 output_tokens: 0,
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
+                // Preserve the agent-reported context-window size (ACP usage
+                // `size`) so the composer can show a real usage ratio.
+                context_window_max: usage.limit,
             },
         }),
         AgentEvent::SessionModes { modes, current } => {
@@ -704,9 +988,10 @@ fn map_agent_event_to_conversation_event(
                 reason: error.message.clone(),
             }
         }),
-        AgentEvent::RawAcpDiagnostic { .. } => Some(ConversationEvent::RawDiagnosticRecorded {
-            label: "raw_acp_diagnostic".to_string(),
-        }),
+        // Raw ACP diagnostics are a high-frequency escape hatch for unhandled
+        // protocol notifications. They are useful for debug logs, not product
+        // conversation history; persisting every one can starve the SQLite pool.
+        AgentEvent::RawAcpDiagnostic { .. } => None,
         AgentEvent::MessageChunk { .. } | AgentEvent::ThoughtChunk { .. } => None,
         AgentEvent::SessionCreated { .. }
         | AgentEvent::PromptStarted { .. }
@@ -762,6 +1047,30 @@ fn should_log_event(event: &AgentEvent) -> bool {
             | AgentEvent::Usage { .. }
             | AgentEvent::TerminalOutput { .. }
             | AgentEvent::RawAcpDiagnostic { .. }
+    )
+}
+
+fn should_emit_agent_event(event: &AgentEvent) -> bool {
+    !matches!(
+        event,
+        AgentEvent::MessageChunk { .. }
+            | AgentEvent::ThoughtChunk { .. }
+            | AgentEvent::ToolCallUpdate { .. }
+            | AgentEvent::TerminalOutput { .. }
+            | AgentEvent::RawAcpDiagnostic { .. }
+    )
+}
+
+fn should_dispatch_chat_channel_event(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::SessionCreated { .. }
+            | AgentEvent::PromptStarted { .. }
+            | AgentEvent::PromptFinished { .. }
+            | AgentEvent::TurnCompleted { .. }
+            | AgentEvent::PermissionRequested { .. }
+            | AgentEvent::Error { .. }
+            | AgentEvent::ConnectionStatusChanged { .. }
     )
 }
 
@@ -900,10 +1209,20 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
             match acp_lifecycle_rx.recv().await {
                 Ok(AgentTerminalLifecycleEvent::Created(event)) => {
                     let workspace_id = match event.cwd.as_ref().and_then(|cwd| cwd.to_str()) {
-                        Some(path) => Workspace::resolve_container_ref_by_prefix(&acp_pool, path)
-                            .await
-                            .ok()
-                            .map(|info| info.workspace_id),
+                        Some(path) => {
+                            match Workspace::resolve_container_ref_by_prefix(&acp_pool, path).await
+                            {
+                                Ok(info) => Some(info.workspace_id),
+                                Err(error) => {
+                                    tracing::warn!(
+                                        path,
+                                        %error,
+                                        "Failed to resolve terminal workspace from cwd"
+                                    );
+                                    None
+                                }
+                            }
+                        }
                         None => None,
                     };
 
@@ -956,8 +1275,8 @@ mod tests {
     use agents::{
         AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
         AgentEvent, AgentEventEnvelope, AgentPermissionId, AgentPermissionOption,
-        AgentPermissionOptionKind, AgentPermissionRequest, AgentSessionId, AgentSessionSnapshot,
-        AgentTerminalId, AgentTerminalOutput, AgentType,
+        AgentPermissionOptionKind, AgentPermissionRequest, AgentPromptSnapshot, AgentSessionId,
+        AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutput, AgentType,
         state::{AgentConnectionStatus, AgentSessionStatus},
     };
     use chrono::Utc;
@@ -1097,6 +1416,118 @@ mod tests {
     }
 
     #[test]
+    fn high_frequency_streaming_events_are_not_emitted_to_agent_channel() {
+        assert!(!super::should_emit_agent_event(&AgentEvent::MessageChunk {
+            content: agents::AgentContentBlock::Text {
+                text: "hi".to_string(),
+            },
+        }));
+        assert!(!super::should_emit_agent_event(&AgentEvent::ThoughtChunk {
+            content: agents::AgentContentBlock::Text {
+                text: "thinking".to_string(),
+            },
+        }));
+        assert!(super::should_emit_agent_event(&AgentEvent::TurnCompleted {
+            stop_reason: None,
+        }));
+    }
+
+    #[test]
+    fn high_frequency_streaming_events_do_not_spawn_chat_notifications() {
+        assert!(!super::should_dispatch_chat_channel_event(
+            &AgentEvent::MessageChunk {
+                content: agents::AgentContentBlock::Text {
+                    text: "hi".to_string(),
+                },
+            }
+        ));
+        assert!(super::should_dispatch_chat_channel_event(
+            &AgentEvent::PromptStarted {
+                snapshot: AgentPromptSnapshot {
+                    id: agents::AgentPromptId::new(),
+                    session_id: AgentSessionId::new(),
+                    status: agents::AgentPromptStatus::Running,
+                    text_preview: "hello".to_string(),
+                    created_at: now(),
+                    updated_at: now(),
+                },
+            }
+        ));
+    }
+
+    #[test]
+    fn coalescer_merges_consecutive_assistant_text_deltas() {
+        let mut coalescer = super::ConversationEventCoalescer::default();
+
+        assert!(
+            coalescer
+                .push(mapped_conversation_event(
+                    10,
+                    agents::conversation::ConversationEvent::AssistantTextDelta {
+                        text: "hel".to_string(),
+                        message_id: None,
+                    },
+                ))
+                .is_empty()
+        );
+        assert!(
+            coalescer
+                .push(mapped_conversation_event(
+                    11,
+                    agents::conversation::ConversationEvent::AssistantTextDelta {
+                        text: "lo".to_string(),
+                        message_id: None,
+                    },
+                ))
+                .is_empty()
+        );
+
+        let ready = coalescer.flush();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].idempotency_key, "agent:10-11:assistant_text_delta");
+        assert!(ready[0].raw_json.contains("\"chunk_count\":2"));
+        assert!(matches!(
+            &ready[0].event,
+            agents::conversation::ConversationEvent::AssistantTextDelta { text, .. }
+                if text == "hello"
+        ));
+    }
+
+    #[test]
+    fn coalescer_flushes_text_before_terminal_events() {
+        let mut coalescer = super::ConversationEventCoalescer::default();
+        assert!(
+            coalescer
+                .push(mapped_conversation_event(
+                    20,
+                    agents::conversation::ConversationEvent::AssistantTextDelta {
+                        text: "done".to_string(),
+                        message_id: None,
+                    },
+                ))
+                .is_empty()
+        );
+
+        let ready = coalescer.push(mapped_conversation_event(
+            21,
+            agents::conversation::ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".to_string()),
+            },
+        ));
+
+        assert_eq!(ready.len(), 2);
+        assert!(matches!(
+            &ready[0].event,
+            agents::conversation::ConversationEvent::AssistantTextDelta { text, .. }
+                if text == "done"
+        ));
+        assert!(matches!(
+            ready[1].event,
+            agents::conversation::ConversationEvent::TurnCompleted { .. }
+        ));
+    }
+
+    #[test]
     fn acp_notification_mapping_covers_streaming_and_controls() {
         let envelope = AgentEventEnvelope {
             sequence: 1,
@@ -1141,6 +1572,14 @@ mod tests {
             super::map_agent_event_to_conversation_event(&commands, None),
             Some(agents::conversation::ConversationEvent::AvailableCommandsUpdated { .. })
         ));
+
+        let raw = AgentEventEnvelope {
+            event: AgentEvent::RawAcpDiagnostic {
+                raw: serde_json::json!({ "method": "unknown" }),
+            },
+            ..commands
+        };
+        assert!(super::map_agent_event_to_conversation_event(&raw, None).is_none());
     }
 
     #[test]
@@ -1211,6 +1650,24 @@ mod tests {
             super::map_agent_event_to_conversation_event(&envelope, Some(Uuid::new_v4())),
             Some(agents::conversation::ConversationEvent::TurnFailed { .. })
         ));
+    }
+
+    fn mapped_conversation_event(
+        sequence: i64,
+        event: agents::conversation::ConversationEvent,
+    ) -> super::MappedConversationEventRecord {
+        super::MappedConversationEventRecord {
+            conversation_id: Uuid::nil(),
+            turn_id: Some(Uuid::nil()),
+            connection_id: "connection".to_string(),
+            source: "acp",
+            event_kind: super::conversation_event_kind(&event),
+            event,
+            raw_json: "{}".to_string(),
+            idempotency_key: format!("agent:{sequence}:test"),
+            first_agent_sequence: sequence,
+            last_agent_sequence: sequence,
+        }
     }
 
     fn now() -> chrono::DateTime<Utc> {

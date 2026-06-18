@@ -9,8 +9,7 @@ import type {
 
 export type ConversationGapState =
   | { kind: 'none' }
-  | { kind: 'gap'; expectedSequence: bigint; receivedSequence: bigint }
-  | { kind: 'refetch_required'; reason: string };
+  | { kind: 'gap'; expectedSequence: bigint; receivedSequence: bigint };
 
 export type ConversationTimelineTurn = {
   key: string;
@@ -37,10 +36,18 @@ export type ConversationStoreState = {
 
 export type ConversationStoreAction =
   | { type: 'load_start'; conversationId: string }
-  | { type: 'load_success'; conversationId: string; detail: DbConversationDetail }
+  | {
+      type: 'load_success';
+      conversationId: string;
+      detail: DbConversationDetail;
+    }
   | { type: 'load_error'; conversationId: string; error: string }
   | { type: 'event'; envelope: ConversationEventEnvelope }
-  | { type: 'events'; conversationId: string; events: ConversationEventEnvelope[] }
+  | {
+      type: 'events';
+      conversationId: string;
+      events: ConversationEventEnvelope[];
+    }
   | { type: 'optimistic_turn'; conversationId: string; turn: MessageTurn }
   | { type: 'remove_optimistic_turn'; conversationId: string; turnId: string }
   | { type: 'reset'; conversationId: string };
@@ -61,21 +68,34 @@ export function conversationStoreReducer(
         error: null,
       }));
     case 'load_success':
-      return updateEntry(state, action.conversationId, (entry) => ({
-        ...entry,
-        detail: action.detail,
-        rows: action.detail.timeline.rows,
-        lastSequence: toBigInt(action.detail.timeline.last_sequence),
-        projectionVersion: action.detail.projection_version,
-        currentTurnId: action.detail.current_turn?.id ?? null,
-        loading: false,
-        error: null,
-        gap: { kind: 'none' },
-        optimisticTurns: reconcileOptimisticTurns(
-          entry.optimisticTurns,
-          action.detail.timeline
-        ),
-      }));
+      return updateEntry(state, action.conversationId, (entry) => {
+        const detailLastSequence = toBigInt(
+          action.detail.timeline.last_sequence
+        );
+        const keepRealtimeRows = entry.lastSequence > detailLastSequence;
+        const timeline = keepRealtimeRows
+          ? {
+              ...action.detail.timeline,
+              rows: entry.rows,
+              last_sequence: entry.lastSequence,
+            }
+          : action.detail.timeline;
+        return {
+          ...entry,
+          detail: action.detail,
+          rows: timeline.rows,
+          lastSequence: toBigInt(timeline.last_sequence),
+          projectionVersion: action.detail.projection_version,
+          currentTurnId: action.detail.current_turn?.id ?? entry.currentTurnId,
+          loading: false,
+          error: null,
+          gap: { kind: 'none' },
+          optimisticTurns: reconcileOptimisticTurns(
+            entry.optimisticTurns,
+            timeline
+          ),
+        };
+      });
     case 'load_error':
       return updateEntry(state, action.conversationId, (entry) => ({
         ...entry,
@@ -130,7 +150,10 @@ export function timelineTurnsForEntry(
     turn,
     phase: 'optimistic' as const,
   }));
-  return dedupeTurns([...persisted, ...optimistic]);
+  return withPendingAssistantTurn(
+    entry,
+    dedupeTurns([...persisted, ...optimistic])
+  );
 }
 
 export function sideRowsForEntry(
@@ -159,7 +182,8 @@ function updateEntry(
   conversationId: string,
   update: (entry: ConversationStoreEntry) => ConversationStoreEntry
 ): ConversationStoreState {
-  const current = state.byConversationId[conversationId] ?? createEntry(conversationId);
+  const current =
+    state.byConversationId[conversationId] ?? createEntry(conversationId);
   return {
     byConversationId: {
       ...state.byConversationId,
@@ -197,7 +221,9 @@ function applyConversationEvent(
     gap: { kind: 'none' },
     optimisticTurns:
       envelope.event.kind === 'user_turn_created'
-        ? entry.optimisticTurns.filter((turn) => turn.id !== `optimistic-${turnId}`)
+        ? entry.optimisticTurns.filter(
+            (turn) => turn.id !== `optimistic-${turnId}`
+          )
         : entry.optimisticTurns,
   };
 }
@@ -255,6 +281,7 @@ function applyEventRows(
           output_tokens: event.usage.output_tokens,
           cache_creation_input_tokens: event.usage.cache_creation_input_tokens,
           cache_read_input_tokens: event.usage.cache_read_input_tokens,
+          context_window_max: event.usage.context_window_max ?? null,
         },
       }));
     case 'turn_completed':
@@ -393,18 +420,6 @@ function applyEventRows(
             },
           ]
         : rows;
-    case 'raw_diagnostic_recorded':
-      return [
-        ...rows,
-        {
-          kind: 'session_notice',
-          notice: {
-            title: 'Agent diagnostic',
-            message: event.label,
-            severity: 'info',
-          },
-        },
-      ];
     default:
       return rows;
   }
@@ -418,7 +433,8 @@ function userTurnFromEvent(
   const blocks: ContentBlock[] =
     event.kind === 'user_turn_created'
       ? event.blocks.flatMap<ContentBlock>((block) => {
-          if (block.kind === 'text') return [{ type: 'text', text: block.text }];
+          if (block.kind === 'text')
+            return [{ type: 'text', text: block.text }];
           if (block.kind === 'image') {
             return [
               {
@@ -512,7 +528,10 @@ function appendTextBlock(blocks: ContentBlock[], text: string): ContentBlock[] {
   return [...blocks, { type: 'text', text }];
 }
 
-function appendThinkingBlock(blocks: ContentBlock[], text: string): ContentBlock[] {
+function appendThinkingBlock(
+  blocks: ContentBlock[],
+  text: string
+): ContentBlock[] {
   const last = blocks[blocks.length - 1];
   if (last?.type === 'thinking') {
     return [...blocks.slice(0, -1), { ...last, text: `${last.text}${text}` }];
@@ -531,7 +550,9 @@ function toolBlocks(
       type: 'tool_use',
       tool_use_id: toolCall.tool_call_id,
       tool_name: toolCall.title ?? toolCall.kind ?? toolCall.tool_call_id,
-      input_preview: toolCall.raw_input ? JSON.stringify(toolCall.raw_input) : null,
+      input_preview: toolCall.raw_input
+        ? JSON.stringify(toolCall.raw_input)
+        : null,
       meta: toolCall.metadata ?? null,
     },
   ];
@@ -572,7 +593,9 @@ function reconcileOptimisticTurns(
   });
 }
 
-function dedupeTurns(turns: ConversationTimelineTurn[]): ConversationTimelineTurn[] {
+function dedupeTurns(
+  turns: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
   const retain = new Map<string, number>();
   turns.forEach((entry, index) => {
     const key = `${entry.turn.role}:${entry.turn.id}`;
@@ -584,6 +607,71 @@ function dedupeTurns(turns: ConversationTimelineTurn[]): ConversationTimelineTur
     const key = `${entry.turn.role}:${entry.turn.id}`;
     return retain.get(key) === index;
   });
+}
+
+function withPendingAssistantTurn(
+  entry: ConversationStoreEntry,
+  turns: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
+  const turnId = entry.currentTurnId;
+  if (!turnId) return withOptimisticPendingAssistantTurn(turns);
+
+  const userId = `${turnId}:user`;
+  const assistantId = `${turnId}:assistant`;
+  const userTurn = turns.find(
+    (row) => row.turn.role === 'user' && row.turn.id === userId
+  );
+  if (!userTurn || userTurn.phase === 'settled') {
+    return withOptimisticPendingAssistantTurn(turns);
+  }
+
+  const hasAssistant = turns.some(
+    (row) => row.turn.role === 'assistant' && row.turn.id === assistantId
+  );
+  if (hasAssistant) return turns;
+
+  return [
+    ...turns,
+    {
+      key: `pending-${assistantId}`,
+      phase: 'streaming',
+      turn: {
+        id: assistantId,
+        role: 'assistant',
+        blocks: [],
+        timestamp: userTurn.turn.timestamp,
+      },
+    },
+  ];
+}
+
+function withOptimisticPendingAssistantTurn(
+  turns: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
+  const optimisticUser = [...turns]
+    .reverse()
+    .find((row) => row.phase === 'optimistic' && row.turn.role === 'user');
+  if (!optimisticUser) return turns;
+
+  const assistantId = `${optimisticUser.turn.id}:assistant`;
+  const hasAssistant = turns.some(
+    (row) => row.turn.role === 'assistant' && row.turn.id === assistantId
+  );
+  if (hasAssistant) return turns;
+
+  return [
+    ...turns,
+    {
+      key: `pending-${assistantId}`,
+      phase: 'streaming',
+      turn: {
+        id: assistantId,
+        role: 'assistant',
+        blocks: [],
+        timestamp: optimisticUser.turn.timestamp,
+      },
+    },
+  ];
 }
 
 function toBigInt(value: bigint | number | string): bigint {

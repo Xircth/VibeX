@@ -200,6 +200,8 @@ pub async fn create_workspace(
                         .filter(|prompt| !prompt.trim().is_empty())
                         .unwrap_or_else(|| task.to_prompt()),
                 }],
+                mode_override: None,
+                config_overrides: Vec::new(),
             })
             .await?;
 

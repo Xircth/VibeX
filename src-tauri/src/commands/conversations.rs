@@ -26,8 +26,10 @@ use db::models::{
     session::SessionStatus,
 };
 use deployment::Deployment;
+use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use tauri::Emitter;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -40,6 +42,7 @@ use crate::{
         ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
     },
     error::AppError,
+    events::channels,
     state::AppState,
 };
 
@@ -93,6 +96,8 @@ pub struct ConversationStartTurnRequest {
     pub agent_type: AgentType,
     pub workspace_id: String,
     pub conversation_id: String,
+    #[serde(default)]
+    pub executor_profile_id: Option<ExecutorProfileId>,
     pub text: String,
     #[serde(default)]
     pub images: Vec<String>,
@@ -308,6 +313,7 @@ pub async fn conversation_timeline_page(
 
 #[tauri::command]
 pub async fn conversation_start_turn(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationStartTurnRequest,
 ) -> Result<ConversationTurnSnapshot, AppError> {
@@ -315,17 +321,70 @@ pub async fn conversation_start_turn(
         .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    let pool = state.deployment.db().pool.clone();
+    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
     let service = ConversationSessionService::new(&state);
-    let (turn, _prompt) = service
+    let result = service
         .start_turn(ConversationStartTurnInput {
             agent_type: request.agent_type,
             workspace_id,
             conversation_id,
+            executor_profile_id: request.executor_profile_id,
             text: request.text,
             images: request.images,
         })
-        .await?;
+        .await;
+
+    emit_conversation_events_after(&app, &pool, conversation_id, previous_last_sequence).await;
+
+    let (turn, _prompt) = result?;
     Ok(turn)
+}
+
+async fn conversation_last_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, AppError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"SELECT COALESCE(MAX(sequence), 0)
+           FROM conversation_events
+           WHERE conversation_id = ?"#,
+    )
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(Into::into)
+}
+
+async fn emit_conversation_events_after(
+    app: &tauri::AppHandle,
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    after_sequence: i64,
+) {
+    match conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
+        Ok(page) => {
+            for event in page.events {
+                if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &event) {
+                    tracing::warn!(
+                        conversation_id = %conversation_id,
+                        sequence = event.sequence,
+                        %error,
+                        "Failed to emit conversation start-turn event"
+                    );
+                    break;
+                }
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                after_sequence,
+                %error,
+                "Failed to load conversation start-turn events for emission"
+            );
+        }
+    }
 }
 
 #[tauri::command]
@@ -416,13 +475,29 @@ fn session_stats_from_turns(turns: &[MessageTurn]) -> Option<SessionStats> {
         + total_usage.output_tokens
         + total_usage.cache_creation_input_tokens
         + total_usage.cache_read_input_tokens;
+    // Latest agent-reported context-window snapshot (ACP usage), when available.
+    let context_window = turns.iter().rev().find_map(|turn| {
+        let usage = turn.usage?;
+        let max = usage.context_window_max?;
+        let used = usage.input_tokens
+            + usage.output_tokens
+            + usage.cache_creation_input_tokens
+            + usage.cache_read_input_tokens;
+        Some((used, max))
+    });
     (total_tokens > 0).then_some(SessionStats {
         total_usage: Some(total_usage),
         total_tokens: Some(total_tokens),
         total_duration_ms: turns.iter().filter_map(|turn| turn.duration_ms).sum(),
-        context_window_used_tokens: None,
-        context_window_max_tokens: None,
-        context_window_usage_percent: None,
+        context_window_used_tokens: context_window.map(|(used, _)| used),
+        context_window_max_tokens: context_window.map(|(_, max)| max),
+        context_window_usage_percent: context_window.map(|(used, max)| {
+            if max > 0 {
+                (used as f64 / max as f64) * 100.0
+            } else {
+                0.0
+            }
+        }),
     })
 }
 
@@ -436,11 +511,28 @@ async fn active_binding_for_conversation(
         return Ok(None);
     };
     let mut capabilities =
-        serde_json::from_str::<AcpCapabilitySnapshot>(&binding.session_capabilities_json)
-            .ok()
-            .unwrap_or_default();
-    if let Ok(prompt) = serde_json::from_str(&binding.prompt_capabilities_json) {
-        capabilities.prompt = prompt;
+        match serde_json::from_str::<AcpCapabilitySnapshot>(&binding.session_capabilities_json) {
+            Ok(capabilities) => capabilities,
+            Err(error) => {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    binding_id = %binding.id,
+                    %error,
+                    "Invalid conversation binding session capabilities JSON"
+                );
+                AcpCapabilitySnapshot::default()
+            }
+        };
+    match serde_json::from_str(&binding.prompt_capabilities_json) {
+        Ok(prompt) => capabilities.prompt = prompt,
+        Err(error) => {
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                binding_id = %binding.id,
+                %error,
+                "Invalid conversation binding prompt capabilities JSON"
+            );
+        }
     }
     capabilities.load_session = binding.load_supported;
     capabilities.resume_session = binding.resume_supported;

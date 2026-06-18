@@ -5,10 +5,10 @@ export const COMPANION_INSTALL_TASK_DESCRIPTION = `Goal: Install and integrate t
 
 Do:
 1) Detect package manager from lockfiles and use it:
-   - pnpm-lock.yaml 鈫?pnpm add vibex-web-companion
-   - yarn.lock 鈫?yarn add vibex-web-companion
-   - package-lock.json 鈫?npm i vibex-web-companion
-   - bun.lockb 鈫?bun add vibex-web-companion
+   - pnpm-lock.yaml → pnpm add vibex-web-companion
+   - yarn.lock → yarn add vibex-web-companion
+   - package-lock.json → npm i vibex-web-companion
+   - bun.lockb → bun add vibex-web-companion
    If already listed in package.json dependencies, skip install.
 
 2) Detect framework and app entry:

@@ -831,52 +831,9 @@ impl Workspace {
         Ok(workspaces)
     }
 
-    pub async fn find_by_project_id_with_status(
-        pool: &SqlitePool,
-        project_id: Uuid,
-    ) -> Result<Vec<WorkspaceWithStatus>, sqlx::Error> {
-        let workspaces =
-            Self::fetch_by_project_id(pool, project_id)
-                .await
-                .map_err(|err| match err {
-                    WorkspaceError::Database(db_err) => db_err,
-                    other => sqlx::Error::Protocol(other.to_string()),
-                })?;
-
-        let mut workspaces_with_status = Vec::with_capacity(workspaces.len());
-        for workspace in workspaces {
-            if let Some(workspace_with_status) =
-                Self::find_by_id_with_status(pool, workspace.id).await?
-            {
-                workspaces_with_status.push(workspace_with_status);
-            }
-        }
-
-        Ok(workspaces_with_status)
-    }
-
-    /// Delete a workspace by ID
-    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query!("DELETE FROM workspaces WHERE id = $1", id)
-            .execute(pool)
-            .await?;
-        Ok(result.rows_affected())
-    }
-
-    /// Count total workspaces across all projects
-    pub async fn count_all(pool: &SqlitePool) -> Result<i64, WorkspaceError> {
-        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM workspaces"#)
-            .fetch_one(pool)
-            .await
-            .map_err(WorkspaceError::Database)
-    }
-
-    pub async fn find_by_id_with_status(
-        pool: &SqlitePool,
-        id: Uuid,
-    ) -> Result<Option<WorkspaceWithStatus>, sqlx::Error> {
-        let rec = sqlx::query_as::<_, WorkspaceStatusRow>(
-            r#"SELECT
+    /// Shared SELECT (columns + per-row running/errored status subqueries) for
+    /// the workspace-with-status queries; callers append the WHERE/ORDER clause.
+    const WORKSPACE_STATUS_SELECT: &str = r#"SELECT
                 w.id,
                 w.project_id,
                 w.task_id,
@@ -912,9 +869,53 @@ impl Workspace {
                     LIMIT 1
                 ) IN ('failed','killed') THEN 1 ELSE 0 END AS is_errored
 
-            FROM workspaces w
-            WHERE w.id = ?"#,
-        )
+            FROM workspaces w"#;
+
+    pub async fn find_by_project_id_with_status(
+        pool: &SqlitePool,
+        project_id: Uuid,
+    ) -> Result<Vec<WorkspaceWithStatus>, sqlx::Error> {
+        // Single query for the whole project (previously N+1: one status query
+        // per workspace). Order matches `fetch_by_project_id`.
+        let rows = sqlx::query_as::<_, WorkspaceStatusRow>(&format!(
+            "{} WHERE w.project_id = ? ORDER BY w.updated_at DESC, w.created_at DESC",
+            Self::WORKSPACE_STATUS_SELECT
+        ))
+        .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut workspaces_with_status = Vec::with_capacity(rows.len());
+        for rec in rows {
+            workspaces_with_status.push(Self::status_row_into_with_status(pool, rec).await?);
+        }
+        Ok(workspaces_with_status)
+    }
+
+    /// Delete a workspace by ID
+    pub async fn delete(pool: &SqlitePool, id: Uuid) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query!("DELETE FROM workspaces WHERE id = $1", id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Count total workspaces across all projects
+    pub async fn count_all(pool: &SqlitePool) -> Result<i64, WorkspaceError> {
+        sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!: i64" FROM workspaces"#)
+            .fetch_one(pool)
+            .await
+            .map_err(WorkspaceError::Database)
+    }
+
+    pub async fn find_by_id_with_status(
+        pool: &SqlitePool,
+        id: Uuid,
+    ) -> Result<Option<WorkspaceWithStatus>, sqlx::Error> {
+        let rec = sqlx::query_as::<_, WorkspaceStatusRow>(&format!(
+            "{} WHERE w.id = ?",
+            Self::WORKSPACE_STATUS_SELECT
+        ))
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -923,6 +924,15 @@ impl Workspace {
             return Ok(None);
         };
 
+        Ok(Some(Self::status_row_into_with_status(pool, rec).await?))
+    }
+
+    /// Map a status row to `WorkspaceWithStatus`, backfilling a display name
+    /// from the first user message when the workspace has none yet.
+    async fn status_row_into_with_status(
+        pool: &SqlitePool,
+        rec: WorkspaceStatusRow,
+    ) -> Result<WorkspaceWithStatus, sqlx::Error> {
         let mut ws = WorkspaceWithStatus {
             workspace: Workspace {
                 id: rec.id,
@@ -953,7 +963,7 @@ impl Workspace {
             ws.workspace.name = Some(name);
         }
 
-        Ok(Some(ws))
+        Ok(ws)
     }
 }
 

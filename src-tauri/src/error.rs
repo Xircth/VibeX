@@ -145,6 +145,17 @@ impl From<services::services::provider_config::ProviderConfigError> for AppError
     }
 }
 
+impl From<services::services::prompt_enhancement::PromptEnhancementError> for AppError {
+    fn from(e: services::services::prompt_enhancement::PromptEnhancementError) -> Self {
+        use services::services::prompt_enhancement::PromptEnhancementError;
+        match e {
+            PromptEnhancementError::NotFound(message) => AppError::NotFound(message),
+            PromptEnhancementError::BadRequest(message) => AppError::BadRequest(message),
+            PromptEnhancementError::Internal(message) => AppError::Internal(message),
+        }
+    }
+}
+
 impl From<services::services::repo::RepoError> for AppError {
     fn from(e: services::services::repo::RepoError) -> Self {
         AppError::Internal(e.to_string())

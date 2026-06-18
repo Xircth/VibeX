@@ -26,18 +26,18 @@ use crate::{bridge::agent_type_from_executor, error::AppError, state::AppState};
 mod agent_native;
 mod claude_settings;
 mod mcp_servers;
-mod prompt_enhancement;
 
 pub use agent_native::{AgentNativeFile, AgentNativeFileWrite};
 pub use claude_settings::ClaudeSettings;
-// MCP marketplace logic now lives in `crates/services` (架构报告 A-1); re-export the
-// frontend-facing types so the command signatures below stay unchanged.
+pub use mcp_servers::GetMcpServerResponse;
+// MCP marketplace + prompt-enhancement logic now lives in `crates/services`
+// (架构报告 A-1); re-export the frontend-facing types so the command signatures
+// below stay unchanged.
 pub use services::services::mcp::{
     LocalMcpServer, McpAppType, McpMarketplaceInstallOption, McpMarketplaceInstallParameter,
     McpMarketplaceItem, McpMarketplaceProvider, McpMarketplaceServerDetail,
 };
-pub use mcp_servers::GetMcpServerResponse;
-pub use prompt_enhancement::{
+pub use services::services::prompt_enhancement::{
     OpencodeModelsResponse, PromptEnhancementContextMessage, PromptEnhancementRequest,
     PromptEnhancementResponse,
 };
@@ -383,14 +383,16 @@ pub async fn enhance_prompt(
     state: tauri::State<'_, AppState>,
     payload: PromptEnhancementRequest,
 ) -> Result<PromptEnhancementResponse, AppError> {
-    prompt_enhancement::enhance_prompt(state, payload).await
+    let config = state.deployment.config().read().await.clone();
+    Ok(services::services::prompt_enhancement::enhance_prompt(&config, payload).await?)
 }
 
 #[tauri::command]
 pub async fn list_opencode_models(
     state: tauri::State<'_, AppState>,
 ) -> Result<OpencodeModelsResponse, AppError> {
-    prompt_enhancement::list_opencode_models(state).await
+    let _ = state;
+    Ok(services::services::prompt_enhancement::list_opencode_models().await?)
 }
 
 #[tauri::command]

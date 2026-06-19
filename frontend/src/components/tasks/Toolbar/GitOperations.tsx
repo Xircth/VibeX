@@ -94,7 +94,10 @@ function GitOperations({
         await handleChangeTargetBranchClick(result.branchName);
       }
     } catch (error) {
-      // User cancelled - do nothing
+      // Cancellation resolves as result.action !== 'confirmed', so a thrown
+      // error here is a real failure — surface it instead of swallowing it.
+      console.error('Change target branch failed:', error);
+      setError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -281,7 +284,10 @@ function GitOperations({
         await handleRebaseToTargetBranch(result.branchName);
       }
     } catch (error) {
-      // User cancelled - do nothing
+      // Cancellation resolves as result.action !== 'confirmed', so a thrown
+      // error here is a real failure — surface it instead of swallowing it.
+      console.error('Open rebase dialog failed:', error);
+      setError(error instanceof Error ? error.message : String(error));
     }
   };
 

@@ -147,6 +147,9 @@ export function FileTreePanel({
     startX: number;
     startY: number;
   } | null>(null);
+  // Abort controller for the active custom drag's window listeners, so they are
+  // removed if the panel unmounts mid-drag (pointerup would never fire).
+  const dragAbortRef = useRef<AbortController | null>(null);
   const suppressClickPathRef = useRef<string | null>(null);
   const [newFileParent, setNewFileParent] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
@@ -1065,9 +1068,8 @@ export function FileTreePanel({
       };
 
       const handlePointerUp = (upEvent: PointerEvent) => {
-        window.removeEventListener('pointermove', handlePointerMove);
-        window.removeEventListener('pointerup', handlePointerUp);
-        window.removeEventListener('pointercancel', handlePointerUp);
+        dragAbortRef.current?.abort();
+        dragAbortRef.current = null;
 
         const wasDragging = getFileReferenceDragState().isDragging;
         dragCandidateRef.current = null;
@@ -1079,12 +1081,22 @@ export function FileTreePanel({
         endCustomDrag(upEvent.clientX, upEvent.clientY);
       };
 
-      window.addEventListener('pointermove', handlePointerMove);
-      window.addEventListener('pointerup', handlePointerUp);
-      window.addEventListener('pointercancel', handlePointerUp);
+      // Clean up any prior drag, then bind this drag's listeners to a fresh
+      // AbortController so the unmount effect can remove them too.
+      dragAbortRef.current?.abort();
+      const dragController = new AbortController();
+      dragAbortRef.current = dragController;
+      const { signal } = dragController;
+      window.addEventListener('pointermove', handlePointerMove, { signal });
+      window.addEventListener('pointerup', handlePointerUp, { signal });
+      window.addEventListener('pointercancel', handlePointerUp, { signal });
     },
     [canDropIntoDirectory, endCustomDrag, resolveDropTargetPathFromPoint]
   );
+
+  // Belt-and-suspenders: if the panel unmounts mid-drag, drop the window
+  // listeners that pointerup would otherwise have removed.
+  useEffect(() => () => dragAbortRef.current?.abort(), []);
 
   const selectedParentFolder = useMemo(
     () => resolveParentFolderForNode(selectedNodePath, selectedNodeType),

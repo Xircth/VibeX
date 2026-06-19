@@ -92,6 +92,7 @@ export function useUiPreferencesScratch() {
     }
 
     hasInitializedRef.current = true;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
     if (scratchData) {
       // Server has data - apply it to store
@@ -113,10 +114,16 @@ export function useUiPreferencesScratch() {
       });
 
       // Allow a brief delay for state to settle
-      setTimeout(() => {
+      settleTimer = setTimeout(() => {
         isApplyingServerDataRef.current = false;
       }, 100);
     }
+
+    return () => {
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+    };
   }, [isLoading, isConnected, scratchData]);
 
   // Subscribe to store changes and save to server

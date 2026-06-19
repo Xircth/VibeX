@@ -3,7 +3,10 @@ use std::{str::FromStr, sync::Arc};
 use db::{
     DBService,
     models::{
-        execution_process::ExecutionProcess, project::Project, scratch::Scratch, session::Session,
+        execution_process::{ExecutionProcess, ExecutionProcessRunReason},
+        project::Project,
+        scratch::Scratch,
+        session::Session,
         workspace::Workspace,
     },
 };
@@ -260,12 +263,23 @@ impl EventService {
                                     };
                                     msg_store_for_hook.push_patch(patch);
 
-                                    if let Err(err) = EventService::push_workspace_update_for_session(
-                                        &db.pool,
-                                        msg_store_for_hook.clone(),
-                                        process.session_id,
-                                    )
-                                    .await
+                                    // Workspace running/errored status reflects only setup/cleanup
+                                    // scripts (see WORKSPACE_STATUS_SELECT); skip the recompute +
+                                    // broadcast for other processes (e.g. frequent coding-agent
+                                    // output updates), which never change that status.
+                                    let affects_workspace_status = matches!(
+                                        process.run_reason,
+                                        ExecutionProcessRunReason::SetupScript
+                                            | ExecutionProcessRunReason::CleanupScript
+                                    );
+                                    if affects_workspace_status
+                                        && let Err(err) =
+                                            EventService::push_workspace_update_for_session(
+                                                &db.pool,
+                                                msg_store_for_hook.clone(),
+                                                process.session_id,
+                                            )
+                                            .await
                                     {
                                         tracing::error!(
                                             "Failed to push workspace update after execution process change: {:?}",

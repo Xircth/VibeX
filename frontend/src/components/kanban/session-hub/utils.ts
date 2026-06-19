@@ -8,7 +8,7 @@ import {
   resolveWorkspaceBranchSelection,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
-import { dateTimestamp } from '@/utils/date';
+import { dateTimestamp, formatRelativeTime } from '@/utils/date';
 
 export const MONITOR_SLOT_STYLES = [
   {
@@ -113,27 +113,12 @@ function getSessionStatusOrder(status: SessionStatus) {
   return SESSION_STATUS_ORDER.indexOf(status as ActiveSessionStatus);
 }
 
+/**
+ * Relative time for session timestamps. Delegates to the canonical Chinese
+ * implementation in `@/utils/date` (single source of truth).
+ */
 export function formatTimeAgo(iso: string) {
-  const diffMs = Date.now() - dateTimestamp(iso);
-  const seconds = Math.max(Math.round(Math.abs(diffMs) / 1000), 1);
-  const isFuture = diffMs < 0;
-  const suffix = isFuture ? '后' : '前';
-
-  if (seconds < 60) return '刚刚';
-
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟${suffix}`;
-
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时${suffix}`;
-
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days} 天${suffix}`;
-
-  const months = Math.round(days / 30);
-  if (months < 12) return `${months} 个月${suffix}`;
-
-  return `${Math.round(months / 12)} 年${suffix}`;
+  return formatRelativeTime(iso);
 }
 
 export function getSortLabel(sortField: SortField | null) {

@@ -251,7 +251,9 @@ impl GitHostProvider for AzureDevOpsProvider {
         _repo_path: &Path,
         _remote_url: &str,
     ) -> Result<Vec<OpenPrInfo>, GitHostError> {
-        // TODO: Implement list_open_prs for Azure DevOps
+        // Listing open PRs is not yet implemented for Azure DevOps (the GitHub
+        // path is). This is a missing feature, not an unsupported provider;
+        // callers degrade gracefully (no PR monitoring) until it lands.
         Err(GitHostError::UnsupportedProvider)
     }
 

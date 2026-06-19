@@ -777,6 +777,11 @@ export function IDELayout({
     };
   }, []);
 
+  // Abort controller for the active resize drag's document listeners, so they
+  // are removed if the layout unmounts mid-resize (mouseup would never fire).
+  const resizeAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => resizeAbortRef.current?.abort(), []);
+
   const handleResizeMouseDown = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -790,12 +795,18 @@ export function IDELayout({
       };
 
       const handleMouseUp = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+        resizeAbortRef.current?.abort();
+        resizeAbortRef.current = null;
       };
 
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      // Bind to a fresh AbortController so the unmount effect can also remove
+      // these document listeners if the layout unmounts mid-resize.
+      resizeAbortRef.current?.abort();
+      const resizeController = new AbortController();
+      resizeAbortRef.current = resizeController;
+      const { signal } = resizeController;
+      document.addEventListener('mousemove', handleMouseMove, { signal });
+      document.addEventListener('mouseup', handleMouseUp, { signal });
     },
     [rightPanelWidth, setRightPanelWidth]
   );

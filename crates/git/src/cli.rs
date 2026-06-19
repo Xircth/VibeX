@@ -553,9 +553,13 @@ impl GitCli {
         a: &str,
         b: &str,
     ) -> Result<String, GitCliError> {
-        let out = self
-            .git(worktree_path, ["merge-base", "--fork-point", a, b])
-            .unwrap_or(self.git(worktree_path, ["merge-base", a, b])?);
+        // `--fork-point` is not always available; fall back to a plain merge-base.
+        // Use a match (not `unwrap_or`, which eagerly runs the fallback even on
+        // success and would mask the fork-point error).
+        let out = match self.git(worktree_path, ["merge-base", "--fork-point", a, b]) {
+            Ok(out) => out,
+            Err(_) => self.git(worktree_path, ["merge-base", a, b])?,
+        };
         Ok(out.trim().to_string())
     }
 
@@ -572,10 +576,10 @@ impl GitCli {
         if self.is_rebase_in_progress(worktree_path).unwrap_or(false) {
             return Err(GitCliError::RebaseInProgress);
         }
-        // compute the merge base of task_branch from old_base
-        let merge_base = self
-            .merge_base(worktree_path, old_base, task_branch)
-            .unwrap_or(old_base.to_string());
+        // Compute the merge base of task_branch from old_base. If this fails we
+        // must abort: silently using `old_base` as the cut point can replay the
+        // wrong commit range (lost/duplicated commits) in `rebase --onto`.
+        let merge_base = self.merge_base(worktree_path, old_base, task_branch)?;
 
         self.git(
             worktree_path,
@@ -689,39 +693,6 @@ impl GitCli {
         self.git(repo_path, ["merge", "--squash", "--no-commit", from_branch])
             .map(|_| ())?;
         self.git(repo_path, ["commit", "-m", message]).map(|_| ())?;
-        let sha = self
-            .git(repo_path, ["rev-parse", "HEAD"])?
-            .trim()
-            .to_string();
-        Ok(sha)
-    }
-
-    /// Fast-forward merge: checkout target_branch and merge source_branch with --ff-only.
-    /// Falls back to regular merge if --ff-only fails. Returns new HEAD sha.
-    pub fn merge_ff_or_merge(
-        &self,
-        repo_path: &Path,
-        target_branch: &str,
-        source_branch: &str,
-        commit_message: &str,
-    ) -> Result<String, GitCliError> {
-        // Checkout target branch
-        self.git(repo_path, ["checkout", target_branch])
-            .map(|_| ())?;
-
-        // Try fast-forward first
-        match self.git(repo_path, ["merge", "--ff-only", source_branch]) {
-            Ok(_) => {}
-            Err(_) => {
-                // If ff-only fails, do a regular merge
-                self.git(
-                    repo_path,
-                    ["merge", "--no-edit", "-m", commit_message, source_branch],
-                )
-                .map(|_| ())?;
-            }
-        }
-
         let sha = self
             .git(repo_path, ["rev-parse", "HEAD"])?
             .trim()

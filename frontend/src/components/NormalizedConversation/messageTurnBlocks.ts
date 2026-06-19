@@ -90,6 +90,14 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
         // orphaned result (no preceding tool_use) still renders standalone.
         const owner = pendingTools.pop();
         if (owner) {
+          // LIFO positional pairing is lossy when tool_uses interleave: if more
+          // than one was still pending we may be misattributing the result.
+          if (pendingTools.length > 0) {
+            console.warn(
+              '[conversation] pairing id-less tool_result by position with multiple ' +
+                'pending tool calls; result may be misattributed'
+            );
+          }
           owner.result = block;
         } else {
           items.push({ kind: 'tool', use: null, result: block });

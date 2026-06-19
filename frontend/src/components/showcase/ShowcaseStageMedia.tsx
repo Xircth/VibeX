@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Loader } from '@/components/ui/loader';
 import { useVideoProgress } from '@/hooks/useVideoProgress';
 import type { ShowcaseMedia } from '@/types/showcase';
@@ -21,17 +21,16 @@ interface ShowcaseStageMediaProps {
  * @param media - ShowcaseMedia object with type ('image' or 'video') and src URL
  */
 export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const { isLoading, playedPercent, bufferedPercent } =
-    useVideoProgress(videoRef);
+  const { setVideoRef, videoEl, isLoading, playedPercent, bufferedPercent } =
+    useVideoProgress();
   const [imageLoaded, setImageLoaded] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
 
   if (media.type === 'video') {
     const handleReplay = () => {
-      if (videoRef.current) {
-        videoRef.current.currentTime = 0;
-        videoRef.current.play();
+      if (videoEl) {
+        videoEl.currentTime = 0;
+        videoEl.play();
         setVideoEnded(false);
       }
     };
@@ -44,7 +43,7 @@ export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {
           </div>
         )}
         <video
-          ref={videoRef}
+          ref={setVideoRef}
           src={media.src}
           poster={media.poster}
           autoPlay

@@ -823,7 +823,17 @@ pub trait ContainerService: Send + Sync {
             let repo_path = workspace
                 .repo_path(repo)
                 .unwrap_or_else(|| workspace_root.clone());
-            let before_head_commit = self.git().get_head_info(&repo_path).ok().map(|h| h.oid);
+            let before_head_commit = match self.git().get_head_info(&repo_path) {
+                Ok(head) => Some(head.oid),
+                Err(e) => {
+                    tracing::warn!(
+                        repo_path = ?repo_path,
+                        error = %e,
+                        "failed to read HEAD before execution; diff base missing for this repo"
+                    );
+                    None
+                }
+            };
             repo_states.push(CreateExecutionProcessRepoState {
                 repo_id: repo.id,
                 before_head_commit,

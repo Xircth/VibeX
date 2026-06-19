@@ -48,7 +48,6 @@ import {
   type TurnStatsData,
 } from '@/components/conversation-thread/turnStatsModel';
 import { useConversationHistory } from '@/hooks/useConversationHistory/useConversationHistory';
-import { agentUsageToSnapshot } from '@/hooks/useConversationHistory/conversationTokenUsage';
 import type {
   AddEntryType,
   BaseDisplayEntry,
@@ -310,19 +309,12 @@ export function getAgentSessionModel(
 
 function mergeLiveTurnUsage(
   stats: TurnStatsData | null | undefined,
-  usage: { used: number; limit?: number | null } | undefined,
   model: string | null
 ): TurnStatsData | null {
-  const usageSnapshot = usage ? agentUsageToSnapshot(usage) : null;
   const nextStats: TurnStatsData = { ...(stats ?? {}) };
 
   if (model && !nextStats.model) {
     nextStats.model = model;
-  }
-
-  if (usageSnapshot) {
-    nextStats.totalTokens = usageSnapshot.totalTokens;
-    nextStats.contextWindow = usageSnapshot.contextWindow;
   }
 
   nextStats.completedAt = null;
@@ -436,10 +428,7 @@ const ExecutionProcessConversation = forwardRef<
       string | null
     >(null);
     // Agent sessions render through AgentTimelineConversation; this path only
-    // serves non-session attempts, so the agent-transcript branch is gone.
-    // (master's pre-merge `|| agentSessionEvents.length > 0` enhancement is
-    // obsolete here — and referenced the now-deleted buildAgentTranscriptEntries.)
-    const usesAgentTranscript = false;
+    // serves non-session attempts, so there is no live agent transcript here.
 
     const normalizedEntries = useMemo(
       () =>
@@ -451,15 +440,11 @@ const ExecutionProcessConversation = forwardRef<
     );
 
     const displayEntries = useMemo<DisplayEntry[]>(() => {
-      const completedExecutionProcessIds = usesAgentTranscript
-        ? new Set<string>()
-        : new Set(
-            executionProcessesVisible
-              .filter(
-                (process) => process.status !== ExecutionProcessStatus.running
-              )
-              .map((process) => process.id)
-          );
+      const completedExecutionProcessIds = new Set(
+        executionProcessesVisible
+          .filter((process) => process.status !== ExecutionProcessStatus.running)
+          .map((process) => process.id)
+      );
 
       return buildDisplayEntries(normalizedEntries, {
         aggregateThinking: attempt.session?.executor === BaseCodingAgent.CODEX,
@@ -469,7 +454,6 @@ const ExecutionProcessConversation = forwardRef<
       });
     }, [
       attempt.session?.executor,
-      usesAgentTranscript,
       config?.ai_message_default_collapsed,
       executionProcessesVisible,
       normalizedEntries,
@@ -511,11 +495,9 @@ const ExecutionProcessConversation = forwardRef<
         }),
       [modelByExecutionProcessId, normalizedEntries]
     );
-    const hasLiveTurn = usesAgentTranscript
-      ? agentSession?.status === 'running'
-      : executionProcessesVisible.some(
-          (process) => process.status === ExecutionProcessStatus.running
-        );
+    const hasLiveTurn = executionProcessesVisible.some(
+      (process) => process.status === ExecutionProcessStatus.running
+    );
     const liveAssistantKey = useMemo(
       () => (hasLiveTurn ? findLatestAssistantDisplayKey(displayEntries) : null),
       [displayEntries, hasLiveTurn]
@@ -707,11 +689,8 @@ const ExecutionProcessConversation = forwardRef<
 
           const isLive = liveAssistantKey === entry.patchKey;
           const baseStats = turnStatsByAssistantKey.get(entry.patchKey);
-          const liveUsage = usesAgentTranscript
-            ? agentWorkbench.usageByScope[entry.executionProcessId]
-            : undefined;
           const stats = isLive
-            ? mergeLiveTurnUsage(baseStats, liveUsage, agentModel)
+            ? mergeLiveTurnUsage(baseStats, agentModel)
             : baseStats;
           const jumpTargetIndex =
             displayIndex === null
@@ -756,7 +735,6 @@ const ExecutionProcessConversation = forwardRef<
       },
       [
         agentModel,
-        agentWorkbench.usageByScope,
         attempt,
         detachFromBottomForNavigation,
         displayEntries.length,
@@ -766,7 +744,6 @@ const ExecutionProcessConversation = forwardRef<
         task,
         turnStatsByAssistantKey,
         userMessageDisplayIndexes,
-        usesAgentTranscript,
       ]
     );
 

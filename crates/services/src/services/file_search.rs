@@ -144,12 +144,19 @@ impl FileSearchCache {
         let repo_path_buf = repo_path.to_path_buf();
 
         // Check if we have a valid cache entry
-        if let Some(cached) = self.cache.get(&repo_path_buf).await
-            && let Ok(head_info) = self.git_service.get_head_info(&repo_path_buf)
-            && head_info.oid == cached.head_sha
-        {
-            // Cache hit - perform fast search with mode-based filtering
-            return Ok(self.search_in_cache(&cached, query, mode).await);
+        if let Some(cached) = self.cache.get(&repo_path_buf).await {
+            // `get_head_info` opens the repo via git2 (blocking IO); keep it off
+            // the async worker thread since `search` runs on every keystroke.
+            let git_service = self.git_service.clone();
+            let head_path = repo_path_buf.clone();
+            let head_info =
+                tokio::task::spawn_blocking(move || git_service.get_head_info(&head_path)).await;
+            if let Ok(Ok(head_info)) = head_info
+                && head_info.oid == cached.head_sha
+            {
+                // Cache hit - perform fast search with mode-based filtering
+                return Ok(self.search_in_cache(&cached, query, mode).await);
+            }
         }
 
         // Cache miss - trigger background refresh and return error

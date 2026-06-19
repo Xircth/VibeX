@@ -207,9 +207,28 @@ impl EditorConfig {
 
         let mut json: serde_json::Value = if extensions_file.exists() {
             match std::fs::read_to_string(&extensions_file) {
-                Ok(content) => serde_json::from_str(&content)
-                    .unwrap_or_else(|_| serde_json::json!({"recommendations": []})),
-                Err(_) => serde_json::json!({"recommendations": []}),
+                Ok(content) => match serde_json::from_str(&content) {
+                    Ok(parsed) => parsed,
+                    Err(e) => {
+                        // Do not clobber a file we cannot parse (e.g. JSONC with
+                        // comments, which VSCode accepts): skip rather than
+                        // overwrite the user's other recommendations with `[]`.
+                        tracing::warn!(
+                            file = ?extensions_file,
+                            error = %e,
+                            "extensions.json is not valid JSON; skipping VibeX recommendation"
+                        );
+                        return;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        file = ?extensions_file,
+                        error = %e,
+                        "failed to read extensions.json; skipping VibeX recommendation"
+                    );
+                    return;
+                }
             }
         } else {
             serde_json::json!({"recommendations": []})

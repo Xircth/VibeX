@@ -1,5 +1,5 @@
 import '@/styles/conversation.css';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import {
   ActionType,
@@ -66,9 +66,15 @@ type Props = {
  * Main component  *
  *******************/
 
-export const DisplayConversationEntryMaxWidth = (props: Props) => {
-  return <DisplayConversationEntry {...props} />;
-};
+// Memoized so re-renders of the (virtualized) parent list driven by unrelated
+// state — scroll position, token usage — don't re-run each visible row's
+// content sanitization when that row's props are unchanged. Context the inner
+// component subscribes to (retry/stopping) still re-renders it normally.
+export const DisplayConversationEntryMaxWidth = memo(
+  function DisplayConversationEntryMaxWidth(props: Props) {
+    return <DisplayConversationEntry {...props} />;
+  }
+);
 
 function DisplayConversationEntry({
   entry,

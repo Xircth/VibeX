@@ -136,7 +136,18 @@ export type Workspace = { id: string, project_id: string, task_id: string, paren
 
 export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, project_id: string, task_id: string, parent_workspace_id: string | null, container_ref: string | null, branch: string, use_worktree: boolean, agent_working_dir: string | null, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, };
 
-export type Session = { id: string, workspace_id: string, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus, executor: string | null, external_session_id: string | null, agent_type: string | null,
+export type Session = { id: string, workspace_id: string, task_id: string | null, name: string | null, initial_prompt: string | null, status: SessionStatus,
+/**
+ * Legacy executor key (架构报告 A-6), superseded by `agent_type`. Retained
+ * read-mostly for the executor↔agent_type cutover; new ACP sessions are identified
+ * by `agent_type`. Prefer `agent_type` for agent identity, bridging legacy values
+ * through `agents::agent_type_from_executor_key` when needed.
+ */
+executor: string | null, external_session_id: string | null,
+/**
+ * Canonical ACP agent identity (the executor↔agent_type successor to `executor`).
+ */
+agent_type: string | null,
 /**
  * Multi-agent delegation linkage. All NULL for a regular (non-delegated)
  * session: `parent_session_id` points at the parent that delegated this
@@ -934,7 +945,17 @@ export type ConversationTimeline = { conversation_id: string, projection_version
 
 export type ConversationTimelinePage = { conversation_id: string, projection_version: number, cursor: string | null, next_cursor: string | null, rows: Array<ConversationTimelineRow>, };
 
-export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTurn, phase: string, } | { "kind": "permission_request", request: ConversationPermissionView, } | { "kind": "question_request", request: ConversationQuestionRequest, } | { "kind": "feedback_request", request: ConversationFeedbackRequest, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
+export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTurn, phase: string, } | { "kind": "permission_request", request: ConversationPermissionView, } | { "kind": "question_request", request: ConversationQuestionRequest,
+/**
+ * Folded from a later `QuestionResponded` event. `None` while still pending;
+ * `Some` once answered — so a rebuilt projection no longer shows answered
+ * questions as perpetually pending.
+ */
+response?: ConversationQuestionResponse | null, } | { "kind": "feedback_request", request: ConversationFeedbackRequest,
+/**
+ * Folded from a later `FeedbackSubmitted` event. `None` while still pending.
+ */
+response?: ConversationFeedbackResponse | null, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
 
 export type ConversationToolCallPatch = { tool_call_id: string, title?: string | null, kind?: string | null, status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, raw_output_append?: string | null, content?: JsonValue | null, locations?: Array<ConversationFileLocation> | null, metadata?: JsonValue | null, images: Array<ImageData>, };
 

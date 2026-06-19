@@ -23,7 +23,8 @@ use std::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value, json};
 
-use crate::error::AppError;
+mod error;
+pub use error::McpError;
 
 const MARKETPLACE_SMITHERY: &str = "smithery";
 
@@ -40,16 +41,16 @@ static MARKETPLACE_HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = Lazy
         .map_err(|e| format!("failed to initialize marketplace HTTP client: {e}"))
 });
 
-fn bad(message: impl Into<String>) -> AppError {
-    AppError::BadRequest(message.into())
+fn bad(message: impl Into<String>) -> McpError {
+    McpError::BadRequest(message.into())
 }
 
-fn not_found(message: impl Into<String>) -> AppError {
-    AppError::NotFound(message.into())
+fn not_found(message: impl Into<String>) -> McpError {
+    McpError::NotFound(message.into())
 }
 
-fn internal(message: impl Into<String>) -> AppError {
-    AppError::Internal(message.into())
+fn internal(message: impl Into<String>) -> McpError {
+    McpError::Internal(message.into())
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ pub struct McpMarketplaceServerDetail {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-fn marketplace_http_client() -> Result<reqwest::Client, AppError> {
+fn marketplace_http_client() -> Result<reqwest::Client, McpError> {
     match &*MARKETPLACE_HTTP_CLIENT {
         Ok(client) => Ok(client.clone()),
         Err(err) => Err(internal(err.clone())),
@@ -179,7 +180,7 @@ fn should_retry_http_status(status: reqwest::StatusCode) -> bool {
 async fn send_request_with_retry<F>(
     context: &str,
     mut build: F,
-) -> Result<reqwest::Response, AppError>
+) -> Result<reqwest::Response, McpError>
 where
     F: FnMut() -> reqwest::RequestBuilder,
 {
@@ -212,7 +213,7 @@ where
 async fn parse_json_response<T: DeserializeOwned>(
     response: reqwest::Response,
     context: &str,
-) -> Result<T, AppError> {
+) -> Result<T, McpError> {
     let raw = response
         .text()
         .await
@@ -467,7 +468,7 @@ fn global_store_path() -> PathBuf {
 // File IO helpers
 // ---------------------------------------------------------------------------
 
-fn read_json_file(path: &Path) -> Result<Value, AppError> {
+fn read_json_file(path: &Path) -> Result<Value, McpError> {
     if !path.exists() {
         return Ok(json!({}));
     }
@@ -479,7 +480,7 @@ fn read_json_file(path: &Path) -> Result<Value, AppError> {
         .map_err(|e| bad(format!("invalid JSON at {}: {e}", path.display())))
 }
 
-fn write_json_file(path: &Path, value: &Value) -> Result<(), AppError> {
+fn write_json_file(path: &Path, value: &Value) -> Result<(), McpError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| internal(e.to_string()))?;
     }
@@ -492,7 +493,7 @@ fn write_json_file(path: &Path, value: &Value) -> Result<(), AppError> {
     fs::write(path, format!("{serialized}\n")).map_err(|e| internal(e.to_string()))
 }
 
-fn read_codex_root_toml() -> Result<toml::Value, AppError> {
+fn read_codex_root_toml() -> Result<toml::Value, McpError> {
     let path = codex_config_toml_path();
     if !path.exists() {
         return Ok(toml::Value::Table(toml::map::Map::new()));
@@ -510,7 +511,7 @@ fn read_codex_root_toml() -> Result<toml::Value, AppError> {
     Ok(parsed)
 }
 
-fn write_codex_root_toml(root: &toml::Value) -> Result<(), AppError> {
+fn write_codex_root_toml(root: &toml::Value) -> Result<(), McpError> {
     let path = codex_config_toml_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| internal(e.to_string()))?;
@@ -597,7 +598,7 @@ fn append_query_param(url: &str, key: &str, value: &str) -> String {
 // Canonical spec + per-format converters
 // ---------------------------------------------------------------------------
 
-fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, AppError> {
+fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, McpError> {
     let obj = spec
         .as_object()
         .ok_or_else(|| bad(format!("{source}: MCP spec must be a JSON object")))?;
@@ -717,7 +718,7 @@ fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, AppError> {
     Ok(Value::Object(normalized))
 }
 
-fn canonicalize_opencode_spec(spec: &Value, source: &str) -> Result<Value, AppError> {
+fn canonicalize_opencode_spec(spec: &Value, source: &str) -> Result<Value, McpError> {
     let obj = spec
         .as_object()
         .ok_or_else(|| bad(format!("{source}: OpenCode MCP spec must be a JSON object")))?;
@@ -807,7 +808,7 @@ fn canonicalize_opencode_spec(spec: &Value, source: &str) -> Result<Value, AppEr
     }
 }
 
-fn canonical_to_opencode_spec(spec: &Value) -> Result<Value, AppError> {
+fn canonical_to_opencode_spec(spec: &Value) -> Result<Value, McpError> {
     let canonical = canonicalize_spec(spec, "OpenCode conversion")?;
     let obj = canonical
         .as_object()
@@ -917,7 +918,7 @@ fn toml_to_json_value(value: &toml::Value) -> Value {
     }
 }
 
-fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppError> {
+fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, McpError> {
     let table = value
         .as_table()
         .ok_or_else(|| bad(format!("Codex MCP entry '{id}' must be a table")))?;
@@ -1026,7 +1027,7 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppE
     canonicalize_spec(&Value::Object(spec), "Codex config")
 }
 
-fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppError> {
+fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, McpError> {
     let canonical = canonicalize_spec(spec, "Codex conversion")?;
     let obj = canonical
         .as_object()
@@ -1121,7 +1122,7 @@ fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppError> {
     Ok(toml::Value::Table(table))
 }
 
-fn hermes_entry_to_canonical(entry: &serde_yaml::Value, id: &str) -> Result<Value, AppError> {
+fn hermes_entry_to_canonical(entry: &serde_yaml::Value, id: &str) -> Result<Value, McpError> {
     let source = format!("Hermes mcp_servers '{id}'");
     let mut json = serde_json::to_value(entry)
         .map_err(|e| bad(format!("{source}: cannot read entry: {e}")))?;
@@ -1150,7 +1151,7 @@ fn hermes_entry_to_canonical(entry: &serde_yaml::Value, id: &str) -> Result<Valu
     canonicalize_spec(&json, &source)
 }
 
-fn canonical_to_hermes_entry(spec: &Value) -> Result<serde_yaml::Value, AppError> {
+fn canonical_to_hermes_entry(spec: &Value) -> Result<serde_yaml::Value, McpError> {
     let canonical = canonicalize_spec(spec, "Hermes conversion")?;
     let obj = canonical
         .as_object()
@@ -1204,7 +1205,7 @@ fn canonical_to_hermes_entry(spec: &Value) -> Result<serde_yaml::Value, AppError
 // Per-agent read / upsert / remove
 // ---------------------------------------------------------------------------
 
-fn read_claude_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_claude_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_json_file(&claude_config_path())?;
     let mut out = BTreeMap::new();
     let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
@@ -1218,7 +1219,7 @@ fn read_claude_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_claude_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_claude_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let path = claude_config_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1240,7 +1241,7 @@ fn upsert_claude_server(id: &str, spec: &Value) -> Result<(), AppError> {
     enable_claude_local_plugin(id)
 }
 
-fn remove_claude_server(id: &str) -> Result<bool, AppError> {
+fn remove_claude_server(id: &str) -> Result<bool, McpError> {
     let path = claude_config_path();
     if !path.exists() {
         disable_claude_local_plugin(id)?;
@@ -1266,7 +1267,7 @@ fn remove_claude_server(id: &str) -> Result<bool, AppError> {
 /// Claude Code gates user-scope MCP servers behind `enabledPlugins`: a server
 /// defined in `~/.claude.json` will not load until `<id>@local: true` appears
 /// in `~/.claude/settings.json`.
-fn enable_claude_local_plugin(id: &str) -> Result<(), AppError> {
+fn enable_claude_local_plugin(id: &str) -> Result<(), McpError> {
     let path = claude_settings_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1294,7 +1295,7 @@ fn enable_claude_local_plugin(id: &str) -> Result<(), AppError> {
     write_json_file(&path, &root)
 }
 
-fn disable_claude_local_plugin(id: &str) -> Result<(), AppError> {
+fn disable_claude_local_plugin(id: &str) -> Result<(), McpError> {
     let path = claude_settings_path();
     if !path.exists() {
         return Ok(());
@@ -1312,7 +1313,7 @@ fn disable_claude_local_plugin(id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn read_codex_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_codex_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_codex_root_toml()?;
     let Some(table) = root.as_table() else {
         return Ok(BTreeMap::new());
@@ -1328,7 +1329,7 @@ fn read_codex_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_codex_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_codex_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let mut root = read_codex_root_toml()?;
     let table = root
         .as_table_mut()
@@ -1352,7 +1353,7 @@ fn upsert_codex_server(id: &str, spec: &Value) -> Result<(), AppError> {
     write_codex_root_toml(&root)
 }
 
-fn remove_codex_server(id: &str) -> Result<bool, AppError> {
+fn remove_codex_server(id: &str) -> Result<bool, McpError> {
     let path = codex_config_toml_path();
     if !path.exists() {
         return Ok(false);
@@ -1377,7 +1378,7 @@ fn remove_codex_server(id: &str) -> Result<bool, AppError> {
     Ok(removed)
 }
 
-fn read_opencode_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_opencode_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_json_file(&opencode_config_path())?;
     let mut out = BTreeMap::new();
     if let Some(servers) = root.get("mcpServers").and_then(Value::as_object) {
@@ -1400,7 +1401,7 @@ fn read_opencode_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_opencode_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_opencode_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let path = opencode_config_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1431,7 +1432,7 @@ fn upsert_opencode_server(id: &str, spec: &Value) -> Result<(), AppError> {
     write_json_file(&path, &root)
 }
 
-fn remove_opencode_server(id: &str) -> Result<bool, AppError> {
+fn remove_opencode_server(id: &str) -> Result<bool, McpError> {
     let path = opencode_config_path();
     if !path.exists() {
         return Ok(false);
@@ -1453,7 +1454,7 @@ fn remove_opencode_server(id: &str) -> Result<bool, AppError> {
     Ok(removed)
 }
 
-fn read_gemini_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_gemini_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_json_file(&gemini_config_path())?;
     let mut out = BTreeMap::new();
     let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
@@ -1467,7 +1468,7 @@ fn read_gemini_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_gemini_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_gemini_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let path = gemini_config_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1488,7 +1489,7 @@ fn upsert_gemini_server(id: &str, spec: &Value) -> Result<(), AppError> {
     write_json_file(&path, &root)
 }
 
-fn remove_gemini_server(id: &str) -> Result<bool, AppError> {
+fn remove_gemini_server(id: &str) -> Result<bool, McpError> {
     let path = gemini_config_path();
     if !path.exists() {
         return Ok(false);
@@ -1507,7 +1508,7 @@ fn remove_gemini_server(id: &str) -> Result<bool, AppError> {
     Ok(removed)
 }
 
-fn read_openclaw_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_openclaw_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_json_file(&openclaw_config_path())?;
     let mut out = BTreeMap::new();
     let Some(mcp) = root.get("mcp").and_then(Value::as_object) else {
@@ -1524,7 +1525,7 @@ fn read_openclaw_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_openclaw_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_openclaw_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let path = openclaw_config_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1552,7 +1553,7 @@ fn upsert_openclaw_server(id: &str, spec: &Value) -> Result<(), AppError> {
     write_json_file(&path, &root)
 }
 
-fn remove_openclaw_server(id: &str) -> Result<bool, AppError> {
+fn remove_openclaw_server(id: &str) -> Result<bool, McpError> {
     let path = openclaw_config_path();
     if !path.exists() {
         return Ok(false);
@@ -1580,7 +1581,7 @@ fn remove_openclaw_server(id: &str) -> Result<bool, AppError> {
     Ok(removed)
 }
 
-fn read_cline_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_cline_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_json_file(&cline_config_path())?;
     let mut out = BTreeMap::new();
     let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
@@ -1594,7 +1595,7 @@ fn read_cline_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_cline_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_cline_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let path = cline_config_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1615,7 +1616,7 @@ fn upsert_cline_server(id: &str, spec: &Value) -> Result<(), AppError> {
     write_json_file(&path, &root)
 }
 
-fn remove_cline_server(id: &str) -> Result<bool, AppError> {
+fn remove_cline_server(id: &str) -> Result<bool, McpError> {
     let path = cline_config_path();
     if !path.exists() {
         return Ok(false);
@@ -1634,7 +1635,7 @@ fn remove_cline_server(id: &str) -> Result<bool, AppError> {
     Ok(removed)
 }
 
-fn read_hermes_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_hermes_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let path = hermes_config_yaml_path();
     let Ok(raw) = fs::read_to_string(&path) else {
         return Ok(BTreeMap::new());
@@ -1659,7 +1660,7 @@ fn read_hermes_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), McpError> {
     use serde_yaml::{Mapping, Value as Yaml};
     let entry = canonical_to_hermes_entry(spec)?;
     let path = hermes_config_yaml_path();
@@ -1697,7 +1698,7 @@ fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), AppError> {
     fs::write(&path, yaml).map_err(|e| internal(e.to_string()))
 }
 
-fn remove_hermes_server(id: &str) -> Result<bool, AppError> {
+fn remove_hermes_server(id: &str) -> Result<bool, McpError> {
     use serde_yaml::Value as Yaml;
     let path = hermes_config_yaml_path();
     let raw = match fs::read_to_string(&path) {
@@ -1730,7 +1731,7 @@ fn remove_hermes_server(id: &str) -> Result<bool, AppError> {
     Ok(removed)
 }
 
-fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), McpError> {
     match app {
         McpAppType::ClaudeCode => upsert_claude_server(id, spec),
         McpAppType::Codex => upsert_codex_server(id, spec),
@@ -1742,7 +1743,7 @@ fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), 
     }
 }
 
-fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, AppError> {
+fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, McpError> {
     match app {
         McpAppType::ClaudeCode => remove_claude_server(id),
         McpAppType::Codex => remove_codex_server(id),
@@ -1754,7 +1755,7 @@ fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, AppError> {
     }
 }
 
-fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, AppError> {
+fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpError> {
     match app {
         McpAppType::ClaudeCode => read_claude_servers(),
         McpAppType::Codex => read_codex_servers(),
@@ -1770,7 +1771,7 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, AppE
 // Global registry (~/.vibex/mcp.json)
 // ---------------------------------------------------------------------------
 
-fn read_global_servers() -> Result<BTreeMap<String, Value>, AppError> {
+fn read_global_servers() -> Result<BTreeMap<String, Value>, McpError> {
     let root = read_json_file(&global_store_path())?;
     let mut out = BTreeMap::new();
     let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
@@ -1784,7 +1785,7 @@ fn read_global_servers() -> Result<BTreeMap<String, Value>, AppError> {
     Ok(out)
 }
 
-fn upsert_global_server(id: &str, spec: &Value) -> Result<(), AppError> {
+fn upsert_global_server(id: &str, spec: &Value) -> Result<(), McpError> {
     let path = global_store_path();
     let mut root = read_json_file(&path)?;
     if !root.is_object() {
@@ -1805,7 +1806,7 @@ fn upsert_global_server(id: &str, spec: &Value) -> Result<(), AppError> {
     write_json_file(&path, &root)
 }
 
-fn remove_global_server(id: &str) -> Result<bool, AppError> {
+fn remove_global_server(id: &str) -> Result<bool, McpError> {
     let path = global_store_path();
     if !path.exists() {
         return Ok(false);
@@ -1828,7 +1829,7 @@ fn remove_global_server(id: &str) -> Result<bool, AppError> {
 // Scan + target application
 // ---------------------------------------------------------------------------
 
-fn scan_local_servers() -> Result<Vec<LocalMcpServer>, AppError> {
+fn scan_local_servers() -> Result<Vec<LocalMcpServer>, McpError> {
     // (spec, apps, global) per id. The first spec seen wins; the global
     // registry is read first so its canonical spec is preferred.
     let mut merged: BTreeMap<String, (Value, BTreeSet<McpAppType>, bool)> = BTreeMap::new();
@@ -1868,7 +1869,7 @@ fn install_targets(
     spec: &Value,
     global: bool,
     apps: &[McpAppType],
-) -> Result<(), AppError> {
+) -> Result<(), McpError> {
     if global {
         upsert_global_server(id, spec)?;
         for app in ALL_APPS {
@@ -1888,7 +1889,7 @@ fn install_targets(
 /// Set a server's targets to exactly the requested set (removes from
 /// deselected targets). Used by the "本地 MCP" editor. `global` implies all
 /// agents, mirroring the install semantics.
-fn set_targets(id: &str, spec: &Value, global: bool, apps: &[McpAppType]) -> Result<(), AppError> {
+fn set_targets(id: &str, spec: &Value, global: bool, apps: &[McpAppType]) -> Result<(), McpError> {
     if global {
         upsert_global_server(id, spec)?;
     } else {
@@ -1909,7 +1910,7 @@ fn set_targets(id: &str, spec: &Value, global: bool, apps: &[McpAppType]) -> Res
     Ok(())
 }
 
-fn uninstall_everywhere(id: &str) -> Result<(), AppError> {
+fn uninstall_everywhere(id: &str) -> Result<(), McpError> {
     remove_global_server(id)?;
     for app in ALL_APPS {
         remove_server_for_app(app, id)?;
@@ -1921,7 +1922,7 @@ fn uninstall_everywhere(id: &str) -> Result<(), AppError> {
 // Smithery marketplace resolution
 // ---------------------------------------------------------------------------
 
-async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceItem>, AppError> {
+async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceItem>, McpError> {
     let client = marketplace_http_client()?;
     let trimmed = query.trim();
     let response = send_request_with_retry("failed to query smithery marketplace", || {
@@ -1994,7 +1995,7 @@ async fn fetch_smithery_server_summary(server_id: &str) -> Option<SmitheryServer
         .find(|item| item.qualified_name == server_id)
 }
 
-async fn fetch_smithery_server_detail(server_id: &str) -> Result<SmitheryServerDetail, AppError> {
+async fn fetch_smithery_server_detail(server_id: &str) -> Result<SmitheryServerDetail, McpError> {
     let url = format!("https://api.smithery.ai/servers/{server_id}");
     let client = marketplace_http_client()?;
     let response = send_request_with_retry("failed to fetch smithery server detail", || {
@@ -2201,7 +2202,7 @@ fn resolve_smithery_connection_spec_with_values(
     fallback_url: Option<&str>,
     values: &Map<String, Value>,
     enforce_required: bool,
-) -> Result<Value, AppError> {
+) -> Result<Value, McpError> {
     let protocol = smithery_connection_protocol(connection);
     let url = smithery_connection_url(connection, fallback_url)
         .ok_or_else(|| bad("smithery connection missing deployment URL"))?;
@@ -2253,7 +2254,7 @@ fn resolve_smithery_connection_spec_with_values(
 
 fn build_smithery_install_options(
     server: &SmitheryServerDetail,
-) -> Result<Vec<McpMarketplaceInstallOption>, AppError> {
+) -> Result<Vec<McpMarketplaceInstallOption>, McpError> {
     let mut options = Vec::new();
     for (index, connection) in server.connections.iter().enumerate() {
         let protocol = smithery_connection_protocol(connection);
@@ -2305,7 +2306,7 @@ fn resolve_smithery_install_spec(
     server: &SmitheryServerDetail,
     option_id: &Option<String>,
     values: &Map<String, Value>,
-) -> Result<Value, AppError> {
+) -> Result<Value, McpError> {
     let options = build_smithery_install_options(server)?;
     let selected = select_install_option(&options, option_id)
         .ok_or_else(|| not_found("no smithery install option available"))?;
@@ -2331,11 +2332,11 @@ fn resolve_smithery_install_spec(
 // Command entry points (wrapped by `#[tauri::command]` in config.rs)
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn scan_local() -> Result<Vec<LocalMcpServer>, AppError> {
+pub async fn scan_local() -> Result<Vec<LocalMcpServer>, McpError> {
     scan_local_servers()
 }
 
-pub(crate) async fn list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, AppError> {
+pub async fn list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, McpError> {
     Ok(vec![McpMarketplaceProvider {
         id: MARKETPLACE_SMITHERY.to_string(),
         name: "Smithery".to_string(),
@@ -2343,11 +2344,11 @@ pub(crate) async fn list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, A
     }])
 }
 
-pub(crate) async fn search_marketplace(
+pub async fn search_marketplace(
     provider_id: String,
     query: Option<String>,
     limit: Option<u32>,
-) -> Result<Vec<McpMarketplaceItem>, AppError> {
+) -> Result<Vec<McpMarketplaceItem>, McpError> {
     let q = query.unwrap_or_default();
     let max = limit.unwrap_or(30).clamp(1, 100);
     match provider_id.as_str() {
@@ -2358,10 +2359,10 @@ pub(crate) async fn search_marketplace(
     }
 }
 
-pub(crate) async fn get_marketplace_server_detail(
+pub async fn get_marketplace_server_detail(
     provider_id: String,
     server_id: String,
-) -> Result<McpMarketplaceServerDetail, AppError> {
+) -> Result<McpMarketplaceServerDetail, McpError> {
     match provider_id.as_str() {
         MARKETPLACE_SMITHERY => {
             let detail = fetch_smithery_server_detail(&server_id).await?;
@@ -2422,7 +2423,7 @@ pub(crate) async fn get_marketplace_server_detail(
     }
 }
 
-pub(crate) async fn install_marketplace_server(
+pub async fn install_marketplace_server(
     provider_id: String,
     server_id: String,
     global: bool,
@@ -2430,7 +2431,7 @@ pub(crate) async fn install_marketplace_server(
     option_id: Option<String>,
     parameter_values: Option<Value>,
     spec_override: Option<Value>,
-) -> Result<Vec<LocalMcpServer>, AppError> {
+) -> Result<Vec<LocalMcpServer>, McpError> {
     let values: Map<String, Value> = parameter_values
         .as_ref()
         .and_then(Value::as_object)
@@ -2457,12 +2458,12 @@ pub(crate) async fn install_marketplace_server(
     scan_local_servers()
 }
 
-pub(crate) async fn upsert_local_server(
+pub async fn upsert_local_server(
     server_id: String,
     spec: Value,
     global: bool,
     apps: Vec<McpAppType>,
-) -> Result<Vec<LocalMcpServer>, AppError> {
+) -> Result<Vec<LocalMcpServer>, McpError> {
     if server_id.trim().is_empty() {
         return Err(bad("服务器 ID 不能为空"));
     }
@@ -2474,7 +2475,7 @@ pub(crate) async fn upsert_local_server(
     scan_local_servers()
 }
 
-pub(crate) async fn uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, AppError> {
+pub async fn uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, McpError> {
     uninstall_everywhere(&server_id)?;
     scan_local_servers()
 }

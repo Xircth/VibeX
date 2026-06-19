@@ -1,9 +1,8 @@
 use db::models::scratch::ScratchType;
-use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
 use futures::StreamExt;
 use serde::Serialize;
-use services::services::{container::ContainerService, filesystem_watcher};
+use services::services::{filesystem_watcher};
 use tauri::{AppHandle, Emitter};
 use utils::log_msg::LogMsg;
 use uuid::Uuid;

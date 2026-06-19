@@ -5,17 +5,27 @@ use std::{
     time::Duration,
 };
 
-use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use services::services::config::Config;
 use tokio::{
     fs,
     io::{AsyncBufReadExt, BufReader},
 };
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::services::config::Config;
+
+/// Error type for the prompt-enhancement service. The Tauri shell maps it back to
+/// `AppError` (variant-preserving) at the command boundary (架构报告 A-1).
+#[derive(Debug, thiserror::Error)]
+pub enum PromptEnhancementError {
+    #[error("Not found: {0}")]
+    NotFound(String),
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
 
 const DEFAULT_PROMPT_ENHANCE_MODEL: &str = "opencode/minimax-m2.5-free";
 const DEFAULT_OPENCODE_MODELS: &[&str] = &[
@@ -221,7 +231,7 @@ fn trim_prompt_enhancement_context(
 fn build_prompt_enhancement_payload(
     config: &Config,
     payload: &PromptEnhancementRequest,
-) -> Result<String, AppError> {
+) -> Result<String, PromptEnhancementError> {
     let trimmed_context = if is_context_dependent_prompt(payload.draft_prompt.trim()) {
         trim_prompt_enhancement_context(
             &payload.context_messages,
@@ -252,19 +262,19 @@ fn build_prompt_enhancement_payload(
                 body
             )
         })
-        .map_err(|error| AppError::Internal(format!("Failed to build PE payload: {}", error)))
+        .map_err(|error| PromptEnhancementError::Internal(format!("Failed to build PE payload: {}", error)))
 }
 
 async fn write_prompt_enhancement_attachment(
     current_dir: &Path,
     config: &Config,
     payload: &PromptEnhancementRequest,
-) -> Result<PathBuf, AppError> {
+) -> Result<PathBuf, PromptEnhancementError> {
     let file_path = current_dir.join(format!(".vibex-pe-{}.json", Uuid::new_v4()));
     let content = build_prompt_enhancement_payload(config, payload)?;
 
     fs::write(&file_path, content).await.map_err(|error| {
-        AppError::Internal(format!(
+        PromptEnhancementError::Internal(format!(
             "Failed to write prompt enhancement attachment: {}",
             error
         ))
@@ -366,15 +376,15 @@ fn extract_enhanced_prompt(raw: &str) -> Option<String> {
 async fn wait_for_enhanced_prompt(
     mut child: tokio::process::Child,
     timeout: Duration,
-) -> Result<String, AppError> {
+) -> Result<String, PromptEnhancementError> {
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| AppError::Internal("OpenCode process missing stdout".to_string()))?;
+        .ok_or_else(|| PromptEnhancementError::Internal("OpenCode process missing stdout".to_string()))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| AppError::Internal("OpenCode process missing stderr".to_string()))?;
+        .ok_or_else(|| PromptEnhancementError::Internal("OpenCode process missing stderr".to_string()))?;
 
     let mut stdout_lines = BufReader::new(stdout).lines();
     let mut stderr_lines = BufReader::new(stderr).lines();
@@ -395,7 +405,7 @@ async fn wait_for_enhanced_prompt(
 
         if stdout_done && stderr_done {
             let status = child.wait().await.map_err(|error| {
-                AppError::Internal(format!("Failed waiting for OpenCode: {}", error))
+                PromptEnhancementError::Internal(format!("Failed waiting for OpenCode: {}", error))
             })?;
 
             let detail = if !stderr_buffer.trim().is_empty() {
@@ -419,14 +429,14 @@ async fn wait_for_enhanced_prompt(
                 format!("OpenCode prompt enhancement failed: {}", detail)
             };
 
-            return Err(AppError::Internal(message));
+            return Err(PromptEnhancementError::Internal(message));
         }
 
         tokio::select! {
             _ = tokio::time::sleep_until(deadline) => {
                 let _ = child.kill().await;
                 let _ = child.wait().await;
-                return Err(AppError::Internal(format!(
+                return Err(PromptEnhancementError::Internal(format!(
                     "OpenCode prompt enhancement timed out after {} seconds",
                     PROMPT_ENHANCE_TIMEOUT_SECS
                 )));
@@ -443,7 +453,7 @@ async fn wait_for_enhanced_prompt(
                     Err(error) => {
                         let _ = child.kill().await;
                         let _ = child.wait().await;
-                        return Err(AppError::Internal(format!(
+                        return Err(PromptEnhancementError::Internal(format!(
                             "Failed reading OpenCode stdout: {}",
                             error
                         )));
@@ -462,7 +472,7 @@ async fn wait_for_enhanced_prompt(
                     Err(error) => {
                         let _ = child.kill().await;
                         let _ = child.wait().await;
-                        return Err(AppError::Internal(format!(
+                        return Err(PromptEnhancementError::Internal(format!(
                             "Failed reading OpenCode stderr: {}",
                             error
                         )));
@@ -473,19 +483,18 @@ async fn wait_for_enhanced_prompt(
     }
 }
 
-pub(crate) async fn enhance_prompt(
-    state: tauri::State<'_, AppState>,
+pub async fn enhance_prompt(
+    config: &Config,
     payload: PromptEnhancementRequest,
-) -> Result<PromptEnhancementResponse, AppError> {
-    let config = state.deployment.config().read().await.clone();
+) -> Result<PromptEnhancementResponse, PromptEnhancementError> {
     if !config.prompt_enhancement_enabled {
-        return Err(AppError::BadRequest(
+        return Err(PromptEnhancementError::BadRequest(
             "Prompt enhancement is disabled in system settings".to_string(),
         ));
     }
 
     if payload.draft_prompt.trim().is_empty() {
-        return Err(AppError::BadRequest(
+        return Err(PromptEnhancementError::BadRequest(
             "Draft prompt cannot be empty".to_string(),
         ));
     }
@@ -493,19 +502,19 @@ pub(crate) async fn enhance_prompt(
     let executable = tokio::task::spawn_blocking(|| which::which("opencode"))
         .await
         .map_err(|error| {
-            AppError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
+            PromptEnhancementError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
         })?
-        .map_err(|_| AppError::NotFound("OpenCode CLI not found".to_string()))?;
+        .map_err(|_| PromptEnhancementError::NotFound("OpenCode CLI not found".to_string()))?;
 
-    let model = selected_prompt_enhancement_model(&config).to_string();
+    let model = selected_prompt_enhancement_model(config).to_string();
     let current_dir = std::env::current_dir().map_err(|error| {
-        AppError::Internal(format!(
+        PromptEnhancementError::Internal(format!(
             "Failed to resolve current working directory for prompt enhancement: {}",
             error
         ))
     })?;
     let attachment_path =
-        write_prompt_enhancement_attachment(&current_dir, &config, &payload).await?;
+        write_prompt_enhancement_attachment(&current_dir, config, &payload).await?;
 
     let mut command = utils::process::new_hidden_tokio_command(
         &executable,
@@ -518,7 +527,7 @@ pub(crate) async fn enhance_prompt(
             "Read the attached file and return JSON only with top-level field EnhancedPrompt.",
             "-f",
             attachment_path.to_str().ok_or_else(|| {
-                AppError::Internal(
+                PromptEnhancementError::Internal(
                     "Prompt enhancement attachment path contains invalid Unicode".to_string(),
                 )
             })?,
@@ -532,7 +541,7 @@ pub(crate) async fn enhance_prompt(
 
     let child = command
         .spawn()
-        .map_err(|error| AppError::Internal(format!("Failed to run OpenCode: {}", error)))?;
+        .map_err(|error| PromptEnhancementError::Internal(format!("Failed to run OpenCode: {}", error)))?;
 
     let result =
         wait_for_enhanced_prompt(child, Duration::from_secs(PROMPT_ENHANCE_TIMEOUT_SECS)).await;
@@ -546,15 +555,11 @@ pub(crate) async fn enhance_prompt(
     })
 }
 
-pub(crate) async fn list_opencode_models(
-    state: tauri::State<'_, AppState>,
-) -> Result<OpencodeModelsResponse, AppError> {
-    let _ = state;
-
+pub async fn list_opencode_models() -> Result<OpencodeModelsResponse, PromptEnhancementError> {
     let executable = tokio::task::spawn_blocking(|| which::which("opencode"))
         .await
         .map_err(|error| {
-            AppError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
+            PromptEnhancementError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
         })?
         .ok();
 

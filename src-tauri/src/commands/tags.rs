@@ -1,5 +1,4 @@
 use db::models::tag::{CreateTag, Tag, UpdateTag};
-use deployment::Deployment;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};

@@ -10,9 +10,8 @@ use db::models::{
     workspace::{CreateWorkspace, Workspace},
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
-use deployment::Deployment;
 use git::GitRemote;
-use services::services::{container::ContainerService, container_actions, git_host::github::GhCli};
+use services::services::{container_actions, git_host::github::GhCli};
 use uuid::Uuid;
 
 use super::{

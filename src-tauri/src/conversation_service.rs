@@ -32,7 +32,6 @@ use executors::{
 };
 use git::{Commit, DiffTarget};
 use serde::{Deserialize, Serialize};
-use services::services::container::ContainerService;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -606,7 +605,7 @@ struct ConversationCheckpointRow {
     before_snapshot_json: Option<String>,
 }
 
-pub async fn finalize_checkpoint_file_changes<D: Deployment>(
+pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
     deployment: &D,
     conversation_id: Uuid,
     turn_id: Uuid,

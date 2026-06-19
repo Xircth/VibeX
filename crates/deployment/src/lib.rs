@@ -64,17 +64,22 @@ pub enum DeploymentError {
     Other(#[from] AnyhowError),
 }
 
+/// Backend service surface, dependency-injected into the Tauri shell.
+///
+/// Object-safe (架构报告 A-2): `AppState` holds `Arc<dyn Deployment>`, so the shell is
+/// decoupled from the concrete `LocalDeployment` and an alternative impl (remote /
+/// containerized) can be swapped in. Construction (`new`) is intentionally NOT on the
+/// trait — it returns `Self`, which would break object-safety; each concrete impl keeps
+/// its own inherent constructor.
 #[async_trait]
-pub trait Deployment: Clone + Send + Sync + 'static {
-    async fn new() -> Result<Self, DeploymentError>;
-
+pub trait Deployment: Send + Sync + 'static {
     fn user_id(&self) -> &str;
 
     fn config(&self) -> &Arc<RwLock<Config>>;
 
     fn db(&self) -> &DBService;
 
-    fn container(&self) -> &impl ContainerService;
+    fn container(&self) -> &dyn ContainerService;
 
     fn git(&self) -> &GitService;
 

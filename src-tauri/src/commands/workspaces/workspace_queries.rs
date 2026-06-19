@@ -6,9 +6,7 @@ use db::models::{
     workspace::Workspace,
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
-use deployment::Deployment;
 use serde::Serialize;
-use services::services::container::ContainerService;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};

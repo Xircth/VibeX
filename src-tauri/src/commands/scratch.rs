@@ -1,5 +1,4 @@
 use db::models::scratch::{CreateScratch, Scratch, ScratchType, UpdateScratch};
-use deployment::Deployment;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -130,10 +130,13 @@ const TERMINAL_COLUMNS: &str = r#"id,
     updated_at"#;
 
 impl ConversationFileChangeRecord {
-    pub async fn insert(
-        pool: &SqlitePool,
+    pub async fn insert<'e, E>(
+        executor: E,
         input: InsertConversationFileChange<'_>,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_file_changes (
                    id, conversation_id, turn_id, source, path, change_kind,
@@ -152,7 +155,7 @@ impl ConversationFileChangeRecord {
         .bind(input.deletions)
         .bind(input.old_path)
         .bind(input.diff_summary_json)
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await
     }
 
@@ -185,10 +188,13 @@ impl ConversationFileChangeRecord {
 }
 
 impl ConversationPermissionRecord {
-    pub async fn upsert_pending(
-        pool: &SqlitePool,
+    pub async fn upsert_pending<'e, E>(
+        executor: E,
         input: UpsertConversationPermission<'_>,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_permissions (
                    id, conversation_id, turn_id, permission_id, title,
@@ -213,16 +219,19 @@ impl ConversationPermissionRecord {
         .bind(input.details_json)
         .bind(input.options_json)
         .bind(input.auto)
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await
     }
 
-    pub async fn respond(
-        pool: &SqlitePool,
+    pub async fn respond<'e, E>(
+        executor: E,
         conversation_id: Uuid,
         permission_id: &str,
         response_json: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query(
             r#"UPDATE conversation_permissions
                SET status = 'responded',
@@ -233,7 +242,7 @@ impl ConversationPermissionRecord {
         .bind(response_json)
         .bind(conversation_id)
         .bind(permission_id)
-        .execute(pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
@@ -267,10 +276,13 @@ impl ConversationPermissionRecord {
 }
 
 impl ConversationTerminalRecord {
-    pub async fn upsert(
-        pool: &SqlitePool,
+    pub async fn upsert<'e, E>(
+        executor: E,
         input: UpsertConversationTerminal<'_>,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_terminals (
                    id, conversation_id, turn_id, terminal_id, command,
@@ -301,7 +313,7 @@ impl ConversationTerminalRecord {
         .bind(input.output_summary)
         .bind(input.output_truncated)
         .bind(input.exit_status_json)
-        .fetch_one(pool)
+        .fetch_one(executor)
         .await
     }
 

@@ -11,7 +11,6 @@ use api_types::{
     ReorderAgentsRequest, UpdateAgentPreferences,
 };
 use db::models::agent_setting::AgentSetting;
-use deployment::Deployment;
 use tokio::{net::TcpStream, time::timeout};
 
 use crate::{error::AppError, state::AppState};

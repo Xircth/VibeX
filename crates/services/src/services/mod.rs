@@ -1,4 +1,5 @@
 pub mod approvals;
+pub mod chat_delivery;
 pub mod config;
 pub mod container;
 pub mod container_actions;
@@ -11,12 +12,16 @@ pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod git_host;
 pub mod image;
+pub mod mcp;
 pub mod notification;
 pub mod pr_monitor;
 pub mod project;
+pub mod prompt_enhancement;
+pub mod provider_config;
 #[cfg(feature = "qa-mode")]
 pub mod qa_repos;
 pub mod repo;
+pub mod usage;
 pub mod workspace_manager;
 pub mod workspace_paths;
 pub mod worktree_manager;

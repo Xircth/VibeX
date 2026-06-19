@@ -1,7 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use db::models::tag::{CreateTag, Tag, UpdateTag};
-use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

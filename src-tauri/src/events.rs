@@ -605,7 +605,7 @@ async fn map_conversation_event_record(
     }))
 }
 
-async fn flush_pending_conversation_events<D: Deployment>(
+async fn flush_pending_conversation_events<D: Deployment + ?Sized>(
     pool: &SqlitePool,
     deployment: &D,
     app_handle: &AppHandle,
@@ -614,7 +614,7 @@ async fn flush_pending_conversation_events<D: Deployment>(
     append_and_emit_conversation_events(pool, deployment, app_handle, coalescer.flush()).await
 }
 
-async fn append_and_emit_conversation_events<D: Deployment>(
+async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
     pool: &SqlitePool,
     deployment: &D,
     app_handle: &AppHandle,

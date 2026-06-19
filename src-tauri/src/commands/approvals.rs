@@ -1,4 +1,3 @@
-use deployment::Deployment;
 use utils::approvals::{ApprovalResponse, ApprovalStatus};
 
 use crate::{error::AppError, state::AppState};

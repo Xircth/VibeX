@@ -713,9 +713,17 @@ pub enum ConversationTimelineRow {
     },
     QuestionRequest {
         request: ConversationQuestionRequest,
+        /// Folded from a later `QuestionResponded` event. `None` while still pending;
+        /// `Some` once answered — so a rebuilt projection no longer shows answered
+        /// questions as perpetually pending.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        response: Option<ConversationQuestionResponse>,
     },
     FeedbackRequest {
         request: ConversationFeedbackRequest,
+        /// Folded from a later `FeedbackSubmitted` event. `None` while still pending.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        response: Option<ConversationFeedbackResponse>,
     },
     TerminalSummary {
         terminal: ConversationTerminalView,

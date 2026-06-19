@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use agents::{
     AgentAutoApproveMode, AgentContentBlock, AgentSessionId, EnsureAgentSessionInput,
-    SendAgentPromptInput, agent_type_from_executor_key,
+    SendAgentPromptInput,
 };
 use db::models::{
     execution_process::ExecutionProcess,
@@ -13,12 +13,9 @@ use db::models::{
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use deployment::Deployment;
-use executors::executors::BaseCodingAgent;
 use git::{GitCliError, GitServiceError};
 use services::services::{
     config::DEFAULT_PR_DESCRIPTION_PROMPT,
-    container::ContainerService,
     git_host::{self, CreatePrRequest, GitHostError, GitHostProvider},
 };
 use uuid::Uuid;
@@ -28,16 +25,9 @@ use super::{
     PrCommentsResult, PrError,
 };
 use crate::{
-    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+    bridge::agent_type_from_executor, error::AppError, state::AppState,
+    workspace_paths::resolve_workspace_agent_working_dir,
 };
-
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<agents::AgentType, AppError> {
-    agent_type_from_executor_key(&executor.to_string()).ok_or_else(|| {
-        AppError::BadRequest(format!(
-            "{executor} is not available through the ACP-native agent runtime"
-        ))
-    })
-}
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]

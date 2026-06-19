@@ -5,16 +5,20 @@ use agents::conversation::{
     ConversationPermissionView, ConversationSessionNotice, ConversationTerminalView,
     ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry, TurnRole, TurnUsage,
 };
-use serde::Serialize;
-use sqlx::SqlitePool;
+use serde::{Deserialize, Serialize};
+use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 use super::{
-    conversation_event::{AppendConversationEvent, ConversationEventRecord},
+    conversation_event::{
+        AppendConversationEvent, ConversationEventRecord, find_conversation_event_by_idempotency,
+        insert_conversation_event,
+    },
     conversation_side_effects::{
         ConversationFileChangeRecord, ConversationPermissionRecord, ConversationTerminalRecord,
         InsertConversationFileChange, UpsertConversationPermission, UpsertConversationTerminal,
     },
+    conversation_snapshot::ConversationProjectionSnapshotRecord,
     conversation_tool::{ConversationToolCallRecord, UpsertConversationToolCall},
     conversation_turn::ConversationTurnRecord,
 };
@@ -24,12 +28,51 @@ pub const CONVERSATION_PROJECTION_VERSION: u32 = 1;
 pub struct ConversationEventAppender;
 
 impl ConversationEventAppender {
+    /// Append an event and apply its projection side-effects **atomically**.
+    ///
+    /// Root-cause fix for 架构报告 A-3: the event insert, the derived-table projection
+    /// (`apply_record`), and the snapshot refresh now run inside a single
+    /// `BEGIN IMMEDIATE` transaction. If anything fails the whole thing rolls back, so
+    /// the event log and its projection can never drift out of sync.
     pub async fn append(
         pool: &SqlitePool,
         input: AppendConversationEvent<'_>,
     ) -> Result<ConversationEventRecord, sqlx::Error> {
-        let record = ConversationEventRecord::append(pool, input).await?;
-        ConversationStateApplier::apply_record(pool, &record).await?;
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+        match Self::append_and_apply(&mut conn, input).await {
+            Ok(record) => {
+                if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err(error);
+                }
+                Ok(record)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn append_and_apply(
+        conn: &mut SqliteConnection,
+        input: AppendConversationEvent<'_>,
+    ) -> Result<ConversationEventRecord, sqlx::Error> {
+        // Idempotency is checked inside the IMMEDIATE transaction so it is serialized
+        // with concurrent appends. A duplicate's side-effects were already applied at
+        // first insert, so return it without re-applying (avoids double inserts).
+        if let Some(existing) =
+            find_conversation_event_by_idempotency(conn, input.conversation_id, input.idempotency_key)
+                .await?
+        {
+            return Ok(existing);
+        }
+
+        let record = insert_conversation_event(conn, input).await?;
+        ConversationStateApplier::apply_record(conn, &record).await?;
+        ConversationProjector::refresh_snapshot_on_settle(conn, &record).await?;
         Ok(record)
     }
 }
@@ -37,8 +80,12 @@ impl ConversationEventAppender {
 pub struct ConversationStateApplier;
 
 impl ConversationStateApplier {
+    /// Apply one event's side-effects to the derived projection tables.
+    ///
+    /// Takes a `&mut SqliteConnection` (not a pool) so it participates in the caller's
+    /// transaction — either the append transaction or a projection rebuild.
     pub async fn apply_record(
-        pool: &SqlitePool,
+        conn: &mut SqliteConnection,
         record: &ConversationEventRecord,
     ) -> Result<(), sqlx::Error> {
         let event = conversation_event_from_record(record)?;
@@ -46,23 +93,23 @@ impl ConversationStateApplier {
         match event {
             ConversationEvent::UserTurnQueued => {
                 if let Some(turn_id) = record.turn_id {
-                    ConversationTurnRecord::mark_queued(pool, turn_id).await?;
+                    ConversationTurnRecord::mark_queued(&mut *conn, turn_id).await?;
                 }
             }
             ConversationEvent::UserTurnStarted => {
                 if let Some(turn_id) = record.turn_id {
-                    ConversationTurnRecord::mark_running(pool, turn_id).await?;
+                    ConversationTurnRecord::mark_running(&mut *conn, turn_id).await?;
                 }
             }
             ConversationEvent::TurnBlocked { .. } => {
                 if let Some(turn_id) = record.turn_id {
-                    ConversationTurnRecord::mark_blocked(pool, turn_id).await?;
+                    ConversationTurnRecord::mark_blocked(&mut *conn, turn_id).await?;
                 }
             }
             ConversationEvent::TurnCompleted { stop_reason } => {
                 if let Some(turn_id) = record.turn_id {
                     ConversationTurnRecord::mark_completed(
-                        pool,
+                        &mut *conn,
                         turn_id,
                         stop_reason.as_deref(),
                         None,
@@ -74,15 +121,19 @@ impl ConversationStateApplier {
             ConversationEvent::TurnFailed { error } => {
                 if let Some(turn_id) = record.turn_id {
                     let error_json = json_string(&error)?;
-                    ConversationTurnRecord::mark_failed(pool, turn_id, &error_json).await?;
+                    ConversationTurnRecord::mark_failed(&mut *conn, turn_id, &error_json).await?;
                 }
             }
             ConversationEvent::TurnCancelled { reason } => {
                 if let Some(turn_id) = record.turn_id {
                     let reason_json =
                         reason.map(|message| serde_json::json!({ "message": message }).to_string());
-                    ConversationTurnRecord::mark_cancelled(pool, turn_id, reason_json.as_deref())
-                        .await?;
+                    ConversationTurnRecord::mark_cancelled(
+                        &mut *conn,
+                        turn_id,
+                        reason_json.as_deref(),
+                    )
+                    .await?;
                 }
             }
             ConversationEvent::ToolCallUpsert { tool_call } => {
@@ -98,7 +149,7 @@ impl ConversationStateApplier {
                         Some(json_string(&tool_call.images)?)
                     };
                     ConversationToolCallRecord::upsert(
-                        pool,
+                        &mut *conn,
                         UpsertConversationToolCall {
                             id: Uuid::new_v4(),
                             conversation_id: record.conversation_id,
@@ -129,7 +180,7 @@ impl ConversationStateApplier {
                         .unwrap_or_else(|| "{}".to_string());
                     let options_json = json_string(&request.request.options)?;
                     ConversationPermissionRecord::upsert_pending(
-                        pool,
+                        &mut *conn,
                         UpsertConversationPermission {
                             id: Uuid::new_v4(),
                             conversation_id: record.conversation_id,
@@ -150,7 +201,7 @@ impl ConversationStateApplier {
             } => {
                 let response_json = json_string(&response)?;
                 ConversationPermissionRecord::respond(
-                    pool,
+                    &mut *conn,
                     record.conversation_id,
                     &permission_id,
                     &response_json,
@@ -162,7 +213,7 @@ impl ConversationStateApplier {
                     let args_json = json_string(&terminal.args)?;
                     let exit_status_json = json_string_ref(&terminal.exit_status)?;
                     ConversationTerminalRecord::upsert(
-                        pool,
+                        &mut *conn,
                         UpsertConversationTerminal {
                             id: Uuid::new_v4(),
                             conversation_id: record.conversation_id,
@@ -184,7 +235,7 @@ impl ConversationStateApplier {
                 if let Some(turn_id) = record.turn_id {
                     for file in summary.files {
                         ConversationFileChangeRecord::insert(
-                            pool,
+                            &mut *conn,
                             InsertConversationFileChange {
                                 id: Uuid::new_v4(),
                                 conversation_id: record.conversation_id,
@@ -212,225 +263,465 @@ impl ConversationStateApplier {
 pub struct ConversationProjector;
 
 impl ConversationProjector {
+    /// Project a conversation timeline, resuming from the materialized snapshot.
+    ///
+    /// Loads the snapshot fold (when its projection version matches) and replays only
+    /// the tail (`events_since(last_sequence)`) instead of the whole event log — the
+    /// root-cause fix for the read amplification in 架构报告 A-3 / 代码报告 §5.1.
     pub async fn project(
         pool: &SqlitePool,
         conversation_id: Uuid,
     ) -> Result<ConversationTimeline, sqlx::Error> {
-        let events =
-            ConversationEventRecord::events_since(pool, conversation_id, 0, i64::MAX).await?;
-        Self::project_records(conversation_id, &events)
+        let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
+        let tail = ConversationEventRecord::events_since(
+            pool,
+            conversation_id,
+            fold.last_sequence,
+            i64::MAX,
+        )
+        .await?;
+        for record in &tail {
+            fold.apply(record)?;
+        }
+        Ok(fold.into_timeline(conversation_id))
     }
 
+    /// Fold a fixed slice of records into a timeline (no snapshot). Used by import
+    /// paths and tests that already hold the events.
     pub fn project_records(
         conversation_id: Uuid,
         records: &[ConversationEventRecord],
     ) -> Result<ConversationTimeline, sqlx::Error> {
-        let mut turns: BTreeMap<Uuid, ProjectedTurn> = BTreeMap::new();
-        let mut turn_order: Vec<Uuid> = Vec::new();
-        let mut side_rows: Vec<ConversationTimelineRow> = Vec::new();
-        let mut last_sequence = 0;
-
+        let mut fold = ProjectionFold::default();
         for record in records {
-            last_sequence = last_sequence.max(record.sequence);
-            let event = conversation_event_from_record(record)?;
+            fold.apply(record)?;
+        }
+        Ok(fold.into_timeline(conversation_id))
+    }
 
-            match event {
-                ConversationEvent::UserTurnCreated { blocks } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        let turn = turns.get_mut(&turn_id).expect("turn exists");
-                        turn.user.blocks = blocks
-                            .into_iter()
-                            .filter_map(|block| match block {
-                                agents::conversation::ConversationInputBlock::Text { text } => {
-                                    Some(ContentBlock::Text { text })
-                                }
-                                agents::conversation::ConversationInputBlock::Image {
-                                    uri,
-                                    mime_type,
-                                    ..
-                                } => Some(ContentBlock::Image {
-                                    data: String::new(),
-                                    mime_type,
-                                    uri: Some(uri),
-                                }),
-                                agents::conversation::ConversationInputBlock::Resource {
-                                    ..
-                                } => None,
-                            })
-                            .collect();
-                    }
+    /// Load the snapshot fold for a conversation, or an empty fold when there is no
+    /// usable snapshot (missing, or a stale projection version that must be rebuilt).
+    async fn load_fold_from_snapshot<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+    ) -> Result<ProjectionFold, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        match ConversationProjectionSnapshotRecord::find(executor, conversation_id).await? {
+            Some(snapshot)
+                if snapshot.projection_version == CONVERSATION_PROJECTION_VERSION as i64 =>
+            {
+                let state: ProjectionSnapshotState =
+                    serde_json::from_str(&snapshot.fold_json).map_err(json_decode_error)?;
+                Ok(ProjectionFold::from_snapshot_state(state))
+            }
+            _ => Ok(ProjectionFold::default()),
+        }
+    }
+
+    /// Refresh the materialized snapshot when a turn settles, inside the append
+    /// transaction. Loads the prior snapshot and folds only this turn's tail, so the
+    /// cost is bounded by the turn rather than the whole conversation.
+    pub(super) async fn refresh_snapshot_on_settle(
+        conn: &mut SqliteConnection,
+        record: &ConversationEventRecord,
+    ) -> Result<(), sqlx::Error> {
+        if !matches!(
+            record.event_kind.as_str(),
+            "turn_completed" | "turn_failed" | "turn_cancelled"
+        ) {
+            return Ok(());
+        }
+
+        let conversation_id = record.conversation_id;
+        let mut fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
+        let tail = ConversationEventRecord::events_since(
+            &mut *conn,
+            conversation_id,
+            fold.last_sequence,
+            i64::MAX,
+        )
+        .await?;
+        for record in &tail {
+            fold.apply(record)?;
+        }
+        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await
+    }
+
+    /// Authoritatively rebuild the derived projection tables and the snapshot from the
+    /// event log, in a single transaction. Use on a projection-version bump or to
+    /// repair a detected inconsistency (架构报告 A-3 `rebuild_projection`).
+    pub async fn rebuild_projection(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+        match Self::rebuild_on_connection(&mut conn, conversation_id).await {
+            Ok(()) => {
+                if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err(error);
                 }
-                ConversationEvent::AssistantTextDelta { text, .. } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        let turn = turns.get_mut(&turn_id).expect("turn exists");
-                        append_text_block(&mut turn.assistant.blocks, text);
-                    }
-                }
-                ConversationEvent::AssistantReasoningDelta { text, .. } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        let turn = turns.get_mut(&turn_id).expect("turn exists");
-                        append_thinking_block(&mut turn.assistant.blocks, text);
-                    }
-                }
-                ConversationEvent::PlanUpdated { entries } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        let turn = turns.get_mut(&turn_id).expect("turn exists");
-                        turn.assistant.blocks.push(ContentBlock::Plan {
-                            entries: entries
-                                .into_iter()
-                                .map(|entry| PlanEntry {
-                                    content: entry.content,
-                                    status: entry.status,
-                                    priority: entry.priority,
-                                })
-                                .collect(),
-                        });
-                    }
-                }
-                ConversationEvent::ToolCallUpsert { tool_call } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        let turn = turns.get_mut(&turn_id).expect("turn exists");
-                        turn.assistant.blocks.push(ContentBlock::ToolUse {
-                            tool_use_id: Some(tool_call.tool_call_id.clone()),
-                            tool_name: tool_call
-                                .title
-                                .or(tool_call.kind)
-                                .unwrap_or(tool_call.tool_call_id),
-                            input_preview: tool_call.raw_input.map(|value| value.to_string()),
-                            meta: tool_call.metadata,
-                        });
-                        if let Some(output) = tool_call.raw_output {
-                            turn.assistant.blocks.push(ContentBlock::ToolResult {
-                                tool_use_id: None,
-                                output_preview: Some(output.to_string()),
-                                is_error: matches!(tool_call.status.as_deref(), Some("failed")),
-                                agent_stats: None,
-                            });
-                        }
-                    }
-                }
-                ConversationEvent::UsageUpdated { usage } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        let turn = turns.get_mut(&turn_id).expect("turn exists");
-                        turn.assistant.usage = Some(TurnUsage {
-                            input_tokens: usage.input_tokens,
-                            output_tokens: usage.output_tokens,
-                            cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                            cache_read_input_tokens: usage.cache_read_input_tokens,
-                            context_window_max: usage.context_window_max,
-                        });
-                    }
-                }
-                ConversationEvent::TurnCompleted { .. } => {
-                    if let Some(turn_id) = record.turn_id {
-                        ensure_turn(&mut turns, &mut turn_order, turn_id, record);
-                        turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
-                    }
-                }
-                ConversationEvent::PermissionRequested { request } => {
-                    side_rows.push(ConversationTimelineRow::PermissionRequest {
-                        request: ConversationPermissionView {
-                            permission_id: request.permission_id,
-                            title: Some(request.request.title),
-                            status: "pending".into(),
-                        },
-                    });
-                }
-                ConversationEvent::QuestionRequested { request } => {
-                    side_rows.push(ConversationTimelineRow::QuestionRequest { request });
-                }
-                ConversationEvent::FeedbackRequested { request } => {
-                    side_rows.push(ConversationTimelineRow::FeedbackRequest { request });
-                }
-                ConversationEvent::TerminalUpdated { terminal } => {
-                    side_rows.push(ConversationTimelineRow::TerminalSummary {
-                        terminal: ConversationTerminalView {
-                            terminal_id: terminal.terminal_id,
-                            command: terminal.command,
-                            status: terminal.status,
-                            output_summary: terminal.output_summary,
-                            output_truncated: terminal.output_truncated,
-                        },
-                    });
-                }
-                ConversationEvent::DelegationStarted { delegation } => {
-                    side_rows.push(ConversationTimelineRow::Delegation {
-                        delegation: ConversationDelegationView {
-                            delegation_id: delegation.delegation_id,
-                            parent_tool_call_id: Some(delegation.parent_tool_call_id),
-                            child_conversation_id: Some(delegation.child_conversation_id),
-                            agent_type: Some(delegation.agent_type),
-                            task_preview: Some(delegation.task_preview),
-                            status: "running".into(),
-                            result: None,
-                        },
-                    });
-                }
-                ConversationEvent::DelegationCompleted {
-                    delegation_id,
-                    result,
-                } => {
-                    side_rows.push(ConversationTimelineRow::Delegation {
-                        delegation: ConversationDelegationView {
-                            delegation_id,
-                            parent_tool_call_id: None,
-                            child_conversation_id: None,
-                            agent_type: None,
-                            task_preview: None,
-                            status: "completed".into(),
-                            result: Some(result),
-                        },
-                    });
-                }
-                ConversationEvent::FileChangeSummaryUpdated { summary } => {
-                    side_rows.push(ConversationTimelineRow::FileChangeSummary { summary });
-                }
-                ConversationEvent::TurnFailed { error } => {
-                    side_rows.push(ConversationTimelineRow::TurnError {
-                        error: ConversationErrorView {
-                            turn_id: record.turn_id,
-                            error,
-                        },
-                    });
-                }
-                ConversationEvent::AgentBindingLoadFailed { reason } => {
-                    side_rows.push(ConversationTimelineRow::SessionNotice {
-                        notice: ConversationSessionNotice {
-                            title: "Agent session load failed".into(),
-                            message: Some(format!("{reason:?}")),
-                            severity: "warning".into(),
-                        },
-                    });
-                }
-                ConversationEvent::AgentBindingRecoveryFailed { reason } => {
-                    side_rows.push(ConversationTimelineRow::SessionNotice {
-                        notice: ConversationSessionNotice {
-                            title: "Agent session recovery failed".into(),
-                            message: Some(reason),
-                            severity: "error".into(),
-                        },
-                    });
-                }
-                ConversationEvent::SessionConfigStale { stale, reason } => {
-                    if stale {
-                        side_rows.push(ConversationTimelineRow::SessionNotice {
-                            notice: ConversationSessionNotice {
-                                title: "Agent configuration changed".into(),
-                                message: reason,
-                                severity: "info".into(),
-                            },
-                        });
-                    }
-                }
-                _ => {}
+                Ok(())
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
             }
         }
+    }
+
+    async fn rebuild_on_connection(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        // Clear the purely event-derived projection rows. Turn rows are kept (they
+        // carry the user's input from create_pending); their status is re-derived by
+        // replaying the status events below.
+        for table in [
+            "conversation_tool_calls",
+            "conversation_permissions",
+            "conversation_terminals",
+            "conversation_file_changes",
+        ] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE conversation_id = ?"))
+                .bind(conversation_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+
+        let events =
+            ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
+        let mut fold = ProjectionFold::default();
+        for record in &events {
+            ConversationStateApplier::apply_record(&mut *conn, record).await?;
+            fold.apply(record)?;
+        }
+        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await
+    }
+
+    async fn persist_snapshot<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        fold: &ProjectionFold,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let fold_json =
+            serde_json::to_string(&fold.to_snapshot_state()).map_err(json_decode_error)?;
+        ConversationProjectionSnapshotRecord::upsert(
+            executor,
+            conversation_id,
+            CONVERSATION_PROJECTION_VERSION as i64,
+            fold.last_sequence,
+            &fold_json,
+        )
+        .await
+    }
+}
+
+/// Mutable accumulator that folds events into a conversation timeline. Persisted to
+/// the snapshot table via [`ProjectionSnapshotState`] so reads can resume from it.
+#[derive(Default)]
+struct ProjectionFold {
+    turns: BTreeMap<Uuid, ProjectedTurn>,
+    turn_order: Vec<Uuid>,
+    side_rows: Vec<ConversationTimelineRow>,
+    last_sequence: i64,
+}
+
+/// Serializable form of [`ProjectionFold`] (turns kept in order, no map keys → portable JSON).
+#[derive(Default, Serialize, Deserialize)]
+struct ProjectionSnapshotState {
+    turns: Vec<ProjectedTurn>,
+    side_rows: Vec<ConversationTimelineRow>,
+    last_sequence: i64,
+}
+
+impl ProjectionFold {
+    fn from_snapshot_state(state: ProjectionSnapshotState) -> Self {
+        let mut fold = ProjectionFold {
+            last_sequence: state.last_sequence,
+            side_rows: state.side_rows,
+            ..ProjectionFold::default()
+        };
+        for turn in state.turns {
+            fold.turn_order.push(turn.turn_id);
+            fold.turns.insert(turn.turn_id, turn);
+        }
+        fold
+    }
+
+    fn to_snapshot_state(&self) -> ProjectionSnapshotState {
+        let turns = self
+            .turn_order
+            .iter()
+            .filter_map(|turn_id| self.turns.get(turn_id).cloned())
+            .collect();
+        ProjectionSnapshotState {
+            turns,
+            side_rows: self.side_rows.clone(),
+            last_sequence: self.last_sequence,
+        }
+    }
+
+    fn apply(&mut self, record: &ConversationEventRecord) -> Result<(), sqlx::Error> {
+        self.last_sequence = self.last_sequence.max(record.sequence);
+        let event = conversation_event_from_record(record)?;
+
+        let turns = &mut self.turns;
+        let turn_order = &mut self.turn_order;
+        let side_rows = &mut self.side_rows;
+
+        match event {
+            ConversationEvent::UserTurnCreated { blocks } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.user.blocks = blocks
+                        .into_iter()
+                        .filter_map(|block| match block {
+                            agents::conversation::ConversationInputBlock::Text { text } => {
+                                Some(ContentBlock::Text { text })
+                            }
+                            agents::conversation::ConversationInputBlock::Image {
+                                uri,
+                                mime_type,
+                                ..
+                            } => Some(ContentBlock::Image {
+                                data: String::new(),
+                                mime_type,
+                                uri: Some(uri),
+                            }),
+                            agents::conversation::ConversationInputBlock::Resource { .. } => None,
+                        })
+                        .collect();
+                }
+            }
+            ConversationEvent::AssistantTextDelta { text, .. } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    append_text_block(&mut turn.assistant.blocks, text);
+                }
+            }
+            ConversationEvent::AssistantReasoningDelta { text, .. } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    append_thinking_block(&mut turn.assistant.blocks, text);
+                }
+            }
+            ConversationEvent::PlanUpdated { entries } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.assistant.blocks.push(ContentBlock::Plan {
+                        entries: entries
+                            .into_iter()
+                            .map(|entry| PlanEntry {
+                                content: entry.content,
+                                status: entry.status,
+                                priority: entry.priority,
+                            })
+                            .collect(),
+                    });
+                }
+            }
+            ConversationEvent::ToolCallUpsert { tool_call } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.assistant.blocks.push(ContentBlock::ToolUse {
+                        tool_use_id: Some(tool_call.tool_call_id.clone()),
+                        tool_name: tool_call
+                            .title
+                            .or(tool_call.kind)
+                            .unwrap_or(tool_call.tool_call_id),
+                        input_preview: tool_call.raw_input.map(|value| value.to_string()),
+                        meta: tool_call.metadata,
+                    });
+                    if let Some(output) = tool_call.raw_output {
+                        turn.assistant.blocks.push(ContentBlock::ToolResult {
+                            tool_use_id: None,
+                            output_preview: Some(output.to_string()),
+                            is_error: matches!(tool_call.status.as_deref(), Some("failed")),
+                            agent_stats: None,
+                        });
+                    }
+                }
+            }
+            ConversationEvent::UsageUpdated { usage } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.assistant.usage = Some(TurnUsage {
+                        input_tokens: usage.input_tokens,
+                        output_tokens: usage.output_tokens,
+                        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                        cache_read_input_tokens: usage.cache_read_input_tokens,
+                        context_window_max: usage.context_window_max,
+                    });
+                }
+            }
+            ConversationEvent::TurnCompleted { .. } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
+                }
+            }
+            ConversationEvent::PermissionRequested { request } => {
+                side_rows.push(ConversationTimelineRow::PermissionRequest {
+                    request: ConversationPermissionView {
+                        permission_id: request.permission_id,
+                        title: Some(request.request.title),
+                        status: "pending".into(),
+                    },
+                });
+            }
+            ConversationEvent::QuestionRequested { request } => {
+                side_rows.push(ConversationTimelineRow::QuestionRequest {
+                    request,
+                    response: None,
+                });
+            }
+            ConversationEvent::QuestionResponded {
+                question_id,
+                response,
+            } => {
+                // Fold the answer onto the pending question row so a rebuilt projection
+                // no longer shows answered questions as perpetually pending.
+                for row in side_rows.iter_mut() {
+                    if let ConversationTimelineRow::QuestionRequest {
+                        request,
+                        response: slot,
+                    } = row
+                        && request.question_id == question_id
+                    {
+                        *slot = Some(response);
+                        break;
+                    }
+                }
+            }
+            ConversationEvent::FeedbackRequested { request } => {
+                side_rows.push(ConversationTimelineRow::FeedbackRequest {
+                    request,
+                    response: None,
+                });
+            }
+            ConversationEvent::FeedbackSubmitted {
+                feedback_id,
+                response,
+            } => {
+                for row in side_rows.iter_mut() {
+                    if let ConversationTimelineRow::FeedbackRequest {
+                        request,
+                        response: slot,
+                    } = row
+                        && request.feedback_id == feedback_id
+                    {
+                        *slot = Some(response);
+                        break;
+                    }
+                }
+            }
+            ConversationEvent::TerminalUpdated { terminal } => {
+                side_rows.push(ConversationTimelineRow::TerminalSummary {
+                    terminal: ConversationTerminalView {
+                        terminal_id: terminal.terminal_id,
+                        command: terminal.command,
+                        status: terminal.status,
+                        output_summary: terminal.output_summary,
+                        output_truncated: terminal.output_truncated,
+                    },
+                });
+            }
+            ConversationEvent::DelegationStarted { delegation } => {
+                side_rows.push(ConversationTimelineRow::Delegation {
+                    delegation: ConversationDelegationView {
+                        delegation_id: delegation.delegation_id,
+                        parent_tool_call_id: Some(delegation.parent_tool_call_id),
+                        child_conversation_id: Some(delegation.child_conversation_id),
+                        agent_type: Some(delegation.agent_type),
+                        task_preview: Some(delegation.task_preview),
+                        status: "running".into(),
+                        result: None,
+                    },
+                });
+            }
+            ConversationEvent::DelegationCompleted {
+                delegation_id,
+                result,
+            } => {
+                side_rows.push(ConversationTimelineRow::Delegation {
+                    delegation: ConversationDelegationView {
+                        delegation_id,
+                        parent_tool_call_id: None,
+                        child_conversation_id: None,
+                        agent_type: None,
+                        task_preview: None,
+                        status: "completed".into(),
+                        result: Some(result),
+                    },
+                });
+            }
+            ConversationEvent::FileChangeSummaryUpdated { summary } => {
+                side_rows.push(ConversationTimelineRow::FileChangeSummary { summary });
+            }
+            ConversationEvent::TurnFailed { error } => {
+                side_rows.push(ConversationTimelineRow::TurnError {
+                    error: ConversationErrorView {
+                        turn_id: record.turn_id,
+                        error,
+                    },
+                });
+            }
+            ConversationEvent::AgentBindingLoadFailed { reason } => {
+                side_rows.push(ConversationTimelineRow::SessionNotice {
+                    notice: ConversationSessionNotice {
+                        title: "Agent session load failed".into(),
+                        message: Some(format!("{reason:?}")),
+                        severity: "warning".into(),
+                    },
+                });
+            }
+            ConversationEvent::AgentBindingRecoveryFailed { reason } => {
+                side_rows.push(ConversationTimelineRow::SessionNotice {
+                    notice: ConversationSessionNotice {
+                        title: "Agent session recovery failed".into(),
+                        message: Some(reason),
+                        severity: "error".into(),
+                    },
+                });
+            }
+            ConversationEvent::SessionConfigStale { stale, reason } => {
+                if stale {
+                    side_rows.push(ConversationTimelineRow::SessionNotice {
+                        notice: ConversationSessionNotice {
+                            title: "Agent configuration changed".into(),
+                            message: reason,
+                            severity: "info".into(),
+                        },
+                    });
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn into_timeline(self, conversation_id: Uuid) -> ConversationTimeline {
+        let ProjectionFold {
+            mut turns,
+            turn_order,
+            side_rows,
+            last_sequence,
+        } = self;
 
         let mut rows = Vec::new();
         for turn_id in turn_order {
@@ -449,16 +740,18 @@ impl ConversationProjector {
         }
         rows.extend(side_rows);
 
-        Ok(ConversationTimeline {
+        ConversationTimeline {
             conversation_id,
             projection_version: CONVERSATION_PROJECTION_VERSION,
             last_sequence,
             rows,
-        })
+        }
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 struct ProjectedTurn {
+    turn_id: Uuid,
     user: MessageTurn,
     assistant: MessageTurn,
     phase: String,
@@ -478,6 +771,7 @@ fn ensure_turn(
     turns.insert(
         turn_id,
         ProjectedTurn {
+            turn_id,
             user: MessageTurn {
                 id: format!("{turn_id}:user"),
                 role: TurnRole::User,
@@ -546,10 +840,10 @@ mod tests {
         AgentPermissionRequest, AgentPermissionResponse, AgentSessionId, AgentType,
         conversation::{
             ConversationDelegation, ConversationDelegationResult, ConversationError,
-            ConversationFeedbackRequest, ConversationFileChange, ConversationFileChangeSummary,
-            ConversationInputBlock, ConversationPermissionRequest, ConversationPermissionResponse,
-            ConversationQuestionRequest, ConversationTerminalPatch, ConversationToolCallPatch,
-            ConversationUsage,
+            ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
+            ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionRequest,
+            ConversationPermissionResponse, ConversationQuestionRequest, ConversationQuestionResponse,
+            ConversationTerminalPatch, ConversationToolCallPatch, ConversationUsage,
         },
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -645,8 +939,9 @@ mod tests {
     #[tokio::test]
     async fn conversation_state_applier_rejects_invalid_event_json() {
         let pool = setup_pool().await;
+        let mut conn = pool.acquire().await.expect("acquire connection");
         let error = ConversationStateApplier::apply_record(
-            &pool,
+            &mut conn,
             &ConversationEventRecord {
                 id: Uuid::new_v4(),
                 conversation_id: Uuid::new_v4(),
@@ -1221,6 +1516,320 @@ mod tests {
                 .rows
                 .iter()
                 .any(|row| matches!(row, ConversationTimelineRow::TurnError { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn rebuild_projection_matches_incremental_and_repopulates_tables() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "hello".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "tool-1".into(),
+                    title: Some("Edit".into()),
+                    kind: Some("edit".into()),
+                    status: Some("completed".into()),
+                    raw_input: Some(serde_json::json!({"path":"a.rs"})),
+                    raw_output: Some(serde_json::json!({"ok":true})),
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".into()),
+            },
+            None,
+        )
+        .await;
+
+        // The snapshot path (materialized on the TurnCompleted settle) must equal a
+        // pure full fold of the same events.
+        let incremental = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project via snapshot");
+        let all_events = ConversationEventRecord::events_since(&pool, conversation_id, 0, i64::MAX)
+            .await
+            .expect("events");
+        let pure = ConversationProjector::project_records(conversation_id, &all_events)
+            .expect("pure fold");
+        assert_eq!(incremental, pure, "snapshot+tail must equal pure fold");
+
+        let tools_before =
+            super::super::conversation_tool::ConversationToolCallRecord::list_for_conversation(
+                &pool,
+                conversation_id,
+            )
+            .await
+            .expect("tools")
+            .len();
+        assert_eq!(tools_before, 1);
+
+        // Authoritative rebuild from the event log must reproduce both the timeline
+        // and the derived projection tables (without duplicating rows).
+        ConversationProjector::rebuild_projection(&pool, conversation_id)
+            .await
+            .expect("rebuild");
+        let rebuilt = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project after rebuild");
+        assert_eq!(rebuilt, pure, "rebuilt projection must equal pure fold");
+
+        let tools_after =
+            super::super::conversation_tool::ConversationToolCallRecord::list_for_conversation(
+                &pool,
+                conversation_id,
+            )
+            .await
+            .expect("tools")
+            .len();
+        assert_eq!(
+            tools_after, 1,
+            "rebuild must repopulate (not duplicate) derived tables"
+        );
+    }
+
+    #[tokio::test]
+    async fn append_rolls_back_event_when_apply_fails() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        // Inserts fine but cannot parse as a ConversationEvent, so apply_record errors
+        // and the single append transaction must roll back — no orphaned event row.
+        let result = ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "runtime",
+                event_kind: "bogus",
+                normalized_json: r#"{"kind":"not_a_conversation_event"}"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await;
+        assert!(result.is_err(), "append must fail when projection apply fails");
+
+        let events = ConversationEventRecord::events_since(&pool, conversation_id, 0, i64::MAX)
+            .await
+            .expect("events");
+        assert!(
+            events.is_empty(),
+            "failed append must not leave an orphaned event row"
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_is_materialized_only_on_turn_settle() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "ok".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        assert!(
+            super::super::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
+                &pool,
+                conversation_id,
+            )
+            .await
+            .expect("find snapshot")
+            .is_none(),
+            "no snapshot before the turn settles"
+        );
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".into()),
+            },
+            None,
+        )
+        .await;
+        let snapshot =
+            super::super::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
+                &pool,
+                conversation_id,
+            )
+            .await
+            .expect("find snapshot")
+            .expect("snapshot exists after settle");
+        assert_eq!(snapshot.last_sequence, 3);
+        assert_eq!(
+            snapshot.projection_version,
+            CONVERSATION_PROJECTION_VERSION as i64
+        );
+    }
+
+    #[tokio::test]
+    async fn question_and_feedback_responses_fold_onto_rows() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::QuestionRequested {
+                request: ConversationQuestionRequest {
+                    question_id: "q1".into(),
+                    prompt: "Pick".into(),
+                    options: vec!["A".into(), "B".into()],
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::QuestionResponded {
+                question_id: "q1".into(),
+                response: ConversationQuestionResponse {
+                    answer: "A".into(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::FeedbackRequested {
+                request: ConversationFeedbackRequest {
+                    feedback_id: "f1".into(),
+                    prompt: "Rate".into(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::FeedbackSubmitted {
+                feedback_id: "f1".into(),
+                response: ConversationFeedbackResponse {
+                    rating: "up".into(),
+                    comment: None,
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project");
+        let question_answered = timeline.rows.iter().any(|row| {
+            matches!(
+                row,
+                ConversationTimelineRow::QuestionRequest { response: Some(answer), .. }
+                    if answer.answer == "A"
+            )
+        });
+        assert!(
+            question_answered,
+            "answered question must carry its response after the fold"
+        );
+        let feedback_answered = timeline.rows.iter().any(|row| {
+            matches!(
+                row,
+                ConversationTimelineRow::FeedbackRequest { response: Some(resp), .. }
+                    if resp.rating == "up"
+            )
+        });
+        assert!(
+            feedback_answered,
+            "submitted feedback must carry its response after the fold"
         );
     }
 }

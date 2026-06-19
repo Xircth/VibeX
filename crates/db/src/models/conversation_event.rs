@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
+use sqlx::{Executor, FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -81,12 +81,20 @@ impl ConversationEventRecord {
         Ok(record)
     }
 
-    pub async fn events_since(
-        pool: &SqlitePool,
+    /// Read events after a sequence cursor.
+    ///
+    /// Generic over the executor so the projection rebuild / snapshot refresh can read
+    /// the tail inside the append transaction (seeing its own uncommitted writes),
+    /// while the read path keeps passing a pool.
+    pub async fn events_since<'e, E>(
+        executor: E,
         conversation_id: Uuid,
         after_sequence: i64,
         limit: i64,
-    ) -> Result<Vec<Self>, sqlx::Error> {
+    ) -> Result<Vec<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
         sqlx::query_as::<_, Self>(&format!(
             r#"SELECT {EVENT_COLUMNS}
                FROM conversation_events
@@ -97,7 +105,7 @@ impl ConversationEventRecord {
         .bind(conversation_id)
         .bind(after_sequence)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
     }
 }
@@ -133,20 +141,49 @@ async fn append_conversation_event_on_connection(
     conn: &mut SqliteConnection,
     input: AppendConversationEvent<'_>,
 ) -> Result<ConversationEventRecord, sqlx::Error> {
-    if let Some(idempotency_key) = input.idempotency_key
-        && let Some(existing) = sqlx::query_as::<_, ConversationEventRecord>(&format!(
-            r#"SELECT {EVENT_COLUMNS}
-               FROM conversation_events
-               WHERE conversation_id = ? AND idempotency_key = ?"#
-        ))
-        .bind(input.conversation_id)
-        .bind(idempotency_key)
-        .fetch_optional(&mut *conn)
-        .await?
+    if let Some(existing) =
+        find_conversation_event_by_idempotency(conn, input.conversation_id, input.idempotency_key)
+            .await?
     {
         return Ok(existing);
     }
 
+    insert_conversation_event(conn, input).await
+}
+
+/// Look up an already-persisted event by idempotency key (within a connection/tx).
+///
+/// Returning the existing record lets the appender skip re-applying its projection
+/// side-effects on a duplicate — the side-effects were applied when the event was
+/// first inserted.
+pub(crate) async fn find_conversation_event_by_idempotency(
+    conn: &mut SqliteConnection,
+    conversation_id: Uuid,
+    idempotency_key: Option<&str>,
+) -> Result<Option<ConversationEventRecord>, sqlx::Error> {
+    let Some(idempotency_key) = idempotency_key else {
+        return Ok(None);
+    };
+
+    sqlx::query_as::<_, ConversationEventRecord>(&format!(
+        r#"SELECT {EVENT_COLUMNS}
+           FROM conversation_events
+           WHERE conversation_id = ? AND idempotency_key = ?"#
+    ))
+    .bind(conversation_id)
+    .bind(idempotency_key)
+    .fetch_optional(&mut *conn)
+    .await
+}
+
+/// Allocate the next sequence and insert a fresh event (no idempotency check).
+///
+/// Callers must run this inside a `BEGIN IMMEDIATE` transaction (and check
+/// idempotency first) so sequence allocation is serialized.
+pub(crate) async fn insert_conversation_event(
+    conn: &mut SqliteConnection,
+    input: AppendConversationEvent<'_>,
+) -> Result<ConversationEventRecord, sqlx::Error> {
     let sequence: i64 = sqlx::query_scalar(
         r#"SELECT COALESCE(MAX(sequence), 0) + 1
            FROM conversation_events

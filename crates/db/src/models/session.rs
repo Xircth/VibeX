@@ -41,8 +41,13 @@ pub struct Session {
     pub name: Option<String>,
     pub initial_prompt: Option<String>,
     pub status: SessionStatus,
+    /// Legacy executor key (架构报告 A-6), superseded by `agent_type`. Retained
+    /// read-mostly for the executor↔agent_type cutover; new ACP sessions are identified
+    /// by `agent_type`. Prefer `agent_type` for agent identity, bridging legacy values
+    /// through `agents::agent_type_from_executor_key` when needed.
     pub executor: Option<String>,
     pub external_session_id: Option<String>,
+    /// Canonical ACP agent identity (the executor↔agent_type successor to `executor`).
     pub agent_type: Option<String>,
     /// Multi-agent delegation linkage. All NULL for a regular (non-delegated)
     /// session: `parent_session_id` points at the parent that delegated this

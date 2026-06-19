@@ -1,5 +1,6 @@
 use tauri::{Emitter, Manager, image::Image};
 
+pub mod bridge;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;

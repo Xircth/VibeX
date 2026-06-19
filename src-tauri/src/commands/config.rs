@@ -5,7 +5,6 @@ use agents::{
     agent_type_from_executor_key,
 };
 use db::models::execution_process::ExecutionProcess;
-use deployment::Deployment;
 use executors::{executors::BaseCodingAgent, profile::ExecutorConfigs};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,28 +14,28 @@ use services::services::{
         editor::{EditorConfig, EditorType},
         save_config_to_file,
     },
-    container::ContainerService,
     worktree_manager::WorktreeManager,
 };
 use sqlx::Acquire;
 use tauri::Emitter;
 
-use crate::{error::AppError, state::AppState};
+use crate::{bridge::agent_type_from_executor, error::AppError, state::AppState};
 
 mod agent_native;
 mod claude_settings;
-mod mcp_market;
 mod mcp_servers;
-mod prompt_enhancement;
 
 pub use agent_native::{AgentNativeFile, AgentNativeFileWrite};
 pub use claude_settings::ClaudeSettings;
-pub use mcp_market::{
+pub use mcp_servers::GetMcpServerResponse;
+// MCP marketplace + prompt-enhancement logic now lives in `crates/services`
+// (架构报告 A-1); re-export the frontend-facing types so the command signatures
+// below stay unchanged.
+pub use services::services::mcp::{
     LocalMcpServer, McpAppType, McpMarketplaceInstallOption, McpMarketplaceInstallParameter,
     McpMarketplaceItem, McpMarketplaceProvider, McpMarketplaceServerDetail,
 };
-pub use mcp_servers::GetMcpServerResponse;
-pub use prompt_enhancement::{
+pub use services::services::prompt_enhancement::{
     OpencodeModelsResponse, PromptEnhancementContextMessage, PromptEnhancementRequest,
     PromptEnhancementResponse,
 };
@@ -65,12 +64,6 @@ impl Default for Environment {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn agent_type_from_executor(executor: BaseCodingAgent) -> Result<agents::AgentType, AppError> {
-    agent_type_from_executor_key(&executor.to_string()).ok_or_else(|| {
-        AppError::BadRequest(format!("{executor} does not have an ACP registry entry"))
-    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -388,14 +381,16 @@ pub async fn enhance_prompt(
     state: tauri::State<'_, AppState>,
     payload: PromptEnhancementRequest,
 ) -> Result<PromptEnhancementResponse, AppError> {
-    prompt_enhancement::enhance_prompt(state, payload).await
+    let config = state.deployment.config().read().await.clone();
+    Ok(services::services::prompt_enhancement::enhance_prompt(&config, payload).await?)
 }
 
 #[tauri::command]
 pub async fn list_opencode_models(
     state: tauri::State<'_, AppState>,
 ) -> Result<OpencodeModelsResponse, AppError> {
-    prompt_enhancement::list_opencode_models(state).await
+    let _ = state;
+    Ok(services::services::prompt_enhancement::list_opencode_models().await?)
 }
 
 #[tauri::command]
@@ -440,12 +435,12 @@ pub async fn write_agent_native_files(
 
 #[tauri::command]
 pub async fn mcp_scan_local() -> Result<Vec<LocalMcpServer>, AppError> {
-    mcp_market::scan_local().await
+    Ok(services::services::mcp::scan_local().await?)
 }
 
 #[tauri::command]
 pub async fn mcp_list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, AppError> {
-    mcp_market::list_marketplaces().await
+    Ok(services::services::mcp::list_marketplaces().await?)
 }
 
 #[tauri::command]
@@ -454,7 +449,7 @@ pub async fn mcp_search_marketplace(
     query: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<McpMarketplaceItem>, AppError> {
-    mcp_market::search_marketplace(provider_id, query, limit).await
+    Ok(services::services::mcp::search_marketplace(provider_id, query, limit).await?)
 }
 
 #[tauri::command]
@@ -462,7 +457,7 @@ pub async fn mcp_get_marketplace_server_detail(
     provider_id: String,
     server_id: String,
 ) -> Result<McpMarketplaceServerDetail, AppError> {
-    mcp_market::get_marketplace_server_detail(provider_id, server_id).await
+    Ok(services::services::mcp::get_marketplace_server_detail(provider_id, server_id).await?)
 }
 
 #[tauri::command]
@@ -475,7 +470,7 @@ pub async fn mcp_install_marketplace_server(
     parameter_values: Option<serde_json::Value>,
     spec_override: Option<serde_json::Value>,
 ) -> Result<Vec<LocalMcpServer>, AppError> {
-    mcp_market::install_marketplace_server(
+    Ok(services::services::mcp::install_marketplace_server(
         provider_id,
         server_id,
         global,
@@ -484,7 +479,7 @@ pub async fn mcp_install_marketplace_server(
         parameter_values,
         spec_override,
     )
-    .await
+    .await?)
 }
 
 #[tauri::command]
@@ -494,10 +489,10 @@ pub async fn mcp_upsert_local_server(
     global: bool,
     apps: Vec<McpAppType>,
 ) -> Result<Vec<LocalMcpServer>, AppError> {
-    mcp_market::upsert_local_server(server_id, spec, global, apps).await
+    Ok(services::services::mcp::upsert_local_server(server_id, spec, global, apps).await?)
 }
 
 #[tauri::command]
 pub async fn mcp_uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, AppError> {
-    mcp_market::uninstall_server(server_id).await
+    Ok(services::services::mcp::uninstall_server(server_id).await?)
 }

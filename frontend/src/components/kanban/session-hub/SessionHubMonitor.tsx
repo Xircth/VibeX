@@ -1,4 +1,4 @@
-import { PanelRightOpen, Rows2, X } from 'lucide-react';
+import { AlertCircle, PanelRightOpen, Rows2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -56,7 +56,10 @@ export function SessionHubMonitor({
                 key={session.id}
                 className={cn(
                   'flex min-h-0 flex-col overflow-hidden rounded-lg border p-3 transition-colors hover:bg-[var(--surface-control-hover)]',
-                  MONITOR_SLOT_STYLES[index]?.shell,
+                  // 会话报错时整卡切换为红色错误态边框，覆盖默认 Slot 配色，便于一眼定位出错的监控位。
+                  session.isErrored
+                    ? 'session-monitor-slot-error'
+                    : MONITOR_SLOT_STYLES[index]?.shell,
                   getMonitorItemClassName(monitorRecords.length, index)
                 )}
               >
@@ -69,6 +72,12 @@ export function SessionHubMonitor({
                       >
                         {session.fullName}
                       </div>
+                      {session.isErrored ? (
+                        <span className="session-monitor-error-badge inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none">
+                          <AlertCircle className="h-3 w-3" />
+                          失败
+                        </span>
+                      ) : null}
                       <span className="shrink-0 text-[11px] text-muted-foreground">
                         {formatTimeAgo(session.updatedAt)}
                       </span>

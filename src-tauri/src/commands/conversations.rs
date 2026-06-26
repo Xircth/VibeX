@@ -4,7 +4,8 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentPermissionResponse, AgentType, ImportedAgentMessageRole, ImportedAgentSession,
+    AgentPermissionResponse, AgentSessionConfigOverride, AgentType, ImportedAgentMessageRole,
+    ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationInputBlock,
@@ -100,6 +101,12 @@ pub struct ConversationStartTurnRequest {
     pub text: String,
     #[serde(default)]
     pub images: Vec<String>,
+    /// Composer-selected session mode (from the agent's advertised modes).
+    #[serde(default)]
+    pub mode_override: Option<String>,
+    /// Composer-selected config option overrides (advertised select options).
+    #[serde(default)]
+    pub config_overrides: Vec<AgentSessionConfigOverride>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +150,14 @@ pub struct ConversationCloseRequest {
     pub conversation_id: String,
     #[serde(default)]
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationTruncateToTurnRequest {
+    pub conversation_id: String,
+    /// The user-turn ordinal to reset to: this turn and everything after it is removed.
+    pub ordinal: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -331,6 +346,8 @@ pub async fn conversation_start_turn(
             executor_profile_id: request.executor_profile_id,
             text: request.text,
             images: request.images,
+            mode_override: request.mode_override,
+            config_overrides: request.config_overrides,
         })
         .await;
 
@@ -407,6 +424,18 @@ pub async fn conversation_cancel_turn(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     ConversationSessionService::new(&state)
         .cancel_turn(conversation_id, request.reason)
+        .await
+}
+
+#[tauri::command]
+pub async fn conversation_truncate_to_turn(
+    state: tauri::State<'_, AppState>,
+    request: ConversationTruncateToTurnRequest,
+) -> Result<(), AppError> {
+    let conversation_id = Uuid::parse_str(&request.conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(&state)
+        .truncate_to_turn(conversation_id, request.ordinal)
         .await
 }
 

@@ -20,6 +20,7 @@ import VirtualizedList, {
   type VirtualizedListRef,
 } from '@/components/logs/VirtualizedList';
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
+import { ActiveExecutorProfileProvider } from '@/contexts/ActiveExecutorProfileContext';
 import { EntriesProvider } from '@/contexts/EntriesContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
@@ -287,55 +288,57 @@ function KanbanSessionConversationContent({
         sessionId={activeSession?.id ?? attempt.session?.id}
       >
         <RetryUiProvider attemptId={attempt.id}>
-          <div className="flex h-full min-h-0 flex-col">
-            {shouldShowNewSessionPrompt ? (
-              <RightPanelNewSessionPrompt
-                className="flex-1"
-                onCreateSession={() => {
-                  onCreateSessionRequested?.();
-                }}
-              />
-            ) : (
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <VirtualizedList
-                  ref={logsRef}
-                  attempt={activeAttempt}
-                  task={null}
-                  onAtBottomChange={setIsAtConversationBottom}
+          <ActiveExecutorProfileProvider>
+            <div className="flex h-full min-h-0 flex-col">
+              {shouldShowNewSessionPrompt ? (
+                <RightPanelNewSessionPrompt
+                  className="flex-1"
+                  onCreateSession={() => {
+                    onCreateSessionRequested?.();
+                  }}
                 />
-              </div>
-            )}
-            {interactive &&
-            !shouldShowNewSessionPrompt &&
-            !isAtConversationBottom ? (
-              <div className="pointer-events-none relative z-20 h-0">
-                <button
-                  type="button"
-                  className="tahoe-popover pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full text-foreground/80 transition-colors hover:text-foreground"
-                  aria-label={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
-                  title={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
-                  onClick={() => logsRef.current?.scrollToBottom()}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
-            {interactive && !shouldShowNewSessionPrompt ? (
-              <TaskFollowUpSection
-                taskId={taskId}
-                session={activeSession}
-                workspaceId={attempt.id}
-                sessionState={sessionState}
-                showSessionSelector={showSessionSelector}
-                onSessionCreated={onSessionCreated}
-                onSessionSelected={onSessionSelected}
-                onCreateSessionRequested={onCreateSessionRequested}
-                onJumpToPreviousUserMessage={() =>
-                  logsRef.current?.scrollToPreviousUserMessage()
-                }
-              />
-            ) : null}
-          </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <VirtualizedList
+                    ref={logsRef}
+                    attempt={activeAttempt}
+                    task={null}
+                    onAtBottomChange={setIsAtConversationBottom}
+                  />
+                </div>
+              )}
+              {interactive &&
+              !shouldShowNewSessionPrompt &&
+              !isAtConversationBottom ? (
+                <div className="pointer-events-none relative z-20 h-0">
+                  <button
+                    type="button"
+                    className="tahoe-popover pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full text-foreground/80 transition-colors hover:text-foreground"
+                    aria-label={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
+                    title={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
+                    onClick={() => logsRef.current?.scrollToBottom()}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
+              {interactive && !shouldShowNewSessionPrompt ? (
+                <TaskFollowUpSection
+                  taskId={taskId}
+                  session={activeSession}
+                  workspaceId={attempt.id}
+                  sessionState={sessionState}
+                  showSessionSelector={showSessionSelector}
+                  onSessionCreated={onSessionCreated}
+                  onSessionSelected={onSessionSelected}
+                  onCreateSessionRequested={onCreateSessionRequested}
+                  onJumpToPreviousUserMessage={() =>
+                    logsRef.current?.scrollToPreviousUserMessage()
+                  }
+                />
+              ) : null}
+            </div>
+          </ActiveExecutorProfileProvider>
         </RetryUiProvider>
       </ExecutionProcessesProvider>
     </EntriesProvider>

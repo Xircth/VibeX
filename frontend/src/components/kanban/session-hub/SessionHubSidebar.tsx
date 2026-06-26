@@ -17,8 +17,10 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  AlertCircle,
   Archive,
   ArrowUpDown,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ListFilter,
@@ -186,6 +188,32 @@ function isNestedOverlayTarget(target: EventTarget | null) {
         '[aria-haspopup="listbox"]',
       ].join(', ')
     )
+  );
+}
+
+// 会话列表底部的操作结果提示（删除成功/失败等）。统一为带图标的浅色内联通知，
+// 替代此前的裸彩色文字，保证错误态有足够的视觉权重与可读性。
+function SessionListNotice({
+  variant,
+  children,
+}: {
+  variant: 'success' | 'error';
+  children: ReactNode;
+}) {
+  const Icon = variant === 'success' ? CheckCircle2 : AlertCircle;
+  return (
+    <div
+      role="status"
+      className={cn(
+        'flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] leading-4',
+        variant === 'success'
+          ? 'border-[hsl(var(--success)/0.32)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
+          : 'border-[hsl(var(--destructive)/0.32)] bg-[hsl(var(--destructive)/0.1)] text-[hsl(var(--destructive))]'
+      )}
+    >
+      <Icon className="mt-px h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 break-words">{children}</span>
+    </div>
   );
 }
 
@@ -917,20 +945,20 @@ export function SessionHubSidebar({
                 </div>
               </div>
               {deleteErrorMessage ? (
-                <p className="text-[11px] text-destructive">
+                <SessionListNotice variant="error">
                   {deleteErrorMessage}
-                </p>
+                </SessionListNotice>
               ) : null}
               {deleteSuccessMessage ? (
-                <p className="text-[11px] text-[hsl(var(--success))]">
+                <SessionListNotice variant="success">
                   {deleteSuccessMessage}
-                </p>
+                </SessionListNotice>
               ) : null}
             </div>
           ) : deleteSuccessMessage ? (
-            <p className="text-[11px] text-[hsl(var(--success))]">
+            <SessionListNotice variant="success">
               {deleteSuccessMessage}
-            </p>
+            </SessionListNotice>
           ) : null}
         </div>
 

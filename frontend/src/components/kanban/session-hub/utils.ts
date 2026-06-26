@@ -10,32 +10,18 @@ import {
 } from '@/lib/workspaceBranchOptions';
 import { dateTimestamp, formatRelativeTime } from '@/utils/date';
 
+// 监控区 Slot 配色（见 Kanban 会话看板升级设计）：Slot 1 蓝 / 2 紫 / 3 绿 / 4 橙。
+// `shell` 为监控卡片的着色边框 + 浅色背景，`bar` 为左侧会话列表卡片的色条。
 export const MONITOR_SLOT_STYLES = [
-  {
-    shell: 'kanban-usage-card',
-    badge: 'session-status-done-count',
-    bar: 'session-marker-primary',
-  },
-  {
-    shell: 'kanban-usage-card',
-    badge: 'session-status-inreview-count',
-    bar: 'session-marker-warning',
-  },
-  {
-    shell: 'kanban-usage-card',
-    badge: 'session-status-inprogress-count',
-    bar: 'session-marker-success',
-  },
-  {
-    shell: 'kanban-usage-card',
-    badge: 'session-status-todo-count',
-    bar: 'session-marker-danger',
-  },
+  { shell: 'session-monitor-slot-1', bar: 'session-marker-slot-1' },
+  { shell: 'session-monitor-slot-2', bar: 'session-marker-slot-2' },
+  { shell: 'session-monitor-slot-3', bar: 'session-marker-slot-3' },
+  { shell: 'session-monitor-slot-4', bar: 'session-marker-slot-4' },
 ] as const;
 
+// 执行区（右侧栏）会话在列表中使用浅红色条标记。
 export const RIGHT_PANEL_MARKER = {
-  bar: 'session-marker-primary',
-  badge: 'session-status-inreview-count',
+  bar: 'session-marker-execution',
 } as const;
 
 export const INFO_TEXT_CLASS = 'text-primary';
@@ -451,10 +437,7 @@ export function getSessionMarker(
   rightSession: { sessionId: string } | null
 ): SessionMarker | null {
   if (rightSession?.sessionId === sessionId) {
-    return {
-      bar: RIGHT_PANEL_MARKER.bar,
-      badge: RIGHT_PANEL_MARKER.badge,
-    };
+    return { bar: RIGHT_PANEL_MARKER.bar };
   }
 
   const index = monitorSessions.findIndex(

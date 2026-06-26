@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type {
   AgentPermissionResponse,
+  AgentSessionConfigOption,
   ConversationEventEnvelope,
   ConversationTimelineRow,
   MessageTurn,
@@ -12,10 +13,16 @@ import {
   emptyConversationStoreState,
   sideRowsForEntry,
   timelineTurnsForEntry,
+  type ConversationSessionModesState,
   type ConversationTimelineTurn,
 } from './conversationStore';
 
-const CONVERSATION_EVENT_FLUSH_MS = 16;
+// Stable empty references so consumers don't re-render on identity churn.
+const EMPTY_SESSION_MODES: ConversationSessionModesState = {
+  current: null,
+  modes: [],
+};
+const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 export type UseConversationTimelineResult = {
   timeline: ConversationTimelineTurn[];
@@ -23,9 +30,17 @@ export type UseConversationTimelineResult = {
   loading: boolean;
   error: string | null;
   lastSequence: bigint;
+  /** Agent-advertised session modes (+ current) for the composer's mode picker. */
+  sessionModes: ConversationSessionModesState;
+  /** Agent-advertised session config options for the composer. */
+  sessionConfigOptions: AgentSessionConfigOption[];
   sendOptimisticTurn: (turn: MessageTurn) => void;
   removeOptimisticTurn: (turnId: string) => void;
   refresh: () => void;
+  /** Hard-reset: drop in-memory rows + buffered live state, then re-project from the
+   *  (possibly truncated) durable log. Used by reset-to-here, where the server
+   *  rewrites history and live events restart from a lower sequence. */
+  resetAndReload: () => Promise<void>;
   cancel: (reason?: string) => Promise<void>;
   respondPermission: (
     permissionId: string,
@@ -42,14 +57,14 @@ export function useConversationTimeline(
   );
   const stateRef = useRef(state);
   const pendingEventsRef = useRef<ConversationEventEnvelope[]>([]);
-  const flushTimerRef = useRef<number | null>(null);
+  const flushFrameRef = useRef<number | null>(null);
   const queuedLastSequenceRef = useRef<bigint | null>(null);
   stateRef.current = state;
 
-  const loadDetail = useCallback(() => {
-    if (!conversationId) return;
+  const loadDetail = useCallback((): Promise<void> => {
+    if (!conversationId) return Promise.resolve();
     dispatch({ type: 'load_start', conversationId });
-    conversationApi
+    return conversationApi
       .detail(conversationId)
       .then((detail) => {
         if (!detail) {
@@ -71,6 +86,23 @@ export function useConversationTimeline(
       });
   }, [conversationId]);
 
+  const resetAndReload = useCallback((): Promise<void> => {
+    if (!conversationId) return Promise.resolve();
+    // Drop buffered/queued live state so post-truncation events (which restart from a
+    // lower sequence) aren't filtered as "already seen", then clear rows and re-project.
+    // Returns the load promise so callers can await the truncated timeline before
+    // re-sending (otherwise a load_success arriving after the resend's live events
+    // would be discarded by `keepRealtimeRows`, dropping the surviving turns).
+    if (flushFrameRef.current != null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
+    }
+    pendingEventsRef.current = [];
+    queuedLastSequenceRef.current = null;
+    dispatch({ type: 'reset', conversationId });
+    return loadDetail();
+  }, [conversationId, loadDetail]);
+
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
@@ -80,23 +112,24 @@ export function useConversationTimeline(
     let active = true;
     let unlisten: (() => void) | undefined;
 
-    const clearFlushTimer = () => {
-      if (flushTimerRef.current == null) return;
-      window.clearTimeout(flushTimerRef.current);
-      flushTimerRef.current = null;
+    const cancelFlush = () => {
+      if (flushFrameRef.current == null) return;
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
     };
 
+    // Apply everything buffered since the last paint in ONE dispatch. Coalescing
+    // per animation frame (instead of per event) keeps the streamed text smooth
+    // and frame-aligned while capping React commits at the display refresh rate —
+    // dispatching every delta individually feeds the virtualizer/stick-to-bottom
+    // layout effects fast enough to trip "Maximum update depth exceeded".
     const flushPendingEvents = () => {
+      flushFrameRef.current = null;
       if (!active) return;
       const events = pendingEventsRef.current;
-      if (events.length === 0) {
-        clearFlushTimer();
-        queuedLastSequenceRef.current = null;
-        return;
-      }
+      if (events.length === 0) return;
 
       pendingEventsRef.current = [];
-      clearFlushTimer();
       const orderedEvents = [...events].sort((left, right) => {
         const leftSequence = toBigInt(left.sequence);
         const rightSequence = toBigInt(right.sequence);
@@ -114,11 +147,8 @@ export function useConversationTimeline(
     };
 
     const scheduleFlush = () => {
-      if (flushTimerRef.current != null) return;
-      flushTimerRef.current = window.setTimeout(
-        flushPendingEvents,
-        CONVERSATION_EVENT_FLUSH_MS
-      );
+      if (flushFrameRef.current != null) return;
+      flushFrameRef.current = requestAnimationFrame(flushPendingEvents);
     };
 
     listenToConversationEvents((event) => {
@@ -130,7 +160,11 @@ export function useConversationTimeline(
       const effectiveLast =
         queuedLast != null && queuedLast > current ? queuedLast : current;
 
+      // A sequence jumped past what we have — backfill the hole over REST, then
+      // resume the live stream from there.
       if (sequence > effectiveLast + 1n) {
+        cancelFlush();
+        pendingEventsRef.current = [];
         conversationApi
           .eventsSince({
             conversationId,
@@ -140,36 +174,27 @@ export function useConversationTimeline(
           .then((page) => {
             if (!active) return;
             if (page.events.length === 0) {
-              pendingEventsRef.current = [];
-              clearFlushTimer();
               queuedLastSequenceRef.current = null;
               loadDetail();
               return;
             }
-            pendingEventsRef.current = [];
-            clearFlushTimer();
             queuedLastSequenceRef.current = toBigInt(page.last_sequence);
             dispatch({ type: 'events', conversationId, events: page.events });
           })
           .catch(() => {
-            pendingEventsRef.current = [];
-            clearFlushTimer();
             queuedLastSequenceRef.current = null;
             loadDetail();
           });
         return;
       }
 
-      if (
-        sequence <= current ||
-        (queuedLastSequenceRef.current != null &&
-          sequence <= queuedLastSequenceRef.current)
-      ) {
-        return;
-      }
+      // Drop replays/duplicates of events already applied (or queued for apply).
+      if (sequence <= effectiveLast) return;
+
+      // Buffer and flush on the next frame. `queuedLastSequenceRef` advances now
+      // so a same-frame burst keeps gap detection sound before the dispatch lands.
       pendingEventsRef.current.push(event);
-      queuedLastSequenceRef.current =
-        sequence > effectiveLast ? sequence : effectiveLast;
+      queuedLastSequenceRef.current = sequence;
       scheduleFlush();
     })
       .then((unsubscribe) => {
@@ -189,7 +214,7 @@ export function useConversationTimeline(
 
     return () => {
       active = false;
-      clearFlushTimer();
+      cancelFlush();
       pendingEventsRef.current = [];
       queuedLastSequenceRef.current = null;
       unlisten?.();
@@ -243,9 +268,12 @@ export function useConversationTimeline(
       loading: entry?.loading ?? false,
       error: entry?.error ?? null,
       lastSequence: entry?.lastSequence ?? 0n,
+      sessionModes: entry?.sessionModes ?? EMPTY_SESSION_MODES,
+      sessionConfigOptions: entry?.sessionConfigOptions ?? EMPTY_CONFIG_OPTIONS,
       sendOptimisticTurn,
       removeOptimisticTurn,
       refresh: loadDetail,
+      resetAndReload,
       cancel,
       respondPermission,
     }),
@@ -254,6 +282,7 @@ export function useConversationTimeline(
       sendOptimisticTurn,
       removeOptimisticTurn,
       loadDetail,
+      resetAndReload,
       cancel,
       respondPermission,
     ]

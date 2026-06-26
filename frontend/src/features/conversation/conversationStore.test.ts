@@ -269,6 +269,8 @@ describe('conversationStoreReducer', () => {
             error: null,
             gap: { kind: 'none' },
             optimisticTurns: [],
+            sessionModes: { current: null, modes: [] },
+            sessionConfigOptions: [],
           },
         },
       },
@@ -378,6 +380,227 @@ describe('conversationStoreReducer', () => {
       'delegation',
       'session_notice',
     ]);
+  });
+
+  it('folds a delegation completion onto its running row as one card', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'delegation_started',
+        delegation: {
+          delegation_id: 'delegation-1',
+          parent_tool_call_id: 'tool-1',
+          child_conversation_id: 'child-1',
+          agent_type: 'codex',
+          task_preview: 'Review the diff',
+        },
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, {
+        kind: 'delegation_completed',
+        delegation_id: 'delegation-1',
+        result: { kind: 'ok', text_preview: 'done', duration_ms: 10n },
+      }),
+    });
+
+    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
+    const delegations = sideRows.filter((row) => row.kind === 'delegation');
+    expect(delegations).toHaveLength(1);
+    const row = delegations[0];
+    if (row.kind !== 'delegation') throw new Error('expected delegation row');
+    // The merged card keeps the start-event context AND the outcome.
+    expect(row.delegation.status).toBe('completed');
+    expect(row.delegation.task_preview).toBe('Review the diff');
+    expect(row.delegation.child_conversation_id).toBe('child-1');
+    expect(row.delegation.result).toEqual({
+      kind: 'ok',
+      text_preview: 'done',
+      duration_ms: 10n,
+    });
+  });
+
+  it('marks a delegation as failed when it completes with an error', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'delegation_started',
+        delegation: {
+          delegation_id: 'delegation-1',
+          parent_tool_call_id: 'tool-1',
+          child_conversation_id: 'child-1',
+          agent_type: 'codex',
+          task_preview: 'Review the diff',
+        },
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, {
+        kind: 'delegation_completed',
+        delegation_id: 'delegation-1',
+        result: { kind: 'err', error: { message: 'boom' } },
+      }),
+    });
+
+    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
+    const delegations = sideRows.filter((row) => row.kind === 'delegation');
+    expect(delegations).toHaveLength(1);
+    const row = delegations[0];
+    if (row.kind !== 'delegation') throw new Error('expected delegation row');
+    expect(row.delegation.status).toBe('failed');
+  });
+
+  it('tracks agent-advertised session modes and config options on the entry', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'session_mode_updated',
+        current: 'plan',
+        modes: [
+          { id: 'plan', label: 'Plan' },
+          { id: 'code', label: 'Code' },
+        ],
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, {
+        kind: 'session_config_options_updated',
+        options: [{ key: 'reasoning', label: 'Reasoning' }],
+      }),
+    });
+
+    const entry = state.byConversationId['conversation-1'];
+    expect(entry.sessionModes.current).toBe('plan');
+    expect(entry.sessionModes.modes.map((mode) => mode.id)).toEqual([
+      'plan',
+      'code',
+    ]);
+    expect(entry.sessionConfigOptions.map((option) => option.key)).toEqual([
+      'reasoning',
+    ]);
+  });
+
+  it('keeps advertised session modes across a detail reload', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'session_mode_updated',
+        current: 'code',
+        modes: [{ id: 'code', label: 'Code' }],
+      }),
+    });
+
+    // A stale detail refresh must not wipe the live-advertised modes.
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    expect(
+      state.byConversationId['conversation-1'].sessionModes.current
+    ).toBe('code');
+  });
+
+  it('renders a code-aware notice for an expired agent session', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'agent_binding_load_failed',
+        reason: { kind: 'resource_not_found' },
+      }),
+    });
+
+    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
+    const notice = sideRows.find((row) => row.kind === 'session_notice');
+    expect(notice).toBeDefined();
+    if (notice?.kind !== 'session_notice') throw new Error('expected notice');
+    expect(notice.notice.title).toBe('代理会话已过期');
+    expect(notice.notice.severity).toBe('warning');
+  });
+
+  it('keeps the real ACP detail + options on a permission side row', () => {
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'permission_requested',
+        request: {
+          permission_id: 'perm-1',
+          request: {
+            id: 'perm-1',
+            session_id: 'session-1',
+            title: 'Edit README.md',
+            details: {
+              fields: {
+                kind: 'edit',
+                content: [
+                  {
+                    type: 'diff',
+                    path: 'README.md',
+                    oldText: 'old',
+                    newText: 'new',
+                  },
+                ],
+              },
+            },
+            options: [
+              { id: 'allow', label: 'Allow', kind: 'allow_once' },
+              { id: 'deny', label: 'Deny', kind: 'reject_once' },
+            ],
+          },
+        },
+      }),
+    });
+
+    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
+    expect(sideRows).toHaveLength(1);
+    const row = sideRows[0];
+    expect(row.kind).toBe('permission_request');
+    if (row.kind !== 'permission_request') throw new Error('expected permission row');
+    expect(row.request.status).toBe('pending');
+    expect(row.request.options).toHaveLength(2);
+    expect(row.request.options?.[0].id).toBe('allow');
+    expect(row.request.details).toMatchObject({
+      fields: { kind: 'edit' },
+    });
   });
 
   it('keeps import-restored projected timeline rows from detail', () => {

@@ -33,6 +33,7 @@ describe('sendAgentRuntimeTurn', () => {
       text: 'backend text',
       displayText: 'visible text',
       images: ['.vibe-images/screen.png'],
+      modeOverride: 'plan',
     });
 
     expect(startTurnMock).toHaveBeenCalledWith({
@@ -46,6 +47,34 @@ describe('sendAgentRuntimeTurn', () => {
       },
       text: 'visible text',
       images: ['.vibe-images/screen.png'],
+      modeOverride: 'plan',
+      configOverrides: [],
     });
+  });
+
+  it('defaults mode/config overrides to null/empty when unset', async () => {
+    startTurnMock.mockClear();
+    startTurnMock.mockResolvedValue({
+      conversationId: 'session-1',
+      turnId: 'turn-2',
+      promptId: 'prompt-2',
+      status: 'running',
+      lastSequence: 3n,
+    });
+
+    await sendAgentRuntimeTurn({
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      executorProfileId: {
+        executor: BaseCodingAgent.CODEX,
+        variant: null,
+        model: 'gpt-5.4',
+      },
+      text: 'hello',
+    });
+
+    expect(startTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ modeOverride: null, configOverrides: [] })
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
 import type {
   ConversationEventEnvelope,
@@ -87,10 +87,34 @@ function event(
 }
 
 describe('useConversationTimeline', () => {
+  // The hook coalesces live events on requestAnimationFrame. Capture scheduled
+  // callbacks so tests can flush a frame deterministically (real rAF ids are
+  // positive, so the truthy ids here keep the hook's "already scheduled" guard
+  // working — a value of 0 would break it).
+  let rafCallbacks: Array<FrameRequestCallback | null> = [];
+
+  const flushFrames = () => {
+    const pending = rafCallbacks;
+    rafCallbacks = [];
+    pending.forEach((cb) => cb?.(0));
+  };
+
   beforeEach(() => {
     listeners.length = 0;
     detailMock.mockReset();
     eventsSinceMock.mockReset();
+    rafCallbacks = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      if (id >= 1 && id <= rafCallbacks.length) rafCallbacks[id - 1] = null;
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('loads projected detail and applies conversation events', async () => {
@@ -105,6 +129,7 @@ describe('useConversationTimeline', () => {
     act(() => {
       listeners[0]?.(event(1n));
     });
+    act(() => flushFrames());
 
     await waitFor(() => expect(result.current.timeline).toHaveLength(1));
     expect(result.current.timeline[0].turn.role).toBe('assistant');
@@ -150,7 +175,7 @@ describe('useConversationTimeline', () => {
     ]);
   });
 
-  it('batches consecutive realtime deltas before updating the timeline', async () => {
+  it('folds streamed realtime deltas into a single assistant turn', async () => {
     detailMock.mockResolvedValue(detail());
 
     const { result } = renderHook(() =>
@@ -177,11 +202,13 @@ describe('useConversationTimeline', () => {
         );
       }
     });
+    // One frame coalesces the whole burst into a single dispatch.
+    act(() => flushFrames());
 
-    expect(result.current.timeline).toHaveLength(0);
+    // Every contiguous delta is applied (no gap backfill) and folded into one
+    // assistant turn once the per-frame flush settles.
     expect(eventsSinceMock).not.toHaveBeenCalled();
-
-    await waitFor(() => expect(result.current.timeline).toHaveLength(2));
+    expect(result.current.timeline).toHaveLength(2);
     const assistant = result.current.timeline.find(
       (row) => row.turn.role === 'assistant'
     );

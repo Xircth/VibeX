@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type { ExecutorProfileId } from 'shared/types';
@@ -25,6 +25,8 @@ type Args = {
   conflictMarkdown: string | null;
   reviewMarkdown: string;
   executorProfileId: ExecutorProfileId | null;
+  /** Composer-selected, agent-advertised session mode applied to this turn. */
+  modeOverride?: string | null;
   clearComments: () => void;
   onBeforeSend?: () => void;
   onAfterSendCleanup: () => void | Promise<void>;
@@ -43,6 +45,7 @@ export function useFollowUpSend({
   conflictMarkdown,
   reviewMarkdown,
   executorProfileId,
+  modeOverride,
   clearComments,
   onBeforeSend,
   onAfterSendCleanup,
@@ -50,8 +53,15 @@ export function useFollowUpSend({
   const queryClient = useQueryClient();
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  // Synchronous re-entrancy guard. The submit shortcut reaches this callback
+  // through both the global keyboard hook and the editor's `onSubmit`, and the
+  // new-session path awaits a `sessionsApi.create` round-trip — without a
+  // synchronous (ref, not state) guard a single Enter can invoke this twice and
+  // start two turns, producing two responses for one user message.
+  const isSendingRef = useRef(false);
 
   const onSendFollowUp = useCallback(async () => {
+    if (isSendingRef.current) return;
     if (!executorProfileId) return;
 
     const displayMessage = message.trim();
@@ -68,6 +78,7 @@ export function useFollowUpSend({
 
     if (!prompt && images.length === 0) return;
 
+    isSendingRef.current = true;
     try {
       onBeforeSend?.();
       setIsSendingFollowUp(true);
@@ -121,6 +132,7 @@ export function useFollowUpSend({
         text: prompt,
         displayText: displayPrompt,
         images,
+        modeOverride,
       });
       if (!isSlashCommand) {
         clearComments();
@@ -130,6 +142,7 @@ export function useFollowUpSend({
       const err = error as { message?: string };
       setFollowUpError(`启动后续执行失败：${err.message ?? '未知错误'}`);
     } finally {
+      isSendingRef.current = false;
       setIsSendingFollowUp(false);
     }
   }, [
@@ -146,6 +159,7 @@ export function useFollowUpSend({
     conflictMarkdown,
     reviewMarkdown,
     executorProfileId,
+    modeOverride,
     clearComments,
     onBeforeSend,
     onAfterSendCleanup,

@@ -62,6 +62,12 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Apply the saved system-proxy setting to process env FIRST, before any
+            // reqwest client is built or any ACP agent is spawned — otherwise the
+            // proxy never reaches them (agents inherit it via merged_agent_env) and
+            // e.g. codex-acp can't reach OpenAI.
+            tauri::async_runtime::block_on(commands::system_settings::init_system_proxy());
+
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
             events::start_event_forwarding(&app.handle().clone(), &state);
@@ -213,6 +219,7 @@ pub fn run() {
             commands::conversations::conversation_timeline_page,
             commands::conversations::conversation_respond_permission,
             commands::conversations::conversation_cancel_turn,
+            commands::conversations::conversation_truncate_to_turn,
             commands::conversations::conversation_close,
             commands::conversations::conversation_export,
             commands::conversations::conversation_import,

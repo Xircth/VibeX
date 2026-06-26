@@ -1,16 +1,23 @@
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import type { ExecutorConfig, ExecutorProfileId } from 'shared/types';
+import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import { hasFollowUpContent } from './sessionComposerSubmit';
 import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
+import { SessionModeSelector } from './SessionModeSelector';
 
 interface ActionBarProps {
   profiles: Record<string, ExecutorConfig> | null;
   effectiveExecutorProfile: ExecutorProfileId | null;
   onChangeExecutorProfile: (profile: ExecutorProfileId | null) => void;
   showProfileControls?: boolean;
+  /** Agent-advertised session modes for the composer's mode picker. */
+  sessionModes?: ConversationSessionModesState;
+  /** The user's pending mode selection for the next turn. */
+  selectedMode?: string | null;
+  onSelectMode?: (modeId: string) => void;
   isAwaitingNewSessionConfirmation?: boolean;
   isEditable: boolean;
   isAttemptRunning: boolean;
@@ -45,6 +52,9 @@ export function ActionBar({
   effectiveExecutorProfile,
   onChangeExecutorProfile,
   showProfileControls = true,
+  sessionModes,
+  selectedMode = null,
+  onSelectMode,
   isAwaitingNewSessionConfirmation = false,
   isEditable,
   isAttemptRunning,
@@ -92,6 +102,16 @@ export function ActionBar({
           iconOnly={true}
           dropdownSide="top"
           className="flex flex-wrap items-center gap-1"
+        />
+      ) : null}
+
+      {sessionModes && onSelectMode ? (
+        <SessionModeSelector
+          modes={sessionModes.modes}
+          current={sessionModes.current}
+          selected={selectedMode}
+          onSelect={onSelectMode}
+          disabled={!isEditable}
         />
       ) : null}
 

@@ -818,9 +818,45 @@ fn render_codex(
         let table = root.as_table_mut().ok_or_else(|| {
             ProviderConfigError::Internal("codex config root is not a TOML table".to_string())
         })?;
+        apply_codex_provider_to_config(table, &key_name, record, api_key.is_some())?;
+    }
+    let mut files = vec![rendered(
+        "config.toml",
+        toml_path,
+        "toml",
+        toml_content(&root)?,
+    )];
+
+    if api_key.is_some() || auth_path.exists() {
+        let mut auth = read_json_file(&auth_path)?;
+        apply_codex_api_key_to_auth(&mut auth, api_key);
+        files.push(rendered(
+            "auth.json",
+            auth_path,
+            "json",
+            json_content(&auth)?,
+        ));
+    }
+    Ok(files)
+}
+
+/// Apply (or undo) a codex `model_provider` routing in config.toml. With an API
+/// key, route codex to the custom OpenAI-compatible provider. WITHOUT one, the
+/// user is on ChatGPT-subscription (oauth) auth — hijacking `model_provider`
+/// there pulls codex off its working oauth path and breaks auth (the
+/// "Falling back from WebSockets … auth.openai.com/oauth/token" failure), so we
+/// instead undo any custom provider a previous apply wrote, restoring codex's
+/// built-in `openai`.
+fn apply_codex_provider_to_config(
+    table: &mut toml::map::Map<String, toml::Value>,
+    key_name: &str,
+    record: &ProviderRecord,
+    has_api_key: bool,
+) -> Result<(), ProviderConfigError> {
+    if has_api_key {
         table.insert(
             "model_provider".to_string(),
-            toml::Value::String(key_name.clone()),
+            toml::Value::String(key_name.to_string()),
         );
         if let Some(model) = &record.default_model {
             table.insert("model".to_string(), toml::Value::String(model.clone()));
@@ -839,40 +875,43 @@ fn render_codex(
         );
         entry.insert(
             "wire_api".to_string(),
-            toml::Value::String(
-                record
-                    .wire_api
-                    .clone()
-                    .unwrap_or_else(|| "chat".to_string()),
-            ),
+            toml::Value::String(record.wire_api.clone().unwrap_or_else(|| "chat".to_string())),
         );
         entry.insert(
             "env_key".to_string(),
             toml::Value::String("OPENAI_API_KEY".to_string()),
         );
-        providers.insert(key_name, toml::Value::Table(entry));
-    }
-    let mut files = vec![rendered(
-        "config.toml",
-        toml_path,
-        "toml",
-        toml_content(&root)?,
-    )];
-
-    if api_key.is_some() || auth_path.exists() {
-        let mut auth = read_json_file(&auth_path)?;
-        if let Some(key) = api_key {
-            ensure_object(&mut auth)
-                .insert("OPENAI_API_KEY".to_string(), Value::String(key.to_string()));
+        providers.insert(key_name.to_string(), toml::Value::Table(entry));
+    } else {
+        let was_ours =
+            table.get("model_provider").and_then(|value| value.as_str()) == Some(key_name);
+        if was_ours {
+            table.remove("model_provider");
+            // The selected model belonged to the now-removed custom provider.
+            table.remove("model");
         }
-        files.push(rendered(
-            "auth.json",
-            auth_path,
-            "json",
-            json_content(&auth)?,
-        ));
+        if let Some(toml::Value::Table(providers)) = table.get_mut("model_providers") {
+            providers.remove(key_name);
+        }
     }
-    Ok(files)
+    Ok(())
+}
+
+/// Keep auth.json in sync with the provider: write the key when present, and
+/// REMOVE a stale `OPENAI_API_KEY` when switching to oauth so an API key can't
+/// collide with the ChatGPT login (codex rejects mixed credentials). Mirrors
+/// codeg-main. Unrelated fields (the oauth `tokens` object) are preserved.
+fn apply_codex_api_key_to_auth(auth: &mut Value, api_key: Option<&str>) {
+    match api_key {
+        Some(key) => {
+            ensure_object(auth).insert("OPENAI_API_KEY".to_string(), Value::String(key.to_string()));
+        }
+        None => {
+            if let Some(obj) = auth.as_object_mut() {
+                obj.remove("OPENAI_API_KEY");
+            }
+        }
+    }
 }
 
 fn render_gemini(
@@ -1343,4 +1382,84 @@ pub async fn fetch_agent_provider_models(
         models,
         fetched_at: Utc::now().to_rfc3339(),
     })
+}
+
+#[cfg(test)]
+mod codex_provider_tests {
+    use super::*;
+
+    fn record() -> ProviderRecord {
+        ProviderRecord {
+            id: "p1".to_string(),
+            name: "openrouter".to_string(),
+            api_url: "https://openrouter.ai/api/v1".to_string(),
+            default_model: Some("gpt-4o".to_string()),
+            models: Vec::new(),
+            auth_type: None,
+            wire_api: None,
+            config_overrides: HashMap::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn with_api_key_routes_to_custom_provider() {
+        let rec = record();
+        let key = slug(&rec.name);
+        let mut table = toml::map::Map::new();
+        apply_codex_provider_to_config(&mut table, &key, &rec, true).unwrap();
+
+        assert_eq!(table.get("model_provider").and_then(|v| v.as_str()), Some(key.as_str()));
+        let provider = table["model_providers"][&key].as_table().unwrap();
+        assert_eq!(provider["base_url"].as_str(), Some("https://openrouter.ai/api/v1"));
+        assert_eq!(provider["env_key"].as_str(), Some("OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn without_api_key_restores_default_oauth_provider() {
+        let rec = record();
+        let key = slug(&rec.name);
+        // Simulate a previous apply that hijacked model_provider.
+        let mut table = toml::map::Map::new();
+        apply_codex_provider_to_config(&mut table, &key, &rec, true).unwrap();
+        assert!(table.contains_key("model_provider"));
+
+        // Re-apply with no API key (ChatGPT oauth): the hijack must be undone so
+        // codex returns to its built-in `openai` provider.
+        apply_codex_provider_to_config(&mut table, &key, &rec, false).unwrap();
+        assert!(table.get("model_provider").is_none());
+        assert!(table.get("model").is_none());
+        let providers = table["model_providers"].as_table().unwrap();
+        assert!(!providers.contains_key(&key));
+    }
+
+    #[test]
+    fn without_api_key_leaves_unrelated_provider_untouched() {
+        let rec = record();
+        let key = slug(&rec.name);
+        // A different, user-set provider must survive an oauth re-apply.
+        let mut table = toml::map::Map::new();
+        table.insert("model_provider".to_string(), toml::Value::String("someone_else".to_string()));
+        apply_codex_provider_to_config(&mut table, &key, &rec, false).unwrap();
+        assert_eq!(table.get("model_provider").and_then(|v| v.as_str()), Some("someone_else"));
+    }
+
+    #[test]
+    fn auth_removes_stale_key_on_oauth_but_keeps_tokens() {
+        let mut auth = serde_json::json!({
+            "OPENAI_API_KEY": "sk-stale",
+            "tokens": { "access_token": "oauth-abc" }
+        });
+        apply_codex_api_key_to_auth(&mut auth, None);
+        assert!(auth.get("OPENAI_API_KEY").is_none());
+        assert_eq!(auth["tokens"]["access_token"].as_str(), Some("oauth-abc"));
+    }
+
+    #[test]
+    fn auth_writes_key_when_present() {
+        let mut auth = serde_json::json!({});
+        apply_codex_api_key_to_auth(&mut auth, Some("sk-new"));
+        assert_eq!(auth["OPENAI_API_KEY"].as_str(), Some("sk-new"));
+    }
 }

@@ -19,7 +19,6 @@ import { getContextCompactStatusKind } from '@/lib/contextCompact';
 
 // Re-exported from extracted modules
 export { getAggregatableAction } from './conversation-entry-utils';
-export { AggregatedGroupCard } from './AggregatedGroupCard';
 
 import {
   shouldRenderMarkdown,

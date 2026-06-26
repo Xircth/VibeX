@@ -287,8 +287,8 @@
 }
 
 .conv-error-card {
-  background: var(--conv-surface-card);
-  border: 1px solid hsl(var(--destructive) / 0.35);
+  background: hsl(var(--destructive) / 0.06);
+  border: 1px solid hsl(var(--destructive) / 0.32);
   border-radius: 12px;
   padding: 8px 12px;
   cursor: pointer;
@@ -299,7 +299,8 @@
 }
 
 .conv-error-card:hover {
-  background: var(--conv-surface-control-hover);
+  background: hsl(var(--destructive) / 0.1);
+  border-color: hsl(var(--destructive) / 0.45);
 }
 
 .conv-error-card .conv-error-text {

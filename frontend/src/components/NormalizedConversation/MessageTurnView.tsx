@@ -21,6 +21,7 @@ import { Markdown } from './Markdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
 import { TimelinePlanCard } from './TimelinePlanCard';
+import { GeneratedImageCard } from './conversation/GeneratedImageCard';
 import DisplayConversationEntry from './DisplayConversationEntry';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import {
@@ -110,20 +111,12 @@ function renderItem(
         />
       );
     case 'image_generation':
-      return item.image ? (
-        <img
+      return (
+        <GeneratedImageCard
           key={key}
-          className="conv-image"
-          src={
-            item.image.uri ??
-            `data:${item.image.mime_type};base64,${item.image.data}`
-          }
-          alt={item.revisedPrompt ?? ''}
+          image={item.image}
+          revisedPrompt={item.revisedPrompt}
         />
-      ) : (
-        <div key={key} className="conv-tool-card conv-tool-card-pending">
-          Generating image...
-        </div>
       );
     case 'plan':
       return <TimelinePlanCard key={key} entries={item.entries} />;

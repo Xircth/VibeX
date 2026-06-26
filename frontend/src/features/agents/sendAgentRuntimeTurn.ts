@@ -1,6 +1,9 @@
 import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
 import { conversationApi } from '@/features/conversation/conversationApi';
-import type { ConversationTurnSnapshot } from 'shared/types';
+import type {
+  AgentSessionConfigOverride,
+  ConversationTurnSnapshot,
+} from 'shared/types';
 import type { AgentType } from './types';
 
 export type AgentRuntimeTurnInput = {
@@ -10,6 +13,10 @@ export type AgentRuntimeTurnInput = {
   text: string;
   displayText?: string;
   images?: string[];
+  /** Composer-selected session mode for this turn (agent-advertised). */
+  modeOverride?: string | null;
+  /** Composer-selected session config overrides for this turn. */
+  configOverrides?: AgentSessionConfigOverride[];
 };
 
 export function agentTypeFromExecutor(executor: BaseCodingAgent): AgentType {
@@ -40,6 +47,8 @@ export async function sendAgentRuntimeTurn({
   text,
   displayText,
   images,
+  modeOverride,
+  configOverrides,
 }: AgentRuntimeTurnInput): Promise<ConversationTurnSnapshot> {
   return conversationApi.startTurn({
     agentType: agentTypeFromExecutor(executorProfileId.executor),
@@ -48,5 +57,7 @@ export async function sendAgentRuntimeTurn({
     executorProfileId,
     text: displayText ?? text,
     images,
+    modeOverride: modeOverride ?? null,
+    configOverrides: configOverrides ?? [],
   });
 }

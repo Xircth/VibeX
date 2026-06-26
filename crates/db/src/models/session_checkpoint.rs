@@ -46,6 +46,23 @@ impl SessionCheckpoint {
         Ok(())
     }
 
+    /// Delete checkpoints at `ordinal` and every later ordinal. Used by reset-to-here
+    /// truncation so a re-sent prompt re-checkpoints at the same ordinal (checkpoint
+    /// `next_ordinal` and turn `ordinal` both allocate from `MAX(..)+1`, so they only
+    /// stay aligned if the tail is dropped from both).
+    pub async fn delete_from_ordinal(
+        pool: &SqlitePool,
+        session_id: Uuid,
+        ordinal: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM session_checkpoints WHERE session_id = ? AND ordinal >= ?")
+            .bind(session_id)
+            .bind(ordinal)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     /// All repo checkpoints recorded at a given ordinal for a session.
     pub async fn find_by_ordinal(
         pool: &SqlitePool,

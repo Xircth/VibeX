@@ -1,11 +1,20 @@
 import type {
+  AgentSessionConfigOption,
+  AgentSessionMode,
   ContentBlock,
   ConversationEventEnvelope,
   ConversationTimeline,
   ConversationTimelineRow,
   DbConversationDetail,
   MessageTurn,
+  SessionLoadFailureReason,
 } from 'shared/types';
+
+/** Agent-advertised session modes for a conversation, plus the current one. */
+export type ConversationSessionModesState = {
+  current: string | null;
+  modes: AgentSessionMode[];
+};
 
 export type ConversationGapState =
   | { kind: 'none' }
@@ -28,6 +37,11 @@ export type ConversationStoreEntry = {
   error: string | null;
   gap: ConversationGapState;
   optimisticTurns: MessageTurn[];
+  // Agent-advertised session controls for this conversation (from the live
+  // `session_mode_updated` / `session_config_options_updated` events). Drives the
+  // composer's mode/config picker; empty until the agent advertises them.
+  sessionModes: ConversationSessionModesState;
+  sessionConfigOptions: AgentSessionConfigOption[];
 };
 
 export type ConversationStoreState = {
@@ -174,6 +188,8 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     error: null,
     gap: { kind: 'none' },
     optimisticTurns: [],
+    sessionModes: { current: null, modes: [] },
+    sessionConfigOptions: [],
   };
 }
 
@@ -213,6 +229,7 @@ function applyConversationEvent(
 
   const turnId = envelope.turn_id ?? entry.currentTurnId;
   const rows = applyEventRows(entry.rows, envelope, turnId);
+  const event = envelope.event;
   return {
     ...entry,
     rows,
@@ -220,11 +237,19 @@ function applyConversationEvent(
     currentTurnId: turnId ?? entry.currentTurnId,
     gap: { kind: 'none' },
     optimisticTurns:
-      envelope.event.kind === 'user_turn_created'
+      event.kind === 'user_turn_created'
         ? entry.optimisticTurns.filter(
             (turn) => turn.id !== `optimistic-${turnId}`
           )
         : entry.optimisticTurns,
+    sessionModes:
+      event.kind === 'session_mode_updated'
+        ? { current: event.current, modes: event.modes }
+        : entry.sessionModes,
+    sessionConfigOptions:
+      event.kind === 'session_config_options_updated'
+        ? event.options
+        : entry.sessionConfigOptions,
   };
 }
 
@@ -317,6 +342,11 @@ function applyEventRows(
             permission_id: event.request.permission_id,
             title: event.request.request.title,
             status: 'pending',
+            // Keep the full tool detail + options so the permission card can show
+            // the real diff/command and offer the real answer buttons (the projected
+            // ConversationPermissionView carries these on reload too).
+            details: event.request.request.details ?? null,
+            options: event.request.request.options,
           },
         },
       ];
@@ -364,7 +394,30 @@ function applyEventRows(
           },
         },
       ];
-    case 'delegation_completed':
+    case 'delegation_completed': {
+      // Fold the outcome onto the running delegation row so a delegation renders
+      // as one card (keeping agent_type/task_preview/child_conversation_id from
+      // the start event) instead of a second, context-less "completed" row.
+      const status = event.result.kind === 'ok' ? 'completed' : 'failed';
+      let merged = false;
+      const next = rows.map((row) => {
+        if (
+          row.kind === 'delegation' &&
+          row.delegation.delegation_id === event.delegation_id
+        ) {
+          merged = true;
+          return {
+            ...row,
+            delegation: {
+              ...row.delegation,
+              status,
+              result: event.result,
+            },
+          };
+        }
+        return row;
+      });
+      if (merged) return next;
       return [
         ...rows,
         {
@@ -375,25 +428,16 @@ function applyEventRows(
             child_conversation_id: null,
             agent_type: null,
             task_preview: null,
-            status: 'completed',
+            status,
             result: event.result,
           },
         },
       ];
+    }
     case 'file_change_summary_updated':
       return [...rows, { kind: 'file_change_summary', summary: event.summary }];
     case 'agent_binding_load_failed':
-      return [
-        ...rows,
-        {
-          kind: 'session_notice',
-          notice: {
-            title: 'Agent session load failed',
-            message: JSON.stringify(event.reason),
-            severity: 'warning',
-          },
-        },
-      ];
+      return [...rows, sessionLoadFailedNotice(event.reason)];
     case 'agent_binding_recovery_failed':
       return [
         ...rows,
@@ -422,6 +466,53 @@ function applyEventRows(
         : rows;
     default:
       return rows;
+  }
+}
+
+// Turn a real, classified session/load failure into a legible notice. The agent
+// already told us *why* it failed (resource_not_found = expired, auth_required,
+// unsupported, other) — render that, not a raw JSON blob.
+function sessionLoadFailedNotice(
+  reason: SessionLoadFailureReason
+): ConversationTimelineRow {
+  switch (reason.kind) {
+    case 'resource_not_found':
+      return {
+        kind: 'session_notice',
+        notice: {
+          title: '代理会话已过期',
+          message: '代理侧已不存在该会话，将在下一条消息时重新建立。',
+          severity: 'warning',
+        },
+      };
+    case 'authentication_required':
+      return {
+        kind: 'session_notice',
+        notice: {
+          title: '需要重新认证',
+          message: reason.message,
+          severity: 'error',
+        },
+      };
+    case 'unsupported':
+      return {
+        kind: 'session_notice',
+        notice: {
+          title: '代理不支持会话恢复',
+          message: '已自动新建会话继续。',
+          severity: 'info',
+        },
+      };
+    case 'other':
+    default:
+      return {
+        kind: 'session_notice',
+        notice: {
+          title: '加载代理会话失败',
+          message: reason.kind === 'other' ? reason.message : null,
+          severity: 'warning',
+        },
+      };
   }
 }
 

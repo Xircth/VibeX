@@ -144,6 +144,21 @@ describe('SessionComposerInput', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  it('does not submit on the Enter that commits an IME composition', () => {
+    const onSubmit = vi.fn();
+    renderComposerInput({ context: { sendShortcut: 'Enter' }, onSubmit });
+
+    // The keydown that commits a Chinese/Japanese IME candidate reports
+    // isComposing=true; it must not be treated as a submit (else the message is
+    // sent twice — once on commit-Enter, once on the user's real submit-Enter).
+    fireEvent.keyDown(getEditor(), { key: 'Enter', isComposing: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // The subsequent real Enter (composition finished) submits exactly once.
+    fireEvent.keyDown(getEditor(), { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it('submits on Ctrl+Enter when ModifierEnter is the send shortcut', () => {
     const onSubmit = vi.fn();
     renderComposerInput({

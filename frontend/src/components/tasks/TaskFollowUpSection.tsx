@@ -1,6 +1,6 @@
-import { Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BaseCodingAgent } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
@@ -15,6 +15,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
 import { FollowUpConflictSection } from '@/components/tasks/follow-up/FollowUpConflictSection';
 import { useRetryUi } from '@/contexts/RetryUiContext';
+import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { useGitStatus } from '@/hooks/git';
 
@@ -277,6 +278,14 @@ export function TaskFollowUpSection({
     effectiveExecutorProfile,
   } = useSessionComposerProfileSelection(defaultExecutorProfile);
 
+  // Publish the composer's effective profile so the conversation's reset-to-here
+  // retry re-sends with the SAME model/variant selection (keeping the create form,
+  // input box, and every actual turn — including resend — sourced identically).
+  const { setActiveExecutorProfile } = useActiveExecutorProfile();
+  useEffect(() => {
+    setActiveExecutorProfile(effectiveExecutorProfile);
+  }, [effectiveExecutorProfile, setActiveExecutorProfile]);
+
   useSessionComposerExecutorProfileHydration({
     scratchId: scratchIdValue,
     scratchExecutorProfile,
@@ -328,7 +337,13 @@ export function TaskFollowUpSection({
     [cancelQueue, setAttachedImages, setLocalMessage]
   );
 
-  const { entries } = useEntries();
+  const { entries, sessionModes } = useEntries();
+  // Pending, agent-advertised mode selection applied to the next turn. Reset
+  // when switching sessions so a picked mode never leaks across conversations.
+  const [selectedMode, setSelectedMode] = useState<string | null>(null);
+  useEffect(() => {
+    setSelectedMode(null);
+  }, [sessionId]);
   const codexGoalState = useMemo(() => {
     if (
       effectiveExecutorProfile?.executor !== BaseCodingAgent.CODEX &&
@@ -363,6 +378,7 @@ export function TaskFollowUpSection({
       conflictMarkdown: conflictResolutionInstructions,
       reviewMarkdown,
       executorProfileId: effectiveExecutorProfile,
+      modeOverride: selectedMode,
       clearComments,
       onBeforeSend: clearStopping,
       onAfterSendCleanup: handleAfterSendCleanup,
@@ -561,8 +577,12 @@ export function TaskFollowUpSection({
         <div className="min-h-0 overflow-y-auto px-3">
           <div className="space-y-2">
             {followUpError && (
-              <div className="px-1 text-[11px] leading-4 text-muted-foreground">
-                {followUpError}
+              <div
+                role="alert"
+                className="flex items-start gap-1.5 rounded-lg border border-[hsl(var(--destructive)/0.32)] bg-[hsl(var(--destructive)/0.08)] px-2.5 py-1.5 text-[11px] leading-4 text-[hsl(var(--destructive))]"
+              >
+                <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 break-words">{followUpError}</span>
               </div>
             )}
             <div className="space-y-2">
@@ -650,6 +670,9 @@ export function TaskFollowUpSection({
             effectiveExecutorProfile={effectiveExecutorProfile}
             onChangeExecutorProfile={setSelectedExecutorProfile}
             showProfileControls={true}
+            sessionModes={sessionModes}
+            selectedMode={selectedMode}
+            onSelectMode={setSelectedMode}
             isEditable={isEditable}
             isAttemptRunning={isAttemptRunning}
             isQueued={queueIndicatorState.isQueued}

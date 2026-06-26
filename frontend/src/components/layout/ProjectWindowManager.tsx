@@ -28,20 +28,20 @@ import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDial
 
 function getSessionStatusLabel(session: KanbanProjectSessionRecord) {
   if (session.isRunning) {
-    return 'Running';
+    return '运行中';
   }
 
   switch (session.status) {
     case 'done':
-      return 'Completed';
+      return '已完成';
     case 'inreview':
-      return 'In Review';
+      return '待检查';
     case 'inprogress':
-      return 'In Progress';
+      return '进行中';
     case 'todo':
-      return 'Todo';
+      return '待开始';
     default:
-      return 'Idle';
+      return '空闲';
   }
 }
 
@@ -282,11 +282,11 @@ function ProjectActivityTracker({
           )[0];
 
           const kind = workspace.is_errored ? 'error' : 'success';
-          const projectName = projectsById[projectId]?.name ?? 'Project';
+          const projectName = projectsById[projectId]?.name ?? '项目';
           const title =
             kind === 'error'
-              ? `${projectName}: session failed`
-              : `${projectName}: session completed`;
+              ? `${projectName}：会话执行失败`
+              : `${projectName}：会话已完成`;
           const sessionName = resolveSummaryDisplayName(latestSummary);
           const workspaceName =
             latestSummary.workspace_name ?? workspace.name ?? workspace.branch;

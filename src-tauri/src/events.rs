@@ -9,7 +9,7 @@ use agents::{
         ConversationDelegation, ConversationDelegationResult, ConversationError, ConversationEvent,
         ConversationEventEnvelope, ConversationFileLocation, ConversationPermissionRequest,
         ConversationPermissionResponse, ConversationPlanEntry, ConversationTerminalPatch,
-        ConversationToolCallPatch, ConversationUsage, SessionLoadFailureReason,
+        ConversationToolCallPatch, ConversationUsage,
     },
     executor_key_for,
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
@@ -41,7 +41,13 @@ pub mod channels {
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
 }
 
-const CONVERSATION_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(32);
+/// How often pending streaming text/reasoning deltas are flushed to the DB and
+/// the frontend. Kept small so the conversation renders token-by-token in near
+/// real time. The coalescer still merges the deltas that land inside one window,
+/// so each flush is a single append (`BEGIN IMMEDIATE` + projection fold), not
+/// one write transaction per token — persisting every token individually would
+/// storm the SQLite write lock on fast agents.
+const CONVERSATION_STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -867,10 +873,11 @@ fn map_agent_event_to_conversation_event(
             })
         }
         AgentEvent::SessionLoadFailed { reason } => {
+            // The reason is already classified from the agent's real ACP error
+            // code (ResourceNotFound / AuthRequired / Unsupported / Other) — pass
+            // it through verbatim so the UI can offer the right recovery.
             Some(ConversationEvent::AgentBindingLoadFailed {
-                reason: SessionLoadFailureReason::Other {
-                    message: reason.clone(),
-                },
+                reason: reason.clone(),
             })
         }
         AgentEvent::TurnCompleted { stop_reason }
@@ -979,7 +986,9 @@ fn map_agent_event_to_conversation_event(
             ConversationEvent::TurnFailed {
                 error: ConversationError {
                     message: error.message.clone(),
-                    code: None,
+                    // Carry the agent's real ACP error code so the error card can
+                    // distinguish auth / expired-session / cancelled / model issues.
+                    code: error.code.clone(),
                     raw: error.raw.clone(),
                 },
             }
@@ -1549,7 +1558,7 @@ mod tests {
 
         let load_failed = AgentEventEnvelope {
             event: AgentEvent::SessionLoadFailed {
-                reason: "missing".to_string(),
+                reason: agents::conversation::SessionLoadFailureReason::ResourceNotFound,
             },
             ..envelope.clone()
         };
@@ -1640,6 +1649,7 @@ mod tests {
             event: AgentEvent::Error {
                 error: agents::AgentErrorEvent {
                     message: "send failed".to_string(),
+                    code: None,
                     raw: None,
                 },
             },

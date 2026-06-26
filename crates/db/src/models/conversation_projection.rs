@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use agents::conversation::{
-    ContentBlock, ConversationDelegationView, ConversationErrorView, ConversationEvent,
-    ConversationPermissionView, ConversationSessionNotice, ConversationTerminalView,
-    ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry, TurnRole, TurnUsage,
+    ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationErrorView,
+    ConversationEvent, ConversationPermissionView, ConversationSessionNotice,
+    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry,
+    SessionLoadFailureReason, TurnRole, TurnUsage,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
@@ -403,6 +404,76 @@ impl ConversationProjector {
         Self::persist_snapshot(&mut *conn, conversation_id, &fold).await
     }
 
+    /// Truncate the conversation to *before* the user turn at `ordinal`: delete that
+    /// turn and every later turn, drop every event from that turn onward, then rebuild
+    /// the derived projection + snapshot — all in one `BEGIN IMMEDIATE` transaction.
+    /// Powers reset-to-here / retry. No-op if no turn has that ordinal.
+    pub async fn truncate_to_turn_ordinal(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        ordinal: i64,
+    ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+
+        match Self::truncate_on_connection(&mut conn, conversation_id, ordinal).await {
+            Ok(()) => {
+                if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err(error);
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn truncate_on_connection(
+        conn: &mut SqliteConnection,
+        conversation_id: Uuid,
+        ordinal: i64,
+    ) -> Result<(), sqlx::Error> {
+        // The first event sequence owned by the target turn (or any later turn) is the
+        // truncation cut: dropping events at/after it removes the target turn and
+        // everything that followed, while turn-less infra events before it stay put.
+        let cut_sequence: Option<i64> = sqlx::query_scalar(
+            r#"SELECT MIN(events.sequence)
+               FROM conversation_events events
+               JOIN conversation_turns turns ON events.turn_id = turns.id
+               WHERE events.conversation_id = ? AND turns.ordinal >= ?"#,
+        )
+        .bind(conversation_id)
+        .bind(ordinal)
+        .fetch_one(&mut *conn)
+        .await?;
+
+        if let Some(cut_sequence) = cut_sequence {
+            sqlx::query(
+                r#"DELETE FROM conversation_events
+                   WHERE conversation_id = ? AND sequence >= ?"#,
+            )
+            .bind(conversation_id)
+            .bind(cut_sequence)
+            .execute(&mut *conn)
+            .await?;
+        }
+
+        sqlx::query(
+            r#"DELETE FROM conversation_turns
+               WHERE conversation_id = ? AND ordinal >= ?"#,
+        )
+        .bind(conversation_id)
+        .bind(ordinal)
+        .execute(&mut *conn)
+        .await?;
+
+        // Re-derive the side-effect tables + snapshot from the surviving events.
+        Self::rebuild_on_connection(conn, conversation_id).await
+    }
+
     async fn persist_snapshot<'e, E>(
         executor: E,
         conversation_id: Uuid,
@@ -580,6 +651,8 @@ impl ProjectionFold {
                         permission_id: request.permission_id,
                         title: Some(request.request.title),
                         status: "pending".into(),
+                        details: request.request.details,
+                        options: request.request.options,
                     },
                 });
             }
@@ -657,17 +730,38 @@ impl ProjectionFold {
                 delegation_id,
                 result,
             } => {
-                side_rows.push(ConversationTimelineRow::Delegation {
-                    delegation: ConversationDelegationView {
-                        delegation_id,
-                        parent_tool_call_id: None,
-                        child_conversation_id: None,
-                        agent_type: None,
-                        task_preview: None,
-                        status: "completed".into(),
-                        result: Some(result),
-                    },
-                });
+                // Fold the outcome onto the running delegation row so a rebuilt
+                // projection shows one card per delegation (keeping agent_type,
+                // task_preview, child_conversation_id from the start event) rather
+                // than a second, context-less "completed" row.
+                let status = match &result {
+                    ConversationDelegationResult::Ok { .. } => "completed",
+                    ConversationDelegationResult::Err { .. } => "failed",
+                };
+                let mut merged = false;
+                for row in side_rows.iter_mut() {
+                    if let ConversationTimelineRow::Delegation { delegation } = row
+                        && delegation.delegation_id == delegation_id
+                    {
+                        delegation.status = status.into();
+                        delegation.result = Some(result.clone());
+                        merged = true;
+                        break;
+                    }
+                }
+                if !merged {
+                    side_rows.push(ConversationTimelineRow::Delegation {
+                        delegation: ConversationDelegationView {
+                            delegation_id,
+                            parent_tool_call_id: None,
+                            child_conversation_id: None,
+                            agent_type: None,
+                            task_preview: None,
+                            status: status.into(),
+                            result: Some(result),
+                        },
+                    });
+                }
             }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
                 side_rows.push(ConversationTimelineRow::FileChangeSummary { summary });
@@ -681,13 +775,33 @@ impl ProjectionFold {
                 });
             }
             ConversationEvent::AgentBindingLoadFailed { reason } => {
-                side_rows.push(ConversationTimelineRow::SessionNotice {
-                    notice: ConversationSessionNotice {
-                        title: "Agent session load failed".into(),
-                        message: Some(format!("{reason:?}")),
+                // Reload path must read the same as the live path: a legible,
+                // code-aware notice — not a raw debug blob.
+                let notice = match reason {
+                    SessionLoadFailureReason::ResourceNotFound => ConversationSessionNotice {
+                        title: "代理会话已过期".into(),
+                        message: Some("代理侧已不存在该会话，将在下一条消息时重新建立。".into()),
                         severity: "warning".into(),
                     },
-                });
+                    SessionLoadFailureReason::AuthenticationRequired { message } => {
+                        ConversationSessionNotice {
+                            title: "需要重新认证".into(),
+                            message: Some(message),
+                            severity: "error".into(),
+                        }
+                    }
+                    SessionLoadFailureReason::Unsupported => ConversationSessionNotice {
+                        title: "代理不支持会话恢复".into(),
+                        message: Some("已自动新建会话继续。".into()),
+                        severity: "info".into(),
+                    },
+                    SessionLoadFailureReason::Other { message } => ConversationSessionNotice {
+                        title: "加载代理会话失败".into(),
+                        message: Some(message),
+                        severity: "warning".into(),
+                    },
+                };
+                side_rows.push(ConversationTimelineRow::SessionNotice { notice });
             }
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
                 side_rows.push(ConversationTimelineRow::SessionNotice {
@@ -1409,11 +1523,96 @@ mod tests {
 
         assert!(kinds.contains(&"question"));
         assert!(kinds.contains(&"feedback"));
+        // started + completed fold into a single delegation card that keeps the
+        // start-event context and carries the completion result.
         assert_eq!(
             kinds.iter().filter(|kind| **kind == "delegation").count(),
-            2
+            1
         );
+        let delegation = timeline
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                ConversationTimelineRow::Delegation { delegation } => Some(delegation),
+                _ => None,
+            })
+            .expect("delegation row");
+        assert_eq!(delegation.status, "completed");
+        assert_eq!(delegation.task_preview.as_deref(), Some("Review diff"));
+        assert!(delegation.child_conversation_id.is_some());
+        assert!(matches!(
+            delegation.result,
+            Some(ConversationDelegationResult::Ok { .. })
+        ));
         assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn permission_view_carries_real_acp_detail_and_options() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        let request = AgentPermissionRequest {
+            id: AgentPermissionId::new(),
+            session_id: AgentSessionId::new(),
+            title: "Edit README.md".into(),
+            details: Some(serde_json::json!({
+                "fields": { "kind": "edit", "content": [
+                    { "type": "diff", "path": "README.md", "oldText": "a", "newText": "b" }
+                ] }
+            })),
+            options: vec![
+                AgentPermissionOption {
+                    id: "allow".into(),
+                    label: "Allow".into(),
+                    kind: AgentPermissionOptionKind::AllowOnce,
+                    description: None,
+                },
+                AgentPermissionOption {
+                    id: "deny".into(),
+                    label: "Deny".into(),
+                    kind: AgentPermissionOptionKind::RejectOnce,
+                    description: None,
+                },
+            ],
+        };
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::PermissionRequested {
+                request: ConversationPermissionRequest {
+                    permission_id: "permission-1".into(),
+                    request,
+                },
+            },
+            None,
+        )
+        .await;
+
+        // Reloading through the projection must preserve the full tool detail and
+        // the selectable options — the card relies on these to show the real diff
+        // and offer the real Allow/Reject answers after a refresh.
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let permission = timeline
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                ConversationTimelineRow::PermissionRequest { request } => Some(request),
+                _ => None,
+            })
+            .expect("permission row");
+
+        assert_eq!(permission.permission_id, "permission-1");
+        assert_eq!(permission.status, "pending");
+        assert_eq!(permission.options.len(), 2);
+        assert_eq!(permission.options[0].id, "allow");
+        let detail = permission.details.as_ref().expect("details preserved");
+        assert_eq!(detail["fields"]["kind"], "edit");
+        assert_eq!(detail["fields"]["content"][0]["path"], "README.md");
     }
 
     #[tokio::test]
@@ -1831,5 +2030,118 @@ mod tests {
             feedback_answered,
             "submitted feedback must carry its response after the fold"
         );
+    }
+
+    #[tokio::test]
+    async fn truncate_to_turn_ordinal_drops_target_turn_and_tail() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn1_id) = seed_turn(&pool).await; // ordinal 1
+
+        // Turn 1 (ordinal 1): user → assistant → completed (sequences 1,2,3).
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "first".into(),
+                }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "one".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn1_id),
+            "runtime",
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".into()),
+            },
+            None,
+        )
+        .await;
+
+        // Turn 2 (ordinal 2): user → assistant (sequences 4,5).
+        let turn2 = ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-2"),
+                text_preview: Some("second"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn 2");
+        assert_eq!(turn2.ordinal, 2);
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn2.id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "second".into(),
+                }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn2.id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "two".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+
+        let before = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project before");
+        assert_eq!(before.last_sequence, 5);
+
+        // Reset to here: drop turn 2 (ordinal 2) and everything after.
+        ConversationProjector::truncate_to_turn_ordinal(&pool, conversation_id, 2)
+            .await
+            .expect("truncate");
+
+        let remaining = ConversationTurnRecord::list_for_conversation(&pool, conversation_id)
+            .await
+            .expect("list turns");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].ordinal, 1);
+
+        let event_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?")
+                .bind(conversation_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count events");
+        assert_eq!(event_count, 3, "only turn 1's three events survive");
+
+        let after = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project after");
+        assert_eq!(after.last_sequence, 3);
     }
 }

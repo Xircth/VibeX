@@ -10,24 +10,62 @@ import {
 } from 'react';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
 import type { TokenUsageInfo } from 'shared/types';
+import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
+
+const EMPTY_SESSION_MODES: ConversationSessionModesState = {
+  current: null,
+  modes: [],
+};
 
 interface EntriesContextType {
   entries: PatchTypeWithKey[];
   setEntries: (entries: PatchTypeWithKey[]) => void;
   setTokenUsageInfo: (info: TokenUsageInfo | null) => void;
+  setSessionModes: (modes: ConversationSessionModesState) => void;
   reset: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
+  sessionModes: ConversationSessionModesState;
 }
 
 type EntriesRuntimeValue = {
   entries: PatchTypeWithKey[];
   tokenUsageInfo: TokenUsageInfo | null;
+  sessionModes: ConversationSessionModesState;
 };
 
 const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   entries: [],
   tokenUsageInfo: null,
+  sessionModes: EMPTY_SESSION_MODES,
 };
+
+function sessionModesEqual(
+  a: ConversationSessionModesState,
+  b: ConversationSessionModesState
+): boolean {
+  if (a === b) return true;
+  if (a.current !== b.current || a.modes.length !== b.modes.length) return false;
+  return a.modes.every((mode, index) => {
+    const other = b.modes[index];
+    return (
+      mode.id === other.id &&
+      mode.label === other.label &&
+      mode.description === other.description
+    );
+  });
+}
+
+function tokenUsageEqual(
+  a: TokenUsageInfo | null,
+  b: TokenUsageInfo | null
+): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  return (
+    a.total_tokens === b.total_tokens &&
+    a.model_context_window === b.model_context_window
+  );
+}
 
 const entriesRuntimeByKey = new Map<string, EntriesRuntimeValue>();
 const listenersByKey = new Map<string, Set<() => void>>();
@@ -117,9 +155,39 @@ export const EntriesProvider = ({
 
   const setTokenUsageInfo = useCallback(
     (info: TokenUsageInfo | null) => {
+      // Skip no-op writes. The live timeline recomputes a fresh TokenUsageInfo
+      // object on every streaming delta; without this guard each identical write
+      // notifies subscribers → re-render → effect re-fires → an unbounded
+      // setState loop ("Maximum update depth exceeded").
+      if (tokenUsageEqual(localValueRef.current.tokenUsageInfo, info)) {
+        return;
+      }
       const nextValue = {
         ...localValueRef.current,
         tokenUsageInfo: info,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
+  const setSessionModes = useCallback(
+    (modes: ConversationSessionModesState) => {
+      // Same no-op guard as token usage: the live timeline recomputes a fresh
+      // modes object on each event; skip identical writes to avoid render loops.
+      if (sessionModesEqual(localValueRef.current.sessionModes, modes)) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        sessionModes: modes,
       };
       localValueRef.current = nextValue;
 
@@ -149,10 +217,12 @@ export const EntriesProvider = ({
       entries: localValue.entries,
       setEntries,
       setTokenUsageInfo,
+      setSessionModes,
       reset,
       tokenUsageInfo: localValue.tokenUsageInfo,
+      sessionModes: localValue.sessionModes,
     }),
-    [localValue, reset, setEntries, setTokenUsageInfo]
+    [localValue, reset, setEntries, setTokenUsageInfo, setSessionModes]
   );
 
   return (

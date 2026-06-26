@@ -10,7 +10,8 @@ use agents::{
     AgentPermissionResponse, AgentPlan, AgentPreflight, AgentPreflightIssue,
     AgentPreflightSeverity, AgentPromptFinished, AgentPromptId, AgentPromptSnapshot,
     AgentPromptStatus, AgentRegistryEntry, AgentSessionConfigChoice, AgentSessionConfigOption,
-    AgentSessionId, AgentSessionMode, AgentSessionSnapshot, AgentSessionStatus,
+    AgentSessionConfigOverride, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
+    AgentSessionStatus,
     AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest, AgentTerminalEnvVar,
     AgentTerminalExit, AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot,
     AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentType, AgentUsage, CommandParts,
@@ -266,6 +267,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentSessionMode>(&mut decls);
     insert_declaration::<AgentSessionConfigChoice>(&mut decls);
     insert_declaration::<AgentSessionConfigOption>(&mut decls);
+    insert_declaration::<AgentSessionConfigOverride>(&mut decls);
     insert_declaration::<AgentAvailableCommand>(&mut decls);
     insert_declaration::<AgentPromptFinished>(&mut decls);
     insert_declaration::<AgentErrorEvent>(&mut decls);

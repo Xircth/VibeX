@@ -32,6 +32,7 @@ use serde::Serialize;
 use tokio::{
     io::AsyncWriteExt,
     sync::{Mutex, RwLock, mpsc, oneshot},
+    time::Instant,
 };
 use tokio_util::{
     compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt},
@@ -47,6 +48,7 @@ use crate::{
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionId, AgentSessionMode,
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall,
     AgentToolCallUpdate, AgentType, AgentUsage, CommandBuildInput, current_platform,
+    conversation::SessionLoadFailureReason,
     decide_auto_permission_response,
     delegation_inject::DelegationInjector,
     registry_entry,
@@ -58,13 +60,22 @@ const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
 const HANDSHAKE_TIMEOUT_ENV: &str = "VIBEX_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS";
 const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
-const PROXY_ENV_KEYS: [&str; 6] = [
+// A prompt that produces no ACP activity (no message/thought/tool/plan/usage
+// notification) for this long is treated as a hung agent and the turn is failed,
+// so a Codex/agent stuck retrying an unreachable model can't spin "生成中"
+// forever. Generous (10 min) and reset on ANY activity so it never kills a
+// legitimately-streaming long turn; permission waits are exempt (see run_prompt).
+const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
+const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
+const PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
     "ALL_PROXY",
+    "NO_PROXY",
     "http_proxy",
     "https_proxy",
     "all_proxy",
+    "no_proxy",
 ];
 
 #[derive(Debug)]
@@ -118,6 +129,18 @@ fn handshake_timeout_from_env_value(value: Option<&str>) -> Duration {
     Duration::from_secs(seconds)
 }
 
+fn prompt_idle_timeout() -> Duration {
+    prompt_idle_timeout_from_env_value(std::env::var(PROMPT_IDLE_TIMEOUT_ENV).ok().as_deref())
+}
+
+fn prompt_idle_timeout_from_env_value(value: Option<&str>) -> Duration {
+    let seconds = value
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS);
+    Duration::from_secs(seconds)
+}
+
 fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> String {
     let seconds = timeout.as_secs().max(1);
     match stderr {
@@ -128,12 +151,41 @@ fn format_handshake_timeout_error(timeout: Duration, stderr: Option<String>) -> 
     }
 }
 
-fn unsupported_session_load_reason() -> String {
-    "Agent does not support session/load".to_string()
+/// Classify a real `session/load` failure into a semantic reason so the UI can
+/// offer the right recovery (e.g. a `ResourceNotFound` means the agent's session
+/// file is gone → "session expired, reload"). Driven entirely by the ACP error
+/// code the agent actually returned — never guessed.
+fn classify_session_load_error(error: &acp::Error) -> SessionLoadFailureReason {
+    match i32::from(error.code) {
+        // -32002 ResourceNotFound: the agent no longer has this session.
+        -32002 => SessionLoadFailureReason::ResourceNotFound,
+        // -32000 AuthRequired: the agent needs (re)authentication.
+        -32000 => SessionLoadFailureReason::AuthenticationRequired {
+            message: error.message.clone(),
+        },
+        _ => SessionLoadFailureReason::Other {
+            message: format!("session/load failed: {error}"),
+        },
+    }
 }
 
-fn failed_session_load_reason(error: &acp::Error) -> String {
-    format!("session/load failed: {error}")
+/// Map a real ACP/JSON-RPC error code to a stable, frontend-facing string so the
+/// error card can distinguish auth / expired-session / cancelled / model issues
+/// from a generic failure. The value mirrors the agent's actual error code.
+fn acp_error_code_str(error: &acp::Error) -> Option<String> {
+    let code = match i32::from(error.code) {
+        -32700 => "parse_error",
+        -32600 => "invalid_request",
+        -32601 => "method_not_found",
+        -32602 => "invalid_params",
+        -32603 => "internal_error",
+        -32800 => "request_cancelled",
+        -32000 => "auth_required",
+        -32002 => "resource_not_found",
+        -32042 => "url_elicitation_required",
+        other => return Some(format!("rpc_{other}")),
+    };
+    Some(code.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -422,6 +474,17 @@ struct AgentConnectionRunner {
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     auto_approve_mode: AgentAutoApproveMode,
     delegation_injector: Option<Arc<dyn DelegationInjector>>,
+    // Per-session streaming-text accumulator shared with the ACP client bridge so
+    // redundant full-message snapshots can be dropped (see `dedup_stream_text`).
+    stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
+    // The (session, prompt) currently in flight on this connection, if any. Lets
+    // the connection-death fallback in `run()` emit a turn-terminal event carrying
+    // the real prompt_id so the conversation fails cleanly instead of hanging.
+    active_prompt: Arc<Mutex<Option<(AgentSessionId, AgentPromptId)>>>,
+    // Last time the agent produced ACP activity for the in-flight prompt; shared
+    // with the bridge (refreshed on every session notification) so the prompt
+    // idle watchdog can fail a silently-hung agent without killing live turns.
+    last_activity: Arc<Mutex<Instant>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -463,6 +526,9 @@ impl AgentConnectionRunner {
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
             auto_approve_mode,
             delegation_injector,
+            stream_dedup: Arc::new(Mutex::new(HashMap::new())),
+            active_prompt: Arc::new(Mutex::new(None)),
+            last_activity: Arc::new(Mutex::new(Instant::now())),
         }
     }
 
@@ -481,11 +547,28 @@ impl AgentConnectionRunner {
                 let _ = tx.send(Err(AgentError::Runtime(message.clone())));
             }
             self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()));
+            // If a prompt was still in flight when the connection died (the agent
+            // crashed, the transport dropped, or prompt setup like session/new
+            // failed and propagated out of run_prompt), emit a turn-terminal Error
+            // carrying its (session_id, prompt_id) so the conversation fails
+            // cleanly. Without these ids the event is dropped before reaching the
+            // turn (events.rs requires a session_id) and the turn spins forever.
+            // `run_prompt` clears `active_prompt` whenever it emits its own
+            // terminal event, so this fires only when nothing else closed the turn.
+            let (failed_session_id, failed_prompt_id) =
+                match self.active_prompt.lock().await.take() {
+                    Some((session_id, prompt_id)) => (Some(session_id), Some(prompt_id)),
+                    None => (None, None),
+                };
             self.emit(
-                None,
-                None,
+                failed_session_id,
+                failed_prompt_id,
                 AgentEvent::Error {
-                    error: AgentErrorEvent { message, raw: None },
+                    error: AgentErrorEvent {
+                        message,
+                        code: None,
+                        raw: None,
+                    },
                 },
             );
         }
@@ -754,6 +837,20 @@ impl AgentConnectionRunner {
         for (key, value) in merged_agent_env(&self.snapshot.env) {
             command.env(key, value);
         }
+        // The child inherits the full parent env. A blank `OPENAI_API_KEY=""`
+        // (or `OPENAI_BASE_URL=""`) leaked from the shell that launched VibeX
+        // makes codex think an API key is present but empty, derailing its
+        // ChatGPT-oauth auth. Drop such empty, non-user-configured creds so the
+        // agent authenticates the same way it does when launched from a clean
+        // shell. Non-empty values are left untouched (a real key is honored).
+        for key in ["OPENAI_API_KEY", "OPENAI_BASE_URL"] {
+            let inherited_blank = std::env::var(key)
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(false);
+            if inherited_blank && !self.snapshot.env.contains_key(key) {
+                command.env_remove(key);
+            }
+        }
 
         let mut child = command
             .spawn()
@@ -834,6 +931,8 @@ impl AgentConnectionRunner {
             Arc::clone(&self.session_map),
             Arc::clone(&self.pending_permissions),
             self.auto_approve_mode,
+            Arc::clone(&self.stream_dedup),
+            Arc::clone(&self.last_activity),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -1021,11 +1120,11 @@ impl AgentConnectionRunner {
                     return Ok(external_session_id);
                 }
                 Err(error) => {
-                    self.emit_session_load_failed(session_id, failed_session_load_reason(&error));
+                    self.emit_session_load_failed(session_id, classify_session_load_error(&error));
                 }
             }
         } else {
-            self.emit_session_load_failed(session_id, unsupported_session_load_reason());
+            self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
         }
 
         self.new_acp_session(conn, working_dir, session_id).await
@@ -1107,7 +1206,11 @@ impl AgentConnectionRunner {
         }
     }
 
-    fn emit_session_load_failed(&self, session_id: AgentSessionId, reason: String) {
+    fn emit_session_load_failed(
+        &self,
+        session_id: AgentSessionId,
+        reason: SessionLoadFailureReason,
+    ) {
         self.emit(
             Some(session_id),
             None,
@@ -1288,6 +1391,19 @@ impl AgentConnectionRunner {
             mode_override,
             config_overrides,
         } = request;
+        // Mark this prompt in flight and reset the idle clock. The cursor lets the
+        // connection-death fallback in `run()` fail this exact turn; it is cleared
+        // before every self-terminal `return` below so a terminal event is emitted
+        // exactly once (never doubled, never dropped). A `?`-propagated error
+        // (e.g. apply_session_overrides) deliberately leaves it set so `run()`
+        // closes the turn.
+        *self.active_prompt.lock().await = Some((session_id, prompt_id));
+        *self.last_activity.lock().await = Instant::now();
+        let idle_timeout = prompt_idle_timeout();
+
+        // Start each turn with a clean streaming accumulator so snapshot dedup
+        // scopes to this turn and never accretes text across turns.
+        self.stream_dedup.lock().await.remove(&acp_session_id);
         self.apply_session_overrides(
             conn,
             &acp_session_id,
@@ -1331,12 +1447,45 @@ impl AgentConnectionRunner {
                                 AgentEvent::Error {
                                     error: AgentErrorEvent {
                                         message: error.to_string(),
+                                        code: acp_error_code_str(&error),
                                         raw: error.data.clone(),
                                     },
                                 },
                             );
                         }
                     }
+                    *self.active_prompt.lock().await = None;
+                    return Ok(());
+                }
+                // Idle watchdog: fail a silently-hung agent (e.g. Codex stuck
+                // retrying an unreachable model) instead of spinning "生成中"
+                // forever. Polls cheaply; the real measure is `last_activity`,
+                // refreshed by every session notification, so a legitimately
+                // streaming long turn is never killed. Skipped while a permission
+                // decision is pending (that wait produces no activity).
+                _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                    if self.has_pending_permission_for(session_id).await {
+                        continue;
+                    }
+                    if self.last_activity.lock().await.elapsed() < idle_timeout {
+                        continue;
+                    }
+                    self.cancel_pending_permissions(session_id).await;
+                    let _ = conn.send_notification(CancelNotification::new(SessionId::new(
+                        acp_session_id.clone(),
+                    )));
+                    self.emit(
+                        Some(session_id),
+                        Some(prompt_id),
+                        AgentEvent::Error {
+                            error: AgentErrorEvent {
+                                message: "Agent stopped responding (idle timeout). The model may be unreachable — check your network/proxy or re-authenticate the agent.".to_string(),
+                                code: Some("idle_timeout".to_string()),
+                                raw: None,
+                            },
+                        },
+                    );
+                    *self.active_prompt.lock().await = None;
                     return Ok(());
                 }
                 command = cmd_rx.recv() => {
@@ -1356,14 +1505,35 @@ impl AgentConnectionRunner {
                                     },
                                 },
                             );
+                            *self.active_prompt.lock().await = None;
                             return Ok(());
                         }
                         Some(AgentConnectionCommand::Disconnect) | None => {
+                            // The connection is going away mid-turn. Fail the turn
+                            // so it doesn't hang at "生成中"; clear the cursor so
+                            // run()'s fallback doesn't double-emit.
                             self.cancel_pending_permissions(session_id).await;
-                            conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
+                            let _ = conn.send_notification(CancelNotification::new(SessionId::new(
+                                acp_session_id.clone(),
+                            )));
+                            self.emit(
+                                Some(session_id),
+                                Some(prompt_id),
+                                AgentEvent::Error {
+                                    error: AgentErrorEvent {
+                                        message: "Agent connection closed before the turn completed.".to_string(),
+                                        code: Some("connection_closed".to_string()),
+                                        raw: None,
+                                    },
+                                },
+                            );
+                            *self.active_prompt.lock().await = None;
                             return Ok(());
                         }
                         Some(AgentConnectionCommand::RespondPermission { permission_id, response }) => {
+                            // The user acted — treat as activity so the watchdog
+                            // doesn't fire on the freshly-resumed turn.
+                            *self.last_activity.lock().await = Instant::now();
                             self.respond_pending_permission(&permission_id, response).await;
                         }
                         Some(other) => {
@@ -1413,6 +1583,17 @@ impl AgentConnectionRunner {
                 },
             );
         }
+    }
+
+    /// Is the agent currently blocked waiting on a permission decision for this
+    /// session? Such a wait produces no ACP activity, so the idle watchdog must
+    /// not mistake it for a hang.
+    async fn has_pending_permission_for(&self, session_id: AgentSessionId) -> bool {
+        self.pending_permissions
+            .lock()
+            .await
+            .values()
+            .any(|pending| pending.session_id == session_id)
     }
 
     async fn cancel_pending_permissions(&self, session_id: AgentSessionId) {
@@ -1484,6 +1665,49 @@ impl AgentConnectionRunner {
     }
 }
 
+/// Which streaming text channel a chunk belongs to. Tracked so a thought→message
+/// transition (or vice versa) restarts the snapshot accumulator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamKind {
+    Message,
+    Thought,
+}
+
+/// Per-session accumulator for the current contiguous streaming text run, used to
+/// drop redundant full-message snapshots (see [`dedup_stream_text`]).
+#[derive(Debug, Default)]
+struct StreamDedupState {
+    active: Option<StreamKind>,
+    text: String,
+}
+
+/// Normalize a streaming text chunk: returns `true` to emit it, `false` to drop it
+/// as a redundant full-snapshot replay.
+///
+/// `codex-acp` (through at least the pinned v0.16.0) streams a message/thought as
+/// `agentMessageChunk` / `agentThoughtChunk` deltas AND then replays the *complete*
+/// text as one final chunk — the live-stream analogue of the `event_msg` +
+/// `response_item` duplication documented in [`crate::parsers::codex`]. ACP does
+/// not tag these chunks with a `message_id`, so the only available signal is
+/// content: a chunk whose text equals everything accumulated for the current run
+/// is that trailing snapshot. Dropping it stops the answer from rendering (and
+/// persisting) twice in one bubble. Agents that never replay (Claude, Gemini, …)
+/// only ever append, so this is a no-op for them.
+fn dedup_stream_text(state: &mut StreamDedupState, kind: StreamKind, text: &str) -> bool {
+    if state.active != Some(kind) {
+        state.active = Some(kind);
+        state.text.clear();
+    }
+    if !state.text.is_empty() && state.text == text {
+        // Trailing full snapshot: the run is complete, so reset — the next chunk
+        // of the same kind starts a new message instead of appending to this one.
+        state.active = None;
+        return false;
+    }
+    state.text.push_str(text);
+    true
+}
+
 #[derive(Clone)]
 struct AcpClientBridge {
     connection_id: AgentConnectionId,
@@ -1491,6 +1715,12 @@ struct AcpClientBridge {
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     auto_approve_mode: AgentAutoApproveMode,
+    // Shared with the owning `AgentConnectionRunner` so a turn boundary can reset
+    // it; keyed by ACP session id.
+    stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
+    // Shared idle-watchdog clock: every session notification refreshes it so the
+    // prompt watchdog only fires on a genuinely silent (hung) agent.
+    last_activity: Arc<Mutex<Instant>>,
 }
 
 impl AcpClientBridge {
@@ -1500,6 +1730,8 @@ impl AcpClientBridge {
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
         auto_approve_mode: AgentAutoApproveMode,
+        stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
+        last_activity: Arc<Mutex<Instant>>,
     ) -> Self {
         Self {
             connection_id,
@@ -1507,6 +1739,33 @@ impl AcpClientBridge {
             session_map,
             pending_permissions,
             auto_approve_mode,
+            stream_dedup,
+            last_activity,
+        }
+    }
+
+    /// Pass a streaming text chunk through snapshot de-duplication, returning the
+    /// content to emit (or `None` to drop a redundant full-message replay).
+    async fn gate_stream_chunk(
+        &self,
+        acp_session_id: &str,
+        kind: StreamKind,
+        content: AgentContentBlock,
+    ) -> Option<AgentContentBlock> {
+        // Only text chunks carry a comparable snapshot; pass images/resources
+        // through untouched.
+        let AgentContentBlock::Text { text } = &content else {
+            return Some(content);
+        };
+        if text.is_empty() {
+            return Some(content);
+        }
+        let mut map = self.stream_dedup.lock().await;
+        let state = map.entry(acp_session_id.to_string()).or_default();
+        if dedup_stream_text(state, kind, text) {
+            Some(content)
+        } else {
+            None
         }
     }
 
@@ -1588,8 +1847,7 @@ impl AcpClientBridge {
     ) -> Result<RequestPermissionResponse, acp::Error> {
         let permission_id = AgentPermissionId::new();
         let acp_session = args.session_id.0.to_string();
-        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await
-        else {
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await else {
             tracing::warn!(
                 acp_session = %acp_session,
                 "request_permission for unknown ACP session — rejecting instead of \
@@ -1661,17 +1919,29 @@ impl AcpClientBridge {
     }
 
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
+        // Any agent activity (message/thought/tool/plan/usage/mode update) keeps
+        // the in-flight prompt alive for the idle watchdog in `run_prompt`.
+        *self.last_activity.lock().await = Instant::now();
         let raw_notification = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
-        let session_id = self
-            .agent_session_for_acp(args.session_id.0.to_string())
-            .await;
+        let acp_session_id = args.session_id.0.to_string();
+        let session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
         let event = match args.update {
-            SessionUpdate::AgentMessageChunk(chunk) => Some(AgentEvent::MessageChunk {
-                content: acp_content_to_agent(chunk.content),
-            }),
-            SessionUpdate::AgentThoughtChunk(chunk) => Some(AgentEvent::ThoughtChunk {
-                content: acp_content_to_agent(chunk.content),
-            }),
+            SessionUpdate::AgentMessageChunk(chunk) => self
+                .gate_stream_chunk(
+                    &acp_session_id,
+                    StreamKind::Message,
+                    acp_content_to_agent(chunk.content),
+                )
+                .await
+                .map(|content| AgentEvent::MessageChunk { content }),
+            SessionUpdate::AgentThoughtChunk(chunk) => self
+                .gate_stream_chunk(
+                    &acp_session_id,
+                    StreamKind::Thought,
+                    acp_content_to_agent(chunk.content),
+                )
+                .await
+                .map(|content| AgentEvent::ThoughtChunk { content }),
             SessionUpdate::ToolCall(tool_call) => Some(AgentEvent::ToolCall {
                 tool_call: AgentToolCall {
                     id: tool_call.tool_call_id.0.to_string(),
@@ -1759,8 +2029,7 @@ impl AcpClientBridge {
         args: agent_client_protocol::schema::CreateTerminalRequest,
     ) -> Result<CreateTerminalResponse, acp::Error> {
         let acp_session = args.session_id.0.to_string();
-        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await
-        else {
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await else {
             tracing::warn!(
                 acp_session = %acp_session,
                 "create_terminal for unknown ACP session — rejecting instead of \
@@ -2044,7 +2313,13 @@ where
 fn merged_agent_env(configured_env: &HashMap<String, String>) -> HashMap<String, String> {
     merge_agent_env(
         configured_env,
-        std::env::vars().filter(|(key, _)| PROXY_ENV_KEYS.contains(&key.as_str())),
+        // Only forward proxy vars that actually have a value. An empty
+        // `HTTPS_PROXY=""` inherited from the parent shell makes the agent's
+        // HTTP client (reqwest) treat the proxy as misconfigured and fail the
+        // request outright — so a blank proxy must not be propagated.
+        std::env::vars()
+            .filter(|(key, _)| PROXY_ENV_KEYS.contains(&key.as_str()))
+            .filter(|(_, value)| !value.trim().is_empty()),
     )
 }
 
@@ -2175,6 +2450,53 @@ fn permission_response_outcome(response: AgentPermissionResponse) -> RequestPerm
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dedup_stream_text_drops_trailing_full_snapshot() {
+        let mut state = StreamDedupState::default();
+        // Streaming deltas are emitted verbatim.
+        assert!(dedup_stream_text(&mut state, StreamKind::Message, "Here "));
+        assert!(dedup_stream_text(
+            &mut state,
+            StreamKind::Message,
+            "is the repo"
+        ));
+        // codex-acp replays the full message as one final chunk → dropped.
+        assert!(!dedup_stream_text(
+            &mut state,
+            StreamKind::Message,
+            "Here is the repo"
+        ));
+        // A genuinely new message after the snapshot streams normally again.
+        assert!(dedup_stream_text(
+            &mut state,
+            StreamKind::Message,
+            "Next answer"
+        ));
+    }
+
+    #[test]
+    fn dedup_stream_text_keeps_distinct_runs_separate() {
+        let mut state = StreamDedupState::default();
+        assert!(dedup_stream_text(&mut state, StreamKind::Thought, "think "));
+        assert!(dedup_stream_text(&mut state, StreamKind::Thought, "hard"));
+        // Thought snapshot dropped.
+        assert!(!dedup_stream_text(
+            &mut state,
+            StreamKind::Thought,
+            "think hard"
+        ));
+        // Switching streams starts a fresh accumulator, so identical text on the
+        // message channel is NOT mistaken for the thought's duplicate.
+        assert!(dedup_stream_text(
+            &mut state,
+            StreamKind::Message,
+            "think hard"
+        ));
+        // Genuine repetition within a streaming run (each delta != full run so
+        // far) is preserved — only an exact full-run snapshot is dropped.
+        assert!(dedup_stream_text(&mut state, StreamKind::Message, " think"));
+    }
 
     #[tokio::test]
     async fn manager_registers_and_removes_connection() {
@@ -2500,6 +2822,40 @@ mod tests {
     }
 
     #[test]
+    fn prompt_idle_timeout_uses_default_for_missing_or_invalid_env() {
+        assert_eq!(
+            prompt_idle_timeout_from_env_value(None),
+            Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            prompt_idle_timeout_from_env_value(Some("0")),
+            Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            prompt_idle_timeout_from_env_value(Some("nope")),
+            Duration::from_secs(DEFAULT_PROMPT_IDLE_TIMEOUT_SECS)
+        );
+    }
+
+    #[test]
+    fn prompt_idle_timeout_accepts_positive_env_value() {
+        assert_eq!(
+            prompt_idle_timeout_from_env_value(Some("120")),
+            Duration::from_secs(120)
+        );
+    }
+
+    #[test]
+    fn proxy_env_keys_include_no_proxy_both_cases() {
+        // NO_PROXY/no_proxy must be forwarded to the agent child so proxy bypass
+        // rules (e.g. for internal hosts) reach Codex on a proxied/China network.
+        assert!(PROXY_ENV_KEYS.contains(&"NO_PROXY"));
+        assert!(PROXY_ENV_KEYS.contains(&"no_proxy"));
+        assert!(PROXY_ENV_KEYS.contains(&"HTTPS_PROXY"));
+        assert!(PROXY_ENV_KEYS.contains(&"https_proxy"));
+    }
+
+    #[test]
     fn stderr_ring_buffer_keeps_recent_bytes() {
         let mut buffer = StderrRingBuffer::new(6);
 
@@ -2519,14 +2875,37 @@ mod tests {
     }
 
     #[test]
-    fn session_load_failure_reasons_cover_unsupported_and_failed_load() {
+    fn session_load_errors_classify_by_real_acp_code() {
+        // ResourceNotFound (-32002) → expired session.
+        assert!(matches!(
+            classify_session_load_error(&acp::Error::resource_not_found(None)),
+            SessionLoadFailureReason::ResourceNotFound
+        ));
+        // AuthRequired (-32000) → re-auth.
+        assert!(matches!(
+            classify_session_load_error(&acp::Error::auth_required()),
+            SessionLoadFailureReason::AuthenticationRequired { .. }
+        ));
+        // Anything else → Other, with the message preserved.
+        assert!(matches!(
+            classify_session_load_error(&acp::Error::invalid_params()),
+            SessionLoadFailureReason::Other { .. }
+        ));
+    }
+
+    #[test]
+    fn acp_error_codes_map_to_stable_strings() {
         assert_eq!(
-            unsupported_session_load_reason(),
-            "Agent does not support session/load"
+            acp_error_code_str(&acp::Error::auth_required()).as_deref(),
+            Some("auth_required")
         );
-        assert!(
-            failed_session_load_reason(&acp::Error::invalid_params())
-                .contains("session/load failed")
+        assert_eq!(
+            acp_error_code_str(&acp::Error::resource_not_found(None)).as_deref(),
+            Some("resource_not_found")
+        );
+        assert_eq!(
+            acp_error_code_str(&acp::Error::method_not_found()).as_deref(),
+            Some("method_not_found")
         );
     }
 }

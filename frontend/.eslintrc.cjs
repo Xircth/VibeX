@@ -144,7 +144,12 @@ module.exports = {
         'src/components/ui-new/views/Migrate*.tsx',
         'src/components/ui-new/containers/Migrate*.tsx',
       ],
-      rules: {},
+      rules: {
+        // Test/story file names follow the subject under test (e.g. a camelCase
+        // hook like useFollowUpSend needs a `.test.tsx` JSX wrapper), so the
+        // component PascalCase filename convention does not apply here.
+        'check-file/filename-naming-convention': 'off',
+      },
     },
     {
       // Disable type-aware linting for config files

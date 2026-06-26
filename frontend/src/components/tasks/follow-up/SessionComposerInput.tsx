@@ -1001,7 +1001,17 @@ export function SessionComposerInput({
         }
       }
 
-      if (disabled || event.key !== 'Enter') {
+      // Ignore the Enter that commits an IME composition (e.g. selecting a
+      // Chinese/Japanese candidate). Without this guard that commit-Enter fires
+      // a submit, and the user's follow-up Enter fires a second one — sending the
+      // same message twice (two turns → two responses). `isComposing` is true on
+      // the keydown that ends composition; keyCode 229 covers older IME stacks.
+      if (
+        disabled ||
+        event.key !== 'Enter' ||
+        event.nativeEvent.isComposing ||
+        event.keyCode === 229
+      ) {
         return;
       }
 

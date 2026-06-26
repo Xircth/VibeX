@@ -192,20 +192,14 @@ impl AgentRuntime {
             while let Some(manager_event) = manager_event_rx.recv().await {
                 let next_prompt = {
                     let mut state = state.write().await;
+                    let active_before =
+                        Self::active_prompt_for_manager_event_locked(&state, &manager_event);
                     Self::apply_manager_event_locked(&mut state, &manager_event);
-                    let next_prompt = manager_event.session_id.and_then(|session_id| {
-                        let prompt_id = state
-                            .sessions
-                            .get(&session_id)
-                            .and_then(|session| session.queue.active())?;
-                        let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
-                        let options = state
-                            .prompt_options
-                            .get(&prompt_id)
-                            .cloned()
-                            .unwrap_or_default();
-                        Some((session_id, prompt_id, blocks, options))
-                    });
+                    let next_prompt = Self::prompt_to_dispatch_after_manager_event_locked(
+                        &state,
+                        &manager_event,
+                        active_before,
+                    );
                     Self::emit_with_parts_locked(
                         &mut state,
                         &*event_sink,
@@ -231,6 +225,56 @@ impl AgentRuntime {
                 }
             }
         });
+    }
+
+    fn active_prompt_for_manager_event_locked(
+        state: &RuntimeState,
+        manager_event: &AgentConnectionManagerEvent,
+    ) -> Option<AgentPromptId> {
+        let session_id = manager_event.session_id?;
+        state
+            .sessions
+            .get(&session_id)
+            .and_then(|session| session.queue.active())
+    }
+
+    fn prompt_to_dispatch_after_manager_event_locked(
+        state: &RuntimeState,
+        manager_event: &AgentConnectionManagerEvent,
+        active_before: Option<AgentPromptId>,
+    ) -> Option<(
+        AgentSessionId,
+        AgentPromptId,
+        Vec<AgentContentBlock>,
+        PromptDispatchOptions,
+    )> {
+        let session_id = manager_event.session_id?;
+        let completed_active = match &manager_event.event {
+            AgentEvent::PromptFinished { finished } => active_before == Some(finished.prompt_id),
+            AgentEvent::Error { .. } => {
+                active_before.is_some() && manager_event.prompt_id == active_before
+            }
+            _ => false,
+        };
+        if !completed_active {
+            return None;
+        }
+
+        let prompt_id = state
+            .sessions
+            .get(&session_id)
+            .and_then(|session| session.queue.active())?;
+        if Some(prompt_id) == active_before {
+            return None;
+        }
+
+        let blocks = state.prompt_blocks.get(&prompt_id).cloned()?;
+        let options = state
+            .prompt_options
+            .get(&prompt_id)
+            .cloned()
+            .unwrap_or_default();
+        Some((session_id, prompt_id, blocks, options))
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<AgentEventEnvelope> {
@@ -1066,7 +1110,9 @@ mod tests {
     use std::{sync::Mutex, time::Duration};
 
     use super::*;
-    use crate::{AgentErrorEvent, AgentPermissionOption, AgentPermissionOptionKind};
+    use crate::{
+        AgentErrorEvent, AgentPermissionOption, AgentPermissionOptionKind, AgentPromptFinished,
+    };
 
     struct RecordingSink {
         events: Mutex<Vec<AgentEventEnvelope>>,
@@ -1289,6 +1335,22 @@ mod tests {
         .await;
 
         assert_eq!(event.session_id, Some(prompt.session_id));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let visible_chunks = sink
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|envelope| {
+                matches!(
+                    &envelope.event,
+                    AgentEvent::MessageChunk {
+                        content: AgentContentBlock::Text { text }
+                    } if text == "visible fake ACP output"
+                )
+            })
+            .count();
+        assert_eq!(visible_chunks, 1);
     }
 
     #[tokio::test]
@@ -1363,6 +1425,7 @@ mod tests {
                     event: AgentEvent::Error {
                         error: AgentErrorEvent {
                             message: message.to_string(),
+                            code: None,
                             raw: None,
                         },
                     },
@@ -1461,6 +1524,7 @@ mod tests {
                 event: AgentEvent::Error {
                     error: AgentErrorEvent {
                         message: message.clone(),
+                        code: None,
                         raw: None,
                     },
                 },
@@ -1554,6 +1618,7 @@ mod tests {
                 event: AgentEvent::Error {
                     error: AgentErrorEvent {
                         message: "internal error".to_string(),
+                        code: None,
                         raw: None,
                     },
                 },
@@ -1580,6 +1645,66 @@ mod tests {
         assert_eq!(session_snapshot.active_prompt_id, Some(queued_prompt.id));
         assert_eq!(session_snapshot.status, AgentSessionStatus::Running);
         assert!(session_snapshot.queued_prompt_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn manager_pump_dispatches_next_prompt_only_after_active_terminal_event() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let (connection, session, active_prompt, queued_prompt) =
+            create_running_prompt_pair(&runtime).await;
+
+        let mut state = runtime.state.write().await;
+        let chunk_event = AgentConnectionManagerEvent {
+            connection_id: connection.id,
+            session_id: Some(session.id),
+            prompt_id: None,
+            event: AgentEvent::MessageChunk {
+                content: AgentContentBlock::Text {
+                    text: "streaming".to_string(),
+                },
+            },
+        };
+        let active_before =
+            AgentRuntime::active_prompt_for_manager_event_locked(&state, &chunk_event);
+        AgentRuntime::apply_manager_event_locked(&mut state, &chunk_event);
+        assert!(
+            AgentRuntime::prompt_to_dispatch_after_manager_event_locked(
+                &state,
+                &chunk_event,
+                active_before
+            )
+            .is_none()
+        );
+
+        let finished_event = AgentConnectionManagerEvent {
+            connection_id: connection.id,
+            session_id: Some(session.id),
+            prompt_id: Some(active_prompt.id),
+            event: AgentEvent::PromptFinished {
+                finished: AgentPromptFinished {
+                    prompt_id: active_prompt.id,
+                    stop_reason: Some("end_turn".to_string()),
+                },
+            },
+        };
+        let active_before =
+            AgentRuntime::active_prompt_for_manager_event_locked(&state, &finished_event);
+        AgentRuntime::apply_manager_event_locked(&mut state, &finished_event);
+        let next_prompt = AgentRuntime::prompt_to_dispatch_after_manager_event_locked(
+            &state,
+            &finished_event,
+            active_before,
+        )
+        .expect("active terminal event should dispatch the queued prompt");
+
+        assert_eq!(next_prompt.0, session.id);
+        assert_eq!(next_prompt.1, queued_prompt.id);
+        assert_eq!(
+            next_prompt.2,
+            vec![AgentContentBlock::Text {
+                text: "queued prompt".to_string(),
+            }]
+        );
     }
 
     #[tokio::test]
@@ -1765,6 +1890,7 @@ mod tests {
                 event: AgentEvent::Error {
                     error: AgentErrorEvent {
                         message: "prompt failed".to_string(),
+                        code: None,
                         raw: None,
                     },
                 },
@@ -1876,6 +2002,7 @@ mod tests {
                 event: AgentEvent::Error {
                     error: AgentErrorEvent {
                         message: message.to_string(),
+                        code: None,
                         raw: None,
                     },
                 },

@@ -18,7 +18,7 @@ use db::models::{
         CreateConversationRecord,
     },
     conversation_event::AppendConversationEvent,
-    conversation_projection::ConversationEventAppender,
+    conversation_projection::{ConversationEventAppender, ConversationProjector},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
     session_checkpoint::SessionCheckpoint,
@@ -85,6 +85,14 @@ pub struct ConversationStartTurnInput {
     pub executor_profile_id: Option<ExecutorProfileId>,
     pub text: String,
     pub images: Vec<String>,
+    /// User-selected session mode for this turn (from the composer's mode
+    /// picker, sourced from the agent's advertised `session_modes`). Applied via
+    /// the real ACP `SetSessionMode` during prompt setup. `None` keeps the
+    /// profile/default mode.
+    pub mode_override: Option<String>,
+    /// User-selected config option overrides for this turn (real ACP
+    /// `SetSessionConfigOption`), e.g. an advertised select option.
+    pub config_overrides: Vec<AgentSessionConfigOverride>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -141,7 +149,8 @@ impl<'a> ConversationSessionService<'a> {
             workspace_prompt_blocks(&working_dir, input.text.clone(), &input.images).await?;
         let conversation_blocks = conversation_input_blocks(&agent_blocks);
 
-        self.ensure_conversation(pool, &input).await?;
+        let conversation = self.ensure_conversation(pool, &input).await?;
+        ensure_conversation_has_no_in_flight_turn(pool, &conversation).await?;
         ConversationRecord::update_status(pool, input.conversation_id, SessionStatus::InProgress)
             .await?;
 
@@ -341,6 +350,49 @@ impl<'a> ConversationSessionService<'a> {
         Ok(())
     }
 
+    /// Reset-to-here: truncate the conversation back to *before* the user turn at
+    /// `ordinal` — delete that turn and everything after it (events, turns,
+    /// checkpoints) and rebuild the projection — so the caller can re-send that
+    /// message in its original position. The optional workspace file rollback is the
+    /// caller's separate concern (it must run before this, while the ordinal's
+    /// checkpoint still exists).
+    pub async fn truncate_to_turn(
+        &self,
+        conversation_id: Uuid,
+        user_ordinal: i64,
+    ) -> Result<(), AppError> {
+        // Serialize against start_turn / cancel_turn on the same conversation.
+        let turn_lock = {
+            let mut locks = self.state.conversation_turn_locks.lock().await;
+            Arc::clone(
+                locks
+                    .entry(conversation_id)
+                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+            )
+        };
+        let _turn_guard = turn_lock.lock().await;
+
+        let pool = &self.state.deployment.db().pool;
+        // `user_ordinal` is the 0-based user-message index (same basis as the checkpoint
+        // ordinal / `reset_agent_session_to_checkpoint`). `conversation_turns.ordinal`
+        // is 1-based (created via `MAX(ordinal)+1`), so the turn to reset *from* is
+        // `user_ordinal + 1`; checkpoints share the 0-based basis.
+        let turn_ordinal = user_ordinal + 1;
+        ConversationProjector::truncate_to_turn_ordinal(pool, conversation_id, turn_ordinal).await?;
+        SessionCheckpoint::delete_from_ordinal(pool, conversation_id, user_ordinal).await?;
+        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+
+        self.update_runtime_state(conversation_id, |state| {
+            state.active_turn_id = None;
+            state.active_prompt_id = None;
+            state.turn_in_flight = false;
+            state.pending_user_message = None;
+        })
+        .await;
+
+        Ok(())
+    }
+
     pub async fn close_conversation(
         &self,
         conversation_id: Uuid,
@@ -505,9 +557,16 @@ impl<'a> ConversationSessionService<'a> {
             }
         }
 
-        let prompt_overrides = agent_prompt_overrides_from_profile(
+        let mut prompt_overrides = agent_prompt_overrides_from_profile(
             input.agent_type,
             input.executor_profile_id.as_ref(),
+        );
+        // The composer's explicit mode/config selection wins over profile/slash
+        // defaults so the user-picked, agent-advertised mode actually takes effect.
+        merge_user_prompt_overrides(
+            &mut prompt_overrides,
+            input.mode_override.clone(),
+            input.config_overrides.clone(),
         );
         let prompt = self
             .state
@@ -602,6 +661,31 @@ impl<'a> ConversationSessionService<'a> {
             .and_then(parse_agent_connection_id)
             .map(|connection_id| (connection_id, snapshot.active_turn_id))
     }
+}
+
+async fn ensure_conversation_has_no_in_flight_turn(
+    pool: &SqlitePool,
+    conversation: &ConversationRecord,
+) -> Result<(), AppError> {
+    let Some(active_turn_id) = conversation.active_turn_id else {
+        return Ok(());
+    };
+    let Some(active_turn) = ConversationTurnRecord::find_by_id(pool, active_turn_id).await? else {
+        return Ok(());
+    };
+
+    if is_in_flight_turn_status(&active_turn.status) {
+        return Err(AppError::Conflict(format!(
+            "Conversation {} already has an active turn",
+            conversation.id
+        )));
+    }
+
+    Ok(())
+}
+
+fn is_in_flight_turn_status(status: &str) -> bool {
+    matches!(status, "pending" | "queued" | "running" | "blocked")
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -890,6 +974,32 @@ fn default_capabilities() -> AcpCapabilitySnapshot {
     }
 }
 
+/// Layer the composer's explicit selection on top of profile/slash defaults.
+/// A user-picked mode replaces the default; user config overrides win per-key.
+fn merge_user_prompt_overrides(
+    overrides: &mut AgentPromptOverrides,
+    mode_override: Option<String>,
+    config_overrides: Vec<AgentSessionConfigOverride>,
+) {
+    if let Some(mode) = mode_override.and_then(|mode| {
+        let trimmed = mode.trim().to_string();
+        (!trimmed.is_empty()).then_some(trimmed)
+    }) {
+        overrides.mode_override = Some(mode);
+    }
+    for ovr in config_overrides {
+        if let Some(existing) = overrides
+            .config_overrides
+            .iter_mut()
+            .find(|existing| existing.key == ovr.key)
+        {
+            existing.value = ovr.value;
+        } else {
+            overrides.config_overrides.push(ovr);
+        }
+    }
+}
+
 fn agent_prompt_overrides_from_profile(
     agent_type: AgentType,
     profile: Option<&ExecutorProfileId>,
@@ -1062,13 +1172,86 @@ fn parse_agent_prompt_id(value: &str) -> Option<AgentPromptId> {
 
 #[cfg(test)]
 mod tests {
-    use agents::AgentContentBlock;
+    use std::str::FromStr;
+
+    use agents::{AgentContentBlock, AgentSessionConfigOverride};
+    use db::models::{
+        conversation::{ConversationRecord, CreateConversationRecord},
+        conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        session::SessionStatus,
+    };
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
     use utils::diff::{Diff, DiffChangeKind};
+    use uuid::Uuid;
 
     use super::{
-        checkpoint_file_change_summary, conversation_input_blocks, default_capabilities,
-        diff_to_conversation_file_change,
+        AgentPromptOverrides, checkpoint_file_change_summary, conversation_input_blocks,
+        default_capabilities, diff_to_conversation_file_change,
+        ensure_conversation_has_no_in_flight_turn, merge_user_prompt_overrides,
     };
+    use crate::error::AppError;
+
+    async fn migrated_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory db");
+        sqlx::migrate!("../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        pool
+    }
+
+    async fn seed_conversation_with_active_turn(pool: &SqlitePool) -> ConversationRecord {
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: Some("Guard test"),
+                initial_prompt: Some("hello"),
+                status: Some(SessionStatus::InProgress),
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        let turn = ConversationTurnRecord::create_pending(
+            pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("hello"),
+                input_blocks_json: r#"[{"kind":"text","text":"hello"}]"#,
+            },
+        )
+        .await
+        .expect("create turn");
+        ConversationRecord::update_active_turn(pool, conversation_id, Some(turn.id))
+            .await
+            .expect("set active turn");
+
+        ConversationRecord::find_by_id(pool, conversation_id)
+            .await
+            .expect("find conversation")
+            .expect("conversation exists")
+    }
 
     #[test]
     fn conversation_start_turn_maps_agent_blocks_to_input_blocks() {
@@ -1084,6 +1267,55 @@ mod tests {
         ]);
 
         assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn user_prompt_overrides_take_precedence_over_profile_defaults() {
+        let mut overrides = AgentPromptOverrides {
+            mode_override: Some("plan".to_string()),
+            config_overrides: vec![AgentSessionConfigOverride {
+                key: "reasoning".to_string(),
+                value: "low".to_string(),
+            }],
+        };
+
+        merge_user_prompt_overrides(
+            &mut overrides,
+            Some("code".to_string()),
+            vec![
+                // Overrides the existing key…
+                AgentSessionConfigOverride {
+                    key: "reasoning".to_string(),
+                    value: "high".to_string(),
+                },
+                // …and adds a new one.
+                AgentSessionConfigOverride {
+                    key: "verbosity".to_string(),
+                    value: "concise".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(overrides.mode_override.as_deref(), Some("code"));
+        assert_eq!(overrides.config_overrides.len(), 2);
+        let reasoning = overrides
+            .config_overrides
+            .iter()
+            .find(|o| o.key == "reasoning")
+            .unwrap();
+        assert_eq!(reasoning.value, "high");
+    }
+
+    #[test]
+    fn blank_user_mode_override_keeps_the_default() {
+        let mut overrides = AgentPromptOverrides {
+            mode_override: Some("plan".to_string()),
+            config_overrides: Vec::new(),
+        };
+
+        merge_user_prompt_overrides(&mut overrides, Some("   ".to_string()), Vec::new());
+
+        assert_eq!(overrides.mode_override.as_deref(), Some("plan"));
     }
 
     #[test]
@@ -1120,5 +1352,37 @@ mod tests {
             checkpoint_file_change_summary(&[change]),
             "1 file(s) changed: 0 added, 0 modified, 0 deleted, 1 renamed"
         );
+    }
+
+    #[tokio::test]
+    async fn in_flight_active_turn_blocks_starting_another_turn() {
+        let pool = migrated_pool().await;
+        let conversation = seed_conversation_with_active_turn(&pool).await;
+
+        let error = ensure_conversation_has_no_in_flight_turn(&pool, &conversation)
+            .await
+            .expect_err("pending active turn should block");
+
+        assert!(matches!(
+            error,
+            AppError::Conflict(message) if message.contains("active turn")
+        ));
+    }
+
+    #[tokio::test]
+    async fn terminal_active_turn_does_not_block_next_turn() {
+        let pool = migrated_pool().await;
+        let conversation = seed_conversation_with_active_turn(&pool).await;
+        let active_turn_id = conversation
+            .active_turn_id
+            .expect("seeded conversation has active turn");
+
+        ConversationTurnRecord::mark_completed(&pool, active_turn_id, Some("end_turn"), None, None)
+            .await
+            .expect("mark completed");
+
+        ensure_conversation_has_no_in_flight_turn(&pool, &conversation)
+            .await
+            .expect("completed active turn should not block");
     }
 }

@@ -252,6 +252,8 @@
     --status-failed-foreground: var(--destructive-foreground);
     --status-paused: var(--warning);
     --status-paused-foreground: var(--warning-foreground);
+    /* Kanban 会话监控区 Slot 2（紫）专用色；Slot 1/3/4 复用 primary/success/warning。 */
+    --session-slot-purple: 265 60% 60%;
     /* Windows chrome exception: native close-button red for frameless windows. */
     --windows-close-hover: hsl(4 88% 48%);
     --windows-close-active: hsl(4 82% 42%);
@@ -1501,20 +1503,68 @@
     color: var(--text-muted);
   }
 
-  .session-marker-primary {
+  /* 会话列表左侧色条：执行区浅红，监控区沿用 Slot 1~4（蓝/紫/绿/橙）配色。 */
+  .session-marker-execution {
+    background: hsl(var(--destructive) / 0.7);
+  }
+
+  .session-marker-slot-1 {
     background: hsl(var(--primary));
   }
 
-  .session-marker-success {
+  .session-marker-slot-2 {
+    background: hsl(var(--session-slot-purple));
+  }
+
+  .session-marker-slot-3 {
     background: hsl(var(--success));
   }
 
-  .session-marker-warning {
+  .session-marker-slot-4 {
     background: hsl(var(--warning));
   }
 
-  .session-marker-danger {
-    background: hsl(var(--destructive));
+  /* 监控区卡片：按 Slot 着色边框 + 浅色背景，使各监控位可被直观区分。 */
+  .session-monitor-slot-1,
+  .session-monitor-slot-2,
+  .session-monitor-slot-3,
+  .session-monitor-slot-4 {
+    border-radius: 8px;
+    box-shadow: none;
+  }
+
+  .session-monitor-slot-1 {
+    border-color: hsl(var(--primary) / 0.5);
+    background: hsl(var(--primary) / 0.06);
+  }
+
+  .session-monitor-slot-2 {
+    border-color: hsl(var(--session-slot-purple) / 0.5);
+    background: hsl(var(--session-slot-purple) / 0.06);
+  }
+
+  .session-monitor-slot-3 {
+    border-color: hsl(var(--success) / 0.5);
+    background: hsl(var(--success) / 0.06);
+  }
+
+  .session-monitor-slot-4 {
+    border-color: hsl(var(--warning) / 0.5);
+    background: hsl(var(--warning) / 0.06);
+  }
+
+  /* 监控卡片错误态：会话报错时覆盖 Slot 配色，红色描边 + 浅红底，配合「失败」角标。 */
+  .session-monitor-slot-error {
+    border-radius: 8px;
+    border-color: hsl(var(--destructive) / 0.55);
+    background: hsl(var(--destructive) / 0.07);
+    box-shadow: none;
+  }
+
+  .session-monitor-error-badge {
+    border: 1px solid hsl(var(--destructive) / 0.4);
+    background: hsl(var(--destructive) / 0.12);
+    color: hsl(var(--destructive));
   }
 
   .composer-shell {

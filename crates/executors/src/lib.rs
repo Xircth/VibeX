@@ -6,4 +6,3 @@ pub mod executors;
 pub mod logs;
 pub mod model_selector;
 pub mod profile;
-pub mod stdout_dup;

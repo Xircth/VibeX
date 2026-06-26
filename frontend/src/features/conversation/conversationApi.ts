@@ -1,6 +1,7 @@
 import { tauriInvoke } from '@/lib/tauriApi';
 import type {
   AgentPermissionResponse,
+  AgentSessionConfigOverride,
   AgentType,
   ConversationEventsPage,
   ConversationBundlePayload,
@@ -19,6 +20,8 @@ export type ConversationStartTurnRequest = {
   executorProfileId?: ExecutorProfileId | null;
   text: string;
   images?: string[];
+  modeOverride?: string | null;
+  configOverrides?: AgentSessionConfigOverride[];
 };
 
 export type ConversationEventsSinceRequest = {
@@ -47,6 +50,12 @@ export type ConversationCancelTurnRequest = {
 export type ConversationCloseRequest = {
   conversationId: string;
   reason?: string | null;
+};
+
+export type ConversationTruncateToTurnRequest = {
+  conversationId: string;
+  /** User-turn ordinal to reset to; this turn and everything after it is removed. */
+  ordinal: number;
 };
 
 export type ConversationExportRequest = {
@@ -114,6 +123,12 @@ export const conversationApi = {
 
   cancel: (request: ConversationCancelTurnRequest): Promise<void> =>
     tauriInvoke('conversation_cancel_turn', { request }),
+
+  // Reset-to-here: truncate the conversation to before the user turn at `ordinal`.
+  truncateToTurn: (
+    request: ConversationTruncateToTurnRequest
+  ): Promise<void> =>
+    tauriInvoke('conversation_truncate_to_turn', { request }),
 
   close: (request: ConversationCloseRequest): Promise<void> =>
     tauriInvoke('conversation_close', { request }),

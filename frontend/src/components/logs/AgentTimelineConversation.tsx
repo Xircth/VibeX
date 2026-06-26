@@ -9,9 +9,11 @@ import {
   useState,
 } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { BaseCodingAgent } from 'shared/types';
 import type {
+  AgentPermissionResponse,
   ConversationTimelineRow,
   MessageTurn,
   TaskWithAttemptStatus,
@@ -19,8 +21,15 @@ import type {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
+import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
+import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { agentsApi } from '@/features/agents/api';
+import { conversationApi } from '@/features/conversation/conversationApi';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
+import { ConfirmDialog } from '@/components/dialogs';
+import { getErrorMessage } from '@/lib/modals';
+import { toast } from 'sonner';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
 import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
@@ -33,8 +42,13 @@ import {
 import { type ConversationTimelineTurn } from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
+import {
+  resolveResendExecutorProfile,
+  useActiveExecutorProfile,
+} from '@/contexts/ActiveExecutorProfileContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import {
   findPreviousUserMessageVirtualIndex,
@@ -135,7 +149,20 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
   };
 }
 
-function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
+function ConversationSideRows({
+  rows,
+  onRespondPermission,
+  respondingPermissionId,
+  onOpenChild,
+}: {
+  rows: ConversationTimelineRow[];
+  onRespondPermission: (
+    permissionId: string,
+    response: AgentPermissionResponse
+  ) => void;
+  respondingPermissionId: string | null;
+  onOpenChild?: (childConversationId: string) => void;
+}) {
   const visibleRows = rows.filter((row) => row.kind !== 'turn_error');
   if (visibleRows.length === 0) return null;
 
@@ -144,17 +171,14 @@ function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
       {visibleRows.map((row, index) => {
         if (row.kind === 'permission_request') {
           return (
-            <div
+            <PermissionRequestCard
               key={`permission-${row.request.permission_id}-${index}`}
-              className="rounded-md border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100"
-            >
-              <div className="font-medium">
-                {row.request.title ?? 'Permission requested'}
-              </div>
-              <div className="mt-1 text-amber-800/80 dark:text-amber-100/75">
-                {row.request.status}
-              </div>
-            </div>
+              request={row.request}
+              onRespond={onRespondPermission}
+              responding={
+                respondingPermissionId === row.request.permission_id
+              }
+            />
           );
         }
         if (row.kind === 'question_request') {
@@ -204,19 +228,11 @@ function ConversationSideRows({ rows }: { rows: ConversationTimelineRow[] }) {
         }
         if (row.kind === 'delegation') {
           return (
-            <div
+            <DelegationCard
               key={`delegation-${row.delegation.delegation_id}-${index}`}
-              className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
-            >
-              <div className="font-medium text-foreground">
-                Delegation {row.delegation.status}
-              </div>
-              {row.delegation.task_preview ? (
-                <div className="mt-1 truncate">
-                  {row.delegation.task_preview}
-                </div>
-              ) : null}
-            </div>
+              delegation={row.delegation}
+              onOpenChild={onOpenChild}
+            />
           );
         }
         if (row.kind === 'file_change_summary') {
@@ -294,9 +310,48 @@ const AgentTimelineConversation = forwardRef<
   const timeline = conversation.timeline;
   const detailLoading = conversation.loading;
   const sideRows = conversation.sideRows;
-  const turnErrors = sideRows.flatMap((row) =>
-    row.kind === 'turn_error' ? [row.error.error.message] : []
+  // Stable reference (memoized in the hook) for the reset-to-here retry flow.
+  const conversationResetAndReload = conversation.resetAndReload;
+  // Stable reference for answering permission requests inline.
+  const conversationRespondPermission = conversation.respondPermission;
+  const [respondingPermissionId, setRespondingPermissionId] = useState<
+    string | null
+  >(null);
+  const handleRespondPermission = useCallback(
+    (permissionId: string, response: AgentPermissionResponse) => {
+      setRespondingPermissionId(permissionId);
+      void conversationRespondPermission(permissionId, response)
+        .catch((error: unknown) => toast.error(getErrorMessage(error)))
+        .finally(() =>
+          setRespondingPermissionId((current) =>
+            current === permissionId ? null : current
+          )
+        );
+    },
+    [conversationRespondPermission]
   );
+  // A delegated sub-agent runs in the parent's workspace (the spawner inherits
+  // parent.workspace_id), so the child transcript lives at the same project +
+  // workspace route — only the session id changes. Open it only when the route
+  // context is known.
+  const navigate = useNavigate();
+  const routeParams = useParams<{ projectId?: string; workspaceId?: string }>();
+  const { projectId, workspaceId } = routeParams;
+  const handleOpenChild = useMemo(() => {
+    if (!projectId || !workspaceId) return undefined;
+    return (childConversationId: string) =>
+      navigate(
+        paths.projectSession(projectId, workspaceId, childConversationId)
+      );
+  }, [navigate, projectId, workspaceId]);
+  // Read the composer's live profile selection so resend stays same-source.
+  const { getActiveExecutorProfile } = useActiveExecutorProfile();
+  // Keep the latest turn error in full (message + the agent's real ACP error
+  // code) so the card can offer code-specific recovery instead of a flat banner.
+  const turnErrors = sideRows.flatMap((row) =>
+    row.kind === 'turn_error' ? [row.error.error] : []
+  );
+  const latestTurnError = turnErrors[turnErrors.length - 1] ?? null;
 
   // Feed the composer's context-usage ring (EntriesContext). The setter is
   // stable, and useOptionalEntries no-ops outside a provider (e.g. logs panel).
@@ -309,6 +364,14 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setTokenUsageInfo?.(composerTokenUsage);
   }, [setTokenUsageInfo, composerTokenUsage]);
+
+  // Feed the composer's mode picker with the agent-advertised session modes for
+  // this conversation (same EntriesContext bridge as the usage ring).
+  const setSessionModes = entries?.setSessionModes;
+  const conversationSessionModes = conversation.sessionModes;
+  useEffect(() => {
+    setSessionModes?.(conversationSessionModes);
+  }, [setSessionModes, conversationSessionModes]);
 
   const liveStats = useMemo<TurnStatsData>(
     () => ({
@@ -558,28 +621,66 @@ const AgentTimelineConversation = forwardRef<
         .flatMap((block) => (block.type === 'text' ? [block.text] : []))
         .join('\n\n');
       if (!text) return;
-      const restoreFiles = window.confirm(
-        '恢复工作区文件到本条消息发送前?\n\n确定 = 恢复文件并重发\n取消 = 仅重发(不改动文件)'
-      );
-      if (restoreFiles) {
-        try {
-          await agentsApi.resetToCheckpoint(session.id, ordinal, true, false);
-        } catch (error) {
-          // No checkpoint at this ordinal (e.g. a pre-feature turn) -> resend only.
-          console.warn('checkpoint restore skipped', error);
-        }
-      }
-      await sendAgentRuntimeTurn({
-        workspaceId: attempt.id,
-        sessionId: session.id,
-        executorProfileId: {
-          executor: session.executor as BaseCodingAgent,
-          variant: null,
-        },
-        text,
+
+      // Reset-to-here: re-send this message in its original position and reset
+      // everything after it. The two-choice modal only controls the *independent*
+      // workspace file rollback (native window.confirm is blocked in the Tauri
+      // webview). 'confirmed' = also roll back files; 'canceled' (button/dismiss)
+      // = reset context only, leave files as-is.
+      const choice = await ConfirmDialog.show({
+        title: '重发这条消息',
+        message:
+          '将把这条消息之后的所有内容清除并在原位重新发送。\n\n是否同时把工作区文件回滚到这条消息发送前?\n\n恢复并重发 = 先回滚文件再发送\n仅重发 = 不改动文件直接发送',
+        confirmText: '恢复并重发',
+        cancelText: '仅重发',
+        variant: 'default',
       });
+      const restoreFiles = choice === 'confirmed';
+
+      try {
+        // Optional workspace rollback first — it relies on the checkpoint recorded
+        // at this ordinal, which the truncation below then removes.
+        if (restoreFiles) {
+          try {
+            await agentsApi.resetToCheckpoint(session.id, ordinal, true, false);
+          } catch (error) {
+            // No checkpoint at this ordinal (e.g. a pre-feature turn) -> resend only.
+            console.warn('checkpoint restore skipped', error);
+          }
+        }
+
+        // Truncate the durable conversation to before this turn (events/turns/
+        // checkpoints + projection), then hard-reset the frontend so it re-projects
+        // the truncated timeline before the resend's live events arrive.
+        await conversationApi.truncateToTurn({
+          conversationId: session.id,
+          ordinal,
+        });
+        await conversationResetAndReload();
+
+        // Resend with the composer's live profile (model/variant/reasoning) instead
+        // of a bare `{ executor, variant: null }`, which the backend would resolve
+        // to the agent's DEFAULT profile and silently override the user's choice
+        // (the Codex gpt-5.3-codex resend regression).
+        await sendAgentRuntimeTurn({
+          workspaceId: attempt.id,
+          sessionId: session.id,
+          executorProfileId: resolveResendExecutorProfile(
+            getActiveExecutorProfile(),
+            session.executor as BaseCodingAgent
+          ),
+          text,
+        });
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
     },
-    [attempt.id, attempt.session]
+    [
+      attempt.id,
+      attempt.session,
+      conversationResetAndReload,
+      getActiveExecutorProfile,
+    ]
   );
 
   return (
@@ -599,15 +700,18 @@ const AgentTimelineConversation = forwardRef<
       ) : (
         <div className="conv-thread-shell relative mx-auto w-full max-w-6xl">
           <div className="conv-thread-content min-w-0">
-            {turnErrors.length > 0 ? (
-              <div className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                <div className="font-medium">会话出错</div>
-                <div className="mt-0.5 whitespace-pre-wrap break-words leading-5">
-                  {turnErrors[turnErrors.length - 1]}
-                </div>
-              </div>
+            {latestTurnError ? (
+              <TurnErrorCard
+                error={latestTurnError}
+                onReload={conversationResetAndReload}
+              />
             ) : null}
-            <ConversationSideRows rows={sideRows} />
+            <ConversationSideRows
+              rows={sideRows}
+              onRespondPermission={handleRespondPermission}
+              respondingPermissionId={respondingPermissionId}
+              onOpenChild={handleOpenChild}
+            />
             <div
               ref={virtualListRef}
               className="relative w-full"

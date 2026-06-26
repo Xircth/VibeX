@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::{
     events::{AgentAvailableCommand, AgentSessionConfigOption, AgentSessionMode},
-    permissions::{AgentPermissionRequest, AgentPermissionResponse},
+    permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse},
     registry::AgentType,
 };
 
@@ -655,6 +655,14 @@ pub struct ConversationPermissionView {
     pub permission_id: String,
     pub title: Option<String>,
     pub status: String,
+    /// Raw ACP permission detail (tool call info — e.g. file_edit diff, command,
+    /// locations). Drives the in-card preview. `None` when the agent sent none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+    /// The selectable permission options (Allow / Allow-always / Reject …) the
+    /// user picks from to answer the request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<AgentPermissionOption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

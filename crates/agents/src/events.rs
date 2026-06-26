@@ -4,6 +4,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
+    conversation::SessionLoadFailureReason,
     ids::{AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId},
     permissions::{AgentPermissionRequest, AgentPermissionResponse},
     registry::AgentType,
@@ -109,7 +110,8 @@ pub struct AgentSessionConfigOption {
     pub choices: Vec<AgentSessionConfigChoice>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentSessionConfigOverride {
     pub key: String,
     pub value: String,
@@ -157,6 +159,11 @@ pub struct AgentPromptFinished {
 #[ts(export)]
 pub struct AgentErrorEvent {
     pub message: String,
+    /// Stable semantic code derived from the agent's real ACP/JSON-RPC error
+    /// code (e.g. `auth_required`, `resource_not_found`, `request_cancelled`).
+    /// `None` for non-ACP failures (e.g. a connection drop).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<serde_json::Value>,
 }
@@ -220,7 +227,7 @@ pub enum AgentEvent {
         commands: Vec<AgentAvailableCommand>,
     },
     SessionLoadFailed {
-        reason: String,
+        reason: SessionLoadFailureReason,
     },
     TurnCompleted {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -349,7 +356,7 @@ mod tests {
                 }],
             },
             AgentEvent::SessionLoadFailed {
-                reason: "unsupported".to_string(),
+                reason: SessionLoadFailureReason::Unsupported,
             },
             AgentEvent::TurnCompleted {
                 stop_reason: Some("end_turn".to_string()),
@@ -398,7 +405,7 @@ mod tests {
                 },
             },
             AgentEvent::SessionLoadFailed {
-                reason: "missing".to_string(),
+                reason: SessionLoadFailureReason::ResourceNotFound,
             },
             AgentEvent::SessionConfigStale { reason: None },
         ];

@@ -15,6 +15,7 @@ const PROJECT_RAIL_HEIGHT_SCALE_NUMERATOR: i32 = 3;
 const PROJECT_RAIL_HEIGHT_SCALE_DENOMINATOR: i32 = 2;
 const PROJECT_RAIL_GAP: i32 = 12;
 const PROJECT_RAIL_MARGIN: i32 = 12;
+#[cfg(windows)]
 const PROJECT_RAIL_NATIVE_CORNER_DIAMETER: i32 = 36;
 
 #[cfg(windows)]
@@ -90,7 +91,6 @@ pub fn ensure_project_rail_window(app: &tauri::AppHandle) -> Result<tauri::Webvi
     .inner_size(PROJECT_RAIL_WIDTH as f64, PROJECT_RAIL_MIN_HEIGHT as f64)
     .resizable(false)
     .decorations(false)
-    .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .background_color(Color(0, 0, 0, 0))

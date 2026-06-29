@@ -9,7 +9,7 @@ use std::{
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use thiserror::Error;
 use tokio::sync::mpsc;
-use utils::shell::get_interactive_shell;
+use utils::shell::{get_interactive_shell, resolve_executable_path};
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -104,8 +104,11 @@ impl PtyService {
         let session_id = preset_session_id.unwrap_or_else(Uuid::new_v4);
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let working_dir = Self::normalize_working_dir_for_shell(working_dir);
-        let shell = if let Some(ref s) = shell_override {
-            std::path::PathBuf::from(s)
+        let shell = if let Some(shell) = shell_override.as_deref().filter(|value| !value.is_empty())
+        {
+            resolve_executable_path(shell)
+                .await
+                .unwrap_or_else(|| PathBuf::from(shell))
         } else {
             get_interactive_shell().await
         };

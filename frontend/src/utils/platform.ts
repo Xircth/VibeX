@@ -1,13 +1,34 @@
-export function isMac(): boolean {
-  // Modern API (Chrome, Edge) - not supported in Safari
+export type HostPlatform = 'windows' | 'macos' | 'linux' | 'unknown';
+
+export function getHostPlatform(): HostPlatform {
   const nav = navigator as Navigator & {
     userAgentData?: { platform?: string };
   };
-  if (nav.userAgentData?.platform) {
-    return nav.userAgentData.platform === 'macOS';
+  const platform =
+    nav.userAgentData?.platform ||
+    navigator.platform ||
+    navigator.userAgent ||
+    '';
+  const normalized = platform.toLowerCase();
+
+  if (normalized.includes('win')) return 'windows';
+  if (
+    normalized.includes('mac') ||
+    normalized.includes('iphone') ||
+    normalized.includes('ipad') ||
+    normalized.includes('ipod')
+  ) {
+    return 'macos';
   }
-  // Fallback for Safari and older browsers
-  return /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (normalized.includes('linux') || normalized.includes('x11')) {
+    return 'linux';
+  }
+
+  return 'unknown';
+}
+
+export function isMac(): boolean {
+  return getHostPlatform() === 'macos';
 }
 
 export function getModifierKey(): string {

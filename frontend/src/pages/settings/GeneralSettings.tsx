@@ -32,7 +32,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
 import {
   getDefaultTerminalShell,
-  TERMINAL_SHELL_OPTIONS,
+  getTerminalShellOptions,
 } from '@/lib/terminalPreferences';
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { toPrettyCase } from '@/utils/string';
@@ -295,6 +295,7 @@ export function GeneralSettings() {
     draft.editor.editor_type === EditorType.CUSTOM
       ? null
       : editorAvailability[draft.editor.editor_type];
+  const terminalShellOptions = getTerminalShellOptions();
 
   return (
     <div className="settings-content">
@@ -321,7 +322,7 @@ export function GeneralSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
-                {TERMINAL_SHELL_OPTIONS.map((option) => (
+                {terminalShellOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>

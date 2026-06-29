@@ -1,0 +1,134 @@
+name: Desktop Installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional GitHub Release tag to upload installers to'
+        required: false
+        type: string
+      upload_to_release:
+        description: 'Upload installers to the GitHub Release named by release_tag'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 22
+  PNPM_VERSION: 10.13.1
+  RUST_TOOLCHAIN: nightly-2025-12-04
+  SQLX_OFFLINE: 'true'
+  SQLX_OFFLINE_DIR: ${{ github.workspace }}/crates/db/.sqlx
+
+jobs:
+  prepare-release:
+    name: Prepare GitHub Release
+    if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+          else
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes "Desktop installers for $RELEASE_TAG."
+          fi
+
+  build:
+    name: Build ${{ matrix.artifact_name }}
+    needs: prepare-release
+    if: ${{ always() && !failure() && !cancelled() }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact_name: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+          - artifact_name: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+          - artifact_name: macos-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - artifact_name: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '.'
+          cache-provider: github
+          cache-on-failure: true
+          shared-key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}
+          cache-all-crates: true
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop installers
+        run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeX-${{ matrix.artifact_name }}
+          if-no-files-found: error
+          path: |
+            target/${{ matrix.target }}/release/bundle/**/*
+            target/release/bundle/**/*
+
+      - name: Upload installers to GitHub Release
+        if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: |
+            target/${{ matrix.target }}/release/bundle/**/*.msi
+            target/${{ matrix.target }}/release/bundle/**/*.exe
+            target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            target/${{ matrix.target }}/release/bundle/**/*.deb
+            target/${{ matrix.target }}/release/bundle/**/*.dmg
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*.exe
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.dmg

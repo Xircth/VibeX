@@ -55,7 +55,6 @@ pub fn ensure_desktop_toast_window(app: &tauri::AppHandle) -> Result<tauri::Webv
     .inner_size(DESKTOP_TOAST_WIDTH as f64, DESKTOP_TOAST_HEIGHT as f64)
     .resizable(false)
     .decorations(false)
-    .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .background_color(Color(0, 0, 0, 0))

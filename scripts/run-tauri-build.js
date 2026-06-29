@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 const { spawn } = require('child_process');
+const path = require('path');
 const { withNativeBuildEnv } = require('./cargo-path');
+
+const workspaceRoot = path.join(__dirname, '..');
+const sqlxOfflineDir = path.join(workspaceRoot, 'crates', 'db', '.sqlx');
 
 function runCommand(command, args, options = {}) {
   if (process.platform === 'win32') {
@@ -15,11 +19,52 @@ function runCommand(command, args, options = {}) {
   return spawn(command, args, options);
 }
 
+function hasBundleArg(args) {
+  return args.some(
+    (arg) => arg === '--bundles' || arg === '-b' || arg.startsWith('--bundles=')
+  );
+}
+
+function getDefaultBundles(platform) {
+  switch (platform) {
+    case 'win32':
+      return 'msi,nsis';
+    case 'darwin':
+      return 'app,dmg';
+    case 'linux':
+      return 'appimage,deb';
+    default:
+      return null;
+  }
+}
+
+function withTauriBuildEnv(env) {
+  return {
+    ...withNativeBuildEnv(env),
+    SQLX_OFFLINE: env.SQLX_OFFLINE || 'true',
+    SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || sqlxOfflineDir,
+  };
+}
+
+const userArgs = process.argv
+  .slice(2)
+  .filter((arg, index) => !(index === 0 && arg === '--'));
+const defaultBundles = getDefaultBundles(process.platform);
+const bundleArgs =
+  defaultBundles && !hasBundleArg(userArgs)
+    ? ['--bundles', defaultBundles]
+    : [];
+const buildArgs = ['exec', 'tauri', 'build', ...bundleArgs, ...userArgs];
+
+if (bundleArgs.length > 0) {
+  console.log(`Using default Tauri bundles for ${process.platform}: ${defaultBundles}`);
+}
+
 const child = runCommand(
   'pnpm',
-  ['exec', 'tauri', 'build', ...process.argv.slice(2)],
+  buildArgs,
   {
-    env: withNativeBuildEnv(process.env),
+    env: withTauriBuildEnv(process.env),
     stdio: 'inherit',
   }
 );

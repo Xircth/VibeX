@@ -17,8 +17,8 @@ import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { tauriInvoke } from '@/lib/tauriApi';
 import {
-  TERMINAL_SHELL_OPTIONS,
   getDefaultTerminalShell,
+  getTerminalShellOptions,
   getTerminalWorkspaceKey,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
@@ -37,6 +37,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     getTerminalWorkspaceKey(activeWorktreeId ?? routeWorkspaceId ?? null) ||
     undefined;
   const defaultShell = getDefaultTerminalShell(config);
+  const terminalShellOptions = getTerminalShellOptions();
   const { setOverrideUrl } = usePreviewSettings(workspaceId);
 
   const sessionsByWorkspace = useTerminalStore(
@@ -233,7 +234,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
                 className="h-6 min-w-0 flex-1 rounded border border-border bg-transparent px-1 text-[10px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
                 title="Shell type"
               >
-                {TERMINAL_SHELL_OPTIONS.map((opt) => (
+                {terminalShellOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>

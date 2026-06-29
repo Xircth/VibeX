@@ -43,6 +43,7 @@ toml = "0.8"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 prost = "0.13"
 sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Reuse existing workspace crates
 db = { path = "../crates/db" }

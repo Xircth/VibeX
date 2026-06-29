@@ -24,7 +24,9 @@ use services::services::{
     worktree_manager::WorktreeManager,
 };
 use tokio::sync::RwLock;
-use utils::{assets::config_path, msg_store::MsgStore, process::new_hidden_std_command};
+#[cfg(target_os = "windows")]
+use utils::process::new_hidden_std_command;
+use utils::{assets::config_path, msg_store::MsgStore};
 
 use crate::{container::LocalContainerService, pty::PtyService};
 mod command;

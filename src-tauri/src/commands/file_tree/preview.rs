@@ -1,7 +1,8 @@
-use std::{
-    path::Path,
-    process::{Output, Stdio},
-};
+#[cfg(any(windows, test))]
+use std::process::Output;
+#[cfg(windows)]
+use std::process::Stdio;
+use std::{io::Read, path::Path};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use regex::Regex;
@@ -87,6 +88,7 @@ fn decode_xml_entities(input: &str) -> String {
         .replace("&apos;", "'")
 }
 
+#[cfg(windows)]
 fn escape_powershell_single_quoted_string(value: &str) -> String {
     value.replace('\'', "''")
 }
@@ -422,6 +424,7 @@ fn extract_docx_text_from_xml(document_xml: &str) -> String {
     normalize_document_preview_text(&decode_xml_entities(&without_tags))
 }
 
+#[cfg(windows)]
 async fn run_hidden_utf8_command(
     program: impl AsRef<Path>,
     args: Vec<String>,
@@ -456,6 +459,7 @@ async fn run_hidden_utf8_command(
         })
 }
 
+#[cfg(any(windows, test))]
 fn preview_extraction_failure_message(context: &str, output: &Output) -> String {
     utils::process::command_output_detail(output).map_or_else(
         || format!("{} preview extraction failed", context),
@@ -463,61 +467,19 @@ fn preview_extraction_failure_message(context: &str, output: &Output) -> String 
     )
 }
 
-#[cfg(windows)]
-async fn extract_docx_xml_with_powershell(path: &Path) -> Result<String, AppError> {
-    let escaped_path = escape_powershell_single_quoted_string(&path.display().to_string());
-    let script = r#"
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$targetPath = '__VIBE_ESCAPED_PATH__'
-$zip = [System.IO.Compression.ZipFile]::OpenRead($targetPath)
-try {
-  $entry = $zip.GetEntry('word/document.xml')
-  if ($null -eq $entry) {
-    $entry = $zip.GetEntry('word\document.xml')
-  }
-  if ($null -eq $entry) {
-    throw 'word/document.xml not found'
-  }
-
-  $stream = $entry.Open()
-  try {
-    $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8)
-    try {
-      [Console]::Write($reader.ReadToEnd())
-    } finally {
-      $reader.Dispose()
-    }
-  } finally {
-    $stream.Dispose()
-  }
-} finally {
-  $zip.Dispose()
-}
-"#
-    .replace("__VIBE_ESCAPED_PATH__", &escaped_path);
-
-    run_hidden_utf8_command(
-        "powershell.exe",
-        vec![
-            "-NoProfile".to_string(),
-            "-NonInteractive".to_string(),
-            "-ExecutionPolicy".to_string(),
-            "Bypass".to_string(),
-            "-Command".to_string(),
-            script,
-        ],
-        "DOCX",
-    )
-    .await
-}
-
-#[cfg(not(windows))]
-async fn extract_docx_xml_with_powershell(_path: &Path) -> Result<String, AppError> {
-    Err(AppError::BadRequest(
-        "DOCX preview is currently only available on Windows in the desktop app".to_string(),
-    ))
+fn extract_docx_xml(path: &Path) -> Result<String, AppError> {
+    let file = std::fs::File::open(path)
+        .map_err(|error| AppError::Internal(format!("Failed to open DOCX file: {error}")))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| AppError::BadRequest(format!("Invalid DOCX file: {error}")))?;
+    let mut document = archive.by_name("word/document.xml").map_err(|_| {
+        AppError::BadRequest("DOCX file does not contain word/document.xml".to_string())
+    })?;
+    let mut xml = String::new();
+    document.read_to_string(&mut xml).map_err(|error| {
+        AppError::Internal(format!("Failed to read DOCX document XML: {error}"))
+    })?;
+    Ok(xml)
 }
 
 #[cfg(windows)]
@@ -578,7 +540,7 @@ pub(super) async fn read_document_preview_content(
 
     match extension.as_str() {
         "docx" => {
-            let document_xml = extract_docx_xml_with_powershell(path).await?;
+            let document_xml = extract_docx_xml(path)?;
             let content = extract_docx_html_from_xml(&document_xml);
             Ok(DocumentPreviewResponse {
                 content,

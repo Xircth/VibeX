@@ -250,11 +250,11 @@ async fn get_fresh_path() -> Option<String> {
         if path.is_empty() { None } else { Some(path) }
     }
 
-    let mut paths = Vec::new();
+    let mut paths = Vec::<OsString>::new();
 
     let current_shell = UnixShell::current_shell();
     if let Some(path) = run(&current_shell).await {
-        paths.push(path);
+        paths.push(OsString::from(path));
     }
 
     let shells: Vec<UnixShell> = ["/bin/zsh", "/bin/bash", "/bin/sh"]
@@ -265,7 +265,7 @@ async fn get_fresh_path() -> Option<String> {
         if !(shell == current_shell)
             && let Some(path) = run(&shell).await
         {
-            paths.push(path);
+            paths.push(OsString::from(path));
         }
     }
 

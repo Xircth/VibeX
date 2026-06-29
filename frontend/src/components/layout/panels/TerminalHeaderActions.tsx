@@ -10,8 +10,8 @@ import {
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useUserSystem } from '@/components/ConfigProvider';
 import {
-  TERMINAL_SHELL_OPTIONS,
   getDefaultTerminalShell,
+  getTerminalShellOptions,
   getTerminalWorkspaceKey,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
@@ -34,6 +34,7 @@ function TerminalHeaderActionsInner() {
   const { config } = useUserSystem();
   const workspaceKey = getTerminalWorkspaceKey(activeWorktreeId);
   const defaultShell = getDefaultTerminalShell(config);
+  const terminalShellOptions = getTerminalShellOptions();
 
   const addSession = useTerminalStore((s) => s.addSession);
   const [selectedShell, setSelectedShell] =
@@ -64,7 +65,7 @@ function TerminalHeaderActionsInner() {
         className="h-6 text-[11px] bg-transparent border border-border rounded px-1 text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer"
         title="Shell type"
       >
-        {TERMINAL_SHELL_OPTIONS.map((opt) => (
+        {terminalShellOptions.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>

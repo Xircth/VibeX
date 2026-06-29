@@ -28,7 +28,11 @@
     "prepare-db:check": "node scripts/prepare-db.js --check",
     "tauri:dev": "pnpm run tauri:dev:desktop",
     "tauri:dev:desktop": "node scripts/run-tauri-dev-desktop.js",
-    "tauri:build": "node scripts/run-tauri-build.js"
+    "tauri:build": "node scripts/run-tauri-build.js",
+    "tauri:build:windows": "node scripts/run-tauri-build.js --bundles msi,nsis",
+    "tauri:build:macos": "node scripts/run-tauri-build.js --bundles app,dmg",
+    "tauri:build:linux": "node scripts/run-tauri-build.js --bundles appimage,deb",
+    "tauri:build:all": "node scripts/run-tauri-build-all.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",

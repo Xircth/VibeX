@@ -70,6 +70,15 @@ pub fn run() {
 
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
+            // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
+            // process lifecycle before the UI connects. Best-effort — a failure here
+            // must not block app launch; the worst case is a stale in-flight turn.
+            if let Err(error) = tauri::async_runtime::block_on(
+                conversation_service::ConversationSessionService::new(&state)
+                    .recover_interrupted_turns(),
+            ) {
+                tracing::error!("startup crash-recovery failed: {}", error);
+            }
             events::start_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_terminal_forwarding(&app.handle().clone(), &state);

@@ -263,6 +263,9 @@ fn app_error(error: AppError) -> Response {
     }
 }
 
+// The Err payload is a full HTTP `Response`; these local helpers return it by value
+// for ergonomics rather than boxing on every call site.
+#[allow(clippy::result_large_err)]
 fn ensure_auth(headers: &HeaderMap, state: &WebServiceRouterState) -> Result<(), Response> {
     let Some(expected) = state.token.as_deref() else {
         return Err(api_error(
@@ -287,6 +290,7 @@ fn ensure_auth(headers: &HeaderMap, state: &WebServiceRouterState) -> Result<(),
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_uuid(value: &str, label: &str) -> Result<Uuid, Response> {
     Uuid::parse_str(value)
         .map_err(|error| api_error(StatusCode::BAD_REQUEST, format!("invalid {label}: {error}")))

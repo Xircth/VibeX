@@ -22,8 +22,10 @@ export type ConversationGapState =
 
 export type ConversationTimelineTurn = {
   key: string;
+  // 'interrupted' is the terminal phase for a turn orphaned by a host crash
+  // (ADR-0001): rendered with a distinct "因重启中断" treatment + one-click resend.
+  phase: 'persisted' | 'optimistic' | 'streaming' | 'settled' | 'interrupted';
   turn: MessageTurn;
-  phase: 'persisted' | 'optimistic' | 'streaming' | 'settled';
 };
 
 export type ConversationStoreEntry = {
@@ -311,6 +313,11 @@ function applyEventRows(
       }));
     case 'turn_completed':
       return setTurnPhase(rows, turnId, 'settled');
+    case 'turn_interrupted':
+      // Terminal state from startup crash-recovery (ADR-0001). Reaches the store
+      // mainly via projection reload, but handle the live/backfilled event too so
+      // the turn settles into its "因重启中断" phase rather than a phantom stream.
+      return setTurnPhase(rows, turnId, 'interrupted');
     case 'turn_failed':
       return [
         ...setTurnPhase(rows, turnId, 'settled'),
@@ -712,7 +719,13 @@ function withPendingAssistantTurn(
   const userTurn = turns.find(
     (row) => row.turn.role === 'user' && row.turn.id === userId
   );
-  if (!userTurn || userTurn.phase === 'settled') {
+  // 'interrupted' is terminal too (ADR-0001) — never spawn a phantom streaming
+  // bubble for a turn the host crashed mid-flight.
+  if (
+    !userTurn ||
+    userTurn.phase === 'settled' ||
+    userTurn.phase === 'interrupted'
+  ) {
     return withOptimisticPendingAssistantTurn(turns);
   }
 

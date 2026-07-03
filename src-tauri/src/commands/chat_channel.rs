@@ -1574,13 +1574,11 @@ async fn resolve_target(
     });
     if let Some(selected) = selected
         && let Ok(conversation_id) = Uuid::parse_str(&selected)
-    {
-        if let Some(conversation) = conversations
+        && let Some(conversation) = conversations
             .iter()
             .find(|conversation| conversation.id == conversation_id)
-        {
-            return Ok(conversation.clone());
-        }
+    {
+        return Ok(conversation.clone());
     }
 
     match conversations.len() {

@@ -193,6 +193,43 @@ describe('conversationStoreReducer', () => {
     );
   });
 
+  it('settles an interrupted turn to the interrupted phase without a phantom stream', () => {
+    // 批次B / ADR-0001: a turn_interrupted event drives the user turn to the terminal
+    // 'interrupted' phase, and must NOT spawn a pending streaming assistant bubble.
+    let state = conversationStoreReducer(emptyConversationStoreState, {
+      type: 'load_success',
+      conversationId: 'conversation-1',
+      detail: emptyDetail(),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(1n, {
+        kind: 'user_turn_created',
+        blocks: [{ kind: 'text', text: 'do the thing' }],
+      }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(2n, { kind: 'user_turn_started' }),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'event',
+      envelope: envelope(3n, {
+        kind: 'turn_interrupted',
+        reason: 'host restarted',
+      }),
+    });
+
+    const turns = timelineTurnsForEntry(
+      state.byConversationId['conversation-1']
+    );
+    // The user turn is interrupted; crucially there is no phantom streaming assistant.
+    expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
+      ['user', 'interrupted'],
+    ]);
+  });
+
   it('replaces the pending assistant turn when assistant content arrives', () => {
     let state = conversationStoreReducer(emptyConversationStoreState, {
       type: 'load_success',

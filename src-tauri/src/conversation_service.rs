@@ -4,7 +4,7 @@ use agents::{
     AgentConnectionId, AgentContentBlock, AgentPermissionId, AgentPermissionResponse,
     AgentPromptId, AgentPromptSnapshot, AgentSessionConfigOverride, AgentSessionId, AgentType,
     CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentPermissionInput,
-    SendAgentPromptInput, agent_type_from_executor_key,
+    ResumeAgentSessionInput, SendAgentPromptInput, agent_type_from_executor_key,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
@@ -19,6 +19,7 @@ use db::models::{
     },
     conversation_event::AppendConversationEvent,
     conversation_projection::{ConversationEventAppender, ConversationProjector},
+    conversation_side_effects::ConversationPermissionRecord,
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
     session_checkpoint::SessionCheckpoint,
@@ -421,7 +422,93 @@ impl<'a> ConversationSessionService<'a> {
             state.recovery_status = reason;
         })
         .await;
+        // Drop this conversation's in-memory coordination state now that it is closed.
+        // Without this, both maps leaked one entry per conversation ever opened — the
+        // whole codebase had no `remove` on either (架构报告 recovery). The closed
+        // status is authoritative in the event log + SessionStatus, not these maps.
+        self.forget_conversation_runtime(conversation_id).await;
         Ok(())
+    }
+
+    /// Reconcile turns orphaned by the previous process lifecycle (startup recovery,
+    /// ADR-0001). A turn left in-flight (pending/queued/running/blocked) when the host
+    /// died can never resume its generation, so drive it to the **Interrupted** terminal
+    /// state *through the event log* (never a bare status UPDATE) and void its orphaned
+    /// pending permission requests. Session *context* is reloaded lazily on the next
+    /// open/send via ACP `session/load` — we deliberately do **not** eagerly reconnect
+    /// agents here. Returns the number of turns recovered.
+    pub async fn recover_interrupted_turns(&self) -> Result<usize, AppError> {
+        let pool = &self.state.deployment.db().pool;
+        let in_flight = ConversationTurnRecord::list_in_flight(pool).await?;
+        if in_flight.is_empty() {
+            return Ok(0);
+        }
+
+        let count = in_flight.len();
+        tracing::info!(
+            count,
+            "startup recovery: marking orphaned in-flight turns as interrupted"
+        );
+
+        for turn in &in_flight {
+            // Void any pending permission requests orphaned on this turn — event-sourced
+            // (a Cancelled `PermissionResponded`) so a projection rebuild stays consistent.
+            let permissions = ConversationPermissionRecord::list_for_turn(pool, turn.id).await?;
+            for permission in permissions.into_iter().filter(|p| p.status == "pending") {
+                self.append_event(
+                    turn.conversation_id,
+                    Some(turn.id),
+                    "runtime",
+                    ConversationEvent::PermissionResponded {
+                        permission_id: permission.permission_id.clone(),
+                        response: ConversationPermissionResponse {
+                            response: AgentPermissionResponse::Cancelled,
+                            auto: true,
+                        },
+                    },
+                    Some(format!(
+                        "recovery:permission-cancelled:{}",
+                        permission.permission_id
+                    )),
+                )
+                .await?;
+            }
+
+            // Advance the turn to Interrupted through the event log (never a bare UPDATE).
+            // The idempotency key makes a second recovery pass a no-op.
+            self.append_event(
+                turn.conversation_id,
+                Some(turn.id),
+                "runtime",
+                ConversationEvent::TurnInterrupted {
+                    reason: Some("会话在生成过程中因应用重启而中断".to_string()),
+                },
+                Some(format!("recovery:turn-interrupted:{}", turn.id)),
+            )
+            .await?;
+
+            // The interrupted turn is terminal, so it is no longer the active turn.
+            ConversationRecord::update_active_turn(pool, turn.conversation_id, None).await?;
+            // Defensive: clear any lingering coordination state for the conversation
+            // (empty at startup, but keeps recovery self-contained).
+            self.forget_conversation_runtime(turn.conversation_id).await;
+        }
+
+        Ok(count)
+    }
+
+    /// Remove a conversation's entries from both in-memory coordination maps.
+    async fn forget_conversation_runtime(&self, conversation_id: Uuid) {
+        self.state
+            .conversation_turn_locks
+            .lock()
+            .await
+            .remove(&conversation_id);
+        self.state
+            .conversation_runtime_states
+            .lock()
+            .await
+            .remove(&conversation_id);
     }
 
     async fn ensure_conversation(
@@ -467,6 +554,23 @@ impl<'a> ConversationSessionService<'a> {
             .and_then(|binding| binding.acp_session_id.clone())
             .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
 
+        // Lazy reconnect (ADR-0001): when a conversation is reopened after its agent
+        // process ended (host restart, or the conversation was closed), the runtime has
+        // no live connection for it. If a real ACP session id was established before, we
+        // reload its context via ACP `session/load` on this send rather than reconnecting
+        // blank. `resume_session` → `load_or_new_acp_session` falls back to a fresh
+        // session when the agent lacks the load capability. We never reconnect eagerly at
+        // startup — only here, on demand.
+        let has_live_connection = self
+            .runtime_connection_and_turn(input.conversation_id)
+            .await
+            .is_some();
+        let resume_external_session_id = latest_binding
+            .as_ref()
+            .and_then(|binding| binding.acp_session_id.clone())
+            .filter(|id| !id.starts_with("vibex-new-session-"))
+            .filter(|_| !has_live_connection);
+
         let binding = ConversationAgentBindingRecord::create(
             pool,
             Uuid::new_v4(),
@@ -477,7 +581,7 @@ impl<'a> ConversationSessionService<'a> {
                 acp_session_id: Some(&acp_session_id),
                 acp_protocol_version: None,
                 load_supported: true,
-                resume_supported: false,
+                resume_supported: resume_external_session_id.is_some(),
                 close_supported: true,
                 terminal_supported: true,
                 additional_directories_supported: false,
@@ -504,19 +608,33 @@ impl<'a> ConversationSessionService<'a> {
         )
         .await?;
 
-        let session = self
-            .state
-            .agent_runtime
-            .ensure_session(EnsureAgentSessionInput {
-                agent_type: input.agent_type,
-                workspace_id: input.workspace_id,
-                working_dir: PathBuf::from(working_dir),
-                session_id: AgentSessionId(input.conversation_id),
-                acp_session_id: acp_session_id.clone(),
-                auto_approve_mode: launch_settings.auto_approve_mode,
-                env: launch_settings.env.clone(),
-            })
-            .await?;
+        let session = if let Some(external_session_id) = resume_external_session_id {
+            self.state
+                .agent_runtime
+                .resume_session(ResumeAgentSessionInput {
+                    agent_type: input.agent_type,
+                    workspace_id: input.workspace_id,
+                    working_dir: PathBuf::from(working_dir),
+                    session_id: AgentSessionId(input.conversation_id),
+                    external_session_id,
+                    auto_approve_mode: launch_settings.auto_approve_mode,
+                    env: launch_settings.env.clone(),
+                })
+                .await?
+        } else {
+            self.state
+                .agent_runtime
+                .ensure_session(EnsureAgentSessionInput {
+                    agent_type: input.agent_type,
+                    workspace_id: input.workspace_id,
+                    working_dir: PathBuf::from(working_dir),
+                    session_id: AgentSessionId(input.conversation_id),
+                    acp_session_id: acp_session_id.clone(),
+                    auto_approve_mode: launch_settings.auto_approve_mode,
+                    env: launch_settings.env.clone(),
+                })
+                .await?
+        };
 
         ConversationAgentBindingRecord::bind_acp_session(
             pool,

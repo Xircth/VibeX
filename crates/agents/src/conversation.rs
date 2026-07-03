@@ -603,6 +603,15 @@ pub enum ConversationEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// The host process died while this turn was in-flight (crash / kill / restart),
+    /// so its generation is unrecoverable. The fourth terminal turn state — distinct
+    /// from `TurnFailed` (agent error) and `TurnCancelled` (user request). Only the
+    /// startup recovery coordinator appends this; it is never auto-retried. See
+    /// ADR-0001.
+    TurnInterrupted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
     SessionModeUpdated {
         current: Option<String>,
         modes: Vec<AgentSessionMode>,

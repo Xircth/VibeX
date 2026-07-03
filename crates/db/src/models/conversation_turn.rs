@@ -124,6 +124,20 @@ impl ConversationTurnRecord {
         .await
     }
 
+    /// Every turn still in a non-terminal state, across all conversations. The startup
+    /// recovery coordinator uses this to find turns orphaned by a host crash — the
+    /// status set mirrors `is_in_flight_turn_status` in `conversation_service`.
+    pub async fn list_in_flight(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {TURN_COLUMNS}
+               FROM conversation_turns
+               WHERE status IN ('pending','queued','running','blocked')
+               ORDER BY created_at ASC"#
+        ))
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn mark_queued<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
     where
         E: Executor<'e, Database = Sqlite>,
@@ -235,6 +249,33 @@ impl ConversationTurnRecord {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET status = 'cancelled',
+                   error_json = COALESCE(?, error_json),
+                   completed_at = COALESCE(completed_at, datetime('now', 'subsec')),
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(reason_json)
+        .bind(id)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
+
+    /// Mark a turn Interrupted — the fourth terminal state, set only by the startup
+    /// recovery coordinator when the host died mid-turn (ADR-0001). Mirrors
+    /// `mark_cancelled` but is deliberately a separate call so intent is legible at
+    /// the call site.
+    pub async fn mark_interrupted<'e, E>(
+        executor: E,
+        id: Uuid,
+        reason_json: Option<&str>,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query(
+            r#"UPDATE conversation_turns
+               SET status = 'interrupted',
                    error_json = COALESCE(?, error_json),
                    completed_at = COALESCE(completed_at, datetime('now', 'subsec')),
                    updated_at = datetime('now', 'subsec')
@@ -393,5 +434,96 @@ mod tests {
         ConversationTurnRecord::mark_cancelled(&pool, cancelled_id, Some(r#"{"message":"stop"}"#))
             .await
             .expect("cancelled");
+    }
+
+    #[tokio::test]
+    async fn list_in_flight_finds_orphaned_turns_and_mark_interrupted_settles_them() {
+        // 批次B / ADR-0001: the startup recovery coordinator lists non-terminal turns
+        // and drives each to the Interrupted terminal state.
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+
+        // One turn per non-terminal status, plus a completed one that must be excluded.
+        let mut in_flight_ids = Vec::new();
+        for (index, status) in ["pending", "queued", "running", "blocked"].iter().enumerate() {
+            let id = Uuid::new_v4();
+            ConversationTurnRecord::create_pending(
+                &pool,
+                id,
+                CreateConversationTurn {
+                    conversation_id,
+                    prompt_id: Some("p"),
+                    text_preview: Some("t"),
+                    input_blocks_json: "[]",
+                },
+            )
+            .await
+            .expect("create turn");
+            // 'pending' is the create default; advance the rest.
+            match *status {
+                "queued" => ConversationTurnRecord::mark_queued(&pool, id).await.unwrap(),
+                "running" => ConversationTurnRecord::mark_running(&pool, id).await.unwrap(),
+                "blocked" => ConversationTurnRecord::mark_blocked(&pool, id).await.unwrap(),
+                _ => {}
+            }
+            let _ = index;
+            in_flight_ids.push(id);
+        }
+        let completed_id = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            completed_id,
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("done"),
+                text_preview: Some("done"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create completed turn");
+        ConversationTurnRecord::mark_completed(&pool, completed_id, None, None, None)
+            .await
+            .expect("completed");
+
+        let in_flight = ConversationTurnRecord::list_in_flight(&pool)
+            .await
+            .expect("list in flight");
+        assert_eq!(in_flight.len(), 4, "the four non-terminal turns, not the completed one");
+        assert!(in_flight.iter().all(|turn| turn.id != completed_id));
+
+        for turn in &in_flight {
+            ConversationTurnRecord::mark_interrupted(&pool, turn.id, Some(r#"{"message":"restart"}"#))
+                .await
+                .expect("mark interrupted");
+        }
+
+        // All settled now → nothing left in flight, and each is 'interrupted'.
+        assert!(
+            ConversationTurnRecord::list_in_flight(&pool)
+                .await
+                .expect("list in flight")
+                .is_empty()
+        );
+        let first = ConversationTurnRecord::find_by_id(&pool, in_flight_ids[0])
+            .await
+            .expect("find")
+            .expect("turn");
+        assert_eq!(first.status, "interrupted");
+        assert!(first.completed_at.is_some());
     }
 }

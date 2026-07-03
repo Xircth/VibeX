@@ -146,6 +146,18 @@ impl ConversationStateApplier {
                     .await?;
                 }
             }
+            ConversationEvent::TurnInterrupted { reason } => {
+                if let Some(turn_id) = record.turn_id {
+                    let reason_json =
+                        reason.map(|message| serde_json::json!({ "message": message }).to_string());
+                    ConversationTurnRecord::mark_interrupted(
+                        &mut *conn,
+                        turn_id,
+                        reason_json.as_deref(),
+                    )
+                    .await?;
+                }
+            }
             ConversationEvent::ToolCallUpsert { tool_call } => {
                 if let Some(turn_id) = record.turn_id {
                     let raw_input_json = json_string_ref(&tool_call.raw_input)?;
@@ -339,7 +351,7 @@ impl ConversationProjector {
     ) -> Result<(), sqlx::Error> {
         if !matches!(
             record.event_kind.as_str(),
-            "turn_completed" | "turn_failed" | "turn_cancelled"
+            "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
         ) {
             return Ok(());
         }
@@ -673,6 +685,15 @@ impl ProjectionFold {
                     turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
                 }
             }
+            ConversationEvent::TurnInterrupted { .. } => {
+                // Mark the turn's phase so the timeline renders the "因重启中断" state
+                // with a one-click resend affordance (the user prompt lives on the
+                // turn's user row). Never auto-retried — ADR-0001.
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    turns.get_mut(&turn_id).expect("turn exists").phase = "interrupted".into();
+                }
+            }
             ConversationEvent::PermissionRequested { request } => {
                 side_rows.push(ConversationTimelineRow::PermissionRequest {
                     request: ConversationPermissionView {
@@ -683,6 +704,20 @@ impl ProjectionFold {
                         options: request.request.options,
                     },
                 });
+            }
+            ConversationEvent::PermissionResponded { permission_id, .. } => {
+                // Fold the response onto the pending permission row so a rebuilt
+                // projection matches the live store (which sets `status: 'responded'`)
+                // — otherwise an answered (or recovery-voided, ADR-0001) permission
+                // reloads as perpetually pending.
+                for row in side_rows.iter_mut() {
+                    if let ConversationTimelineRow::PermissionRequest { request } = row
+                        && request.permission_id == permission_id
+                    {
+                        request.status = "responded".into();
+                        break;
+                    }
+                }
             }
             ConversationEvent::QuestionRequested { request } => {
                 side_rows.push(ConversationTimelineRow::QuestionRequest {
@@ -1223,6 +1258,114 @@ mod tests {
             _ => false,
         });
         assert!(has_assistant_text, "surrounding events still fold");
+    }
+
+    #[tokio::test]
+    async fn turn_interrupted_marks_status_and_phase() {
+        // 批次B / ADR-0001: a TurnInterrupted event is the fourth terminal state. It
+        // must drive the durable turn status to 'interrupted' (side-effect table) and
+        // the projected turn phase to 'interrupted' (so the timeline renders the
+        // 因重启中断 treatment).
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnStarted,
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnInterrupted {
+                reason: Some("host restarted".into()),
+            },
+            None,
+        )
+        .await;
+
+        let turn = ConversationTurnRecord::find_by_id(&pool, turn_id)
+            .await
+            .expect("find turn")
+            .expect("turn");
+        assert_eq!(turn.status, "interrupted");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let user_phase = timeline.rows.iter().find_map(|row| match row {
+            ConversationTimelineRow::MessageTurn { turn, phase }
+                if turn.role == TurnRole::User =>
+            {
+                Some(phase.clone())
+            }
+            _ => None,
+        });
+        assert_eq!(user_phase.as_deref(), Some("interrupted"));
+    }
+
+    #[tokio::test]
+    async fn permission_responded_folds_status_onto_row() {
+        // 批次B: a responded (or recovery-voided) permission must reload as 'responded',
+        // matching the live store — not perpetually 'pending'.
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::PermissionRequested {
+                request: ConversationPermissionRequest {
+                    permission_id: "perm-1".into(),
+                    request: AgentPermissionRequest {
+                        id: AgentPermissionId::new(),
+                        session_id: AgentSessionId::new(),
+                        title: "Allow edit?".into(),
+                        details: None,
+                        options: vec![AgentPermissionOption {
+                            id: "allow".into(),
+                            label: "Allow".into(),
+                            kind: AgentPermissionOptionKind::AllowOnce,
+                            description: None,
+                        }],
+                    },
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::PermissionResponded {
+                permission_id: "perm-1".into(),
+                response: ConversationPermissionResponse {
+                    response: AgentPermissionResponse::Cancelled,
+                    auto: true,
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let status = timeline.rows.iter().find_map(|row| match row {
+            ConversationTimelineRow::PermissionRequest { request } => Some(request.status.clone()),
+            _ => None,
+        });
+        assert_eq!(status.as_deref(), Some("responded"));
     }
 
     #[test]

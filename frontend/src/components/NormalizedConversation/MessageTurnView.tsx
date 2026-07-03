@@ -42,7 +42,12 @@ export interface MessageTurnContext {
   workspacePath?: string | null;
 }
 
-type MessageTurnPhase = 'persisted' | 'optimistic' | 'streaming' | 'settled';
+type MessageTurnPhase =
+  | 'persisted'
+  | 'optimistic'
+  | 'streaming'
+  | 'settled'
+  | 'interrupted';
 
 function OrphanToolResultCard({
   result,
@@ -207,6 +212,34 @@ function UserMessageActions({
   );
 }
 
+/**
+ * Terminal "因重启中断" (interrupted-by-restart) treatment for a turn the host
+ * crashed mid-flight (ADR-0001). Rendered on the turn's user row (always present,
+ * and carrying the prompt the resend re-sends). The resend is strictly
+ * click-driven — never automatic — because the interrupted agent may already have
+ * produced side effects only the user can judge.
+ */
+function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">因重启中断</span>
+      <span>此回合在生成过程中因应用重启而中断，未能完成。</span>
+      {onResend ? (
+        <button
+          type="button"
+          onClick={onResend}
+          className="ml-auto inline-flex items-center gap-1 rounded border px-2 py-0.5 font-medium text-foreground transition-colors hover:bg-muted"
+          title="重发：可选择先恢复文件再重新发送"
+          aria-label="重发"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          重发
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function CollapsedProcessGroup({
   turnId,
   items,
@@ -357,6 +390,9 @@ export const MessageTurnView = memo(function MessageTurnView({
             />
           </div>
         </div>
+        {phase === 'interrupted' ? (
+          <InterruptedTurnNotice onResend={onRetry} />
+        ) : null}
       </div>
     );
   }

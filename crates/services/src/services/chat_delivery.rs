@@ -284,7 +284,10 @@ async fn telegram_send_rich(
 
 // ── Feishu (Lark) app mode ──
 
-pub async fn feishu_tenant_token(app_id: &str, app_secret: &str) -> Result<String, NotificationError> {
+pub async fn feishu_tenant_token(
+    app_id: &str,
+    app_secret: &str,
+) -> Result<String, NotificationError> {
     let response = http_client()
         .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
         .json(&json!({ "app_id": app_id, "app_secret": app_secret }))
@@ -300,7 +303,9 @@ pub async fn feishu_tenant_token(app_id: &str, app_secret: &str) -> Result<Strin
             .get("msg")
             .and_then(Value::as_str)
             .unwrap_or("飞书鉴权失败");
-        return Err(NotificationError::BadRequest(format!("飞书鉴权失败：{msg}")));
+        return Err(NotificationError::BadRequest(format!(
+            "飞书鉴权失败：{msg}"
+        )));
     }
     payload
         .get("tenant_access_token")
@@ -389,7 +394,10 @@ fn wecom_markdown(msg: &RichMessage) -> String {
     text
 }
 
-async fn weixin_send_rich(token: Option<&str>, msg: &RichMessage) -> Result<Option<u16>, NotificationError> {
+async fn weixin_send_rich(
+    token: Option<&str>,
+    msg: &RichMessage,
+) -> Result<Option<u16>, NotificationError> {
     let key = token
         .filter(|t| !t.trim().is_empty())
         .ok_or_else(|| NotificationError::BadRequest("企业微信渠道缺少 Webhook Key".to_string()))?;

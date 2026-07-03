@@ -12,11 +12,6 @@ use std::{
 };
 
 use db::models::{project::Project, project_repo::ProjectRepo, workspace::Workspace};
-use uuid::Uuid;
-
-use services::services::usage::{
-    build_project_usage_statistics, scan_claude_sessions, scan_codex_sessions,
-};
 // Re-export the output types so `crate::commands::local_usage::ProjectUsage*` (used by
 // state.rs) and any frontend-facing reference keep resolving from here.
 pub use services::services::usage::{
@@ -24,6 +19,10 @@ pub use services::services::usage::{
     ProjectUsageSessionSummary, ProjectUsageStatistics, ProjectUsageTrends, ProjectUsageUsageData,
     ProjectUsageWeekData, ProjectUsageWeeklyComparison,
 };
+use services::services::usage::{
+    build_project_usage_statistics, scan_claude_sessions, scan_codex_sessions,
+};
+use uuid::Uuid;
 
 use crate::state::AppState;
 

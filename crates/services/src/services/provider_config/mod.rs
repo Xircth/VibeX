@@ -234,9 +234,9 @@ where
     if !path.exists() {
         return Ok(T::default());
     }
-    let content = tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display()))
+    })?;
     if content.trim().is_empty() {
         return Ok(T::default());
     }
@@ -255,9 +255,9 @@ where
     }
     let content = serde_json::to_string_pretty(value)
         .map_err(|e| ProviderConfigError::Internal(format!("Failed to serialize JSON: {e}")))?;
-    tokio::fs::write(&path, content)
-        .await
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to write {}: {e}", path.display())))
+    tokio::fs::write(&path, content).await.map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to write {}: {e}", path.display()))
+    })
 }
 
 async fn save_store(store: &ProviderStore) -> Result<(), ProviderConfigError> {
@@ -279,9 +279,9 @@ async fn load_store() -> Result<ProviderStore, ProviderConfigError> {
     if !path.exists() {
         return Ok(ProviderStore::default());
     }
-    let content = tokio::fs::read_to_string(&path)
-        .await
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display()))
+    })?;
     if content.trim().is_empty() {
         return Ok(ProviderStore::default());
     }
@@ -289,8 +289,9 @@ async fn load_store() -> Result<ProviderStore, ProviderConfigError> {
         .map_err(|e| ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display())))?;
 
     if value.get("agents").is_some() {
-        return serde_json::from_value(value)
-            .map_err(|e| ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display())));
+        return serde_json::from_value(value).map_err(|e| {
+            ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display()))
+        });
     }
 
     // Legacy v1 -> v2 migration.
@@ -364,7 +365,9 @@ fn normalize_agent(agent: &str) -> Result<String, ProviderConfigError> {
     if SUPPORTED_AGENTS.contains(&agent) {
         Ok(agent.to_string())
     } else {
-        Err(ProviderConfigError::BadRequest(format!("未知 Agent：{agent}")))
+        Err(ProviderConfigError::BadRequest(format!(
+            "未知 Agent：{agent}"
+        )))
     }
 }
 
@@ -378,10 +381,13 @@ fn opt_trim(value: &Option<String>) -> Option<String> {
 
 fn validate_payload(payload: &ProviderPayload) -> Result<(), ProviderConfigError> {
     if payload.name.trim().is_empty() {
-        return Err(ProviderConfigError::BadRequest("供应商名称不能为空".to_string()));
+        return Err(ProviderConfigError::BadRequest(
+            "供应商名称不能为空".to_string(),
+        ));
     }
     let api_url = payload.api_url.trim().trim_end_matches('/');
-    Url::parse(api_url).map_err(|e| ProviderConfigError::BadRequest(format!("API 地址无效：{e}")))?;
+    Url::parse(api_url)
+        .map_err(|e| ProviderConfigError::BadRequest(format!("API 地址无效：{e}")))?;
     Ok(())
 }
 
@@ -543,16 +549,18 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), ProviderConfigErr
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".vibextmp");
     let tmp = PathBuf::from(tmp);
-    std::fs::write(&tmp, bytes)
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to write {}: {e}", tmp.display())))?;
+    std::fs::write(&tmp, bytes).map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to write {}: {e}", tmp.display()))
+    })?;
     #[cfg(windows)]
     {
         if path.exists() {
             let _ = std::fs::remove_file(path);
         }
     }
-    std::fs::rename(&tmp, path)
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to replace {}: {e}", path.display())))
+    std::fs::rename(&tmp, path).map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to replace {}: {e}", path.display()))
+    })
 }
 
 /// Back up an existing file before overwriting it.
@@ -624,27 +632,30 @@ fn read_json_file(path: &Path) -> Result<Value, ProviderConfigError> {
     if !path.exists() {
         return Ok(json!({}));
     }
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    let raw = std::fs::read_to_string(path).map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display()))
+    })?;
     if raw.trim().is_empty() {
         return Ok(json!({}));
     }
-    serde_json::from_str(&raw)
-        .map_err(|e| ProviderConfigError::BadRequest(format!("invalid JSON at {}: {e}", path.display())))
+    serde_json::from_str(&raw).map_err(|e| {
+        ProviderConfigError::BadRequest(format!("invalid JSON at {}: {e}", path.display()))
+    })
 }
 
 fn read_toml_file(path: &Path) -> Result<toml::Value, ProviderConfigError> {
     if !path.exists() {
         return Ok(toml::Value::Table(toml::map::Map::new()));
     }
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    let raw = std::fs::read_to_string(path).map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display()))
+    })?;
     if raw.trim().is_empty() {
         return Ok(toml::Value::Table(toml::map::Map::new()));
     }
-    let parsed: toml::Value = raw
-        .parse()
-        .map_err(|e| ProviderConfigError::BadRequest(format!("invalid TOML at {}: {e}", path.display())))?;
+    let parsed: toml::Value = raw.parse().map_err(|e| {
+        ProviderConfigError::BadRequest(format!("invalid TOML at {}: {e}", path.display()))
+    })?;
     if !parsed.is_table() {
         return Err(ProviderConfigError::BadRequest(format!(
             "invalid TOML root at {}: expected table",
@@ -658,13 +669,15 @@ fn read_yaml_file(path: &Path) -> Result<serde_yaml::Value, ProviderConfigError>
     if !path.exists() {
         return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
     }
-    let raw = std::fs::read_to_string(path)
-        .map_err(|e| ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display())))?;
+    let raw = std::fs::read_to_string(path).map_err(|e| {
+        ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display()))
+    })?;
     if raw.trim().is_empty() {
         return Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
     }
-    serde_yaml::from_str(&raw)
-        .map_err(|e| ProviderConfigError::BadRequest(format!("invalid YAML at {}: {e}", path.display())))
+    serde_yaml::from_str(&raw).map_err(|e| {
+        ProviderConfigError::BadRequest(format!("invalid YAML at {}: {e}", path.display()))
+    })
 }
 
 fn read_dotenv(path: &Path) -> BTreeMap<String, String> {
@@ -766,7 +779,9 @@ fn render_provider_config(
         "cline" => Err(ProviderConfigError::BadRequest(
             "Cline 的供应商配置存储在 VS Code 扩展状态中，暂不支持从 VibeX 切换。".to_string(),
         )),
-        other => Err(ProviderConfigError::BadRequest(format!("未知 Agent：{other}"))),
+        other => Err(ProviderConfigError::BadRequest(format!(
+            "未知 Agent：{other}"
+        ))),
     }
 }
 
@@ -875,7 +890,12 @@ fn apply_codex_provider_to_config(
         );
         entry.insert(
             "wire_api".to_string(),
-            toml::Value::String(record.wire_api.clone().unwrap_or_else(|| "chat".to_string())),
+            toml::Value::String(
+                record
+                    .wire_api
+                    .clone()
+                    .unwrap_or_else(|| "chat".to_string()),
+            ),
         );
         entry.insert(
             "env_key".to_string(),
@@ -904,7 +924,8 @@ fn apply_codex_provider_to_config(
 fn apply_codex_api_key_to_auth(auth: &mut Value, api_key: Option<&str>) {
     match api_key {
         Some(key) => {
-            ensure_object(auth).insert("OPENAI_API_KEY".to_string(), Value::String(key.to_string()));
+            ensure_object(auth)
+                .insert("OPENAI_API_KEY".to_string(), Value::String(key.to_string()));
         }
         None => {
             if let Some(obj) = auth.as_object_mut() {
@@ -1137,7 +1158,9 @@ fn write_rendered(
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-pub async fn list_agent_providers(agent_type: String) -> Result<AgentProvidersView, ProviderConfigError> {
+pub async fn list_agent_providers(
+    agent_type: String,
+) -> Result<AgentProvidersView, ProviderConfigError> {
     let agent = normalize_agent(&agent_type)?;
     let store = load_store().await?;
     let secrets = load_secrets().await?;
@@ -1242,7 +1265,9 @@ pub async fn delete_agent_provider(
     let before = agent_providers.providers.len();
     agent_providers.providers.retain(|p| p.id != provider_id);
     if agent_providers.providers.len() == before {
-        return Err(ProviderConfigError::NotFound(format!("供应商不存在：{provider_id}")));
+        return Err(ProviderConfigError::NotFound(format!(
+            "供应商不存在：{provider_id}"
+        )));
     }
     if agent_providers.current.as_deref() == Some(provider_id.as_str()) {
         agent_providers.current = None;
@@ -1410,9 +1435,15 @@ mod codex_provider_tests {
         let mut table = toml::map::Map::new();
         apply_codex_provider_to_config(&mut table, &key, &rec, true).unwrap();
 
-        assert_eq!(table.get("model_provider").and_then(|v| v.as_str()), Some(key.as_str()));
+        assert_eq!(
+            table.get("model_provider").and_then(|v| v.as_str()),
+            Some(key.as_str())
+        );
         let provider = table["model_providers"][&key].as_table().unwrap();
-        assert_eq!(provider["base_url"].as_str(), Some("https://openrouter.ai/api/v1"));
+        assert_eq!(
+            provider["base_url"].as_str(),
+            Some("https://openrouter.ai/api/v1")
+        );
         assert_eq!(provider["env_key"].as_str(), Some("OPENAI_API_KEY"));
     }
 
@@ -1440,9 +1471,15 @@ mod codex_provider_tests {
         let key = slug(&rec.name);
         // A different, user-set provider must survive an oauth re-apply.
         let mut table = toml::map::Map::new();
-        table.insert("model_provider".to_string(), toml::Value::String("someone_else".to_string()));
+        table.insert(
+            "model_provider".to_string(),
+            toml::Value::String("someone_else".to_string()),
+        );
         apply_codex_provider_to_config(&mut table, &key, &rec, false).unwrap();
-        assert_eq!(table.get("model_provider").and_then(|v| v.as_str()), Some("someone_else"));
+        assert_eq!(
+            table.get("model_provider").and_then(|v| v.as_str()),
+            Some("someone_else")
+        );
     }
 
     #[test]

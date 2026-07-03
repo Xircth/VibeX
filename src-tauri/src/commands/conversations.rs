@@ -390,6 +390,16 @@ async fn emit_conversation_events_after(
                     );
                     break;
                 }
+                if let Err(error) =
+                    crate::commands::chat_channel::notify_conversation_event(&event).await
+                {
+                    tracing::warn!(
+                        conversation_id = %conversation_id,
+                        sequence = event.sequence,
+                        %error,
+                        "Failed to notify chat channel for conversation start-turn event"
+                    );
+                }
             }
         }
         Err(error) => {
@@ -405,26 +415,36 @@ async fn emit_conversation_events_after(
 
 #[tauri::command]
 pub async fn conversation_respond_permission(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationPermissionResponseRequest,
 ) -> Result<(), AppError> {
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    ConversationSessionService::new(&state)
+    let pool = state.deployment.db().pool.clone();
+    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
+    let result = ConversationSessionService::new(&state)
         .respond_permission(conversation_id, request.permission_id, request.response)
-        .await
+        .await;
+    emit_conversation_events_after(&app, &pool, conversation_id, previous_last_sequence).await;
+    result
 }
 
 #[tauri::command]
 pub async fn conversation_cancel_turn(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationCancelTurnRequest,
 ) -> Result<(), AppError> {
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    ConversationSessionService::new(&state)
+    let pool = state.deployment.db().pool.clone();
+    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
+    let result = ConversationSessionService::new(&state)
         .cancel_turn(conversation_id, request.reason)
-        .await
+        .await;
+    emit_conversation_events_after(&app, &pool, conversation_id, previous_last_sequence).await;
+    result
 }
 
 #[tauri::command]

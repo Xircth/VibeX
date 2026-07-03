@@ -303,13 +303,13 @@ export function GeneralSettings() {
         <SettingsSection
           icon={Terminal}
           title="终端"
-          description="选择内置终端新会话使用的默认 Shell。"
+          description="选择新建终端会话使用的默认终端。"
         >
           <div className="settings-row">
             <div>
-              <Label>默认 Shell</Label>
+              <Label>默认终端</Label>
               <p className="settings-row__description">
-                新建终端会话时使用的命令环境。
+                内置终端使用 Shell，Warp 会打开外部应用到当前工作区。
               </p>
             </div>
             <Select

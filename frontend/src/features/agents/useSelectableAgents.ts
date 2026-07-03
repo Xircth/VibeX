@@ -49,7 +49,9 @@ export function useSelectableAgents(): SelectableAgent[] {
       result.push({
         agent,
         enabled: setting?.enabled ?? true,
-        installed: setting ? setting.installed_version != null : false,
+        installed:
+          entry.distribution.kind === 'npx' ||
+          (setting ? setting.installed_version != null : false),
       });
     }
     return result;

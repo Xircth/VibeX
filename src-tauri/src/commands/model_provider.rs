@@ -6,14 +6,13 @@
 //! service's `ProviderConfigError` back to `AppError`.
 
 use services::services::provider_config;
-
-use crate::error::AppError;
-
 // Frontend-facing types now live with the logic; re-export them so the command
 // signatures (and any `commands::model_provider::*` consumer) keep resolving.
 pub use services::services::provider_config::{
     AgentProvidersView, ProviderModelsResult, ProviderPayload, ProviderView, RenderedFile,
 };
+
+use crate::error::AppError;
 
 #[tauri::command]
 pub async fn list_agent_providers(agent_type: String) -> Result<AgentProvidersView, AppError> {

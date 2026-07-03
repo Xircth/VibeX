@@ -626,7 +626,7 @@ function LocalListPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
-      <div className="border-b p-2.5">
+      <div className="p-2.5">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -652,10 +652,10 @@ function LocalListPanel({
             </p>
           </div>
         ) : grouping ? (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-1">
             {groups.map(([group, items]) =>
               items.length > 1 ? (
-                <div key={group} className="space-y-0.5">
+                <div key={group} className="flex flex-col gap-1">
                   <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {group}
                     <span className="ml-1 font-normal opacity-60">
@@ -683,7 +683,7 @@ function LocalListPanel({
             )}
           </div>
         ) : (
-          <div className="space-y-0.5">
+          <div className="flex flex-col gap-1">
             {flat.map((skill) => (
               <SkillRow
                 key={skill.id}
@@ -762,7 +762,7 @@ function SkillRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        'w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors',
+        '!my-0 !h-auto !min-h-0 block w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
         indented && 'ml-1.5 w-[calc(100%-0.375rem)]',
         active
           ? 'border-primary/60 bg-primary/5'
@@ -787,7 +787,7 @@ function SkillRow({
           </span>
         )}
       </div>
-      <p className="mt-0.5 line-clamp-1 text-[10px] text-muted-foreground">
+      <p className="mt-1 line-clamp-1 text-[10px] leading-4 text-muted-foreground">
         {skill.description?.trim() || skill.path}
       </p>
     </button>
@@ -848,7 +848,7 @@ function MarketListPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
         {searching ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -865,12 +865,19 @@ function MarketListPanel({
           results.map((item) => {
             const active = item.skill_id === activeId;
             return (
-              <button
+              <div
                 key={`${item.source}:${item.skill_id}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelect(item.skill_id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(item.skill_id);
+                  }
+                }}
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors',
                   active
                     ? 'border-primary/60 bg-primary/5'
                     : 'border-transparent hover:bg-foreground/[0.05]'
@@ -892,7 +899,7 @@ function MarketListPanel({
                 <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
                   {item.source}
                 </p>
-              </button>
+              </div>
             );
           })
         )}

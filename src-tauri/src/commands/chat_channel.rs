@@ -19,10 +19,11 @@ use std::{
 };
 
 use agents::{
-    AgentConnectionId, AgentContentBlock, AgentEventEnvelope, AgentRuntime, AgentSessionId,
-    SendAgentPromptInput,
+    AgentEventEnvelope, agent_type_from_executor_key,
+    conversation::{ConversationEvent, ConversationEventEnvelope},
 };
 use chrono::Utc;
+use db::models::session::SessionStatus;
 use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
@@ -31,10 +32,17 @@ use services::services::chat_delivery::{
     RichMessage, build_rich, deliver_rich, event_key, feishu_tenant_token, http_client,
     should_send, telegram_post,
 };
+use sqlx::{FromRow, SqlitePool};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio_tungstenite::tungstenite;
 use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::{
+    commands::conversations::conversation_events_since_core,
+    conversation_service::{ConversationSessionService, ConversationStartTurnInput},
+    error::AppError,
+    state::AppState,
+};
 
 const SETTINGS_FILE_NAME: &str = "chat-channel-settings.json";
 const SECRETS_FILE_NAME: &str = "chat-channel-secrets.json";
@@ -321,7 +329,6 @@ fn hydrate_channel(record: &ChatChannelRecord, secrets: &ChatChannelSecrets) -> 
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -587,14 +594,94 @@ pub async fn notify_agent_event(envelope: &AgentEventEnvelope) -> Result<(), App
     Ok(())
 }
 
+pub fn conversation_event_key(event: &ConversationEvent) -> Option<&'static str> {
+    match event {
+        ConversationEvent::UserTurnStarted => Some("prompt_started"),
+        ConversationEvent::PermissionRequested { .. } => Some("permission_requested"),
+        ConversationEvent::TurnCompleted { .. } => Some("prompt_finished"),
+        ConversationEvent::TurnFailed { .. } => Some("error"),
+        ConversationEvent::AgentConnectionStatusChanged { .. } => Some("connection_status_changed"),
+        _ => None,
+    }
+}
+
+fn build_conversation_rich(
+    envelope: &ConversationEventEnvelope,
+    include_prompt_text: bool,
+) -> RichMessage {
+    let base = match &envelope.event {
+        ConversationEvent::UserTurnStarted => {
+            let body = if include_prompt_text {
+                "VibeX conversation turn started.".to_string()
+            } else {
+                "智能体开始执行任务。".to_string()
+            };
+            RichMessage::info(body).with_title("🚀 任务开始")
+        }
+        ConversationEvent::PermissionRequested { request } => {
+            RichMessage::info("智能体正在等待你的授权。请回到 VibeX 桌面端处理。")
+                .with_title("🔐 权限请求")
+                .with_field("权限", request.request.title.clone())
+        }
+        ConversationEvent::TurnCompleted { .. } => {
+            RichMessage::info("智能体已完成本次任务。").with_title("✅ 任务完成")
+        }
+        ConversationEvent::TurnFailed { error } => RichMessage::info("智能体运行出现错误。")
+            .with_title("❌ 运行错误")
+            .with_field("信息", error.message.clone()),
+        ConversationEvent::AgentConnectionStatusChanged { status } => {
+            RichMessage::info(format!("连接状态变更为 {status:?}")).with_title("🔌 连接状态")
+        }
+        _ => RichMessage::info("VibeX conversation event").with_title("VibeX"),
+    };
+
+    let base = base.with_field("Conversation", envelope.conversation_id.to_string());
+    if let Some(turn_id) = envelope.turn_id {
+        base.with_field("Turn", turn_id.to_string())
+    } else {
+        base
+    }
+}
+
+pub async fn notify_conversation_event(
+    envelope: &ConversationEventEnvelope,
+) -> Result<(), AppError> {
+    let Some(event) = conversation_event_key(&envelope.event) else {
+        return Ok(());
+    };
+
+    let store = load_store().await?;
+    if !store.event_filter.iter().any(|enabled| enabled == event) {
+        return Ok(());
+    }
+
+    let secrets = load_secrets().await?;
+    let msg = build_conversation_rich(envelope, store.include_prompt_text);
+
+    for channel in store.channels.iter().filter(|channel| channel.enabled) {
+        if !should_send(&channel.id, event, msg.level) {
+            continue;
+        }
+        let token = secrets.tokens.get(&channel.id).map(String::as_str);
+        if let Err(error) = deliver_rich(&channel.kind, &channel.config, token, &msg).await {
+            tracing::warn!(
+                channel_id = %channel.id,
+                kind = %channel.kind,
+                error = %error,
+                "Failed to send conversation chat channel notification"
+            );
+        }
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
-// Inbound (bidirectional) — receivers + ACP command dispatch
+// Inbound (bidirectional) — receivers + conversation command dispatch
 // ---------------------------------------------------------------------------
 //
 // Telegram: HTTP long-poll. QQ: OneBot 11 forward WebSocket. Feishu: Lark
-// long-connection WebSocket (pbbp2 protobuf frames). All feed `dispatch_command`,
-// which can drive the VibeX agent runtime (ACP) — list sessions and send a
-// prompt / follow-up to a selected session.
+// long-connection WebSocket (pbbp2 protobuf frames). All feed `dispatch_command`.
 
 /// Lark WebSocket pbbp2 frame (mirrors larksuite/oapi-sdk-go ws/pbbp2.pb.go).
 #[derive(Clone, PartialEq, ProstMessage)]
@@ -649,7 +736,7 @@ impl LarkFrame {
 
 /// Per-(channel, sender) selected target session for follow-up prompts.
 type SessionBridgeKey = (String, String);
-type SessionBridgeValue = (String, String);
+type SessionBridgeValue = String;
 type SessionBridgeMap = HashMap<SessionBridgeKey, SessionBridgeValue>;
 
 fn session_bridge() -> &'static StdMutex<SessionBridgeMap> {
@@ -667,7 +754,7 @@ struct InboundTarget {
 
 /// Start the background manager that keeps an inbound loop running for every
 /// enabled inbound-capable channel and answers its commands.
-pub fn start_inbound_manager(runtime: Arc<AgentRuntime>) {
+pub fn start_inbound_manager(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         // channel_id -> (signature, shutdown flag)
         let mut running: HashMap<String, (String, Arc<AtomicBool>)> = HashMap::new();
@@ -695,7 +782,7 @@ pub fn start_inbound_manager(runtime: Arc<AgentRuntime>) {
                             flag.store(true, Ordering::Relaxed);
                         }
                         let flag = Arc::new(AtomicBool::new(false));
-                        spawn_receiver(runtime.clone(), &target, flag.clone());
+                        spawn_receiver(app.clone(), &target, flag.clone());
                         running.insert(target.channel_id.clone(), (target.signature, flag));
                     }
                 }
@@ -761,23 +848,20 @@ async fn inbound_targets() -> Result<Vec<InboundTarget>, AppError> {
     Ok(targets)
 }
 
-fn spawn_receiver(runtime: Arc<AgentRuntime>, target: &InboundTarget, flag: Arc<AtomicBool>) {
+fn spawn_receiver(app: AppHandle, target: &InboundTarget, flag: Arc<AtomicBool>) {
     match target.kind.as_str() {
-        "telegram" => spawn_telegram_loop(
-            runtime,
-            target.channel_id.clone(),
-            target.token.clone(),
-            flag,
-        ),
+        "telegram" => {
+            spawn_telegram_loop(app, target.channel_id.clone(), target.token.clone(), flag)
+        }
         "qq" => spawn_qq_loop(
-            runtime,
+            app,
             target.channel_id.clone(),
             target.config.clone(),
             target.token.clone(),
             flag,
         ),
         "feishu" => spawn_feishu_loop(
-            runtime,
+            app,
             target.channel_id.clone(),
             target.config.clone(),
             target.token.clone(),
@@ -797,7 +881,7 @@ async fn current_prefix() -> String {
 // ── Telegram inbound (HTTP long-poll) ──
 
 fn spawn_telegram_loop(
-    runtime: Arc<AgentRuntime>,
+    app: AppHandle,
     channel_id: String,
     bot_token: String,
     shutdown: Arc<AtomicBool>,
@@ -844,7 +928,7 @@ fn spawn_telegram_loop(
 
                 let prefix = current_prefix().await;
                 let reply =
-                    dispatch_command(text.trim(), &prefix, &runtime, &channel_id, &sender_id).await;
+                    dispatch_command(text.trim(), &prefix, &app, &channel_id, &sender_id).await;
                 if reply.is_empty() {
                     continue;
                 }
@@ -873,7 +957,7 @@ fn qq_ws_url(config: &Value) -> String {
 }
 
 fn spawn_qq_loop(
-    runtime: Arc<AgentRuntime>,
+    app: AppHandle,
     channel_id: String,
     config: Value,
     token: String,
@@ -898,14 +982,8 @@ fn spawn_qq_loop(
                         match read.next().await {
                             Some(Ok(tungstenite::Message::Text(text))) => {
                                 if let Ok(event) = serde_json::from_str::<Value>(text.as_str()) {
-                                    handle_qq_event(
-                                        &runtime,
-                                        &channel_id,
-                                        &base_url,
-                                        &token,
-                                        &event,
-                                    )
-                                    .await;
+                                    handle_qq_event(&app, &channel_id, &base_url, &token, &event)
+                                        .await;
                                 }
                             }
                             Some(Ok(tungstenite::Message::Ping(data))) => {
@@ -930,7 +1008,7 @@ fn spawn_qq_loop(
 }
 
 async fn handle_qq_event(
-    runtime: &Arc<AgentRuntime>,
+    app: &AppHandle,
     channel_id: &str,
     base_url: &str,
     token: &str,
@@ -965,7 +1043,7 @@ async fn handle_qq_event(
         .unwrap_or_default();
 
     let prefix = current_prefix().await;
-    let reply = dispatch_command(&text, &prefix, runtime, channel_id, &sender_id).await;
+    let reply = dispatch_command(&text, &prefix, app, channel_id, &sender_id).await;
     if reply.is_empty() {
         return;
     }
@@ -1034,7 +1112,7 @@ async fn feishu_ws_url(app_id: &str, app_secret: &str) -> Result<String, AppErro
 }
 
 fn spawn_feishu_loop(
-    runtime: Arc<AgentRuntime>,
+    app: AppHandle,
     channel_id: String,
     config: Value,
     app_secret: String,
@@ -1116,7 +1194,7 @@ fn spawn_feishu_loop(
                                             && let Ok(event) = serde_json::from_str::<Value>(text)
                                         {
                                             handle_feishu_event(
-                                                &runtime,
+                                                &app,
                                                 &channel_id,
                                                 &app_id,
                                                 &app_secret,
@@ -1157,7 +1235,7 @@ fn spawn_feishu_loop(
 }
 
 async fn handle_feishu_event(
-    runtime: &Arc<AgentRuntime>,
+    app: &AppHandle,
     channel_id: &str,
     app_id: &str,
     app_secret: &str,
@@ -1223,7 +1301,7 @@ async fn handle_feishu_event(
         .to_string();
 
     let prefix = current_prefix().await;
-    let reply = dispatch_command(&text, &prefix, runtime, channel_id, &sender_id).await;
+    let reply = dispatch_command(&text, &prefix, app, channel_id, &sender_id).await;
     if reply.is_empty() {
         return;
     }
@@ -1259,7 +1337,7 @@ async fn feishu_send_text(
 async fn dispatch_command(
     text: &str,
     prefix: &str,
-    runtime: &Arc<AgentRuntime>,
+    app: &AppHandle,
     channel_id: &str,
     sender_id: &str,
 ) -> String {
@@ -1274,10 +1352,10 @@ async fn dispatch_command(
     match command.as_str() {
         "" | "help" | "start" => help_text(prefix),
         "ping" => "🟢 VibeX 在线".to_string(),
-        "status" => status_text(prefix, runtime).await,
-        "sessions" | "ls" => list_sessions(runtime, prefix).await,
-        "use" => select_session(runtime, channel_id, sender_id, args, prefix).await,
-        "task" | "do" | "ask" => send_task(runtime, channel_id, sender_id, args, prefix).await,
+        "status" => status_text(prefix, app).await,
+        "sessions" | "conversations" | "ls" => list_conversations(app, prefix).await,
+        "use" => select_conversation(app, channel_id, sender_id, args, prefix).await,
+        "task" | "do" | "ask" => send_task(app, channel_id, sender_id, args, prefix).await,
         "echo" => {
             if args.is_empty() {
                 format!("用法：{prefix} echo <文本>")
@@ -1291,18 +1369,19 @@ async fn dispatch_command(
 
 fn help_text(prefix: &str) -> String {
     format!(
-        "🤖 VibeX 机器人命令：\n{prefix} help — 显示帮助\n{prefix} ping — 检测在线\n{prefix} status — 运行状态\n{prefix} sessions — 列出活跃会话\n{prefix} use <序号> — 选择会话\n{prefix} task <内容> — 给所选会话发任务/追问\n{prefix} echo <文本> — 回显"
+        "🤖 VibeX 机器人命令：\n{prefix} help — 显示帮助\n{prefix} ping — 检测在线\n{prefix} status — 运行状态\n{prefix} conversations — 列出最近对话\n{prefix} use <序号> — 选择对话\n{prefix} task <内容> — 给所选对话发任务/追问\n{prefix} echo <文本> — 回显"
     )
 }
 
-async fn status_text(prefix: &str, runtime: &Arc<AgentRuntime>) -> String {
+async fn status_text(prefix: &str, app: &AppHandle) -> String {
     let store = load_store().await.unwrap_or_default();
     let total = store.channels.len();
     let enabled = store.channels.iter().filter(|c| c.enabled).count();
-    let snapshot = runtime.snapshot().await;
+    let state = app.state::<AppState>();
+    let conversations = recent_conversations(&state, 50).await.unwrap_or_default();
     format!(
-        "🟢 VibeX 在线\n消息渠道：{enabled}/{total} 已启用\n活跃会话：{}\n版本：{}\n命令前缀：{prefix}",
-        snapshot.sessions.len(),
+        "🟢 VibeX 在线\n消息渠道：{enabled}/{total} 已启用\n最近对话：{}\n版本：{}\n命令前缀：{prefix}",
+        conversations.len(),
         env!("CARGO_PKG_VERSION")
     )
 }
@@ -1311,52 +1390,123 @@ fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
-fn dir_name(path: &str) -> &str {
-    path.rsplit(['/', '\\'])
-        .find(|s| !s.is_empty())
-        .unwrap_or(path)
+#[derive(Debug, Clone, FromRow)]
+struct ConversationCommandTarget {
+    id: Uuid,
+    workspace_id: Uuid,
+    title: Option<String>,
+    status: SessionStatus,
+    agent_type: Option<String>,
 }
 
-/// Active sessions sorted deterministically (by creation time) so list indices
-/// stay stable between `sessions` and `use`.
-async fn sorted_sessions(
-    runtime: &Arc<AgentRuntime>,
-) -> Vec<(AgentConnectionId, AgentSessionId, String, String, String)> {
-    let snapshot = runtime.snapshot().await;
-    let connections: HashMap<String, &agents::AgentConnectionSnapshot> = snapshot
-        .connections
-        .iter()
-        .map(|c| (c.id.to_string(), c))
-        .collect();
-
-    let mut sessions = snapshot.sessions.clone();
-    sessions.sort_by_key(|s| s.created_at);
-    sessions
-        .iter()
-        .map(|s| {
-            let conn = connections.get(&s.connection_id.to_string());
-            let agent = conn
-                .map(|c| format!("{:?}", c.agent_type))
-                .unwrap_or_else(|| "?".to_string());
-            let dir = conn
-                .map(|c| dir_name(&c.working_dir).to_string())
-                .unwrap_or_default();
-            (s.connection_id, s.id, agent, dir, format!("{:?}", s.status))
-        })
-        .collect()
+async fn recent_conversations(
+    state: &AppState,
+    limit: i64,
+) -> Result<Vec<ConversationCommandTarget>, AppError> {
+    sqlx::query_as::<_, ConversationCommandTarget>(
+        r#"SELECT s.id,
+                  s.workspace_id,
+                  s.name AS title,
+                  s.status,
+                  COALESCE(s.agent_type, b.agent_type) AS agent_type
+           FROM sessions s
+           LEFT JOIN conversation_agent_bindings b
+             ON b.id = (
+                SELECT id
+                FROM conversation_agent_bindings
+                WHERE conversation_id = s.id
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+             )
+           WHERE s.deleted_at IS NULL
+           ORDER BY s.active_turn_id IS NULL,
+                    s.updated_at DESC,
+                    s.created_at DESC
+           LIMIT ?"#,
+    )
+    .bind(limit.clamp(1, 50))
+    .fetch_all(&state.deployment.db().pool)
+    .await
+    .map_err(Into::into)
 }
 
-async fn list_sessions(runtime: &Arc<AgentRuntime>, prefix: &str) -> String {
-    let sessions = sorted_sessions(runtime).await;
-    if sessions.is_empty() {
-        return "当前没有活跃会话。".to_string();
+async fn conversation_last_sequence(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<i64, AppError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"SELECT COALESCE(MAX(sequence), 0)
+           FROM conversation_events
+           WHERE conversation_id = ?"#,
+    )
+    .bind(conversation_id)
+    .fetch_one(pool)
+    .await
+    .map_err(Into::into)
+}
+
+async fn emit_conversation_events_after(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    after_sequence: i64,
+) {
+    match conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
+        Ok(page) => {
+            for event in page.events {
+                if let Err(error) = app.emit(crate::events::channels::CONVERSATION_EVENTS, &event) {
+                    tracing::warn!(
+                        conversation_id = %conversation_id,
+                        sequence = event.sequence,
+                        %error,
+                        "Failed to emit inbound channel conversation event"
+                    );
+                    break;
+                }
+                if let Err(error) = notify_conversation_event(&event).await {
+                    tracing::warn!(
+                        conversation_id = %conversation_id,
+                        sequence = event.sequence,
+                        %error,
+                        "Failed to notify inbound channel conversation event"
+                    );
+                }
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                conversation_id = %conversation_id,
+                after_sequence,
+                %error,
+                "Failed to load inbound channel conversation events for emission"
+            );
+        }
     }
-    let mut out = String::from("🗂 活跃会话：\n");
-    for (index, (_, session_id, agent, dir, status)) in sessions.iter().enumerate() {
+}
+
+async fn list_conversations(app: &AppHandle, prefix: &str) -> String {
+    let state = app.state::<AppState>();
+    let conversations = match recent_conversations(&state, 10).await {
+        Ok(conversations) => conversations,
+        Err(error) => return format!("❌ 无法读取对话：{error}"),
+    };
+    if conversations.is_empty() {
+        return "当前没有可用对话。请先在 VibeX 桌面端创建一个对话。".to_string();
+    }
+    let mut out = String::from("🗂 最近对话：\n");
+    for (index, conversation) in conversations.iter().enumerate() {
+        let title = conversation
+            .title
+            .as_deref()
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or("未命名对话");
+        let agent = conversation.agent_type.as_deref().unwrap_or("unknown");
         out.push_str(&format!(
-            "{}. {agent} [{status}] {dir} · 会话 {}\n",
+            "{}. {agent} [{:?}] {} · 对话 {}\n",
             index + 1,
-            short_id(&session_id.to_string())
+            conversation.status,
+            title,
+            short_id(&conversation.id.to_string())
         ));
     }
     out.push_str(&format!(
@@ -1365,8 +1515,8 @@ async fn list_sessions(runtime: &Arc<AgentRuntime>, prefix: &str) -> String {
     out
 }
 
-async fn select_session(
-    runtime: &Arc<AgentRuntime>,
+async fn select_conversation(
+    app: &AppHandle,
     channel_id: &str,
     sender_id: &str,
     args: &str,
@@ -1374,62 +1524,76 @@ async fn select_session(
 ) -> String {
     let index: usize = match args.trim().parse() {
         Ok(value) if value >= 1 => value,
-        _ => return format!("用法：{prefix} use <序号>（先用 {prefix} sessions 查看）"),
+        _ => return format!("用法：{prefix} use <序号>（先用 {prefix} conversations 查看）"),
     };
-    let sessions = sorted_sessions(runtime).await;
-    let Some((connection_id, session_id, agent, dir, _)) = sessions.get(index - 1) else {
-        return format!("序号超出范围，当前有 {} 个会话。", sessions.len());
+    let state = app.state::<AppState>();
+    let conversations = match recent_conversations(&state, 10).await {
+        Ok(conversations) => conversations,
+        Err(error) => return format!("❌ 无法读取对话：{error}"),
+    };
+    let Some(conversation) = conversations.get(index - 1) else {
+        return format!("序号超出范围，当前有 {} 个对话。", conversations.len());
     };
     session_bridge()
         .lock()
         .map(|mut bridge| {
             bridge.insert(
                 (channel_id.to_string(), sender_id.to_string()),
-                (connection_id.to_string(), session_id.to_string()),
+                conversation.id.to_string(),
             );
         })
         .ok();
+    let title = conversation
+        .title
+        .as_deref()
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("未命名对话");
     format!(
-        "✅ 已选择会话 {}（{agent} · {dir}），用 {prefix} task <内容> 发送。",
-        short_id(&session_id.to_string())
+        "✅ 已选择对话 {}（{}），用 {prefix} task <内容> 发送。",
+        short_id(&conversation.id.to_string()),
+        title
     )
 }
 
-/// Resolve the target session for the sender: an explicit `use` selection, or
-/// the single active session, otherwise an error message asking to pick one.
+/// Resolve the target conversation for the sender: an explicit `use` selection,
+/// or the single recent conversation, otherwise an error asking to pick one.
 async fn resolve_target(
-    runtime: &Arc<AgentRuntime>,
+    app: &AppHandle,
     channel_id: &str,
     sender_id: &str,
     prefix: &str,
-) -> Result<(AgentConnectionId, AgentSessionId), String> {
+) -> Result<ConversationCommandTarget, String> {
+    let state = app.state::<AppState>();
+    let conversations = recent_conversations(&state, 10)
+        .await
+        .map_err(|error| format!("❌ 无法读取对话：{error}"))?;
     let selected = session_bridge().lock().ok().and_then(|bridge| {
         bridge
             .get(&(channel_id.to_string(), sender_id.to_string()))
             .cloned()
     });
-    if let Some((connection, session)) = selected
-        && let (Ok(connection), Ok(session)) =
-            (Uuid::parse_str(&connection), Uuid::parse_str(&session))
+    if let Some(selected) = selected
+        && let Ok(conversation_id) = Uuid::parse_str(&selected)
     {
-        return Ok((
-            AgentConnectionId::from(connection),
-            AgentSessionId::from(session),
-        ));
+        if let Some(conversation) = conversations
+            .iter()
+            .find(|conversation| conversation.id == conversation_id)
+        {
+            return Ok(conversation.clone());
+        }
     }
 
-    let sessions = sorted_sessions(runtime).await;
-    match sessions.len() {
-        0 => Err("当前没有活跃会话。".to_string()),
-        1 => Ok((sessions[0].0, sessions[0].1)),
+    match conversations.len() {
+        0 => Err("当前没有可用对话。请先在 VibeX 桌面端创建一个对话。".to_string()),
+        1 => Ok(conversations[0].clone()),
         _ => Err(format!(
-            "有多个活跃会话，请先用 {prefix} sessions 查看并 {prefix} use <序号> 选择。"
+            "有多个最近对话，请先用 {prefix} conversations 查看并 {prefix} use <序号> 选择。"
         )),
     }
 }
 
 async fn send_task(
-    runtime: &Arc<AgentRuntime>,
+    app: &AppHandle,
     channel_id: &str,
     sender_id: &str,
     args: &str,
@@ -1438,25 +1602,41 @@ async fn send_task(
     if args.is_empty() {
         return format!("用法：{prefix} task <内容>");
     }
-    let (connection_id, session_id) =
-        match resolve_target(runtime, channel_id, sender_id, prefix).await {
-            Ok(target) => target,
-            Err(message) => return message,
-        };
+    let target = match resolve_target(app, channel_id, sender_id, prefix).await {
+        Ok(target) => target,
+        Err(message) => return message,
+    };
+    let Some(agent_type) = target
+        .agent_type
+        .as_deref()
+        .and_then(agent_type_from_executor_key)
+    else {
+        return "该对话没有可用的 Agent 绑定。请先在桌面端对这个对话发送一次消息。".to_string();
+    };
+    let state = app.state::<AppState>();
+    let pool = state.deployment.db().pool.clone();
+    let previous_last_sequence = match conversation_last_sequence(&pool, target.id).await {
+        Ok(sequence) => sequence,
+        Err(error) => return format!("❌ 发送失败：{error}"),
+    };
 
-    match runtime
-        .send_prompt(SendAgentPromptInput {
-            connection_id,
-            session_id,
-            blocks: vec![AgentContentBlock::Text {
-                text: args.to_string(),
-            }],
+    let result = ConversationSessionService::new(&state)
+        .start_turn(ConversationStartTurnInput {
+            agent_type,
+            workspace_id: target.workspace_id,
+            conversation_id: target.id,
+            executor_profile_id: None,
+            text: args.to_string(),
+            images: Vec::new(),
             mode_override: None,
             config_overrides: Vec::new(),
         })
-        .await
-    {
-        Ok(_) => format!("✅ 已发送到会话 {}", short_id(&session_id.to_string())),
+        .await;
+
+    emit_conversation_events_after(app, &pool, target.id, previous_last_sequence).await;
+
+    match result {
+        Ok(_) => format!("✅ 已发送到对话 {}", short_id(&target.id.to_string())),
         Err(error) => format!("❌ 发送失败：{error}"),
     }
 }

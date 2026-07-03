@@ -174,6 +174,10 @@ export function useTauriTerminal({
   const initializeVersionRef = useRef(0);
   const pendingInitObserverRef = useRef<ResizeObserver | null>(null);
   const pendingInitFrameRef = useRef<number | null>(null);
+  const pendingInputRef = useRef('');
+  const inputFlushScheduledRef = useRef(false);
+  const inputWriteInFlightRef = useRef(false);
+  const inputGenerationRef = useRef(0);
 
   useEffect(() => {
     onSessionIdRef.current = onSessionId;
@@ -224,10 +228,63 @@ export function useTauriTerminal({
       terminalRef.current = null;
     }
 
+    inputGenerationRef.current += 1;
+    pendingInputRef.current = '';
+    inputFlushScheduledRef.current = false;
+    inputWriteInFlightRef.current = false;
     fitAddonRef.current = null;
     errorRef.current = null;
     terminalOpenedRef.current = false;
   }, []);
+
+  const flushTerminalInput = useCallback(() => {
+    inputFlushScheduledRef.current = false;
+
+    if (inputWriteInFlightRef.current) {
+      return;
+    }
+
+    const sessionId = sessionIdRef.current;
+    const data = pendingInputRef.current;
+    if (!sessionId || !data) {
+      return;
+    }
+    const inputGeneration = inputGenerationRef.current;
+
+    pendingInputRef.current = '';
+    inputWriteInFlightRef.current = true;
+
+    tauriInvoke('write_terminal', {
+      sessionId,
+      data: encodeBase64(data),
+    })
+      .catch((err) => {
+        console.error('Failed to write to terminal:', err);
+      })
+      .finally(() => {
+        if (inputGenerationRef.current !== inputGeneration) {
+          return;
+        }
+        inputWriteInFlightRef.current = false;
+        if (pendingInputRef.current && !inputFlushScheduledRef.current) {
+          inputFlushScheduledRef.current = true;
+          queueMicrotask(flushTerminalInput);
+        }
+      });
+  }, []);
+
+  const enqueueTerminalInput = useCallback(
+    (data: string) => {
+      pendingInputRef.current += data;
+      if (inputFlushScheduledRef.current) {
+        return;
+      }
+
+      inputFlushScheduledRef.current = true;
+      queueMicrotask(flushTerminalInput);
+    },
+    [flushTerminalInput]
+  );
 
   useLayoutEffect(() => {
     mountedRef.current = true;
@@ -455,14 +512,7 @@ export function useTauriTerminal({
 
       if (!readOnly) {
         terminal.onData((data) => {
-          if (sessionIdRef.current) {
-            tauriInvoke('write_terminal', {
-              sessionId: sessionIdRef.current,
-              data: encodeBase64(data),
-            }).catch((err) => {
-              console.error('Failed to write to terminal:', err);
-            });
-          }
+          enqueueTerminalInput(data);
         });
       }
 
@@ -494,6 +544,7 @@ export function useTauriTerminal({
       tabId,
       readOnly,
       disposeView,
+      enqueueTerminalInput,
     ]
   );
 

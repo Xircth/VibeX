@@ -378,7 +378,8 @@ impl<'a> ConversationSessionService<'a> {
         // is 1-based (created via `MAX(ordinal)+1`), so the turn to reset *from* is
         // `user_ordinal + 1`; checkpoints share the 0-based basis.
         let turn_ordinal = user_ordinal + 1;
-        ConversationProjector::truncate_to_turn_ordinal(pool, conversation_id, turn_ordinal).await?;
+        ConversationProjector::truncate_to_turn_ordinal(pool, conversation_id, turn_ordinal)
+            .await?;
         SessionCheckpoint::delete_from_ordinal(pool, conversation_id, user_ordinal).await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
 

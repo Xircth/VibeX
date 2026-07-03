@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use agents::conversation::{
     ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationErrorView,
     ConversationEvent, ConversationPermissionView, ConversationSessionNotice,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry,
-    SessionLoadFailureReason, TurnRole, TurnUsage,
+    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
+    PlanEntry, SessionLoadFailureReason, TurnRole, TurnUsage,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
@@ -64,9 +64,12 @@ impl ConversationEventAppender {
         // Idempotency is checked inside the IMMEDIATE transaction so it is serialized
         // with concurrent appends. A duplicate's side-effects were already applied at
         // first insert, so return it without re-applying (avoids double inserts).
-        if let Some(existing) =
-            find_conversation_event_by_idempotency(conn, input.conversation_id, input.idempotency_key)
-                .await?
+        if let Some(existing) = find_conversation_event_by_idempotency(
+            conn,
+            input.conversation_id,
+            input.idempotency_key,
+        )
+        .await?
         {
             return Ok(existing);
         }
@@ -89,7 +92,13 @@ impl ConversationStateApplier {
         conn: &mut SqliteConnection,
         record: &ConversationEventRecord,
     ) -> Result<(), sqlx::Error> {
-        let event = conversation_event_from_record(record)?;
+        // An event this build can't parse has no derived-table side-effects we can
+        // safely apply, so skip it. It still surfaces to the user as a placeholder
+        // row via the projection fold (`ProjectionFold::apply`).
+        let event = match conversation_event_from_record(record) {
+            ParsedEvent::Known(event) => event,
+            ParsedEvent::Unknown { .. } => return Ok(()),
+        };
 
         match event {
             ConversationEvent::UserTurnQueued => {
@@ -542,7 +551,26 @@ impl ProjectionFold {
 
     fn apply(&mut self, record: &ConversationEventRecord) -> Result<(), sqlx::Error> {
         self.last_sequence = self.last_sequence.max(record.sequence);
-        let event = conversation_event_from_record(record)?;
+        let event = match conversation_event_from_record(record) {
+            ParsedEvent::Known(event) => event,
+            ParsedEvent::Unknown { kind, .. } => {
+                // Forward-incompatible event (written by a newer app version): keep the
+                // rest of the timeline folding and mark its slot with a placeholder row.
+                tracing::warn!(
+                    event_kind = %kind,
+                    sequence = record.sequence,
+                    "conversation event not renderable by this build; showing placeholder row"
+                );
+                self.side_rows.push(ConversationTimelineRow::SessionNotice {
+                    notice: ConversationSessionNotice {
+                        title: "此事件由更新版本产生，无法显示".into(),
+                        message: None,
+                        severity: "warning".into(),
+                    },
+                });
+                return Ok(());
+            }
+        };
 
         let turns = &mut self.turns;
         let turn_order = &mut self.turn_order;
@@ -927,10 +955,45 @@ fn append_thinking_block(blocks: &mut Vec<ContentBlock>, text: String) {
     }
 }
 
-fn conversation_event_from_record(
-    record: &ConversationEventRecord,
-) -> Result<ConversationEvent, sqlx::Error> {
-    serde_json::from_str::<ConversationEvent>(&record.normalized_json).map_err(json_decode_error)
+/// A stored event as seen by the read side: either a known domain event, or an
+/// `Unknown` wrapper for an event this build can't parse (e.g. one written by a
+/// newer app version — see [`event_version`](ConversationEventRecord::event_version)).
+///
+/// Fault tolerance lives entirely here, on the read side: the domain
+/// [`ConversationEvent`] enum deliberately has **no** `Unknown` variant, so every
+/// producer keeps writing fully-typed events.
+// `Known` wraps the large `ConversationEvent` (itself `#[allow(large_enum_variant)]`);
+// this transient parse result is never stored in bulk, so boxing buys nothing.
+#[allow(clippy::large_enum_variant)]
+enum ParsedEvent {
+    Known(ConversationEvent),
+    /// The `normalized_json` did not match any known variant. `kind` is the event's
+    /// `"kind"` discriminant (falling back to the stored `event_kind` column), and
+    /// `raw` is the original payload so nothing is lost.
+    Unknown {
+        kind: String,
+        #[allow(dead_code)]
+        raw: serde_json::Value,
+    },
+}
+
+/// The single parse entry for a stored event. Never fails: an unparseable payload
+/// degrades to [`ParsedEvent::Unknown`] rather than propagating a decode error, so
+/// one forward-incompatible event can't take down the whole conversation timeline.
+fn conversation_event_from_record(record: &ConversationEventRecord) -> ParsedEvent {
+    match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
+        Ok(event) => ParsedEvent::Known(event),
+        Err(_) => {
+            let raw =
+                serde_json::from_str::<serde_json::Value>(&record.normalized_json).unwrap_or_default();
+            let kind = raw
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| record.event_kind.clone());
+            ParsedEvent::Unknown { kind, raw }
+        }
+    }
 }
 
 fn json_string<T: Serialize>(value: &T) -> Result<String, sqlx::Error> {
@@ -956,8 +1019,9 @@ mod tests {
             ConversationDelegation, ConversationDelegationResult, ConversationError,
             ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
             ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionRequest,
-            ConversationPermissionResponse, ConversationQuestionRequest, ConversationQuestionResponse,
-            ConversationTerminalPatch, ConversationToolCallPatch, ConversationUsage,
+            ConversationPermissionResponse, ConversationQuestionRequest,
+            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
+            ConversationUsage,
         },
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -1051,10 +1115,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conversation_state_applier_rejects_invalid_event_json() {
+    async fn conversation_state_applier_skips_unknown_event() {
+        // An event this build can't parse (e.g. written by a newer version) must not
+        // fail the projection — `apply_record` skips it, applying no side-effects.
         let pool = setup_pool().await;
         let mut conn = pool.acquire().await.expect("acquire connection");
-        let error = ConversationStateApplier::apply_record(
+        ConversationStateApplier::apply_record(
             &mut conn,
             &ConversationEventRecord {
                 id: Uuid::new_v4(),
@@ -1065,17 +1131,98 @@ mod tests {
                 prompt_id: None,
                 sequence: 1,
                 source: "test".to_string(),
-                event_kind: "invalid".to_string(),
-                normalized_json: r#"{"kind":"not_a_conversation_event"}"#.to_string(),
+                event_kind: "bogus_kind".to_string(),
+                event_version: 999,
+                normalized_json: r#"{"kind":"bogus_kind","payload":"unparseable"}"#.to_string(),
                 raw_json: None,
                 idempotency_key: None,
                 created_at: chrono::Utc::now(),
             },
         )
         .await
-        .expect_err("invalid normalized event should fail loudly");
+        .expect("unknown event should be skipped, not fail");
+    }
 
-        assert!(matches!(error, sqlx::Error::Decode(_)));
+    #[tokio::test]
+    async fn unknown_event_renders_placeholder_row_and_timeline_still_loads() {
+        // Acceptance for 批次A: a forward-incompatible event surrounded by normal
+        // events must not break timeline loading — it shows as a single placeholder
+        // row while every other event folds as usual.
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnStarted,
+            None,
+        )
+        .await;
+
+        // A bogus event whose payload no known variant can parse, inserted through the
+        // real append path (idempotency/sequence/side-effects all exercised).
+        ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: Some("prompt-1"),
+                source: "acp",
+                event_kind: "bogus_kind",
+                normalized_json: r#"{"kind":"bogus_kind","from_the_future":true}"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append bogus event");
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "hello".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline still loads despite the unknown event");
+
+        let placeholders: Vec<_> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                ConversationTimelineRow::SessionNotice { notice }
+                    if notice.title == "此事件由更新版本产生，无法显示" =>
+                {
+                    Some(notice)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(placeholders.len(), 1, "exactly one placeholder row");
+
+        // The normal assistant text still folded through, proving the unknown event
+        // did not abort the rest of the timeline.
+        let has_assistant_text = timeline.rows.iter().any(|row| match row {
+            ConversationTimelineRow::MessageTurn { turn, .. } => turn
+                .blocks
+                .iter()
+                .any(|block| matches!(block, ContentBlock::Text { text } if text == "hello")),
+            _ => false,
+        });
+        assert!(has_assistant_text, "surrounding events still fold");
     }
 
     #[test]
@@ -1830,42 +1977,47 @@ mod tests {
     #[tokio::test]
     async fn append_rolls_back_event_when_apply_fails() {
         let pool = setup_pool().await;
-        let conversation_id = Uuid::new_v4();
-        ConversationRecord::create(
-            &pool,
-            conversation_id,
-            CreateConversationRecord {
-                workspace_id: Uuid::new_v4(),
-                task_id: None,
-                title: None,
-                initial_prompt: None,
-                status: None,
-                executor: Some("agent"),
-            },
-        )
-        .await
-        .expect("create conversation");
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
 
-        // Inserts fine but cannot parse as a ConversationEvent, so apply_record errors
-        // and the single append transaction must roll back — no orphaned event row.
+        // A well-formed event whose *side-effect* insert fails: the terminal status is
+        // not in the `conversation_terminals` CHECK allowlist, so `apply_record` errors
+        // mid-transaction. The single append transaction must roll back — no orphaned
+        // event row. (Unparseable events are now tolerated, so a real DB failure is the
+        // right way to exercise the atomicity guarantee.)
+        let event = ConversationEvent::TerminalUpdated {
+            terminal: ConversationTerminalPatch {
+                terminal_id: "term-1".into(),
+                command: None,
+                args: Vec::new(),
+                cwd: None,
+                status: "not_a_valid_status".into(),
+                output_summary: None,
+                output_truncated: false,
+                exit_status: None,
+            },
+        };
+        let normalized_json = serde_json::to_string(&event).expect("event json");
         let result = ConversationEventAppender::append(
             &pool,
             AppendConversationEvent {
                 id: Uuid::new_v4(),
                 conversation_id,
-                turn_id: None,
+                turn_id: Some(turn_id),
                 binding_id: None,
                 connection_id: None,
                 prompt_id: None,
                 source: "runtime",
-                event_kind: "bogus",
-                normalized_json: r#"{"kind":"not_a_conversation_event"}"#,
+                event_kind: "terminal_updated",
+                normalized_json: &normalized_json,
                 raw_json: None,
                 idempotency_key: None,
             },
         )
         .await;
-        assert!(result.is_err(), "append must fail when projection apply fails");
+        assert!(
+            result.is_err(),
+            "append must fail when projection apply fails"
+        );
 
         let events = ConversationEventRecord::events_since(&pool, conversation_id, 0, i64::MAX)
             .await
@@ -1968,9 +2120,7 @@ mod tests {
             "host",
             ConversationEvent::QuestionResponded {
                 question_id: "q1".into(),
-                response: ConversationQuestionResponse {
-                    answer: "A".into(),
-                },
+                response: ConversationQuestionResponse { answer: "A".into() },
             },
             None,
         )
@@ -2131,12 +2281,13 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].ordinal, 1);
 
-        let event_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?")
-                .bind(conversation_id)
-                .fetch_one(&pool)
-                .await
-                .expect("count events");
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM conversation_events WHERE conversation_id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count events");
         assert_eq!(event_count, 3, "only turn 1's three events survive");
 
         let after = ConversationProjector::project(&pool, conversation_id)

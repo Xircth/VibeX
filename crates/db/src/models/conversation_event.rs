@@ -4,6 +4,12 @@ use sqlx::{Executor, FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction}
 use ts_rs::TS;
 use uuid::Uuid;
 
+/// The event-schema version the host writes on every new event. Bump only when a
+/// stored event's shape changes in a way older readers can't understand; the
+/// read-side wrapper degrades any higher version it encounters to a placeholder
+/// row rather than failing the timeline.
+pub const CURRENT_EVENT_VERSION: i64 = 1;
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 pub struct ConversationEventRecord {
     pub id: Uuid,
@@ -15,6 +21,7 @@ pub struct ConversationEventRecord {
     pub sequence: i64,
     pub source: String,
     pub event_kind: String,
+    pub event_version: i64,
     pub normalized_json: String,
     pub raw_json: Option<String>,
     pub idempotency_key: Option<String>,
@@ -45,6 +52,7 @@ const EVENT_COLUMNS: &str = r#"id,
     sequence,
     source,
     event_kind,
+    event_version,
     normalized_json,
     raw_json,
     idempotency_key,
@@ -170,13 +178,15 @@ pub(crate) async fn insert_conversation_event(
     .fetch_one(&mut *conn)
     .await?;
 
+    // Every write explicitly stamps the current event-schema version (v1) rather
+    // than leaning on the column default, so the write path is self-describing.
     sqlx::query_as::<_, ConversationEventRecord>(&format!(
         r#"INSERT INTO conversation_events (
                id, conversation_id, turn_id, binding_id, connection_id, prompt_id,
-               sequence, source, event_kind, normalized_json, raw_json,
+               sequence, source, event_kind, event_version, normalized_json, raw_json,
                idempotency_key
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING {EVENT_COLUMNS}"#
     ))
     .bind(input.id)
@@ -188,6 +198,7 @@ pub(crate) async fn insert_conversation_event(
     .bind(sequence)
     .bind(input.source)
     .bind(input.event_kind)
+    .bind(CURRENT_EVENT_VERSION)
     .bind(input.normalized_json)
     .bind(input.raw_json)
     .bind(input.idempotency_key)

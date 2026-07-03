@@ -8,7 +8,8 @@ export type TerminalShellValue =
   | 'cmd.exe'
   | 'zsh'
   | 'bash'
-  | 'sh';
+  | 'sh'
+  | 'warp';
 
 export interface TerminalShellOption {
   value: TerminalShellValue;
@@ -29,6 +30,7 @@ export const TERMINAL_SHELL_OPTIONS: TerminalShellOption[] = [
   { value: 'zsh', label: 'Zsh', platforms: ['macos', 'linux'] },
   { value: 'bash', label: 'Bash', platforms: ['macos', 'linux'] },
   { value: 'sh', label: 'sh', platforms: ['macos', 'linux'] },
+  { value: 'warp', label: 'Warp', platforms: ['macos'] },
 ];
 
 export function getTerminalShellOptions(
@@ -76,6 +78,12 @@ export function getDefaultTerminalShell(
       ?.default_terminal_shell,
     platform
   );
+}
+
+export function isExternalTerminalShell(
+  value: TerminalShellValue | string | null | undefined
+): boolean {
+  return value === 'warp';
 }
 
 export function getTerminalWorkspaceKey(

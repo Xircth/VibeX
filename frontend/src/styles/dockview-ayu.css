@@ -322,6 +322,15 @@
   background-color: var(--dv-theme-hover) !important;
 }
 
+[class*='dockview-theme-ayu'] .dv-default-tab-content {
+  display: block;
+  max-width: 9ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dark
   [class*='dockview-theme-ayu']
   .dv-groupview

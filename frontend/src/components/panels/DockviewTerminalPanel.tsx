@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { useTauriTerminal } from '@/hooks/useTauriTerminal';
 import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { detectDevserverUrl } from '@/hooks/useDevserverUrl';
@@ -20,6 +21,7 @@ import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
   getTerminalWorkspaceKey,
+  isExternalTerminalShell,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
 import { isTerminalTabCloseKey } from './terminalTabClosePolicy';
@@ -113,6 +115,9 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     if (currentSessions.length > 0) {
       return;
     }
+    if (isExternalTerminalShell(defaultShell)) {
+      return;
+    }
 
     const tabId = generateTerminalTabId();
     addSession(workspaceId, tabId, defaultShell);
@@ -120,6 +125,9 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
 
   useEffect(() => {
     if (!workspaceId || !isPanelVisible || sessions.length > 0) {
+      return;
+    }
+    if (isExternalTerminalShell(defaultShell)) {
       return;
     }
 
@@ -169,8 +177,23 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     [workspaceId, setActiveTab]
   );
 
-  const handleCreateTab = useCallback(() => {
+  const handleCreateTab = useCallback(async () => {
     if (!workspaceId) return;
+    if (isExternalTerminalShell(selectedShell)) {
+      try {
+        await tauriInvoke<void>('open_external_terminal', {
+          workspaceId,
+          terminal: selectedShell,
+        });
+      } catch (error) {
+        toast.error('无法打开外部终端', {
+          description:
+            error instanceof Error ? error.message : '请确认 Warp 已安装。',
+        });
+      }
+      return;
+    }
+
     const tabId = generateTerminalTabId();
     addSession(workspaceId, tabId, selectedShell);
   }, [addSession, selectedShell, workspaceId]);
@@ -242,7 +265,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
               </select>
               <button
                 type="button"
-                onClick={handleCreateTab}
+                onClick={() => void handleCreateTab()}
                 disabled={!workspaceId}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
                 title="New terminal"

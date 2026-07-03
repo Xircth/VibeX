@@ -73,9 +73,9 @@ pub fn run() {
             events::start_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
-            // Bidirectional IM channels: run inbound loops + command dispatch (ACP).
-            commands::chat_channel::start_inbound_manager(state.agent_runtime.clone());
             app.manage(state);
+            // Bidirectional IM channels: run inbound loops + conversation command dispatch.
+            commands::chat_channel::start_inbound_manager(app.handle().clone());
 
             if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
                 tracing::error!("Failed to start preview proxy: {}", error);
@@ -90,7 +90,7 @@ pub fn run() {
                 tracing::warn!("Failed to initialize project rail window: {}", error);
             }
             if let Err(error) = tauri::async_runtime::block_on(
-                commands::web_service::ensure_web_service_autostart(),
+                commands::web_service::ensure_web_service_autostart(app.handle().clone()),
             ) {
                 tracing::warn!("Failed to autostart web service: {}", error);
             }
@@ -237,6 +237,7 @@ pub fn run() {
             commands::scratch::update_scratch,
             commands::scratch::delete_scratch,
             commands::terminal::create_terminal,
+            commands::terminal::open_external_terminal,
             commands::terminal::attach_terminal,
             commands::terminal::write_terminal,
             commands::terminal::resize_terminal,

@@ -47,9 +47,9 @@ use crate::{
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionId, AgentSessionMode,
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall,
-    AgentToolCallUpdate, AgentType, AgentUsage, CommandBuildInput, current_platform,
+    AgentToolCallUpdate, AgentType, AgentUsage, CommandBuildInput,
     conversation::SessionLoadFailureReason,
-    decide_auto_permission_response,
+    current_platform, decide_auto_permission_response,
     delegation_inject::DelegationInjector,
     registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
@@ -555,11 +555,11 @@ impl AgentConnectionRunner {
             // turn (events.rs requires a session_id) and the turn spins forever.
             // `run_prompt` clears `active_prompt` whenever it emits its own
             // terminal event, so this fires only when nothing else closed the turn.
-            let (failed_session_id, failed_prompt_id) =
-                match self.active_prompt.lock().await.take() {
-                    Some((session_id, prompt_id)) => (Some(session_id), Some(prompt_id)),
-                    None => (None, None),
-                };
+            let (failed_session_id, failed_prompt_id) = match self.active_prompt.lock().await.take()
+            {
+                Some((session_id, prompt_id)) => (Some(session_id), Some(prompt_id)),
+                None => (None, None),
+            };
             self.emit(
                 failed_session_id,
                 failed_prompt_id,
@@ -822,7 +822,7 @@ impl AgentConnectionRunner {
         let command_parts = entry.distribution.command_parts(&CommandBuildInput {
             platform: current_platform(),
             binary_dir: None,
-            prefer_system_uvx_command: true,
+            prefer_system_uvx_command: false,
         })?;
 
         let mut command =
@@ -1684,7 +1684,7 @@ struct StreamDedupState {
 /// Normalize a streaming text chunk: returns `true` to emit it, `false` to drop it
 /// as a redundant full-snapshot replay.
 ///
-/// `codex-acp` (through at least the pinned v0.16.0) streams a message/thought as
+/// `codex-acp` streams a message/thought as
 /// `agentMessageChunk` / `agentThoughtChunk` deltas AND then replays the *complete*
 /// text as one final chunk — the live-stream analogue of the `event_msg` +
 /// `response_item` duplication documented in [`crate::parsers::codex`]. ACP does

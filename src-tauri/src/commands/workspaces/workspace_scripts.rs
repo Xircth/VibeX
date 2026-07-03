@@ -7,8 +7,7 @@ use db::models::{
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use executors::actions::ExecutorAction;
-use executors::actions::script::ScriptContext;
+use executors::actions::{ExecutorAction, script::ScriptContext};
 use services::services::container_actions;
 use utils::shell::resolve_executable_path;
 use uuid::Uuid;

@@ -55,7 +55,6 @@ import {
   type McpAppType,
   type McpMarketplaceInstallOption,
   type McpMarketplaceItem,
-  type McpMarketplaceProvider,
   type McpMarketplaceServerDetail,
 } from '@/lib/api';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -256,7 +255,6 @@ export function McpSettings() {
   const [draftApps, setDraftApps] = useState<AppsDraft>(emptyApps(true));
 
   // Marketplace
-  const [providers, setProviders] = useState<McpMarketplaceProvider[]>([]);
   const [selectedProvider, setSelectedProvider] = useState('');
   const [marketQuery, setMarketQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -301,7 +299,6 @@ export function McpSettings() {
     void mcpMarketApi
       .listMarketplaces()
       .then((list) => {
-        setProviders(list);
         setSelectedProvider((current) => current || list[0]?.id || '');
       })
       .catch((err) => setError(errorMessage(err)));
@@ -614,9 +611,7 @@ export function McpSettings() {
           />
         ) : (
           <MarketListPanel
-            providers={providers}
             selectedProvider={selectedProvider}
-            onProviderChange={setSelectedProvider}
             query={marketQuery}
             onQueryChange={setMarketQuery}
             searching={searching}
@@ -877,7 +872,7 @@ function LocalListPanel({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
-      <div className="border-b p-2.5">
+      <div className="p-2.5">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -889,7 +884,7 @@ function LocalListPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -906,12 +901,19 @@ function LocalListPanel({
           servers.map((server) => {
             const active = server.id === activeId;
             return (
-              <button
+              <div
                 key={server.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelect(server.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(server.id);
+                  }
+                }}
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors',
                   active
                     ? 'border-primary/60 bg-primary/5'
                     : 'border-transparent hover:bg-foreground/[0.05]'
@@ -938,7 +940,7 @@ function LocalListPanel({
                 <p className="mt-0.5 line-clamp-1 break-all text-[10px] text-muted-foreground">
                   {specSummary(server.spec)}
                 </p>
-              </button>
+              </div>
             );
           })
         )}
@@ -967,9 +969,7 @@ function LocalListPanel({
 /* ── left: market list ───────────────────────────────────── */
 
 function MarketListPanel({
-  providers,
   selectedProvider,
-  onProviderChange,
   query,
   onQueryChange,
   searching,
@@ -978,9 +978,7 @@ function MarketListPanel({
   activeId,
   onSelect,
 }: {
-  providers: McpMarketplaceProvider[];
   selectedProvider: string;
-  onProviderChange: (id: string) => void;
   query: string;
   onQueryChange: (value: string) => void;
   searching: boolean;
@@ -991,19 +989,7 @@ function MarketListPanel({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
-      <div className="space-y-2 border-b p-2.5">
-        <Select value={selectedProvider} onValueChange={onProviderChange}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="选择市场" />
-          </SelectTrigger>
-          <SelectContent align="start">
-            {providers.map((provider) => (
-              <SelectItem key={provider.id} value={provider.id}>
-                {provider.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="p-2.5">
         <div className="flex gap-1.5">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1032,7 +1018,7 @@ function MarketListPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-1.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
         {searching ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1049,12 +1035,19 @@ function MarketListPanel({
           results.map((item) => {
             const active = item.server_id === activeId;
             return (
-              <button
+              <div
                 key={`${item.provider_id}:${item.server_id}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelect(item.server_id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(item.server_id);
+                  }
+                }}
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  'w-full cursor-pointer rounded-lg border px-2.5 py-2 text-left transition-colors',
                   active
                     ? 'border-primary/60 bg-primary/5'
                     : 'border-transparent hover:bg-foreground/[0.05]'
@@ -1102,7 +1095,7 @@ function MarketListPanel({
                     </Badge>
                   ) : null}
                 </div>
-              </button>
+              </div>
             );
           })
         )}

@@ -1,4 +1,7 @@
-use std::{path::Path, str::FromStr};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use executors::{command::CommandBuilder, executors::ExecutorError};
 use serde::{Deserialize, Serialize};
@@ -124,18 +127,93 @@ impl EditorConfig {
                     editor_type: self.editor_type.clone(),
                 })?;
 
-        let (executable, args) = command_parts.into_resolved().await.map_err(|e| match e {
-            ExecutorError::ExecutableNotFound { program } => EditorOpenError::ExecutableNotFound {
-                executable: program,
-                editor_type: self.editor_type.clone(),
-            },
-            _ => EditorOpenError::InvalidCommand {
-                details: e.to_string(),
-                editor_type: self.editor_type.clone(),
-            },
-        })?;
+        let (executable, args) = match command_parts.into_resolved().await {
+            Ok(resolved) => resolved,
+            Err(ExecutorError::ExecutableNotFound { program }) => {
+                if let Some(resolved) = self.resolve_macos_app_command().await? {
+                    resolved
+                } else {
+                    return Err(EditorOpenError::ExecutableNotFound {
+                        executable: program,
+                        editor_type: self.editor_type.clone(),
+                    });
+                }
+            }
+            Err(e) => {
+                return Err(EditorOpenError::InvalidCommand {
+                    details: e.to_string(),
+                    editor_type: self.editor_type.clone(),
+                });
+            }
+        };
 
         Ok((executable, args))
+    }
+
+    async fn resolve_macos_app_command(
+        &self,
+    ) -> Result<Option<(PathBuf, Vec<String>)>, EditorOpenError> {
+        if !cfg!(target_os = "macos") || !self.macos_app_is_installed() {
+            return Ok(None);
+        }
+
+        let app_name = self.macos_app_name().expect("app was checked above");
+        let command_parts = CommandBuilder::new("open")
+            .params(["-a", app_name])
+            .build_initial()
+            .map_err(|e| EditorOpenError::InvalidCommand {
+                details: e.to_string(),
+                editor_type: self.editor_type.clone(),
+            })?;
+
+        command_parts
+            .into_resolved()
+            .await
+            .map(Some)
+            .map_err(|e| match e {
+                ExecutorError::ExecutableNotFound { program } => {
+                    EditorOpenError::ExecutableNotFound {
+                        executable: program,
+                        editor_type: self.editor_type.clone(),
+                    }
+                }
+                _ => EditorOpenError::InvalidCommand {
+                    details: e.to_string(),
+                    editor_type: self.editor_type.clone(),
+                },
+            })
+    }
+
+    fn macos_app_name(&self) -> Option<&'static str> {
+        match self.editor_type {
+            EditorType::VsCode => Some("Visual Studio Code"),
+            EditorType::VsCodeInsiders => Some("Visual Studio Code - Insiders"),
+            EditorType::Cursor => Some("Cursor"),
+            EditorType::Windsurf => Some("Windsurf"),
+            EditorType::IntelliJ => Some("IntelliJ IDEA"),
+            EditorType::Zed => Some("Zed"),
+            EditorType::Xcode => Some("Xcode"),
+            EditorType::GoogleAntigravity => Some("Google Antigravity"),
+            EditorType::Custom | EditorType::FileManager => None,
+        }
+    }
+
+    fn macos_app_bundle_candidates(&self) -> Vec<PathBuf> {
+        let Some(app_name) = self.macos_app_name() else {
+            return Vec::new();
+        };
+        let app_bundle = format!("{app_name}.app");
+        let mut candidates = vec![PathBuf::from("/Applications").join(&app_bundle)];
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join("Applications").join(app_bundle));
+        }
+        candidates
+    }
+
+    fn macos_app_is_installed(&self) -> bool {
+        self.macos_app_bundle_candidates()
+            .iter()
+            .any(|path| path.is_dir())
     }
 
     /// Check if the editor is available on the system.
@@ -334,5 +412,41 @@ impl EditorConfig {
         } else {
             self.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EditorConfig, EditorType};
+
+    #[test]
+    fn vscode_macos_app_fallback_checks_standard_bundle_locations() {
+        let config = EditorConfig::new(EditorType::VsCode, None, None, None);
+        let candidates = config.macos_app_bundle_candidates();
+
+        assert!(
+            candidates
+                .iter()
+                .any(|path| path.ends_with("Visual Studio Code.app"))
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|path| path
+                    == &std::path::PathBuf::from("/Applications/Visual Studio Code.app"))
+        );
+    }
+
+    #[test]
+    fn custom_editor_does_not_use_macos_app_fallback() {
+        let config = EditorConfig::new(
+            EditorType::Custom,
+            Some("my-editor".to_string()),
+            None,
+            None,
+        );
+
+        assert!(config.macos_app_name().is_none());
+        assert!(config.macos_app_bundle_candidates().is_empty());
     }
 }

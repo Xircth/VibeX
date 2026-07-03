@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type SyntheticEvent } from 'react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
@@ -13,8 +14,10 @@ import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
   getTerminalWorkspaceKey,
+  isExternalTerminalShell,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
+import { tauriInvoke } from '@/lib/tauriApi';
 
 /**
  * Renders shell selector + "new terminal" button in the dockview group
@@ -48,8 +51,23 @@ function TerminalHeaderActionsInner() {
     event.stopPropagation();
   }, []);
 
-  const handleCreateTab = useCallback(() => {
+  const handleCreateTab = useCallback(async () => {
     if (!workspaceKey) return;
+    if (isExternalTerminalShell(selectedShell)) {
+      try {
+        await tauriInvoke<void>('open_external_terminal', {
+          workspaceId: workspaceKey,
+          terminal: selectedShell,
+        });
+      } catch (error) {
+        toast.error('无法打开外部终端', {
+          description:
+            error instanceof Error ? error.message : '请确认 Warp 已安装。',
+        });
+      }
+      return;
+    }
+
     const tabId = generateTerminalTabId();
     addSession(workspaceKey, tabId, selectedShell);
   }, [workspaceKey, addSession, selectedShell]);
@@ -76,7 +94,7 @@ function TerminalHeaderActionsInner() {
         onPointerDown={stopPropagation}
         onClick={(event) => {
           stopPropagation(event);
-          handleCreateTab();
+          void handleCreateTab();
         }}
         disabled={!workspaceKey}
         className="flex items-center justify-center h-6 w-6 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"

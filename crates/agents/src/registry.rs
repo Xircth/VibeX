@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    distribution::{AgentDistribution, PlatformBinary, SystemCommand},
+    distribution::{AgentDistribution, SystemCommand},
     error::AgentError,
 };
 
@@ -111,21 +111,23 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
         AgentType::Codex => (
             "Codex CLI",
             "ACP adapter for OpenAI's coding assistant",
-            AgentDistribution::Binary {
-                version: "0.16.0".to_string(),
+            AgentDistribution::Npx {
+                version: "1.0.2".to_string(),
+                package: "@agentclientprotocol/codex-acp@1.0.2".to_string(),
                 cmd: "codex-acp".to_string(),
                 args: vec![],
-                platforms: codex_platforms(),
+                node_required: None,
             },
         ),
         AgentType::OpenCode => (
             "OpenCode",
             "OpenCode ACP server",
-            AgentDistribution::Binary {
-                version: "1.16.2".to_string(),
+            AgentDistribution::Npx {
+                version: "1.17.11".to_string(),
+                package: "opencode-ai@1.17.11".to_string(),
                 cmd: "opencode".to_string(),
                 args: vec!["acp".to_string()],
-                platforms: opencode_platforms(),
+                node_required: None,
             },
         ),
         AgentType::Gemini => (
@@ -194,67 +196,6 @@ pub fn registry_entry_from_id(id: &str) -> Result<AgentRegistryEntry, AgentError
     Ok(registry_entry(agent_type))
 }
 
-fn codex_platforms() -> Vec<PlatformBinary> {
-    vec![
-        platform(
-            "darwin-aarch64",
-            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-apple-darwin.tar.gz",
-        ),
-        platform(
-            "darwin-x86_64",
-            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-apple-darwin.tar.gz",
-        ),
-        platform(
-            "linux-aarch64",
-            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-unknown-linux-gnu.tar.gz",
-        ),
-        platform(
-            "linux-x86_64",
-            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-unknown-linux-gnu.tar.gz",
-        ),
-        platform(
-            "windows-aarch64",
-            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-aarch64-pc-windows-msvc.zip",
-        ),
-        platform(
-            "windows-x86_64",
-            "https://github.com/zed-industries/codex-acp/releases/download/v0.16.0/codex-acp-0.16.0-x86_64-pc-windows-msvc.zip",
-        ),
-    ]
-}
-
-fn opencode_platforms() -> Vec<PlatformBinary> {
-    vec![
-        platform(
-            "darwin-aarch64",
-            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-darwin-arm64.zip",
-        ),
-        platform(
-            "darwin-x86_64",
-            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-darwin-x64.zip",
-        ),
-        platform(
-            "linux-aarch64",
-            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-linux-arm64.zip",
-        ),
-        platform(
-            "linux-x86_64",
-            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-linux-x64.zip",
-        ),
-        platform(
-            "windows-x86_64",
-            "https://github.com/sst/opencode/releases/download/v1.16.2/opencode-windows-x64.zip",
-        ),
-    ]
-}
-
-fn platform(platform: &str, url: &str) -> PlatformBinary {
-    PlatformBinary {
-        platform: platform.to_string(),
-        url: url.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,8 +252,17 @@ mod tests {
         let codex = registry_entry(AgentType::Codex);
         assert!(matches!(
             codex.distribution,
-            AgentDistribution::Binary { ref version, ref platforms, .. }
-                if version == "0.16.0" && platforms.iter().any(|p| p.platform == "windows-x86_64")
+            AgentDistribution::Npx { ref version, ref package, .. }
+                if version == "1.0.2" && package == "@agentclientprotocol/codex-acp@1.0.2"
+        ));
+
+        let opencode = registry_entry(AgentType::OpenCode);
+        assert!(matches!(
+            opencode.distribution,
+            AgentDistribution::Npx { ref version, ref package, ref args, .. }
+                if version == "1.17.11"
+                    && package == "opencode-ai@1.17.11"
+                    && args.as_slice() == ["acp"]
         ));
     }
 }

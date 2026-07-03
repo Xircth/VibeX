@@ -132,7 +132,7 @@ fn command_parts_for_entry(entry: &AgentRegistryEntry) -> Result<agents::Command
         .command_parts(&CommandBuildInput {
             platform: current_platform(),
             binary_dir: None,
-            prefer_system_uvx_command: true,
+            prefer_system_uvx_command: false,
         })
         .map_err(|error| error.to_string())
 }
@@ -252,20 +252,15 @@ fn version_args_for_entry(entry: &AgentRegistryEntry) -> Vec<String> {
             args.push("--version".to_string());
             args
         }
-        AgentDistribution::Uvx {
-            package,
-            cmd,
-            system_command,
-            ..
-        } if system_command.is_none() => vec![
+        AgentDistribution::Uvx { package, cmd, .. } => vec![
             "--from".to_string(),
             package.clone(),
             cmd.clone(),
             "--version".to_string(),
         ],
-        AgentDistribution::Uvx { .. }
-        | AgentDistribution::Binary { .. }
-        | AgentDistribution::System { .. } => vec!["--version".to_string()],
+        AgentDistribution::Binary { .. } | AgentDistribution::System { .. } => {
+            vec!["--version".to_string()]
+        }
     }
 }
 
@@ -659,7 +654,14 @@ mod tests {
             npm_package_for_entry(&registry_entry(AgentType::Gemini)).as_deref(),
             Some("@google/gemini-cli@0.45.2")
         );
-        assert!(npm_package_for_entry(&registry_entry(AgentType::Codex)).is_none());
+        assert_eq!(
+            npm_package_for_entry(&registry_entry(AgentType::Codex)).as_deref(),
+            Some("@agentclientprotocol/codex-acp@1.0.2")
+        );
+        assert_eq!(
+            npm_package_for_entry(&registry_entry(AgentType::OpenCode)).as_deref(),
+            Some("opencode-ai@1.17.11")
+        );
         assert_eq!(
             npm_uninstall_name("@google/gemini-cli@0.45.2"),
             "@google/gemini-cli"
@@ -669,8 +671,16 @@ mod tests {
     #[test]
     fn registry_preflight_helpers_cover_binary_and_npx_agents() {
         let codex = registry_entry(AgentType::Codex);
-        assert!(install_source_label(&codex).contains("release download"));
-        assert_eq!(version_args_for_entry(&codex), vec!["--version"]);
+        assert!(install_source_label(&codex).contains("npm -g"));
+        assert_eq!(
+            version_args_for_entry(&codex),
+            vec![
+                "-y".to_string(),
+                "@agentclientprotocol/codex-acp@1.0.2".to_string(),
+                "codex-acp".to_string(),
+                "--version".to_string()
+            ]
+        );
 
         let gemini = registry_entry(AgentType::Gemini);
         assert_eq!(
@@ -679,6 +689,17 @@ mod tests {
                 "-y".to_string(),
                 "@google/gemini-cli@0.45.2".to_string(),
                 "gemini".to_string(),
+                "--version".to_string()
+            ]
+        );
+
+        let hermes = registry_entry(AgentType::Hermes);
+        assert_eq!(
+            version_args_for_entry(&hermes),
+            vec![
+                "--from".to_string(),
+                "hermes-agent[acp,mcp]==0.16.0".to_string(),
+                "hermes-acp".to_string(),
                 "--version".to_string()
             ]
         );

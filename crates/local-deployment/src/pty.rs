@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc as std_mpsc},
     thread,
 };
 
@@ -27,10 +27,11 @@ pub enum PtyError {
 }
 
 struct PtySession {
-    writer: Box<dyn Write + Send>,
+    input_tx: std_mpsc::Sender<Vec<u8>>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     output_history: Arc<Mutex<Vec<u8>>>,
     subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Vec<u8>>>>>,
+    _input_handle: thread::JoinHandle<()>,
     _output_handle: thread::JoinHandle<()>,
     closed: bool,
 }
@@ -141,15 +142,9 @@ impl PtyService {
             } else if shell_name == "cmd.exe" {
                 // cmd.exe: no special args needed
             } else {
-                // Unix shells
                 cmd.env("VIBEX_TERMINAL", "1");
-
-                if shell_name == "bash" {
-                    cmd.env("PROMPT_COMMAND", r#"PS1='$ '; unset PROMPT_COMMAND"#);
-                } else if shell_name == "zsh" {
-                    // PROMPT is set after spawning
-                } else {
-                    cmd.env("PS1", "$ ");
+                if shell_name == "bash" || shell_name == "zsh" {
+                    cmd.arg("-l");
                 }
             }
 
@@ -165,13 +160,17 @@ impl PtyService {
                 .master
                 .take_writer()
                 .map_err(|e| PtyError::CreateFailed(e.to_string()))?;
-
-            if shell_name == "zsh" {
-                let _ = writer.write_all(b" PROMPT='$ '; RPROMPT=''\n");
-                let _ = writer.flush();
-                let _ = writer.write_all(b"\x0c");
-                let _ = writer.flush();
-            }
+            let (input_tx, input_rx) = std_mpsc::channel::<Vec<u8>>();
+            let input_handle = thread::spawn(move || {
+                while let Ok(data) = input_rx.recv() {
+                    if writer.write_all(&data).is_err() {
+                        break;
+                    }
+                    if writer.flush().is_err() {
+                        break;
+                    }
+                }
+            });
 
             let mut reader = pty_pair
                 .master
@@ -202,18 +201,19 @@ impl PtyService {
                 drop(child);
             });
 
-            Ok::<_, PtyError>((pty_pair.master, writer, output_handle))
+            Ok::<_, PtyError>((pty_pair.master, input_tx, input_handle, output_handle))
         })
         .await
         .map_err(|e| PtyError::CreateFailed(e.to_string()))??;
 
-        let (master, writer, output_handle) = result;
+        let (master, input_tx, input_handle, output_handle) = result;
 
         let session = PtySession {
-            writer,
+            input_tx,
             master,
             output_history,
             subscribers,
+            _input_handle: input_handle,
             _output_handle: output_handle,
             closed: false,
         };
@@ -259,26 +259,24 @@ impl PtyService {
     }
 
     pub async fn write(&self, session_id: Uuid, data: &[u8]) -> Result<(), PtyError> {
-        let mut sessions = self
-            .sessions
-            .lock()
-            .map_err(|e| PtyError::WriteFailed(e.to_string()))?;
-        let session = sessions
-            .get_mut(&session_id)
-            .ok_or(PtyError::SessionNotFound(session_id))?;
+        let input_tx = {
+            let sessions = self
+                .sessions
+                .lock()
+                .map_err(|e| PtyError::WriteFailed(e.to_string()))?;
+            let session = sessions
+                .get(&session_id)
+                .ok_or(PtyError::SessionNotFound(session_id))?;
 
-        if session.closed {
-            return Err(PtyError::SessionClosed);
-        }
+            if session.closed {
+                return Err(PtyError::SessionClosed);
+            }
 
-        session
-            .writer
-            .write_all(data)
-            .map_err(|e| PtyError::WriteFailed(e.to_string()))?;
+            session.input_tx.clone()
+        };
 
-        session
-            .writer
-            .flush()
+        input_tx
+            .send(data.to_vec())
             .map_err(|e| PtyError::WriteFailed(e.to_string()))?;
 
         Ok(())
@@ -354,6 +352,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn normalize_working_dir_strips_extended_windows_drive_prefix() {
         let normalized =
@@ -361,6 +360,7 @@ mod tests {
         assert_eq!(normalized, PathBuf::from(r"C:\Users\Admin"));
     }
 
+    #[cfg(windows)]
     #[test]
     fn normalize_working_dir_strips_extended_unc_prefix() {
         let normalized = PtyService::normalize_working_dir_for_shell(PathBuf::from(

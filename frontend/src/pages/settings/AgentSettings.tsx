@@ -7,10 +7,8 @@ import {
 } from 'react';
 import {
   AlertCircle,
-  Bot,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Loader2,
   RefreshCw,
@@ -21,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { AgentConfigManager } from './AgentConfigManager';
+import { SettingsSection } from './SettingsSection';
 import { agentsApi } from '@/features/agents/api';
 import type { AgentRegistryEntry } from '@/features/agents/types';
 import {
@@ -829,55 +828,6 @@ function PreflightChecklist({
         );
       })}
     </div>
-  );
-}
-
-function SettingsSection({
-  id,
-  title,
-  icon: Icon,
-  expanded,
-  onToggle,
-  action,
-  children,
-}: {
-  id: string;
-  title: string;
-  icon: typeof Bot;
-  expanded: boolean;
-  onToggle: () => void;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="settings-surface overflow-hidden rounded-xl">
-      <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
-        <button
-          type="button"
-          className="flex min-w-0 items-center gap-2 text-left"
-          onClick={onToggle}
-          aria-expanded={expanded}
-          aria-controls={`agent-settings-${id}`}
-        >
-          <ChevronRight
-            className={cn(
-              'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-              expanded && 'rotate-90'
-            )}
-          />
-          <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate text-[13px] font-semibold text-foreground">
-            {title}
-          </span>
-        </button>
-        {action}
-      </div>
-      {expanded ? (
-        <div id={`agent-settings-${id}`} className="px-3.5 pb-3.5 pt-1">
-          {children}
-        </div>
-      ) : null}
-    </section>
   );
 }
 

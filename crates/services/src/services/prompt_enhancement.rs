@@ -262,7 +262,9 @@ fn build_prompt_enhancement_payload(
                 body
             )
         })
-        .map_err(|error| PromptEnhancementError::Internal(format!("Failed to build PE payload: {}", error)))
+        .map_err(|error| {
+            PromptEnhancementError::Internal(format!("Failed to build PE payload: {}", error))
+        })
 }
 
 async fn write_prompt_enhancement_attachment(
@@ -377,14 +379,12 @@ async fn wait_for_enhanced_prompt(
     mut child: tokio::process::Child,
     timeout: Duration,
 ) -> Result<String, PromptEnhancementError> {
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| PromptEnhancementError::Internal("OpenCode process missing stdout".to_string()))?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| PromptEnhancementError::Internal("OpenCode process missing stderr".to_string()))?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        PromptEnhancementError::Internal("OpenCode process missing stdout".to_string())
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        PromptEnhancementError::Internal("OpenCode process missing stderr".to_string())
+    })?;
 
     let mut stdout_lines = BufReader::new(stdout).lines();
     let mut stderr_lines = BufReader::new(stderr).lines();
@@ -502,7 +502,10 @@ pub async fn enhance_prompt(
     let executable = tokio::task::spawn_blocking(|| which::which("opencode"))
         .await
         .map_err(|error| {
-            PromptEnhancementError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
+            PromptEnhancementError::Internal(format!(
+                "Failed to resolve OpenCode executable: {}",
+                error
+            ))
         })?
         .map_err(|_| PromptEnhancementError::NotFound("OpenCode CLI not found".to_string()))?;
 
@@ -539,9 +542,9 @@ pub async fn enhance_prompt(
         .stderr(Stdio::piped());
     command.current_dir(&current_dir);
 
-    let child = command
-        .spawn()
-        .map_err(|error| PromptEnhancementError::Internal(format!("Failed to run OpenCode: {}", error)))?;
+    let child = command.spawn().map_err(|error| {
+        PromptEnhancementError::Internal(format!("Failed to run OpenCode: {}", error))
+    })?;
 
     let result =
         wait_for_enhanced_prompt(child, Duration::from_secs(PROMPT_ENHANCE_TIMEOUT_SECS)).await;
@@ -559,7 +562,10 @@ pub async fn list_opencode_models() -> Result<OpencodeModelsResponse, PromptEnha
     let executable = tokio::task::spawn_blocking(|| which::which("opencode"))
         .await
         .map_err(|error| {
-            PromptEnhancementError::Internal(format!("Failed to resolve OpenCode executable: {}", error))
+            PromptEnhancementError::Internal(format!(
+                "Failed to resolve OpenCode executable: {}",
+                error
+            ))
         })?
         .ok();
 

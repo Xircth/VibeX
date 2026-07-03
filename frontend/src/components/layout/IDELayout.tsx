@@ -15,7 +15,10 @@ import {
 } from 'dockview-react';
 import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
 import { Code2, FolderOpen, GitBranch, Search } from 'lucide-react';
-import { panelComponents } from '@/components/layout/panels/PanelRegistry';
+import {
+  WorkspaceDockviewTab,
+  panelComponents,
+} from '@/components/layout/panels/PanelRegistry';
 import { StatusBar } from '@/components/layout/StatusBar';
 import {
   EDITOR_GROUP_PREFIX,
@@ -887,6 +890,7 @@ export function IDELayout({
           >
             <DockviewReact
               components={panelComponents}
+              defaultTabComponent={WorkspaceDockviewTab}
               onReady={handleReady}
               className="dockview-theme-light dockview-theme-ayu"
               disableFloatingGroups={true}

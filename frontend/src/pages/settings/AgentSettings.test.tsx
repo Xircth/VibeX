@@ -253,4 +253,24 @@ describe('AgentSettings', () => {
       )
     ).toBeInTheDocument();
   });
+
+  it('uses the shared settings surface for agent config sections', async () => {
+    mockRegistry();
+
+    render(<AgentSettings />);
+
+    const configSection = (await screen.findByText('配置管理')).closest(
+      'section'
+    );
+    const envSection = screen.getByText('环境变量').closest('section');
+    const preflightSection = screen.getByText('预检查').closest('section');
+
+    for (const section of [configSection, envSection, preflightSection]) {
+      expect(section).toHaveClass('settings-surface');
+      expect(section).toHaveClass('overflow-hidden');
+      expect(section).toHaveClass('rounded-xl');
+      expect(section).not.toHaveClass('border');
+      expect(section).not.toHaveClass('bg-card');
+    }
+  });
 });

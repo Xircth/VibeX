@@ -15,7 +15,7 @@ use db::models::{
 };
 use executors::profile::ExecutorProfileId;
 use git::GitService;
-use services::services::{workspace_manager::WorkspaceManager};
+use services::services::workspace_manager::WorkspaceManager;
 use uuid::Uuid;
 
 use crate::{

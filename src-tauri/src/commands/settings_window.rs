@@ -17,8 +17,7 @@ pub async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     .inner_size(1100.0, 800.0)
     .min_inner_size(800.0, 600.0)
     .resizable(true)
-    .center()
-    .decorations(false);
+    .center();
 
     let builder = builder
         .icon(crate::load_app_icon().map_err(|e| e.to_string())?)

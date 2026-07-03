@@ -13,7 +13,7 @@ use db::models::{
     workspace_repo::{CreateWorkspaceRepo, WorkspaceRepo},
 };
 use git::GitService;
-use services::services::{workspace_manager::WorkspaceManager};
+use services::services::workspace_manager::WorkspaceManager;
 use uuid::Uuid;
 
 use super::{

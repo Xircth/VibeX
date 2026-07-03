@@ -26,6 +26,7 @@ import {
   type CodexReasoningEffort,
   type OpenCodePermissionMode,
   formatClaudePermissionLabel,
+  formatApprovalPolicyLabel,
   formatOpenCodeModeLabel,
   formatOpenCodePermissionLabel,
   formatSandboxModeLabel,
@@ -33,6 +34,7 @@ import {
   getClaudePermissionOptions,
   getClaudeVariantConfig,
   getClaudeVariantFromSelection,
+  getCodexApprovalOptions,
   getCodexModelOptions,
   getCodexSandboxOptions,
   getCodexVariantConfig,
@@ -372,6 +374,17 @@ export function TerminalProfileControls({
       selectedProfile.variant ?? null
     );
     const sandboxOptions = getCodexSandboxOptions(profiles);
+    const approvalOptions = getCodexApprovalOptions(profiles);
+    const safetyOptions = sandboxOptions.flatMap((sandbox) =>
+      approvalOptions.map((approvalPolicy) => ({
+        value: `${sandbox}|${approvalPolicy}`,
+        label: `${formatSandboxModeLabel(sandbox)} / ${formatApprovalPolicyLabel(
+          approvalPolicy
+        )}`,
+        icon: Shield,
+      }))
+    );
+    const currentSafetyValue = `${currentConfig.sandbox}|${currentConfig.approvalPolicy}`;
     const currentModel = selectedProfile.model ?? currentConfig.model;
     const currentFastMode = selectedProfile.fast_mode ?? false;
     const modelOptions = mergeModelOptions(
@@ -431,17 +444,19 @@ export function TerminalProfileControls({
 
     return (
       <div className="flex flex-wrap items-center gap-2">
-        {sandboxOptions.length > 1 ? (
+        {safetyOptions.length > 1 ? (
           <OptionSelector
-            value={currentConfig.sandbox}
-            options={sandboxOptions.map((sandbox) => ({
-              value: sandbox,
-              label: formatSandboxModeLabel(sandbox),
-              icon: Shield,
-            }))}
-            onChange={(sandbox) => updateVariant({ sandbox })}
+            value={currentSafetyValue}
+            options={safetyOptions}
+            onChange={(value) => {
+              const [sandbox, approvalPolicy] = value.split('|') as [
+                typeof currentConfig.sandbox,
+                typeof currentConfig.approvalPolicy,
+              ];
+              updateVariant({ sandbox, approvalPolicy });
+            }}
             disabled={disabled}
-            menuLabel="Sandbox"
+            menuLabel="Safety"
             iconOnly={iconOnly}
             dropdownSide={dropdownSide}
           />

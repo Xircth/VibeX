@@ -47,15 +47,19 @@ pub async fn compute_diff_stats(
 ) -> Option<DiffStats> {
     let container_ref = workspace.container_ref.as_ref()?;
 
-    let workspace_repos =
-        match WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace.id).await {
-            Ok(repos) => repos,
-            Err(e) => {
-                tracing::warn!(workspace_id = %workspace.id, error = %e,
+    let workspace_repos = match WorkspaceRepo::find_repos_with_target_branch_for_workspace(
+        pool,
+        workspace.id,
+    )
+    .await
+    {
+        Ok(repos) => repos,
+        Err(e) => {
+            tracing::warn!(workspace_id = %workspace.id, error = %e,
                     "compute_diff_stats: failed to load workspace repos; returning no stats");
-                return None;
-            }
-        };
+            return None;
+        }
+    };
 
     let mut stats = DiffStats::default();
 

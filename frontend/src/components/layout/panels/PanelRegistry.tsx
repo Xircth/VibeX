@@ -1,5 +1,9 @@
 import React from 'react';
-import type { IDockviewPanelProps } from 'dockview-react';
+import {
+  type IDockviewPanelHeaderProps,
+  type IDockviewPanelProps,
+} from 'dockview-react';
+import { X } from 'lucide-react';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import DockviewPreviewPanel from '@/components/panels/DockviewPreviewPanel';
 
@@ -94,6 +98,102 @@ export const panelComponents: Record<
     },
   ])
 );
+
+const MAX_WORKSPACE_TAB_TITLE_CHARS = 6;
+
+type WorkspaceDockviewTabProps = IDockviewPanelHeaderProps &
+  React.HTMLAttributes<HTMLDivElement> & {
+    hideClose?: boolean;
+    closeActionOverride?: () => void;
+  };
+
+function truncateWorkspaceTabTitle(title: string): string {
+  const chars = Array.from(title);
+  if (chars.length <= MAX_WORKSPACE_TAB_TITLE_CHARS) {
+    return title;
+  }
+
+  return `${chars.slice(0, MAX_WORKSPACE_TAB_TITLE_CHARS).join('')}...`;
+}
+
+export function WorkspaceDockviewTab({
+  api,
+  containerApi: _containerApi,
+  params: _params,
+  tabLocation: _tabLocation,
+  hideClose,
+  closeActionOverride,
+  onPointerDown,
+  onPointerUp,
+  onPointerLeave,
+  ...rest
+}: WorkspaceDockviewTabProps) {
+  const [title, setTitle] = React.useState(api.title ?? '');
+  const isMiddleMouseButton = React.useRef(false);
+
+  React.useEffect(() => {
+    const disposable = api.onDidTitleChange((event) => {
+      setTitle(event.title ?? '');
+    });
+
+    if (title !== (api.title ?? '')) {
+      setTitle(api.title ?? '');
+    }
+
+    return () => disposable.dispose();
+  }, [api, title]);
+
+  const onClose = React.useCallback(
+    (event: React.PointerEvent | React.MouseEvent) => {
+      event.preventDefault();
+      if (closeActionOverride) {
+        closeActionOverride();
+      } else {
+        api.close();
+      }
+    },
+    [api, closeActionOverride]
+  );
+
+  return (
+    <div
+      {...rest}
+      data-testid="dockview-dv-default-tab"
+      title={title}
+      className="dv-default-tab"
+      onPointerDown={(event) => {
+        isMiddleMouseButton.current = event.button === 1;
+        onPointerDown?.(event);
+      }}
+      onPointerUp={(event) => {
+        if (isMiddleMouseButton.current && event.button === 1 && !hideClose) {
+          isMiddleMouseButton.current = false;
+          onClose(event);
+        }
+        onPointerUp?.(event);
+      }}
+      onPointerLeave={(event) => {
+        isMiddleMouseButton.current = false;
+        onPointerLeave?.(event);
+      }}
+    >
+      <span className="dv-default-tab-content">
+        {truncateWorkspaceTabTitle(title)}
+      </span>
+      {!hideClose && (
+        <div
+          className="dv-default-tab-action"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={onClose}
+          aria-label={`Close ${title}`}
+          role="button"
+        >
+          <X className="h-3 w-3" />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Panel metadata for display purposes.

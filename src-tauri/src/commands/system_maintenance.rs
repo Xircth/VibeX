@@ -114,7 +114,7 @@ const TOOL_SPECS: &[ToolSpec] = &[
         group_id: "codex",
         user_visible: false,
         executable: bin_name("codex-acp"),
-        npm_package: "@zed-industries/codex-acp",
+        npm_package: "@agentclientprotocol/codex-acp",
         version_args: &["--version"],
         use_package_metadata_version: true,
         minimum_supported_version: None,

@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
 
-
-
 // ============= Type Definitions =============
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]

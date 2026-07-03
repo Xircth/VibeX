@@ -25,10 +25,9 @@ import {
   deriveRelativeFilePath,
   resolveFilePathFromRoot,
 } from '@/utils/filePaths';
-import {
-  parseTagReferenceHref,
-} from '@/lib/tagReferenceMarkers';
+import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
+import { splitMarkdownIntoBlocks } from '@/lib/conversation-rendering/markdownBlocks';
 
 type MarkdownProps = {
   value: string;
@@ -402,6 +401,204 @@ function markdownUrlTransform(url: string): string {
   return defaultUrlTransform(url);
 }
 
+const REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['remarkPlugins']> = [
+  remarkGfm,
+  remarkMath,
+];
+const REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
+  [rehypeKatex, { throwOnError: false, strict: false }],
+];
+
+type MarkdownComponentContext = {
+  panelActions: ReturnType<typeof useOptionalPanelActionsContext>;
+  taskAttemptId?: string;
+  taskId?: string;
+  workspacePath?: string | null;
+};
+
+function createMarkdownComponents({
+  panelActions,
+  taskAttemptId,
+  taskId,
+  workspacePath,
+}: MarkdownComponentContext): Components {
+  return {
+    pre: ({ node, children }) => (
+      <PreBlock node={node as PreProps['node']}>{children}</PreBlock>
+    ),
+    code: ({ className: codeClass, children }) => {
+      const text = flattenNodeText(children).trim();
+      const pathTarget = resolveMarkdownWorkspacePathTarget(
+        undefined,
+        text,
+        workspacePath
+      );
+
+      if (pathTarget?.nodeType === 'file') {
+        const handleClick = (event: MouseEvent<HTMLElement>) => {
+          event.preventDefault();
+          event.stopPropagation();
+          panelActions?.openFilePreview(pathTarget.path, {
+            displayPath: pathTarget.displayPath,
+            title: pathTarget.displayPath,
+          });
+        };
+
+        return (
+          <code
+            className={codeClass ?? undefined}
+            onClick={handleClick}
+            role="button"
+            tabIndex={0}
+            title={pathTarget.displayPath}
+          >
+            {text || children}
+          </code>
+        );
+      }
+
+      return <code className={codeClass ?? undefined}>{text || children}</code>;
+    },
+    a: ({ href, children }) => {
+      const tagReferencePayload = href ? parseTagReferenceHref(href) : null;
+      if (tagReferencePayload) {
+        return (
+          <TagReferenceChip
+            tagName={tagReferencePayload.tagName}
+            content={tagReferencePayload.content}
+          />
+        );
+      }
+
+      const childrenText = flattenNodeText(children);
+      const imageHref =
+        href &&
+        (isMarkdownImagePath(href) ||
+          href.startsWith('data:image/') ||
+          href.startsWith('blob:')) &&
+        !parseTagReferenceHref(href)
+          ? href
+          : null;
+
+      if (imageHref) {
+        return (
+          <MarkdownImage
+            src={imageHref}
+            alt={childrenText || undefined}
+            taskAttemptId={taskAttemptId}
+            taskId={taskId}
+            workspacePath={workspacePath}
+          />
+        );
+      }
+
+      const pathTarget = resolveMarkdownWorkspacePathTarget(
+        href,
+        childrenText,
+        workspacePath
+      );
+      const isExternal =
+        (href?.startsWith('http://') || href?.startsWith('https://')) ?? false;
+      const isInternalProjectRoute = href
+        ? isInternalProjectRouteHref(href)
+        : false;
+      const renderedHref =
+        href && isExternal && !pathTarget && !isInternalProjectRoute
+          ? href
+          : undefined;
+
+      const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
+        if (pathTarget) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (pathTarget.nodeType === 'file') {
+            panelActions?.openFilePreview(pathTarget.path, {
+              displayPath: pathTarget.displayPath,
+              title: pathTarget.displayPath,
+            });
+          } else {
+            panelActions?.revealInFileTree(pathTarget.path, {
+              displayPath: pathTarget.displayPath,
+              nodeType: 'folder',
+            });
+          }
+          return;
+        }
+
+        if (!href) {
+          return;
+        }
+
+        if (isInternalProjectRoute) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
+        if (!isExternal) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
+        event.preventDefault();
+
+        try {
+          const { open } = await import('@tauri-apps/plugin-shell');
+          await open(href);
+        } catch {
+          window.open(href, '_blank', 'noopener,noreferrer');
+        }
+      };
+
+      return (
+        <a
+          href={renderedHref}
+          onClick={handleClick}
+          rel="noopener noreferrer"
+          role={renderedHref ? undefined : 'link'}
+          tabIndex={renderedHref ? undefined : 0}
+          title={pathTarget?.displayPath ?? href}
+        >
+          {children}
+        </a>
+      );
+    },
+    img: ({ src, alt, title }) => (
+      <MarkdownImage
+        src={src}
+        alt={alt}
+        title={title}
+        taskAttemptId={taskAttemptId}
+        taskId={taskId}
+        workspacePath={workspacePath}
+      />
+    ),
+  };
+}
+
+type MarkdownBlockProps = {
+  value: string;
+  components: Components;
+};
+
+const MemoizedMarkdownBlock = memo(
+  function MarkdownBlock({ value, components }: MarkdownBlockProps) {
+    return (
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={components}
+        urlTransform={markdownUrlTransform}
+      >
+        {value}
+      </ReactMarkdown>
+    );
+  },
+  (prev, next) =>
+    prev.value === next.value && prev.components === next.components
+);
+
 export const Markdown = memo(function Markdown({
   value,
   className,
@@ -411,188 +608,40 @@ export const Markdown = memo(function Markdown({
   softBreaks,
 }: MarkdownProps) {
   const panelActions = useOptionalPanelActionsContext();
+
   const normalizedValue = useMemo(
     () => prepareConversationMarkdown(value, { softBreaks }),
     [softBreaks, value]
   );
 
+  // Blocks are append-stable while streaming (see splitMarkdownIntoBlocks),
+  // so index keys are safe: completed blocks keep identical values and bail
+  // out of re-parsing; only the growing tail block re-renders per flush.
+  const blocks = useMemo(
+    () => splitMarkdownIntoBlocks(normalizedValue),
+    [normalizedValue]
+  );
+
   const components = useMemo<Components>(
-    () => ({
-      pre: ({ node, children }) => (
-        <PreBlock node={node as PreProps['node']}>{children}</PreBlock>
-      ),
-      code: ({ className: codeClass, children }) => {
-        const text = flattenNodeText(children).trim();
-        const pathTarget = resolveMarkdownWorkspacePathTarget(
-          undefined,
-          text,
-          workspacePath
-        );
-
-        if (pathTarget?.nodeType === 'file') {
-          const handleClick = (event: MouseEvent<HTMLElement>) => {
-            event.preventDefault();
-            event.stopPropagation();
-            panelActions?.openFilePreview(pathTarget.path, {
-              displayPath: pathTarget.displayPath,
-              title: pathTarget.displayPath,
-            });
-          };
-
-          return (
-            <code
-              className={codeClass ?? undefined}
-              onClick={handleClick}
-              role="button"
-              tabIndex={0}
-              title={pathTarget.displayPath}
-            >
-              {text || children}
-            </code>
-          );
-        }
-
-        return (
-          <code className={codeClass ?? undefined}>{text || children}</code>
-        );
-      },
-      a: ({ href, children }) => {
-        const tagReferencePayload = href ? parseTagReferenceHref(href) : null;
-        if (tagReferencePayload) {
-          return (
-            <TagReferenceChip
-              tagName={tagReferencePayload.tagName}
-              content={tagReferencePayload.content}
-            />
-          );
-        }
-
-        const childrenText = flattenNodeText(children);
-        const imageHref =
-          href &&
-          (isMarkdownImagePath(href) ||
-            href.startsWith('data:image/') ||
-            href.startsWith('blob:')) &&
-          !parseTagReferenceHref(href)
-            ? href
-            : null;
-
-        if (imageHref) {
-          return (
-            <MarkdownImage
-              src={imageHref}
-              alt={childrenText || undefined}
-              taskAttemptId={taskAttemptId}
-              taskId={taskId}
-              workspacePath={workspacePath}
-            />
-          );
-        }
-
-        const pathTarget = resolveMarkdownWorkspacePathTarget(
-          href,
-          childrenText,
-          workspacePath
-        );
-        const isExternal =
-          (href?.startsWith('http://') || href?.startsWith('https://')) ??
-          false;
-        const isInternalProjectRoute = href
-          ? isInternalProjectRouteHref(href)
-          : false;
-        const renderedHref =
-          href && isExternal && !pathTarget && !isInternalProjectRoute
-            ? href
-            : undefined;
-
-        const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
-          if (pathTarget) {
-            event.preventDefault();
-            event.stopPropagation();
-            if (pathTarget.nodeType === 'file') {
-              panelActions?.openFilePreview(pathTarget.path, {
-                displayPath: pathTarget.displayPath,
-                title: pathTarget.displayPath,
-              });
-            } else {
-              panelActions?.revealInFileTree(pathTarget.path, {
-                displayPath: pathTarget.displayPath,
-                nodeType: 'folder',
-              });
-            }
-            return;
-          }
-
-          if (!href) {
-            return;
-          }
-
-          if (isInternalProjectRoute) {
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-          }
-
-          if (!isExternal) {
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-          }
-
-          event.preventDefault();
-
-          try {
-            const { open } = await import('@tauri-apps/plugin-shell');
-            await open(href);
-          } catch {
-            window.open(href, '_blank', 'noopener,noreferrer');
-          }
-        };
-
-        return (
-          <a
-            href={renderedHref}
-            onClick={handleClick}
-            rel="noopener noreferrer"
-            role={renderedHref ? undefined : 'link'}
-            tabIndex={renderedHref ? undefined : 0}
-            title={pathTarget?.displayPath ?? href}
-          >
-            {children}
-          </a>
-        );
-      },
-      img: ({ src, alt, title }) => (
-        <MarkdownImage
-          src={src}
-          alt={alt}
-          title={title}
-          taskAttemptId={taskAttemptId}
-          taskId={taskId}
-          workspacePath={workspacePath}
-        />
-      ),
-    }),
+    () =>
+      createMarkdownComponents({
+        panelActions,
+        taskAttemptId,
+        taskId,
+        workspacePath,
+      }),
     [panelActions, taskAttemptId, taskId, workspacePath]
   );
 
-  const remarkPlugins = useMemo<
-    NonNullable<ReactMarkdownOptions['remarkPlugins']>
-  >(() => [remarkGfm, remarkMath], []);
-  const rehypePlugins = useMemo<
-    NonNullable<ReactMarkdownOptions['rehypePlugins']>
-  >(() => [[rehypeKatex, { throwOnError: false, strict: false }]], []);
-
   return (
     <div className={`conv-markdown${className ? ` ${className}` : ''}`}>
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        components={components}
-        urlTransform={markdownUrlTransform}
-      >
-        {normalizedValue}
-      </ReactMarkdown>
+      {blocks.map((block, index) => (
+        <MemoizedMarkdownBlock
+          key={index}
+          value={block}
+          components={components}
+        />
+      ))}
     </div>
   );
 }, arePropsEqual);

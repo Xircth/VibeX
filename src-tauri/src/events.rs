@@ -152,17 +152,6 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                 received = agent_events.recv() => {
                     match received {
                         Ok(event) => {
-                            if should_dispatch_chat_channel_event(&event.event) {
-                                let notification_event = event.clone();
-                                tauri::async_runtime::spawn(async move {
-                                    if let Err(error) =
-                                        crate::commands::chat_channel::notify_agent_event(&notification_event)
-                                            .await
-                                    {
-                                        tracing::warn!("Failed to dispatch chat channel event: {}", error);
-                                    }
-                                });
-                            }
                             match map_conversation_event_record(
                                 &conversation_pool,
                                 &event,
@@ -635,6 +624,17 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
                 {
                     return false;
                 }
+                if let Err(error) =
+                    crate::commands::chat_channel::notify_conversation_event(&conversation_event)
+                        .await
+                {
+                    tracing::warn!(
+                        conversation_id = %conversation_event.conversation_id,
+                        sequence = conversation_event.sequence,
+                        %error,
+                        "Failed to dispatch chat channel conversation event"
+                    );
+                }
                 if is_terminal_conversation_event(&conversation_event.event)
                     && let Some(turn_id) = conversation_event.turn_id
                 {
@@ -651,6 +651,19 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
                                 .is_err()
                             {
                                 return false;
+                            }
+                            if let Err(error) =
+                                crate::commands::chat_channel::notify_conversation_event(
+                                    &file_event,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    conversation_id = %file_event.conversation_id,
+                                    sequence = file_event.sequence,
+                                    %error,
+                                    "Failed to dispatch chat channel file-change event"
+                                );
                             }
                         }
                         Ok(None) => {}
@@ -1070,19 +1083,6 @@ fn should_emit_agent_event(event: &AgentEvent) -> bool {
     )
 }
 
-fn should_dispatch_chat_channel_event(event: &AgentEvent) -> bool {
-    matches!(
-        event,
-        AgentEvent::SessionCreated { .. }
-            | AgentEvent::PromptStarted { .. }
-            | AgentEvent::PromptFinished { .. }
-            | AgentEvent::TurnCompleted { .. }
-            | AgentEvent::PermissionRequested { .. }
-            | AgentEvent::Error { .. }
-            | AgentEvent::ConnectionStatusChanged { .. }
-    )
-}
-
 async fn persist_connection_snapshot(
     pool: &SqlitePool,
     snapshot: &AgentConnectionSnapshot,
@@ -1284,8 +1284,9 @@ mod tests {
     use agents::{
         AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
         AgentEvent, AgentEventEnvelope, AgentPermissionId, AgentPermissionOption,
-        AgentPermissionOptionKind, AgentPermissionRequest, AgentPromptSnapshot, AgentSessionId,
-        AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutput, AgentType,
+        AgentPermissionOptionKind, AgentPermissionRequest, AgentSessionId, AgentSessionSnapshot,
+        AgentTerminalId, AgentTerminalOutput, AgentType,
+        conversation::ConversationEvent,
         state::{AgentConnectionStatus, AgentSessionStatus},
     };
     use chrono::Utc;
@@ -1442,26 +1443,22 @@ mod tests {
     }
 
     #[test]
-    fn high_frequency_streaming_events_do_not_spawn_chat_notifications() {
-        assert!(!super::should_dispatch_chat_channel_event(
-            &AgentEvent::MessageChunk {
-                content: agents::AgentContentBlock::Text {
+    fn chat_notifications_are_sourced_from_normalized_conversation_events() {
+        assert_eq!(
+            crate::commands::chat_channel::conversation_event_key(
+                &ConversationEvent::AssistantTextDelta {
                     text: "hi".to_string(),
-                },
-            }
-        ));
-        assert!(super::should_dispatch_chat_channel_event(
-            &AgentEvent::PromptStarted {
-                snapshot: AgentPromptSnapshot {
-                    id: agents::AgentPromptId::new(),
-                    session_id: AgentSessionId::new(),
-                    status: agents::AgentPromptStatus::Running,
-                    text_preview: "hello".to_string(),
-                    created_at: now(),
-                    updated_at: now(),
-                },
-            }
-        ));
+                    message_id: None,
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            crate::commands::chat_channel::conversation_event_key(
+                &ConversationEvent::UserTurnStarted
+            ),
+            Some("prompt_started")
+        );
     }
 
     #[test]

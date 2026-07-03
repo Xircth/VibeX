@@ -2,8 +2,15 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use thiserror::Error;
 
-const DEFAULT_AGENT_SETTINGS: [(&str, i32); 3] =
-    [("claude_code", 0), ("codex", 1), ("open_code", 2)];
+const DEFAULT_AGENT_SETTINGS: [(&str, i32); 7] = [
+    ("claude_code", 0),
+    ("codex", 1),
+    ("open_code", 2),
+    ("gemini", 3),
+    ("open_claw", 4),
+    ("cline", 5),
+    ("hermes", 6),
+];
 
 #[derive(Debug, Error)]
 pub enum AgentSettingError {
@@ -194,8 +201,21 @@ mod tests {
             .iter()
             .map(|row| row.agent_type.as_str())
             .collect::<Vec<_>>();
+        let sort_orders = rows.iter().map(|row| row.sort_order).collect::<Vec<_>>();
 
-        assert_eq!(agent_types, vec!["claude_code", "codex", "open_code"]);
+        assert_eq!(
+            agent_types,
+            vec![
+                "claude_code",
+                "codex",
+                "open_code",
+                "gemini",
+                "open_claw",
+                "cline",
+                "hermes"
+            ]
+        );
+        assert_eq!(sort_orders, vec![0, 1, 2, 3, 4, 5, 6]);
     }
 
     #[tokio::test]
@@ -208,5 +228,86 @@ mod tests {
             .expect("codex row");
 
         assert_eq!(row.agent_type, "codex");
+    }
+
+    #[tokio::test]
+    async fn find_by_type_backfills_new_acp_agent_rows() {
+        let pool = setup_pool().await;
+
+        for agent_type in ["gemini", "open_claw", "cline", "hermes"] {
+            let row = AgentSetting::find_by_type(&pool, agent_type)
+                .await
+                .expect("lookup")
+                .expect("default row");
+
+            assert_eq!(row.agent_type, agent_type);
+        }
+    }
+
+    #[tokio::test]
+    async fn default_rows_support_preferences_reorder_and_version_updates() {
+        let pool = setup_pool().await;
+
+        let gemini = AgentSetting::update_preferences(
+            &pool,
+            "gemini",
+            Some(false),
+            Some(r#"{"GEMINI_API_KEY":"test"}"#),
+            None,
+            Some("allow_always"),
+        )
+        .await
+        .expect("update gemini preferences");
+
+        assert_eq!(gemini.agent_type, "gemini");
+        assert!(!gemini.enabled);
+        assert_eq!(
+            gemini.env_json.as_deref(),
+            Some(r#"{"GEMINI_API_KEY":"test"}"#)
+        );
+        assert_eq!(gemini.auto_approve_mode, "allow_always");
+
+        AgentSetting::update_version(&pool, "hermes", Some("0.16.0"))
+            .await
+            .expect("update hermes version");
+        let hermes = AgentSetting::find_by_type(&pool, "hermes")
+            .await
+            .expect("lookup hermes")
+            .expect("hermes row");
+        assert_eq!(hermes.installed_version.as_deref(), Some("0.16.0"));
+
+        AgentSetting::reorder(
+            &pool,
+            &[
+                "hermes".to_string(),
+                "cline".to_string(),
+                "open_claw".to_string(),
+                "gemini".to_string(),
+                "open_code".to_string(),
+                "codex".to_string(),
+                "claude_code".to_string(),
+            ],
+        )
+        .await
+        .expect("reorder defaults");
+
+        let rows = AgentSetting::list_all(&pool).await.expect("list rows");
+        let agent_types = rows
+            .iter()
+            .map(|row| row.agent_type.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            agent_types,
+            vec![
+                "hermes",
+                "cline",
+                "open_claw",
+                "gemini",
+                "open_code",
+                "codex",
+                "claude_code"
+            ]
+        );
     }
 }

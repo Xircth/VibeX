@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useCallback, type ComponentType } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft,
   Bot,
   BookOpenText,
   GitBranch,
@@ -15,10 +14,7 @@ import {
   SlidersHorizontal,
   Sun,
 } from 'lucide-react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
-import { Logo } from '@/components/Logo';
-import { WindowControls } from '@/components/settings/WindowControls';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -43,28 +39,9 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: '/settings/system', label: '系统', icon: Settings },
 ];
 
-function getSafeCurrentWindow() {
-  try {
-    const currentWindow = getCurrentWindow();
-    void currentWindow.label;
-    return currentWindow;
-  } catch {
-    return null;
-  }
-}
-
 export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isWindows = navigator.platform.toLowerCase().includes('win');
-  const [isStandaloneWindow, setIsStandaloneWindow] = useState(false);
-
-  useEffect(() => {
-    const currentWindow = getSafeCurrentWindow();
-    if (currentWindow && currentWindow.label !== 'main') {
-      setIsStandaloneWindow(true);
-    }
-  }, []);
 
   const navigateTo = useCallback(
     (path: string) => {
@@ -74,63 +51,8 @@ export function SettingsLayout() {
     [location.pathname, navigate]
   );
 
-  const handleBack = useCallback(() => {
-    navigate(-1);
-  }, [navigate]);
-
-  const handleDragStart = useCallback((event: React.MouseEvent) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    getSafeCurrentWindow()
-      ?.startDragging()
-      .catch(() => {});
-  }, []);
-
   return (
     <div className="settings-page settings-shell flex h-screen flex-col overflow-hidden text-foreground">
-      <div
-        className="settings-titlebar relative h-10 shrink-0 select-none"
-        onMouseDown={isStandaloneWindow ? handleDragStart : undefined}
-      >
-        <div
-          className={cn(
-            'relative z-10 flex h-full items-center px-3',
-            isStandaloneWindow && isWindows && 'pr-[138px]'
-          )}
-        >
-          {!isStandaloneWindow && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mr-2 h-7 w-7 p-0"
-              onClick={handleBack}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          )}
-          <div
-            className={cn(
-              'flex items-center gap-3',
-              isStandaloneWindow && 'pointer-events-none'
-            )}
-          >
-            <Logo showText={false} size="window" />
-            <span className="text-sm font-semibold tracking-normal text-foreground">
-              设置
-            </span>
-          </div>
-        </div>
-
-        {isStandaloneWindow && isWindows && (
-          <div
-            className="absolute right-0 top-0 z-30 flex h-full items-center"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <WindowControls />
-          </div>
-        )}
-      </div>
-
       <div className="flex min-h-0 flex-1">
         <aside className="settings-sidebar m-3 w-56 shrink-0 p-2.5">
           <nav className="space-y-1">

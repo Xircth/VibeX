@@ -27,6 +27,7 @@ import {
   type AgentSettingInfo,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { SettingsSection } from './SettingsSection';
 
 // ─── Storage targets ────────────────────────────────────────────────────────
 // A shortcut field reads/writes one of: an environment variable, a (possibly
@@ -817,18 +818,17 @@ export function AgentConfigManager({
       ) : null}
 
       {/* Configuration management */}
-      <section className="border bg-card overflow-hidden rounded-xl">
-        <div className="flex items-center gap-2 px-3.5 pb-1 pt-3">
-          <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[13px] font-semibold text-foreground">
-            配置管理
-          </span>
-          {saved === 'config' ? (
+      <SettingsSection
+        id="config-management"
+        title="配置管理"
+        icon={Settings2}
+        action={
+          saved === 'config' ? (
             <span className="text-[11px] text-success">已保存</span>
-          ) : null}
-        </div>
-
-        <div className="space-y-4 px-3.5 pb-3.5 pt-1">
+          ) : null
+        }
+      >
+        <div className="space-y-4">
           {spec ? (
             <p className="text-[11px] text-muted-foreground">{spec.subtitle}</p>
           ) : null}
@@ -987,20 +987,20 @@ export function AgentConfigManager({
             </Button>
           </div>
         </div>
-      </section>
+      </SettingsSection>
 
       {/* Environment variables (kept at the bottom) */}
-      <section className="border bg-card overflow-hidden rounded-xl">
-        <div className="flex items-center gap-2 px-3.5 pb-1 pt-3">
-          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[13px] font-semibold text-foreground">
-            环境变量
-          </span>
-          {saved === 'env' ? (
+      <SettingsSection
+        id="environment-variables"
+        title="环境变量"
+        icon={KeyRound}
+        action={
+          saved === 'env' ? (
             <span className="text-[11px] text-success">已保存</span>
-          ) : null}
-        </div>
-        <div className="space-y-3 px-3.5 pb-3.5 pt-1">
+          ) : null
+        }
+      >
+        <div className="space-y-3">
           <Textarea
             value={envText}
             spellCheck={false}
@@ -1030,7 +1030,7 @@ export function AgentConfigManager({
             </Button>
           </div>
         </div>
-      </section>
+      </SettingsSection>
     </div>
   );
 }

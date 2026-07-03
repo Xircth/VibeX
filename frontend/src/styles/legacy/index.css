@@ -1123,6 +1123,233 @@
     box-shadow: var(--shadow-shell);
   }
 
+  .workspace-welcome {
+    --welcome-ink: var(--text-primary);
+    --welcome-muted: var(--text-muted);
+    --welcome-subtle: var(--text-subtle);
+    --welcome-rule: var(--border-subtle);
+    color: var(--welcome-ink);
+    background:
+      linear-gradient(var(--welcome-rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--welcome-rule) 1px, transparent 1px),
+      linear-gradient(180deg, var(--surface-content), hsl(var(--background)));
+    background-size:
+      56px 56px,
+      56px 56px,
+      auto;
+    background-position:
+      -1px -1px,
+      -1px -1px,
+      0 0;
+  }
+
+  .workspace-welcome__inner {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.86fr) minmax(260px, 0.64fr);
+    align-items: center;
+    gap: clamp(24px, 5vw, 64px);
+    min-height: 100%;
+    width: min(880px, calc(100% - 56px));
+    margin: 0 auto;
+    padding: clamp(28px, 7vh, 72px) 0;
+  }
+
+  .workspace-welcome__intro {
+    min-width: 0;
+  }
+
+  .workspace-welcome__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    margin-bottom: 18px;
+    border: 1px solid hsl(var(--primary) / 0.28);
+    border-radius: 8px;
+    color: hsl(var(--primary));
+    background:
+      linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.14),
+        hsl(var(--success) / 0.1)
+      ),
+      var(--surface-card-strong);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.18);
+  }
+
+  .workspace-welcome__eyebrow {
+    margin: 0 0 8px;
+    font-family:
+      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: hsl(var(--primary));
+  }
+
+  .workspace-welcome h2 {
+    max-width: 14ch;
+    margin: 0;
+    font-size: clamp(25px, 3vw, 38px);
+    font-weight: 720;
+    line-height: 1.08;
+    letter-spacing: 0;
+    color: var(--text-strong);
+  }
+
+  .workspace-welcome__copy {
+    max-width: 46ch;
+    margin: 14px 0 0;
+    color: var(--welcome-muted);
+    font-size: 13px;
+    line-height: 1.8;
+  }
+
+  .workspace-welcome__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 24px;
+  }
+
+  .workspace-welcome__action {
+    display: flex;
+    min-width: 0;
+    gap: 10px;
+    align-items: flex-start;
+    min-height: 72px;
+    padding: 11px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    color: var(--text-primary);
+    text-align: left;
+    background: var(--surface-card);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
+    transition:
+      background 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      transform 150ms ease;
+  }
+
+  .workspace-welcome__action:hover {
+    border-color: hsl(var(--primary) / 0.3);
+    background: var(--surface-control-hover);
+    transform: translateY(-1px);
+  }
+
+  .workspace-welcome__action:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  .workspace-welcome__action-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+  }
+
+  .workspace-welcome__action-title,
+  .workspace-welcome__action-description {
+    display: block;
+  }
+
+  .workspace-welcome__action-title {
+    color: var(--text-strong);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .workspace-welcome__action-description {
+    margin-top: 3px;
+    color: var(--welcome-muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .workspace-welcome__artifact {
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, var(--surface-card-strong), var(--surface-card)),
+      var(--surface-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .workspace-welcome__artifact-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--welcome-subtle);
+    font-family:
+      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+    font-size: 10px;
+  }
+
+  .workspace-welcome__artifact-body {
+    display: grid;
+    gap: 1px;
+    padding: 10px;
+  }
+
+  .workspace-welcome__line {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    min-height: 34px;
+    border-radius: 7px;
+    color: var(--welcome-muted);
+    background: var(--surface-control);
+  }
+
+  .workspace-welcome__line span {
+    text-align: center;
+    font-family:
+      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+    font-size: 12px;
+    color: var(--welcome-subtle);
+  }
+
+  .workspace-welcome__line code {
+    overflow: hidden;
+    padding-right: 10px;
+    font-family:
+      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      monospace;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-welcome__line.is-add {
+    color: hsl(var(--success));
+    background: hsl(var(--success) / 0.1);
+  }
+
+  .workspace-welcome__line.is-run {
+    color: hsl(var(--primary));
+    background: hsl(var(--primary) / 0.1);
+  }
+
+  .workspace-welcome__line.is-note {
+    color: hsl(var(--warning));
+    background: hsl(var(--warning) / 0.11);
+  }
+
   .workspace-resize-handle {
     background: var(--border-subtle);
     transition:
@@ -1134,6 +1361,24 @@
   .workspace-resize-handle:hover {
     background: hsl(var(--primary) / 0.42);
     box-shadow: 0 0 0 1px hsl(var(--primary) / 0.12);
+  }
+
+  @media (max-width: 780px) {
+    .workspace-welcome__inner {
+      grid-template-columns: 1fr;
+      width: min(560px, calc(100% - 32px));
+      padding-block: 32px;
+    }
+
+    .workspace-welcome__artifact {
+      display: none;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .workspace-welcome__actions {
+      grid-template-columns: 1fr;
+    }
   }
 
   .project-rail-shell {

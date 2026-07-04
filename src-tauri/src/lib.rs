@@ -74,7 +74,7 @@ pub fn run() {
             // process lifecycle before the UI connects. Best-effort — a failure here
             // must not block app launch; the worst case is a stale in-flight turn.
             if let Err(error) = tauri::async_runtime::block_on(
-                conversation_service::ConversationSessionService::new(&state)
+                conversation_service::ConversationSessionService::new(state.conversation_context())
                     .recover_interrupted_turns(),
             ) {
                 tracing::error!("startup crash-recovery failed: {}", error);

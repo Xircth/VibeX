@@ -178,6 +178,18 @@ impl From<git2::Error> for AppError {
     }
 }
 
+impl From<conversations::ConversationServiceError> for AppError {
+    fn from(e: conversations::ConversationServiceError) -> Self {
+        use conversations::ConversationServiceError;
+        match e {
+            ConversationServiceError::NotFound(message) => AppError::NotFound(message),
+            ConversationServiceError::BadRequest(message) => AppError::BadRequest(message),
+            ConversationServiceError::Conflict(message) => AppError::Conflict(message),
+            ConversationServiceError::Internal(message) => AppError::Internal(message),
+        }
+    }
+}
+
 impl From<agents::skills::SkillError> for AppError {
     fn from(e: agents::skills::SkillError) -> Self {
         use agents::skills::SkillError;

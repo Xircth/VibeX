@@ -907,13 +907,22 @@ name = "conversations"
 version = "0.1.8"
 dependencies = [
  "agents",
+ "async-trait",
  "chrono",
  "db",
+ "deployment",
+ "executors",
+ "git",
+ "git2",
  "serde",
  "serde_json",
+ "services",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "ts-rs",
+ "utils",
  "uuid",
 ]
 

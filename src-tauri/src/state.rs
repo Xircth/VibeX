@@ -41,7 +41,7 @@ pub struct AppState {
     pub delegation: crate::delegation::DelegationState,
     pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
     pub conversation_runtime_states:
-        Arc<Mutex<HashMap<uuid::Uuid, crate::conversation_service::ConversationRuntimeState>>>,
+        Arc<Mutex<HashMap<uuid::Uuid, conversations::ConversationRuntimeState>>>,
     /// Per-conversation live incremental projectors (消灭双投影). Cache the folded
     /// state so each newly-appended event turns into row ops in O(1) amortized instead
     /// of re-projecting the turn every frame. Dropped when a conversation closes
@@ -76,5 +76,20 @@ impl AppState {
             conversation_runtime_states: Arc::new(Mutex::new(HashMap::new())),
             conversation_row_projectors: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// Assemble the [`conversations::ConversationContext`] the orchestration core needs,
+    /// injecting the src-tauri-coupled [`AppConversationHost`]. Cheap (Arc clones).
+    pub fn conversation_context(&self) -> conversations::ConversationContext {
+        conversations::ConversationContext {
+            deployment: self.deployment.clone(),
+            agent_runtime: self.agent_runtime.clone(),
+            turn_locks: self.conversation_turn_locks.clone(),
+            runtime_states: self.conversation_runtime_states.clone(),
+            row_projectors: self.conversation_row_projectors.clone(),
+            host: Arc::new(crate::conversation_service::AppConversationHost {
+                deployment: self.deployment.clone(),
+            }),
+        }
     }
 }

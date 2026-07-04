@@ -308,15 +308,10 @@ pub async fn agent_connect(
         .map_err(Into::into)
 }
 
-pub(crate) struct AgentRuntimeLaunchSettings {
-    pub(crate) auto_approve_mode: AgentAutoApproveMode,
-    pub(crate) env: HashMap<String, String>,
-}
-
 async fn agent_runtime_launch_settings(
     state: &tauri::State<'_, AppState>,
     agent_type: AgentKind,
-) -> Result<AgentRuntimeLaunchSettings, AppError> {
+) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
     agent_runtime_launch_settings_from_pool(&state.deployment.db().pool, agent_type).await
 }
 
@@ -326,7 +321,7 @@ async fn agent_runtime_launch_settings(
 pub(crate) async fn agent_runtime_launch_settings_from_pool(
     pool: &sqlx::SqlitePool,
     agent_type: AgentKind,
-) -> Result<AgentRuntimeLaunchSettings, AppError> {
+) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
     let setting = AgentSetting::find_by_type(pool, agent_type_setting_key(agent_type)).await?;
     let auto_approve_mode = setting
         .as_ref()
@@ -337,7 +332,7 @@ pub(crate) async fn agent_runtime_launch_settings_from_pool(
             .as_ref()
             .and_then(|setting| setting.env_json.as_deref()),
     )?;
-    Ok(AgentRuntimeLaunchSettings {
+    Ok(conversations::AgentRuntimeLaunchSettings {
         auto_approve_mode,
         env,
     })

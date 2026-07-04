@@ -9,11 +9,21 @@ edition = "2024"
 [dependencies]
 db = { path = "../db" }
 agents = { path = "../agents" }
+deployment = { path = "../deployment" }
+executors = { path = "../executors" }
+git = { path = "../git" }
+services = { path = "../services" }
+utils = { path = "../utils" }
+git2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+ts-rs = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "chrono", "uuid"] }
 
 [dev-dependencies]

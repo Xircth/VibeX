@@ -342,7 +342,7 @@ pub async fn conversation_start_turn(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let service = ConversationSessionService::new(&state);
+    let service = ConversationSessionService::new(state.conversation_context());
     let result = service
         .start_turn(ConversationStartTurnInput {
             agent_type: request.agent_type,
@@ -414,11 +414,11 @@ pub async fn conversation_respond_permission(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let result = ConversationSessionService::new(&state)
+    let result = ConversationSessionService::new(state.conversation_context())
         .respond_permission(conversation_id, request.permission_id, request.response)
         .await;
     emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
-    result
+    result.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -431,11 +431,11 @@ pub async fn conversation_cancel_turn(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let result = ConversationSessionService::new(&state)
+    let result = ConversationSessionService::new(state.conversation_context())
         .cancel_turn(conversation_id, request.reason)
         .await;
     emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
-    result
+    result.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -445,9 +445,10 @@ pub async fn conversation_truncate_to_turn(
 ) -> Result<(), AppError> {
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    ConversationSessionService::new(&state)
+    ConversationSessionService::new(state.conversation_context())
         .truncate_to_turn(conversation_id, request.ordinal)
         .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -457,9 +458,10 @@ pub async fn conversation_close(
 ) -> Result<(), AppError> {
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    ConversationSessionService::new(&state)
+    ConversationSessionService::new(state.conversation_context())
         .close_conversation(conversation_id, request.reason)
         .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]

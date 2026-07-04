@@ -6,8 +6,14 @@
 //! this crate owns the folding of the event log into timeline projections.
 
 pub mod projection;
+pub mod service;
 
 pub use projection::{
-    ConversationEventAppender, ConversationProjector, ConversationStateApplier,
-    IncrementalRowProjector, CONVERSATION_PROJECTION_VERSION,
+    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
+    ConversationStateApplier, IncrementalRowProjector,
+};
+pub use service::{
+    AgentRuntimeLaunchSettings, ConversationContext, ConversationHost, ConversationRuntimeState,
+    ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
+    ConversationTurnSnapshot, finalize_checkpoint_file_changes,
 };

@@ -455,7 +455,7 @@ async fn api_start_turn(
     let previous_last_sequence = web_conversation_last_sequence(&pool, conversation_id)
         .await
         .map_err(app_error)?;
-    let result = ConversationSessionService::new(&state)
+    let result = ConversationSessionService::new(state.conversation_context())
         .start_turn(ConversationStartTurnInput {
             agent_type: request.agent_type,
             workspace_id,
@@ -475,7 +475,7 @@ async fn api_start_turn(
         previous_last_sequence,
     )
     .await;
-    let (turn, _) = result.map_err(app_error)?;
+    let (turn, _) = result.map_err(AppError::from).map_err(app_error)?;
     Ok(Json(json!(turn)))
 }
 
@@ -492,7 +492,7 @@ async fn api_respond_permission(
     let previous_last_sequence = web_conversation_last_sequence(&pool, conversation_id)
         .await
         .map_err(app_error)?;
-    let result = ConversationSessionService::new(&state)
+    let result = ConversationSessionService::new(state.conversation_context())
         .respond_permission(conversation_id, permission_id, request.response)
         .await;
     emit_events_after(
@@ -503,7 +503,7 @@ async fn api_respond_permission(
         previous_last_sequence,
     )
     .await;
-    result.map_err(app_error)?;
+    result.map_err(AppError::from).map_err(app_error)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -520,7 +520,7 @@ async fn api_cancel_turn(
     let previous_last_sequence = web_conversation_last_sequence(&pool, conversation_id)
         .await
         .map_err(app_error)?;
-    let result = ConversationSessionService::new(&state)
+    let result = ConversationSessionService::new(state.conversation_context())
         .cancel_turn(conversation_id, request.reason)
         .await;
     emit_events_after(
@@ -531,7 +531,7 @@ async fn api_cancel_turn(
         previous_last_sequence,
     )
     .await;
-    result.map_err(app_error)?;
+    result.map_err(AppError::from).map_err(app_error)?;
     Ok(Json(json!({ "ok": true })))
 }
 

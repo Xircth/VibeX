@@ -1692,7 +1692,7 @@ async fn send_task(
         Err(error) => return format!("❌ 发送失败：{error}"),
     };
 
-    let result = ConversationSessionService::new(&state)
+    let result = ConversationSessionService::new(state.conversation_context())
         .start_turn(ConversationStartTurnInput {
             agent_type,
             workspace_id: target.workspace_id,

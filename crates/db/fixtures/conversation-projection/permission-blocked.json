@@ -1,6 +1,6 @@
 {
   "name": "permission-blocked",
-  "projectionVersion": 1,
+  "projectionVersion": 2,
   "conversation": {
     "id": "00000000-0000-0000-0000-000000000003",
     "title": "Permission blocked",

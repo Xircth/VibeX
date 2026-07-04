@@ -14,9 +14,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { BaseCodingAgent } from 'shared/types';
 import type {
   AgentPermissionResponse,
-  ConversationTimelineRow,
   MessageTurn,
   TaskWithAttemptStatus,
+  TimelineRow,
   TokenUsageInfo,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
@@ -155,7 +155,7 @@ function ConversationSideRows({
   respondingPermissionId,
   onOpenChild,
 }: {
-  rows: ConversationTimelineRow[];
+  rows: TimelineRow[];
   onRespondPermission: (
     permissionId: string,
     response: AgentPermissionResponse
@@ -163,12 +163,13 @@ function ConversationSideRows({
   respondingPermissionId: string | null;
   onOpenChild?: (childConversationId: string) => void;
 }) {
-  const visibleRows = rows.filter((row) => row.kind !== 'turn_error');
+  const visibleRows = rows.filter((entry) => entry.row.kind !== 'turn_error');
   if (visibleRows.length === 0) return null;
 
   return (
     <div className="mb-3 space-y-2">
-      {visibleRows.map((row, index) => {
+      {visibleRows.map((entry, index) => {
+        const row = entry.row;
         if (row.kind === 'permission_request') {
           return (
             <PermissionRequestCard
@@ -348,8 +349,8 @@ const AgentTimelineConversation = forwardRef<
   const { getActiveExecutorProfile } = useActiveExecutorProfile();
   // Keep the latest turn error in full (message + the agent's real ACP error
   // code) so the card can offer code-specific recovery instead of a flat banner.
-  const turnErrors = sideRows.flatMap((row) =>
-    row.kind === 'turn_error' ? [row.error.error] : []
+  const turnErrors = sideRows.flatMap((entry) =>
+    entry.row.kind === 'turn_error' ? [entry.row.error.error] : []
   );
   const latestTurnError = turnErrors[turnErrors.length - 1] ?? null;
 

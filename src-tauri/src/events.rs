@@ -8,8 +8,9 @@ use agents::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationDelegation, ConversationDelegationResult, ConversationError, ConversationEvent,
         ConversationEventEnvelope, ConversationFileLocation, ConversationPermissionRequest,
-        ConversationPermissionResponse, ConversationPlanEntry, ConversationTerminalPatch,
-        ConversationToolCallPatch, ConversationUsage,
+        ConversationPermissionResponse, ConversationPlanEntry, ConversationRowOpBatch,
+        ConversationSessionModes, ConversationTerminalPatch, ConversationToolCallPatch,
+        ConversationUsage,
     },
     executor_key_for,
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
@@ -20,10 +21,11 @@ use db::models::{
         UpsertAgentPermissionRequest, UpsertAgentPrompt, UpsertAgentSession, json_kind,
     },
     conversation::DbConversationSummary,
-    conversation_event::AppendConversationEvent,
-    conversation_projection::ConversationEventAppender,
+    conversation_event::{AppendConversationEvent, ConversationEventRecord},
+    conversation_projection::{ConversationEventAppender, IncrementalRowProjector},
     workspace::Workspace,
 };
+use tokio::sync::Mutex;
 use deployment::Deployment;
 use futures::StreamExt;
 use serde::Serialize;
@@ -39,6 +41,109 @@ pub mod channels {
     pub const AGENT_EVENTS: &str = "agent-events";
     pub const CONVERSATION_EVENTS: &str = "conversation-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
+}
+
+/// Per-conversation cache of live incremental projectors (消灭双投影). Held on
+/// `AppState`; fed only through [`emit_conversation_row_ops_after`].
+pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, IncrementalRowProjector>>>;
+
+/// Emit the frontend row-op batch for every event appended after `after_sequence`.
+/// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
+/// `ConversationRowOpBatch` and never folds raw events. It feeds the conversation's
+/// cached incremental projector so ops are produced in O(1) amortized (no per-frame
+/// re-projection). Best-effort — a failure just skips the update; the frontend's gap
+/// detection + row backfill recovers.
+pub async fn emit_conversation_row_ops_after(
+    app: &AppHandle,
+    projectors: &ConversationRowProjectors,
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    after_sequence: i64,
+) {
+    let new_records = match ConversationEventRecord::events_since(
+        pool,
+        conversation_id,
+        after_sequence,
+        2000,
+    )
+    .await
+    {
+        Ok(records) => records,
+        Err(error) => {
+            tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
+            return;
+        }
+    };
+    if new_records.is_empty() {
+        return;
+    }
+    let last_sequence = new_records
+        .last()
+        .map(|record| record.sequence)
+        .unwrap_or(after_sequence);
+
+    let mut ops = Vec::new();
+    {
+        let mut map = projectors.lock().await;
+        // (Re)position the projector at `after_sequence` when it is missing or out of
+        // sync (first activation, a detected gap, or a truncate/retry rewind).
+        let needs_load = map
+            .get(&conversation_id)
+            .map(|projector| projector.last_sequence() != after_sequence)
+            .unwrap_or(true);
+        if needs_load {
+            match IncrementalRowProjector::load(pool, conversation_id, after_sequence).await {
+                Ok(projector) => {
+                    map.insert(conversation_id, projector);
+                }
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                    return;
+                }
+            }
+        }
+        let projector = map.get_mut(&conversation_id).expect("projector present");
+        for record in &new_records {
+            match projector.apply(record) {
+                Ok(record_ops) => ops.extend(record_ops),
+                Err(error) => {
+                    tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
+                }
+            }
+        }
+    }
+
+    // Session control state (modes / config options) is not a timeline row, so carry
+    // the latest of each in the batch rather than on a separate channel.
+    let mut session_modes = None;
+    let mut session_config_options = None;
+    for record in &new_records {
+        if let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
+            match event {
+                ConversationEvent::SessionModeUpdated { current, modes } => {
+                    session_modes = Some(ConversationSessionModes { current, modes });
+                }
+                ConversationEvent::SessionConfigOptionsUpdated { options } => {
+                    session_config_options = Some(options);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if ops.is_empty() && session_modes.is_none() && session_config_options.is_none() {
+        return;
+    }
+    let batch = ConversationRowOpBatch {
+        conversation_id,
+        last_sequence,
+        ops,
+        session_modes,
+        session_config_options,
+    };
+    if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
+        tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
+    }
 }
 
 /// How often pending streaming text/reasoning deltas are flushed to the DB and
@@ -127,6 +232,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
     let app_handle = app.clone();
     let conversation_pool = state.deployment.db().pool.clone();
     let deployment = state.deployment.clone();
+    let projectors = state.conversation_row_projectors.clone();
     let mut agent_events = state.agent_runtime.subscribe_events();
 
     tauri::async_runtime::spawn(async move {
@@ -142,6 +248,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                         &conversation_pool,
                         deployment.as_ref(),
                         &app_handle,
+                        &projectors,
                         &mut coalescer,
                     )
                     .await
@@ -165,6 +272,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                                         &conversation_pool,
                                         deployment.as_ref(),
                                         &app_handle,
+                                        &projectors,
                                         ready_events,
                                     )
                                     .await
@@ -198,6 +306,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                                 &conversation_pool,
                                 deployment.as_ref(),
                                 &app_handle,
+                                &projectors,
                                 &mut coalescer,
                             )
                             .await;
@@ -604,26 +713,45 @@ async fn flush_pending_conversation_events<D: Deployment + ?Sized>(
     pool: &SqlitePool,
     deployment: &D,
     app_handle: &AppHandle,
+    projectors: &ConversationRowProjectors,
     coalescer: &mut ConversationEventCoalescer,
 ) -> bool {
-    append_and_emit_conversation_events(pool, deployment, app_handle, coalescer.flush()).await
+    append_and_emit_conversation_events(
+        pool,
+        deployment,
+        app_handle,
+        projectors,
+        coalescer.flush(),
+    )
+    .await
 }
 
 async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
     pool: &SqlitePool,
     deployment: &D,
     app_handle: &AppHandle,
+    projectors: &ConversationRowProjectors,
     records: Vec<MappedConversationEventRecord>,
 ) -> bool {
+    // First-touched sequence per conversation, so the row-op emit below reads exactly
+    // this batch's tail (min - 1) and the cached projector stays in sync.
+    let mut touched: HashMap<Uuid, i64> = HashMap::new();
+    let mut note_touched = |conversation_id: Uuid, sequence: i64| {
+        touched
+            .entry(conversation_id)
+            .and_modify(|min| *min = (*min).min(sequence))
+            .or_insert(sequence);
+    };
+
     for record in records {
         match append_conversation_event_record(pool, record).await {
             Ok(conversation_event) => {
-                if app_handle
-                    .emit(channels::CONVERSATION_EVENTS, &conversation_event)
-                    .is_err()
-                {
-                    return false;
-                }
+                note_touched(
+                    conversation_event.conversation_id,
+                    conversation_event.sequence,
+                );
+                // IM channel delivery still consumes the raw event envelope; only the
+                // frontend switched to row ops (emitted after this loop).
                 if let Err(error) =
                     crate::commands::chat_channel::notify_conversation_event(&conversation_event)
                         .await
@@ -646,12 +774,7 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
                     .await
                     {
                         Ok(Some(file_event)) => {
-                            if app_handle
-                                .emit(channels::CONVERSATION_EVENTS, &file_event)
-                                .is_err()
-                            {
-                                return false;
-                            }
+                            note_touched(file_event.conversation_id, file_event.sequence);
                             if let Err(error) =
                                 crate::commands::chat_channel::notify_conversation_event(
                                     &file_event,
@@ -685,6 +808,17 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
                 );
             }
         }
+    }
+
+    for (conversation_id, min_sequence) in touched {
+        emit_conversation_row_ops_after(
+            app_handle,
+            projectors,
+            pool,
+            conversation_id,
+            min_sequence - 1,
+        )
+        .await;
     }
     true
 }

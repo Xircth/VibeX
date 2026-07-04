@@ -1,13 +1,15 @@
 import { tauriListen } from '@/lib/tauriApi';
-import type { ConversationEventEnvelope } from 'shared/types';
+import type { ConversationRowOpBatch } from 'shared/types';
 
+// The realtime channel now carries backend-computed row-op batches (消灭双投影), not
+// raw event envelopes; the frontend never folds events.
 export const CONVERSATION_EVENTS_CHANNEL = 'conversation-events';
 
 export function listenToConversationEvents(
-  onEvent: (event: ConversationEventEnvelope) => void
+  onBatch: (batch: ConversationRowOpBatch) => void
 ): Promise<() => void> {
-  return tauriListen<ConversationEventEnvelope>(
+  return tauriListen<ConversationRowOpBatch>(
     CONVERSATION_EVENTS_CHANNEL,
-    onEvent
+    onBatch
   );
 }

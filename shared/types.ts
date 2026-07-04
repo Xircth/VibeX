@@ -957,9 +957,9 @@ export type ConversationTerminalPatch = { terminal_id: string, command?: string 
 
 export type ConversationTerminalView = { terminal_id: string, command: string | null, status: string, output_summary: string | null, output_truncated: boolean, };
 
-export type ConversationTimeline = { conversation_id: string, projection_version: number, last_sequence: bigint, rows: Array<ConversationTimelineRow>, };
+export type ConversationTimeline = { conversation_id: string, projection_version: number, last_sequence: bigint, rows: Array<TimelineRow>, };
 
-export type ConversationTimelinePage = { conversation_id: string, projection_version: number, cursor: string | null, next_cursor: string | null, rows: Array<ConversationTimelineRow>, };
+export type ConversationTimelinePage = { conversation_id: string, projection_version: number, cursor: string | null, next_cursor: string | null, rows: Array<TimelineRow>, };
 
 export type ConversationTimelineRow = { "kind": "message_turn", turn: MessageTurn, phase: string, } | { "kind": "permission_request", request: ConversationPermissionView, } | { "kind": "question_request", request: ConversationQuestionRequest,
 /**
@@ -1001,3 +1001,25 @@ export type ConversationImportResult = { conversationId: string, importedEventCo
 export type ConversationDelegationView = { delegation_id: string, parent_tool_call_id?: string | null, child_conversation_id?: string | null, agent_type?: AgentType | null, task_preview?: string | null, status: string, result?: ConversationDelegationResult | null, };
 
 export type AgentSessionConfigOverride = { key: string, value: string, };
+
+export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, };
+
+export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint, ops: Array<ConversationRowOp>,
+/**
+ * Latest agent-advertised session modes carried in this batch, if any. Session
+ * control state isn't a timeline row, so it rides alongside the row ops rather
+ * than on a separate channel.
+ */
+session_modes?: ConversationSessionModes | null,
+/**
+ * Latest agent-advertised config options carried in this batch, if any.
+ */
+session_config_options?: Array<AgentSessionConfigOption> | null, };
+
+export type ConversationRowPage = { conversation_id: string, after_sequence: bigint, last_sequence: bigint, rows: Array<TimelineRow>, };
+
+export type TimelineRow = { row_id: string, revision: bigint, row: ConversationTimelineRow, };
+
+export type TimelineTextStream = "text" | "reasoning";
+
+export type ConversationSessionModes = { current?: string | null, modes: Array<AgentSessionMode>, };

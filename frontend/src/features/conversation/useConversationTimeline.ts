@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type {
   AgentPermissionResponse,
   AgentSessionConfigOption,
-  ConversationEventEnvelope,
-  ConversationTimelineRow,
+  ConversationRowOpBatch,
   MessageTurn,
+  TimelineRow,
 } from 'shared/types';
 import { conversationApi } from './conversationApi';
 import { listenToConversationEvents } from './events';
@@ -26,7 +26,7 @@ const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 export type UseConversationTimelineResult = {
   timeline: ConversationTimelineTurn[];
-  sideRows: ConversationTimelineRow[];
+  sideRows: TimelineRow[];
   loading: boolean;
   error: string | null;
   lastSequence: bigint;
@@ -56,9 +56,8 @@ export function useConversationTimeline(
     emptyConversationStoreState
   );
   const stateRef = useRef(state);
-  const pendingEventsRef = useRef<ConversationEventEnvelope[]>([]);
+  const pendingBatchesRef = useRef<ConversationRowOpBatch[]>([]);
   const flushFrameRef = useRef<number | null>(null);
-  const queuedLastSequenceRef = useRef<bigint | null>(null);
   stateRef.current = state;
 
   const loadDetail = useCallback((): Promise<void> => {
@@ -97,8 +96,7 @@ export function useConversationTimeline(
       cancelAnimationFrame(flushFrameRef.current);
       flushFrameRef.current = null;
     }
-    pendingEventsRef.current = [];
-    queuedLastSequenceRef.current = null;
+    pendingBatchesRef.current = [];
     dispatch({ type: 'reset', conversationId });
     return loadDetail();
   }, [conversationId, loadDetail]);
@@ -118,83 +116,31 @@ export function useConversationTimeline(
       flushFrameRef.current = null;
     };
 
-    // Apply everything buffered since the last paint in ONE dispatch. Coalescing
-    // per animation frame (instead of per event) keeps the streamed text smooth
-    // and frame-aligned while capping React commits at the display refresh rate —
-    // dispatching every delta individually feeds the virtualizer/stick-to-bottom
-    // layout effects fast enough to trip "Maximum update depth exceeded".
-    const flushPendingEvents = () => {
+    // Apply every row-op batch buffered since the last paint in ONE pass. Coalescing
+    // per animation frame keeps streamed text smooth and frame-aligned while capping
+    // React commits at the display refresh rate (dispatching each batch individually
+    // feeds the virtualizer/stick-to-bottom layout effects fast enough to trip
+    // "Maximum update depth exceeded"). Row ops are idempotent, so ordering within a
+    // frame is not load-bearing.
+    const flushPendingBatches = () => {
       flushFrameRef.current = null;
       if (!active) return;
-      const events = pendingEventsRef.current;
-      if (events.length === 0) return;
-
-      pendingEventsRef.current = [];
-      const orderedEvents = [...events].sort((left, right) => {
-        const leftSequence = toBigInt(left.sequence);
-        const rightSequence = toBigInt(right.sequence);
-        return leftSequence < rightSequence
-          ? -1
-          : leftSequence > rightSequence
-            ? 1
-            : 0;
-      });
-      const lastEvent = orderedEvents[orderedEvents.length - 1];
-      queuedLastSequenceRef.current = lastEvent
-        ? toBigInt(lastEvent.sequence)
-        : null;
-      dispatch({ type: 'events', conversationId, events: orderedEvents });
+      const batches = pendingBatchesRef.current;
+      if (batches.length === 0) return;
+      pendingBatchesRef.current = [];
+      for (const batch of batches) {
+        dispatch({ type: 'row_ops', batch });
+      }
     };
 
     const scheduleFlush = () => {
       if (flushFrameRef.current != null) return;
-      flushFrameRef.current = requestAnimationFrame(flushPendingEvents);
+      flushFrameRef.current = requestAnimationFrame(flushPendingBatches);
     };
 
-    listenToConversationEvents((event) => {
-      if (!active || event.conversation_id !== conversationId) return;
-      const entry = stateRef.current.byConversationId[conversationId];
-      const current = entry?.lastSequence ?? 0n;
-      const sequence = toBigInt(event.sequence);
-      const queuedLast = queuedLastSequenceRef.current;
-      const effectiveLast =
-        queuedLast != null && queuedLast > current ? queuedLast : current;
-
-      // A sequence jumped past what we have — backfill the hole over REST, then
-      // resume the live stream from there.
-      if (sequence > effectiveLast + 1n) {
-        cancelFlush();
-        pendingEventsRef.current = [];
-        conversationApi
-          .eventsSince({
-            conversationId,
-            afterSequence: current,
-            limit: 200,
-          })
-          .then((page) => {
-            if (!active) return;
-            if (page.events.length === 0) {
-              queuedLastSequenceRef.current = null;
-              loadDetail();
-              return;
-            }
-            queuedLastSequenceRef.current = toBigInt(page.last_sequence);
-            dispatch({ type: 'events', conversationId, events: page.events });
-          })
-          .catch(() => {
-            queuedLastSequenceRef.current = null;
-            loadDetail();
-          });
-        return;
-      }
-
-      // Drop replays/duplicates of events already applied (or queued for apply).
-      if (sequence <= effectiveLast) return;
-
-      // Buffer and flush on the next frame. `queuedLastSequenceRef` advances now
-      // so a same-frame burst keeps gap detection sound before the dispatch lands.
-      pendingEventsRef.current.push(event);
-      queuedLastSequenceRef.current = sequence;
+    listenToConversationEvents((batch) => {
+      if (!active || batch.conversation_id !== conversationId) return;
+      pendingBatchesRef.current.push(batch);
       scheduleFlush();
     })
       .then((unsubscribe) => {
@@ -203,6 +149,27 @@ export function useConversationTimeline(
           return;
         }
         unlisten = unsubscribe;
+        // Catch any batches emitted between the initial load and this subscription
+        // by backfilling the rows that changed since our cursor. Idempotent upserts,
+        // so this is safe even when nothing was missed.
+        const current =
+          stateRef.current.byConversationId[conversationId]?.lastSequence ?? 0n;
+        void conversationApi
+          .eventsSince({
+            conversationId,
+            afterSequence: Number(current),
+            limit: 500,
+          })
+          .then((page) => {
+            if (!active || page.rows.length === 0) return;
+            dispatch({
+              type: 'upsert_rows',
+              conversationId,
+              rows: page.rows,
+              lastSequence: toBigInt(page.last_sequence),
+            });
+          })
+          .catch(() => {});
       })
       .catch((error: unknown) => {
         dispatch({
@@ -215,8 +182,7 @@ export function useConversationTimeline(
     return () => {
       active = false;
       cancelFlush();
-      pendingEventsRef.current = [];
-      queuedLastSequenceRef.current = null;
+      pendingBatchesRef.current = [];
       unlisten?.();
     };
   }, [conversationId, loadDetail]);

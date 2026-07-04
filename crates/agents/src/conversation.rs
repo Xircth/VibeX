@@ -759,13 +759,94 @@ pub enum ConversationTimelineRow {
     },
 }
 
+/// A timeline row plus the incremental-projection metadata that lets the frontend
+/// consume it as a dumb container (消灭双投影). `row_id` is stable per row; `revision`
+/// is the sequence of the latest event that produced this row's current state
+/// (monotonic per row), used for idempotent upsert/append dedup.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TimelineRow {
+    pub row_id: String,
+    pub revision: i64,
+    pub row: ConversationTimelineRow,
+}
+
+/// Which streaming text field an [`ConversationRowOp::AppendText`] targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TimelineTextStream {
+    Text,
+    Reasoning,
+}
+
+/// One operation the frontend applies to its dumb row container. The backend is the
+/// single projector; the frontend never folds events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "op", rename_all = "snake_case")]
+#[ts(export)]
+// `Upsert` carries a full `TimelineRow` (a large enum); `AppendText` is small. These
+// ops are streamed one at a time, so the size gap costs nothing — boxing would just
+// churn the wire format.
+#[allow(clippy::large_enum_variant)]
+pub enum ConversationRowOp {
+    /// Insert or replace a whole row (new row, status change, tool-call update…).
+    /// Applying it clears any accumulated live text for the row.
+    Upsert { row: TimelineRow },
+    /// Append a streaming text chunk to a row's live-text overlay — sent per delta so
+    /// long replies don't re-broadcast the full text each frame (O(n²)).
+    AppendText {
+        row_id: String,
+        revision: i64,
+        stream: TimelineTextStream,
+        delta: String,
+    },
+}
+
+/// A batch of row ops for one conversation, emitted on the realtime channel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationRowOpBatch {
+    pub conversation_id: Uuid,
+    pub last_sequence: i64,
+    pub ops: Vec<ConversationRowOp>,
+    /// Latest agent-advertised session modes carried in this batch, if any. Session
+    /// control state isn't a timeline row, so it rides alongside the row ops rather
+    /// than on a separate channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_modes: Option<ConversationSessionModes>,
+    /// Latest agent-advertised config options carried in this batch, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_config_options: Option<Vec<AgentSessionConfigOption>>,
+}
+
+/// Agent-advertised session modes (current + available), delivered with a row-op batch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationSessionModes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    pub modes: Vec<AgentSessionMode>,
+}
+
+/// Gap-backfill result: the timeline rows whose state changed after `after_sequence`
+/// (revision > after_sequence). The gap path now pulls rows, not raw events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationRowPage {
+    pub conversation_id: Uuid,
+    pub after_sequence: i64,
+    pub last_sequence: i64,
+    pub rows: Vec<TimelineRow>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ConversationTimeline {
     pub conversation_id: Uuid,
     pub projection_version: u32,
     pub last_sequence: i64,
-    pub rows: Vec<ConversationTimelineRow>,
+    pub rows: Vec<TimelineRow>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -785,7 +866,7 @@ pub struct ConversationTimelinePage {
     pub projection_version: u32,
     pub cursor: Option<String>,
     pub next_cursor: Option<String>,
-    pub rows: Vec<ConversationTimelineRow>,
+    pub rows: Vec<TimelineRow>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

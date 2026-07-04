@@ -33,7 +33,7 @@ use services::services::chat_delivery::{
     should_send, telegram_post,
 };
 use sqlx::{FromRow, SqlitePool};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio_tungstenite::tungstenite;
 use uuid::Uuid;
 
@@ -1447,39 +1447,25 @@ async fn conversation_last_sequence(
 
 async fn emit_conversation_events_after(
     app: &AppHandle,
+    projectors: &crate::events::ConversationRowProjectors,
     pool: &SqlitePool,
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    match conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
-        Ok(page) => {
-            for event in page.events {
-                if let Err(error) = app.emit(crate::events::channels::CONVERSATION_EVENTS, &event) {
-                    tracing::warn!(
-                        conversation_id = %conversation_id,
-                        sequence = event.sequence,
-                        %error,
-                        "Failed to emit inbound channel conversation event"
-                    );
-                    break;
-                }
-                if let Err(error) = notify_conversation_event(&event).await {
-                    tracing::warn!(
-                        conversation_id = %conversation_id,
-                        sequence = event.sequence,
-                        %error,
-                        "Failed to notify inbound channel conversation event"
-                    );
-                }
+    // Frontend: the single row-op path (消灭双投影).
+    crate::events::emit_conversation_row_ops_after(app, projectors, pool, conversation_id, after_sequence)
+        .await;
+    // IM channels still consume the raw event envelopes.
+    if let Ok(page) = conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
+        for event in page.events {
+            if let Err(error) = notify_conversation_event(&event).await {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    sequence = event.sequence,
+                    %error,
+                    "Failed to notify inbound channel conversation event"
+                );
             }
-        }
-        Err(error) => {
-            tracing::warn!(
-                conversation_id = %conversation_id,
-                after_sequence,
-                %error,
-                "Failed to load inbound channel conversation events for emission"
-            );
         }
     }
 }
@@ -1631,7 +1617,14 @@ async fn send_task(
         })
         .await;
 
-    emit_conversation_events_after(app, &pool, target.id, previous_last_sequence).await;
+    emit_conversation_events_after(
+        app,
+        &state.conversation_row_projectors,
+        &pool,
+        target.id,
+        previous_last_sequence,
+    )
+    .await;
 
     match result {
         Ok(_) => format!("✅ 已发送到对话 {}", short_id(&target.id.to_string())),

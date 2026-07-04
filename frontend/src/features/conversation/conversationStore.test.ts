@@ -1,35 +1,84 @@
 import { describe, expect, it } from 'vitest';
 import type {
-  ConversationEventEnvelope,
+  ContentBlock,
+  ConversationRowOp,
+  ConversationRowOpBatch,
+  ConversationTimelineRow,
   DbConversationDetail,
+  MessageTurn,
+  TimelineRow,
 } from 'shared/types';
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
   sideRowsForEntry,
   timelineTurnsForEntry,
+  type ConversationStoreState,
 } from './conversationStore';
 
-function envelope(
-  sequence: bigint,
-  event: ConversationEventEnvelope['event'],
-  turnId = 'turn-1'
-): ConversationEventEnvelope {
+const CONVERSATION_ID = 'conversation-1';
+
+function batch(
+  ops: ConversationRowOp[],
+  lastSequence: bigint,
+  extra: Partial<ConversationRowOpBatch> = {}
+): ConversationRowOpBatch {
   return {
-    id: `event-${sequence}`,
-    conversation_id: 'conversation-1',
-    turn_id: turnId,
-    sequence,
-    source: 'test',
-    event,
-    created_at: '2026-06-14T00:00:00.000Z',
+    conversation_id: CONVERSATION_ID,
+    last_sequence: lastSequence,
+    ops,
+    session_modes: null,
+    session_config_options: null,
+    ...extra,
   };
 }
 
-function emptyDetail(): DbConversationDetail {
+function timelineRow(
+  rowId: string,
+  revision: bigint,
+  row: ConversationTimelineRow
+): TimelineRow {
+  return { row_id: rowId, revision, row };
+}
+
+function userRow(turnId: string, text: string, revision: bigint): TimelineRow {
+  return timelineRow(`${turnId}:user`, revision, {
+    kind: 'message_turn',
+    phase: 'persisted',
+    turn: messageTurn(`${turnId}:user`, 'user', [{ type: 'text', text }]),
+  });
+}
+
+function assistantRow(
+  turnId: string,
+  blocks: ContentBlock[],
+  revision: bigint,
+  phase = 'settled'
+): TimelineRow {
+  return timelineRow(`${turnId}:assistant`, revision, {
+    kind: 'message_turn',
+    phase,
+    turn: messageTurn(`${turnId}:assistant`, 'assistant', blocks),
+  });
+}
+
+function messageTurn(
+  id: string,
+  role: 'user' | 'assistant',
+  blocks: ContentBlock[]
+): MessageTurn {
+  return {
+    id,
+    role,
+    blocks,
+    timestamp: '2026-07-03T00:00:00.000Z',
+  };
+}
+
+function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
   return {
     summary: {
-      id: 'conversation-1',
+      id: CONVERSATION_ID,
       workspace_id: 'workspace-1',
       task_id: null,
       title: 'Conversation',
@@ -43,642 +92,245 @@ function emptyDetail(): DbConversationDetail {
       parent_session_id: null,
       parent_tool_use_id: null,
       delegation_call_id: null,
-      created_at: '2026-06-14T00:00:00.000Z',
-      updated_at: '2026-06-14T00:00:00.000Z',
+      created_at: '2026-07-03T00:00:00.000Z',
+      updated_at: '2026-07-03T00:00:00.000Z',
     },
     turns: [],
     timeline: {
-      conversation_id: 'conversation-1',
-      projection_version: 1,
-      last_sequence: 0n,
-      rows: [],
+      conversation_id: CONVERSATION_ID,
+      projection_version: 2,
+      last_sequence: rows.length ? 1n : 0n,
+      rows,
     },
-    projection_version: 1,
+    projection_version: 2,
   };
 }
 
-describe('conversationStoreReducer', () => {
-  it('hydrates detail and applies ordered realtime events', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'hello' }],
-      }),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'assistant_text_delta',
-        text: 'hi',
-        message_id: null,
-      }),
-    });
-
-    const entry = state.byConversationId['conversation-1'];
-    expect(entry.lastSequence).toBe(2n);
-    expect(timelineTurnsForEntry(entry).map((row) => row.turn.role)).toEqual([
-      'user',
-      'assistant',
-    ]);
+function loaded(rows: TimelineRow[] = []): ConversationStoreState {
+  return conversationStoreReducer(emptyConversationStoreState, {
+    type: 'load_success',
+    conversationId: CONVERSATION_ID,
+    detail: emptyDetail(rows),
   });
+}
 
-  it('shows a pending assistant turn while the agent is thinking', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
+function entryOf(state: ConversationStoreState) {
+  return state.byConversationId[CONVERSATION_ID];
+}
 
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'think about this' }],
-      }),
-    });
-
-    const turns = timelineTurnsForEntry(
-      state.byConversationId['conversation-1']
-    );
-    expect(turns.map((row) => row.turn.role)).toEqual(['user', 'assistant']);
-    expect(turns[1]).toMatchObject({
-      phase: 'streaming',
-      turn: {
-        id: 'turn-1:assistant',
-        role: 'assistant',
-        blocks: [],
-      },
-    });
-  });
-
-  it('shows a pending assistant turn immediately after an optimistic user turn', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'optimistic_turn',
-      conversationId: 'conversation-1',
-      turn: {
-        id: 'optimistic-turn',
-        role: 'user',
-        blocks: [{ type: 'text', text: 'start now' }],
-        timestamp: '2026-06-14T00:00:00.000Z',
-      },
-    });
-
-    const turns = timelineTurnsForEntry(
-      state.byConversationId['conversation-1']
-    );
+describe('conversationStore (row-op dumb container)', () => {
+  it('hydrates rows straight from the projected detail timeline', () => {
+    const state = loaded([userRow('t1', 'hello', 1n)]);
+    const turns = timelineTurnsForEntry(entryOf(state));
     expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
-      ['user', 'optimistic'],
-      ['assistant', 'streaming'],
+      ['user', 'persisted'],
     ]);
-    expect(turns[1].turn).toMatchObject({
-      id: 'optimistic-turn:assistant',
-      blocks: [],
-    });
   });
 
-  it('shows optimistic pending assistant after a previous turn has settled', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
+  it('upserts a user message-turn row from a row-op batch', () => {
+    let state = loaded();
     state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'first' }],
-      }),
+      type: 'row_ops',
+      batch: batch([{ op: 'upsert', row: userRow('t1', 'do it', 1n) }], 1n),
     });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'turn_completed',
-        stop_reason: null,
-      }),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'optimistic_turn',
-      conversationId: 'conversation-1',
-      turn: {
-        id: 'optimistic-second',
-        role: 'user',
-        blocks: [{ type: 'text', text: 'second' }],
-        timestamp: '2026-06-14T00:00:01.000Z',
-      },
-    });
-
-    const turns = timelineTurnsForEntry(
-      state.byConversationId['conversation-1']
-    );
-    expect(turns.map((row) => [row.turn.id, row.turn.role, row.phase])).toEqual(
-      [
-        ['turn-1:user', 'user', 'settled'],
-        ['optimistic-second', 'user', 'optimistic'],
-        ['optimistic-second:assistant', 'assistant', 'streaming'],
-      ]
-    );
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.some((row) => row.turn.id === 't1:user')).toBe(true);
+    expect(entryOf(state).lastSequence).toBe(1n);
   });
 
-  it('settles an interrupted turn to the interrupted phase without a phantom stream', () => {
-    // 批次B / ADR-0001: a turn_interrupted event drives the user turn to the terminal
-    // 'interrupted' phase, and must NOT spawn a pending streaming assistant bubble.
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
+  it('accumulates streaming text in a live overlay and renders it', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'hel',
+          },
+        ],
+        2n
+      ),
     });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 3n,
+            stream: 'text',
+            delta: 'lo',
+          },
+        ],
+        3n
+      ),
+    });
+    const turns = timelineTurnsForEntry(entryOf(state));
+    // A pending assistant bubble renders the accumulated live text.
+    const assistant = turns.find((row) => row.turn.role === 'assistant');
+    expect(assistant?.phase).toBe('streaming');
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('hello');
+  });
 
+  it('flushes the live overlay when the row is upserted (no double text)', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
     state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'do the thing' }],
-      }),
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'hello',
+          },
+        ],
+        2n
+      ),
     });
+    // Terminal upsert carries the full folded assistant row (text included).
     state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, { kind: 'user_turn_started' }),
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow('t1', [{ type: 'text', text: 'hello' }], 3n),
+          },
+        ],
+        3n
+      ),
     });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(3n, {
-        kind: 'turn_interrupted',
-        reason: 'host restarted',
-      }),
-    });
-
-    const turns = timelineTurnsForEntry(
-      state.byConversationId['conversation-1']
+    expect(entryOf(state).liveText['t1:assistant']).toBeUndefined();
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
     );
-    // The user turn is interrupted; crucially there is no phantom streaming assistant.
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('hello');
+    expect(assistant?.phase).toBe('settled');
+  });
+
+  it('is idempotent: a re-delivered append is not applied twice', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    const append: ConversationRowOp = {
+      op: 'append_text',
+      row_id: 't1:assistant',
+      revision: 2n,
+      stream: 'text',
+      delta: 'x',
+    };
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([append], 2n),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([append], 2n),
+    });
+    expect(entryOf(state).liveText['t1:assistant'].text).toBe('x');
+  });
+
+  it('ignores an upsert whose revision is stale', () => {
+    let state = loaded([assistantRow('t1', [{ type: 'text', text: 'new' }], 5n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow('t1', [{ type: 'text', text: 'old' }], 3n),
+          },
+        ],
+        6n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('new');
+  });
+
+  it('renders an interrupted turn terminal without a phantom stream', () => {
+    // ADR-0001: interrupted user row is terminal → no pending assistant bubble.
+    const state = loaded([
+      timelineRow('t1:user', 1n, {
+        kind: 'message_turn',
+        phase: 'interrupted',
+        turn: messageTurn('t1:user', 'user', [{ type: 'text', text: 'q' }]),
+      }),
+    ]);
+    const turns = timelineTurnsForEntry(entryOf(state));
     expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
       ['user', 'interrupted'],
     ]);
   });
 
-  it('replaces the pending assistant turn when assistant content arrives', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
+  it('applies agent-advertised session modes carried by a batch', () => {
+    let state = loaded();
     state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'hello' }],
+      type: 'row_ops',
+      batch: batch([], 1n, {
+        session_modes: { current: 'plan', modes: [] },
       }),
     });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'assistant_text_delta',
-        text: 'hi',
-        message_id: null,
-      }),
-    });
+    expect(entryOf(state).sessionModes.current).toBe('plan');
+  });
 
-    const assistantTurns = timelineTurnsForEntry(
-      state.byConversationId['conversation-1']
-    ).filter((row) => row.turn.role === 'assistant');
-    expect(assistantTurns).toHaveLength(1);
-    expect(assistantTurns[0].turn.blocks).toEqual([
-      { type: 'text', text: 'hi' },
+  it('exposes side rows (with row_id) via sideRowsForEntry', () => {
+    let state = loaded();
+    const permission: TimelineRow = timelineRow('perm:p1', 2n, {
+      kind: 'permission_request',
+      request: {
+        permission_id: 'p1',
+        title: 'Allow?',
+        status: 'pending',
+        details: null,
+        options: [],
+      },
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch([{ op: 'upsert', row: permission }], 2n),
+    });
+    const sideRows = sideRowsForEntry(entryOf(state));
+    expect(sideRows.map((row) => [row.row_id, row.row.kind])).toEqual([
+      ['perm:p1', 'permission_request'],
     ]);
   });
 
-  it('removes the pending assistant turn when a turn settles without content', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
+  it('shows a pending assistant bubble after an optimistic user turn', () => {
+    let state = loaded();
     state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'stop early' }],
-      }),
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [
+        { type: 'text', text: 'go' },
+      ]),
     });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'turn_completed',
-        stop_reason: null,
-      }),
-    });
-
-    expect(
-      timelineTurnsForEntry(state.byConversationId['conversation-1']).map(
-        (row) => row.turn.role
-      )
-    ).toEqual(['user']);
-  });
-
-  it('detects sequence gaps before applying an event', () => {
-    const state = conversationStoreReducer(
-      {
-        byConversationId: {
-          'conversation-1': {
-            conversationId: 'conversation-1',
-            detail: null,
-            rows: [],
-            lastSequence: 3n,
-            projectionVersion: 1,
-            currentTurnId: null,
-            loading: false,
-            error: null,
-            gap: { kind: 'none' },
-            optimisticTurns: [],
-            sessionModes: { current: null, modes: [] },
-            sessionConfigOptions: [],
-          },
-        },
-      },
-      {
-        type: 'event',
-        envelope: envelope(5n, {
-          kind: 'assistant_text_delta',
-          text: 'late',
-          message_id: null,
-        }),
-      }
-    );
-
-    expect(state.byConversationId['conversation-1'].gap).toEqual({
-      kind: 'gap',
-      expectedSequence: 4n,
-      receivedSequence: 5n,
-    });
-  });
-
-  it('does not let a stale detail response erase newer realtime turns', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'user_turn_created',
-        blocks: [{ kind: 'text', text: 'visible message' }],
-      }),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    const entry = state.byConversationId['conversation-1'];
-    expect(entry.lastSequence).toBe(1n);
-    expect(timelineTurnsForEntry(entry).map((row) => row.turn.role)).toEqual([
-      'user',
-      'assistant',
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
+      ['user', 'optimistic'],
+      ['assistant', 'streaming'],
     ]);
   });
 
-  it('applies canonical realtime side rows for interaction and delegation events', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    const events: ConversationEventEnvelope['event'][] = [
-      {
-        kind: 'question_requested',
-        request: {
-          question_id: 'question-1',
-          prompt: 'Pick one',
-          options: ['A', 'B'],
-        },
-      },
-      {
-        kind: 'feedback_requested',
-        request: {
-          feedback_id: 'feedback-1',
-          prompt: 'Was this useful?',
-        },
-      },
-      {
-        kind: 'delegation_started',
-        delegation: {
-          delegation_id: 'delegation-1',
-          parent_tool_call_id: 'tool-1',
-          child_conversation_id: 'conversation-child',
-          agent_type: 'codex',
-          task_preview: 'Review the diff',
-        },
-      },
-      {
-        kind: 'session_config_stale',
-        stale: true,
-        reason: 'settings changed',
-      },
-      {
-        kind: 'raw_diagnostic_recorded',
-        label: 'stream recovered',
-      },
-    ];
-
-    events.forEach((event, index) => {
-      state = conversationStoreReducer(state, {
-        type: 'event',
-        envelope: envelope(BigInt(index + 1), event),
-      });
-    });
-
-    expect(
-      sideRowsForEntry(state.byConversationId['conversation-1']).map(
-        (row) => row.kind
-      )
-    ).toEqual([
-      'question_request',
-      'feedback_request',
-      'delegation',
-      'session_notice',
+  it('keeps rows straight from an imported/reloaded detail timeline', () => {
+    const state = loaded([
+      userRow('t1', 'hi', 1n),
+      assistantRow('t1', [{ type: 'text', text: 'hello' }], 1n),
     ]);
-  });
-
-  it('folds a delegation completion onto its running row as one card', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'delegation_started',
-        delegation: {
-          delegation_id: 'delegation-1',
-          parent_tool_call_id: 'tool-1',
-          child_conversation_id: 'child-1',
-          agent_type: 'codex',
-          task_preview: 'Review the diff',
-        },
-      }),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'delegation_completed',
-        delegation_id: 'delegation-1',
-        result: { kind: 'ok', text_preview: 'done', duration_ms: 10n },
-      }),
-    });
-
-    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
-    const delegations = sideRows.filter((row) => row.kind === 'delegation');
-    expect(delegations).toHaveLength(1);
-    const row = delegations[0];
-    if (row.kind !== 'delegation') throw new Error('expected delegation row');
-    // The merged card keeps the start-event context AND the outcome.
-    expect(row.delegation.status).toBe('completed');
-    expect(row.delegation.task_preview).toBe('Review the diff');
-    expect(row.delegation.child_conversation_id).toBe('child-1');
-    expect(row.delegation.result).toEqual({
-      kind: 'ok',
-      text_preview: 'done',
-      duration_ms: 10n,
-    });
-  });
-
-  it('marks a delegation as failed when it completes with an error', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'delegation_started',
-        delegation: {
-          delegation_id: 'delegation-1',
-          parent_tool_call_id: 'tool-1',
-          child_conversation_id: 'child-1',
-          agent_type: 'codex',
-          task_preview: 'Review the diff',
-        },
-      }),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'delegation_completed',
-        delegation_id: 'delegation-1',
-        result: { kind: 'err', error: { message: 'boom' } },
-      }),
-    });
-
-    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
-    const delegations = sideRows.filter((row) => row.kind === 'delegation');
-    expect(delegations).toHaveLength(1);
-    const row = delegations[0];
-    if (row.kind !== 'delegation') throw new Error('expected delegation row');
-    expect(row.delegation.status).toBe('failed');
-  });
-
-  it('tracks agent-advertised session modes and config options on the entry', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'session_mode_updated',
-        current: 'plan',
-        modes: [
-          { id: 'plan', label: 'Plan' },
-          { id: 'code', label: 'Code' },
-        ],
-      }),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(2n, {
-        kind: 'session_config_options_updated',
-        options: [{ key: 'reasoning', label: 'Reasoning' }],
-      }),
-    });
-
-    const entry = state.byConversationId['conversation-1'];
-    expect(entry.sessionModes.current).toBe('plan');
-    expect(entry.sessionModes.modes.map((mode) => mode.id)).toEqual([
-      'plan',
-      'code',
-    ]);
-    expect(entry.sessionConfigOptions.map((option) => option.key)).toEqual([
-      'reasoning',
-    ]);
-  });
-
-  it('keeps advertised session modes across a detail reload', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'session_mode_updated',
-        current: 'code',
-        modes: [{ id: 'code', label: 'Code' }],
-      }),
-    });
-
-    // A stale detail refresh must not wipe the live-advertised modes.
-    state = conversationStoreReducer(state, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    expect(
-      state.byConversationId['conversation-1'].sessionModes.current
-    ).toBe('code');
-  });
-
-  it('renders a code-aware notice for an expired agent session', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'agent_binding_load_failed',
-        reason: { kind: 'resource_not_found' },
-      }),
-    });
-
-    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
-    const notice = sideRows.find((row) => row.kind === 'session_notice');
-    expect(notice).toBeDefined();
-    if (notice?.kind !== 'session_notice') throw new Error('expected notice');
-    expect(notice.notice.title).toBe('代理会话已过期');
-    expect(notice.notice.severity).toBe('warning');
-  });
-
-  it('keeps the real ACP detail + options on a permission side row', () => {
-    let state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: emptyDetail(),
-    });
-
-    state = conversationStoreReducer(state, {
-      type: 'event',
-      envelope: envelope(1n, {
-        kind: 'permission_requested',
-        request: {
-          permission_id: 'perm-1',
-          request: {
-            id: 'perm-1',
-            session_id: 'session-1',
-            title: 'Edit README.md',
-            details: {
-              fields: {
-                kind: 'edit',
-                content: [
-                  {
-                    type: 'diff',
-                    path: 'README.md',
-                    oldText: 'old',
-                    newText: 'new',
-                  },
-                ],
-              },
-            },
-            options: [
-              { id: 'allow', label: 'Allow', kind: 'allow_once' },
-              { id: 'deny', label: 'Deny', kind: 'reject_once' },
-            ],
-          },
-        },
-      }),
-    });
-
-    const sideRows = sideRowsForEntry(state.byConversationId['conversation-1']);
-    expect(sideRows).toHaveLength(1);
-    const row = sideRows[0];
-    expect(row.kind).toBe('permission_request');
-    if (row.kind !== 'permission_request') throw new Error('expected permission row');
-    expect(row.request.status).toBe('pending');
-    expect(row.request.options).toHaveLength(2);
-    expect(row.request.options?.[0].id).toBe('allow');
-    expect(row.request.details).toMatchObject({
-      fields: { kind: 'edit' },
-    });
-  });
-
-  it('keeps import-restored projected timeline rows from detail', () => {
-    const importedDetail = emptyDetail();
-    importedDetail.timeline = {
-      conversation_id: 'conversation-1',
-      projection_version: 1,
-      last_sequence: 7n,
-      rows: [
-        {
-          kind: 'message_turn',
-          phase: 'settled',
-          turn: {
-            id: 'turn-1:assistant',
-            role: 'assistant',
-            blocks: [{ type: 'text', text: 'restored reply' }],
-            timestamp: '2026-06-14T00:00:00.000Z',
-          },
-        },
-        {
-          kind: 'session_notice',
-          notice: {
-            title: 'Agent session load failed',
-            message: 'restored from import',
-            severity: 'warning',
-          },
-        },
-      ],
-    };
-
-    const state = conversationStoreReducer(emptyConversationStoreState, {
-      type: 'load_success',
-      conversationId: 'conversation-1',
-      detail: importedDetail,
-    });
-
-    const entry = state.byConversationId['conversation-1'];
-    expect(entry.lastSequence).toBe(7n);
-    expect(timelineTurnsForEntry(entry)[0].turn.blocks).toEqual([
-      { type: 'text', text: 'restored reply' },
-    ]);
-    expect(sideRowsForEntry(entry)[0].kind).toBe('session_notice');
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.map((row) => row.turn.role)).toEqual(['user', 'assistant']);
   });
 });
+
+function textOf(blocks: ContentBlock[]): string {
+  return blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('');
+}

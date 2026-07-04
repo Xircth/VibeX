@@ -497,7 +497,8 @@ impl<'a> ConversationSessionService<'a> {
         Ok(count)
     }
 
-    /// Remove a conversation's entries from both in-memory coordination maps.
+    /// Remove a conversation's entries from the in-memory coordination maps (turn
+    /// locks, runtime state, and the cached incremental row projector).
     async fn forget_conversation_runtime(&self, conversation_id: Uuid) {
         self.state
             .conversation_turn_locks
@@ -506,6 +507,11 @@ impl<'a> ConversationSessionService<'a> {
             .remove(&conversation_id);
         self.state
             .conversation_runtime_states
+            .lock()
+            .await
+            .remove(&conversation_id);
+        self.state
+            .conversation_row_projectors
             .lock()
             .await
             .remove(&conversation_id);

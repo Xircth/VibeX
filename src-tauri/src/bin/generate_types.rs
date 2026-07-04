@@ -27,11 +27,13 @@ use agents::{
         ConversationFileChangeSummary, ConversationFileLocation, ConversationInputBlock,
         ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
         ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
-        ConversationSessionNotice, ConversationSummary, ConversationTerminalPatch,
-        ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
-        ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData,
-        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
-        SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
+        ConversationSessionNotice,
+        ConversationSummary, ConversationTerminalPatch, ConversationTerminalView,
+        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
+        ConversationToolCallPatch, ConversationUsage, ImageData, MessageTurn, PlanEntry,
+        SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
+        TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use db::models::{
@@ -335,6 +337,12 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationErrorView>(&mut decls);
     insert_declaration::<ConversationSessionNotice>(&mut decls);
     insert_declaration::<ConversationTimelineRow>(&mut decls);
+    insert_declaration::<TimelineRow>(&mut decls);
+    insert_declaration::<TimelineTextStream>(&mut decls);
+    insert_declaration::<ConversationRowOp>(&mut decls);
+    insert_declaration::<ConversationRowOpBatch>(&mut decls);
+    insert_declaration::<ConversationRowPage>(&mut decls);
+    insert_declaration::<ConversationSessionModes>(&mut decls);
     insert_declaration::<ConversationTimeline>(&mut decls);
     insert_declaration::<ConversationEventsPage>(&mut decls);
     insert_declaration::<ConversationTimelinePage>(&mut decls);

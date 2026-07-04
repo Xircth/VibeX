@@ -9,8 +9,8 @@ use agents::{
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationInputBlock,
-        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
-        ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
+        ConversationRowPage, ConversationTimeline, ConversationTimelinePage,
+        ConversationTimelineRow, ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
     },
     executor_key_for,
 };
@@ -29,7 +29,6 @@ use db::models::{
 use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tauri::Emitter;
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -42,7 +41,6 @@ use crate::{
         ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
     },
     error::AppError,
-    events::channels,
     state::AppState,
 };
 
@@ -262,20 +260,28 @@ pub async fn conversation_events_since_core(
     })
 }
 
+/// Gap backfill (消灭双投影): returns the timeline **rows** whose state changed after
+/// `after_sequence`, not raw events. The frontend upserts them by `row_id`, so the
+/// backfill, initial load, and live stream all consume the same `TimelineRow` shape.
 #[tauri::command]
 pub async fn conversation_events_since(
     state: tauri::State<'_, AppState>,
     request: ConversationEventsSinceRequest,
-) -> Result<ConversationEventsPage, AppError> {
+) -> Result<ConversationRowPage, AppError> {
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    conversation_events_since_core(
+    let (rows, last_sequence) = ConversationProjector::rows_since(
         &state.deployment.db().pool,
         conversation_id,
         request.after_sequence,
-        request.limit.unwrap_or(100),
     )
-    .await
+    .await?;
+    Ok(ConversationRowPage {
+        conversation_id,
+        after_sequence: request.after_sequence,
+        last_sequence,
+        rows,
+    })
 }
 
 pub async fn conversation_timeline_page_core(
@@ -351,7 +357,7 @@ pub async fn conversation_start_turn(
         })
         .await;
 
-    emit_conversation_events_after(&app, &pool, conversation_id, previous_last_sequence).await;
+    emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
 
     let (turn, _prompt) = result?;
     Ok(turn)
@@ -374,41 +380,27 @@ async fn conversation_last_sequence(
 
 async fn emit_conversation_events_after(
     app: &tauri::AppHandle,
+    projectors: &crate::events::ConversationRowProjectors,
     pool: &SqlitePool,
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    match conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
-        Ok(page) => {
-            for event in page.events {
-                if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &event) {
-                    tracing::warn!(
-                        conversation_id = %conversation_id,
-                        sequence = event.sequence,
-                        %error,
-                        "Failed to emit conversation start-turn event"
-                    );
-                    break;
-                }
-                if let Err(error) =
-                    crate::commands::chat_channel::notify_conversation_event(&event).await
-                {
-                    tracing::warn!(
-                        conversation_id = %conversation_id,
-                        sequence = event.sequence,
-                        %error,
-                        "Failed to notify chat channel for conversation start-turn event"
-                    );
-                }
+    // Frontend: the single row-op path (消灭双投影).
+    crate::events::emit_conversation_row_ops_after(app, projectors, pool, conversation_id, after_sequence)
+        .await;
+    // IM channels still consume the raw event envelopes.
+    if let Ok(page) = conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
+        for event in page.events {
+            if let Err(error) =
+                crate::commands::chat_channel::notify_conversation_event(&event).await
+            {
+                tracing::warn!(
+                    conversation_id = %conversation_id,
+                    sequence = event.sequence,
+                    %error,
+                    "Failed to notify chat channel for conversation event"
+                );
             }
-        }
-        Err(error) => {
-            tracing::warn!(
-                conversation_id = %conversation_id,
-                after_sequence,
-                %error,
-                "Failed to load conversation start-turn events for emission"
-            );
         }
     }
 }
@@ -426,7 +418,7 @@ pub async fn conversation_respond_permission(
     let result = ConversationSessionService::new(&state)
         .respond_permission(conversation_id, request.permission_id, request.response)
         .await;
-    emit_conversation_events_after(&app, &pool, conversation_id, previous_last_sequence).await;
+    emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
     result
 }
 
@@ -443,7 +435,7 @@ pub async fn conversation_cancel_turn(
     let result = ConversationSessionService::new(&state)
         .cancel_turn(conversation_id, request.reason)
         .await;
-    emit_conversation_events_after(&app, &pool, conversation_id, previous_last_sequence).await;
+    emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
     result
 }
 
@@ -500,7 +492,7 @@ fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTu
     timeline
         .rows
         .iter()
-        .filter_map(|row| match row {
+        .filter_map(|row| match &row.row {
             ConversationTimelineRow::MessageTurn { turn, .. } => Some(turn.clone()),
             _ => None,
         })

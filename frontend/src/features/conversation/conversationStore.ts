@@ -2,13 +2,24 @@ import type {
   AgentSessionConfigOption,
   AgentSessionMode,
   ContentBlock,
-  ConversationEventEnvelope,
+  ConversationRowOp,
+  ConversationRowOpBatch,
   ConversationTimeline,
-  ConversationTimelineRow,
   DbConversationDetail,
   MessageTurn,
-  SessionLoadFailureReason,
+  TimelineRow,
 } from 'shared/types';
+
+/**
+ * Dumb-container conversation store (消灭双投影).
+ *
+ * The backend `ProjectionFold` is the single projector. The frontend never folds
+ * events — it only:
+ *   - upserts backend-computed `TimelineRow`s by `row_id` (idempotent by `revision`), and
+ *   - concatenates streaming text into a per-row `liveText` overlay (cleared when that
+ *     row is next upserted).
+ * Initial load, live stream, and gap backfill all consume the same `TimelineRow`.
+ */
 
 /** Agent-advertised session modes for a conversation, plus the current one. */
 export type ConversationSessionModesState = {
@@ -28,10 +39,21 @@ export type ConversationTimelineTurn = {
   turn: MessageTurn;
 };
 
+/** Accumulated streaming text for one row, since its last upsert. */
+export type LiveTextOverlay = {
+  text: string;
+  reasoning: string;
+  /** Highest applied append revision, for idempotent dedup. */
+  revision: bigint;
+};
+
 export type ConversationStoreEntry = {
   conversationId: string;
   detail: DbConversationDetail | null;
-  rows: ConversationTimelineRow[];
+  /** Authoritative rows from the backend projector, keyed by `row_id`. */
+  rows: TimelineRow[];
+  /** Per-row streaming-text overlay (`row_id` → chunks since last upsert). */
+  liveText: Record<string, LiveTextOverlay>;
   lastSequence: bigint;
   projectionVersion: number | null;
   currentTurnId: string | null;
@@ -39,8 +61,7 @@ export type ConversationStoreEntry = {
   error: string | null;
   gap: ConversationGapState;
   optimisticTurns: MessageTurn[];
-  // Agent-advertised session controls for this conversation (from the live
-  // `session_mode_updated` / `session_config_options_updated` events). Drives the
+  // Agent-advertised session controls (delivered alongside row-op batches). Drive the
   // composer's mode/config picker; empty until the agent advertises them.
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
@@ -58,11 +79,12 @@ export type ConversationStoreAction =
       detail: DbConversationDetail;
     }
   | { type: 'load_error'; conversationId: string; error: string }
-  | { type: 'event'; envelope: ConversationEventEnvelope }
+  | { type: 'row_ops'; batch: ConversationRowOpBatch }
   | {
-      type: 'events';
+      type: 'upsert_rows';
       conversationId: string;
-      events: ConversationEventEnvelope[];
+      rows: TimelineRow[];
+      lastSequence: bigint;
     }
   | { type: 'optimistic_turn'; conversationId: string; turn: MessageTurn }
   | { type: 'remove_optimistic_turn'; conversationId: string; turnId: string }
@@ -88,19 +110,15 @@ export function conversationStoreReducer(
         const detailLastSequence = toBigInt(
           action.detail.timeline.last_sequence
         );
+        // If live row ops have advanced past the reloaded projection, keep them —
+        // otherwise a slow `conversation_detail` response would rewind the timeline.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
-        const timeline = keepRealtimeRows
-          ? {
-              ...action.detail.timeline,
-              rows: entry.rows,
-              last_sequence: entry.lastSequence,
-            }
-          : action.detail.timeline;
         return {
           ...entry,
           detail: action.detail,
-          rows: timeline.rows,
-          lastSequence: toBigInt(timeline.last_sequence),
+          rows: keepRealtimeRows ? entry.rows : action.detail.timeline.rows,
+          liveText: keepRealtimeRows ? entry.liveText : {},
+          lastSequence: keepRealtimeRows ? entry.lastSequence : detailLastSequence,
           projectionVersion: action.detail.projection_version,
           currentTurnId: action.detail.current_turn?.id ?? entry.currentTurnId,
           loading: false,
@@ -108,7 +126,7 @@ export function conversationStoreReducer(
           gap: { kind: 'none' },
           optimisticTurns: reconcileOptimisticTurns(
             entry.optimisticTurns,
-            timeline
+            action.detail.timeline
           ),
         };
       });
@@ -118,14 +136,32 @@ export function conversationStoreReducer(
         loading: false,
         error: action.error,
       }));
-    case 'event':
-      return updateEntry(state, action.envelope.conversation_id, (entry) =>
-        applyConversationEvent(entry, action.envelope)
+    case 'row_ops':
+      return updateEntry(
+        state,
+        action.batch.conversation_id,
+        (entry) => applyRowOpBatch(entry, action.batch)
       );
-    case 'events':
-      return updateEntry(state, action.conversationId, (entry) =>
-        action.events.reduce(applyConversationEvent, entry)
-      );
+    case 'upsert_rows':
+      return updateEntry(state, action.conversationId, (entry) => {
+        let rows = entry.rows;
+        let liveText = entry.liveText;
+        for (const row of action.rows) {
+          const applied = upsertRow(rows, liveText, row);
+          rows = applied.rows;
+          liveText = applied.liveText;
+        }
+        return {
+          ...entry,
+          rows,
+          liveText,
+          lastSequence:
+            action.lastSequence > entry.lastSequence
+              ? action.lastSequence
+              : entry.lastSequence,
+          gap: { kind: 'none' },
+        };
+      });
     case 'optimistic_turn':
       return updateEntry(state, action.conversationId, (entry) => ({
         ...entry,
@@ -146,36 +182,132 @@ export function conversationStoreReducer(
   }
 }
 
+function applyRowOpBatch(
+  entry: ConversationStoreEntry,
+  batch: ConversationRowOpBatch
+): ConversationStoreEntry {
+  let rows = entry.rows;
+  let liveText = entry.liveText;
+  let currentTurnId = entry.currentTurnId;
+  let optimisticTurns = entry.optimisticTurns;
+
+  for (const op of batch.ops) {
+    if (op.op === 'upsert') {
+      const applied = upsertRow(rows, liveText, op.row);
+      rows = applied.rows;
+      liveText = applied.liveText;
+      // A user message-turn upsert marks the active turn and clears the matching
+      // optimistic bubble (matched by text; the ids differ).
+      if (
+        op.row.row.kind === 'message_turn' &&
+        op.row.row.turn.role === 'user'
+      ) {
+        currentTurnId = turnIdOfRowId(op.row.row_id) ?? currentTurnId;
+        optimisticTurns = reconcileOptimisticTurnsAgainstUser(
+          optimisticTurns,
+          op.row.row.turn
+        );
+      }
+    } else {
+      liveText = appendLiveText(liveText, op);
+    }
+  }
+
+  const lastSequence = toBigInt(batch.last_sequence);
+  return {
+    ...entry,
+    rows,
+    liveText,
+    currentTurnId,
+    optimisticTurns,
+    lastSequence:
+      lastSequence > entry.lastSequence ? lastSequence : entry.lastSequence,
+    gap: { kind: 'none' },
+    sessionModes: batch.session_modes
+      ? {
+          current: batch.session_modes.current ?? null,
+          modes: batch.session_modes.modes,
+        }
+      : entry.sessionModes,
+    sessionConfigOptions:
+      batch.session_config_options ?? entry.sessionConfigOptions,
+  };
+}
+
+/** Insert or replace a row by `row_id` (idempotent by `revision`), clearing its live text. */
+function upsertRow(
+  rows: TimelineRow[],
+  liveText: Record<string, LiveTextOverlay>,
+  incoming: TimelineRow
+): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
+  const index = rows.findIndex((row) => row.row_id === incoming.row_id);
+  let nextRows = rows;
+  if (index === -1) {
+    nextRows = [...rows, incoming];
+  } else if (toBigInt(incoming.revision) >= toBigInt(rows[index].revision)) {
+    nextRows = rows.map((row, i) => (i === index ? incoming : row));
+  }
+  // The upserted row already folds in all text up to its revision, so drop any
+  // accumulated overlay for it.
+  let nextLive = liveText;
+  if (liveText[incoming.row_id]) {
+    nextLive = { ...liveText };
+    delete nextLive[incoming.row_id];
+  }
+  return { rows: nextRows, liveText: nextLive };
+}
+
+function appendLiveText(
+  liveText: Record<string, LiveTextOverlay>,
+  op: Extract<ConversationRowOp, { op: 'append_text' }>
+): Record<string, LiveTextOverlay> {
+  const revision = toBigInt(op.revision);
+  const existing = liveText[op.row_id];
+  if (existing && revision <= existing.revision) return liveText; // already applied
+  const base = existing ?? { text: '', reasoning: '', revision: 0n };
+  const next: LiveTextOverlay = {
+    text: op.stream === 'text' ? base.text + op.delta : base.text,
+    reasoning:
+      op.stream === 'reasoning' ? base.reasoning + op.delta : base.reasoning,
+    revision,
+  };
+  return { ...liveText, [op.row_id]: next };
+}
+
 export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null
 ): ConversationTimelineTurn[] {
   if (!entry) return [];
-  const persisted = entry.rows.flatMap((row, index) =>
-    row.kind === 'message_turn'
-      ? [
-          {
-            key: `conversation-${row.turn.id}-${index}`,
-            turn: row.turn,
-            phase: row.phase as ConversationTimelineTurn['phase'],
-          },
-        ]
-      : []
-  );
+  const persisted = entry.rows.flatMap((row, index) => {
+    if (row.row.kind !== 'message_turn') return [];
+    const overlay = entry.liveText[row.row_id];
+    const turn = overlay
+      ? { ...row.row.turn, blocks: overlayLiveText(row.row.turn.blocks, overlay) }
+      : row.row.turn;
+    return [
+      {
+        key: `conversation-${row.row_id}-${index}`,
+        turn,
+        phase: row.row.phase as ConversationTimelineTurn['phase'],
+      },
+    ];
+  });
   const optimistic = entry.optimisticTurns.map((turn, index) => ({
     key: `optimistic-${turn.id}-${index}`,
     turn,
     phase: 'optimistic' as const,
   }));
-  return withPendingAssistantTurn(
+  return withPendingAssistantTurns(
     entry,
     dedupeTurns([...persisted, ...optimistic])
   );
 }
 
+/** Side rows (everything that is not a message turn), carrying their stable `row_id`. */
 export function sideRowsForEntry(
   entry: ConversationStoreEntry | null
-): ConversationTimelineRow[] {
-  return entry?.rows.filter((row) => row.kind !== 'message_turn') ?? [];
+): TimelineRow[] {
+  return entry?.rows.filter((row) => row.row.kind !== 'message_turn') ?? [];
 }
 
 function createEntry(conversationId: string): ConversationStoreEntry {
@@ -183,6 +315,7 @@ function createEntry(conversationId: string): ConversationStoreEntry {
     conversationId,
     detail: null,
     rows: [],
+    liveText: {},
     lastSequence: 0n,
     projectionVersion: null,
     currentTurnId: null,
@@ -210,460 +343,24 @@ function updateEntry(
   };
 }
 
-function applyConversationEvent(
-  entry: ConversationStoreEntry,
-  envelope: ConversationEventEnvelope
-): ConversationStoreEntry {
-  const sequence = toBigInt(envelope.sequence);
-  if (sequence <= entry.lastSequence) return entry;
-
-  const expected = entry.lastSequence + 1n;
-  if (entry.lastSequence > 0n && sequence > expected) {
-    return {
-      ...entry,
-      gap: {
-        kind: 'gap',
-        expectedSequence: expected,
-        receivedSequence: sequence,
-      },
-    };
-  }
-
-  const turnId = envelope.turn_id ?? entry.currentTurnId;
-  const rows = applyEventRows(entry.rows, envelope, turnId);
-  const event = envelope.event;
-  return {
-    ...entry,
-    rows,
-    lastSequence: sequence,
-    currentTurnId: turnId ?? entry.currentTurnId,
-    gap: { kind: 'none' },
-    optimisticTurns:
-      event.kind === 'user_turn_created'
-        ? entry.optimisticTurns.filter(
-            (turn) => turn.id !== `optimistic-${turnId}`
-          )
-        : entry.optimisticTurns,
-    sessionModes:
-      event.kind === 'session_mode_updated'
-        ? { current: event.current, modes: event.modes }
-        : entry.sessionModes,
-    sessionConfigOptions:
-      event.kind === 'session_config_options_updated'
-        ? event.options
-        : entry.sessionConfigOptions,
-  };
-}
-
-function applyEventRows(
-  rows: ConversationTimelineRow[],
-  envelope: ConversationEventEnvelope,
-  turnId: string | null
-): ConversationTimelineRow[] {
-  const event = envelope.event;
-  switch (event.kind) {
-    case 'user_turn_created':
-      if (!turnId) return rows;
-      return upsertMessageTurn(rows, userTurnFromEvent(turnId, envelope));
-    case 'assistant_text_delta':
-      if (!turnId) return rows;
-      return updateAssistantTurn(rows, turnId, envelope.created_at, (turn) => ({
-        ...turn,
-        blocks: appendTextBlock(turn.blocks, event.text),
-      }));
-    case 'assistant_reasoning_delta':
-      if (!turnId) return rows;
-      return updateAssistantTurn(rows, turnId, envelope.created_at, (turn) => ({
-        ...turn,
-        blocks: appendThinkingBlock(turn.blocks, event.text),
-      }));
-    case 'plan_updated':
-      if (!turnId) return rows;
-      return updateAssistantTurn(rows, turnId, envelope.created_at, (turn) => ({
-        ...turn,
-        blocks: [
-          ...turn.blocks,
-          {
-            type: 'plan',
-            entries: event.entries.map((entry) => ({
-              content: entry.content,
-              status: entry.status,
-              priority: entry.priority,
-            })),
-          },
-        ],
-      }));
-    case 'tool_call_upsert':
-      if (!turnId) return rows;
-      return updateAssistantTurn(rows, turnId, envelope.created_at, (turn) => ({
-        ...turn,
-        blocks: [...turn.blocks, ...toolBlocks(event.tool_call)],
-      }));
-    case 'usage_updated':
-      if (!turnId) return rows;
-      return updateAssistantTurn(rows, turnId, envelope.created_at, (turn) => ({
-        ...turn,
-        usage: {
-          input_tokens: event.usage.input_tokens,
-          output_tokens: event.usage.output_tokens,
-          cache_creation_input_tokens: event.usage.cache_creation_input_tokens,
-          cache_read_input_tokens: event.usage.cache_read_input_tokens,
-          context_window_max: event.usage.context_window_max ?? null,
-        },
-      }));
-    case 'turn_completed':
-      return setTurnPhase(rows, turnId, 'settled');
-    case 'turn_interrupted':
-      // Terminal state from startup crash-recovery (ADR-0001). Reaches the store
-      // mainly via projection reload, but handle the live/backfilled event too so
-      // the turn settles into its "因重启中断" phase rather than a phantom stream.
-      return setTurnPhase(rows, turnId, 'interrupted');
-    case 'turn_failed':
-      return [
-        ...setTurnPhase(rows, turnId, 'settled'),
-        {
-          kind: 'turn_error',
-          error: { turn_id: turnId, error: event.error },
-        },
-      ];
-    case 'turn_cancelled':
-      return [
-        ...setTurnPhase(rows, turnId, 'settled'),
-        {
-          kind: 'turn_error',
-          error: {
-            turn_id: turnId,
-            error: {
-              message: event.reason ?? 'Turn cancelled',
-              code: 'cancelled',
-            },
-          },
-        },
-      ];
-    case 'permission_requested':
-      return [
-        ...rows,
-        {
-          kind: 'permission_request',
-          request: {
-            permission_id: event.request.permission_id,
-            title: event.request.request.title,
-            status: 'pending',
-            // Keep the full tool detail + options so the permission card can show
-            // the real diff/command and offer the real answer buttons (the projected
-            // ConversationPermissionView carries these on reload too).
-            details: event.request.request.details ?? null,
-            options: event.request.request.options,
-          },
-        },
-      ];
-    case 'permission_responded':
-      return rows.map((row) =>
-        row.kind === 'permission_request' &&
-        row.request.permission_id === event.permission_id
-          ? {
-              ...row,
-              request: { ...row.request, status: 'responded' },
-            }
-          : row
-      );
-    case 'question_requested':
-      return [...rows, { kind: 'question_request', request: event.request }];
-    case 'feedback_requested':
-      return [...rows, { kind: 'feedback_request', request: event.request }];
-    case 'terminal_updated':
-      return [
-        ...rows,
-        {
-          kind: 'terminal_summary',
-          terminal: {
-            terminal_id: event.terminal.terminal_id,
-            command: event.terminal.command ?? null,
-            status: event.terminal.status,
-            output_summary: event.terminal.output_summary ?? null,
-            output_truncated: event.terminal.output_truncated,
-          },
-        },
-      ];
-    case 'delegation_started':
-      return [
-        ...rows,
-        {
-          kind: 'delegation',
-          delegation: {
-            delegation_id: event.delegation.delegation_id,
-            parent_tool_call_id: event.delegation.parent_tool_call_id,
-            child_conversation_id: event.delegation.child_conversation_id,
-            agent_type: event.delegation.agent_type,
-            task_preview: event.delegation.task_preview,
-            status: 'running',
-            result: null,
-          },
-        },
-      ];
-    case 'delegation_completed': {
-      // Fold the outcome onto the running delegation row so a delegation renders
-      // as one card (keeping agent_type/task_preview/child_conversation_id from
-      // the start event) instead of a second, context-less "completed" row.
-      const status = event.result.kind === 'ok' ? 'completed' : 'failed';
-      let merged = false;
-      const next = rows.map((row) => {
-        if (
-          row.kind === 'delegation' &&
-          row.delegation.delegation_id === event.delegation_id
-        ) {
-          merged = true;
-          return {
-            ...row,
-            delegation: {
-              ...row.delegation,
-              status,
-              result: event.result,
-            },
-          };
-        }
-        return row;
-      });
-      if (merged) return next;
-      return [
-        ...rows,
-        {
-          kind: 'delegation',
-          delegation: {
-            delegation_id: event.delegation_id,
-            parent_tool_call_id: null,
-            child_conversation_id: null,
-            agent_type: null,
-            task_preview: null,
-            status,
-            result: event.result,
-          },
-        },
-      ];
-    }
-    case 'file_change_summary_updated':
-      return [...rows, { kind: 'file_change_summary', summary: event.summary }];
-    case 'agent_binding_load_failed':
-      return [...rows, sessionLoadFailedNotice(event.reason)];
-    case 'agent_binding_recovery_failed':
-      return [
-        ...rows,
-        {
-          kind: 'session_notice',
-          notice: {
-            title: 'Agent session recovery failed',
-            message: event.reason,
-            severity: 'error',
-          },
-        },
-      ];
-    case 'session_config_stale':
-      return event.stale
-        ? [
-            ...rows,
-            {
-              kind: 'session_notice',
-              notice: {
-                title: 'Agent configuration changed',
-                message: event.reason ?? null,
-                severity: 'info',
-              },
-            },
-          ]
-        : rows;
-    default:
-      return rows;
-  }
-}
-
-// Turn a real, classified session/load failure into a legible notice. The agent
-// already told us *why* it failed (resource_not_found = expired, auth_required,
-// unsupported, other) — render that, not a raw JSON blob.
-function sessionLoadFailedNotice(
-  reason: SessionLoadFailureReason
-): ConversationTimelineRow {
-  switch (reason.kind) {
-    case 'resource_not_found':
-      return {
-        kind: 'session_notice',
-        notice: {
-          title: '代理会话已过期',
-          message: '代理侧已不存在该会话，将在下一条消息时重新建立。',
-          severity: 'warning',
-        },
-      };
-    case 'authentication_required':
-      return {
-        kind: 'session_notice',
-        notice: {
-          title: '需要重新认证',
-          message: reason.message,
-          severity: 'error',
-        },
-      };
-    case 'unsupported':
-      return {
-        kind: 'session_notice',
-        notice: {
-          title: '代理不支持会话恢复',
-          message: '已自动新建会话继续。',
-          severity: 'info',
-        },
-      };
-    case 'other':
-    default:
-      return {
-        kind: 'session_notice',
-        notice: {
-          title: '加载代理会话失败',
-          message: reason.kind === 'other' ? reason.message : null,
-          severity: 'warning',
-        },
-      };
-  }
-}
-
-function userTurnFromEvent(
-  turnId: string,
-  envelope: ConversationEventEnvelope
-): ConversationTimelineRow {
-  const event = envelope.event;
-  const blocks: ContentBlock[] =
-    event.kind === 'user_turn_created'
-      ? event.blocks.flatMap<ContentBlock>((block) => {
-          if (block.kind === 'text')
-            return [{ type: 'text', text: block.text }];
-          if (block.kind === 'image') {
-            return [
-              {
-                type: 'image',
-                data: '',
-                mime_type: block.mime_type,
-                uri: block.uri,
-              },
-            ];
-          }
-          return [];
-        })
-      : [];
-  return {
-    kind: 'message_turn',
-    phase: 'streaming',
-    turn: {
-      id: `${turnId}:user`,
-      role: 'user',
-      blocks,
-      timestamp: envelope.created_at,
-    },
-  };
-}
-
-function upsertMessageTurn(
-  rows: ConversationTimelineRow[],
-  row: ConversationTimelineRow
-): ConversationTimelineRow[] {
-  if (row.kind !== 'message_turn') return rows;
-  const index = rows.findIndex(
-    (candidate) =>
-      candidate.kind === 'message_turn' && candidate.turn.id === row.turn.id
-  );
-  if (index === -1) return [...rows, row];
-  const next = [...rows];
-  next[index] = row;
-  return next;
-}
-
-function updateAssistantTurn(
-  rows: ConversationTimelineRow[],
-  turnId: string,
-  timestamp: string,
-  update: (turn: MessageTurn) => MessageTurn
-): ConversationTimelineRow[] {
-  const assistantId = `${turnId}:assistant`;
-  const index = rows.findIndex(
-    (row) => row.kind === 'message_turn' && row.turn.id === assistantId
-  );
-  if (index === -1) {
-    return [
-      ...rows,
-      {
-        kind: 'message_turn',
-        phase: 'streaming',
-        turn: update({
-          id: assistantId,
-          role: 'assistant',
-          blocks: [],
-          timestamp,
-        }),
-      },
-    ];
-  }
-  return rows.map((row, rowIndex) =>
-    rowIndex === index && row.kind === 'message_turn'
-      ? { ...row, turn: update(row.turn), phase: row.phase || 'streaming' }
-      : row
-  );
-}
-
-function setTurnPhase(
-  rows: ConversationTimelineRow[],
-  turnId: string | null,
-  phase: string
-): ConversationTimelineRow[] {
-  if (!turnId) return rows;
-  return rows.map((row) =>
-    row.kind === 'message_turn' && row.turn.id.startsWith(`${turnId}:`)
-      ? { ...row, phase }
-      : row
-  );
-}
-
-function appendTextBlock(blocks: ContentBlock[], text: string): ContentBlock[] {
-  const last = blocks[blocks.length - 1];
-  if (last?.type === 'text') {
-    return [...blocks.slice(0, -1), { ...last, text: `${last.text}${text}` }];
-  }
-  return [...blocks, { type: 'text', text }];
-}
-
-function appendThinkingBlock(
+/** Append the streaming overlay (reasoning then text) as trailing blocks. */
+function overlayLiveText(
   blocks: ContentBlock[],
-  text: string
+  overlay: LiveTextOverlay
 ): ContentBlock[] {
-  const last = blocks[blocks.length - 1];
-  if (last?.type === 'thinking') {
-    return [...blocks.slice(0, -1), { ...last, text: `${last.text}${text}` }];
+  const result = [...blocks];
+  if (overlay.reasoning) {
+    result.push({ type: 'thinking', text: overlay.reasoning });
   }
-  return [...blocks, { type: 'thinking', text }];
+  if (overlay.text) {
+    result.push({ type: 'text', text: overlay.text });
+  }
+  return result;
 }
 
-function toolBlocks(
-  toolCall: Extract<
-    ConversationEventEnvelope['event'],
-    { kind: 'tool_call_upsert' }
-  >['tool_call']
-): ContentBlock[] {
-  const blocks: ContentBlock[] = [
-    {
-      type: 'tool_use',
-      tool_use_id: toolCall.tool_call_id,
-      tool_name: toolCall.title ?? toolCall.kind ?? toolCall.tool_call_id,
-      input_preview: toolCall.raw_input
-        ? JSON.stringify(toolCall.raw_input)
-        : null,
-      meta: toolCall.metadata ?? null,
-    },
-  ];
-  if (toolCall.raw_output) {
-    blocks.push({
-      type: 'tool_result',
-      tool_use_id: toolCall.tool_call_id,
-      output_preview: JSON.stringify(toolCall.raw_output),
-      is_error: toolCall.status === 'failed',
-      agent_stats: null,
-    });
-  }
-  return blocks;
+function turnIdOfRowId(rowId: string): string | null {
+  const suffix = ':user';
+  return rowId.endsWith(suffix) ? rowId.slice(0, -suffix.length) : null;
 }
 
 function reconcileOptimisticTurns(
@@ -672,23 +369,29 @@ function reconcileOptimisticTurns(
 ): MessageTurn[] {
   const persistedText = new Set(
     timeline.rows.flatMap((row) =>
-      row.kind === 'message_turn' && row.turn.role === 'user'
-        ? [
-            row.turn.blocks
-              .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-              .join('\n')
-              .trim(),
-          ]
+      row.row.kind === 'message_turn' && row.row.turn.role === 'user'
+        ? [userTurnText(row.row.turn)]
         : []
     )
   );
-  return optimisticTurns.filter((turn) => {
-    const text = turn.blocks
-      .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-      .join('\n')
-      .trim();
-    return !persistedText.has(text);
-  });
+  return optimisticTurns.filter(
+    (turn) => !persistedText.has(userTurnText(turn))
+  );
+}
+
+function reconcileOptimisticTurnsAgainstUser(
+  optimisticTurns: MessageTurn[],
+  userTurn: MessageTurn
+): MessageTurn[] {
+  const text = userTurnText(userTurn);
+  return optimisticTurns.filter((turn) => userTurnText(turn) !== text);
+}
+
+function userTurnText(turn: MessageTurn): string {
+  return turn.blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n')
+    .trim();
 }
 
 function dedupeTurns(
@@ -707,75 +410,68 @@ function dedupeTurns(
   });
 }
 
-function withPendingAssistantTurn(
+/**
+ * Synthesize a streaming assistant bubble for any turn that is streaming but whose
+ * assistant row hasn't been upserted yet — driven by the `liveText` overlay (pure-text
+ * streaming before the turn settles) and by optimistic user turns. Terminal user
+ * phases (`settled` / `interrupted`, ADR-0001) never spawn a phantom bubble.
+ */
+function withPendingAssistantTurns(
   entry: ConversationStoreEntry,
   turns: ConversationTimelineTurn[]
 ): ConversationTimelineTurn[] {
-  const turnId = entry.currentTurnId;
-  if (!turnId) return withOptimisticPendingAssistantTurn(turns);
-
-  const userId = `${turnId}:user`;
-  const assistantId = `${turnId}:assistant`;
-  const userTurn = turns.find(
-    (row) => row.turn.role === 'user' && row.turn.id === userId
+  const result = [...turns];
+  const assistantIds = new Set(
+    turns.filter((row) => row.turn.role === 'assistant').map((row) => row.turn.id)
   );
-  // 'interrupted' is terminal too (ADR-0001) — never spawn a phantom streaming
-  // bubble for a turn the host crashed mid-flight.
-  if (
-    !userTurn ||
-    userTurn.phase === 'settled' ||
-    userTurn.phase === 'interrupted'
-  ) {
-    return withOptimisticPendingAssistantTurn(turns);
-  }
 
-  const hasAssistant = turns.some(
-    (row) => row.turn.role === 'assistant' && row.turn.id === assistantId
-  );
-  if (hasAssistant) return turns;
-
-  return [
-    ...turns,
-    {
-      key: `pending-${assistantId}`,
+  for (const [rowId, overlay] of Object.entries(entry.liveText)) {
+    if (!rowId.endsWith(':assistant') || assistantIds.has(rowId)) continue;
+    const userId = `${rowId.slice(0, -':assistant'.length)}:user`;
+    const userTurn = turns.find(
+      (row) => row.turn.role === 'user' && row.turn.id === userId
+    );
+    if (
+      !userTurn ||
+      userTurn.phase === 'settled' ||
+      userTurn.phase === 'interrupted'
+    ) {
+      continue;
+    }
+    result.push({
+      key: `pending-${rowId}`,
       phase: 'streaming',
       turn: {
-        id: assistantId,
+        id: rowId,
         role: 'assistant',
-        blocks: [],
+        blocks: overlayLiveText([], overlay),
         timestamp: userTurn.turn.timestamp,
       },
-    },
-  ];
-}
+    });
+    assistantIds.add(rowId);
+  }
 
-function withOptimisticPendingAssistantTurn(
-  turns: ConversationTimelineTurn[]
-): ConversationTimelineTurn[] {
+  // Optimistic user turn with no backend/assistant row yet → empty streaming bubble.
   const optimisticUser = [...turns]
     .reverse()
     .find((row) => row.phase === 'optimistic' && row.turn.role === 'user');
-  if (!optimisticUser) return turns;
+  if (optimisticUser) {
+    const assistantId = `${optimisticUser.turn.id}:assistant`;
+    if (!assistantIds.has(assistantId)) {
+      result.push({
+        key: `pending-${assistantId}`,
+        phase: 'streaming',
+        turn: {
+          id: assistantId,
+          role: 'assistant',
+          blocks: [],
+          timestamp: optimisticUser.turn.timestamp,
+        },
+      });
+    }
+  }
 
-  const assistantId = `${optimisticUser.turn.id}:assistant`;
-  const hasAssistant = turns.some(
-    (row) => row.turn.role === 'assistant' && row.turn.id === assistantId
-  );
-  if (hasAssistant) return turns;
-
-  return [
-    ...turns,
-    {
-      key: `pending-${assistantId}`,
-      phase: 'streaming',
-      turn: {
-        id: assistantId,
-        role: 'assistant',
-        blocks: [],
-        timestamp: optimisticUser.turn.timestamp,
-      },
-    },
-  ];
+  return result;
 }
 
 function toBigInt(value: bigint | number | string): bigint {

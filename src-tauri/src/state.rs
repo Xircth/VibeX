@@ -45,6 +45,12 @@ pub struct AppState {
     pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
     pub conversation_runtime_states:
         Arc<Mutex<HashMap<uuid::Uuid, crate::conversation_service::ConversationRuntimeState>>>,
+    /// Per-conversation live incremental projectors (消灭双投影). Cache the folded
+    /// state so each newly-appended event turns into row ops in O(1) amortized instead
+    /// of re-projecting the turn every frame. Dropped when a conversation closes
+    /// (`forget_conversation_runtime`).
+    pub conversation_row_projectors:
+        Arc<Mutex<HashMap<uuid::Uuid, db::models::conversation_projection::IncrementalRowProjector>>>,
 }
 
 impl AppState {
@@ -68,6 +74,7 @@ impl AppState {
             delegation,
             conversation_turn_locks: Arc::new(Mutex::new(HashMap::new())),
             conversation_runtime_states: Arc::new(Mutex::new(HashMap::new())),
+            conversation_row_projectors: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 }

@@ -3,7 +3,7 @@ import type {
   AgentPermissionResponse,
   AgentSessionConfigOverride,
   AgentType,
-  ConversationEventsPage,
+  ConversationRowPage,
   ConversationBundlePayload,
   ConversationExportResult,
   ConversationImportResult,
@@ -101,9 +101,11 @@ export const conversationApi = {
       },
     }),
 
+  // Gap backfill: the timeline rows that changed since `afterSequence` (消灭双投影) —
+  // the frontend upserts them by `row_id`, not folds raw events.
   eventsSince: (
     request: ConversationEventsSinceRequest
-  ): Promise<ConversationEventsPage> =>
+  ): Promise<ConversationRowPage> =>
     tauriInvoke('conversation_events_since', {
       request: {
         ...request,

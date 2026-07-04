@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use agents::conversation::{
     ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationErrorView,
-    ConversationEvent, ConversationPermissionView, ConversationSessionNotice,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
-    PlanEntry, SessionLoadFailureReason, TurnRole, TurnUsage,
+    ConversationEvent, ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
+    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry,
+    SessionLoadFailureReason, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
@@ -24,7 +24,10 @@ use super::{
     conversation_turn::ConversationTurnRecord,
 };
 
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 1;
+// v2: timeline rows carry `row_id` + `revision` (incremental row-op protocol,
+// 消灭双投影); the snapshot's `side_rows` shape changed, so v1 snapshots are
+// discarded and rebuilt by the projection-version check in `load_fold_from_snapshot`.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 2;
 
 pub struct ConversationEventAppender;
 
@@ -321,6 +324,24 @@ impl ConversationProjector {
         Ok(fold.into_timeline(conversation_id))
     }
 
+    /// Timeline rows whose state changed after `after_sequence` (`revision >
+    /// after_sequence`), plus the conversation's last sequence. Powers gap backfill:
+    /// the frontend upserts these rows. Pulls rows, not raw events.
+    pub async fn rows_since(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        after_sequence: i64,
+    ) -> Result<(Vec<TimelineRow>, i64), sqlx::Error> {
+        let timeline = Self::project(pool, conversation_id).await?;
+        let last_sequence = timeline.last_sequence;
+        let rows = timeline
+            .rows
+            .into_iter()
+            .filter(|row| row.revision > after_sequence)
+            .collect();
+        Ok((rows, last_sequence))
+    }
+
     /// Load the snapshot fold for a conversation, or an empty fold when there is no
     /// usable snapshot (missing, or a stale projection version that must be rebuilt).
     async fn load_fold_from_snapshot<'e, E>(
@@ -516,13 +537,63 @@ impl ConversationProjector {
     }
 }
 
+/// A live, per-conversation incremental projector: it holds the folded state in
+/// memory and turns each newly-appended event into row ops via [`ProjectionFold::apply`]
+/// — the O(1)-amortized realtime path that eliminates the double projection. One
+/// instance is cached per active conversation (dropped on close);
+/// `emit_conversation_row_ops_after` in the Tauri layer feeds it in sequence order.
+pub struct IncrementalRowProjector {
+    fold: ProjectionFold,
+}
+
+impl IncrementalRowProjector {
+    /// A projector positioned exactly at `up_to_sequence` (snapshot + replay of every
+    /// event ≤ up_to, without emitting), ready to fold newer events into ops.
+    pub async fn load(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        up_to_sequence: i64,
+    ) -> Result<Self, sqlx::Error> {
+        let mut fold =
+            ConversationProjector::load_fold_from_snapshot(pool, conversation_id).await?;
+        // A snapshot ahead of the cursor (e.g. after a truncate/retry rewind) can't be
+        // reused — rebuild from the event log.
+        if fold.last_sequence > up_to_sequence {
+            fold = ProjectionFold::default();
+        }
+        let tail =
+            ConversationEventRecord::events_since(pool, conversation_id, fold.last_sequence, i64::MAX)
+                .await?;
+        for record in &tail {
+            if record.sequence <= up_to_sequence {
+                fold.apply(record)?;
+            }
+        }
+        Ok(Self { fold })
+    }
+
+    /// Fold one newly-appended event and return the row ops it produced.
+    pub fn apply(
+        &mut self,
+        record: &ConversationEventRecord,
+    ) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
+        self.fold.apply(record)
+    }
+
+    pub fn last_sequence(&self) -> i64 {
+        self.fold.last_sequence
+    }
+}
+
 /// Mutable accumulator that folds events into a conversation timeline. Persisted to
 /// the snapshot table via [`ProjectionSnapshotState`] so reads can resume from it.
 #[derive(Default)]
 struct ProjectionFold {
     turns: BTreeMap<Uuid, ProjectedTurn>,
     turn_order: Vec<Uuid>,
-    side_rows: Vec<ConversationTimelineRow>,
+    /// Side rows carry their own `row_id` + `revision` (the incremental row-op protocol,
+    /// 消灭双投影). `revision` is the sequence of the latest event that touched the row.
+    side_rows: Vec<TimelineRow>,
     last_sequence: i64,
 }
 
@@ -530,7 +601,7 @@ struct ProjectionFold {
 #[derive(Default, Serialize, Deserialize)]
 struct ProjectionSnapshotState {
     turns: Vec<ProjectedTurn>,
-    side_rows: Vec<ConversationTimelineRow>,
+    side_rows: Vec<TimelineRow>,
     last_sequence: i64,
 }
 
@@ -561,7 +632,10 @@ impl ProjectionFold {
         }
     }
 
-    fn apply(&mut self, record: &ConversationEventRecord) -> Result<(), sqlx::Error> {
+    /// Fold one event into the projection **and** return the incremental row ops it
+    /// produced (the single-projection realtime protocol, 消灭双投影). Callers that only
+    /// want the folded state (`project`, `project_records`) discard the ops.
+    fn apply(&mut self, record: &ConversationEventRecord) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
         self.last_sequence = self.last_sequence.max(record.sequence);
         let event = match conversation_event_from_record(record) {
             ParsedEvent::Known(event) => event,
@@ -573,16 +647,60 @@ impl ProjectionFold {
                     sequence = record.sequence,
                     "conversation event not renderable by this build; showing placeholder row"
                 );
-                self.side_rows.push(ConversationTimelineRow::SessionNotice {
-                    notice: ConversationSessionNotice {
-                        title: "此事件由更新版本产生，无法显示".into(),
-                        message: None,
-                        severity: "warning".into(),
+                let row = side_row(
+                    record.sequence,
+                    ConversationTimelineRow::SessionNotice {
+                        notice: ConversationSessionNotice {
+                            title: "此事件由更新版本产生，无法显示".into(),
+                            message: None,
+                            severity: "warning".into(),
+                        },
                     },
-                });
-                return Ok(());
+                );
+                let op = ConversationRowOp::Upsert { row: row.clone() };
+                self.side_rows.push(row);
+                return Ok(vec![op]);
             }
         };
+
+        // Streaming text/reasoning: fold the delta into the assistant blocks and emit a
+        // cheap `AppendText` — never a full-row upsert — so a long reply doesn't
+        // re-broadcast its whole text every frame (the O(n²) this batch kills).
+        if let ConversationEvent::AssistantTextDelta { ref text, .. }
+        | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
+            && let Some(turn_id) = record.turn_id
+        {
+            let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
+                TimelineTextStream::Reasoning
+            } else {
+                TimelineTextStream::Text
+            };
+            ensure_turn(&mut self.turns, &mut self.turn_order, turn_id, record);
+            let turn = self.turns.get_mut(&turn_id).expect("turn exists");
+            match stream {
+                TimelineTextStream::Text => append_text_block(&mut turn.assistant.blocks, text.clone()),
+                TimelineTextStream::Reasoning => {
+                    append_thinking_block(&mut turn.assistant.blocks, text.clone())
+                }
+            }
+            turn.revision = record.sequence;
+            return Ok(vec![ConversationRowOp::AppendText {
+                row_id: turn.assistant.id.clone(),
+                revision: record.sequence,
+                stream,
+                delta: text.clone(),
+            }]);
+        }
+
+        // Bump the touched turn's revision so its message rows re-upsert at this
+        // sequence. Over-bumping on a side-row event is harmless — the frontend upsert
+        // is idempotent by revision. A brand-new turn gets its revision from
+        // `ensure_turn` below (it does not exist here yet).
+        if let Some(turn_id) = record.turn_id
+            && let Some(turn) = self.turns.get_mut(&turn_id)
+        {
+            turn.revision = record.sequence;
+        }
 
         let turns = &mut self.turns;
         let turn_order = &mut self.turn_order;
@@ -611,20 +729,6 @@ impl ProjectionFold {
                             agents::conversation::ConversationInputBlock::Resource { .. } => None,
                         })
                         .collect();
-                }
-            }
-            ConversationEvent::AssistantTextDelta { text, .. } => {
-                if let Some(turn_id) = record.turn_id {
-                    ensure_turn(turns, turn_order, turn_id, record);
-                    let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    append_text_block(&mut turn.assistant.blocks, text);
-                }
-            }
-            ConversationEvent::AssistantReasoningDelta { text, .. } => {
-                if let Some(turn_id) = record.turn_id {
-                    ensure_turn(turns, turn_order, turn_id, record);
-                    let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    append_thinking_block(&mut turn.assistant.blocks, text);
                 }
             }
             ConversationEvent::PlanUpdated { entries } => {
@@ -695,35 +799,42 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::PermissionRequested { request } => {
-                side_rows.push(ConversationTimelineRow::PermissionRequest {
-                    request: ConversationPermissionView {
-                        permission_id: request.permission_id,
-                        title: Some(request.request.title),
-                        status: "pending".into(),
-                        details: request.request.details,
-                        options: request.request.options,
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::PermissionRequest {
+                        request: ConversationPermissionView {
+                            permission_id: request.permission_id,
+                            title: Some(request.request.title),
+                            status: "pending".into(),
+                            details: request.request.details,
+                            options: request.request.options,
+                        },
                     },
-                });
+                ));
             }
             ConversationEvent::PermissionResponded { permission_id, .. } => {
                 // Fold the response onto the pending permission row so a rebuilt
                 // projection matches the live store (which sets `status: 'responded'`)
                 // — otherwise an answered (or recovery-voided, ADR-0001) permission
                 // reloads as perpetually pending.
-                for row in side_rows.iter_mut() {
-                    if let ConversationTimelineRow::PermissionRequest { request } = row
+                for entry in side_rows.iter_mut() {
+                    if let ConversationTimelineRow::PermissionRequest { request } = &mut entry.row
                         && request.permission_id == permission_id
                     {
                         request.status = "responded".into();
+                        entry.revision = record.sequence;
                         break;
                     }
                 }
             }
             ConversationEvent::QuestionRequested { request } => {
-                side_rows.push(ConversationTimelineRow::QuestionRequest {
-                    request,
-                    response: None,
-                });
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::QuestionRequest {
+                        request,
+                        response: None,
+                    },
+                ));
             }
             ConversationEvent::QuestionResponded {
                 question_id,
@@ -731,63 +842,74 @@ impl ProjectionFold {
             } => {
                 // Fold the answer onto the pending question row so a rebuilt projection
                 // no longer shows answered questions as perpetually pending.
-                for row in side_rows.iter_mut() {
+                for entry in side_rows.iter_mut() {
                     if let ConversationTimelineRow::QuestionRequest {
                         request,
                         response: slot,
-                    } = row
+                    } = &mut entry.row
                         && request.question_id == question_id
                     {
                         *slot = Some(response);
+                        entry.revision = record.sequence;
                         break;
                     }
                 }
             }
             ConversationEvent::FeedbackRequested { request } => {
-                side_rows.push(ConversationTimelineRow::FeedbackRequest {
-                    request,
-                    response: None,
-                });
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::FeedbackRequest {
+                        request,
+                        response: None,
+                    },
+                ));
             }
             ConversationEvent::FeedbackSubmitted {
                 feedback_id,
                 response,
             } => {
-                for row in side_rows.iter_mut() {
+                for entry in side_rows.iter_mut() {
                     if let ConversationTimelineRow::FeedbackRequest {
                         request,
                         response: slot,
-                    } = row
+                    } = &mut entry.row
                         && request.feedback_id == feedback_id
                     {
                         *slot = Some(response);
+                        entry.revision = record.sequence;
                         break;
                     }
                 }
             }
             ConversationEvent::TerminalUpdated { terminal } => {
-                side_rows.push(ConversationTimelineRow::TerminalSummary {
-                    terminal: ConversationTerminalView {
-                        terminal_id: terminal.terminal_id,
-                        command: terminal.command,
-                        status: terminal.status,
-                        output_summary: terminal.output_summary,
-                        output_truncated: terminal.output_truncated,
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::TerminalSummary {
+                        terminal: ConversationTerminalView {
+                            terminal_id: terminal.terminal_id,
+                            command: terminal.command,
+                            status: terminal.status,
+                            output_summary: terminal.output_summary,
+                            output_truncated: terminal.output_truncated,
+                        },
                     },
-                });
+                ));
             }
             ConversationEvent::DelegationStarted { delegation } => {
-                side_rows.push(ConversationTimelineRow::Delegation {
-                    delegation: ConversationDelegationView {
-                        delegation_id: delegation.delegation_id,
-                        parent_tool_call_id: Some(delegation.parent_tool_call_id),
-                        child_conversation_id: Some(delegation.child_conversation_id),
-                        agent_type: Some(delegation.agent_type),
-                        task_preview: Some(delegation.task_preview),
-                        status: "running".into(),
-                        result: None,
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::Delegation {
+                        delegation: ConversationDelegationView {
+                            delegation_id: delegation.delegation_id,
+                            parent_tool_call_id: Some(delegation.parent_tool_call_id),
+                            child_conversation_id: Some(delegation.child_conversation_id),
+                            agent_type: Some(delegation.agent_type),
+                            task_preview: Some(delegation.task_preview),
+                            status: "running".into(),
+                            result: None,
+                        },
                     },
-                });
+                ));
             }
             ConversationEvent::DelegationCompleted {
                 delegation_id,
@@ -802,40 +924,50 @@ impl ProjectionFold {
                     ConversationDelegationResult::Err { .. } => "failed",
                 };
                 let mut merged = false;
-                for row in side_rows.iter_mut() {
-                    if let ConversationTimelineRow::Delegation { delegation } = row
+                for entry in side_rows.iter_mut() {
+                    if let ConversationTimelineRow::Delegation { delegation } = &mut entry.row
                         && delegation.delegation_id == delegation_id
                     {
                         delegation.status = status.into();
                         delegation.result = Some(result.clone());
+                        entry.revision = record.sequence;
                         merged = true;
                         break;
                     }
                 }
                 if !merged {
-                    side_rows.push(ConversationTimelineRow::Delegation {
-                        delegation: ConversationDelegationView {
-                            delegation_id,
-                            parent_tool_call_id: None,
-                            child_conversation_id: None,
-                            agent_type: None,
-                            task_preview: None,
-                            status: status.into(),
-                            result: Some(result),
+                    side_rows.push(side_row(
+                        record.sequence,
+                        ConversationTimelineRow::Delegation {
+                            delegation: ConversationDelegationView {
+                                delegation_id,
+                                parent_tool_call_id: None,
+                                child_conversation_id: None,
+                                agent_type: None,
+                                task_preview: None,
+                                status: status.into(),
+                                result: Some(result),
+                            },
                         },
-                    });
+                    ));
                 }
             }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
-                side_rows.push(ConversationTimelineRow::FileChangeSummary { summary });
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::FileChangeSummary { summary },
+                ));
             }
             ConversationEvent::TurnFailed { error } => {
-                side_rows.push(ConversationTimelineRow::TurnError {
-                    error: ConversationErrorView {
-                        turn_id: record.turn_id,
-                        error,
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::TurnError {
+                        error: ConversationErrorView {
+                            turn_id: record.turn_id,
+                            error,
+                        },
                     },
-                });
+                ));
             }
             ConversationEvent::AgentBindingLoadFailed { reason } => {
                 // Reload path must read the same as the live path: a legible,
@@ -864,32 +996,63 @@ impl ProjectionFold {
                         severity: "warning".into(),
                     },
                 };
-                side_rows.push(ConversationTimelineRow::SessionNotice { notice });
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::SessionNotice { notice },
+                ));
             }
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
-                side_rows.push(ConversationTimelineRow::SessionNotice {
-                    notice: ConversationSessionNotice {
-                        title: "Agent session recovery failed".into(),
-                        message: Some(reason),
-                        severity: "error".into(),
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::SessionNotice {
+                        notice: ConversationSessionNotice {
+                            title: "Agent session recovery failed".into(),
+                            message: Some(reason),
+                            severity: "error".into(),
+                        },
                     },
-                });
+                ));
             }
             ConversationEvent::SessionConfigStale { stale, reason } => {
                 if stale {
-                    side_rows.push(ConversationTimelineRow::SessionNotice {
-                        notice: ConversationSessionNotice {
-                            title: "Agent configuration changed".into(),
-                            message: reason,
-                            severity: "info".into(),
+                    side_rows.push(side_row(
+                        record.sequence,
+                        ConversationTimelineRow::SessionNotice {
+                            notice: ConversationSessionNotice {
+                                title: "Agent configuration changed".into(),
+                                message: reason,
+                                severity: "info".into(),
+                            },
                         },
-                    });
+                    ));
                 }
             }
             _ => {}
         }
 
-        Ok(())
+        // Every row this event touched carries `revision == record.sequence` now, so
+        // emit an `Upsert` for each — the message row(s) of the touched turn and any
+        // created/modified side row. (Streaming text already returned early above.)
+        let mut ops = Vec::new();
+        if let Some(turn_id) = record.turn_id
+            && let Some(turn) = self.turns.get(&turn_id)
+            && turn.revision == record.sequence
+        {
+            ops.push(ConversationRowOp::Upsert {
+                row: message_row(turn, TurnRole::User),
+            });
+            if !turn.assistant.blocks.is_empty() {
+                ops.push(ConversationRowOp::Upsert {
+                    row: message_row(turn, TurnRole::Assistant),
+                });
+            }
+        }
+        for row in &self.side_rows {
+            if row.revision == record.sequence {
+                ops.push(ConversationRowOp::Upsert { row: row.clone() });
+            }
+        }
+        Ok(ops)
     }
 
     fn into_timeline(self, conversation_id: Uuid) -> ConversationTimeline {
@@ -903,14 +1066,29 @@ impl ProjectionFold {
         let mut rows = Vec::new();
         for turn_id in turn_order {
             if let Some(turn) = turns.remove(&turn_id) {
-                rows.push(ConversationTimelineRow::MessageTurn {
-                    turn: turn.user,
-                    phase: turn.phase.clone(),
+                let ProjectedTurn {
+                    user,
+                    assistant,
+                    phase,
+                    revision,
+                    ..
+                } = turn;
+                rows.push(TimelineRow {
+                    row_id: user.id.clone(),
+                    revision,
+                    row: ConversationTimelineRow::MessageTurn {
+                        turn: user,
+                        phase: phase.clone(),
+                    },
                 });
-                if !turn.assistant.blocks.is_empty() {
-                    rows.push(ConversationTimelineRow::MessageTurn {
-                        turn: turn.assistant,
-                        phase: turn.phase,
+                if !assistant.blocks.is_empty() {
+                    rows.push(TimelineRow {
+                        row_id: assistant.id.clone(),
+                        revision,
+                        row: ConversationTimelineRow::MessageTurn {
+                            turn: assistant,
+                            phase,
+                        },
                     });
                 }
             }
@@ -932,6 +1110,11 @@ struct ProjectedTurn {
     user: MessageTurn,
     assistant: MessageTurn,
     phase: String,
+    /// Sequence of the latest event that touched this turn; the revision both message
+    /// rows carry. `#[serde(default)]` lets pre-v2 snapshots load (they are discarded
+    /// by the projection-version check, but be defensive).
+    #[serde(default)]
+    revision: i64,
 }
 
 fn ensure_turn(
@@ -970,8 +1153,71 @@ fn ensure_turn(
                 completed_at: None,
             },
             phase: "streaming".into(),
+            revision: record.sequence,
         },
     );
+}
+
+/// Stable per-row id for the incremental row-op protocol (消灭双投影). Message rows
+/// reuse the `${turn}:user` / `${turn}:assistant` convention (the frontend
+/// pending-bubble logic depends on it); rows with a natural id use it; append-only
+/// rows without one (`file_change`, `session_notice`, `turn_error`) fall back to the
+/// producing event's `sequence`, which is unique.
+fn row_id_for(row: &ConversationTimelineRow, sequence: i64) -> String {
+    match row {
+        ConversationTimelineRow::MessageTurn { turn, .. } => turn.id.clone(),
+        ConversationTimelineRow::PermissionRequest { request } => {
+            format!("perm:{}", request.permission_id)
+        }
+        ConversationTimelineRow::QuestionRequest { request, .. } => {
+            format!("q:{}", request.question_id)
+        }
+        ConversationTimelineRow::FeedbackRequest { request, .. } => {
+            format!("fb:{}", request.feedback_id)
+        }
+        ConversationTimelineRow::TerminalSummary { terminal } => {
+            format!("term:{}", terminal.terminal_id)
+        }
+        ConversationTimelineRow::Delegation { delegation } => {
+            format!("del:{}", delegation.delegation_id)
+        }
+        ConversationTimelineRow::FileChangeSummary { .. } => format!("fc:{sequence}"),
+        ConversationTimelineRow::TurnError { error } => match error.turn_id {
+            Some(turn_id) => format!("err:{turn_id}:{sequence}"),
+            None => format!("err:{sequence}"),
+        },
+        ConversationTimelineRow::SessionNotice { .. } => format!("notice:{sequence}"),
+    }
+}
+
+/// Wrap a freshly-produced side row with its row_id + revision (= the producing
+/// event's sequence).
+fn side_row(sequence: i64, row: ConversationTimelineRow) -> TimelineRow {
+    TimelineRow {
+        row_id: row_id_for(&row, sequence),
+        revision: sequence,
+        row,
+    }
+}
+
+/// Build the current `TimelineRow` for one side of a turn (`user` / `assistant`),
+/// used when emitting an `Upsert` op. row_id is the `${turn}:user` / `${turn}:assistant`
+/// message id; revision is the turn's latest-touched sequence.
+fn message_row(turn: &ProjectedTurn, role: TurnRole) -> TimelineRow {
+    // Only User / Assistant message rows are projected; anything else maps to the
+    // assistant side (there is no System row in a conversation turn).
+    let message = match role {
+        TurnRole::User => turn.user.clone(),
+        _ => turn.assistant.clone(),
+    };
+    TimelineRow {
+        row_id: message.id.clone(),
+        revision: turn.revision,
+        row: ConversationTimelineRow::MessageTurn {
+            turn: message,
+            phase: turn.phase.clone(),
+        },
+    }
 }
 
 fn append_text_block(blocks: &mut Vec<ContentBlock>, text: String) {
@@ -1237,7 +1483,7 @@ mod tests {
         let placeholders: Vec<_> = timeline
             .rows
             .iter()
-            .filter_map(|row| match row {
+            .filter_map(|row| match &row.row {
                 ConversationTimelineRow::SessionNotice { notice }
                     if notice.title == "此事件由更新版本产生，无法显示" =>
                 {
@@ -1250,7 +1496,7 @@ mod tests {
 
         // The normal assistant text still folded through, proving the unknown event
         // did not abort the rest of the timeline.
-        let has_assistant_text = timeline.rows.iter().any(|row| match row {
+        let has_assistant_text = timeline.rows.iter().any(|row| match &row.row {
             ConversationTimelineRow::MessageTurn { turn, .. } => turn
                 .blocks
                 .iter()
@@ -1299,7 +1545,7 @@ mod tests {
         let timeline = ConversationProjector::project(&pool, conversation_id)
             .await
             .expect("timeline");
-        let user_phase = timeline.rows.iter().find_map(|row| match row {
+        let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
             ConversationTimelineRow::MessageTurn { turn, phase }
                 if turn.role == TurnRole::User =>
             {
@@ -1308,6 +1554,154 @@ mod tests {
             _ => None,
         });
         assert_eq!(user_phase.as_deref(), Some("interrupted"));
+    }
+
+    #[tokio::test]
+    async fn row_ops_text_deltas_append_and_terminal_upserts_full_row() {
+        // 批次C: the realtime protocol. Streaming text → cheap AppendText (row_id +
+        // stream + delta + revision), no full row. A non-text/terminal event →
+        // Upsert(s) whose revision equals the producing event's sequence, carrying the
+        // full folded row (text included) — the same fold as the initial load.
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        let mut projector = IncrementalRowProjector::load(&pool, conversation_id, 0)
+            .await
+            .expect("projector");
+
+        let created = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+            },
+            None,
+        )
+        .await;
+        // Creating the turn upserts the user row at the creating sequence.
+        let ops = projector.apply(&created).expect("ops");
+        assert!(ops.iter().any(|op| matches!(
+            op,
+            ConversationRowOp::Upsert { row } if row.row_id == format!("{turn_id}:user")
+                && row.revision == created.sequence
+        )));
+
+        let delta = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "hel".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        let ops = projector.apply(&delta).expect("ops");
+        assert_eq!(ops.len(), 1, "a text delta emits exactly one AppendText");
+        match &ops[0] {
+            ConversationRowOp::AppendText {
+                row_id,
+                revision,
+                stream,
+                delta: chunk,
+            } => {
+                assert_eq!(row_id, &format!("{turn_id}:assistant"));
+                assert_eq!(*revision, delta.sequence);
+                assert!(matches!(stream, TimelineTextStream::Text));
+                assert_eq!(chunk, "hel");
+            }
+            other => panic!("expected AppendText, got {other:?}"),
+        }
+
+        let completed = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+        let ops = projector.apply(&completed).expect("ops");
+        // The terminal event upserts the full assistant row — folded text included —
+        // at the terminal sequence, flushing the streamed deltas authoritatively.
+        let assistant = ops.iter().find_map(|op| match op {
+            ConversationRowOp::Upsert { row } if row.row_id == format!("{turn_id}:assistant") => {
+                Some(row)
+            }
+            _ => None,
+        });
+        let assistant = assistant.expect("assistant row upserted on turn completion");
+        assert_eq!(assistant.revision, completed.sequence);
+        match &assistant.row {
+            ConversationTimelineRow::MessageTurn { turn, phase } => {
+                assert_eq!(phase, "settled");
+                assert!(turn.blocks.iter().any(
+                    |block| matches!(block, ContentBlock::Text { text } if text == "hel")
+                ));
+            }
+            other => panic!("expected MessageTurn, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rows_since_returns_only_changed_rows() {
+        // 批次C gap backfill: rows_since returns rows whose revision advanced past the
+        // cursor, so the frontend upserts only what changed.
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+            },
+            None,
+        )
+        .await;
+        let cutoff = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "a".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        // A later terminal event bumps the turn's rows past `cutoff`.
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnCompleted { stop_reason: None },
+            None,
+        )
+        .await;
+
+        let (rows, last_sequence) =
+            ConversationProjector::rows_since(&pool, conversation_id, cutoff.sequence)
+                .await
+                .expect("rows since");
+        assert!(last_sequence > cutoff.sequence);
+        assert!(
+            rows.iter().all(|row| row.revision > cutoff.sequence),
+            "only rows changed after the cursor are returned"
+        );
+        assert!(
+            rows.iter().any(|row| row.row_id == format!("{turn_id}:assistant")),
+            "the assistant row (bumped by turn completion) is included"
+        );
     }
 
     #[tokio::test]
@@ -1361,7 +1755,7 @@ mod tests {
         let timeline = ConversationProjector::project(&pool, conversation_id)
             .await
             .expect("timeline");
-        let status = timeline.rows.iter().find_map(|row| match row {
+        let status = timeline.rows.iter().find_map(|row| match &row.row {
             ConversationTimelineRow::PermissionRequest { request } => Some(request.status.clone()),
             _ => None,
         });
@@ -1802,7 +2196,7 @@ mod tests {
         let kinds = timeline
             .rows
             .iter()
-            .map(|row| match row {
+            .map(|row| match &row.row {
                 ConversationTimelineRow::QuestionRequest { .. } => "question",
                 ConversationTimelineRow::FeedbackRequest { .. } => "feedback",
                 ConversationTimelineRow::Delegation { .. } => "delegation",
@@ -1822,7 +2216,7 @@ mod tests {
         let delegation = timeline
             .rows
             .iter()
-            .find_map(|row| match row {
+            .find_map(|row| match &row.row {
                 ConversationTimelineRow::Delegation { delegation } => Some(delegation),
                 _ => None,
             })
@@ -1890,7 +2284,7 @@ mod tests {
         let permission = timeline
             .rows
             .iter()
-            .find_map(|row| match row {
+            .find_map(|row| match &row.row {
                 ConversationTimelineRow::PermissionRequest { request } => Some(request),
                 _ => None,
             })
@@ -1997,14 +2391,14 @@ mod tests {
         assert_eq!(timeline.last_sequence, 6);
         assert!(timeline.rows.len() >= 3);
         assert!(matches!(
-            timeline.rows[0],
+            timeline.rows[0].row,
             ConversationTimelineRow::MessageTurn { .. }
         ));
         assert!(
             timeline
                 .rows
                 .iter()
-                .any(|row| matches!(row, ConversationTimelineRow::TurnError { .. }))
+                .any(|row| matches!(row.row, ConversationTimelineRow::TurnError { .. }))
         );
     }
 
@@ -2303,7 +2697,7 @@ mod tests {
             .expect("project");
         let question_answered = timeline.rows.iter().any(|row| {
             matches!(
-                row,
+                &row.row,
                 ConversationTimelineRow::QuestionRequest { response: Some(answer), .. }
                     if answer.answer == "A"
             )
@@ -2314,7 +2708,7 @@ mod tests {
         );
         let feedback_answered = timeline.rows.iter().any(|row| {
             matches!(
-                row,
+                &row.row,
                 ConversationTimelineRow::FeedbackRequest { response: Some(resp), .. }
                     if resp.rating == "up"
             )

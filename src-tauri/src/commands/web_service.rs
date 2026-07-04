@@ -22,7 +22,7 @@ use db::models::{
 use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
 
@@ -30,7 +30,6 @@ use crate::{
     commands::conversations::conversation_events_since_core,
     conversation_service::{ConversationSessionService, ConversationStartTurnInput},
     error::AppError,
-    events::channels,
     state::AppState,
 };
 
@@ -313,15 +312,19 @@ async fn web_conversation_last_sequence(
 
 async fn emit_events_after(
     app: &tauri::AppHandle,
+    projectors: &crate::events::ConversationRowProjectors,
     pool: &sqlx::SqlitePool,
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
+    // Frontend: the single row-op path (消灭双投影).
+    crate::events::emit_conversation_row_ops_after(app, projectors, pool, conversation_id, after_sequence)
+        .await;
+    // IM channels still consume the raw event envelopes.
     if let Ok(page) =
         conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
     {
         for event in page.events {
-            let _ = app.emit(channels::CONVERSATION_EVENTS, &event);
             if let Err(error) =
                 crate::commands::chat_channel::notify_conversation_event(&event).await
             {
@@ -466,6 +469,7 @@ async fn api_start_turn(
         .await;
     emit_events_after(
         &router_state.app,
+        &state.conversation_row_projectors,
         &pool,
         conversation_id,
         previous_last_sequence,
@@ -493,6 +497,7 @@ async fn api_respond_permission(
         .await;
     emit_events_after(
         &router_state.app,
+        &state.conversation_row_projectors,
         &pool,
         conversation_id,
         previous_last_sequence,
@@ -520,6 +525,7 @@ async fn api_cancel_turn(
         .await;
     emit_events_after(
         &router_state.app,
+        &state.conversation_row_projectors,
         &pool,
         conversation_id,
         previous_last_sequence,

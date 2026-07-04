@@ -2,26 +2,28 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
 import type {
-  ConversationEventEnvelope,
+  ConversationRowOp,
+  ConversationRowOpBatch,
+  ContentBlock,
   DbConversationDetail,
+  MessageTurn,
+  TimelineRow,
 } from 'shared/types';
 
-const { detailMock, eventsSinceMock, listenMock, listeners } = vi.hoisted(
-  () => {
-    const listeners = [] as Array<(event: ConversationEventEnvelope) => void>;
-    return {
-      listeners,
-      detailMock: vi.fn(),
-      eventsSinceMock: vi.fn(),
-      listenMock: vi.fn(
-        (handler: (event: ConversationEventEnvelope) => void) => {
-          listeners.push(handler);
-          return Promise.resolve(() => {});
-        }
-      ),
-    };
-  }
-);
+const CONVERSATION_ID = 'conversation-1';
+
+const { detailMock, eventsSinceMock, listenMock, listeners } = vi.hoisted(() => {
+  const listeners = [] as Array<(batch: ConversationRowOpBatch) => void>;
+  return {
+    listeners,
+    detailMock: vi.fn(),
+    eventsSinceMock: vi.fn(),
+    listenMock: vi.fn((handler: (batch: ConversationRowOpBatch) => void) => {
+      listeners.push(handler);
+      return Promise.resolve(() => {});
+    }),
+  };
+});
 
 vi.mock('./conversationApi', () => ({
   conversationApi: {
@@ -39,7 +41,7 @@ vi.mock('./events', () => ({
 function detail(): DbConversationDetail {
   return {
     summary: {
-      id: 'conversation-1',
+      id: CONVERSATION_ID,
       workspace_id: 'workspace-1',
       task_id: null,
       title: 'Conversation',
@@ -53,44 +55,78 @@ function detail(): DbConversationDetail {
       parent_session_id: null,
       parent_tool_use_id: null,
       delegation_call_id: null,
-      created_at: '2026-06-14T00:00:00.000Z',
-      updated_at: '2026-06-14T00:00:00.000Z',
+      created_at: '2026-07-03T00:00:00.000Z',
+      updated_at: '2026-07-03T00:00:00.000Z',
     },
     turns: [],
     timeline: {
-      conversation_id: 'conversation-1',
-      projection_version: 1,
+      conversation_id: CONVERSATION_ID,
+      projection_version: 2,
       last_sequence: 0n,
       rows: [],
     },
-    projection_version: 1,
+    projection_version: 2,
   };
 }
 
-function event(
-  sequence: bigint,
-  event: ConversationEventEnvelope['event'] = {
-    kind: 'assistant_text_delta',
-    text: 'hello',
-    message_id: null,
-  }
-): ConversationEventEnvelope {
+function messageTurn(
+  id: string,
+  role: 'user' | 'assistant',
+  blocks: ContentBlock[]
+): MessageTurn {
+  return { id, role, blocks, timestamp: '2026-07-03T00:00:00.000Z' };
+}
+
+function userRow(turnId: string, text: string, revision: bigint): TimelineRow {
   return {
-    id: `event-${sequence}`,
-    conversation_id: 'conversation-1',
-    turn_id: 'turn-1',
-    sequence,
-    source: 'acp',
-    created_at: '2026-06-14T00:00:00.000Z',
-    event,
+    row_id: `${turnId}:user`,
+    revision,
+    row: {
+      kind: 'message_turn',
+      phase: 'persisted',
+      turn: messageTurn(`${turnId}:user`, 'user', [{ type: 'text', text }]),
+    },
+  };
+}
+
+function assistantRow(
+  turnId: string,
+  text: string,
+  revision: bigint
+): TimelineRow {
+  return {
+    row_id: `${turnId}:assistant`,
+    revision,
+    row: {
+      kind: 'message_turn',
+      phase: 'settled',
+      turn: messageTurn(`${turnId}:assistant`, 'assistant', [
+        { type: 'text', text },
+      ]),
+    },
+  };
+}
+
+function batch(ops: ConversationRowOp[], lastSequence: bigint): ConversationRowOpBatch {
+  return {
+    conversation_id: CONVERSATION_ID,
+    last_sequence: lastSequence,
+    ops,
+    session_modes: null,
+    session_config_options: null,
+  };
+}
+
+function rowPage(rows: TimelineRow[], lastSequence: bigint) {
+  return {
+    conversation_id: CONVERSATION_ID,
+    after_sequence: 0n,
+    last_sequence: lastSequence,
+    rows,
   };
 }
 
 describe('useConversationTimeline', () => {
-  // The hook coalesces live events on requestAnimationFrame. Capture scheduled
-  // callbacks so tests can flush a frame deterministically (real rAF ids are
-  // positive, so the truthy ids here keep the hook's "already scheduled" guard
-  // working — a value of 0 would break it).
   let rafCallbacks: Array<FrameRequestCallback | null> = [];
 
   const flushFrames = () => {
@@ -103,6 +139,8 @@ describe('useConversationTimeline', () => {
     listeners.length = 0;
     detailMock.mockReset();
     eventsSinceMock.mockReset();
+    // The hook backfills rows once on subscribe; default to "nothing changed".
+    eventsSinceMock.mockResolvedValue(rowPage([], 0n));
     rafCallbacks = [];
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       rafCallbacks.push(cb);
@@ -117,55 +155,52 @@ describe('useConversationTimeline', () => {
     vi.unstubAllGlobals();
   });
 
-  it('loads projected detail and applies conversation events', async () => {
+  it('loads projected detail and applies row-op batches', async () => {
     detailMock.mockResolvedValue(detail());
 
     const { result } = renderHook(() =>
-      useConversationTimeline('conversation-1')
+      useConversationTimeline(CONVERSATION_ID)
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(listeners).toHaveLength(1));
 
     act(() => {
-      listeners[0]?.(event(1n));
+      listeners[0]?.(
+        batch(
+          [
+            { op: 'upsert', row: userRow('t1', 'q', 1n) },
+            { op: 'upsert', row: assistantRow('t1', 'hello', 2n) },
+          ],
+          2n
+        )
+      );
     });
     act(() => flushFrames());
 
-    await waitFor(() => expect(result.current.timeline).toHaveLength(1));
-    expect(result.current.timeline[0].turn.role).toBe('assistant');
+    await waitFor(() => expect(result.current.timeline).toHaveLength(2));
+    expect(result.current.timeline.map((row) => row.turn.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
   });
 
-  it('recovers the user turn when the first realtime event starts after sequence one', async () => {
+  it('backfills changed rows on subscribe', async () => {
     detailMock.mockResolvedValue(detail());
-    eventsSinceMock.mockResolvedValue({
-      conversation_id: 'conversation-1',
-      after_sequence: 0n,
-      last_sequence: 2n,
-      has_more: false,
-      events: [
-        event(1n, {
-          kind: 'user_turn_created',
-          blocks: [{ kind: 'text', text: 'sent message' }],
-        }),
-        event(2n),
-      ],
-    });
+    eventsSinceMock.mockResolvedValue(
+      rowPage([userRow('t1', 'sent message', 1n), assistantRow('t1', 'ok', 2n)], 2n)
+    );
 
     const { result } = renderHook(() =>
-      useConversationTimeline('conversation-1')
+      useConversationTimeline(CONVERSATION_ID)
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-
-    act(() => {
-      listeners[0]?.(event(2n));
-    });
-
     await waitFor(() =>
       expect(eventsSinceMock).toHaveBeenCalledWith({
-        conversationId: 'conversation-1',
-        afterSequence: 0n,
-        limit: 200,
+        conversationId: CONVERSATION_ID,
+        afterSequence: 0,
+        limit: 500,
       })
     );
     await waitFor(() => expect(result.current.timeline).toHaveLength(2));
@@ -175,39 +210,37 @@ describe('useConversationTimeline', () => {
     ]);
   });
 
-  it('folds streamed realtime deltas into a single assistant turn', async () => {
+  it('accumulates streamed text deltas into one assistant bubble', async () => {
     detailMock.mockResolvedValue(detail());
 
     const { result } = renderHook(() =>
-      useConversationTimeline('conversation-1')
+      useConversationTimeline(CONVERSATION_ID)
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     await waitFor(() => expect(listeners).toHaveLength(1));
 
     act(() => {
-      listeners[0]?.(
-        event(1n, {
-          kind: 'user_turn_created',
-          blocks: [{ kind: 'text', text: 'stream please' }],
-        })
-      );
+      listeners[0]?.(batch([{ op: 'upsert', row: userRow('t1', 'go', 1n) }], 1n));
       for (let index = 0; index < 24; index += 1) {
         listeners[0]?.(
-          event(BigInt(index + 2), {
-            kind: 'assistant_text_delta',
-            text: 'x',
-            message_id: null,
-          })
+          batch(
+            [
+              {
+                op: 'append_text',
+                row_id: 't1:assistant',
+                revision: BigInt(index + 2),
+                stream: 'text',
+                delta: 'x',
+              },
+            ],
+            BigInt(index + 2)
+          )
         );
       }
     });
-    // One frame coalesces the whole burst into a single dispatch.
     act(() => flushFrames());
 
-    // Every contiguous delta is applied (no gap backfill) and folded into one
-    // assistant turn once the per-frame flush settles.
-    expect(eventsSinceMock).not.toHaveBeenCalled();
     expect(result.current.timeline).toHaveLength(2);
     const assistant = result.current.timeline.find(
       (row) => row.turn.role === 'assistant'

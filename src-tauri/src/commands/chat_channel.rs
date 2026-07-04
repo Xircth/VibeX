@@ -29,8 +29,9 @@ use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use services::services::chat_delivery::{
-    RichMessage, build_rich, deliver_rich, event_key, feishu_tenant_token, http_client,
-    should_send, telegram_post,
+    RichMessage, build_rich, channel_has_token, delete_channel_token, deliver_rich, event_key,
+    feishu_tenant_token, http_client, import_legacy_channel_tokens, load_channel_token,
+    load_channel_tokens, save_channel_token, should_send, telegram_post,
 };
 use sqlx::{FromRow, SqlitePool};
 use tauri::{AppHandle, Manager};
@@ -45,7 +46,6 @@ use crate::{
 };
 
 const SETTINGS_FILE_NAME: &str = "chat-channel-settings.json";
-const SECRETS_FILE_NAME: &str = "chat-channel-secrets.json";
 
 const DEFAULT_EVENTS: &[&str] = &[
     "prompt_started",
@@ -114,10 +114,31 @@ impl Default for ChatChannelStore {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct ChatChannelSecrets {
+#[derive(Default, serde::Deserialize)]
+struct LegacyChannelSecrets {
     #[serde(default)]
-    tokens: HashMap<String, String>,
+    tokens: std::collections::HashMap<String, String>,
+}
+
+/// Migrate legacy plaintext-JSON channel tokens into ~/.vibex/.env (ADR-0004), once
+/// per process. Reads the old `chat-channel-secrets.json`, imports its tokens into the
+/// .env store, then deletes the old file. Idempotent (the file is gone afterwards).
+async fn ensure_secrets_migrated() -> Result<(), AppError> {
+    static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+    MIGRATED
+        .get_or_try_init(|| async {
+            let legacy = utils::assets::asset_dir().join("chat-channel-secrets.json");
+            if legacy.exists() {
+                let secrets: LegacyChannelSecrets = read_json(legacy.clone()).await?;
+                if !secrets.tokens.is_empty() {
+                    import_legacy_channel_tokens(&secrets.tokens).await?;
+                }
+                let _ = tokio::fs::remove_file(&legacy).await;
+            }
+            Ok::<(), AppError>(())
+        })
+        .await
+        .map(|_| ())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -161,10 +182,6 @@ fn default_command_prefix() -> String {
 
 fn settings_path() -> PathBuf {
     utils::assets::asset_dir().join(SETTINGS_FILE_NAME)
-}
-
-fn secrets_path() -> PathBuf {
-    utils::assets::asset_dir().join(SECRETS_FILE_NAME)
 }
 
 async fn read_json<T>(path: PathBuf) -> Result<T, AppError>
@@ -239,20 +256,60 @@ async fn save_store(store: &ChatChannelStore) -> Result<(), AppError> {
     write_json(settings_path(), store).await
 }
 
-async fn load_secrets() -> Result<ChatChannelSecrets, AppError> {
-    read_json(secrets_path()).await
-}
-
-async fn save_secrets(secrets: &ChatChannelSecrets) -> Result<(), AppError> {
-    write_json(secrets_path(), secrets).await
-}
-
 fn config_str(config: &Value, key: &str) -> String {
     config
         .get(key)
         .and_then(Value::as_str)
         .map(|s| s.trim().to_string())
         .unwrap_or_default()
+}
+
+/// Coerce a config value (string or number) into a comparable identity string.
+fn value_to_id(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// The set of trusted identities for a channel: any explicit `authorized_senders`
+/// plus the destination the operator already bound the bot to (`chat_id` for
+/// Telegram/Feishu, `target_id` for QQ). Empty means the channel trusts no one.
+fn authorized_identities(kind: &str, config: &Value) -> HashSet<String> {
+    let mut identities = HashSet::new();
+    if let Some(list) = config.get("authorized_senders").and_then(Value::as_array) {
+        for item in list {
+            if let Some(id) = value_to_id(item) {
+                identities.insert(id);
+            }
+        }
+    }
+    let destination_key = if kind == "qq" { "target_id" } else { "chat_id" };
+    if let Some(id) = config.get(destination_key).and_then(value_to_id) {
+        identities.insert(id);
+    }
+    identities
+}
+
+/// Decide whether an inbound sender may run commands on a channel.
+///
+/// Fail-closed: a channel with no explicit allowlist and no bound destination
+/// authorizes nobody. Otherwise a message is authorized when either its sender
+/// identity or its originating chat/group identity is in the trusted set.
+fn is_sender_authorized(kind: &str, config: &Value, sender_id: &str, chat_id: &str) -> bool {
+    let identities = authorized_identities(kind, config);
+    if identities.is_empty() {
+        return false;
+    }
+    identities.contains(sender_id) || identities.contains(chat_id)
 }
 
 fn require_field(config: &Value, key: &str, label: &str) -> Result<String, AppError> {
@@ -311,7 +368,7 @@ fn normalize_payload(payload: ChatChannelPayload) -> Result<ChatChannelPayload, 
     })
 }
 
-fn hydrate_channel(record: &ChatChannelRecord, secrets: &ChatChannelSecrets) -> ChatChannel {
+fn hydrate_channel(record: &ChatChannelRecord, has_token: bool) -> ChatChannel {
     let config = if record.config.is_null() {
         json!({})
     } else {
@@ -323,7 +380,7 @@ fn hydrate_channel(record: &ChatChannelRecord, secrets: &ChatChannelSecrets) -> 
         kind: record.kind.clone(),
         enabled: record.enabled,
         config,
-        has_token: secrets.tokens.contains_key(&record.id),
+        has_token,
         created_at: record.created_at.clone(),
         updated_at: record.updated_at.clone(),
     }
@@ -335,21 +392,23 @@ fn hydrate_channel(record: &ChatChannelRecord, secrets: &ChatChannelSecrets) -> 
 
 #[tauri::command]
 pub async fn list_chat_channels() -> Result<Vec<ChatChannel>, AppError> {
+    ensure_secrets_migrated().await?;
     let store = load_store().await?;
-    let secrets = load_secrets().await?;
+    let ids: Vec<String> = store.channels.iter().map(|c| c.id.clone()).collect();
+    let tokens = load_channel_tokens(&ids).await;
     Ok(store
         .channels
         .iter()
-        .map(|record| hydrate_channel(record, &secrets))
+        .map(|record| hydrate_channel(record, tokens.contains_key(&record.id)))
         .collect())
 }
 
 #[tauri::command]
 pub async fn create_chat_channel(payload: ChatChannelPayload) -> Result<ChatChannel, AppError> {
+    ensure_secrets_migrated().await?;
     let token = payload.token.clone();
     let payload = normalize_payload(payload)?;
     let mut store = load_store().await?;
-    let mut secrets = load_secrets().await?;
     let now = Utc::now().to_rfc3339();
     let record = ChatChannelRecord {
         id: Uuid::new_v4().to_string(),
@@ -362,18 +421,15 @@ pub async fn create_chat_channel(payload: ChatChannelPayload) -> Result<ChatChan
         updated_at: now,
     };
 
-    let mut secrets_dirty = false;
+    let mut has_token = false;
     if let Some(token) = token.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-        secrets.tokens.insert(record.id.clone(), token.to_string());
-        secrets_dirty = true;
+        save_channel_token(&record.id, token).await?;
+        has_token = true;
     }
 
-    let channel = hydrate_channel(&record, &secrets);
+    let channel = hydrate_channel(&record, has_token);
     store.channels.push(record);
     save_store(&store).await?;
-    if secrets_dirty {
-        save_secrets(&secrets).await?;
-    }
     Ok(channel)
 }
 
@@ -382,10 +438,10 @@ pub async fn update_chat_channel(
     channel_id: String,
     payload: ChatChannelPayload,
 ) -> Result<ChatChannel, AppError> {
+    ensure_secrets_migrated().await?;
     let token = payload.token.clone();
     let payload = normalize_payload(payload)?;
     let mut store = load_store().await?;
-    let mut secrets = load_secrets().await?;
     {
         let record = store
             .channels
@@ -400,26 +456,23 @@ pub async fn update_chat_channel(
         record.updated_at = Utc::now().to_rfc3339();
     }
 
-    let mut secrets_dirty = false;
     if let Some(token) = token.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-        secrets.tokens.insert(channel_id.clone(), token.to_string());
-        secrets_dirty = true;
+        save_channel_token(&channel_id, token).await?;
     }
 
     save_store(&store).await?;
-    if secrets_dirty {
-        save_secrets(&secrets).await?;
-    }
+    let has = channel_has_token(&channel_id).await;
     let record = store
         .channels
         .iter()
         .find(|channel| channel.id == channel_id)
         .expect("channel exists after update");
-    Ok(hydrate_channel(record, &secrets))
+    Ok(hydrate_channel(record, has))
 }
 
 #[tauri::command]
 pub async fn delete_chat_channel(channel_id: String) -> Result<(), AppError> {
+    ensure_secrets_migrated().await?;
     let mut store = load_store().await?;
     let original_len = store.channels.len();
     store.channels.retain(|channel| channel.id != channel_id);
@@ -429,10 +482,7 @@ pub async fn delete_chat_channel(channel_id: String) -> Result<(), AppError> {
         )));
     }
     save_store(&store).await?;
-    let mut secrets = load_secrets().await?;
-    if secrets.tokens.remove(&channel_id).is_some() {
-        save_secrets(&secrets).await?;
-    }
+    delete_channel_token(&channel_id).await?;
     Ok(())
 }
 
@@ -441,6 +491,7 @@ pub async fn save_chat_channel_token(
     channel_id: String,
     token: String,
 ) -> Result<ChatChannel, AppError> {
+    ensure_secrets_migrated().await?;
     let store = load_store().await?;
     let record = store
         .channels
@@ -451,42 +502,38 @@ pub async fn save_chat_channel_token(
     if token.is_empty() {
         return Err(AppError::BadRequest("Token cannot be empty".to_string()));
     }
-    let mut secrets = load_secrets().await?;
-    secrets.tokens.insert(channel_id, token.to_string());
-    save_secrets(&secrets).await?;
-    Ok(hydrate_channel(record, &secrets))
+    save_channel_token(&channel_id, token).await?;
+    Ok(hydrate_channel(record, true))
 }
 
 #[tauri::command]
 pub async fn get_chat_channel_has_token(channel_id: String) -> Result<bool, AppError> {
-    let secrets = load_secrets().await?;
-    Ok(secrets.tokens.contains_key(&channel_id))
+    ensure_secrets_migrated().await?;
+    Ok(channel_has_token(&channel_id).await)
 }
 
 #[tauri::command]
 pub async fn delete_chat_channel_token(channel_id: String) -> Result<(), AppError> {
-    let mut secrets = load_secrets().await?;
-    if secrets.tokens.remove(&channel_id).is_some() {
-        save_secrets(&secrets).await?;
-    }
+    ensure_secrets_migrated().await?;
+    delete_channel_token(&channel_id).await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn test_chat_channel(channel_id: String) -> Result<ChatChannelTestResult, AppError> {
+    ensure_secrets_migrated().await?;
     let store = load_store().await?;
-    let secrets = load_secrets().await?;
     let channel = store
         .channels
         .iter()
         .find(|channel| channel.id == channel_id)
         .ok_or_else(|| AppError::NotFound(format!("Chat channel not found: {channel_id}")))?;
 
-    let token = secrets.tokens.get(&channel.id).map(String::as_str);
+    let token = load_channel_token(&channel.id).await;
     let msg = RichMessage::info("这是一条来自 VibeX 设置页的测试消息。")
         .with_title("🔔 VibeX 测试通知")
         .with_field("渠道", channel.name.clone());
-    match deliver_rich(&channel.kind, &channel.config, token, &msg).await {
+    match deliver_rich(&channel.kind, &channel.config, token.as_deref(), &msg).await {
         Ok(status) => Ok(ChatChannelTestResult {
             ok: true,
             status,
@@ -564,6 +611,7 @@ pub async fn set_chat_include_prompt_text(enabled: bool) -> Result<bool, AppErro
 }
 
 pub async fn notify_agent_event(envelope: &AgentEventEnvelope) -> Result<(), AppError> {
+    ensure_secrets_migrated().await.ok();
     let Some(event) = event_key(&envelope.event) else {
         return Ok(());
     };
@@ -573,14 +621,15 @@ pub async fn notify_agent_event(envelope: &AgentEventEnvelope) -> Result<(), App
         return Ok(());
     }
 
-    let secrets = load_secrets().await?;
+    let ids: Vec<String> = store.channels.iter().map(|c| c.id.clone()).collect();
+    let tokens = load_channel_tokens(&ids).await;
     let msg = build_rich(&envelope.event, store.include_prompt_text);
 
     for channel in store.channels.iter().filter(|channel| channel.enabled) {
         if !should_send(&channel.id, event, msg.level) {
             continue;
         }
-        let token = secrets.tokens.get(&channel.id).map(String::as_str);
+        let token = tokens.get(&channel.id).map(String::as_str);
         if let Err(error) = deliver_rich(&channel.kind, &channel.config, token, &msg).await {
             tracing::warn!(
                 channel_id = %channel.id,
@@ -646,6 +695,7 @@ fn build_conversation_rich(
 pub async fn notify_conversation_event(
     envelope: &ConversationEventEnvelope,
 ) -> Result<(), AppError> {
+    ensure_secrets_migrated().await.ok();
     let Some(event) = conversation_event_key(&envelope.event) else {
         return Ok(());
     };
@@ -655,14 +705,15 @@ pub async fn notify_conversation_event(
         return Ok(());
     }
 
-    let secrets = load_secrets().await?;
+    let ids: Vec<String> = store.channels.iter().map(|c| c.id.clone()).collect();
+    let tokens = load_channel_tokens(&ids).await;
     let msg = build_conversation_rich(envelope, store.include_prompt_text);
 
     for channel in store.channels.iter().filter(|channel| channel.enabled) {
         if !should_send(&channel.id, event, msg.level) {
             continue;
         }
-        let token = secrets.tokens.get(&channel.id).map(String::as_str);
+        let token = tokens.get(&channel.id).map(String::as_str);
         if let Err(error) = deliver_rich(&channel.kind, &channel.config, token, &msg).await {
             tracing::warn!(
                 channel_id = %channel.id,
@@ -794,12 +845,14 @@ pub fn start_inbound_manager(app: AppHandle) {
 }
 
 async fn inbound_targets() -> Result<Vec<InboundTarget>, AppError> {
+    ensure_secrets_migrated().await.ok();
     let store = load_store().await?;
-    let secrets = load_secrets().await?;
+    let ids: Vec<String> = store.channels.iter().map(|c| c.id.clone()).collect();
+    let tokens = load_channel_tokens(&ids).await;
     let mut targets = Vec::new();
 
     for channel in store.channels.iter().filter(|c| c.enabled) {
-        let token = secrets.tokens.get(&channel.id).cloned().unwrap_or_default();
+        let token = tokens.get(&channel.id).cloned().unwrap_or_default();
         match channel.kind.as_str() {
             "telegram" => {
                 if token.trim().is_empty() {
@@ -878,6 +931,19 @@ async fn current_prefix() -> String {
         .unwrap_or_else(|_| default_command_prefix())
 }
 
+/// Load a channel's config and decide whether an inbound message may run
+/// commands. An unknown channel or a store-load failure is unauthorized
+/// (fail-closed): a channel we cannot resolve trusts no one.
+async fn authorize_inbound(channel_id: &str, sender_id: &str, chat_id: &str) -> bool {
+    let Ok(store) = load_store().await else {
+        return false;
+    };
+    match store.channels.iter().find(|c| c.id == channel_id) {
+        Some(channel) => is_sender_authorized(&channel.kind, &channel.config, sender_id, chat_id),
+        None => false,
+    }
+}
+
 // ── Telegram inbound (HTTP long-poll) ──
 
 fn spawn_telegram_loop(
@@ -927,8 +993,15 @@ fn spawn_telegram_loop(
                     .unwrap_or_default();
 
                 let prefix = current_prefix().await;
-                let reply =
-                    dispatch_command(text.trim(), &prefix, &app, &channel_id, &sender_id).await;
+                let reply = dispatch_command(
+                    text.trim(),
+                    &prefix,
+                    &app,
+                    &channel_id,
+                    &sender_id,
+                    &chat_id.to_string(),
+                )
+                .await;
                 if reply.is_empty() {
                     continue;
                 }
@@ -1043,7 +1116,15 @@ async fn handle_qq_event(
         .unwrap_or_default();
 
     let prefix = current_prefix().await;
-    let reply = dispatch_command(&text, &prefix, app, channel_id, &sender_id).await;
+    let reply = dispatch_command(
+        &text,
+        &prefix,
+        app,
+        channel_id,
+        &sender_id,
+        &source_id.to_string(),
+    )
+    .await;
     if reply.is_empty() {
         return;
     }
@@ -1301,7 +1382,7 @@ async fn handle_feishu_event(
         .to_string();
 
     let prefix = current_prefix().await;
-    let reply = dispatch_command(&text, &prefix, app, channel_id, &sender_id).await;
+    let reply = dispatch_command(&text, &prefix, app, channel_id, &sender_id, chat_id).await;
     if reply.is_empty() {
         return;
     }
@@ -1340,7 +1421,14 @@ async fn dispatch_command(
     app: &AppHandle,
     channel_id: &str,
     sender_id: &str,
+    chat_id: &str,
 ) -> String {
+    // P0-0 security gate — fail-closed authorization at the single inbound
+    // entry point. Unauthorized messages are silently dropped (empty reply) so
+    // an unbound bot cannot be probed for command surface.
+    if !authorize_inbound(channel_id, sender_id, chat_id).await {
+        return String::new();
+    }
     let Some(rest) = text.strip_prefix(prefix) else {
         return String::new();
     };
@@ -1629,5 +1717,70 @@ async fn send_task(
     match result {
         Ok(_) => format!("✅ 已发送到对话 {}", short_id(&target.id.to_string())),
         Err(error) => format!("❌ 发送失败：{error}"),
+    }
+}
+
+#[cfg(test)]
+mod inbound_authorization_tests {
+    use super::*;
+    use serde_json::json;
+
+    // Fail-closed: a channel with no destination identity and no explicit
+    // allowlist authorizes nobody — an unconfigured channel is a closed door.
+    #[test]
+    fn empty_config_authorizes_nobody() {
+        assert!(!is_sender_authorized(
+            "telegram",
+            &json!({}),
+            "12345",
+            "12345"
+        ));
+    }
+
+    // The chat the operator bound the bot to is trusted: a message arriving
+    // from that same chat_id is authorized even without an explicit allowlist.
+    #[test]
+    fn telegram_bound_chat_is_authorized() {
+        let config = json!({ "chat_id": "555" });
+        assert!(is_sender_authorized("telegram", &config, "999", "555"));
+    }
+
+    // A message from a different chat than the bound one, whose sender is not
+    // explicitly allow-listed, is rejected.
+    #[test]
+    fn telegram_foreign_chat_is_rejected() {
+        let config = json!({ "chat_id": "555" });
+        assert!(!is_sender_authorized("telegram", &config, "999", "777"));
+    }
+
+    // An explicitly allow-listed sender is authorized regardless of which chat
+    // the message arrived from.
+    #[test]
+    fn explicit_authorized_sender_is_allowed_from_any_chat() {
+        let config = json!({ "chat_id": "555", "authorized_senders": ["999"] });
+        assert!(is_sender_authorized("telegram", &config, "999", "unknown-chat"));
+    }
+
+    // QQ scopes on `target_id` (the bound group / number), not `chat_id`.
+    #[test]
+    fn qq_bound_target_is_authorized() {
+        let config = json!({ "target_id": "group-42" });
+        assert!(is_sender_authorized("qq", &config, "sender-1", "group-42"));
+        assert!(!is_sender_authorized("qq", &config, "sender-1", "group-99"));
+    }
+
+    // An empty explicit allowlist does not widen access; with no other
+    // identity to match it stays fail-closed.
+    #[test]
+    fn empty_allowlist_stays_closed() {
+        let config = json!({ "authorized_senders": [] });
+        assert!(!is_sender_authorized("feishu", &config, "abc", "def"));
+    }
+
+    // Identity values stored as JSON numbers match string inbound ids.
+    #[test]
+    fn numeric_config_identity_matches_string_id() {
+        let config = json!({ "chat_id": 555 });
+        assert!(is_sender_authorized("telegram", &config, "999", "555"));
     }
 }

@@ -8,6 +8,7 @@
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{Mutex as StdMutex, OnceLock},
     time::{Duration, Instant},
 };
@@ -570,5 +571,171 @@ pub fn event_key(event: &AgentEvent) -> Option<&'static str> {
             | AgentConnectionStatus::Ready => Some("connection_status_changed"),
         },
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// IM channel secret store — plaintext `~/.vibex/.env` (ADR-0004)
+// ---------------------------------------------------------------------------
+//
+// A deliberate, user-decided deviation from "desktop apps put secrets in the OS
+// keychain": IM channel tokens live plaintext in `~/.vibex/.env` (perms 0600), traded
+// for zero dependencies + directly editable/backup-able simplicity. Scope is strictly
+// IM channel secrets — model-provider API keys / MCP env keep their existing homes.
+
+/// Absolute path to the plaintext IM secret file (`~/.vibex/.env`).
+pub fn im_env_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".vibex").join(".env"))
+}
+
+/// Env var name holding a channel's token. Channel ids (uuid-ish) are normalized to an
+/// env-safe key; the same channel id always maps to the same key, so lookups are stable.
+fn token_key(channel_id: &str) -> String {
+    let sanitized: String = channel_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .collect();
+    format!("CHAT_CHANNEL_TOKEN_{sanitized}")
+}
+
+async fn read_env_lines(path: &PathBuf) -> Vec<String> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(content) => content.lines().map(str::to_string).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+async fn write_env_lines(path: &PathBuf, lines: &[String]) -> Result<(), NotificationError> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|error| {
+            NotificationError::Internal(format!("Failed to create {}: {error}", parent.display()))
+        })?;
+    }
+    let mut body = lines.join("\n");
+    if !body.is_empty() {
+        body.push('\n');
+    }
+    tokio::fs::write(path, body).await.map_err(|error| {
+        NotificationError::Internal(format!("Failed to write {}: {error}", path.display()))
+    })?;
+    // Best-effort 0600 (owner read/write only); the file holds plaintext secrets.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await;
+    }
+    Ok(())
+}
+
+fn line_value_for(lines: &[String], key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
+    lines
+        .iter()
+        .find(|line| line.starts_with(&prefix))
+        .map(|line| line[prefix.len()..].to_string())
+}
+
+/// The token stored for `channel_id`, or `None`.
+pub async fn load_channel_token(channel_id: &str) -> Option<String> {
+    let path = im_env_path()?;
+    let lines = read_env_lines(&path).await;
+    line_value_for(&lines, &token_key(channel_id)).filter(|value| !value.is_empty())
+}
+
+/// Whether a (non-empty) token is stored for `channel_id`.
+pub async fn channel_has_token(channel_id: &str) -> bool {
+    load_channel_token(channel_id).await.is_some()
+}
+
+/// Read the file once and return `id -> token` for every id in `channel_ids` that has a
+/// non-empty token. For the hydrate / notify loops that need many channels' tokens.
+pub async fn load_channel_tokens(channel_ids: &[String]) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Some(path) = im_env_path() else {
+        return out;
+    };
+    let lines = read_env_lines(&path).await;
+    for id in channel_ids {
+        if let Some(value) = line_value_for(&lines, &token_key(id))
+            && !value.is_empty()
+        {
+            out.insert(id.clone(), value);
+        }
+    }
+    out
+}
+
+/// One-time migration of legacy plaintext-JSON channel tokens into `~/.vibex/.env`
+/// (ADR-0004). Writes each `(channel_id, token)` and reports success so the caller can
+/// delete the old file. Idempotent: re-running just re-upserts the same values.
+pub async fn import_legacy_channel_tokens(
+    tokens: &HashMap<String, String>,
+) -> Result<(), NotificationError> {
+    for (channel_id, token) in tokens {
+        if !token.trim().is_empty() {
+            save_channel_token(channel_id, token).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Upsert a channel's token, preserving every other line in the file.
+pub async fn save_channel_token(channel_id: &str, token: &str) -> Result<(), NotificationError> {
+    let path =
+        im_env_path().ok_or_else(|| NotificationError::Internal("no home directory".into()))?;
+    let key = token_key(channel_id);
+    let entry = format!("{key}={token}");
+    let mut lines = read_env_lines(&path).await;
+    let prefix = format!("{key}=");
+    if let Some(existing) = lines.iter_mut().find(|line| line.starts_with(&prefix)) {
+        *existing = entry;
+    } else {
+        lines.push(entry);
+    }
+    write_env_lines(&path, &lines).await
+}
+
+/// Remove a channel's token line (no-op if absent).
+pub async fn delete_channel_token(channel_id: &str) -> Result<(), NotificationError> {
+    let Some(path) = im_env_path() else {
+        return Ok(());
+    };
+    let prefix = format!("{}=", token_key(channel_id));
+    let mut lines = read_env_lines(&path).await;
+    let before = lines.len();
+    lines.retain(|line| !line.starts_with(&prefix));
+    if lines.len() != before {
+        write_env_lines(&path, &lines).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod im_secret_tests {
+    use super::*;
+
+    #[test]
+    fn token_key_is_env_safe_and_stable() {
+        let key = token_key("abc-123-DEF");
+        assert_eq!(key, "CHAT_CHANNEL_TOKEN_ABC_123_DEF");
+        assert_eq!(token_key("abc-123-DEF"), key, "same id → same key");
+    }
+
+    #[test]
+    fn upsert_and_read_preserve_other_lines() {
+        // Pure line-level logic (no filesystem): an upsert replaces only its own key.
+        let mut lines = vec![
+            "# comment".to_string(),
+            "OTHER=keepme".to_string(),
+            "CHAT_CHANNEL_TOKEN_C1=old".to_string(),
+        ];
+        let key = "CHAT_CHANNEL_TOKEN_C1";
+        let prefix = format!("{key}=");
+        if let Some(existing) = lines.iter_mut().find(|l| l.starts_with(&prefix)) {
+            *existing = format!("{key}=new");
+        }
+        assert_eq!(line_value_for(&lines, key).as_deref(), Some("new"));
+        assert_eq!(line_value_for(&lines, "OTHER").as_deref(), Some("keepme"));
+        assert!(lines.contains(&"# comment".to_string()));
     }
 }

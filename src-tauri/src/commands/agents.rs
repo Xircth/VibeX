@@ -1,12 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Component, Path, PathBuf},
 };
 
 use agents::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentConfigSurface, AgentConnectionId,
     AgentConnectionSnapshot, AgentContentBlock, AgentHistorySource, AgentInstallPlan,
-    AgentMcpConfig, AgentMcpSurface, AgentPermissionId, AgentPermissionRequest,
+    AgentMcpConfig, AgentMcpSurface, AgentPermissionId,
     AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
     AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
     AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
@@ -18,8 +18,8 @@ use agents::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
-    agent_runtime::{AgentRuntimeStore, InsertAgentHistoryImport},
     agent_setting::AgentSetting,
+    conversation_bundle::{ConversationImportRecord, InsertConversationImport},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -199,24 +199,10 @@ pub async fn agent_install_plans() -> Result<Vec<AgentInstallPlan>, AppError> {
 pub async fn agent_runtime_snapshot(
     state: tauri::State<'_, AppState>,
 ) -> Result<RuntimeSnapshot, AppError> {
-    let mut snapshot = state.agent_runtime.snapshot().await;
-    let mut seen_permission_ids = snapshot
-        .permissions
-        .iter()
-        .map(|request| request.id)
-        .collect::<HashSet<_>>();
-    let records =
-        AgentRuntimeStore::list_pending_permission_requests(&state.deployment.db().pool).await?;
-
-    for record in records {
-        let request: AgentPermissionRequest = serde_json::from_str(&record.request_json)
-            .map_err(|error| AppError::Internal(error.to_string()))?;
-        if seen_permission_ids.insert(request.id) {
-            snapshot.permissions.push(request);
-        }
-    }
-
-    Ok(snapshot)
+    // The live runtime is authoritative for pending permissions now that startup
+    // recovery (ADR-0001) voids orphaned ones — the old merge from the retired
+    // `agent_permissions` shadow table has no reason to exist (批次D).
+    Ok(state.agent_runtime.snapshot().await)
 }
 
 #[tauri::command]
@@ -696,37 +682,33 @@ async fn persist_history_import(
     state: &tauri::State<'_, AppState>,
     session: &ImportedAgentSession,
 ) -> Result<(), AppError> {
+    // The `agent_history_imports` shadow table is retired (批次D); history-import
+    // metadata now lives in the canonical `conversation_imports` table. Title /
+    // workspace_path / message_count aren't columns there, but the full session is
+    // preserved in `raw_json`.
     let raw_json =
         serde_json::to_string(session).map_err(|error| AppError::Internal(error.to_string()))?;
-    let id = Uuid::new_v4().to_string();
     let source_agent = serde_json::to_value(session.source_agent)
         .map_err(|error| AppError::Internal(error.to_string()))?
         .as_str()
         .unwrap_or("unknown")
         .to_string();
-    let workspace_path = session
-        .workspace_path
-        .as_ref()
-        .and_then(|path| path.to_str())
-        .map(str::to_string);
     let raw_source_path = session
         .raw_source_path
         .as_ref()
         .and_then(|path| path.to_str())
         .map(str::to_string);
-    let imported_at = chrono::Utc::now().to_rfc3339();
-    AgentRuntimeStore::insert_history_import(
+    ConversationImportRecord::insert(
         &state.deployment.db().pool,
-        InsertAgentHistoryImport {
-            id: &id,
-            source_agent: &source_agent,
-            external_session_id: &session.external_session_id,
-            title: session.title.as_deref(),
-            workspace_path: workspace_path.as_deref(),
+        InsertConversationImport {
+            id: Uuid::new_v4(),
+            source: "agent_transcript",
+            source_agent: Some(&source_agent),
+            external_session_id: Some(&session.external_session_id),
+            bundle_version: None,
             raw_source_path: raw_source_path.as_deref(),
-            message_count: session.messages.len() as i64,
+            imported_conversation_id: None,
             raw_json: &raw_json,
-            imported_at: &imported_at,
         },
     )
     .await?;

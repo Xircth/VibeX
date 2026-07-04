@@ -8,12 +8,9 @@ use deployment::Deployment;
 use local_deployment::{LocalDeployment, pty::PtyService};
 use tokio::sync::Mutex;
 
-use crate::{
-    commands::{
-        desktop_toast::DesktopToastPayload,
-        local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
-    },
-    events::agent_runtime_sink,
+use crate::commands::{
+    desktop_toast::DesktopToastPayload,
+    local_usage::{ProjectUsageProviderStatus, ProjectUsageSessionSummary},
 };
 
 #[derive(Default)]
@@ -58,7 +55,10 @@ impl AppState {
         let deployment = LocalDeployment::new().await?;
         let pty = deployment.pty().clone();
         let pool = deployment.db().pool.clone();
-        let agent_runtime = Arc::new(AgentRuntime::new(agent_runtime_sink(pool.clone())));
+        // The event-sourced `conversation_events` log is the single authoritative
+        // record (批次D). The first-generation `agent_*` shadow tables are retired, so
+        // the runtime uses the no-op sink instead of the old SQLite mirror.
+        let agent_runtime = Arc::new(AgentRuntime::default());
         // Build the delegation broker over the runtime + DB and start its
         // listener + resolver. Live from startup; ClaudeCode MCP injection (so
         // the agent auto-calls it) lands in a follow-up.

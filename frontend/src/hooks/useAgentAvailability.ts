@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BaseCodingAgent } from 'shared/types';
+import { AgentKind } from 'shared/types';
 import { configApi } from '../lib/api';
 
 export type AgentAvailabilityState =
@@ -10,7 +10,7 @@ export type AgentAvailabilityState =
   | null;
 
 export function useAgentAvailability(
-  agent: BaseCodingAgent | null | undefined
+  agent: AgentKind | null | undefined
 ): AgentAvailabilityState {
   const [availability, setAvailability] =
     useState<AgentAvailabilityState>(null);

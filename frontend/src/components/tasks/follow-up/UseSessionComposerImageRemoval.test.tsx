@@ -7,11 +7,10 @@ import {
   useState,
 } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import type { SessionComposerImage } from './SessionComposerInput';
 import { useSessionComposerImageRemoval } from './useSessionComposerImageRemoval';
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 function renderImageRemovalHook({
   initialImages,

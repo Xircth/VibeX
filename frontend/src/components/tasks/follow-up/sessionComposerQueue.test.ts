@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import {
   buildCancelQueueMutationInput,
   buildQueueMutationInput,
@@ -13,7 +12,7 @@ import {
   type QueueStatus,
 } from './sessionComposerQueue';
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 function queuedStatus({
   message = 'queued text',

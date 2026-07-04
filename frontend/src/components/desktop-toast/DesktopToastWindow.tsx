@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Send, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { BaseCodingAgent, type Session } from 'shared/types';
+import { AgentKind, type Session } from 'shared/types';
 import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 import { sessionsApi } from '@/lib/api';
 import { conversationApi } from '@/features/conversation/conversationApi';
@@ -38,7 +38,7 @@ function resolveAgentType(session: Session): AgentType {
     return session.agent_type as AgentType;
   }
   if (session.executor) {
-    return agentTypeFromExecutor(session.executor as BaseCodingAgent);
+    return agentTypeFromExecutor(session.executor as AgentKind);
   }
   throw new Error('无法确定该会话的智能体类型');
 }

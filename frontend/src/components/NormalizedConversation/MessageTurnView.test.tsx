@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import { MessageTurnView } from './MessageTurnView';
 
 const { markdownMock } = vi.hoisted(() => ({
@@ -152,7 +151,7 @@ describe('MessageTurnView', () => {
           {
             id: 'attempt-1',
             container_ref: null,
-            session: { executor: BaseCodingAgent.CLAUDE_CODE },
+            session: { executor: 'claude_code' as const },
           } as never
         }
         task={null}

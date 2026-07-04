@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { BaseCodingAgent } from 'shared/types';
+import type { AgentKind } from 'shared/types';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { useCreateSession } from './useCreateSession';
 
@@ -11,7 +11,7 @@ interface UseSessionSendOptions {
   /** Whether in new session mode */
   isNewSessionMode: boolean;
   /** Effective executor for new sessions */
-  effectiveExecutor: BaseCodingAgent | null;
+  effectiveExecutor: AgentKind | null;
   /** Callback when session is selected (to exit new session mode) */
   onSelectSession?: (sessionId: string) => void;
 }

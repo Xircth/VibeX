@@ -1,9 +1,9 @@
-import type { BaseCodingAgent, SessionContinuityMode } from 'shared/types';
+import type { AgentKind, SessionContinuityMode } from 'shared/types';
 
 export function getExecutorContinuityMode(
-  executor?: BaseCodingAgent | string | null
+  executor?: AgentKind | string | null
 ): SessionContinuityMode {
-  if (executor === 'CODEX' || executor === 'OPENCODE') {
+  if (executor === 'codex' || executor === 'opencode') {
     return 'fork_snapshot';
   }
   return 'resume_in_place';

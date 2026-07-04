@@ -1,7 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 
 const { createMock, sendTurnMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
@@ -31,7 +30,7 @@ function renderFollowUpSend() {
         workspaceId: 'ws-1',
         isNewSessionMode: true,
         message: '你好',
-        executorProfileId: { executor: BaseCodingAgent.CODEX } as never,
+        executorProfileId: { executor: 'codex' as const } as never,
         conflictMarkdown: null,
         reviewMarkdown: '',
         clearComments: vi.fn(),

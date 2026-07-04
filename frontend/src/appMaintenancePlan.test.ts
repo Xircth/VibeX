@@ -16,12 +16,12 @@ const config: AppMaintenanceConfig = {
 
 function tool(overrides: Partial<LocalToolStatus> = {}): LocalToolStatus {
   return {
-    id: 'codex',
+    id: 'codex' as const,
     label: 'Codex',
     kind: 'npm',
     group_id: 'agents',
     user_visible: true,
-    executable: 'codex',
+    executable: 'codex' as const,
     npm_package: '@openai/codex',
     installed: true,
     executable_path: 'C:/tools/codex.cmd',

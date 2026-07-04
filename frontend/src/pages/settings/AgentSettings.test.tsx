@@ -33,20 +33,20 @@ vi.mock('@/lib/api', () => ({
 function mockRegistry() {
   agentsApiMock.listRegistry.mockResolvedValue([
     {
-      agent_type: 'codex',
+      agent_type: 'codex' as const,
       registry_id: 'codex-acp',
       name: 'Codex',
       description: 'Codex ACP',
       distribution: {
         kind: 'binary',
         version: '1.0.0',
-        cmd: 'codex',
+        cmd: 'codex' as const,
         args: ['acp'],
         platforms: [],
       },
     },
     {
-      agent_type: 'gemini',
+      agent_type: 'gemini' as const,
       registry_id: 'gemini-acp',
       name: 'Gemini',
       description: 'Gemini ACP',
@@ -54,7 +54,7 @@ function mockRegistry() {
         kind: 'npx',
         version: '1.0.0',
         package: '@google/gemini-cli',
-        cmd: 'gemini',
+        cmd: 'gemini' as const,
         args: [],
         node_required: '20.0.0',
       },
@@ -62,7 +62,7 @@ function mockRegistry() {
   ]);
   agentsApiMock.listConfigSurfaces.mockResolvedValue([
     {
-      agent_type: 'codex',
+      agent_type: 'codex' as const,
       strategy: 'file_toml',
       auth_paths: [],
       config_paths: [
@@ -74,25 +74,25 @@ function mockRegistry() {
       ],
     },
     {
-      agent_type: 'gemini',
+      agent_type: 'gemini' as const,
       strategy: 'directory',
       auth_paths: [],
       config_paths: [],
     },
   ]);
   agentsApiMock.listMcpSurfaces.mockResolvedValue([
-    { agent_type: 'codex', strategy: 'file_toml', user_visible: true },
-    { agent_type: 'gemini', strategy: 'agent_command', user_visible: true },
+    { agent_type: 'codex' as const, strategy: 'file_toml', user_visible: true },
+    { agent_type: 'gemini' as const, strategy: 'agent_command', user_visible: true },
   ]);
   agentsApiMock.listSkillsSurfaces.mockResolvedValue([
     {
-      agent_type: 'codex',
+      agent_type: 'codex' as const,
       strategy: 'directory',
       global_supported: true,
       project_supported: true,
     },
     {
-      agent_type: 'gemini',
+      agent_type: 'gemini' as const,
       strategy: 'agent_command',
       global_supported: true,
       project_supported: false,
@@ -100,26 +100,26 @@ function mockRegistry() {
   ]);
   agentsApiMock.listInstallPlans.mockResolvedValue([
     {
-      agent_type: 'codex',
+      agent_type: 'codex' as const,
       required_tools: [],
       user_visible_summary: 'Install Codex',
       distribution: {
         kind: 'binary',
         version: '1.0.0',
-        cmd: 'codex',
+        cmd: 'codex' as const,
         args: ['acp'],
         platforms: [],
       },
     },
     {
-      agent_type: 'gemini',
+      agent_type: 'gemini' as const,
       required_tools: ['node>=20.0.0'],
       user_visible_summary: 'Install Gemini',
       distribution: {
         kind: 'npx',
         version: '1.0.0',
         package: '@google/gemini-cli',
-        cmd: 'gemini',
+        cmd: 'gemini' as const,
         args: [],
         node_required: '20.0.0',
       },
@@ -128,7 +128,7 @@ function mockRegistry() {
   agentSettingsApiMock.list.mockResolvedValue([
     {
       id: 1,
-      agent_type: 'codex',
+      agent_type: 'codex' as const,
       enabled: true,
       sort_order: 0,
       installed_version: '0.9.0',
@@ -191,7 +191,7 @@ describe('AgentSettings', () => {
     mockRegistry();
     agentSettingsApiMock.updatePreferences.mockResolvedValue({
       id: 1,
-      agent_type: 'codex',
+      agent_type: 'codex' as const,
       enabled: false,
       sort_order: 0,
       installed_version: '0.9.0',
@@ -207,7 +207,7 @@ describe('AgentSettings', () => {
 
     await waitFor(() => {
       expect(agentSettingsApiMock.updatePreferences).toHaveBeenCalledWith({
-        agentType: 'codex',
+        agentType: 'codex' as const,
         enabled: false,
       });
     });
@@ -242,7 +242,7 @@ describe('AgentSettings', () => {
     await user.click(screen.getByRole('button', { name: '立即检查' }));
 
     await waitFor(() => {
-      expect(agentSettingsApiMock.preflight).toHaveBeenCalledWith('codex');
+      expect(agentSettingsApiMock.preflight).toHaveBeenCalledWith('codex' as const);
     });
     expect(screen.getByText('运行入口可用。')).toBeInTheDocument();
     expect(screen.getByText('可用')).toBeInTheDocument();

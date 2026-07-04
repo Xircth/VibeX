@@ -1,9 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import { useSessionComposerSubmitActions } from './useSessionComposerSubmitActions';
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 function renderSubmitActions({
   localMessage = 'continue',

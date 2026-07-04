@@ -2,7 +2,7 @@ import type {
   Config,
   EditorType,
   CheckEditorAvailabilityResponse,
-  BaseCodingAgent,
+  AgentKind,
   McpServerQuery,
   UpdateMcpServersBody,
   SoundFile,
@@ -137,7 +137,7 @@ export const configApi = {
     );
   },
   checkAgentAvailability: async (
-    agent: BaseCodingAgent
+    agent: AgentKind
   ): Promise<AgentAvailabilityInfo> => {
     return tauriInvoke<AgentAvailabilityInfo>('check_agent_availability', {
       executor: agent,
@@ -657,8 +657,8 @@ export type McpAppType =
   | 'claude_code'
   | 'codex'
   | 'gemini'
-  | 'open_claw'
-  | 'open_code'
+  | 'openclaw'
+  | 'opencode'
   | 'cline'
   | 'hermes';
 

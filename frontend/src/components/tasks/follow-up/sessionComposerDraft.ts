@@ -1,5 +1,5 @@
 import type {
-  BaseCodingAgent,
+  AgentKind,
   DraftFollowUpData,
   ExecutorConfigs,
   ExecutorProfileId,
@@ -77,7 +77,7 @@ export function getDefaultExecutorProfile({
   latestProfileId: ExecutorProfileId | null;
   createdSessionProfiles: Record<string, ExecutorProfileId | undefined>;
   sessionId: string | null | undefined;
-  sessionExecutor: BaseCodingAgent | null | undefined;
+  sessionExecutor: AgentKind | null | undefined;
   configExecutorProfile: ExecutorProfileId | null | undefined;
   profiles: ExecutorConfigs['executors'] | null | undefined;
 }): ExecutorProfileId | null {

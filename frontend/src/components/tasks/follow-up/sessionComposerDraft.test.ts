@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  BaseCodingAgent,
-  type DraftFollowUpData,
+import { type DraftFollowUpData,
   type ExecutorConfigs,
   type Scratch,
 } from 'shared/types';
@@ -34,7 +32,7 @@ describe('session composer draft helpers', () => {
     const draft: DraftFollowUpData = {
       message: 'continue',
       images: ['vibe://image-1'],
-      executor_config: { executor: BaseCodingAgent.CODEX },
+      executor_config: { executor: 'codex' as const },
       queued: false,
     };
 
@@ -57,7 +55,7 @@ describe('session composer draft helpers', () => {
         message: '',
         images: [],
         executor_config: {
-          executor: BaseCodingAgent.CODEX,
+          executor: 'codex' as const,
           variant: 'REVIEW',
           model: 'gpt-5.4',
           fast_mode: false,
@@ -65,7 +63,7 @@ describe('session composer draft helpers', () => {
         queued: false,
       })
     ).toEqual({
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       variant: 'REVIEW',
       model: 'gpt-5.4',
       fast_mode: false,
@@ -77,14 +75,14 @@ describe('session composer draft helpers', () => {
         message: '',
         images: [],
         executor_profile_id: {
-          executor: BaseCodingAgent.CLAUDE_CODE,
+          executor: 'claude_code' as const,
           variant: null,
           model_id: 'claude-model',
           fast_mode: true,
         },
       })
     ).toEqual({
-      executor: BaseCodingAgent.CLAUDE_CODE,
+      executor: 'claude_code' as const,
       variant: null,
       model: 'claude-model',
       fast_mode: true,
@@ -96,7 +94,7 @@ describe('session composer draft helpers', () => {
   });
 
   it('skips only truly empty new drafts with default profile state', () => {
-    const profile = { executor: BaseCodingAgent.CODEX };
+    const profile = { executor: 'codex' as const };
 
     expect(
       shouldPersistDraftFollowUp({
@@ -151,7 +149,7 @@ describe('session composer draft helpers', () => {
 
   it('builds the scratch update payload expected by useScratch', () => {
     const profile = {
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       variant: null,
       model: 'gpt-5.4',
       fast_mode: true,
@@ -175,7 +173,7 @@ describe('session composer draft helpers', () => {
 
   it('autosaves profile changes only when the key changes after loading', () => {
     const profile = {
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       variant: 'PLAN',
       model: 'gpt-5.4',
       fast_mode: false,
@@ -187,7 +185,7 @@ describe('session composer draft helpers', () => {
       isScratchLoading: false,
     });
     expect(changed).toEqual({
-      previousProfileKey: 'CODEX:PLAN:gpt-5.4:false:REASONING_DEFAULT',
+      previousProfileKey: 'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
       shouldSaveDraft: true,
     });
 
@@ -204,33 +202,33 @@ describe('session composer draft helpers', () => {
 
     expect(
       getExecutorProfileAutosaveDecision({
-        previousProfileKey: 'CODEX:PLAN:gpt-5.4:false',
-        executorProfile: { executor: BaseCodingAgent.CLAUDE_CODE },
+        previousProfileKey: 'codex:PLAN:gpt-5.4:false',
+        executorProfile: { executor: 'claude_code' as const },
         isScratchLoading: true,
       })
     ).toEqual({
       previousProfileKey:
-        'CLAUDE_CODE:DEFAULT:DEFAULT:FAST_DEFAULT:REASONING_DEFAULT',
+        'claude_code:DEFAULT:DEFAULT:FAST_DEFAULT:REASONING_DEFAULT',
       shouldSaveDraft: false,
     });
 
     expect(
       getExecutorProfileAutosaveDecision({
         previousProfileKey:
-          'CODEX:PLAN:gpt-5.4:false:REASONING_DEFAULT',
-        executorProfile: { executor: BaseCodingAgent.CLAUDE_CODE },
+          'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
+        executorProfile: { executor: 'claude_code' as const },
         isScratchLoading: true,
       })
     ).toEqual({
       previousProfileKey:
-        'CLAUDE_CODE:DEFAULT:DEFAULT:FAST_DEFAULT:REASONING_DEFAULT',
+        'claude_code:DEFAULT:DEFAULT:FAST_DEFAULT:REASONING_DEFAULT',
       shouldSaveDraft: false,
     });
 
     expect(
       getExecutorProfileAutosaveDecision({
         previousProfileKey:
-          'CODEX:PLAN:gpt-5.4:false:REASONING_DEFAULT',
+          'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
         executorProfile: null,
         isScratchLoading: false,
       })
@@ -241,9 +239,9 @@ describe('session composer draft helpers', () => {
 
     expect(
       getExecutorProfileAutosaveDecision({
-        previousProfileKey: 'CODEX:PLAN:gpt-5.4:false',
+        previousProfileKey: 'codex:PLAN:gpt-5.4:false',
         executorProfile: {
-          executor: BaseCodingAgent.CODEX,
+          executor: 'codex' as const,
           variant: 'PLAN',
           model: 'gpt-5.4',
           fast_mode: false,
@@ -252,14 +250,14 @@ describe('session composer draft helpers', () => {
         isScratchLoading: false,
       })
     ).toEqual({
-      previousProfileKey: 'CODEX:PLAN:gpt-5.4:false:low',
+      previousProfileKey: 'codex:PLAN:gpt-5.4:false:low',
       shouldSaveDraft: true,
     });
   });
 
   it('decides when scratch changes should reset the selected executor profile', () => {
-    const planProfile = { executor: BaseCodingAgent.CODEX, variant: 'PLAN' };
-    const defaultProfile = { executor: BaseCodingAgent.CODEX, variant: null };
+    const planProfile = { executor: 'codex' as const, variant: 'PLAN' };
+    const defaultProfile = { executor: 'codex' as const, variant: null };
 
     expect(
       getScratchProfileResetDecision({
@@ -315,7 +313,7 @@ describe('session composer draft helpers', () => {
   });
 
   it('hydrates the default profile only once per scratch id after loading', () => {
-    const profile = { executor: BaseCodingAgent.CODEX };
+    const profile = { executor: 'codex' as const };
 
     expect(
       getDefaultProfileHydrationDecision({
@@ -374,7 +372,7 @@ describe('session composer draft helpers', () => {
     const draft: DraftFollowUpData = {
       message: 'continue from scratch',
       images: ['vibe://image-1', 'vibe://image-2'],
-      executor_config: { executor: BaseCodingAgent.CODEX },
+      executor_config: { executor: 'codex' as const },
       queued: false,
     };
 
@@ -437,7 +435,7 @@ describe('session composer draft helpers', () => {
 
   it('applies scratch executor profiles once per scratch/profile key', () => {
     const profile = {
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       variant: 'PLAN',
       model: 'gpt-5.4',
       fast_mode: false,
@@ -495,24 +493,24 @@ describe('session composer draft helpers', () => {
 
   it('selects the default executor profile from the explicit source priority', () => {
     const scratchProfile = {
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       variant: 'SCRATCH',
     };
     const latestProfile = {
-      executor: BaseCodingAgent.CLAUDE_CODE,
+      executor: 'claude_code' as const,
       variant: 'LATEST',
     };
     const createdProfile = {
-      executor: BaseCodingAgent.OPENCODE,
+      executor: 'opencode' as const,
       variant: 'CREATED',
     };
     const configProfile = {
-      executor: BaseCodingAgent.GEMINI,
+      executor: 'gemini' as const,
       variant: 'CONFIG',
     };
     const profiles = {
-      [BaseCodingAgent.CLINE]: { DEFAULT: {} },
-      [BaseCodingAgent.OPENCLAW]: { MOBILE: {} },
+      ['cline' as const]: { DEFAULT: {} },
+      ['openclaw' as const]: { MOBILE: {} },
     } as unknown as ExecutorConfigs['executors'];
 
     const baseInput = {
@@ -522,7 +520,7 @@ describe('session composer draft helpers', () => {
         'session-1': createdProfile,
       },
       sessionId: 'session-1',
-      sessionExecutor: BaseCodingAgent.HERMES,
+      sessionExecutor: 'hermes' as const,
       configExecutorProfile: configProfile,
       profiles,
     };
@@ -548,7 +546,7 @@ describe('session composer draft helpers', () => {
         latestProfileId: null,
         sessionId: 'unknown-session',
       })
-    ).toEqual({ executor: BaseCodingAgent.HERMES, variant: null });
+    ).toEqual({ executor: 'hermes' as const, variant: null });
     expect(
       getDefaultExecutorProfile({
         ...baseInput,
@@ -567,7 +565,7 @@ describe('session composer draft helpers', () => {
         sessionExecutor: null,
         configExecutorProfile: null,
       })
-    ).toEqual({ executor: BaseCodingAgent.CLINE, variant: null });
+    ).toEqual({ executor: 'cline' as const, variant: null });
     expect(
       getDefaultExecutorProfile({
         ...baseInput,

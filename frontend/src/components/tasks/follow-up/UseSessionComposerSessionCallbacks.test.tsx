@@ -1,11 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { type MutableRefObject, type RefObject } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId } from 'shared/types';
 import { useSessionComposerSessionCallbacks } from './useSessionComposerSessionCallbacks';
 
 const planProfile = {
-  executor: BaseCodingAgent.CODEX,
+  executor: 'codex' as const,
   variant: 'PLAN',
 };
 

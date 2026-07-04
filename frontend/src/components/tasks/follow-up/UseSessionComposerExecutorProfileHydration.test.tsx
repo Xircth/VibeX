@@ -1,19 +1,19 @@
 import { renderHook } from '@testing-library/react';
 import { useRef, useState, type MutableRefObject } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId } from 'shared/types';
 import { useSessionComposerExecutorProfileHydration } from './useSessionComposerExecutorProfileHydration';
 
 const defaultProfile = {
-  executor: BaseCodingAgent.CODEX,
+  executor: 'codex' as const,
   variant: null,
 };
 const planProfile = {
-  executor: BaseCodingAgent.CODEX,
+  executor: 'codex' as const,
   variant: 'PLAN',
 };
 const scratchProfile = {
-  executor: BaseCodingAgent.CLAUDE_CODE,
+  executor: 'claude_code' as const,
   variant: 'REVIEW',
 };
 
@@ -96,7 +96,7 @@ describe('useSessionComposerExecutorProfileHydration', () => {
     rerender({
       scratchId: 'session-1',
       scratchExecutorProfile: null,
-      defaultExecutorProfile: { executor: BaseCodingAgent.OPENCODE },
+      defaultExecutorProfile: { executor: 'opencode' as const },
       initialSelectedExecutorProfile: null,
       isScratchLoading: false,
       localMessage: '',

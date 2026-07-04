@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import { sendAgentRuntimeTurn } from './sendAgentRuntimeTurn';
 
 const { startTurnMock } = vi.hoisted(() => ({
@@ -26,7 +25,7 @@ describe('sendAgentRuntimeTurn', () => {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
       executorProfileId: {
-        executor: BaseCodingAgent.CODEX,
+        executor: 'codex' as const,
         variant: null,
         model: 'gpt-5.4',
       },
@@ -37,11 +36,11 @@ describe('sendAgentRuntimeTurn', () => {
     });
 
     expect(startTurnMock).toHaveBeenCalledWith({
-      agentType: 'codex',
+      agentType: 'codex' as const,
       workspaceId: 'workspace-1',
       conversationId: 'session-1',
       executorProfileId: {
-        executor: BaseCodingAgent.CODEX,
+        executor: 'codex' as const,
         variant: null,
         model: 'gpt-5.4',
       },
@@ -66,7 +65,7 @@ describe('sendAgentRuntimeTurn', () => {
       workspaceId: 'workspace-1',
       sessionId: 'session-1',
       executorProfileId: {
-        executor: BaseCodingAgent.CODEX,
+        executor: 'codex' as const,
         variant: null,
         model: 'gpt-5.4',
       },

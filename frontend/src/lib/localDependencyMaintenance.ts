@@ -13,7 +13,7 @@ export interface LocalDependencyStatusPresentation {
 const AGENT_DEPENDENCY_GROUPS: Record<string, string> = {
   claude_code: 'claude',
   codex: 'codex',
-  open_code: 'opencode',
+  opencode: 'opencode',
 };
 
 function formatVersion(version: string | null, fallback = '未安装'): string {

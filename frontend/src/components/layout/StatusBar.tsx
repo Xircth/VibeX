@@ -4,15 +4,15 @@ import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { APP_NAME } from '@/lib/branding';
 import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
-import { BaseCodingAgent } from 'shared/types';
+import { AgentKind } from 'shared/types';
 
 const CORE_AGENTS = [
-  BaseCodingAgent.CLAUDE_CODE,
-  BaseCodingAgent.CODEX,
-  BaseCodingAgent.OPENCODE,
+  'claude_code',
+  'codex',
+  'opencode',
 ] as const;
 
-function AgentStatusLight({ agent }: { agent: BaseCodingAgent }) {
+function AgentStatusLight({ agent }: { agent: AgentKind }) {
   const availability = useAgentAvailability(agent);
   const isOnline =
     availability?.status === 'login_detected' ||

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import {
   buildQueuedFollowUp,
@@ -13,7 +12,7 @@ import {
   hasFollowUpContent,
 } from './sessionComposerSubmit';
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 describe('session composer submit helpers', () => {
   it('detects follow-up content from text, context, or images', () => {

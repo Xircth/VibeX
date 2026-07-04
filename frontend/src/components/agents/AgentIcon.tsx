@@ -1,33 +1,35 @@
 import { Bot } from 'lucide-react';
-import { BaseCodingAgent, ThemeMode } from 'shared/types';
+import { ThemeMode } from 'shared/types';
+import type { AgentKind } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
 import { cn } from '@/lib/utils';
 
 type AgentIconProps = {
-  agent: BaseCodingAgent | null | undefined;
+  agent: AgentKind | null | undefined;
   className?: string;
 };
 
-/** Display name for every agent. Exhaustive over `BaseCodingAgent`. */
-const AGENT_NAMES: Record<BaseCodingAgent, string> = {
-  [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code',
-  [BaseCodingAgent.CODEX]: 'Codex',
-  [BaseCodingAgent.OPENCODE]: 'OpenCode',
-  [BaseCodingAgent.GEMINI]: 'Gemini',
-  [BaseCodingAgent.OPENCLAW]: 'OpenClaw',
-  [BaseCodingAgent.CLINE]: 'Cline',
-  [BaseCodingAgent.HERMES]: 'Hermes',
+/** Display name for every agent. Exhaustive over `AgentKind`. */
+const AGENT_NAMES: Record<AgentKind, string> = {
+  ['claude_code']: 'Claude Code',
+  ['codex']: 'Codex',
+  ['opencode']: 'OpenCode',
+  ['gemini']: 'Gemini',
+  ['openclaw']: 'OpenClaw',
+  ['cline']: 'Cline',
+  ['hermes']: 'Hermes',
+  ['qa_mock']: 'QA Mock',
 };
 
 /**
  * Agents that ship a themed SVG under `public/agents`. Agents missing here fall
  * back to a generic glyph so the picker never renders a broken image.
  */
-const AGENT_ICON_BASENAMES: Partial<Record<BaseCodingAgent, string>> = {
-  [BaseCodingAgent.CLAUDE_CODE]: 'claude',
-  [BaseCodingAgent.CODEX]: 'codex',
-  [BaseCodingAgent.OPENCODE]: 'opencode',
-  [BaseCodingAgent.GEMINI]: 'gemini',
+const AGENT_ICON_BASENAMES: Partial<Record<AgentKind, string>> = {
+  ['claude_code']: 'claude',
+  ['codex']: 'codex',
+  ['opencode']: 'opencode',
+  ['gemini']: 'gemini',
 };
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
@@ -40,7 +42,7 @@ function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
 }
 
 export function getAgentName(
-  agent: BaseCodingAgent | null | undefined
+  agent: AgentKind | null | undefined
 ): string {
   if (!agent) return 'Agent';
   return AGENT_NAMES[agent] ?? agent;

@@ -265,11 +265,11 @@ const COLOR_ICONS: Partial<Record<AgentType, AnyIcon>> = {
   claude_code: ClaudeCodeColorIcon,
   codex: CodexColorIcon,
   gemini: GeminiCliColorIcon,
-  open_claw: OpenClawColorIcon,
+  openclaw: OpenClawColorIcon,
 };
 
 const MONO_ICONS: Partial<Record<AgentType, AnyIcon>> = {
-  open_code: OpenCodeMonoIcon,
+  opencode: OpenCodeMonoIcon,
   cline: ClineMonoIcon,
   hermes: HermesMonoIcon,
 };

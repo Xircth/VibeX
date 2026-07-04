@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { AgentKind, type ExecutorProfileId } from 'shared/types';
 import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSessions';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import {
@@ -51,7 +51,7 @@ function workspaceOption(
 }
 
 function executorProfile(
-  executor: BaseCodingAgent
+  executor: AgentKind
 ): ExecutorProfileId {
   return { executor } as ExecutorProfileId;
 }
@@ -60,7 +60,7 @@ describe('session hub data helpers', () => {
   const sessions = [
     session('codex-main', {
       workspaceId: 'workspace-main',
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       status: 'todo',
     }),
     session('unassigned-feature', {
@@ -70,7 +70,7 @@ describe('session hub data helpers', () => {
     }),
     session('claude-main', {
       workspaceId: 'workspace-main',
-      executor: BaseCodingAgent.CLAUDE_CODE,
+      executor: 'claude_code' as const,
       status: 'done',
     }),
   ];
@@ -82,11 +82,11 @@ describe('session hub data helpers', () => {
         label: '未设置代理',
       },
       {
-        value: BaseCodingAgent.CLAUDE_CODE,
+        value: 'claude_code' as const,
         label: 'Claude Code',
       },
       {
-        value: BaseCodingAgent.CODEX,
+        value: 'codex' as const,
         label: 'Codex',
       },
     ]);
@@ -97,7 +97,7 @@ describe('session hub data helpers', () => {
       filterKanbanSessions({
         sessions,
         workspaceFilterIds: ['workspace-main'],
-        executorFilterValues: [BaseCodingAgent.CODEX],
+        executorFilterValues: ['codex' as const],
       }).map((candidate) => candidate.id)
     ).toEqual(['codex-main']);
 
@@ -223,14 +223,14 @@ describe('session hub data helpers', () => {
           }),
         ],
         sessionName: '  Ship fix  ',
-        executorProfile: executorProfile(BaseCodingAgent.CODEX),
+        executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'main' }],
       })
     ).toEqual({
       project_id: 'project-1',
       workspace_id: 'workspace-1',
       branch: null,
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       name: 'Ship fix',
       create_workspace: false,
       repos: undefined,
@@ -250,14 +250,14 @@ describe('session hub data helpers', () => {
           }),
         ],
         sessionName: '   ',
-        executorProfile: executorProfile(BaseCodingAgent.CLAUDE_CODE),
+        executorProfile: executorProfile('claude_code' as const),
         repoInputs: undefined,
       })
     ).toEqual({
       project_id: 'project-1',
       workspace_id: null,
       branch: 'feature/new',
-      executor: BaseCodingAgent.CLAUDE_CODE,
+      executor: 'claude_code' as const,
       name: null,
       create_workspace: false,
       repos: undefined,
@@ -270,14 +270,14 @@ describe('session hub data helpers', () => {
         workspaceValue: '',
         workspaceBranchOptions: [],
         sessionName: 'New workspace',
-        executorProfile: executorProfile(BaseCodingAgent.CODEX),
+        executorProfile: executorProfile('codex' as const),
         repoInputs: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
       })
     ).toEqual({
       project_id: 'project-1',
       workspace_id: null,
       branch: null,
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       name: 'New workspace',
       create_workspace: true,
       repos: [{ repo_id: 'repo-1', target_branch: 'feature/new' }],
@@ -313,7 +313,7 @@ describe('session hub data helpers', () => {
   it('derives create-session submit enablement', () => {
     expect(
       getCanCreateKanbanSession({
-        executorProfile: executorProfile(BaseCodingAgent.CODEX),
+        executorProfile: executorProfile('codex' as const),
         isPending: false,
         mode: 'existing_workspace',
         selectedWorkspaceOption: workspaceOption({}),
@@ -324,7 +324,7 @@ describe('session hub data helpers', () => {
 
     expect(
       getCanCreateKanbanSession({
-        executorProfile: executorProfile(BaseCodingAgent.CODEX),
+        executorProfile: executorProfile('codex' as const),
         isPending: false,
         mode: 'new_workspace',
         selectedWorkspaceOption: null,
@@ -346,7 +346,7 @@ describe('session hub data helpers', () => {
 
     expect(
       getCanCreateKanbanSession({
-        executorProfile: executorProfile(BaseCodingAgent.CODEX),
+        executorProfile: executorProfile('codex' as const),
         isPending: true,
         mode: 'existing_workspace',
         selectedWorkspaceOption: workspaceOption({}),
@@ -357,7 +357,7 @@ describe('session hub data helpers', () => {
 
     expect(
       getCanCreateKanbanSession({
-        executorProfile: { executor: BaseCodingAgent.CODEX } as never,
+        executorProfile: { executor: 'codex' as const } as never,
         isPending: false,
         mode: 'new_workspace',
         selectedWorkspaceOption: null,

@@ -38,8 +38,8 @@ export function DollarCommandTypeaheadPlugin() {
   const { setIsOpen } = useTypeaheadOpen();
   const isThisMenuOpenRef = useRef(false);
   const { data: localSkills = [], refetch: refetchLocalSkills } = useQuery({
-    queryKey: ['local-agent-skills', 'CODEX'],
-    queryFn: () => skillsApi.listLocal('CODEX'),
+    queryKey: ['local-agent-skills', 'codex'],
+    queryFn: () => skillsApi.listLocal('codex'),
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,

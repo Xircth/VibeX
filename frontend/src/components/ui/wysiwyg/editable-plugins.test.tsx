@@ -1,7 +1,7 @@
 import type { Transformer } from '@lexical/markdown';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId } from 'shared/types';
 
 vi.mock('@lexical/react/LexicalAutoFocusPlugin', () => ({
   AutoFocusPlugin: () => <div data-testid="auto-focus-plugin" />,
@@ -160,7 +160,7 @@ describe('WysiwygEditablePlugins', () => {
         repoIds={['repo-a', 'repo-b']}
         repoId="repo-1"
         executorProfile={
-          { executor: BaseCodingAgent.CODEX } as ExecutorProfileId
+          { executor: 'codex' as const } as ExecutorProfileId
         }
         onCmdEnter={onCmdEnter}
         onShiftCmdEnter={onShiftCmdEnter}

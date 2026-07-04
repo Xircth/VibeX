@@ -1,7 +1,7 @@
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BaseCodingAgent } from 'shared/types';
+import { AgentKind } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
@@ -258,7 +258,7 @@ export function TaskFollowUpSection({
       latestProfileId,
       createdSessionProfiles,
       sessionId: session?.id,
-      sessionExecutor: session?.executor as BaseCodingAgent | null | undefined,
+      sessionExecutor: session?.executor as AgentKind | null | undefined,
       configExecutorProfile: config?.executor_profile,
       profiles,
     });
@@ -346,8 +346,8 @@ export function TaskFollowUpSection({
   }, [sessionId]);
   const codexGoalState = useMemo(() => {
     if (
-      effectiveExecutorProfile?.executor !== BaseCodingAgent.CODEX &&
-      effectiveExecutorProfile?.executor !== BaseCodingAgent.CLAUDE_CODE
+      effectiveExecutorProfile?.executor !== 'codex' &&
+      effectiveExecutorProfile?.executor !== 'claude_code'
     ) {
       return null;
     }

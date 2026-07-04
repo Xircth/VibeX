@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { BaseCodingAgent } from 'shared/types';
+import type { AgentKind } from 'shared/types';
 import { agentSettingsApi } from '@/lib/api';
 import { agentsApi } from './api';
 import { baseCodingAgentFromAgentType } from './agentTypeMapping';
 
 export type SelectableAgent = {
-  agent: BaseCodingAgent;
+  agent: AgentKind;
   /** The user has not disabled this agent in settings. */
   enabled: boolean;
   /** A local binary/runtime was detected for this agent. */
@@ -39,7 +39,7 @@ export function useSelectableAgents(): SelectableAgent[] {
     const settingByType = new Map(
       (settings ?? []).map((setting) => [setting.agent_type, setting])
     );
-    const seen = new Set<BaseCodingAgent>();
+    const seen = new Set<AgentKind>();
     const result: SelectableAgent[] = [];
     for (const entry of registry) {
       const agent = baseCodingAgentFromAgentType(entry.agent_type);

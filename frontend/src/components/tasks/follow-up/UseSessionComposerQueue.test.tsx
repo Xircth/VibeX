@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
 import { useSessionComposerQueue } from './useSessionComposerQueue';
 
@@ -14,7 +13,7 @@ vi.mock('@/features/agents/sendAgentRuntimeTurn', () => ({
   sendAgentRuntimeTurn: sendAgentRuntimeTurnMock,
 }));
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 function queuedStatus(message = 'queued text'): Extract<
   QueueStatus,

@@ -1,4 +1,4 @@
-import { BaseCodingAgent } from 'shared/types';
+import type { AgentKind } from 'shared/types';
 
 /**
  * Canonical display name for every coding agent the type system knows about.
@@ -9,29 +9,32 @@ import { BaseCodingAgent } from 'shared/types';
  * actually select is gated by `getSupportedAgents`, which reads the backend's
  * real executor profiles. Names beyond the runnable set are forward-compat only.
  */
-export const AGENT_DISPLAY_NAMES: Record<BaseCodingAgent, string> = {
-  [BaseCodingAgent.CLAUDE_CODE]: 'Claude Code',
-  [BaseCodingAgent.CODEX]: 'Codex',
-  [BaseCodingAgent.OPENCODE]: 'OpenCode',
-  [BaseCodingAgent.GEMINI]: 'Gemini',
-  [BaseCodingAgent.OPENCLAW]: 'OpenClaw',
-  [BaseCodingAgent.CLINE]: 'Cline',
-  [BaseCodingAgent.HERMES]: 'Hermes',
+export const AGENT_DISPLAY_NAMES: Record<AgentKind, string> = {
+  ['claude_code']: 'Claude Code',
+  ['codex']: 'Codex',
+  ['opencode']: 'OpenCode',
+  ['gemini']: 'Gemini',
+  ['openclaw']: 'OpenClaw',
+  ['cline']: 'Cline',
+  ['hermes']: 'Hermes',
+  ['qa_mock']: 'QA Mock',
 };
 
 /** Alias kept for call sites that type an agent value. */
-export type SupportedAgent = BaseCodingAgent;
+export type SupportedAgent = AgentKind;
 
-const KNOWN_AGENTS: ReadonlySet<string> = new Set(Object.values(BaseCodingAgent));
+const KNOWN_AGENTS: ReadonlySet<string> = new Set(
+  Object.keys(AGENT_DISPLAY_NAMES)
+);
 
-/** Validity guard: is this string a known `BaseCodingAgent` enum member? */
-export function isKnownAgent(agent: string): agent is BaseCodingAgent {
+/** Validity guard: is this string a known `AgentKind`? */
+export function isKnownAgent(agent: string): agent is AgentKind {
   return KNOWN_AGENTS.has(agent);
 }
 
 /** Friendly display name for an agent, falling back to the raw id. */
 export function getAgentDisplayName(agent: string): string {
-  return AGENT_DISPLAY_NAMES[agent as BaseCodingAgent] ?? agent;
+  return AGENT_DISPLAY_NAMES[agent as AgentKind] ?? agent;
 }
 
 /**
@@ -42,9 +45,9 @@ export function getAgentDisplayName(agent: string): string {
  */
 export function getSupportedAgents(
   profiles: Record<string, unknown> | null | undefined
-): BaseCodingAgent[] {
+): AgentKind[] {
   if (!profiles) return [];
-  return (Object.keys(profiles).filter(isKnownAgent) as BaseCodingAgent[]).sort(
+  return (Object.keys(profiles).filter(isKnownAgent) as AgentKind[]).sort(
     (a, b) => a.localeCompare(b)
   );
 }

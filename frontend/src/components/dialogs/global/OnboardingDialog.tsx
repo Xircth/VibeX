@@ -25,7 +25,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Logo } from '@/components/Logo';
-import { BaseCodingAgent, EditorType } from 'shared/types';
+import { AgentKind, EditorType } from 'shared/types';
 import type { EditorConfig, ExecutorProfileId } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useClaudeSettings } from '@/hooks/useClaudeSettings';
@@ -89,7 +89,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
 
   const [profile, setProfile] = useState<ExecutorProfileId>(
     config?.executor_profile || {
-      executor: BaseCodingAgent.CLAUDE_CODE,
+      executor: 'claude_code',
       variant: null,
     }
   );
@@ -100,8 +100,8 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
   const editorAvailability = useEditorAvailability(editorType);
   const agentAvailability = useAgentAvailability(profile.executor);
 
-  const isClaudeCode = profile.executor === BaseCodingAgent.CLAUDE_CODE;
-  const isCodex = profile.executor === BaseCodingAgent.CODEX;
+  const isClaudeCode = profile.executor === 'claude_code';
+  const isCodex = profile.executor === 'codex';
   const codexModelOptions = isCodex ? getCodexModelOptions(profiles) : [];
   const codexVariantConfig = isCodex
     ? getCodexVariantConfig(profiles, profile.variant ?? null)
@@ -150,7 +150,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               <Select
                 value={profile.executor}
                 onValueChange={(v) => {
-                  setProfile({ executor: v as BaseCodingAgent, variant: null });
+                  setProfile({ executor: v as AgentKind, variant: null });
                   setClaudeModel('sonnet');
                 }}
               >
@@ -159,7 +159,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                 </SelectTrigger>
                 <SelectContent>
                   {profiles &&
-                    (Object.keys(profiles) as BaseCodingAgent[])
+                    (Object.keys(profiles) as AgentKind[])
                       .sort()
                       .map((agent) => (
                         <SelectItem key={agent} value={agent}>

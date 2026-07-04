@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, ScratchType, type ExecutorProfileId } from 'shared/types';
+import { AgentKind, ScratchType, type ExecutorProfileId } from 'shared/types';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { useKanbanSessionMutations } from './useKanbanSessionMutations';
 
@@ -23,7 +23,7 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-function executorProfile(executor: BaseCodingAgent): ExecutorProfileId {
+function executorProfile(executor: AgentKind): ExecutorProfileId {
   return { executor } as ExecutorProfileId;
 }
 
@@ -89,7 +89,7 @@ describe('useKanbanSessionMutations', () => {
       await result.current.createSessionMutation.mutateAsync({
         workspaceValue: 'workspace:existing',
         sessionName: '  Ship fix  ',
-        executorProfile: executorProfile(BaseCodingAgent.CODEX),
+        executorProfile: executorProfile('codex' as const),
         mode: 'existing_workspace',
       });
     });
@@ -98,7 +98,7 @@ describe('useKanbanSessionMutations', () => {
       project_id: 'project-1',
       workspace_id: 'workspace-1',
       branch: null,
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       name: 'Ship fix',
       create_workspace: false,
       repos: undefined,
@@ -112,7 +112,7 @@ describe('useKanbanSessionMutations', () => {
           data: {
             message: '',
             images: [],
-            executor_config: executorProfile(BaseCodingAgent.CODEX),
+            executor_config: executorProfile('codex' as const),
             queued: false,
           },
         },

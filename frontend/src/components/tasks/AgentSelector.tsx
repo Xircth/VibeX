@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ExecutorProfileId, BaseCodingAgent } from 'shared/types';
+import type { ExecutorProfileId, AgentKind } from 'shared/types';
 import { isKnownAgent } from '@/constants/agents';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
@@ -36,7 +36,7 @@ export function AgentSelector({
   const selectable = useSelectableAgents();
   const agents = useMemo(() => {
     // agent -> installed. Disabled agents are dropped so they never appear.
-    const installedByAgent = new Map<BaseCodingAgent, boolean>();
+    const installedByAgent = new Map<AgentKind, boolean>();
     for (const item of selectable) {
       if (item.enabled) installedByAgent.set(item.agent, item.installed);
     }
@@ -45,7 +45,7 @@ export function AgentSelector({
     if (profiles) {
       for (const key of Object.keys(profiles)) {
         if (isKnownAgent(key)) {
-          installedByAgent.set(key as BaseCodingAgent, true);
+          installedByAgent.set(key as AgentKind, true);
         }
       }
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import {
-  BaseCodingAgent,
+  AgentKind,
   type ExecutorProfileId,
   type SlashCommandDescription,
 } from 'shared/types';
@@ -18,7 +18,7 @@ type SlashCommandsStreamState = {
 };
 
 function mergeSlashCommands(
-  executor: BaseCodingAgent | null | undefined,
+  executor: AgentKind | null | undefined,
   fallbackCommands: SlashCommandDescription[],
   streamedCommands: SlashCommandDescription[]
 ): SlashCommandDescription[] {

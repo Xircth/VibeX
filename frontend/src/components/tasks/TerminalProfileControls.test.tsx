@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ExecutorConfigs } from 'shared/types';
-import { BaseCodingAgent } from 'shared/types';
 import { TerminalProfileControls } from './TerminalProfileControls';
 
 vi.mock('@/hooks/useClaudeSettings', () => ({
@@ -9,7 +8,7 @@ vi.mock('@/hooks/useClaudeSettings', () => ({
 }));
 
 const profiles = {
-  CODEX: {
+  codex: {
     DEFAULT: {
       CODEX: {
         append_prompt: null,
@@ -34,7 +33,7 @@ describe('TerminalProfileControls', () => {
     render(
       <TerminalProfileControls
         profiles={profiles}
-        selectedProfile={{ executor: BaseCodingAgent.CODEX, variant: null }}
+        selectedProfile={{ executor: 'codex' as const, variant: null }}
         onChange={vi.fn()}
         lockExecutor={true}
         iconOnly={true}

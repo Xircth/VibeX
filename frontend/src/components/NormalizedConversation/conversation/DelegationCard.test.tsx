@@ -10,7 +10,7 @@ function running(
     delegation_id: 'delegation-1',
     parent_tool_call_id: 'tool-1',
     child_conversation_id: 'child-conversation-1',
-    agent_type: 'codex',
+    agent_type: 'codex' as const,
     task_preview: 'Review the diff',
     status: 'running',
     result: null,

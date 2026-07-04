@@ -1,14 +1,14 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId } from 'shared/types';
 import {
   useSessionComposerLocalState,
   useSessionComposerProfileSelection,
 } from './useSessionComposerLocalState';
 
-const codexProfile: ExecutorProfileId = { executor: BaseCodingAgent.CODEX };
+const codexProfile: ExecutorProfileId = { executor: 'codex' as const };
 const claudeProfile: ExecutorProfileId = {
-  executor: BaseCodingAgent.CLAUDE_CODE,
+  executor: 'claude_code' as const,
 };
 type ProfileProps = { defaultProfile: ExecutorProfileId | null };
 

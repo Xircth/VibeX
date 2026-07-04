@@ -1,24 +1,14 @@
-import { BaseCodingAgent } from 'shared/types';
+import type { AgentKind } from 'shared/types';
 import type { AgentType } from './types';
 
 /**
- * Reverse of `agentTypeFromExecutor`: maps an ACP runtime `AgentType` to the
- * `BaseCodingAgent` the executor-profile session flow uses as its identity.
+ * Maps an ACP runtime `AgentType` to the executor-profile identity.
  *
- * `BaseCodingAgent` now covers every ACP agent, so this mapping is total.
+ * After batch D2 the two agent-identity enums were unified into a single
+ * `AgentKind`, so this is now an identity mapping retained for call-site
+ * clarity (and to keep the `enabled/installed` join in `useSelectableAgents`
+ * readable).
  */
-const AGENT_TYPE_TO_BASE: Record<AgentType, BaseCodingAgent> = {
-  claude_code: BaseCodingAgent.CLAUDE_CODE,
-  codex: BaseCodingAgent.CODEX,
-  open_code: BaseCodingAgent.OPENCODE,
-  gemini: BaseCodingAgent.GEMINI,
-  open_claw: BaseCodingAgent.OPENCLAW,
-  cline: BaseCodingAgent.CLINE,
-  hermes: BaseCodingAgent.HERMES,
-};
-
-export function baseCodingAgentFromAgentType(
-  agentType: AgentType
-): BaseCodingAgent | null {
-  return AGENT_TYPE_TO_BASE[agentType] ?? null;
+export function baseCodingAgentFromAgentType(agentType: AgentType): AgentKind {
+  return agentType;
 }

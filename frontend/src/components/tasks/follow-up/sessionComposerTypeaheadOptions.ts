@@ -1,5 +1,5 @@
 import type {
-  BaseCodingAgent,
+  AgentKind,
   SlashCommandDescription,
 } from 'shared/types';
 import type { DollarCommandDescription } from '@/lib/dollarCommands';
@@ -21,7 +21,7 @@ export const MAX_REFERENCE_OPTIONS = 10;
 export function filterSlashCommands(
   all: SlashCommandDescription[],
   query: string,
-  executor: BaseCodingAgent | null | undefined
+  executor: AgentKind | null | undefined
 ): SlashCommandDescription[] {
   const q = query.trim().toLowerCase();
   if (!q) return all;
@@ -55,7 +55,7 @@ export function filterSlashCommands(
 export function slashCommandsToTypeaheadOptions(
   all: SlashCommandDescription[],
   query: string,
-  executor: BaseCodingAgent | null | undefined
+  executor: AgentKind | null | undefined
 ): ComposerTypeaheadOption[] {
   if (!executor) return [];
 

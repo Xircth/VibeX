@@ -14,7 +14,7 @@ use agents::{
     AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest,
     AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
     AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
-    AgentType, AgentUsage, CommandParts, DelegationResultSummary, ImportedAgentMessage,
+    AgentUsage, CommandParts, DelegationResultSummary, ImportedAgentMessage,
     ImportedAgentMessageRole, ImportedAgentSession, PathTemplate, PlatformBinary, RuntimeSnapshot,
     SystemCommand,
     conversation::{
@@ -45,9 +45,10 @@ use db::models::{
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
 use executors::{
-    executors::{BaseCodingAgent, SlashCommandDescription, SlashCommandKind},
+    executors::{SlashCommandDescription, SlashCommandKind},
     profile::ExecutorProfileId,
 };
+use api_types::AgentKind;
 use git::GitBranch;
 use services::services::config::Config;
 use ts_rs::TS;
@@ -185,6 +186,9 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
         std::sync::OnceLock::new();
     REMOVED.get_or_init(|| {
         std::collections::BTreeSet::from([
+            // 批次D2: AgentType + BaseCodingAgent unified into AgentKind (ADR-0002).
+            "AgentType",
+            "BaseCodingAgent",
             "CapabilitySource",
             "CapabilityState",
             "CapabilityStatus",
@@ -216,7 +220,9 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Config>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
-    insert_declaration::<BaseCodingAgent>(&mut decls);
+    // Single agent-identity enum (ADR-0002). Replaces the former AgentType +
+    // BaseCodingAgent TS declarations (tombstoned in `removed_declarations`).
+    insert_declaration::<AgentKind>(&mut decls);
     insert_declaration::<SlashCommandKind>(&mut decls);
     insert_declaration::<SlashCommandDescription>(&mut decls);
     insert_declaration::<TaskStatus>(&mut decls);
@@ -231,7 +237,6 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<WorkspaceRepo>(&mut decls);
     insert_declaration::<RepoWithTargetBranch>(&mut decls);
     insert_declaration::<GitBranch>(&mut decls);
-    insert_declaration::<AgentType>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);
     insert_declaration::<AgentAvailabilityInfo>(&mut decls);
     insert_declaration::<AgentRegistryEntry>(&mut decls);

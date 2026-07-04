@@ -1,14 +1,14 @@
 import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, type DraftFollowUpData } from 'shared/types';
+import { type DraftFollowUpData } from 'shared/types';
 import { useSessionComposerDraftHydration } from './useSessionComposerDraftHydration';
 import type { SessionComposerImageAttachment } from './sessionComposerImages';
 
 const draftData: DraftFollowUpData = {
   message: 'stored draft',
   images: ['.vibe-images/one.png', '.vibe-images/two.png'],
-  executor_config: { executor: BaseCodingAgent.CODEX },
+  executor_config: { executor: 'codex' as const },
   queued: false,
 };
 

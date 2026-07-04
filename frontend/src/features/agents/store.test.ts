@@ -13,7 +13,7 @@ describe('agent workbench store', () => {
       sequence: 4,
       registry: [
         {
-          agent_type: 'codex',
+          agent_type: 'codex' as const,
           registry_id: 'codex-acp',
           name: 'Codex CLI',
           description: 'ACP adapter',
@@ -67,7 +67,7 @@ describe('agent workbench store', () => {
         kind: 'connection_status_changed',
         snapshot: {
           id: 'connection',
-          agent_type: 'codex',
+          agent_type: 'codex' as const,
           workspace_id: 'workspace',
           status: 'connecting',
           working_dir: 'C:/work',

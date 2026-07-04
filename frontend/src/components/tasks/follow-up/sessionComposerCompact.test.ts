@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import {
   buildCompactContextTurnInput,
   getCompactContextErrorMessage,
   getIsCompactingContext,
 } from './sessionComposerCompact';
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 describe('session composer compact helpers', () => {
   it('builds compact turn input only when all gates are available', () => {

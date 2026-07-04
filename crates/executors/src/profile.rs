@@ -567,4 +567,28 @@ mod tests {
         assert_eq!(config.executor, BaseCodingAgent::ClaudeCode);
         assert_eq!(config.variant.as_deref(), Some("ROUTER"));
     }
+
+    #[test]
+    fn executor_profile_id_deserializes_legacy_screaming_executor() {
+        // 批次D2 / ADR-0002 old-DB acceptance: before AgentKind, BaseCodingAgent's serde
+        // was SCREAMING_SNAKE_CASE, so `scratch.selected_profile` / ExecutorAction payloads
+        // in existing databases store `"CLAUDE_CODE"` / `"OPENCODE"`. AgentKind's lenient
+        // read must still load them (now normalizing to canonical snake_case on re-write).
+        for (raw, expected) in [
+            (r#"{"executor":"CLAUDE_CODE"}"#, BaseCodingAgent::ClaudeCode),
+            (r#"{"executor":"OPENCODE"}"#, BaseCodingAgent::Opencode),
+            (r#"{"executor":"OPENCLAW","variant":"DEFAULT"}"#, BaseCodingAgent::Openclaw),
+        ] {
+            let profile: ExecutorProfileId =
+                serde_json::from_str(raw).expect("legacy SCREAMING executor should deserialize");
+            assert_eq!(profile.executor, expected, "parsing {raw}");
+            // Re-serialization converges on the canonical snake_case form.
+            let round = serde_json::to_string(&profile).expect("serialize");
+            assert!(
+                round.contains(&format!("\"{}\"", expected.as_str())),
+                "re-serialized {round} should carry canonical key {}",
+                expected.as_str()
+            );
+        }
+    }
 }

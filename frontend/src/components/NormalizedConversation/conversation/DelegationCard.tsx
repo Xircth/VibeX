@@ -1,5 +1,5 @@
 import { ArrowUpRight, GitBranch, Loader2 } from 'lucide-react';
-import type { AgentType, ConversationDelegationView } from 'shared/types';
+import type { AgentKind, ConversationDelegationView } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -116,17 +116,18 @@ function StatusPill({ status }: { status: Status }) {
   );
 }
 
-const AGENT_LABELS: Record<AgentType, string> = {
+const AGENT_LABELS: Record<AgentKind, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
-  open_code: 'OpenCode',
+  opencode: 'OpenCode',
   gemini: 'Gemini',
-  open_claw: 'OpenClaw',
+  openclaw: 'OpenClaw',
   cline: 'Cline',
   hermes: 'Hermes',
+  qa_mock: 'QA Mock',
 };
 
-function agentLabel(agentType: AgentType): string {
+function agentLabel(agentType: AgentKind): string {
   return AGENT_LABELS[agentType] ?? agentType;
 }
 

@@ -1,4 +1,4 @@
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { type ExecutorProfileId } from 'shared/types';
 import type { WysiwygMarkdownPreset } from '../wysiwyg';
 
 export type WysiwygEditingPluginPolicy = {
@@ -48,7 +48,7 @@ export function getWysiwygEditingPluginPolicy({
     typeahead: true,
     slashCommandTypeahead: Boolean(executorProfile),
     dollarCommandTypeahead:
-      executorProfile?.executor === BaseCodingAgent.CODEX,
+      executorProfile?.executor === 'codex',
     keyboardCommands: true,
     imageKeyboard: true,
     codeBlockShortcut: !isSessionInputMinimal,

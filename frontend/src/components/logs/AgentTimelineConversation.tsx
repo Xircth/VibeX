@@ -11,7 +11,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { BaseCodingAgent } from 'shared/types';
+import { AgentKind } from 'shared/types';
 import type {
   AgentPermissionResponse,
   MessageTurn,
@@ -668,7 +668,7 @@ const AgentTimelineConversation = forwardRef<
           sessionId: session.id,
           executorProfileId: resolveResendExecutorProfile(
             getActiveExecutorProfile(),
-            session.executor as BaseCodingAgent
+            session.executor as AgentKind
           ),
           text,
         });

@@ -1,7 +1,6 @@
-import { BaseCodingAgent as BaseCodingAgentEnum } from 'shared/types';
 import type {
+  AgentKind,
   AskForApproval,
-  BaseCodingAgent,
   ClaudeCode,
   Codex,
   ExecutorAction,
@@ -19,9 +18,9 @@ type ExecutorVariantRecord<T extends Record<string, unknown>> = {
   record: T;
 };
 
-const CLAUDE_CODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CLAUDE_CODE;
-const CODEX_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.CODEX;
-const OPENCODE_EXECUTOR: BaseCodingAgent = BaseCodingAgentEnum.OPENCODE;
+const CLAUDE_CODE_EXECUTOR: AgentKind = 'claude_code';
+const CODEX_EXECUTOR: AgentKind = 'codex';
+const OPENCODE_EXECUTOR: AgentKind = 'opencode';
 const CLAUDE_DEFAULT_MODEL = 'sonnet';
 const CODEX_DEFAULT_MODEL = 'gpt-5.3-codex';
 
@@ -201,7 +200,7 @@ function formatSimpleLabel(value: string | null): string {
 
 function getExecutorVariantRecord<T extends Record<string, unknown>>(
   profiles: ExecutorConfigs['executors'] | null | undefined,
-  executor: BaseCodingAgent,
+  executor: AgentKind,
   variant: string | null
 ): T | null {
   const executorProfiles = profiles?.[executor] as
@@ -215,12 +214,18 @@ function getExecutorVariantRecord<T extends Record<string, unknown>>(
     | undefined;
   if (!variantEntry) return null;
 
-  return (variantEntry[executor] as T | undefined) ?? null;
+  // The outer `executors` map is keyed by the snake_case agent identity
+  // (`AgentKind`), but the inner config struct is tagged by the SCREAMING
+  // `CodingAgent` discriminant (e.g. `{ CODEX: {...} }`). After batch D2 these
+  // are no longer the same string, so index the inner struct by the uppercased
+  // identity.
+  const configKey = executor.toUpperCase();
+  return (variantEntry[configKey] as T | undefined) ?? null;
 }
 
 function getExecutorVariantRecords<T extends Record<string, unknown>>(
   profiles: ExecutorConfigs['executors'] | null | undefined,
-  executor: BaseCodingAgent
+  executor: AgentKind
 ): ExecutorVariantRecord<T>[] {
   return getVariantOptions(executor, profiles)
     .map((variantKey) => {
@@ -271,13 +276,13 @@ export function getSortedExecutorVariantKeys(
 }
 
 export function isClaudeCodeExecutor(
-  executor: BaseCodingAgent | null | undefined
+  executor: AgentKind | null | undefined
 ): boolean {
   return executor === CLAUDE_CODE_EXECUTOR;
 }
 
 export function getDefaultVariantForExecutor(
-  executor: BaseCodingAgent | null | undefined,
+  executor: AgentKind | null | undefined,
   profiles: ExecutorConfigs['executors'] | null | undefined
 ): string | null {
   const variants = getVariantOptions(executor, profiles);
@@ -288,7 +293,7 @@ export function getDefaultVariantForExecutor(
 }
 
 export function getDefaultProfileForExecutor(
-  executor: BaseCodingAgent | null | undefined,
+  executor: AgentKind | null | undefined,
   profiles: ExecutorConfigs['executors'] | null | undefined
 ): ExecutorProfileId | null {
   if (!executor) return null;
@@ -304,7 +309,7 @@ export function getFirstAvailableProfile(
 ): ExecutorProfileId | null {
   if (!profiles) return null;
 
-  const executors = Object.keys(profiles).sort() as BaseCodingAgent[];
+  const executors = Object.keys(profiles).sort() as AgentKind[];
   const firstExecutor = executors[0];
   if (!firstExecutor) return null;
 
@@ -343,7 +348,7 @@ export function areProfilesEqual(
  * Returns variants sorted: DEFAULT first, then alphabetically.
  */
 export function getVariantOptions(
-  executor: BaseCodingAgent | null | undefined,
+  executor: AgentKind | null | undefined,
   profiles: ExecutorConfigs['executors'] | null | undefined
 ): string[] {
   if (!executor || !profiles) return [];

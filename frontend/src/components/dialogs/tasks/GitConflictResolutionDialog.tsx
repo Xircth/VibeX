@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { AlertTriangle, Copy, SendHorizonal } from 'lucide-react';
 import type {
-  BaseCodingAgent,
+  AgentKind,
   ConflictOp,
   ExecutorProfileId,
 } from 'shared/types';
@@ -79,7 +79,7 @@ const GitConflictResolutionDialogImpl =
         if (latestProfile) return latestProfile;
         if (attempt?.session?.executor) {
           return {
-            executor: attempt.session.executor as BaseCodingAgent,
+            executor: attempt.session.executor as AgentKind,
             variant: null,
           };
         }

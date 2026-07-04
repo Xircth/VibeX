@@ -1,6 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import { useSessionComposerContextCompact } from './useSessionComposerContextCompact';
 
 const { sendAgentRuntimeTurnMock } = vi.hoisted(() => ({
@@ -11,7 +10,7 @@ vi.mock('@/features/agents/sendAgentRuntimeTurn', () => ({
   sendAgentRuntimeTurn: sendAgentRuntimeTurnMock,
 }));
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 type ProcessStub = { id: string; status: string };
 const compactEligibility = {
   hasWorkspaceForTyping: true,

@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { Brain, ChevronDown, Cpu, Shield, Workflow } from 'lucide-react';
 import type {
-  BaseCodingAgent,
+  AgentKind,
   ExecutorConfigs,
   ExecutorProfileId,
 } from 'shared/types';
-import { BaseCodingAgent as BaseCodingAgentEnum } from 'shared/types';
 import { AgentSelector } from '@/components/tasks/AgentSelector';
 import { CodexModelSelector } from '@/components/tasks/CodexModelSelector';
 import { ConfigSelector } from '@/components/tasks/ConfigSelector';
@@ -270,8 +269,8 @@ export function TerminalProfileControls({
 }: TerminalProfileControlsProps) {
   const executor = selectedProfile?.executor ?? null;
   const isClaude = isClaudeCodeExecutor(executor);
-  const isCodex = executor === BaseCodingAgentEnum.CODEX;
-  const isOpencode = executor === BaseCodingAgentEnum.OPENCODE;
+  const isCodex = executor === 'codex';
+  const isOpencode = executor === 'opencode';
   const { settings: claudeSettings } = useClaudeSettings();
 
   const contentClassName = className || 'flex flex-col gap-2 w-full';
@@ -280,7 +279,7 @@ export function TerminalProfileControls({
     return null;
   }
 
-  const handleExecutorChange = (nextExecutor: BaseCodingAgent) => {
+  const handleExecutorChange = (nextExecutor: AgentKind) => {
     const nextProfile = getDefaultProfileForExecutor(
       nextExecutor,
       profiles

@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent, ScratchType, type Scratch } from 'shared/types';
+import { ScratchType, type Scratch } from 'shared/types';
 import { useSessionComposerDraftScratch } from './useSessionComposerDraftScratch';
 
 const { useScratchMock, updateScratchMock, deleteScratchMock } = vi.hoisted(
@@ -15,7 +15,7 @@ vi.mock('@/hooks/useScratch', () => ({
   useScratch: useScratchMock,
 }));
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 const now = '2026-05-25T00:00:00.000Z';
 
 function draftScratch(): Scratch {
@@ -73,7 +73,7 @@ describe('useSessionComposerDraftScratch', () => {
     );
     expect(result.current.scratchData?.message).toBe('stored draft');
     expect(result.current.scratchExecutorProfile).toEqual({
-      executor: BaseCodingAgent.CODEX,
+      executor: 'codex' as const,
       variant: null,
       model: null,
       fast_mode: null,
@@ -150,7 +150,7 @@ describe('useSessionComposerDraftScratch', () => {
 
   it('debounces message saves with the latest executor profile', async () => {
     vi.useFakeTimers();
-    const planProfile = { executor: BaseCodingAgent.CODEX, variant: 'PLAN' };
+    const planProfile = { executor: 'codex' as const, variant: 'PLAN' };
     const { result, rerender } = renderHook(
       ({ executorProfile }: { executorProfile: typeof profile }) =>
         useSessionComposerDraftScratch({

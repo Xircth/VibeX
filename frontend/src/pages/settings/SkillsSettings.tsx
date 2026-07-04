@@ -63,8 +63,8 @@ const AGENT_OPTIONS: { value: string; label: string }[] = [
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex CLI' },
   { value: 'gemini', label: 'Gemini CLI' },
-  { value: 'open_claw', label: 'OpenClaw' },
-  { value: 'open_code', label: 'OpenCode' },
+  { value: 'openclaw', label: 'OpenClaw' },
+  { value: 'opencode', label: 'OpenCode' },
   { value: 'cline', label: 'Cline' },
   { value: 'hermes', label: 'Hermes Agent' },
 ];

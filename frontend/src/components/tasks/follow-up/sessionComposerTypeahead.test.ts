@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent, type SlashCommandDescription } from 'shared/types';
+import { type SlashCommandDescription } from 'shared/types';
 import { DOLLAR_COMMANDS } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import {
@@ -90,7 +90,7 @@ describe('session composer typeahead option derivation', () => {
     const options = slashCommandsToTypeaheadOptions(
       commands,
       'review',
-      BaseCodingAgent.CODEX
+      'codex' as const
     );
 
     expect(options.map((option) => option.insertText)).toEqual([

@@ -299,7 +299,7 @@ const AGENT_SPECS: Record<string, AgentSpec> = {
       },
     ],
   },
-  open_code: {
+  opencode: {
     subtitle: 'Model 与 Small Model 快捷配置，并与 opencode.json 双向联动。',
     fields: [
       {
@@ -314,7 +314,7 @@ const AGENT_SPECS: Record<string, AgentSpec> = {
       },
     ],
   },
-  open_claw: {
+  openclaw: {
     subtitle: 'OpenClaw 通过网关环境变量配置（无独立配置文件）。',
     fields: [
       {

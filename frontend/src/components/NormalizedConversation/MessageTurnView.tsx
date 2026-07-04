@@ -7,9 +7,7 @@ import {
   RotateCcw,
   Wrench,
 } from 'lucide-react';
-import {
-  BaseCodingAgent,
-  type MessageTurn,
+import { type MessageTurn,
   type TaskWithAttemptStatus,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
@@ -437,7 +435,7 @@ export const MessageTurnView = memo(function MessageTurnView({
     });
 
   const hideThinking =
-    attempt.session?.executor === BaseCodingAgent.CLAUDE_CODE;
+    attempt.session?.executor === 'claude_code';
   const plannedItems = planTurnBlocks(turn.blocks);
   const items = hideThinking
     ? plannedItems.filter((item) => item.kind !== 'thinking')

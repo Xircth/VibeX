@@ -50,9 +50,9 @@ import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
-  { value: 'open_code', label: 'OpenCode' },
+  { value: 'opencode', label: 'OpenCode' },
   { value: 'gemini', label: 'Gemini' },
-  { value: 'open_claw', label: 'OpenClaw' },
+  { value: 'openclaw', label: 'OpenClaw' },
   { value: 'cline', label: 'Cline' },
   { value: 'hermes', label: 'Hermes' },
 ];

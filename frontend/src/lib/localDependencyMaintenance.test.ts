@@ -11,9 +11,9 @@ function tool(overrides: Partial<LocalToolStatus> = {}): LocalToolStatus {
     id: 'codex_cli',
     label: 'Codex CLI',
     kind: 'cli',
-    group_id: 'codex',
+    group_id: 'codex' as const,
     user_visible: true,
-    executable: 'codex',
+    executable: 'codex' as const,
     npm_package: '@openai/codex',
     installed: true,
     executable_path: 'C:/tools/codex.cmd',
@@ -43,13 +43,13 @@ describe('local dependency maintenance helpers', () => {
       tool({
         id: 'opencode_cli_acp',
         label: 'OpenCode CLI',
-        group_id: 'opencode',
+        group_id: 'opencode' as const,
       }),
     ];
 
-    expect(getAgentDependencyTool('claude_code', tools)?.id).toBe('claude_cli');
-    expect(getAgentDependencyTool('codex', tools)).toBeNull();
-    expect(getAgentDependencyTool('open_code', tools)?.id).toBe(
+    expect(getAgentDependencyTool('claude_code' as const, tools)?.id).toBe('claude_cli');
+    expect(getAgentDependencyTool('codex' as const, tools)).toBeNull();
+    expect(getAgentDependencyTool('opencode' as const, tools)?.id).toBe(
       'opencode_cli_acp'
     );
     expect(getAgentDependencyTool('unknown', tools)).toBeNull();

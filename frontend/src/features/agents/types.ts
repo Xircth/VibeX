@@ -1,11 +1,11 @@
-export type AgentType =
-  | 'claude_code'
-  | 'codex'
-  | 'open_code'
-  | 'gemini'
-  | 'open_claw'
-  | 'cline'
-  | 'hermes';
+import type { AgentKind } from 'shared/types';
+
+/**
+ * Canonical agent-identity union. Backend batch D2 unified the agent-identity
+ * enums into a single `AgentKind`; this local alias is retained so the many
+ * existing `AgentType` references keep compiling.
+ */
+export type AgentType = AgentKind;
 
 export type AgentConnectionStatus =
   | 'disconnected'

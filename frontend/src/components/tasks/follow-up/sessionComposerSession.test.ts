@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import {
   getCreatedSessionProfileMemoryUpdate,
   getComposerSessionId,
@@ -172,7 +171,7 @@ describe('session composer session helpers', () => {
   });
 
   it('remembers created-session profiles only when an executor exists', () => {
-    const profile = { executor: BaseCodingAgent.CODEX, variant: 'PLAN' };
+    const profile = { executor: 'codex' as const, variant: 'PLAN' };
 
     expect(
       getCreatedSessionProfileMemoryUpdate({

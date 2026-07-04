@@ -1,4 +1,4 @@
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import type { AgentKind, ExecutorProfileId } from 'shared/types';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import type {
   AgentSessionConfigOverride,
@@ -19,25 +19,13 @@ export type AgentRuntimeTurnInput = {
   configOverrides?: AgentSessionConfigOverride[];
 };
 
-export function agentTypeFromExecutor(executor: BaseCodingAgent): AgentType {
-  switch (executor) {
-    case BaseCodingAgent.CLAUDE_CODE:
-      return 'claude_code';
-    case BaseCodingAgent.CODEX:
-      return 'codex';
-    case BaseCodingAgent.OPENCODE:
-      return 'open_code';
-    case BaseCodingAgent.GEMINI:
-      return 'gemini';
-    case BaseCodingAgent.OPENCLAW:
-      return 'open_claw';
-    case BaseCodingAgent.CLINE:
-      return 'cline';
-    case BaseCodingAgent.HERMES:
-      return 'hermes';
-    default:
-      throw new Error(`ACP-native agent is not registered for ${executor}`);
-  }
+/**
+ * Resolve the ACP runtime `AgentType` for an executor identity. After batch D2
+ * the executor identity and the ACP `AgentKind` are the same union, so this is
+ * an identity mapping retained for call-site clarity.
+ */
+export function agentTypeFromExecutor(executor: AgentKind): AgentType {
+  return executor;
 }
 
 export async function sendAgentRuntimeTurn({

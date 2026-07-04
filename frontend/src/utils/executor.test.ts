@@ -13,7 +13,7 @@ import {
 } from './executor';
 
 const profiles = {
-  CLAUDE_CODE: {
+  claude_code: {
     DEFAULT: {
       CLAUDE_CODE: {
         append_prompt: null,
@@ -39,7 +39,7 @@ const profiles = {
       },
     },
   },
-  CODEX: {
+  codex: {
     DEFAULT: {
       CODEX: {
         append_prompt: null,
@@ -84,7 +84,7 @@ const profiles = {
       },
     },
   },
-  OPENCODE: {
+  opencode: {
     DEFAULT: {
       OPENCODE: {
         append_prompt: null,

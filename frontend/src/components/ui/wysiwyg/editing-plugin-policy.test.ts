@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BaseCodingAgent, type ExecutorProfileId } from 'shared/types';
+import { AgentKind, type ExecutorProfileId } from 'shared/types';
 
 import { getWysiwygEditingPluginPolicy } from './editing-plugin-policy';
 
-function profile(executor: BaseCodingAgent): ExecutorProfileId {
+function profile(executor: AgentKind): ExecutorProfileId {
   return { executor, variant: null };
 }
 
@@ -14,7 +14,7 @@ describe('WYSIWYG editing plugin policy', () => {
         disabled: true,
         markdownPreset: 'default',
         autoFocus: true,
-        executorProfile: profile(BaseCodingAgent.CODEX),
+        executorProfile: profile('codex' as const),
         hasClickedElementInsert: true,
       })
     ).toEqual({
@@ -81,7 +81,7 @@ describe('WYSIWYG editing plugin policy', () => {
         disabled: false,
         markdownPreset: 'default',
         autoFocus: false,
-        executorProfile: profile(BaseCodingAgent.CLAUDE_CODE),
+        executorProfile: profile('claude_code' as const),
         hasClickedElementInsert: false,
       }).slashCommandTypeahead
     ).toBe(true);
@@ -93,7 +93,7 @@ describe('WYSIWYG editing plugin policy', () => {
         disabled: false,
         markdownPreset: 'default',
         autoFocus: false,
-        executorProfile: profile(BaseCodingAgent.CLAUDE_CODE),
+        executorProfile: profile('claude_code' as const),
         hasClickedElementInsert: false,
       }).dollarCommandTypeahead
     ).toBe(false);
@@ -102,7 +102,7 @@ describe('WYSIWYG editing plugin policy', () => {
         disabled: false,
         markdownPreset: 'default',
         autoFocus: false,
-        executorProfile: profile(BaseCodingAgent.CODEX),
+        executorProfile: profile('codex' as const),
         hasClickedElementInsert: false,
       }).dollarCommandTypeahead
     ).toBe(true);

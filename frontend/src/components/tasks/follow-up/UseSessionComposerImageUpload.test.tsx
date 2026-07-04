@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { type Dispatch, type ReactNode, type SetStateAction, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BaseCodingAgent } from 'shared/types';
 import type { SessionComposerImage } from './SessionComposerInput';
 import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
 import { useSessionComposerImageUpload } from './useSessionComposerImageUpload';
@@ -17,7 +16,7 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-const profile = { executor: BaseCodingAgent.CODEX };
+const profile = { executor: 'codex' as const };
 
 function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
   return {

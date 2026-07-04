@@ -2,7 +2,7 @@ import { tauriInvoke } from '@/lib/tauriApi';
 import type {
   AgentPermissionResponse,
   AgentSessionConfigOverride,
-  AgentType,
+  AgentKind,
   ConversationRowPage,
   ConversationBundlePayload,
   ConversationExportResult,
@@ -14,7 +14,7 @@ import type {
 } from 'shared/types';
 
 export type ConversationStartTurnRequest = {
-  agentType: AgentType;
+  agentType: AgentKind;
   workspaceId: string;
   conversationId: string;
   executorProfileId?: ExecutorProfileId | null;

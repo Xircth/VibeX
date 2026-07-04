@@ -559,8 +559,8 @@ export function SessionComposerInput({
     repoId,
   });
   const { data: localSkills = [] } = useQuery({
-    queryKey: ['local-agent-skills', 'CODEX'],
-    queryFn: () => skillsApi.listLocal('CODEX'),
+    queryKey: ['local-agent-skills', 'codex'],
+    queryFn: () => skillsApi.listLocal('codex'),
     enabled: typeaheadTrigger === '$' || typeaheadTrigger === '/',
     staleTime: 0,
     refetchOnMount: true,

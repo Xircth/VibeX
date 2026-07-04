@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Deserializer};
 
+pub mod agent_kind;
 pub mod agent_setting;
 pub mod issue;
 pub mod issue_assignee;
@@ -23,6 +24,7 @@ pub mod tag;
 pub mod user;
 pub mod workspace;
 
+pub use agent_kind::*;
 pub use agent_setting::*;
 pub use issue::*;
 pub use issue_assignee::*;

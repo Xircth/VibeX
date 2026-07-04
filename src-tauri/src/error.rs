@@ -177,3 +177,14 @@ impl From<git2::Error> for AppError {
         AppError::Internal(e.to_string())
     }
 }
+
+impl From<agents::skills::SkillError> for AppError {
+    fn from(e: agents::skills::SkillError) -> Self {
+        use agents::skills::SkillError;
+        match e {
+            SkillError::NotFound(message) => AppError::NotFound(message),
+            SkillError::Validation(message) => AppError::BadRequest(message),
+            other => AppError::Internal(other.to_string()),
+        }
+    }
+}

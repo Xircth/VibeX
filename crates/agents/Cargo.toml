@@ -9,6 +9,8 @@ async-trait = { workspace = true }
 agent-client-protocol = { version = "0.11.1", features = ["unstable"] }
 chrono = { workspace = true }
 futures = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

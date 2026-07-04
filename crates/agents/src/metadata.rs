@@ -30,7 +30,7 @@ impl AgentAvailabilityInfo {
 
 pub fn agent_capabilities(agent_type: AgentType) -> Vec<AgentCapability> {
     match agent_type {
-        AgentType::ClaudeCode | AgentType::OpenCode => {
+        AgentType::ClaudeCode | AgentType::Opencode => {
             vec![AgentCapability::SessionFork, AgentCapability::ContextUsage]
         }
         AgentType::Codex => vec![
@@ -38,7 +38,11 @@ pub fn agent_capabilities(agent_type: AgentType) -> Vec<AgentCapability> {
             AgentCapability::SetupHelper,
             AgentCapability::ContextUsage,
         ],
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => {
             vec![AgentCapability::ContextUsage]
         }
     }
@@ -68,7 +72,7 @@ pub fn agent_availability(agent_type: AgentType) -> AgentAvailabilityInfo {
                 AgentAvailabilityInfo::NotFound
             }
         }
-        AgentType::OpenCode => {
+        AgentType::Opencode => {
             if opencode_config_path()
                 .map(|path| path.exists())
                 .unwrap_or(false)
@@ -78,9 +82,11 @@ pub fn agent_availability(agent_type: AgentType) -> AgentAvailabilityInfo {
                 AgentAvailabilityInfo::NotFound
             }
         }
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
-            AgentAvailabilityInfo::NotFound
-        }
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => AgentAvailabilityInfo::NotFound,
     }
 }
 

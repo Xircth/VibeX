@@ -194,10 +194,12 @@ fn acp_slash_command_catalog(agent_type: AgentType) -> Vec<SlashCommandDescripti
             slash_command("plan", "Switch to planning-oriented Codex behavior"),
             slash_command("review", "Review code with optional instructions"),
         ],
-        AgentType::OpenCode => vec![slash_command("compact", "Compact the current session")],
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
-            Vec::new()
-        }
+        AgentType::Opencode => vec![slash_command("compact", "Compact the current session")],
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => Vec::new(),
     }
 }
 

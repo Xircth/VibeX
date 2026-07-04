@@ -52,8 +52,12 @@ pub fn default_mcp_config_path(agent_type: AgentType) -> Option<std::path::PathB
     match agent_type {
         AgentType::ClaudeCode => claude_config_path(),
         AgentType::Codex => codex_config_path(),
-        AgentType::OpenCode => opencode_config_path(),
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => None,
+        AgentType::Opencode => opencode_config_path(),
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => None,
     }
 }
 
@@ -65,7 +69,7 @@ pub fn mcp_file_config(agent_type: AgentType) -> Option<AgentMcpConfig> {
             preconfigured_mcp(agent_type),
             true,
         ),
-        AgentType::OpenCode => AgentMcpConfig::new(
+        AgentType::Opencode => AgentMcpConfig::new(
             vec!["mcp".to_string()],
             serde_json::json!({
                 "mcp": {},
@@ -80,7 +84,11 @@ pub fn mcp_file_config(agent_type: AgentType) -> Option<AgentMcpConfig> {
             preconfigured_mcp(agent_type),
             false,
         ),
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => {
             return None;
         }
     };
@@ -235,12 +243,13 @@ type ServerMap = Map<String, Value>;
 fn preconfigured_mcp(agent_type: AgentType) -> Value {
     let adapter = match agent_type {
         AgentType::Codex => Adapter::Codex,
-        AgentType::OpenCode => Adapter::Opencode,
+        AgentType::Opencode => Adapter::Opencode,
         AgentType::ClaudeCode
         | AgentType::Gemini
-        | AgentType::OpenClaw
+        | AgentType::Openclaw
         | AgentType::Cline
-        | AgentType::Hermes => Adapter::Passthrough,
+        | AgentType::Hermes
+        | AgentType::QaMock => Adapter::Passthrough,
     };
 
     apply_adapter(adapter, PRECONFIGURED_MCP_SERVERS.clone())

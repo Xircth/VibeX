@@ -78,7 +78,7 @@ pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
-        AgentType::OpenCode => xdg_data_or_home_sources(agent_type, "opencode")
+        AgentType::Opencode => xdg_data_or_home_sources(agent_type, "opencode")
             .into_iter()
             .map(|source| AgentHistorySource {
                 path: source.path.join("opencode.db"),
@@ -86,7 +86,7 @@ pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource>
             })
             .collect(),
         AgentType::Gemini => env_or_home_sources(agent_type, "GEMINI_CLI_HOME", ".gemini"),
-        AgentType::OpenClaw => {
+        AgentType::Openclaw => {
             home_source(agent_type, ".openclaw").map_or_else(Vec::new, |source| {
                 vec![AgentHistorySource {
                     path: source.path.join("agents"),
@@ -108,6 +108,8 @@ pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource>
                 ..source
             })
             .collect(),
+        // In-process mock agent: no on-disk history to import.
+        AgentType::QaMock => Vec::new(),
     }
 }
 

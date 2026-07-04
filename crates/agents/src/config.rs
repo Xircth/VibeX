@@ -63,7 +63,7 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
             )],
             strategy: AgentConfigStrategy::FileToml,
         },
-        AgentType::OpenCode => AgentConfigSurface {
+        AgentType::Opencode => AgentConfigSurface {
             agent_type,
             auth_paths: vec![path_template(
                 Some("XDG_CONFIG_HOME"),
@@ -91,12 +91,14 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
             )],
             strategy: AgentConfigStrategy::Directory,
         },
-        AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => AgentConfigSurface {
-            agent_type,
-            auth_paths: Vec::new(),
-            config_paths: Vec::new(),
-            strategy: AgentConfigStrategy::AgentCommand,
-        },
+        AgentType::Openclaw | AgentType::Cline | AgentType::Hermes | AgentType::QaMock => {
+            AgentConfigSurface {
+                agent_type,
+                auth_paths: Vec::new(),
+                config_paths: Vec::new(),
+                strategy: AgentConfigStrategy::AgentCommand,
+            }
+        }
     }
 }
 

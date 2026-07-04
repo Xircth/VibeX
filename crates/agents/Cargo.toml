@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+api-types = { path = "../api-types" }
 async-trait = { workspace = true }
 agent-client-protocol = { version = "0.11.1", features = ["unstable"] }
 chrono = { workspace = true }

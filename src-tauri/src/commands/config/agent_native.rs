@@ -143,11 +143,12 @@ fn backup_key(agent_type: AgentType) -> &'static str {
     match agent_type {
         AgentType::ClaudeCode => "claude_code",
         AgentType::Codex => "codex",
-        AgentType::OpenCode => "opencode",
+        AgentType::Opencode => "opencode",
         AgentType::Gemini => "gemini",
-        AgentType::OpenClaw => "open_claw",
+        AgentType::Openclaw => "open_claw",
         AgentType::Cline => "cline",
         AgentType::Hermes => "hermes",
+        AgentType::QaMock => "qa_mock",
     }
 }
 
@@ -174,7 +175,7 @@ fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
                 path: codex_home().map(|h| h.join("auth.json")),
             },
         ],
-        AgentType::OpenCode => vec![
+        AgentType::Opencode => vec![
             NativeFileSpec {
                 id: "config",
                 label: "opencode.json",
@@ -223,7 +224,8 @@ fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
             },
         ],
         // OpenClaw is configured through gateway environment variables, not a file.
-        AgentType::OpenClaw => Vec::new(),
+        // QaMock (in-process test mock) likewise exposes no native config files.
+        AgentType::Openclaw | AgentType::QaMock => Vec::new(),
     }
 }
 
@@ -297,7 +299,7 @@ mod tests {
 
     #[test]
     fn open_claw_has_no_native_config_file() {
-        assert!(native_file_specs(AgentType::OpenClaw).is_empty());
+        assert!(native_file_specs(AgentType::Openclaw).is_empty());
     }
 
     #[test]

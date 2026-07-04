@@ -25,11 +25,13 @@ pub struct AgentMcpSurface {
 
 pub fn mcp_surface(agent_type: AgentType) -> AgentMcpSurface {
     let strategy = match agent_type {
-        AgentType::ClaudeCode | AgentType::OpenCode => AgentMcpStrategy::FileJson,
+        AgentType::ClaudeCode | AgentType::Opencode => AgentMcpStrategy::FileJson,
         AgentType::Codex => AgentMcpStrategy::FileToml,
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
-            AgentMcpStrategy::AgentCommand
-        }
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => AgentMcpStrategy::AgentCommand,
     };
 
     AgentMcpSurface {

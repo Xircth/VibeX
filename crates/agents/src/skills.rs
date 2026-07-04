@@ -25,13 +25,17 @@ pub struct AgentSkillsSurface {
 
 pub fn skills_surface(agent_type: AgentType) -> AgentSkillsSurface {
     match agent_type {
-        AgentType::ClaudeCode | AgentType::Codex | AgentType::OpenCode => AgentSkillsSurface {
+        AgentType::ClaudeCode | AgentType::Codex | AgentType::Opencode => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
             project_supported: true,
         },
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => {
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => {
             AgentSkillsSurface {
                 agent_type,
                 strategy: AgentSkillsStrategy::AgentCommand,

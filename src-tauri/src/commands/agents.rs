@@ -379,11 +379,12 @@ fn agent_type_setting_key(agent_type: AgentType) -> &'static str {
     match agent_type {
         AgentType::ClaudeCode => "claude_code",
         AgentType::Codex => "codex",
-        AgentType::OpenCode => "open_code",
+        AgentType::Opencode => "open_code",
         AgentType::Gemini => "gemini",
-        AgentType::OpenClaw => "open_claw",
+        AgentType::Openclaw => "open_claw",
         AgentType::Cline => "cline",
         AgentType::Hermes => "hermes",
+        AgentType::QaMock => "qa_mock",
     }
 }
 
@@ -719,8 +720,12 @@ fn default_config_path(agent_type: AgentType) -> Option<PathBuf> {
     match agent_type {
         AgentType::ClaudeCode => claude_config_path(),
         AgentType::Codex => codex_config_path(),
-        AgentType::OpenCode => opencode_config_path(),
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => None,
+        AgentType::Opencode => opencode_config_path(),
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => None,
     }
 }
 

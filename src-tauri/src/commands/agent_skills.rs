@@ -19,9 +19,9 @@ use crate::error::AppError;
 const ALL_AGENTS: [AgentType; 7] = [
     AgentType::ClaudeCode,
     AgentType::Codex,
-    AgentType::OpenCode,
+    AgentType::Opencode,
     AgentType::Gemini,
-    AgentType::OpenClaw,
+    AgentType::Openclaw,
     AgentType::Cline,
     AgentType::Hermes,
 ];
@@ -31,11 +31,12 @@ fn agent_key(agent: AgentType) -> &'static str {
     match agent {
         AgentType::ClaudeCode => "claude_code",
         AgentType::Codex => "codex",
-        AgentType::OpenCode => "open_code",
+        AgentType::Opencode => "open_code",
         AgentType::Gemini => "gemini",
-        AgentType::OpenClaw => "open_claw",
+        AgentType::Openclaw => "open_claw",
         AgentType::Cline => "cline",
         AgentType::Hermes => "hermes",
+        AgentType::QaMock => "qa_mock",
     }
 }
 
@@ -115,7 +116,7 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
             }
             dirs
         }
-        AgentType::OpenCode => home
+        AgentType::Opencode => home
             .iter()
             .flat_map(|h| {
                 vec![
@@ -133,7 +134,7 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ]
             })
             .collect(),
-        AgentType::OpenClaw => home
+        AgentType::Openclaw => home
             .iter()
             .map(|h| (h.join(".openclaw").join("skills"), false))
             .collect(),
@@ -150,6 +151,8 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
             .into_iter()
             .map(|h| (h.join("skills"), false))
             .collect(),
+        // In-process mock agent: no skill directories.
+        AgentType::QaMock => Vec::new(),
     };
     for (path, read_only) in globals {
         out.push(SkillDir {
@@ -163,9 +166,9 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
         let relatives: &[&str] = match agent {
             AgentType::ClaudeCode => &[".claude/skills"],
             AgentType::Codex => &[".codex/skills", ".agents/skills"],
-            AgentType::OpenCode => &[".agents/skills", ".opencode/skills"],
+            AgentType::Opencode => &[".agents/skills", ".opencode/skills"],
             AgentType::Gemini => &[".gemini/skills", ".agents/skills"],
-            AgentType::OpenClaw => &["skills"],
+            AgentType::Openclaw => &["skills"],
             AgentType::Cline => &[
                 ".agents/skills",
                 ".cline/skills",
@@ -173,6 +176,7 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ".claude/skills",
             ],
             AgentType::Hermes => &[],
+            AgentType::QaMock => &[],
         };
         for relative in relatives {
             let mut path = workspace.to_path_buf();
@@ -591,11 +595,12 @@ fn agent_primary_skill_dir(agent: AgentType) -> Option<PathBuf> {
     match agent {
         AgentType::ClaudeCode => home.map(|h| h.join(".claude").join("skills")),
         AgentType::Codex => codex_home().map(|c| c.join("skills")),
-        AgentType::OpenCode => home.map(|h| h.join(".config").join("opencode").join("skills")),
+        AgentType::Opencode => home.map(|h| h.join(".config").join("opencode").join("skills")),
         AgentType::Gemini => home.map(|h| h.join(".gemini").join("skills")),
-        AgentType::OpenClaw => home.map(|h| h.join(".openclaw").join("skills")),
+        AgentType::Openclaw => home.map(|h| h.join(".openclaw").join("skills")),
         AgentType::Cline => home.map(|h| h.join(".cline").join("skills")),
         AgentType::Hermes => hermes_home().map(|h| h.join("skills")),
+        AgentType::QaMock => None,
     }
 }
 
@@ -1225,9 +1230,9 @@ mod tests {
         for agent in [
             AgentType::ClaudeCode,
             AgentType::Codex,
-            AgentType::OpenCode,
+            AgentType::Opencode,
             AgentType::Gemini,
-            AgentType::OpenClaw,
+            AgentType::Openclaw,
             AgentType::Cline,
             AgentType::Hermes,
         ] {

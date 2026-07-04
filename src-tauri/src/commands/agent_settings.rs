@@ -311,8 +311,12 @@ fn auth_probe(agent_type: AgentType) -> (bool, Option<String>) {
     let auth_path = match agent_type {
         AgentType::ClaudeCode => claude_config_path(),
         AgentType::Codex => codex_auth_path(),
-        AgentType::OpenCode => opencode_auth_path(),
-        AgentType::Gemini | AgentType::OpenClaw | AgentType::Cline | AgentType::Hermes => None,
+        AgentType::Opencode => opencode_auth_path(),
+        AgentType::Gemini
+        | AgentType::Openclaw
+        | AgentType::Cline
+        | AgentType::Hermes
+        | AgentType::QaMock => None,
     };
 
     if let Some(path) = auth_path {
@@ -659,7 +663,7 @@ mod tests {
             Some("@agentclientprotocol/codex-acp@1.0.2")
         );
         assert_eq!(
-            npm_package_for_entry(&registry_entry(AgentType::OpenCode)).as_deref(),
+            npm_package_for_entry(&registry_entry(AgentType::Opencode)).as_deref(),
             Some("opencode-ai@1.17.11")
         );
         assert_eq!(
@@ -709,7 +713,7 @@ mod tests {
     fn parses_all_registry_agent_keys_for_settings_commands() {
         assert_eq!(
             parse_agent_type_key("open_claw").unwrap(),
-            AgentType::OpenClaw
+            AgentType::Openclaw
         );
         assert_eq!(parse_agent_type_key("cline").unwrap(), AgentType::Cline);
         assert_eq!(parse_agent_type_key("hermes").unwrap(), AgentType::Hermes);

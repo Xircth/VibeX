@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn preflight_keeps_offline_network_as_warning() {
         let report = build_preflight_report(AgentPreflightProbe {
-            entry: registry_entry(AgentType::OpenCode),
+            entry: registry_entry(AgentType::Opencode),
             platform: "windows-x86_64".to_string(),
             runtime_program: Some("opencode".to_string()),
             runtime_path: Some("C:/bin/opencode.exe".to_string()),

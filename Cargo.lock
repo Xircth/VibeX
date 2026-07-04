@@ -64,6 +64,7 @@ name = "agents"
 version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
+ "api-types",
  "async-trait",
  "chrono",
  "dirs 5.0.1",
@@ -1726,6 +1727,7 @@ dependencies = [
 name = "executors"
 version = "0.1.8"
 dependencies = [
+ "api-types",
  "async-trait",
  "chrono",
  "command-group",

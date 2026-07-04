@@ -20,8 +20,20 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Revision（行修订号）** — 单个时间线行的单调版本号，用于增量更新的幂等去重。
 - **Snapshot（投影快照）** — 投影在某个事件序号处的物化缓存，纯粹是重放的加速手段，可随时丢弃重建。
 
+## Channel domain
+
+- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。
+- **Authorized sender（授权发送者）** — 某个聊天通道配置中被明确列入、允许下发入站命令的发送者身份。不在列表内的消息被静默丢弃；授权列表为空时该通道入站整体禁用（fail-closed）。
+- **Remote approval（远程审批）** — 授权发送者经聊天通道对某条待决权限请求做出的响应。语义与桌面端权限响应完全等同：作用于同一事件日志，二者互斥消解同一请求。
+
+## Automation domain
+
+- **Automation（自动化）** — 一份保存下来的"发起回合"配置（项目、执行档位、prompt 模板、隔离方式、触发方式），可被反复执行而无需打开会话界面。
+- **Automation run（自动化运行）** — Automation 的一次执行实例，产生一个真实的 Conversation 与 Turn，并记录终态（成功/失败/中断/超时）。宿主进程未运行时不产生运行；错过的定时触发不补跑。
+
 ## Agent domain
 
 - **Agent kind（agent 身份）** — agent 的稳定身份标识（claude_code、codex、opencode…），全系统唯一的身份枚举。回答"这是哪个 agent"。
 - **Registry entry（注册表条目）** — 某个 agent 身份的元数据（展示名、描述、分发方式、registry id）。registry id（如 claude-acp）是条目的标识，不是身份本身。
 - **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
+- **Session fork（会话分叉）** — 从某个历史 Turn 分出一个新 Conversation：新会话拥有到分叉点为止的完整历史副本，此后与原会话完全独立演化；原会话不受任何影响。与 reset-to-here（在原会话上截断重来，破坏性）互为补充。语义决策见 ADR-0005。

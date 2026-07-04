@@ -240,17 +240,25 @@ function upsertRow(
   liveText: Record<string, LiveTextOverlay>,
   incoming: TimelineRow
 ): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
+  const incomingRevision = toBigInt(incoming.revision);
   const index = rows.findIndex((row) => row.row_id === incoming.row_id);
   let nextRows = rows;
+  let applied = false;
   if (index === -1) {
     nextRows = [...rows, incoming];
-  } else if (toBigInt(incoming.revision) >= toBigInt(rows[index].revision)) {
+    applied = true;
+  } else if (incomingRevision >= toBigInt(rows[index].revision)) {
     nextRows = rows.map((row, i) => (i === index ? incoming : row));
+    applied = true;
   }
-  // The upserted row already folds in all text up to its revision, so drop any
-  // accumulated overlay for it.
+  // Drop the streaming overlay only when we actually applied a row whose revision is at
+  // least the overlay's — that row already folds in every text delta up to its revision.
+  // A rejected (stale) upsert, or one whose revision is *behind* the overlay (a late /
+  // reordered duplicate), must NOT clear the overlay, or its newer streamed text would
+  // vanish until the next real event re-upserts the row (丢字).
   let nextLive = liveText;
-  if (liveText[incoming.row_id]) {
+  const overlay = liveText[incoming.row_id];
+  if (applied && overlay && incomingRevision >= overlay.revision) {
     nextLive = { ...liveText };
     delete nextLive[incoming.row_id];
   }

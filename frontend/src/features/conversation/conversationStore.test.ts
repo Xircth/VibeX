@@ -255,6 +255,46 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(textOf(assistant?.turn.blocks ?? [])).toBe('new');
   });
 
+  it('keeps the live overlay when a re-delivered upsert is behind the streamed text', () => {
+    // 丢字 regression: an assistant row upserted at rev 2, then streamed deltas grow the
+    // overlay to rev 5. A late/duplicate upsert at rev 2 (== existing) is applied but must
+    // NOT wipe the newer overlay text, or "llo" would vanish until the next real event.
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [{ op: 'upsert', row: assistantRow('t1', [{ type: 'text', text: 'he' }], 2n, 'streaming') }],
+        2n
+      ),
+    });
+    for (const [revision, delta] of [
+      [3n, 'l'],
+      [4n, 'l'],
+      [5n, 'o'],
+    ] as const) {
+      state = conversationStoreReducer(state, {
+        type: 'row_ops',
+        batch: batch(
+          [{ op: 'append_text', row_id: 't1:assistant', revision, stream: 'text', delta }],
+          revision
+        ),
+      });
+    }
+    // Re-delivered older upsert (rev 2 == current row rev) — applied, but behind the overlay.
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [{ op: 'upsert', row: assistantRow('t1', [{ type: 'text', text: 'he' }], 2n, 'streaming') }],
+        2n
+      ),
+    });
+    expect(entryOf(state).liveText['t1:assistant']?.text).toBe('llo');
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('hello');
+  });
+
   it('renders an interrupted turn terminal without a phantom stream', () => {
     // ADR-0001: interrupted user row is terminal → no pending assistant bubble.
     const state = loaded([

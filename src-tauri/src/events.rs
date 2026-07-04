@@ -43,8 +43,10 @@ pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, IncrementalRowProje
 /// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
 /// `ConversationRowOpBatch` and never folds raw events. It feeds the conversation's
 /// cached incremental projector so ops are produced in O(1) amortized (no per-frame
-/// re-projection). Best-effort — a failure just skips the update; the frontend's gap
-/// detection + row backfill recovers.
+/// re-projection). Best-effort — a dropped batch is self-healed by the hook's
+/// subscribe-time row backfill (`rows_since`) and by a full reload (`conversation_detail`),
+/// both of which reproject from the same fold. There is no sequence-gap detection during
+/// streaming, so a batch lost mid-turn only surfaces on the next reload/backfill.
 pub async fn emit_conversation_row_ops_after(
     app: &AppHandle,
     projectors: &ConversationRowProjectors,
@@ -74,42 +76,21 @@ pub async fn emit_conversation_row_ops_after(
         .map(|record| record.sequence)
         .unwrap_or(after_sequence);
 
-    let mut ops = Vec::new();
-    {
-        let mut map = projectors.lock().await;
-        // (Re)position the projector at `after_sequence` when it is missing or out of
-        // sync (first activation, a detected gap, or a truncate/retry rewind).
-        let needs_load = map
-            .get(&conversation_id)
-            .map(|projector| projector.last_sequence() != after_sequence)
-            .unwrap_or(true);
-        if needs_load {
-            match IncrementalRowProjector::load(pool, conversation_id, after_sequence).await {
-                Ok(projector) => {
-                    map.insert(conversation_id, projector);
-                }
-                Err(error) => {
-                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                    return;
-                }
-            }
-        }
-        let projector = map.get_mut(&conversation_id).expect("projector present");
-        for record in &new_records {
-            match projector.apply(record) {
-                Ok(record_ops) => ops.extend(record_ops),
-                Err(error) => {
-                    tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
-                }
-            }
-        }
-    }
-
     // Session control state (modes / config options) is not a timeline row, so carry
-    // the latest of each in the batch rather than on a separate channel.
+    // the latest of each in the batch rather than on a separate channel. Also detect
+    // whether the batch settles a turn — the projector is a pure cache and can be
+    // dropped once its turn is terminal. Parsed here (no projector needed) so the lock
+    // below is held only around the fold + emit.
     let mut session_modes = None;
     let mut session_config_options = None;
+    let mut settled = false;
     for record in &new_records {
+        if matches!(
+            record.event_kind.as_str(),
+            "turn_completed" | "turn_failed" | "turn_cancelled" | "turn_interrupted"
+        ) {
+            settled = true;
+        }
         if let Ok(event) = serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
             match event {
                 ConversationEvent::SessionModeUpdated { current, modes } => {
@@ -123,18 +104,63 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
 
-    if ops.is_empty() && session_modes.is_none() && session_config_options.is_none() {
-        return;
+    // The projector lock is held across BOTH the fold and the `app.emit`. Emitting under
+    // the lock makes realtime delivery order match fold order: two emitters racing for one
+    // conversation are serialized here, so a later fold can never enqueue its batch ahead
+    // of an earlier one. Emitting after releasing the lock allowed exactly that reorder —
+    // a late-delivered older batch would rewind/duplicate streamed text (the append-only
+    // liveText overlay is order-sensitive). `app.emit` is a cheap synchronous enqueue.
+    let mut map = projectors.lock().await;
+    // (Re)position the projector at `after_sequence` when it is missing or out of sync
+    // (first activation, a settled-turn eviction, or a truncate/retry rewind).
+    let needs_load = map
+        .get(&conversation_id)
+        .map(|projector| projector.last_sequence() != after_sequence)
+        .unwrap_or(true);
+    if needs_load {
+        match IncrementalRowProjector::load(pool, conversation_id, after_sequence).await {
+            Ok(projector) => {
+                map.insert(conversation_id, projector);
+            }
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                return;
+            }
+        }
     }
-    let batch = ConversationRowOpBatch {
-        conversation_id,
-        last_sequence,
-        ops,
-        session_modes,
-        session_config_options,
-    };
-    if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
-        tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
+    let mut ops = Vec::new();
+    {
+        let projector = map.get_mut(&conversation_id).expect("projector present");
+        for record in &new_records {
+            match projector.apply(record) {
+                Ok(record_ops) => ops.extend(record_ops),
+                Err(error) => {
+                    tracing::warn!(sequence = record.sequence, %error, "row-op emit: fold failed")
+                }
+            }
+        }
+    }
+
+    if !(ops.is_empty() && session_modes.is_none() && session_config_options.is_none()) {
+        let batch = ConversationRowOpBatch {
+            conversation_id,
+            last_sequence,
+            ops,
+            session_modes,
+            session_config_options,
+        };
+        if let Err(error) = app.emit(channels::CONVERSATION_EVENTS, &batch) {
+            tracing::warn!(%conversation_id, %error, "failed to emit conversation row ops");
+        }
+    }
+
+    // A settled turn's projector holds the whole folded timeline but is a pure cache —
+    // drop it to bound memory. The next event for this conversation reloads it via the
+    // `needs_load` path above. Without this, one projector leaked per conversation ever
+    // streamed (the map is only otherwise cleared by `close_conversation`, which the UI
+    // never calls). Done under the lock, after emit.
+    if settled {
+        map.remove(&conversation_id);
     }
 }
 
@@ -976,10 +1002,12 @@ fn default_conversation_capabilities() -> AcpCapabilitySnapshot {
     }
 }
 
-/// Whether an event is worth writing to the append-only `agent_events` log.
-/// High-frequency streaming events (per-token chunks, tool output, stderr) are
-/// excluded — nothing reads them back, and persisting each one floods the
-/// SQLite writer while an agent streams.
+/// Whether an event is worth forwarding to the live `AGENT_EVENTS` Tauri channel
+/// (the agents workbench debug view). High-frequency streaming events (per-token
+/// chunks, tool-call updates, terminal output, raw ACP diagnostics) are excluded —
+/// the workbench doesn't render them and they would flood the channel while an agent
+/// streams. (The former append-only `agent_events` DB log this once gated was retired
+/// in 批次D1; `conversation_events` is the single authoritative log.)
 fn should_emit_agent_event(event: &AgentEvent) -> bool {
     !matches!(
         event,

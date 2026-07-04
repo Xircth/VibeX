@@ -193,12 +193,12 @@ fn preview(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::AgentType;
+    use crate::registry::AgentKind;
 
     fn ctx() -> ParseContext {
         ParseContext {
             external_session_id: "codex-1".to_string(),
-            agent_type: AgentType::Codex,
+            agent_type: AgentKind::Codex,
             workspace_path: Some("C:/repo".to_string()),
         }
     }

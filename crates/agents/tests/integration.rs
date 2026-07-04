@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use agents::{
     AgentAutoApproveMode, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentPromptId,
-    AgentPromptStatus, AgentRuntime, AgentSessionId, AgentType, CancelAgentPromptInput,
+    AgentPromptStatus, AgentRuntime, AgentSessionId, AgentKind, CancelAgentPromptInput,
     ConnectAgentInput, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeEventSink,
     SendAgentPromptInput, all_agent_types, registry_entry,
 };
@@ -35,7 +35,7 @@ async fn all_registered_agents_pass_fixture_session_gate() {
 async fn run_agent_fixture_gate(
     runtime: &AgentRuntime,
     rx: &mut mpsc::UnboundedReceiver<AgentEventEnvelope>,
-    agent_type: AgentType,
+    agent_type: AgentKind,
 ) {
     let workspace_id = Uuid::new_v4();
     let working_dir = PathBuf::from(format!("fixture-workspace/{agent_type:?}"));
@@ -289,7 +289,7 @@ async fn wait_for_event(
 }
 
 fn assert_has(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     events: &[AgentEvent],
     label: &str,
     predicate: impl Fn(&AgentEvent) -> bool,

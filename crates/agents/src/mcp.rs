@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::AgentType;
+use crate::AgentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -18,20 +18,20 @@ pub enum AgentMcpStrategy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentMcpSurface {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub strategy: AgentMcpStrategy,
     pub user_visible: bool,
 }
 
-pub fn mcp_surface(agent_type: AgentType) -> AgentMcpSurface {
+pub fn mcp_surface(agent_type: AgentKind) -> AgentMcpSurface {
     let strategy = match agent_type {
-        AgentType::ClaudeCode | AgentType::Opencode => AgentMcpStrategy::FileJson,
-        AgentType::Codex => AgentMcpStrategy::FileToml,
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => AgentMcpStrategy::AgentCommand,
+        AgentKind::ClaudeCode | AgentKind::Opencode => AgentMcpStrategy::FileJson,
+        AgentKind::Codex => AgentMcpStrategy::FileToml,
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => AgentMcpStrategy::AgentCommand,
     };
 
     AgentMcpSurface {

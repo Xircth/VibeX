@@ -2,15 +2,14 @@ use std::{path::PathBuf, sync::Arc};
 
 use agents::{
     AgentConnectionId, AgentContentBlock, AgentPermissionId, AgentPermissionResponse,
-    AgentPromptId, AgentPromptSnapshot, AgentSessionConfigOverride, AgentSessionId, AgentType,
+    AgentPromptId, AgentPromptSnapshot, AgentSessionConfigOverride, AgentSessionId, AgentKind,
     CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentPermissionInput,
-    ResumeAgentSessionInput, SendAgentPromptInput, agent_type_from_executor_key,
+    ResumeAgentSessionInput, SendAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
     },
-    executor_key_for,
 };
 use conversations::{ConversationEventAppender, ConversationProjector};
 use db::models::{
@@ -28,7 +27,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use executors::{
-    executors::{BaseCodingAgent, CodingAgent},
+    executors::CodingAgent,
     profile::{ExecutorConfigs, ExecutorProfileId, canonical_variant_key},
 };
 use git::{Commit, DiffTarget};
@@ -80,7 +79,7 @@ pub struct ConversationTurnSnapshot {
 }
 
 pub struct ConversationStartTurnInput {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_id: Uuid,
     pub conversation_id: Uuid,
     pub executor_profile_id: Option<ExecutorProfileId>,
@@ -582,7 +581,7 @@ impl<'a> ConversationSessionService<'a> {
             Uuid::new_v4(),
             CreateConversationAgentBinding {
                 conversation_id: input.conversation_id,
-                agent_type: executor_key_for(input.agent_type),
+                agent_type: input.agent_type.as_str(),
                 working_dir,
                 acp_session_id: Some(&acp_session_id),
                 acp_protocol_version: None,
@@ -1126,14 +1125,14 @@ fn merge_user_prompt_overrides(
 }
 
 fn agent_prompt_overrides_from_profile(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     profile: Option<&ExecutorProfileId>,
 ) -> AgentPromptOverrides {
     let Some(profile) = profile else {
         return AgentPromptOverrides::default();
     };
 
-    if agent_type_from_executor_key(&profile.executor.to_string()) != Some(agent_type) {
+    if AgentKind::from_lenient(&profile.executor.to_string()) != Some(agent_type) {
         tracing::warn!(
             requested_agent = ?agent_type,
             profile_executor = %profile.executor,
@@ -1161,7 +1160,7 @@ fn agent_prompt_overrides_from_profile(
     let mut overrides = AgentPromptOverrides::default();
 
     match (profile.executor, config) {
-        (BaseCodingAgent::ClaudeCode, Some(CodingAgent::ClaudeCode(config))) => {
+        (AgentKind::ClaudeCode, Some(CodingAgent::ClaudeCode(config))) => {
             push_config_override(
                 &mut overrides.config_overrides,
                 "model",
@@ -1181,7 +1180,7 @@ fn agent_prompt_overrides_from_profile(
                 Some(permission.to_string()),
             );
         }
-        (BaseCodingAgent::Codex, Some(CodingAgent::Codex(config))) => {
+        (AgentKind::Codex, Some(CodingAgent::Codex(config))) => {
             push_config_override(
                 &mut overrides.config_overrides,
                 "model",
@@ -1220,7 +1219,7 @@ fn agent_prompt_overrides_from_profile(
                 }),
             );
         }
-        (BaseCodingAgent::Opencode, Some(CodingAgent::Opencode(config))) => {
+        (AgentKind::Opencode, Some(CodingAgent::Opencode(config))) => {
             push_config_override(
                 &mut overrides.config_overrides,
                 "model",

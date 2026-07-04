@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::{DelegationInjector, InjectedMcpServer, registry::AgentType};
+use agents::{DelegationInjector, InjectedMcpServer, registry::AgentKind};
 use delegation::{TokenEntry, TokenRegistry};
 use uuid::Uuid;
 
@@ -22,12 +22,12 @@ impl DelegationInjector for VibexDelegationInjector {
     fn companion(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentType,
+        agent_type: AgentKind,
         working_dir: &Path,
     ) -> Option<InjectedMcpServer> {
         // v1: only ClaudeCode parents get the companion (other agents' MCP
         // injection mechanisms differ — deferred).
-        if agent_type != AgentType::ClaudeCode {
+        if agent_type != AgentKind::ClaudeCode {
             return None;
         }
         let token = Uuid::new_v4().to_string();

@@ -8,7 +8,7 @@ use std::{
 use lru::LruCache;
 
 use super::SlashCommandDescription;
-use crate::executors::BaseCodingAgent;
+use crate::executors::AgentKind;
 
 /// Parsed slash command with name and arguments.
 
@@ -81,7 +81,7 @@ pub struct SlashCommandCacheKey {
 
 impl SlashCommandCacheKey {
     /// Create a new cache key for an executor.
-    pub fn new(path: impl Into<PathBuf>, executor: &BaseCodingAgent) -> Self {
+    pub fn new(path: impl Into<PathBuf>, executor: &AgentKind) -> Self {
         Self {
             path: path.into(),
             executor_id: executor.to_string(),

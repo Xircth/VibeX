@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use ts_rs::TS;
 
 use crate::{
-    AgentError, AgentResult, AgentType, claude_config_path, codex_config_path, opencode_config_path,
+    AgentError, AgentResult, AgentKind, claude_config_path, codex_config_path, opencode_config_path,
 };
 
 static DEFAULT_MCP_JSON: &str = include_str!("../default_mcp.json");
@@ -48,28 +48,28 @@ impl AgentMcpConfig {
     }
 }
 
-pub fn default_mcp_config_path(agent_type: AgentType) -> Option<std::path::PathBuf> {
+pub fn default_mcp_config_path(agent_type: AgentKind) -> Option<std::path::PathBuf> {
     match agent_type {
-        AgentType::ClaudeCode => claude_config_path(),
-        AgentType::Codex => codex_config_path(),
-        AgentType::Opencode => opencode_config_path(),
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => None,
+        AgentKind::ClaudeCode => claude_config_path(),
+        AgentKind::Codex => codex_config_path(),
+        AgentKind::Opencode => opencode_config_path(),
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => None,
     }
 }
 
-pub fn mcp_file_config(agent_type: AgentType) -> Option<AgentMcpConfig> {
+pub fn mcp_file_config(agent_type: AgentKind) -> Option<AgentMcpConfig> {
     let config = match agent_type {
-        AgentType::Codex => AgentMcpConfig::new(
+        AgentKind::Codex => AgentMcpConfig::new(
             vec!["mcp_servers".to_string()],
             serde_json::json!({ "mcp_servers": {} }),
             preconfigured_mcp(agent_type),
             true,
         ),
-        AgentType::Opencode => AgentMcpConfig::new(
+        AgentKind::Opencode => AgentMcpConfig::new(
             vec!["mcp".to_string()],
             serde_json::json!({
                 "mcp": {},
@@ -78,17 +78,17 @@ pub fn mcp_file_config(agent_type: AgentType) -> Option<AgentMcpConfig> {
             preconfigured_mcp(agent_type),
             false,
         ),
-        AgentType::ClaudeCode => AgentMcpConfig::new(
+        AgentKind::ClaudeCode => AgentMcpConfig::new(
             vec!["mcpServers".to_string()],
             serde_json::json!({ "mcpServers": {} }),
             preconfigured_mcp(agent_type),
             false,
         ),
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => {
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => {
             return None;
         }
     };
@@ -240,16 +240,16 @@ fn serde_json_to_cst_input(value: &Value) -> jsonc_parser::cst::CstInputValue {
 
 type ServerMap = Map<String, Value>;
 
-fn preconfigured_mcp(agent_type: AgentType) -> Value {
+fn preconfigured_mcp(agent_type: AgentKind) -> Value {
     let adapter = match agent_type {
-        AgentType::Codex => Adapter::Codex,
-        AgentType::Opencode => Adapter::Opencode,
-        AgentType::ClaudeCode
-        | AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => Adapter::Passthrough,
+        AgentKind::Codex => Adapter::Codex,
+        AgentKind::Opencode => Adapter::Opencode,
+        AgentKind::ClaudeCode
+        | AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => Adapter::Passthrough,
     };
 
     apply_adapter(adapter, PRECONFIGURED_MCP_SERVERS.clone())

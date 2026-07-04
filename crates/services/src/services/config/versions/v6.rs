@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use anyhow::Error;
-use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+use executors::{executors::AgentKind, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utils;
@@ -77,18 +77,18 @@ impl Config {
 
         // Validate and convert ProfileVariantLabel.
         //
-        // Fail-loud (代码报告 1.2): `BaseCodingAgent` is a closed enum, so an unknown
+        // Fail-loud (代码报告 1.2): `AgentKind` is a closed enum, so an unknown
         // executor from a v5 config cannot be preserved verbatim. Rather than silently
         // rewriting it to ClaudeCode (which loses the user's choice with no trace), log
         // the original value loudly so the rewrite is visible and recoverable.
         let old_coding_agent = old_config.profile.profile.to_uppercase();
-        let base_coding_agent = BaseCodingAgent::from_str(&old_coding_agent).unwrap_or_else(|_| {
+        let base_coding_agent = AgentKind::from_str(&old_coding_agent).unwrap_or_else(|_| {
             tracing::warn!(
                 executor = %old_config.profile.profile,
                 "v6 config migration: unknown executor; defaulting to ClaudeCode. \
                  Re-select your agent in settings if this is not what you want."
             );
-            BaseCodingAgent::ClaudeCode
+            AgentKind::ClaudeCode
         });
         let executor_profile = ExecutorProfileId::new(base_coding_agent);
 
@@ -138,7 +138,7 @@ impl Default for Config {
         Self {
             config_version: "v6".to_string(),
             theme: ThemeMode::System,
-            executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+            executor_profile: ExecutorProfileId::new(AgentKind::ClaudeCode),
             disclaimer_acknowledged: false,
             onboarding_acknowledged: false,
             github_login_acknowledged: false,

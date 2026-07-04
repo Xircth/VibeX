@@ -10,7 +10,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use agents::{
     events::AgentContentBlock,
     ids::{AgentConnectionId, AgentSessionId},
-    registry::AgentType,
+    registry::AgentKind,
     runtime::{AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
 };
 use async_trait::async_trait;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 /// Shared map `child sessions.id → (delegation call_id, agent_type)` the resolver
 /// consults to route a finished child turn back to the broker.
-pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentType)>>>;
+pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentKind)>>>;
 
 pub(crate) struct RuntimeSpawner {
     pub runtime: Arc<AgentRuntime>,
@@ -35,7 +35,7 @@ impl ConnectionSpawner for RuntimeSpawner {
     async fn spawn(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentType,
+        agent_type: AgentKind,
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError> {
         let parent = AgentConnectionId::from(

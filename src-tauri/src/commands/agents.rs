@@ -9,7 +9,7 @@ use agents::{
     AgentMcpConfig, AgentMcpSurface, AgentPermissionId,
     AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
     AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
-    AgentTerminalOutputSnapshot, AgentType, CancelAgentPromptInput, ConnectAgentInput,
+    AgentTerminalOutputSnapshot, AgentKind, CancelAgentPromptInput, ConnectAgentInput,
     ImportedAgentSession, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot,
     SendAgentPromptInput, all_agent_types, claude_config_path, codex_config_path, config_surface,
     default_history_sources, default_mcp_config_path, import_history_source, mcp_file_config,
@@ -46,7 +46,7 @@ impl From<agents::AgentError> for AppError {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConnectRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_id: String,
     pub working_dir: String,
 }
@@ -97,14 +97,14 @@ pub struct AgentSessionRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSetAutoApproveRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub auto_approve_mode: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeSessionRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_id: String,
     pub working_dir: String,
     pub session_id: String,
@@ -120,13 +120,13 @@ pub struct AgentTerminalSnapshotRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTypeRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentHistoryImportRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub path: Option<String>,
     pub workspace_id: Option<String>,
 }
@@ -134,20 +134,20 @@ pub struct AgentHistoryImportRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfigReadRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConfigWriteRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub content: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMcpWriteRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub config: Value,
 }
 
@@ -315,7 +315,7 @@ pub(crate) struct AgentRuntimeLaunchSettings {
 
 async fn agent_runtime_launch_settings(
     state: &tauri::State<'_, AppState>,
-    agent_type: AgentType,
+    agent_type: AgentKind,
 ) -> Result<AgentRuntimeLaunchSettings, AppError> {
     agent_runtime_launch_settings_from_pool(&state.deployment.db().pool, agent_type).await
 }
@@ -325,7 +325,7 @@ async fn agent_runtime_launch_settings(
 /// without a `tauri::State`.
 pub(crate) async fn agent_runtime_launch_settings_from_pool(
     pool: &sqlx::SqlitePool,
-    agent_type: AgentType,
+    agent_type: AgentKind,
 ) -> Result<AgentRuntimeLaunchSettings, AppError> {
     let setting = AgentSetting::find_by_type(pool, agent_type_setting_key(agent_type)).await?;
     let auto_approve_mode = setting
@@ -375,16 +375,16 @@ fn parse_agent_env_json(value: Option<&str>) -> Result<HashMap<String, String>, 
     Ok(env)
 }
 
-fn agent_type_setting_key(agent_type: AgentType) -> &'static str {
+fn agent_type_setting_key(agent_type: AgentKind) -> &'static str {
     match agent_type {
-        AgentType::ClaudeCode => "claude_code",
-        AgentType::Codex => "codex",
-        AgentType::Opencode => "open_code",
-        AgentType::Gemini => "gemini",
-        AgentType::Openclaw => "open_claw",
-        AgentType::Cline => "cline",
-        AgentType::Hermes => "hermes",
-        AgentType::QaMock => "qa_mock",
+        AgentKind::ClaudeCode => "claude_code",
+        AgentKind::Codex => "codex",
+        AgentKind::Opencode => "open_code",
+        AgentKind::Gemini => "gemini",
+        AgentKind::Openclaw => "open_claw",
+        AgentKind::Cline => "cline",
+        AgentKind::Hermes => "hermes",
+        AgentKind::QaMock => "qa_mock",
     }
 }
 
@@ -716,16 +716,16 @@ async fn persist_history_import(
     Ok(())
 }
 
-fn default_config_path(agent_type: AgentType) -> Option<PathBuf> {
+fn default_config_path(agent_type: AgentKind) -> Option<PathBuf> {
     match agent_type {
-        AgentType::ClaudeCode => claude_config_path(),
-        AgentType::Codex => codex_config_path(),
-        AgentType::Opencode => opencode_config_path(),
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => None,
+        AgentKind::ClaudeCode => claude_config_path(),
+        AgentKind::Codex => codex_config_path(),
+        AgentKind::Opencode => opencode_config_path(),
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => None,
     }
 }
 

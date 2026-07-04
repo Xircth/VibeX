@@ -1295,7 +1295,7 @@ mod tests {
 
     use agents::{
         AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
-        AgentPermissionRequest, AgentPermissionResponse, AgentSessionId, AgentType,
+        AgentPermissionRequest, AgentPermissionResponse, AgentSessionId, AgentKind,
         conversation::{
             ConversationDelegation, ConversationDelegationResult, ConversationError,
             ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
@@ -2144,7 +2144,7 @@ mod tests {
                     delegation_id: "delegation-1".into(),
                     parent_tool_call_id: "tool-1".into(),
                     child_conversation_id: Uuid::new_v4(),
-                    agent_type: AgentType::Codex,
+                    agent_type: AgentKind::Codex,
                     task_preview: "Review diff".into(),
                 },
             },

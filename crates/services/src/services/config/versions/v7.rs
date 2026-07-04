@@ -1,5 +1,5 @@
 use anyhow::Error;
-use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+use executors::{executors::AgentKind, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumString;
 use ts_rs::TS;
@@ -132,7 +132,7 @@ impl Default for Config {
         Self {
             config_version: "v7".to_string(),
             theme: ThemeMode::System,
-            executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+            executor_profile: ExecutorProfileId::new(AgentKind::ClaudeCode),
             disclaimer_acknowledged: false,
             onboarding_acknowledged: false,
             github_login_acknowledged: false,

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::AgentType;
+use crate::AgentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -27,15 +27,15 @@ pub enum AgentConfigStrategy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentConfigSurface {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub auth_paths: Vec<PathTemplate>,
     pub config_paths: Vec<PathTemplate>,
     pub strategy: AgentConfigStrategy,
 }
 
-pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
+pub fn config_surface(agent_type: AgentKind) -> AgentConfigSurface {
     match agent_type {
-        AgentType::ClaudeCode => AgentConfigSurface {
+        AgentKind::ClaudeCode => AgentConfigSurface {
             agent_type,
             auth_paths: vec![path_template(
                 Some("CLAUDE_CONFIG_DIR"),
@@ -49,7 +49,7 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
             )],
             strategy: AgentConfigStrategy::FileJson,
         },
-        AgentType::Codex => AgentConfigSurface {
+        AgentKind::Codex => AgentConfigSurface {
             agent_type,
             auth_paths: vec![path_template(
                 Some("CODEX_HOME"),
@@ -63,7 +63,7 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
             )],
             strategy: AgentConfigStrategy::FileToml,
         },
-        AgentType::Opencode => AgentConfigSurface {
+        AgentKind::Opencode => AgentConfigSurface {
             agent_type,
             auth_paths: vec![path_template(
                 Some("XDG_CONFIG_HOME"),
@@ -77,7 +77,7 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
             )],
             strategy: AgentConfigStrategy::FileJson,
         },
-        AgentType::Gemini => AgentConfigSurface {
+        AgentKind::Gemini => AgentConfigSurface {
             agent_type,
             auth_paths: vec![path_template(
                 Some("GEMINI_CLI_HOME"),
@@ -91,7 +91,7 @@ pub fn config_surface(agent_type: AgentType) -> AgentConfigSurface {
             )],
             strategy: AgentConfigStrategy::Directory,
         },
-        AgentType::Openclaw | AgentType::Cline | AgentType::Hermes | AgentType::QaMock => {
+        AgentKind::Openclaw | AgentKind::Cline | AgentKind::Hermes | AgentKind::QaMock => {
             AgentConfigSurface {
                 agent_type,
                 auth_paths: Vec::new(),
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn codex_config_surface_uses_codex_home() {
-        let surface = config_surface(AgentType::Codex);
+        let surface = config_surface(AgentKind::Codex);
         assert_eq!(surface.strategy, AgentConfigStrategy::FileToml);
         assert_eq!(surface.auth_paths[0].env_var.as_deref(), Some("CODEX_HOME"));
     }

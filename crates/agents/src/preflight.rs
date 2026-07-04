@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{AgentDistribution, AgentRegistryEntry, AgentType};
+use crate::{AgentDistribution, AgentRegistryEntry, AgentKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -53,7 +53,7 @@ pub struct AgentPreflightCheckItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentPreflightReport {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub checks: Vec<AgentPreflightCheckItem>,
 }
 
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn preflight_marks_binary_platform_mismatch_as_failure() {
-        let mut entry = registry_entry(AgentType::Codex);
+        let mut entry = registry_entry(AgentKind::Codex);
         entry.distribution = AgentDistribution::Binary {
             version: "1.0.0".to_string(),
             cmd: "codex-acp".to_string(),
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn preflight_reports_npx_prerequisite_and_auth_warning() {
         let report = build_preflight_report(AgentPreflightProbe {
-            entry: registry_entry(AgentType::Gemini),
+            entry: registry_entry(AgentKind::Gemini),
             platform: "windows-x86_64".to_string(),
             runtime_program: Some("npx.cmd".to_string()),
             runtime_path: Some("C:/node/npx.cmd".to_string()),
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn preflight_keeps_offline_network_as_warning() {
         let report = build_preflight_report(AgentPreflightProbe {
-            entry: registry_entry(AgentType::Opencode),
+            entry: registry_entry(AgentKind::Opencode),
             platform: "windows-x86_64".to_string(),
             runtime_program: Some("opencode".to_string()),
             runtime_path: Some("C:/bin/opencode.exe".to_string()),

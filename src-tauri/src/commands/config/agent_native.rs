@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agents::{AgentType, codex_home, opencode_auth_path, opencode_config_dir};
+use agents::{AgentKind, codex_home, opencode_auth_path, opencode_config_dir};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
@@ -139,29 +139,29 @@ fn hermes_home() -> Option<PathBuf> {
 }
 
 /// Backup subdirectory under `~/.vibex` for an agent.
-fn backup_key(agent_type: AgentType) -> &'static str {
+fn backup_key(agent_type: AgentKind) -> &'static str {
     match agent_type {
-        AgentType::ClaudeCode => "claude_code",
-        AgentType::Codex => "codex",
-        AgentType::Opencode => "opencode",
-        AgentType::Gemini => "gemini",
-        AgentType::Openclaw => "open_claw",
-        AgentType::Cline => "cline",
-        AgentType::Hermes => "hermes",
-        AgentType::QaMock => "qa_mock",
+        AgentKind::ClaudeCode => "claude_code",
+        AgentKind::Codex => "codex",
+        AgentKind::Opencode => "opencode",
+        AgentKind::Gemini => "gemini",
+        AgentKind::Openclaw => "open_claw",
+        AgentKind::Cline => "cline",
+        AgentKind::Hermes => "hermes",
+        AgentKind::QaMock => "qa_mock",
     }
 }
 
 /// The native config files each agent exposes for direct editing.
-fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
+fn native_file_specs(agent_type: AgentKind) -> Vec<NativeFileSpec> {
     match agent_type {
-        AgentType::ClaudeCode => vec![NativeFileSpec {
+        AgentKind::ClaudeCode => vec![NativeFileSpec {
             id: "settings",
             label: "settings.json",
             format: "json",
             path: home().map(|h| h.join(".claude").join("settings.json")),
         }],
-        AgentType::Codex => vec![
+        AgentKind::Codex => vec![
             NativeFileSpec {
                 id: "config",
                 label: "config.toml",
@@ -175,7 +175,7 @@ fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
                 path: codex_home().map(|h| h.join("auth.json")),
             },
         ],
-        AgentType::Opencode => vec![
+        AgentKind::Opencode => vec![
             NativeFileSpec {
                 id: "config",
                 label: "opencode.json",
@@ -189,13 +189,13 @@ fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
                 path: opencode_auth_path(),
             },
         ],
-        AgentType::Gemini => vec![NativeFileSpec {
+        AgentKind::Gemini => vec![NativeFileSpec {
             id: "settings",
             label: "settings.json",
             format: "json",
             path: home().map(|h| h.join(".gemini").join("settings.json")),
         }],
-        AgentType::Cline => vec![
+        AgentKind::Cline => vec![
             NativeFileSpec {
                 id: "global_state",
                 label: "globalState.json",
@@ -209,7 +209,7 @@ fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
                 path: home().map(|h| h.join(".cline").join("data").join("secrets.json")),
             },
         ],
-        AgentType::Hermes => vec![
+        AgentKind::Hermes => vec![
             NativeFileSpec {
                 id: "config",
                 label: "config.yaml",
@@ -225,12 +225,12 @@ fn native_file_specs(agent_type: AgentType) -> Vec<NativeFileSpec> {
         ],
         // OpenClaw is configured through gateway environment variables, not a file.
         // QaMock (in-process test mock) likewise exposes no native config files.
-        AgentType::Openclaw | AgentType::QaMock => Vec::new(),
+        AgentKind::Openclaw | AgentKind::QaMock => Vec::new(),
     }
 }
 
 pub(crate) async fn agent_native_files_read(
-    agent_type: AgentType,
+    agent_type: AgentKind,
 ) -> Result<Vec<AgentNativeFile>, AppError> {
     let mut files = Vec::new();
     for spec in native_file_specs(agent_type) {
@@ -261,7 +261,7 @@ pub(crate) async fn agent_native_files_read(
 }
 
 pub(crate) async fn agent_native_files_write(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     files: Vec<AgentNativeFileWrite>,
 ) -> Result<Vec<AgentNativeFile>, AppError> {
     let specs = native_file_specs(agent_type);
@@ -299,22 +299,22 @@ mod tests {
 
     #[test]
     fn open_claw_has_no_native_config_file() {
-        assert!(native_file_specs(AgentType::Openclaw).is_empty());
+        assert!(native_file_specs(AgentKind::Openclaw).is_empty());
     }
 
     #[test]
     fn file_backed_agents_expose_expected_files() {
-        let ids = |agent: AgentType| {
+        let ids = |agent: AgentKind| {
             native_file_specs(agent)
                 .iter()
                 .map(|spec| spec.id)
                 .collect::<Vec<_>>()
         };
-        assert_eq!(ids(AgentType::Codex), vec!["config", "auth"]);
-        assert_eq!(ids(AgentType::Cline), vec!["global_state", "secrets"]);
-        assert_eq!(ids(AgentType::Hermes), vec!["config", "env"]);
-        assert_eq!(ids(AgentType::ClaudeCode), vec!["settings"]);
-        assert_eq!(ids(AgentType::Gemini), vec!["settings"]);
+        assert_eq!(ids(AgentKind::Codex), vec!["config", "auth"]);
+        assert_eq!(ids(AgentKind::Cline), vec!["global_state", "secrets"]);
+        assert_eq!(ids(AgentKind::Hermes), vec!["config", "env"]);
+        assert_eq!(ids(AgentKind::ClaudeCode), vec!["settings"]);
+        assert_eq!(ids(AgentKind::Gemini), vec!["settings"]);
     }
 
     #[test]

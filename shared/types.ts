@@ -141,7 +141,7 @@ export type Session = { id: string, workspace_id: string, task_id: string | null
  * Legacy executor key (架构报告 A-6), superseded by `agent_type`. Retained
  * read-mostly for the executor↔agent_type cutover; new ACP sessions are identified
  * by `agent_type`. Prefer `agent_type` for agent identity, bridging legacy values
- * through `agents::agent_type_from_executor_key` when needed.
+ * through `AgentKind::from_lenient` when needed.
  */
 executor: string | null, external_session_id: string | null,
 /**

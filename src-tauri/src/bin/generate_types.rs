@@ -186,9 +186,9 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
         std::sync::OnceLock::new();
     REMOVED.get_or_init(|| {
         std::collections::BTreeSet::from([
-            // 批次D2: AgentType + BaseCodingAgent unified into AgentKind (ADR-0002).
-            "AgentType",
-            "BaseCodingAgent",
+            // 批次D2: AgentKind + AgentKind unified into AgentKind (ADR-0002).
+            "AgentKind",
+            "AgentKind",
             "CapabilitySource",
             "CapabilityState",
             "CapabilityStatus",
@@ -220,8 +220,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Config>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
-    // Single agent-identity enum (ADR-0002). Replaces the former AgentType +
-    // BaseCodingAgent TS declarations (tombstoned in `removed_declarations`).
+    // Single agent-identity enum (ADR-0002). Replaces the former AgentKind +
+    // AgentKind TS declarations (tombstoned in `removed_declarations`).
     insert_declaration::<AgentKind>(&mut decls);
     insert_declaration::<SlashCommandKind>(&mut decls);
     insert_declaration::<SlashCommandDescription>(&mut decls);

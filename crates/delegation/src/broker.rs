@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agents::registry::AgentType;
+use agents::registry::AgentKind;
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -62,7 +62,7 @@ struct RunningTask {
     has_real_tool_call: bool,
     child_connection_id: String,
     child_session_id: Uuid,
-    agent_type: AgentType,
+    agent_type: AgentKind,
     started_at: Instant,
 }
 
@@ -72,7 +72,7 @@ struct CompletedTask {
     parent_connection_id: String,
     status: TaskStatus,
     child_session_id: Option<Uuid>,
-    agent_type: Option<AgentType>,
+    agent_type: Option<AgentKind>,
     text: Option<String>,
     error_code: Option<String>,
     message: Option<String>,
@@ -105,7 +105,7 @@ struct FinalizeCtx {
     has_real_tool_call: bool,
     child_connection_id: String,
     child_session_id: Uuid,
-    agent_type: AgentType,
+    agent_type: AgentKind,
     duration_ms: u64,
 }
 
@@ -686,7 +686,7 @@ fn preview(task: &str) -> String {
 fn running_report(
     call_id: &str,
     child_session_id: Uuid,
-    agent_type: AgentType,
+    agent_type: AgentKind,
 ) -> DelegationTaskReport {
     DelegationTaskReport {
         task_id: Some(call_id.to_string()),
@@ -777,7 +777,7 @@ fn canceling_report(task_id: &str) -> DelegationTaskReport {
     }
 }
 
-fn running_meta(child_session_id: &Uuid, agent_type: AgentType) -> serde_json::Value {
+fn running_meta(child_session_id: &Uuid, agent_type: AgentKind) -> serde_json::Value {
     serde_json::json!({
         "status": "running",
         "child_session_id": child_session_id,
@@ -819,7 +819,7 @@ mod tests {
             parent_connection_id: "parent-conn".to_string(),
             parent_session_id,
             parent_tool_use_id: "toolu_1".to_string(),
-            agent_type: AgentType::Codex,
+            agent_type: AgentKind::Codex,
             task: "do the thing".to_string(),
             working_dir: Some("/work".to_string()),
             requested_working_dir: Some("/work".to_string()),
@@ -868,7 +868,7 @@ mod tests {
         let outcome = DelegationOutcome::Ok(DelegationSuccess {
             text: "all done".to_string(),
             child_session_id: h.spawner.child_session_id,
-            child_agent_type: AgentType::Codex,
+            child_agent_type: AgentKind::Codex,
             turn_count: 1,
             duration_ms: 0,
             token_usage: None,
@@ -964,7 +964,7 @@ mod tests {
         DelegationOutcome::Ok(DelegationSuccess {
             text,
             child_session_id: child,
-            child_agent_type: AgentType::Codex,
+            child_agent_type: AgentKind::Codex,
             turn_count: 1,
             duration_ms: 0,
             token_usage: None,
@@ -1040,7 +1040,7 @@ mod tests {
             record: Some(ChildStatusRecord {
                 child_session_id: Uuid::from_u128(7),
                 status: TaskStatus::Completed,
-                agent_type: Some(AgentType::Gemini),
+                agent_type: Some(AgentKind::Gemini),
             }),
         });
         let broker = DelegationBroker::new(

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 
-use crate::registry::AgentType;
+use crate::registry::AgentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -34,7 +34,7 @@ pub struct ImportedAgentMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ImportedAgentSession {
-    pub source_agent: AgentType,
+    pub source_agent: AgentKind,
     pub external_session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -48,7 +48,7 @@ pub struct ImportedAgentSession {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentHistorySource {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub path: PathBuf,
 }
 
@@ -62,31 +62,31 @@ pub enum AgentHistoryError {
     Parse { path: PathBuf, error: String },
 }
 
-pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource> {
+pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource> {
     match agent_type {
-        AgentType::ClaudeCode => env_or_home_sources(agent_type, "CLAUDE_CONFIG_DIR", ".claude")
+        AgentKind::ClaudeCode => env_or_home_sources(agent_type, "CLAUDE_CONFIG_DIR", ".claude")
             .into_iter()
             .map(|source| AgentHistorySource {
                 path: source.path.join("projects"),
                 ..source
             })
             .collect(),
-        AgentType::Codex => env_or_home_sources(agent_type, "CODEX_HOME", ".codex")
+        AgentKind::Codex => env_or_home_sources(agent_type, "CODEX_HOME", ".codex")
             .into_iter()
             .map(|source| AgentHistorySource {
                 path: source.path.join("sessions"),
                 ..source
             })
             .collect(),
-        AgentType::Opencode => xdg_data_or_home_sources(agent_type, "opencode")
+        AgentKind::Opencode => xdg_data_or_home_sources(agent_type, "opencode")
             .into_iter()
             .map(|source| AgentHistorySource {
                 path: source.path.join("opencode.db"),
                 ..source
             })
             .collect(),
-        AgentType::Gemini => env_or_home_sources(agent_type, "GEMINI_CLI_HOME", ".gemini"),
-        AgentType::Openclaw => {
+        AgentKind::Gemini => env_or_home_sources(agent_type, "GEMINI_CLI_HOME", ".gemini"),
+        AgentKind::Openclaw => {
             home_source(agent_type, ".openclaw").map_or_else(Vec::new, |source| {
                 vec![AgentHistorySource {
                     path: source.path.join("agents"),
@@ -94,14 +94,14 @@ pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource>
                 }]
             })
         }
-        AgentType::Cline => env_or_home_sources(agent_type, "CLINE_DIR", ".cline")
+        AgentKind::Cline => env_or_home_sources(agent_type, "CLINE_DIR", ".cline")
             .into_iter()
             .map(|source| AgentHistorySource {
                 path: source.path.join("data").join("tasks"),
                 ..source
             })
             .collect(),
-        AgentType::Hermes => env_or_home_sources(agent_type, "HERMES_HOME", ".hermes")
+        AgentKind::Hermes => env_or_home_sources(agent_type, "HERMES_HOME", ".hermes")
             .into_iter()
             .map(|source| AgentHistorySource {
                 path: source.path.join("state.db"),
@@ -109,7 +109,7 @@ pub fn default_history_sources(agent_type: AgentType) -> Vec<AgentHistorySource>
             })
             .collect(),
         // In-process mock agent: no on-disk history to import.
-        AgentType::QaMock => Vec::new(),
+        AgentKind::QaMock => Vec::new(),
     }
 }
 
@@ -137,7 +137,7 @@ pub fn import_history_source(
 }
 
 fn env_or_home_sources(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     env_var: &str,
     home_relative: &str,
 ) -> Vec<AgentHistorySource> {
@@ -156,7 +156,7 @@ fn env_or_home_sources(
     sources
 }
 
-fn xdg_data_or_home_sources(agent_type: AgentType, app_dir: &str) -> Vec<AgentHistorySource> {
+fn xdg_data_or_home_sources(agent_type: AgentKind, app_dir: &str) -> Vec<AgentHistorySource> {
     let mut sources = Vec::new();
     if let Ok(value) = std::env::var("XDG_DATA_HOME")
         && !value.trim().is_empty()
@@ -175,7 +175,7 @@ fn xdg_data_or_home_sources(agent_type: AgentType, app_dir: &str) -> Vec<AgentHi
     sources
 }
 
-fn home_source(agent_type: AgentType, home_relative: &str) -> Option<AgentHistorySource> {
+fn home_source(agent_type: AgentKind, home_relative: &str) -> Option<AgentHistorySource> {
     dirs::home_dir().map(|home| AgentHistorySource {
         agent_type,
         path: home.join(home_relative),
@@ -226,7 +226,7 @@ fn is_text_history_file(path: &Path) -> bool {
 }
 
 fn parse_history_file(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     path: &Path,
 ) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
     let raw = std::fs::read_to_string(path).map_err(|error| AgentHistoryError::Read {
@@ -241,7 +241,7 @@ fn parse_history_file(
 }
 
 fn parse_jsonl_history(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     path: &Path,
     raw: &str,
 ) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
@@ -265,7 +265,7 @@ fn parse_jsonl_history(
 }
 
 fn parse_json_history(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     path: &Path,
     raw: &str,
 ) -> Result<Vec<ImportedAgentSession>, AgentHistoryError> {
@@ -287,7 +287,7 @@ fn parse_json_history(
 }
 
 fn imported_session_from_value(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     path: &Path,
     value: &serde_json::Value,
 ) -> Option<ImportedAgentSession> {
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn imports_claude_jsonl_fixture() {
         let source = AgentHistorySource {
-            agent_type: AgentType::ClaudeCode,
+            agent_type: AgentKind::ClaudeCode,
             path: fixture_path("claude-projects"),
         };
 
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn imports_codex_json_fixture() {
         let source = AgentHistorySource {
-            agent_type: AgentType::Codex,
+            agent_type: AgentKind::Codex,
             path: fixture_path("codex-sessions"),
         };
 
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn rejects_corrupt_jsonl_fixture() {
         let source = AgentHistorySource {
-            agent_type: AgentType::Gemini,
+            agent_type: AgentKind::Gemini,
             path: fixture_path("corrupt-jsonl"),
         };
 

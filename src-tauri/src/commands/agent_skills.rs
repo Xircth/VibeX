@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use agents::{AgentType, agent_type_from_executor_key, codex_home};
+use agents::{AgentKind, codex_home};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use utils::path::normalize_windows_extended_path_prefix;
@@ -16,27 +16,27 @@ use utils::path::normalize_windows_extended_path_prefix;
 use crate::error::AppError;
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentType; 7] = [
-    AgentType::ClaudeCode,
-    AgentType::Codex,
-    AgentType::Opencode,
-    AgentType::Gemini,
-    AgentType::Openclaw,
-    AgentType::Cline,
-    AgentType::Hermes,
+const ALL_AGENTS: [AgentKind; 7] = [
+    AgentKind::ClaudeCode,
+    AgentKind::Codex,
+    AgentKind::Opencode,
+    AgentKind::Gemini,
+    AgentKind::Openclaw,
+    AgentKind::Cline,
+    AgentKind::Hermes,
 ];
 
-/// Snake_case identifier for an agent (matches the frontend `AgentType`).
-fn agent_key(agent: AgentType) -> &'static str {
+/// Snake_case identifier for an agent (matches the frontend `AgentKind`).
+fn agent_key(agent: AgentKind) -> &'static str {
     match agent {
-        AgentType::ClaudeCode => "claude_code",
-        AgentType::Codex => "codex",
-        AgentType::Opencode => "open_code",
-        AgentType::Gemini => "gemini",
-        AgentType::Openclaw => "open_claw",
-        AgentType::Cline => "cline",
-        AgentType::Hermes => "hermes",
-        AgentType::QaMock => "qa_mock",
+        AgentKind::ClaudeCode => "claude_code",
+        AgentKind::Codex => "codex",
+        AgentKind::Opencode => "open_code",
+        AgentKind::Gemini => "gemini",
+        AgentKind::Openclaw => "open_claw",
+        AgentKind::Cline => "cline",
+        AgentKind::Hermes => "hermes",
+        AgentKind::QaMock => "qa_mock",
     }
 }
 
@@ -90,22 +90,22 @@ fn hermes_home() -> Option<PathBuf> {
 }
 
 /// Whether the agent also supports a flat `{id}.md` skill layout (Codex only).
-fn allows_markdown_file(agent: AgentType) -> bool {
-    matches!(agent, AgentType::Codex)
+fn allows_markdown_file(agent: AgentKind) -> bool {
+    matches!(agent, AgentKind::Codex)
 }
 
 /// All skill directories for an agent, tagged by scope and read-only status.
 /// Mirrors codeg's `skill_storage_spec`.
-fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
+fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
     let home = dirs::home_dir();
     let mut out: Vec<SkillDir> = Vec::new();
 
     let globals: Vec<(PathBuf, bool)> = match agent {
-        AgentType::ClaudeCode => home
+        AgentKind::ClaudeCode => home
             .iter()
             .map(|h| (h.join(".claude").join("skills"), false))
             .collect(),
-        AgentType::Codex => {
+        AgentKind::Codex => {
             let mut dirs = Vec::new();
             if let Some(codex) = codex_home() {
                 dirs.push((codex.join("skills"), false));
@@ -116,7 +116,7 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
             }
             dirs
         }
-        AgentType::Opencode => home
+        AgentKind::Opencode => home
             .iter()
             .flat_map(|h| {
                 vec![
@@ -125,7 +125,7 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ]
             })
             .collect(),
-        AgentType::Gemini => home
+        AgentKind::Gemini => home
             .iter()
             .flat_map(|h| {
                 vec![
@@ -134,11 +134,11 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ]
             })
             .collect(),
-        AgentType::Openclaw => home
+        AgentKind::Openclaw => home
             .iter()
             .map(|h| (h.join(".openclaw").join("skills"), false))
             .collect(),
-        AgentType::Cline => home
+        AgentKind::Cline => home
             .iter()
             .flat_map(|h| {
                 vec![
@@ -147,12 +147,12 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ]
             })
             .collect(),
-        AgentType::Hermes => hermes_home()
+        AgentKind::Hermes => hermes_home()
             .into_iter()
             .map(|h| (h.join("skills"), false))
             .collect(),
         // In-process mock agent: no skill directories.
-        AgentType::QaMock => Vec::new(),
+        AgentKind::QaMock => Vec::new(),
     };
     for (path, read_only) in globals {
         out.push(SkillDir {
@@ -164,19 +164,19 @@ fn skill_dirs(agent: AgentType, workspace: Option<&Path>) -> Vec<SkillDir> {
 
     if let Some(workspace) = workspace {
         let relatives: &[&str] = match agent {
-            AgentType::ClaudeCode => &[".claude/skills"],
-            AgentType::Codex => &[".codex/skills", ".agents/skills"],
-            AgentType::Opencode => &[".agents/skills", ".opencode/skills"],
-            AgentType::Gemini => &[".gemini/skills", ".agents/skills"],
-            AgentType::Openclaw => &["skills"],
-            AgentType::Cline => &[
+            AgentKind::ClaudeCode => &[".claude/skills"],
+            AgentKind::Codex => &[".codex/skills", ".agents/skills"],
+            AgentKind::Opencode => &[".agents/skills", ".opencode/skills"],
+            AgentKind::Gemini => &[".gemini/skills", ".agents/skills"],
+            AgentKind::Openclaw => &["skills"],
+            AgentKind::Cline => &[
                 ".agents/skills",
                 ".cline/skills",
                 ".clinerules/skills",
                 ".claude/skills",
             ],
-            AgentType::Hermes => &[],
-            AgentType::QaMock => &[],
+            AgentKind::Hermes => &[],
+            AgentKind::QaMock => &[],
         };
         for relative in relatives {
             let mut path = workspace.to_path_buf();
@@ -322,8 +322,8 @@ fn scope_rank(scope: AgentSkillScope) -> u8 {
     }
 }
 
-fn parse_agent(agent_type: &str) -> Result<AgentType, AppError> {
-    agent_type_from_executor_key(agent_type)
+fn parse_agent(agent_type: &str) -> Result<AgentKind, AppError> {
+    AgentKind::from_lenient(agent_type)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))
 }
 
@@ -590,17 +590,17 @@ fn vibex_skills_dir() -> PathBuf {
 }
 
 /// The agent-specific directory VibeX writes skills into when hosting.
-fn agent_primary_skill_dir(agent: AgentType) -> Option<PathBuf> {
+fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
     let home = dirs::home_dir();
     match agent {
-        AgentType::ClaudeCode => home.map(|h| h.join(".claude").join("skills")),
-        AgentType::Codex => codex_home().map(|c| c.join("skills")),
-        AgentType::Opencode => home.map(|h| h.join(".config").join("opencode").join("skills")),
-        AgentType::Gemini => home.map(|h| h.join(".gemini").join("skills")),
-        AgentType::Openclaw => home.map(|h| h.join(".openclaw").join("skills")),
-        AgentType::Cline => home.map(|h| h.join(".cline").join("skills")),
-        AgentType::Hermes => hermes_home().map(|h| h.join("skills")),
-        AgentType::QaMock => None,
+        AgentKind::ClaudeCode => home.map(|h| h.join(".claude").join("skills")),
+        AgentKind::Codex => codex_home().map(|c| c.join("skills")),
+        AgentKind::Opencode => home.map(|h| h.join(".config").join("opencode").join("skills")),
+        AgentKind::Gemini => home.map(|h| h.join(".gemini").join("skills")),
+        AgentKind::Openclaw => home.map(|h| h.join(".openclaw").join("skills")),
+        AgentKind::Cline => home.map(|h| h.join(".cline").join("skills")),
+        AgentKind::Hermes => hermes_home().map(|h| h.join("skills")),
+        AgentKind::QaMock => None,
     }
 }
 
@@ -791,7 +791,7 @@ fn apply_hosting(
 fn parse_agent_keys(keys: &[String]) -> Result<BTreeSet<String>, AppError> {
     let mut set = BTreeSet::new();
     for key in keys {
-        let agent = agent_type_from_executor_key(key)
+        let agent = AgentKind::from_lenient(key)
             .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {key}")))?;
         set.insert(agent_key(agent).to_string());
     }
@@ -1173,8 +1173,8 @@ mod tests {
 
     #[test]
     fn codex_is_the_only_markdown_file_agent() {
-        assert!(allows_markdown_file(AgentType::Codex));
-        assert!(!allows_markdown_file(AgentType::ClaudeCode));
+        assert!(allows_markdown_file(AgentKind::Codex));
+        assert!(!allows_markdown_file(AgentKind::ClaudeCode));
     }
 
     #[test]
@@ -1228,13 +1228,13 @@ mod tests {
     #[test]
     fn every_agent_has_a_writable_global_skill_dir() {
         for agent in [
-            AgentType::ClaudeCode,
-            AgentType::Codex,
-            AgentType::Opencode,
-            AgentType::Gemini,
-            AgentType::Openclaw,
-            AgentType::Cline,
-            AgentType::Hermes,
+            AgentKind::ClaudeCode,
+            AgentKind::Codex,
+            AgentKind::Opencode,
+            AgentKind::Gemini,
+            AgentKind::Openclaw,
+            AgentKind::Cline,
+            AgentKind::Hermes,
         ] {
             let dirs = skill_dirs(agent, None);
             assert!(

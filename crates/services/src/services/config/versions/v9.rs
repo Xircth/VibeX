@@ -1,5 +1,5 @@
 use anyhow::Error;
-use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+use executors::{executors::AgentKind, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 pub use v8::{
@@ -98,10 +98,10 @@ pub struct Config {
     pub ai_message_default_collapsed: bool,
     /// Agents that have been disabled by the user in settings
     #[serde(default)]
-    pub disabled_agents: Vec<BaseCodingAgent>,
+    pub disabled_agents: Vec<AgentKind>,
     /// Custom agent display order (if user has reordered)
     #[serde(default)]
-    pub agent_order: Option<Vec<BaseCodingAgent>>,
+    pub agent_order: Option<Vec<AgentKind>>,
     /// Automatically check for app releases and tool updates on startup.
     #[serde(default = "default_auto_update_enabled")]
     pub auto_update_enabled: bool,
@@ -180,7 +180,7 @@ impl Default for Config {
         Self {
             config_version: "v9".to_string(),
             theme: ThemeMode::System,
-            executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+            executor_profile: ExecutorProfileId::new(AgentKind::ClaudeCode),
             disclaimer_acknowledged: false,
             onboarding_acknowledged: false,
             notifications: NotificationConfig::default(),

@@ -2,8 +2,8 @@ use std::{path::PathBuf, time::Duration};
 
 use agents::{
     AgentAvailabilityInfo, AgentDistribution, AgentPreflightCheckStatus, AgentPreflightProbe,
-    AgentPreflightReport, AgentRegistryEntry, AgentType, CommandBuildInput, agent_availability,
-    agent_type_from_executor_key, build_preflight_report, claude_config_path, codex_auth_path,
+    AgentPreflightReport, AgentRegistryEntry, AgentKind, CommandBuildInput, agent_availability,
+    build_preflight_report, claude_config_path, codex_auth_path,
     current_platform, opencode_auth_path, registry_entry,
 };
 use api_types::{
@@ -117,8 +117,8 @@ pub async fn reorder_agents(
     Ok(rows.iter().map(to_info).collect())
 }
 
-fn parse_agent_type_key(agent_type: &str) -> Result<AgentType, AppError> {
-    agent_type_from_executor_key(agent_type)
+fn parse_agent_type_key(agent_type: &str) -> Result<AgentKind, AppError> {
+    AgentKind::from_lenient(agent_type)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))
 }
 
@@ -307,16 +307,16 @@ async fn detect_global_npm_package_version(
         .map(|version| version.to_string()))
 }
 
-fn auth_probe(agent_type: AgentType) -> (bool, Option<String>) {
+fn auth_probe(agent_type: AgentKind) -> (bool, Option<String>) {
     let auth_path = match agent_type {
-        AgentType::ClaudeCode => claude_config_path(),
-        AgentType::Codex => codex_auth_path(),
-        AgentType::Opencode => opencode_auth_path(),
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => None,
+        AgentKind::ClaudeCode => claude_config_path(),
+        AgentKind::Codex => codex_auth_path(),
+        AgentKind::Opencode => opencode_auth_path(),
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => None,
     };
 
     if let Some(path) = auth_path {
@@ -545,9 +545,9 @@ pub async fn run_agent_fix(
 }
 
 /// The interactive login command for an agent's own CLI, if it has one.
-fn login_command_for_agent(agent_type: AgentType) -> Option<&'static str> {
+fn login_command_for_agent(agent_type: AgentKind) -> Option<&'static str> {
     match agent_type {
-        AgentType::Codex => Some("codex login"),
+        AgentKind::Codex => Some("codex login"),
         _ => None,
     }
 }
@@ -651,19 +651,19 @@ mod tests {
     #[test]
     fn maps_registry_npx_agents_to_npm_package_specs() {
         assert_eq!(
-            npm_package_for_entry(&registry_entry(AgentType::ClaudeCode)).as_deref(),
+            npm_package_for_entry(&registry_entry(AgentKind::ClaudeCode)).as_deref(),
             Some("@agentclientprotocol/claude-agent-acp@0.44.0")
         );
         assert_eq!(
-            npm_package_for_entry(&registry_entry(AgentType::Gemini)).as_deref(),
+            npm_package_for_entry(&registry_entry(AgentKind::Gemini)).as_deref(),
             Some("@google/gemini-cli@0.45.2")
         );
         assert_eq!(
-            npm_package_for_entry(&registry_entry(AgentType::Codex)).as_deref(),
+            npm_package_for_entry(&registry_entry(AgentKind::Codex)).as_deref(),
             Some("@agentclientprotocol/codex-acp@1.0.2")
         );
         assert_eq!(
-            npm_package_for_entry(&registry_entry(AgentType::Opencode)).as_deref(),
+            npm_package_for_entry(&registry_entry(AgentKind::Opencode)).as_deref(),
             Some("opencode-ai@1.17.11")
         );
         assert_eq!(
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn registry_preflight_helpers_cover_binary_and_npx_agents() {
-        let codex = registry_entry(AgentType::Codex);
+        let codex = registry_entry(AgentKind::Codex);
         assert!(install_source_label(&codex).contains("npm -g"));
         assert_eq!(
             version_args_for_entry(&codex),
@@ -686,7 +686,7 @@ mod tests {
             ]
         );
 
-        let gemini = registry_entry(AgentType::Gemini);
+        let gemini = registry_entry(AgentKind::Gemini);
         assert_eq!(
             version_args_for_entry(&gemini),
             vec![
@@ -697,7 +697,7 @@ mod tests {
             ]
         );
 
-        let hermes = registry_entry(AgentType::Hermes);
+        let hermes = registry_entry(AgentKind::Hermes);
         assert_eq!(
             version_args_for_entry(&hermes),
             vec![
@@ -713,9 +713,9 @@ mod tests {
     fn parses_all_registry_agent_keys_for_settings_commands() {
         assert_eq!(
             parse_agent_type_key("open_claw").unwrap(),
-            AgentType::Openclaw
+            AgentKind::Openclaw
         );
-        assert_eq!(parse_agent_type_key("cline").unwrap(), AgentType::Cline);
-        assert_eq!(parse_agent_type_key("hermes").unwrap(), AgentType::Hermes);
+        assert_eq!(parse_agent_type_key("cline").unwrap(), AgentKind::Cline);
+        assert_eq!(parse_agent_type_key("hermes").unwrap(), AgentKind::Hermes);
     }
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::AgentType;
+use crate::AgentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -17,25 +17,25 @@ pub enum AgentSkillsStrategy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentSkillsSurface {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub strategy: AgentSkillsStrategy,
     pub global_supported: bool,
     pub project_supported: bool,
 }
 
-pub fn skills_surface(agent_type: AgentType) -> AgentSkillsSurface {
+pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
     match agent_type {
-        AgentType::ClaudeCode | AgentType::Codex | AgentType::Opencode => AgentSkillsSurface {
+        AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Opencode => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
             project_supported: true,
         },
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => {
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => {
             AgentSkillsSurface {
                 agent_type,
                 strategy: AgentSkillsStrategy::AgentCommand,
@@ -59,7 +59,7 @@ mod tests {
 
         assert_eq!(surfaces.len(), 7);
         assert!(surfaces.iter().any(|surface| {
-            surface.agent_type == AgentType::Codex
+            surface.agent_type == AgentKind::Codex
                 && surface.strategy == AgentSkillsStrategy::Directory
         }));
     }

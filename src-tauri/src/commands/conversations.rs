@@ -4,7 +4,7 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentPermissionResponse, AgentSessionConfigOverride, AgentType, ImportedAgentMessageRole,
+    AgentPermissionResponse, AgentSessionConfigOverride, AgentKind, ImportedAgentMessageRole,
     ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
@@ -12,7 +12,6 @@ use agents::{
         ConversationRowPage, ConversationTimeline, ConversationTimelinePage,
         ConversationTimelineRow, ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
     },
-    executor_key_for,
 };
 use db::models::{
     conversation::{
@@ -91,7 +90,7 @@ pub struct ConversationCurrentTurn {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationStartTurnRequest {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_id: String,
     pub conversation_id: String,
     #[serde(default)]
@@ -662,7 +661,7 @@ pub async fn import_agent_session_to_conversation_events(
     )
     .await?;
 
-    let agent_key = executor_key_for(session.source_agent);
+    let agent_key = session.source_agent.as_str();
     DbConversationSummary::bind_external_id(
         pool,
         conversation_id,
@@ -1001,7 +1000,7 @@ mod tests {
     use std::str::FromStr;
 
     use agents::{
-        AgentType, ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession,
+        AgentKind, ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession,
         conversation::{ContentBlock, ConversationEvent, ConversationInputBlock},
     };
     use conversations::ConversationEventAppender;
@@ -1165,7 +1164,7 @@ mod tests {
     async fn history_import_to_conversation_events() {
         let pool = migrated_pool().await;
         let session = ImportedAgentSession {
-            source_agent: AgentType::Codex,
+            source_agent: AgentKind::Codex,
             external_session_id: "external-import-1".to_string(),
             title: Some("Imported session".to_string()),
             workspace_path: None,

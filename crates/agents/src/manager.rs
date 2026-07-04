@@ -47,7 +47,7 @@ use crate::{
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionId, AgentSessionMode,
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall,
-    AgentToolCallUpdate, AgentType, AgentUsage, CommandBuildInput,
+    AgentToolCallUpdate, AgentKind, AgentUsage, CommandBuildInput,
     conversation::SessionLoadFailureReason,
     current_platform, decide_auto_permission_response,
     delegation_inject::DelegationInjector,
@@ -191,7 +191,7 @@ fn acp_error_code_str(error: &acp::Error) -> Option<String> {
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {
     pub connection_id: AgentConnectionId,
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -226,7 +226,7 @@ pub enum AgentConnectionCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedAgentConnectionSnapshot {
     pub connection_id: AgentConnectionId,
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -2507,7 +2507,7 @@ mod tests {
         manager
             .register_connection(AgentConnectionLaunch {
                 connection_id,
-                agent_type: AgentType::Codex,
+                agent_type: AgentKind::Codex,
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2548,7 +2548,7 @@ mod tests {
         let (_snapshot, ready_rx) = manager
             .register_connection(AgentConnectionLaunch {
                 connection_id,
-                agent_type: AgentType::Codex,
+                agent_type: AgentKind::Codex,
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2596,7 +2596,7 @@ mod tests {
         manager
             .register_connection(AgentConnectionLaunch {
                 connection_id,
-                agent_type: AgentType::Codex,
+                agent_type: AgentKind::Codex,
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,

@@ -1,7 +1,7 @@
 //! `AgentKind` — the single, system-wide agent identity enum (ADR-0002).
 //!
-//! Historically agent identity had three parallel concepts — `agents::AgentType`
-//! (serde snake_case), `executors::BaseCodingAgent` (serde/strum/sqlx
+//! Historically agent identity had three parallel concepts — the `agents` registry
+//! enum (serde snake_case), the `executors` base-agent enum (serde/strum/sqlx
 //! SCREAMING_SNAKE_CASE), and the `executor_key` bridge (`claude_code`, `opencode`) —
 //! reconciled only by hand-written string `match` bridges. `AgentKind` collapses them
 //! into one enum living in `api-types` (the shared leaf crate).
@@ -16,7 +16,7 @@
 //!
 //! Deserialization accepts every historically-persisted spelling — SCREAMING_SNAKE
 //! (`CLAUDE_CODE`, `OPENCODE`), Pascal (`ClaudeCode`), kebab (`claude-code`), and the
-//! old `AgentType` snake spellings (`open_code`, `open_claw`) — by normalizing case and
+//! old two-word snake spellings (`open_code`, `open_claw`) — by normalizing case and
 //! separators before matching. New writes converge on the canonical snake form; old rows
 //! (scratch profiles, `ExecutorAction` payloads, `agent_setting` seeds) still parse.
 
@@ -164,9 +164,9 @@ mod tests {
 
     #[test]
     fn lenient_parse_accepts_every_historical_spelling() {
-        // SCREAMING_SNAKE (BaseCodingAgent serde/strum/sqlx), Pascal (variant names),
-        // kebab (persisted ExecutorProfileId), and the old AgentType snake spellings
-        // (open_code / open_claw) all resolve to the right variant.
+        // SCREAMING_SNAKE (the former base-agent enum's serde/strum/sqlx), Pascal
+        // (variant names), kebab (persisted ExecutorProfileId), and the old two-word
+        // snake spellings (open_code / open_claw) all resolve to the right variant.
         let cases = [
             ("CLAUDE_CODE", AgentKind::ClaudeCode),
             ("ClaudeCode", AgentKind::ClaudeCode),
@@ -174,11 +174,11 @@ mod tests {
             ("claude_code", AgentKind::ClaudeCode),
             ("CODEX", AgentKind::Codex),
             ("OPENCODE", AgentKind::Opencode),
-            ("open_code", AgentKind::Opencode), // old AgentType snake_case
+            ("open_code", AgentKind::Opencode), // old AgentKind snake_case
             ("Opencode", AgentKind::Opencode),
             ("opencode", AgentKind::Opencode),
             ("OPENCLAW", AgentKind::Openclaw),
-            ("open_claw", AgentKind::Openclaw), // old AgentType snake_case
+            ("open_claw", AgentKind::Openclaw), // old AgentKind snake_case
             ("openclaw", AgentKind::Openclaw),
             ("GEMINI", AgentKind::Gemini),
             ("CLINE", AgentKind::Cline),

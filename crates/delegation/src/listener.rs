@@ -5,7 +5,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use agents::registry::agent_type_from_executor_key;
+use agents::AgentKind;
 use delegation_proto::{
     BrokerMessage, BrokerRequest, BrokerResponse, BrokerStatusRequest, read_frame, write_frame,
 };
@@ -102,8 +102,8 @@ impl DelegationListener {
         let agent_type = match req.input.get("agent_type").and_then(Value::as_str) {
             // The registry helper accepts the snake_case wire form the tool
             // schema emits (plus other casings), keeping the accepted set in sync
-            // with the canonical AgentType mapping.
-            Some(raw) => match agent_type_from_executor_key(raw) {
+            // with the canonical AgentKind mapping.
+            Some(raw) => match AgentKind::from_lenient(raw) {
                 Some(agent_type) => agent_type,
                 None => {
                     return failed_setup_report(

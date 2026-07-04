@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use agents::{AgentPermissionResponse, AgentSessionConfigOverride, AgentType, executor_key_for};
+use agents::{AgentPermissionResponse, AgentSessionConfigOverride, AgentKind};
 use axum::{
     Json, Router,
     extract::{Path, Query, State as AxumState},
@@ -96,7 +96,7 @@ struct ConversationListQuery {
 #[derive(Debug, Clone, Deserialize)]
 struct CreateConversationRequest {
     workspace_id: String,
-    agent_type: AgentType,
+    agent_type: AgentKind,
     title: Option<String>,
     initial_prompt: Option<String>,
 }
@@ -104,7 +104,7 @@ struct CreateConversationRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WebStartTurnRequest {
-    agent_type: AgentType,
+    agent_type: AgentKind,
     workspace_id: Option<String>,
     text: String,
     #[serde(default)]
@@ -418,7 +418,7 @@ async fn api_create_conversation(
            SET agent_type = ?, updated_at = datetime('now', 'subsec')
            WHERE id = ?"#,
     )
-    .bind(executor_key_for(request.agent_type))
+    .bind(request.agent_type.as_str())
     .bind(conversation_id)
     .execute(pool)
     .await

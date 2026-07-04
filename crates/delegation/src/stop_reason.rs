@@ -7,7 +7,7 @@
 //! map identically, and fall back to [`DelegationError::ChildUnknown`] for
 //! anything unrecognized rather than guessing.
 
-use agents::registry::AgentType;
+use agents::registry::AgentKind;
 use uuid::Uuid;
 
 use crate::types::{DelegationError, DelegationOutcome, DelegationSuccess};
@@ -54,7 +54,7 @@ pub fn outcome_from_turn(
     stop_reason: Option<&str>,
     text: String,
     child_session_id: Uuid,
-    child_agent_type: AgentType,
+    child_agent_type: AgentKind,
     turn_count: u32,
     duration_ms: u64,
 ) -> DelegationOutcome {
@@ -130,7 +130,7 @@ mod tests {
             Some("EndTurn"),
             "done".to_string(),
             Uuid::nil(),
-            AgentType::Codex,
+            AgentKind::Codex,
             1,
             10,
         );
@@ -143,7 +143,7 @@ mod tests {
             Some("EndTurn"),
             "   ".to_string(),
             Uuid::nil(),
-            AgentType::Codex,
+            AgentKind::Codex,
             1,
             10,
         );
@@ -163,7 +163,7 @@ mod tests {
                 Some(reason),
                 "x".to_string(),
                 Uuid::nil(),
-                AgentType::Codex,
+                AgentKind::Codex,
                 1,
                 1,
             );

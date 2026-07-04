@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{AgentDistribution, AgentRegistryEntry, AgentType};
+use crate::{AgentDistribution, AgentRegistryEntry, AgentKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -37,7 +37,7 @@ pub struct AgentPreflightIssue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentPreflight {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub status: AgentInstallStatus,
     pub issues: Vec<AgentPreflightIssue>,
 }
@@ -45,7 +45,7 @@ pub struct AgentPreflight {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentInstallPlan {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub distribution: AgentDistribution,
     pub required_tools: Vec<String>,
     pub user_visible_summary: String,
@@ -86,7 +86,7 @@ impl AgentInstallPlan {
 }
 
 pub fn preflight_from_detected_state(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     prerequisite_ok: bool,
     agent_found: bool,
     auth_found: bool,
@@ -143,22 +143,22 @@ fn issue(code: &str, severity: AgentPreflightSeverity, message: &str) -> AgentPr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AgentType, registry_entry};
+    use crate::{AgentKind, registry_entry};
 
     #[test]
     fn install_plan_reports_npx_prerequisites() {
-        let entry = registry_entry(AgentType::Gemini);
+        let entry = registry_entry(AgentKind::Gemini);
         let plan = AgentInstallPlan::from_registry_entry(&entry);
         assert_eq!(plan.required_tools, vec!["node>=20.0.0"]);
     }
 
     #[test]
     fn preflight_distinguishes_auth_missing_from_missing_agent() {
-        let preflight = preflight_from_detected_state(AgentType::Codex, true, true, false, true);
+        let preflight = preflight_from_detected_state(AgentKind::Codex, true, true, false, true);
         assert_eq!(preflight.status, AgentInstallStatus::AuthMissing);
         assert_eq!(preflight.issues[0].code, "auth_missing");
 
-        let missing = preflight_from_detected_state(AgentType::Codex, true, false, false, true);
+        let missing = preflight_from_detected_state(AgentKind::Codex, true, false, false, true);
         assert_eq!(missing.status, AgentInstallStatus::MissingAgent);
     }
 }

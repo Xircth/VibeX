@@ -2,10 +2,9 @@ use std::{collections::HashMap, path::Path};
 
 use agents::{
     AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities,
-    agent_type_from_executor_key,
 };
 use db::models::execution_process::ExecutionProcess;
-use executors::{executors::BaseCodingAgent, profile::ExecutorConfigs};
+use executors::{executors::AgentKind, profile::ExecutorConfigs};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use services::services::{
@@ -269,7 +268,7 @@ pub async fn clear_local_app_data(
 #[tauri::command]
 pub async fn get_mcp_servers(
     state: tauri::State<'_, AppState>,
-    executor: BaseCodingAgent,
+    executor: AgentKind,
 ) -> Result<GetMcpServerResponse, AppError> {
     mcp_servers::get_mcp_servers(state, executor).await
 }
@@ -277,7 +276,7 @@ pub async fn get_mcp_servers(
 #[tauri::command]
 pub async fn update_mcp_servers(
     state: tauri::State<'_, AppState>,
-    executor: BaseCodingAgent,
+    executor: AgentKind,
     servers: HashMap<String, serde_json::Value>,
 ) -> Result<String, AppError> {
     mcp_servers::update_mcp_servers(state, executor, servers).await
@@ -338,7 +337,7 @@ pub async fn check_editor_availability(
 #[tauri::command]
 pub async fn check_agent_availability(
     state: tauri::State<'_, AppState>,
-    executor: BaseCodingAgent,
+    executor: AgentKind,
 ) -> Result<AgentAvailabilityInfo, AppError> {
     let _ = state;
 
@@ -414,7 +413,7 @@ pub async fn read_agent_native_files(
     agent_type: String,
 ) -> Result<Vec<AgentNativeFile>, AppError> {
     let _ = state;
-    let agent_type = agent_type_from_executor_key(&agent_type)
+    let agent_type = AgentKind::from_lenient(&agent_type)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
     agent_native::agent_native_files_read(agent_type).await
 }
@@ -426,7 +425,7 @@ pub async fn write_agent_native_files(
     files: Vec<AgentNativeFileWrite>,
 ) -> Result<Vec<AgentNativeFile>, AppError> {
     let _ = state;
-    let agent_type = agent_type_from_executor_key(&agent_type)
+    let agent_type = AgentKind::from_lenient(&agent_type)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
     agent_native::agent_native_files_write(agent_type, files).await
 }

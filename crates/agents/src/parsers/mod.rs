@@ -20,7 +20,7 @@ use crate::{
         ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, PlanEntry,
         SessionStats, TurnRole, TurnUsage,
     },
-    registry::AgentType,
+    registry::AgentKind,
 };
 
 /// True for plan/todo tools whose input should render as a [`ContentBlock::Plan`]
@@ -81,7 +81,7 @@ pub enum ParseError {
 #[derive(Debug, Clone)]
 pub struct ParseContext {
     pub external_session_id: String,
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub workspace_path: Option<String>,
 }
 

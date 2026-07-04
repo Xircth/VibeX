@@ -4,7 +4,7 @@ use agents::{
     AgentMcpConfig, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
     write_agent_mcp_config,
 };
-use executors::executors::BaseCodingAgent;
+use executors::executors::AgentKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs;
@@ -19,7 +19,7 @@ pub struct GetMcpServerResponse {
 
 pub(crate) async fn get_mcp_servers(
     state: tauri::State<'_, AppState>,
-    executor: BaseCodingAgent,
+    executor: AgentKind,
 ) -> Result<GetMcpServerResponse, AppError> {
     let _ = state;
 
@@ -51,7 +51,7 @@ pub(crate) async fn get_mcp_servers(
 
 pub(crate) async fn update_mcp_servers(
     state: tauri::State<'_, AppState>,
-    executor: BaseCodingAgent,
+    executor: AgentKind,
     servers: HashMap<String, Value>,
 ) -> Result<String, AppError> {
     let _ = state;

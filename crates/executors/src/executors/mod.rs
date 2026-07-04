@@ -76,20 +76,20 @@ pub enum CodingAgent {
 ///
 /// The stable agent identity. Re-exported from [`api_types::AgentKind`] — the single
 /// system-wide identity enum (ADR-0002, 批次D2). Kept under the historical
-/// `BaseCodingAgent` name during the staged migration; call sites move to `AgentKind`
+/// `AgentKind` name during the staged migration; call sites move to `AgentKind`
 /// crate-by-crate. Serde/Display/sqlx now emit the canonical snake_case key
 /// (`claude_code`, `opencode`, …) instead of the former SCREAMING_SNAKE; reads stay
 /// lenient, so old persisted `CLAUDE_CODE`/kebab payloads still parse (ADR-0002).
-pub use api_types::AgentKind as BaseCodingAgent;
+pub use api_types::AgentKind;
 
-impl From<&CodingAgent> for BaseCodingAgent {
+impl From<&CodingAgent> for AgentKind {
     fn from(agent: &CodingAgent) -> Self {
         match agent {
-            CodingAgent::ClaudeCode(_) => BaseCodingAgent::ClaudeCode,
-            CodingAgent::Codex(_) => BaseCodingAgent::Codex,
-            CodingAgent::Opencode(_) => BaseCodingAgent::Opencode,
+            CodingAgent::ClaudeCode(_) => AgentKind::ClaudeCode,
+            CodingAgent::Codex(_) => AgentKind::Codex,
+            CodingAgent::Opencode(_) => AgentKind::Opencode,
             #[cfg(feature = "qa-mode")]
-            CodingAgent::QaMock(_) => BaseCodingAgent::QaMock,
+            CodingAgent::QaMock(_) => AgentKind::QaMock,
         }
     }
 }

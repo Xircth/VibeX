@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::AgentType;
+use crate::AgentKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -28,35 +28,35 @@ impl AgentAvailabilityInfo {
     }
 }
 
-pub fn agent_capabilities(agent_type: AgentType) -> Vec<AgentCapability> {
+pub fn agent_capabilities(agent_type: AgentKind) -> Vec<AgentCapability> {
     match agent_type {
-        AgentType::ClaudeCode | AgentType::Opencode => {
+        AgentKind::ClaudeCode | AgentKind::Opencode => {
             vec![AgentCapability::SessionFork, AgentCapability::ContextUsage]
         }
-        AgentType::Codex => vec![
+        AgentKind::Codex => vec![
             AgentCapability::SessionFork,
             AgentCapability::SetupHelper,
             AgentCapability::ContextUsage,
         ],
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => {
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => {
             vec![AgentCapability::ContextUsage]
         }
     }
 }
 
-pub fn agent_availability(agent_type: AgentType) -> AgentAvailabilityInfo {
+pub fn agent_availability(agent_type: AgentKind) -> AgentAvailabilityInfo {
     match agent_type {
-        AgentType::ClaudeCode => modified_timestamp(claude_config_path()).map_or(
+        AgentKind::ClaudeCode => modified_timestamp(claude_config_path()).map_or(
             AgentAvailabilityInfo::NotFound,
             |last_auth_timestamp| AgentAvailabilityInfo::LoginDetected {
                 last_auth_timestamp,
             },
         ),
-        AgentType::Codex => {
+        AgentKind::Codex => {
             if let Some(last_auth_timestamp) = modified_timestamp(codex_auth_path()) {
                 return AgentAvailabilityInfo::LoginDetected {
                     last_auth_timestamp,
@@ -72,7 +72,7 @@ pub fn agent_availability(agent_type: AgentType) -> AgentAvailabilityInfo {
                 AgentAvailabilityInfo::NotFound
             }
         }
-        AgentType::Opencode => {
+        AgentKind::Opencode => {
             if opencode_config_path()
                 .map(|path| path.exists())
                 .unwrap_or(false)
@@ -82,11 +82,11 @@ pub fn agent_availability(agent_type: AgentType) -> AgentAvailabilityInfo {
                 AgentAvailabilityInfo::NotFound
             }
         }
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => AgentAvailabilityInfo::NotFound,
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => AgentAvailabilityInfo::NotFound,
     }
 }
 

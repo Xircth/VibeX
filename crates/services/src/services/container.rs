@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentType, agent_type_from_executor_key};
+use agents::AgentKind;
 use anyhow::{Error as AnyhowError, anyhow};
 use async_trait::async_trait;
 use db::{
@@ -168,9 +168,9 @@ fn slash_command(name: &str, description: &str) -> SlashCommandDescription {
     }
 }
 
-fn acp_slash_command_catalog(agent_type: AgentType) -> Vec<SlashCommandDescription> {
+fn acp_slash_command_catalog(agent_type: AgentKind) -> Vec<SlashCommandDescription> {
     match agent_type {
-        AgentType::ClaudeCode => vec![
+        AgentKind::ClaudeCode => vec![
             slash_command("compact", "Compact conversation with an optional focus"),
             slash_command(
                 "goal",
@@ -181,7 +181,7 @@ fn acp_slash_command_catalog(agent_type: AgentType) -> Vec<SlashCommandDescripti
             slash_command("review", "Review a pull request"),
             slash_command("context", "Show Claude Code context usage"),
         ],
-        AgentType::Codex => vec![
+        AgentKind::Codex => vec![
             slash_command("compact", "Compact conversation with an optional focus"),
             slash_command(
                 "goal",
@@ -194,12 +194,12 @@ fn acp_slash_command_catalog(agent_type: AgentType) -> Vec<SlashCommandDescripti
             slash_command("plan", "Switch to planning-oriented Codex behavior"),
             slash_command("review", "Review code with optional instructions"),
         ],
-        AgentType::Opencode => vec![slash_command("compact", "Compact the current session")],
-        AgentType::Gemini
-        | AgentType::Openclaw
-        | AgentType::Cline
-        | AgentType::Hermes
-        | AgentType::QaMock => Vec::new(),
+        AgentKind::Opencode => vec![slash_command("compact", "Compact the current session")],
+        AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Cline
+        | AgentKind::Hermes
+        | AgentKind::QaMock => Vec::new(),
     }
 }
 
@@ -247,7 +247,7 @@ pub trait ContainerService: Send + Sync {
         _workspace_id: Option<Uuid>,
         _repo_id: Option<Uuid>,
     ) -> Result<Option<BoxStream<'static, Patch>>, ContainerError> {
-        let commands = agent_type_from_executor_key(&executor_profile_id.executor.to_string())
+        let commands = AgentKind::from_lenient(&executor_profile_id.executor.to_string())
             .map(acp_slash_command_catalog)
             .unwrap_or_default();
         let patch = executors::logs::utils::patch::slash_commands(commands, false, None);

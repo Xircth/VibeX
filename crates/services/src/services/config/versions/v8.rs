@@ -1,5 +1,5 @@
 use anyhow::Error;
-use executors::{executors::BaseCodingAgent, profile::ExecutorProfileId};
+use executors::{executors::AgentKind, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 pub use v7::{
@@ -125,7 +125,7 @@ impl Default for Config {
         Self {
             config_version: "v8".to_string(),
             theme: ThemeMode::System,
-            executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),
+            executor_profile: ExecutorProfileId::new(AgentKind::ClaudeCode),
             disclaimer_acknowledged: false,
             onboarding_acknowledged: false,
             notifications: NotificationConfig::default(),

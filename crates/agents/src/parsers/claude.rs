@@ -187,12 +187,12 @@ fn parse_usage(value: Option<&Value>) -> Option<TurnUsage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::AgentType;
+    use crate::registry::AgentKind;
 
     fn ctx() -> ParseContext {
         ParseContext {
             external_session_id: "claude-session-1".to_string(),
-            agent_type: AgentType::ClaudeCode,
+            agent_type: AgentKind::ClaudeCode,
             workspace_path: Some("C:/repo".to_string()),
         }
     }

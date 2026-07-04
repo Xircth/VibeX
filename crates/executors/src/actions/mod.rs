@@ -9,7 +9,7 @@ use crate::{
     actions::script::ScriptRequest,
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
-    executors::{BaseCodingAgent, ExecutorError, SpawnedChild},
+    executors::{AgentKind, ExecutorError, SpawnedChild},
 };
 pub mod script;
 
@@ -57,7 +57,7 @@ impl ExecutorAction {
         self.next_action.as_deref()
     }
 
-    pub fn base_executor(&self) -> Option<BaseCodingAgent> {
+    pub fn base_executor(&self) -> Option<AgentKind> {
         match self.typ() {
             ExecutorActionType::ScriptRequest(_) => None,
         }

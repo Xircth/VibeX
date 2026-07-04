@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use agents::registry::AgentType;
+use agents::registry::AgentKind;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Default)]
 pub struct MockSpawnerCalls {
-    pub spawned: Vec<(String, AgentType, Option<String>)>,
+    pub spawned: Vec<(String, AgentKind, Option<String>)>,
     pub prompts: Vec<(String, String)>,
     pub canceled: Vec<String>,
     pub disconnected: Vec<String>,
@@ -72,7 +72,7 @@ impl ConnectionSpawner for MockSpawner {
     async fn spawn(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentType,
+        agent_type: AgentKind,
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError> {
         if let Some(message) = &self.spawn_error {

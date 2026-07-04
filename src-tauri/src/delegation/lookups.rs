@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use agents::{
-    ids::AgentConnectionId, registry::agent_type_from_executor_key, runtime::AgentRuntime,
+    AgentKind, ids::AgentConnectionId, runtime::AgentRuntime,
 };
 use async_trait::async_trait;
 use db::models::session::{Session, SessionStatus};
@@ -48,7 +48,7 @@ impl ChildStatusLookup for DbChildStatusLookup {
             agent_type: session
                 .agent_type
                 .as_deref()
-                .and_then(agent_type_from_executor_key),
+                .and_then(AgentKind::from_lenient),
         })
     }
 }

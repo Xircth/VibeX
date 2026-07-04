@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::{
     events::{AgentAvailableCommand, AgentSessionConfigOption, AgentSessionMode},
     permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse},
-    registry::AgentType,
+    registry::AgentKind,
 };
 
 /// Role of a conversation turn.
@@ -201,7 +201,7 @@ pub struct SessionStats {
 #[ts(export)]
 pub struct ConversationSummary {
     pub id: String,
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -491,7 +491,7 @@ pub struct ConversationDelegation {
     pub delegation_id: String,
     pub parent_tool_call_id: String,
     pub child_conversation_id: Uuid,
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub task_preview: String,
 }
 
@@ -519,7 +519,7 @@ pub enum ConversationEvent {
         title: Option<String>,
     },
     AgentBindingStarted {
-        agent_type: AgentType,
+        agent_type: AgentKind,
         working_dir: String,
     },
     AgentBindingReady {
@@ -709,7 +709,7 @@ pub struct ConversationDelegationView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child_conversation_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_type: Option<AgentType>,
+    pub agent_type: Option<AgentKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_preview: Option<String>,
     pub status: String,
@@ -939,7 +939,7 @@ mod event_sourced_tests {
                     delegation_id: "d1".to_string(),
                     parent_tool_call_id: "tool1".to_string(),
                     child_conversation_id: Uuid::new_v4(),
-                    agent_type: AgentType::Codex,
+                    agent_type: AgentKind::Codex,
                     task_preview: "child work".to_string(),
                 },
             },

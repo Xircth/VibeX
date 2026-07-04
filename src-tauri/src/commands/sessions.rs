@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agents::{AgentCapability, agent_capabilities, agent_type_from_executor_key};
+use agents::{AgentCapability, agent_capabilities, AgentKind};
 use db::models::{
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
@@ -53,7 +53,7 @@ fn derive_session_continuity_mode(
     }
 
     if executor
-        .and_then(agent_type_from_executor_key)
+        .and_then(AgentKind::from_lenient)
         .map(|agent_type| agent_capabilities(agent_type).contains(&AgentCapability::SessionFork))
         .unwrap_or(false)
     {

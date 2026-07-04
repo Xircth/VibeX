@@ -11,7 +11,7 @@ use thiserror::Error;
 use ts_rs::TS;
 
 use crate::{
-    executors::{BaseCodingAgent, CodingAgent},
+    executors::{AgentKind, CodingAgent},
     model_selector::PermissionPolicy,
 };
 
@@ -31,11 +31,11 @@ pub fn canonical_variant_key<S: AsRef<str>>(raw: S) -> String {
 #[derive(Error, Debug)]
 pub enum ProfileError {
     #[error("Built-in executor '{executor}' cannot be deleted")]
-    CannotDeleteExecutor { executor: BaseCodingAgent },
+    CannotDeleteExecutor { executor: AgentKind },
 
     #[error("Built-in configuration '{executor}:{variant}' cannot be deleted")]
     CannotDeleteBuiltInConfig {
-        executor: BaseCodingAgent,
+        executor: AgentKind,
         variant: String,
     },
 
@@ -61,7 +61,7 @@ pub struct ExecutorProfileId {
     /// The executor type (e.g., "CLAUDE_CODE", "AMP")
     #[serde(alias = "profile", deserialize_with = "de_base_coding_agent_kebab")]
     // Backwards compatibility with ProfileVariantIds, esp stored in DB under ExecutorAction
-    pub executor: BaseCodingAgent,
+    pub executor: AgentKind,
     /// Optional variant name (e.g., "PLAN", "ROUTER")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
@@ -79,20 +79,20 @@ pub struct ExecutorProfileId {
 // Persisted profile payloads may still contain kebab-case executor ids.
 // Keep this reader-side normalization unless a migration proves old config,
 // scratch, and DB action payloads can no longer reach these serde boundaries.
-fn de_base_coding_agent_kebab<'de, D>(de: D) -> Result<BaseCodingAgent, D::Error>
+fn de_base_coding_agent_kebab<'de, D>(de: D) -> Result<AgentKind, D::Error>
 where
     D: Deserializer<'de>,
 {
     let raw = String::deserialize(de)?;
     // kebab-case -> SCREAMING_SNAKE_CASE
     let norm = raw.replace('-', "_").to_ascii_uppercase();
-    BaseCodingAgent::from_str(&norm)
+    AgentKind::from_str(&norm)
         .map_err(|_| D::Error::custom(format!("unknown executor '{raw}' (normalized to '{norm}')")))
 }
 
 impl ExecutorProfileId {
     /// Create a new executor profile ID with default variant
-    pub fn new(executor: BaseCodingAgent) -> Self {
+    pub fn new(executor: AgentKind) -> Self {
         Self {
             executor,
             variant: None,
@@ -103,7 +103,7 @@ impl ExecutorProfileId {
     }
 
     /// Create a new executor profile ID with specific variant
-    pub fn with_variant(executor: BaseCodingAgent, variant: String) -> Self {
+    pub fn with_variant(executor: AgentKind, variant: String) -> Self {
         Self {
             executor,
             variant: Some(variant),
@@ -139,7 +139,7 @@ impl std::fmt::Display for ExecutorProfileId {
 pub struct ExecutorConfig {
     /// The executor type (e.g., CLAUDE_CODE, AMP)
     #[serde(alias = "profile", deserialize_with = "de_base_coding_agent_kebab")]
-    pub executor: BaseCodingAgent,
+    pub executor: AgentKind,
     /// Optional variant/preset name (e.g., "PLAN", "ROUTER")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
@@ -159,7 +159,7 @@ pub struct ExecutorConfig {
 
 impl ExecutorConfig {
     /// Create from just an executor (default variant, no overrides)
-    pub fn new(executor: BaseCodingAgent) -> Self {
+    pub fn new(executor: AgentKind) -> Self {
         Self {
             executor,
             variant: None,
@@ -280,7 +280,7 @@ pub struct ExecutorRecentModels {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 pub struct ExecutorConfigs {
-    pub executors: HashMap<BaseCodingAgent, ExecutorProfile>,
+    pub executors: HashMap<AgentKind, ExecutorProfile>,
 }
 
 impl ExecutorConfigs {
@@ -482,7 +482,7 @@ impl ExecutorConfigs {
             })?;
 
             // Validate that the default agent type matches the executor key
-            if BaseCodingAgent::from(default_config) != *executor_key {
+            if AgentKind::from(default_config) != *executor_key {
                 return Err(ProfileError::Validation(format!(
                     "Executor key '{executor_key}' does not match the agent variant '{default_config}'"
                 )));
@@ -522,14 +522,14 @@ pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::executors::BaseCodingAgent;
+    use crate::executors::AgentKind;
 
     #[test]
     fn default_profiles_include_frontier_codex_variants() {
         let defaults = ExecutorConfigs::from_defaults();
         let codex = defaults
             .executors
-            .get(&BaseCodingAgent::Codex)
+            .get(&AgentKind::Codex)
             .expect("codex defaults should exist");
 
         assert!(codex.configurations.contains_key("GPT_5_5"));
@@ -544,7 +544,7 @@ mod tests {
             serde_json::from_str(r#"{"executor":"claude-code","variant":"PLAN"}"#)
                 .expect("legacy kebab executor should deserialize");
 
-        assert_eq!(profile.executor, BaseCodingAgent::ClaudeCode);
+        assert_eq!(profile.executor, AgentKind::ClaudeCode);
         assert_eq!(profile.variant.as_deref(), Some("PLAN"));
     }
 
@@ -554,7 +554,7 @@ mod tests {
             serde_json::from_str(r#"{"profile":"opencode","model":"gpt-5.4"}"#)
                 .expect("legacy profile alias should deserialize");
 
-        assert_eq!(profile.executor, BaseCodingAgent::Opencode);
+        assert_eq!(profile.executor, AgentKind::Opencode);
         assert_eq!(profile.model.as_deref(), Some("gpt-5.4"));
     }
 
@@ -564,20 +564,20 @@ mod tests {
             serde_json::from_str(r#"{"executor":"claude-code","variant":"ROUTER"}"#)
                 .expect("legacy kebab executor config should deserialize");
 
-        assert_eq!(config.executor, BaseCodingAgent::ClaudeCode);
+        assert_eq!(config.executor, AgentKind::ClaudeCode);
         assert_eq!(config.variant.as_deref(), Some("ROUTER"));
     }
 
     #[test]
     fn executor_profile_id_deserializes_legacy_screaming_executor() {
-        // 批次D2 / ADR-0002 old-DB acceptance: before AgentKind, BaseCodingAgent's serde
+        // 批次D2 / ADR-0002 old-DB acceptance: before AgentKind, AgentKind's serde
         // was SCREAMING_SNAKE_CASE, so `scratch.selected_profile` / ExecutorAction payloads
         // in existing databases store `"CLAUDE_CODE"` / `"OPENCODE"`. AgentKind's lenient
         // read must still load them (now normalizing to canonical snake_case on re-write).
         for (raw, expected) in [
-            (r#"{"executor":"CLAUDE_CODE"}"#, BaseCodingAgent::ClaudeCode),
-            (r#"{"executor":"OPENCODE"}"#, BaseCodingAgent::Opencode),
-            (r#"{"executor":"OPENCLAW","variant":"DEFAULT"}"#, BaseCodingAgent::Openclaw),
+            (r#"{"executor":"CLAUDE_CODE"}"#, AgentKind::ClaudeCode),
+            (r#"{"executor":"OPENCODE"}"#, AgentKind::Opencode),
+            (r#"{"executor":"OPENCLAW","variant":"DEFAULT"}"#, AgentKind::Openclaw),
         ] {
             let profile: ExecutorProfileId =
                 serde_json::from_str(raw).expect("legacy SCREAMING executor should deserialize");

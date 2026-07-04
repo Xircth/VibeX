@@ -92,10 +92,7 @@ pub use preflight::{
     AgentPreflightCheckItem, AgentPreflightCheckStatus, AgentPreflightFixAction,
     AgentPreflightProbe, AgentPreflightReport, build_preflight_report,
 };
-pub use registry::{
-    AgentRegistryEntry, AgentType, agent_type_from_executor_key, all_agent_types, executor_key_for,
-    registry_entry,
-};
+pub use registry::{AgentRegistryEntry, AgentKind, all_agent_types, registry_entry};
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot,

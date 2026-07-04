@@ -44,7 +44,7 @@ pub struct Session {
     /// Legacy executor key (架构报告 A-6), superseded by `agent_type`. Retained
     /// read-mostly for the executor↔agent_type cutover; new ACP sessions are identified
     /// by `agent_type`. Prefer `agent_type` for agent identity, bridging legacy values
-    /// through `agents::agent_type_from_executor_key` when needed.
+    /// through `AgentKind::from_lenient` when needed.
     pub executor: Option<String>,
     pub external_session_id: Option<String>,
     /// Canonical ACP agent identity (the executor↔agent_type successor to `executor`).

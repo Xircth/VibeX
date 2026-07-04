@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::registry::AgentType;
+use crate::registry::AgentKind;
 
 /// A stdio MCP server the host wants spliced into an agent's `session/new`.
 #[derive(Debug, Clone)]
@@ -26,7 +26,7 @@ pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
     fn companion(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentType,
+        agent_type: AgentKind,
         working_dir: &Path,
     ) -> Option<InjectedMcpServer>;
 }

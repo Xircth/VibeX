@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentAvailabilityInfo, agent_availability, agent_type_from_executor_key};
+use agents::{AgentAvailabilityInfo, agent_availability, AgentKind};
 use async_trait::async_trait;
 use db::DBService;
 use deployment::{Deployment, DeploymentError};
@@ -50,7 +50,7 @@ fn recommended_executor_profile(profiles: &ExecutorConfigs) -> Option<ExecutorPr
         .executors
         .keys()
         .filter_map(|executor| {
-            let agent_type = agent_type_from_executor_key(&executor.to_string())?;
+            let agent_type = AgentKind::from_lenient(&executor.to_string())?;
             let availability = agent_availability(agent_type);
             if !availability.is_available() {
                 return None;

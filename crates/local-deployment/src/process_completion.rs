@@ -1,7 +1,7 @@
 use std::{io, process::ExitStatus};
 
 use db::models::execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus};
-use executors::executors::{BaseCodingAgent, ExecutorExitResult};
+use executors::executors::{AgentKind, ExecutorExitResult};
 use uuid::Uuid;
 
 pub(crate) fn execution_result_from_exit(
@@ -93,11 +93,11 @@ pub(crate) fn should_mark_task_in_review_after_stop(
 }
 
 pub(crate) fn should_create_executor_approval_bridge(
-    base_executor: Option<BaseCodingAgent>,
+    base_executor: Option<AgentKind>,
 ) -> bool {
     matches!(
         base_executor,
-        Some(BaseCodingAgent::Codex | BaseCodingAgent::ClaudeCode | BaseCodingAgent::Opencode)
+        Some(AgentKind::Codex | AgentKind::ClaudeCode | AgentKind::Opencode)
     )
 }
 
@@ -134,7 +134,7 @@ mod tests {
     use std::io;
 
     use db::models::execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus};
-    use executors::executors::{BaseCodingAgent, ExecutorExitResult};
+    use executors::executors::{AgentKind, ExecutorExitResult};
     use uuid::Uuid;
 
     use super::{
@@ -260,13 +260,13 @@ mod tests {
     #[test]
     fn approval_bridge_is_used_for_interactive_coding_executors() {
         assert!(should_create_executor_approval_bridge(Some(
-            BaseCodingAgent::Codex
+            AgentKind::Codex
         )));
         assert!(should_create_executor_approval_bridge(Some(
-            BaseCodingAgent::ClaudeCode
+            AgentKind::ClaudeCode
         )));
         assert!(should_create_executor_approval_bridge(Some(
-            BaseCodingAgent::Opencode
+            AgentKind::Opencode
         )));
     }
 

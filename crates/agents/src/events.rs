@@ -7,7 +7,7 @@ use crate::{
     conversation::SessionLoadFailureReason,
     ids::{AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId},
     permissions::{AgentPermissionRequest, AgentPermissionResponse},
-    registry::AgentType,
+    registry::AgentKind,
     state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot},
 };
 
@@ -185,7 +185,7 @@ pub enum AgentEvent {
     /// the event envelope.
     SessionLinked {
         acp_session_id: String,
-        agent_type: AgentType,
+        agent_type: AgentKind,
     },
     PromptStarted {
         snapshot: AgentPromptSnapshot,
@@ -263,14 +263,14 @@ pub enum AgentEvent {
         parent_tool_use_id: String,
         /// The child's `sessions.id` — the conversation the user can open.
         child_session_id: Uuid,
-        agent_type: AgentType,
+        agent_type: AgentKind,
         task_preview: String,
     },
     /// A delegated child reached a terminal state.
     DelegationCompleted {
         parent_tool_use_id: String,
         child_session_id: Uuid,
-        agent_type: AgentType,
+        agent_type: AgentKind,
         result: DelegationResultSummary,
     },
     Error {

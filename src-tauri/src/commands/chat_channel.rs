@@ -19,7 +19,7 @@ use std::{
 };
 
 use agents::{
-    AgentEventEnvelope, agent_type_from_executor_key,
+    AgentEventEnvelope, AgentKind,
     conversation::{ConversationEvent, ConversationEventEnvelope},
 };
 use chrono::Utc;
@@ -1593,7 +1593,7 @@ async fn send_task(
     let Some(agent_type) = target
         .agent_type
         .as_deref()
-        .and_then(agent_type_from_executor_key)
+        .and_then(AgentKind::from_lenient)
     else {
         return "该对话没有可用的 Agent 绑定。请先在桌面端对这个对话发送一次消息。".to_string();
     };

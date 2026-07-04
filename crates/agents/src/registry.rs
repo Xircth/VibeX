@@ -7,90 +7,61 @@ use crate::{
 };
 
 /// The stable agent identity. Re-exported from [`api_types::AgentKind`] — the single
-/// system-wide identity enum (ADR-0002, 批次D2). Kept under the historical `AgentType`
+/// system-wide identity enum (ADR-0002, 批次D2). Kept under the historical `AgentKind`
 /// name during the staged migration; call sites move to `AgentKind` crate-by-crate.
-pub use api_types::AgentKind as AgentType;
+pub use api_types::AgentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentRegistryEntry {
-    pub agent_type: AgentType,
+    pub agent_type: AgentKind,
     pub registry_id: String,
     pub name: String,
     pub description: String,
     pub distribution: AgentDistribution,
 }
 
-pub fn all_agent_types() -> Vec<AgentType> {
+pub fn all_agent_types() -> Vec<AgentKind> {
     vec![
-        AgentType::ClaudeCode,
-        AgentType::Codex,
-        AgentType::Opencode,
-        AgentType::Gemini,
-        AgentType::Openclaw,
-        AgentType::Cline,
-        AgentType::Hermes,
+        AgentKind::ClaudeCode,
+        AgentKind::Codex,
+        AgentKind::Opencode,
+        AgentKind::Gemini,
+        AgentKind::Openclaw,
+        AgentKind::Cline,
+        AgentKind::Hermes,
     ]
 }
 
-pub fn registry_id_for(agent_type: AgentType) -> &'static str {
+pub fn registry_id_for(agent_type: AgentKind) -> &'static str {
     match agent_type {
-        AgentType::ClaudeCode => "claude-acp",
-        AgentType::Codex => "codex-acp",
-        AgentType::Opencode => "opencode",
-        AgentType::Gemini => "gemini",
-        AgentType::Openclaw => "openclaw-acp",
-        AgentType::Cline => "cline",
-        AgentType::Hermes => "hermes",
-        AgentType::QaMock => "qa-mock",
+        AgentKind::ClaudeCode => "claude-acp",
+        AgentKind::Codex => "codex-acp",
+        AgentKind::Opencode => "opencode",
+        AgentKind::Gemini => "gemini",
+        AgentKind::Openclaw => "openclaw-acp",
+        AgentKind::Cline => "cline",
+        AgentKind::Hermes => "hermes",
+        AgentKind::QaMock => "qa-mock",
     }
 }
 
-pub fn agent_type_from_registry_id(id: &str) -> Option<AgentType> {
+pub fn agent_type_from_registry_id(id: &str) -> Option<AgentKind> {
     match id {
-        "claude-acp" => Some(AgentType::ClaudeCode),
-        "codex-acp" => Some(AgentType::Codex),
-        "opencode" => Some(AgentType::Opencode),
-        "gemini" => Some(AgentType::Gemini),
-        "openclaw-acp" => Some(AgentType::Openclaw),
-        "cline" => Some(AgentType::Cline),
-        "hermes" => Some(AgentType::Hermes),
+        "claude-acp" => Some(AgentKind::ClaudeCode),
+        "codex-acp" => Some(AgentKind::Codex),
+        "opencode" => Some(AgentKind::Opencode),
+        "gemini" => Some(AgentKind::Gemini),
+        "openclaw-acp" => Some(AgentKind::Openclaw),
+        "cline" => Some(AgentKind::Cline),
+        "hermes" => Some(AgentKind::Hermes),
         _ => None,
     }
 }
 
-pub fn agent_type_from_executor_key(key: &str) -> Option<AgentType> {
-    match key {
-        "CLAUDE_CODE" | "claude_code" | "ClaudeCode" => Some(AgentType::ClaudeCode),
-        "CODEX" | "codex" | "Codex" => Some(AgentType::Codex),
-        "OPENCODE" | "open_code" | "opencode" | "Opencode" => Some(AgentType::Opencode),
-        "GEMINI" | "gemini" | "Gemini" => Some(AgentType::Gemini),
-        "OPENCLAW" | "open_claw" | "openclaw" | "OpenClaw" => Some(AgentType::Openclaw),
-        "CLINE" | "cline" | "Cline" => Some(AgentType::Cline),
-        "HERMES" | "hermes" | "Hermes" => Some(AgentType::Hermes),
-        _ => None,
-    }
-}
-
-/// The canonical executor-key string for an agent type. Round-trips through
-/// [`agent_type_from_executor_key`]; persisted in `sessions.agent_type` so the
-/// runtime binding and explicit transcript importer use the same agent key.
-pub fn executor_key_for(agent_type: AgentType) -> &'static str {
-    match agent_type {
-        AgentType::ClaudeCode => "claude_code",
-        AgentType::Codex => "codex",
-        AgentType::Opencode => "opencode",
-        AgentType::Gemini => "gemini",
-        AgentType::Openclaw => "openclaw",
-        AgentType::Cline => "cline",
-        AgentType::Hermes => "hermes",
-        AgentType::QaMock => "qa_mock",
-    }
-}
-
-pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
+pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
     let (name, description, distribution) = match agent_type {
-        AgentType::ClaudeCode => (
+        AgentKind::ClaudeCode => (
             "Claude Code",
             "ACP wrapper for Anthropic's Claude",
             AgentDistribution::Npx {
@@ -101,7 +72,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
                 node_required: None,
             },
         ),
-        AgentType::Codex => (
+        AgentKind::Codex => (
             "Codex CLI",
             "ACP adapter for OpenAI's coding assistant",
             AgentDistribution::Npx {
@@ -112,7 +83,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
                 node_required: None,
             },
         ),
-        AgentType::Opencode => (
+        AgentKind::Opencode => (
             "OpenCode",
             "OpenCode ACP server",
             AgentDistribution::Npx {
@@ -123,7 +94,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
                 node_required: None,
             },
         ),
-        AgentType::Gemini => (
+        AgentKind::Gemini => (
             "Gemini CLI",
             "Google's official CLI for Gemini",
             AgentDistribution::Npx {
@@ -134,7 +105,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
                 node_required: Some("20.0.0".to_string()),
             },
         ),
-        AgentType::Openclaw => (
+        AgentKind::Openclaw => (
             "OpenClaw",
             "OpenClaw personal AI assistant",
             AgentDistribution::Npx {
@@ -145,7 +116,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
                 node_required: Some("22.19.0".to_string()),
             },
         ),
-        AgentType::Cline => (
+        AgentKind::Cline => (
             "Cline",
             "Autonomous coding agent CLI",
             AgentDistribution::Npx {
@@ -156,7 +127,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
                 node_required: None,
             },
         ),
-        AgentType::Hermes => (
+        AgentKind::Hermes => (
             "Hermes",
             "Hermes ACP and MCP agent",
             AgentDistribution::Uvx {
@@ -175,7 +146,7 @@ pub fn registry_entry(agent_type: AgentType) -> AgentRegistryEntry {
         // In-process mock agent for tests. Not a registry-listed agent (see
         // `all_agent_types`), but exhaustiveness requires an entry; give it a
         // minimal placeholder distribution that is never actually spawned.
-        AgentType::QaMock => (
+        AgentKind::QaMock => (
             "QA Mock",
             "In-process mock agent for tests",
             AgentDistribution::Npx {
@@ -212,13 +183,13 @@ mod tests {
         assert_eq!(
             all_agent_types(),
             vec![
-                AgentType::ClaudeCode,
-                AgentType::Codex,
-                AgentType::Opencode,
-                AgentType::Gemini,
-                AgentType::Openclaw,
-                AgentType::Cline,
-                AgentType::Hermes,
+                AgentKind::ClaudeCode,
+                AgentKind::Codex,
+                AgentKind::Opencode,
+                AgentKind::Gemini,
+                AgentKind::Openclaw,
+                AgentKind::Cline,
+                AgentKind::Hermes,
             ]
         );
     }
@@ -238,9 +209,9 @@ mod tests {
         // resolve back to the same agent so imported transcript metadata and
         // runtime bindings share the same key space.
         for agent in all_agent_types() {
-            let key = executor_key_for(agent);
+            let key = agent.as_str();
             assert_eq!(
-                agent_type_from_executor_key(key),
+                AgentKind::from_lenient(key),
                 Some(agent),
                 "executor key {key:?} must round-trip"
             );
@@ -249,21 +220,21 @@ mod tests {
 
     #[test]
     fn registry_pins_codeg_style_versions() {
-        let gemini = registry_entry(AgentType::Gemini);
+        let gemini = registry_entry(AgentKind::Gemini);
         assert!(matches!(
             gemini.distribution,
             AgentDistribution::Npx { ref version, ref package, .. }
                 if version == "0.45.2" && package == "@google/gemini-cli@0.45.2"
         ));
 
-        let codex = registry_entry(AgentType::Codex);
+        let codex = registry_entry(AgentKind::Codex);
         assert!(matches!(
             codex.distribution,
             AgentDistribution::Npx { ref version, ref package, .. }
                 if version == "1.0.2" && package == "@agentclientprotocol/codex-acp@1.0.2"
         ));
 
-        let opencode = registry_entry(AgentType::Opencode);
+        let opencode = registry_entry(AgentKind::Opencode);
         assert!(matches!(
             opencode.distribution,
             AgentDistribution::Npx { ref version, ref package, ref args, .. }

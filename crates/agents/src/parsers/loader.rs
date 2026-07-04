@@ -12,7 +12,7 @@ use super::{
     ConversationParser, ParseContext, ParseError, claude::ClaudeParser, codex::CodexParser,
 };
 use crate::{
-    conversation::ConversationDetail, history::default_history_sources, registry::AgentType,
+    conversation::ConversationDetail, history::default_history_sources, registry::AgentKind,
 };
 
 #[derive(Debug, Error)]
@@ -24,10 +24,10 @@ pub enum LoaderError {
 }
 
 /// The parser for an agent, or `None` if no parser is implemented yet.
-pub fn parser_for(agent_type: AgentType) -> Option<Box<dyn ConversationParser>> {
+pub fn parser_for(agent_type: AgentKind) -> Option<Box<dyn ConversationParser>> {
     match agent_type {
-        AgentType::ClaudeCode => Some(Box::new(ClaudeParser)),
-        AgentType::Codex => Some(Box::new(CodexParser)),
+        AgentKind::ClaudeCode => Some(Box::new(ClaudeParser)),
+        AgentKind::Codex => Some(Box::new(CodexParser)),
         // Gemini / Cline / OpenClaw / OpenCode / Hermes parsers are not yet
         // implemented; callers fall back to no transcript.
         _ => None,
@@ -36,7 +36,7 @@ pub fn parser_for(agent_type: AgentType) -> Option<Box<dyn ConversationParser>> 
 
 /// Resolve the on-disk session file for an agent session, searching the agent's
 /// default history roots.
-pub fn locate_session_file(agent_type: AgentType, external_session_id: &str) -> Option<PathBuf> {
+pub fn locate_session_file(agent_type: AgentKind, external_session_id: &str) -> Option<PathBuf> {
     let roots: Vec<PathBuf> = default_history_sources(agent_type)
         .into_iter()
         .map(|source| source.path)
@@ -46,7 +46,7 @@ pub fn locate_session_file(agent_type: AgentType, external_session_id: &str) -> 
 
 /// Testable core of [`locate_session_file`]: scan the given roots.
 pub fn locate_in_roots(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     external_session_id: &str,
     roots: &[PathBuf],
 ) -> Option<PathBuf> {
@@ -58,7 +58,7 @@ pub fn locate_in_roots(
     None
 }
 
-fn scan_dir(agent_type: AgentType, id: &str, dir: &Path) -> Option<PathBuf> {
+fn scan_dir(agent_type: AgentKind, id: &str, dir: &Path) -> Option<PathBuf> {
     let entries = std::fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -80,13 +80,13 @@ fn is_jsonl(path: &Path) -> bool {
     )
 }
 
-fn file_matches(agent_type: AgentType, id: &str, path: &Path) -> bool {
+fn file_matches(agent_type: AgentKind, id: &str, path: &Path) -> bool {
     match agent_type {
         // Claude names each session file by its session id.
-        AgentType::ClaudeCode => path.file_stem().and_then(|stem| stem.to_str()) == Some(id),
+        AgentKind::ClaudeCode => path.file_stem().and_then(|stem| stem.to_str()) == Some(id),
         // Codex names files `rollout-<ts>-<uuid>.jsonl`; the canonical id is in
         // the leading `session_meta` record.
-        AgentType::Codex => codex_session_id(path).as_deref() == Some(id),
+        AgentKind::Codex => codex_session_id(path).as_deref() == Some(id),
         _ => false,
     }
 }
@@ -108,7 +108,7 @@ fn codex_session_id(path: &Path) -> Option<String> {
 /// Locate and parse the transcript for an explicit import operation. Returns
 /// `Ok(None)` when no parser is available or the file cannot be found.
 pub fn load_import_conversation_detail(
-    agent_type: AgentType,
+    agent_type: AgentKind,
     external_session_id: &str,
     workspace_path: Option<String>,
 ) -> Result<Option<ConversationDetail>, LoaderError> {
@@ -131,7 +131,7 @@ pub fn load_import_conversation_detail(
 /// Re-parse a known session file path (testable; bypasses location).
 pub fn load_from_path(
     parser: &dyn ConversationParser,
-    agent_type: AgentType,
+    agent_type: AgentKind,
     external_session_id: &str,
     workspace_path: Option<String>,
     path: &Path,
@@ -161,9 +161,9 @@ mod tests {
 
     #[test]
     fn parser_dispatch_covers_implemented_agents() {
-        assert!(parser_for(AgentType::ClaudeCode).is_some());
-        assert!(parser_for(AgentType::Codex).is_some());
-        assert!(parser_for(AgentType::Gemini).is_none());
+        assert!(parser_for(AgentKind::ClaudeCode).is_some());
+        assert!(parser_for(AgentKind::Codex).is_some());
+        assert!(parser_for(AgentKind::Gemini).is_none());
     }
 
     #[test]
@@ -179,14 +179,14 @@ mod tests {
         .unwrap();
 
         let found = locate_in_roots(
-            AgentType::ClaudeCode,
+            AgentKind::ClaudeCode,
             "claude-xyz",
             std::slice::from_ref(&root),
         );
         assert_eq!(found.as_deref(), Some(file.as_path()));
         assert!(
             locate_in_roots(
-                AgentType::ClaudeCode,
+                AgentKind::ClaudeCode,
                 "missing",
                 std::slice::from_ref(&root),
             )
@@ -212,13 +212,13 @@ mod tests {
         )
         .unwrap();
 
-        let found = locate_in_roots(AgentType::Codex, "codex-abc", std::slice::from_ref(&root));
+        let found = locate_in_roots(AgentKind::Codex, "codex-abc", std::slice::from_ref(&root));
         assert_eq!(found.as_deref(), Some(file.as_path()));
 
-        let parser = parser_for(AgentType::Codex).unwrap();
+        let parser = parser_for(AgentKind::Codex).unwrap();
         let detail = load_from_path(
             parser.as_ref(),
-            AgentType::Codex,
+            AgentKind::Codex,
             "codex-abc",
             Some("C:/repo".to_string()),
             &file,

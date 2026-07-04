@@ -47,7 +47,7 @@ pub struct AppState {
     /// of re-projecting the turn every frame. Dropped when a conversation closes
     /// (`forget_conversation_runtime`).
     pub conversation_row_projectors:
-        Arc<Mutex<HashMap<uuid::Uuid, db::models::conversation_projection::IncrementalRowProjector>>>,
+        Arc<Mutex<HashMap<uuid::Uuid, conversations::IncrementalRowProjector>>>,
 }
 
 impl AppState {

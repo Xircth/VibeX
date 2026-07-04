@@ -20,11 +20,11 @@ use db::models::{
         CreateConversationRecord, DbConversationSummary,
     },
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
-    conversation_projection::{
-        CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    },
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
+};
+use conversations::{
+    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
 };
 use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
@@ -1004,10 +1004,10 @@ mod tests {
         AgentType, ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession,
         conversation::{ContentBlock, ConversationEvent, ConversationInputBlock},
     };
+    use conversations::ConversationEventAppender;
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_event::AppendConversationEvent,
-        conversation_projection::ConversationEventAppender,
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};

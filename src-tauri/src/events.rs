@@ -12,9 +12,9 @@ use agents::{
     },
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
+use conversations::{ConversationEventAppender, IncrementalRowProjector};
 use db::models::{
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
-    conversation_projection::{ConversationEventAppender, IncrementalRowProjector},
     workspace::Workspace,
 };
 use tokio::sync::Mutex;

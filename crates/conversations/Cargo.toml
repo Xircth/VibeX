@@ -1,0 +1,20 @@
+[package]
+name = "conversations"
+version = "0.1.8"
+edition = "2024"
+
+# Event-sourced conversation core (ADR-0003): the projection fold / snapshot / incremental
+# row projector live here (moved out of `crates/db` to break the db→agents reverse
+# dependency). Depends on both `agents` (domain event types) and `db` (dumb storage layer).
+[dependencies]
+db = { path = "../db" }
+agents = { path = "../agents" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "chrono", "uuid"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

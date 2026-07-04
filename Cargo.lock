@@ -901,6 +901,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "conversations"
+version = "0.1.8"
+dependencies = [
+ "agents",
+ "chrono",
+ "db",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1207,7 +1222,6 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 name = "db"
 version = "0.1.8"
 dependencies = [
- "agents",
  "anyhow",
  "chrono",
  "executors",
@@ -7569,6 +7583,7 @@ dependencies = [
  "base64 0.22.1",
  "cc",
  "chrono",
+ "conversations",
  "db",
  "delegation",
  "deployment",

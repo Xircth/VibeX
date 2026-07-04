@@ -12,13 +12,13 @@ use agents::{
     },
     executor_key_for,
 };
+use conversations::{ConversationEventAppender, ConversationProjector};
 use db::models::{
     conversation::{
         ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
         CreateConversationRecord,
     },
     conversation_event::AppendConversationEvent,
-    conversation_projection::{ConversationEventAppender, ConversationProjector},
     conversation_side_effects::ConversationPermissionRecord,
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,

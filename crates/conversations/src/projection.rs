@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-use super::{
+use db::models::{
     conversation_event::{
         AppendConversationEvent, ConversationEventRecord, find_conversation_event_by_idempotency,
         insert_conversation_event,
@@ -1308,7 +1308,7 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
-    use crate::models::{
+    use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     };
@@ -1322,7 +1322,7 @@ mod tests {
             .connect_with(options)
             .await
             .expect("connect memory db");
-        sqlx::migrate!("./migrations")
+        sqlx::migrate!("../db/migrations")
             .run(&pool)
             .await
             .expect("run migrations");
@@ -1767,29 +1767,29 @@ mod tests {
         let fixtures = [
             (
                 "happy-path",
-                include_str!("../../fixtures/conversation-projection/happy-path.json"),
+                include_str!("../../db/fixtures/conversation-projection/happy-path.json"),
             ),
             (
                 "no-assistant-output-error",
                 include_str!(
-                    "../../fixtures/conversation-projection/no-assistant-output-error.json"
+                "../../db/fixtures/conversation-projection/no-assistant-output-error.json"
                 ),
             ),
             (
                 "permission-blocked",
-                include_str!("../../fixtures/conversation-projection/permission-blocked.json"),
+                include_str!("../../db/fixtures/conversation-projection/permission-blocked.json"),
             ),
             (
                 "tool-heavy",
-                include_str!("../../fixtures/conversation-projection/tool-heavy.json"),
+                include_str!("../../db/fixtures/conversation-projection/tool-heavy.json"),
             ),
             (
                 "terminal",
-                include_str!("../../fixtures/conversation-projection/terminal.json"),
+                include_str!("../../db/fixtures/conversation-projection/terminal.json"),
             ),
             (
                 "file-change",
-                include_str!("../../fixtures/conversation-projection/file-change.json"),
+                include_str!("../../db/fixtures/conversation-projection/file-change.json"),
             ),
         ];
 
@@ -1932,7 +1932,7 @@ mod tests {
         )
         .await;
 
-        let tools = super::super::conversation_tool::ConversationToolCallRecord::list_for_turn(
+        let tools = db::models::conversation_tool::ConversationToolCallRecord::list_for_turn(
             &pool, turn_id,
         )
         .await
@@ -2034,7 +2034,7 @@ mod tests {
         .await;
 
         assert_eq!(
-            super::super::conversation_side_effects::ConversationPermissionRecord::list_for_turn(
+            db::models::conversation_side_effects::ConversationPermissionRecord::list_for_turn(
                 &pool, turn_id
             )
             .await
@@ -2043,7 +2043,7 @@ mod tests {
             "responded"
         );
         assert_eq!(
-            super::super::conversation_side_effects::ConversationTerminalRecord::list_for_turn(
+            db::models::conversation_side_effects::ConversationTerminalRecord::list_for_turn(
                 &pool, turn_id
             )
             .await
@@ -2052,7 +2052,7 @@ mod tests {
             1
         );
         assert_eq!(
-            super::super::conversation_side_effects::ConversationFileChangeRecord::list_for_turn(
+            db::models::conversation_side_effects::ConversationFileChangeRecord::list_for_turn(
                 &pool, turn_id
             )
             .await
@@ -2090,7 +2090,7 @@ mod tests {
         .await;
 
         let files =
-            super::super::conversation_side_effects::ConversationFileChangeRecord::list_for_turn(
+            db::models::conversation_side_effects::ConversationFileChangeRecord::list_for_turn(
                 &pool, turn_id,
             )
             .await
@@ -2478,7 +2478,7 @@ mod tests {
         assert_eq!(incremental, pure, "snapshot+tail must equal pure fold");
 
         let tools_before =
-            super::super::conversation_tool::ConversationToolCallRecord::list_for_conversation(
+            db::models::conversation_tool::ConversationToolCallRecord::list_for_conversation(
                 &pool,
                 conversation_id,
             )
@@ -2498,7 +2498,7 @@ mod tests {
         assert_eq!(rebuilt, pure, "rebuilt projection must equal pure fold");
 
         let tools_after =
-            super::super::conversation_tool::ConversationToolCallRecord::list_for_conversation(
+            db::models::conversation_tool::ConversationToolCallRecord::list_for_conversation(
                 &pool,
                 conversation_id,
             )
@@ -2594,7 +2594,7 @@ mod tests {
         )
         .await;
         assert!(
-            super::super::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
+            db::models::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
                 &pool,
                 conversation_id,
             )
@@ -2616,7 +2616,7 @@ mod tests {
         )
         .await;
         let snapshot =
-            super::super::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
+            db::models::conversation_snapshot::ConversationProjectionSnapshotRecord::find(
                 &pool,
                 conversation_id,
             )

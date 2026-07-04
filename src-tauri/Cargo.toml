@@ -47,6 +47,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Reuse existing workspace crates
 db = { path = "../crates/db" }
+conversations = { path = "../crates/conversations" }
 services = { path = "../crates/services" }
 executors = { path = "../crates/executors" }
 git = { path = "../crates/git" }

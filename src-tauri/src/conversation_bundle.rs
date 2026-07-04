@@ -5,6 +5,9 @@ use agents::conversation::{
     ConversationEvent, ConversationInputBlock,
 };
 use chrono::Utc;
+use conversations::{
+    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
+};
 use db::models::{
     conversation::{ConversationAgentBindingRecord, ConversationRecord, DbConversationSummary},
     conversation_bundle::{
@@ -12,9 +15,6 @@ use db::models::{
         InsertConversationImport,
     },
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
-    conversation_projection::{
-        CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
-    },
     conversation_side_effects::{
         ConversationFileChangeRecord, ConversationPermissionRecord, ConversationTerminalRecord,
     },
@@ -316,10 +316,10 @@ mod tests {
     use std::str::FromStr;
 
     use agents::conversation::{ConversationEvent, ConversationInputBlock};
+    use conversations::ConversationEventAppender;
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_event::AppendConversationEvent,
-        conversation_projection::ConversationEventAppender,
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};

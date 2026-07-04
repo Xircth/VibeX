@@ -2,7 +2,6 @@ pub mod agent_setting;
 pub mod conversation;
 pub mod conversation_bundle;
 pub mod conversation_event;
-pub mod conversation_projection;
 pub mod conversation_side_effects;
 pub mod conversation_snapshot;
 pub mod conversation_tool;

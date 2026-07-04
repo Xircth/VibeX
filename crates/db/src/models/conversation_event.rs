@@ -141,7 +141,7 @@ async fn append_conversation_event_on_connection(
 /// Returning the existing record lets the appender skip re-applying its projection
 /// side-effects on a duplicate — the side-effects were applied when the event was
 /// first inserted.
-pub(crate) async fn find_conversation_event_by_idempotency(
+pub async fn find_conversation_event_by_idempotency(
     conn: &mut SqliteConnection,
     conversation_id: Uuid,
     idempotency_key: Option<&str>,
@@ -165,7 +165,7 @@ pub(crate) async fn find_conversation_event_by_idempotency(
 ///
 /// Callers must run this inside a `BEGIN IMMEDIATE` transaction (and check
 /// idempotency first) so sequence allocation is serialized.
-pub(crate) async fn insert_conversation_event(
+pub async fn insert_conversation_event(
     conn: &mut SqliteConnection,
     input: AppendConversationEvent<'_>,
 ) -> Result<ConversationEventRecord, sqlx::Error> {

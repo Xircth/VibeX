@@ -108,6 +108,14 @@ interface UseTauriTerminalResult {
 
 const MIN_TERMINAL_CONTAINER_SIZE = 16;
 
+/** The user-selected monospace font (P3-2), read from the --font-mono token. */
+function readMonoFont(): string {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue('--font-mono')
+    .trim();
+  return value || 'IBM Plex Mono, Menlo, Monaco, Consolas, monospace';
+}
+
 function hasUsableTerminalContainer(element: HTMLElement): boolean {
   if (!element.isConnected) {
     return false;
@@ -310,7 +318,7 @@ export function useTauriTerminal({
       const terminal = new Terminal({
         cursorBlink: !readOnly,
         fontSize: 13,
-        fontFamily: 'IBM Plex Mono, Menlo, Monaco, Consolas, monospace',
+        fontFamily: readMonoFont(),
         theme: getTerminalTheme(),
         scrollback: 5000,
         convertEol: true,
@@ -363,6 +371,12 @@ export function useTauriTerminal({
 
         try {
           term.options.theme = getTerminalTheme();
+          // The documentElement style MutationObserver below also fires when the
+          // --font-mono token changes (P3-2 picker), so keep the font in sync here.
+          const font = readMonoFont();
+          if (term.options.fontFamily !== font) {
+            term.options.fontFamily = font;
+          }
           term.refresh(0, Math.max(0, term.rows - 1));
         } catch {
           // Panel may be mid-layout, hidden, or disposing.

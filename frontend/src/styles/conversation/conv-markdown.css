@@ -43,7 +43,7 @@
 }
 
 .conv-markdown code {
-  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace);
   font-size: 0.9em;
 }
 
@@ -154,7 +154,7 @@
   padding: 10px 12px 12px;
   white-space: pre;
   overflow-x: auto;
-  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -190,7 +190,7 @@
   background: var(--conv-surface-card);
   white-space: pre;
   overflow-x: auto;
-  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -273,7 +273,7 @@
   overflow: auto;
   color: var(--conv-code-text);
   background: var(--conv-code-bg);
-  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace);
   font-size: 12px;
   line-height: 1.5;
 }

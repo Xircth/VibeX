@@ -197,7 +197,7 @@
   border: none !important;
   padding: 0 !important;
   color: var(--conv-user-text) !important;
-  font-family: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace);
   font-size: 12px;
   line-height: 1.5;
 }

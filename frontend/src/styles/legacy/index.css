@@ -1180,9 +1180,7 @@
 
   .workspace-welcome__eyebrow {
     margin: 0 0 8px;
-    font-family:
-      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-      monospace;
+    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0;
@@ -1293,9 +1291,7 @@
     padding: 10px 12px;
     border-bottom: 1px solid var(--border-subtle);
     color: var(--welcome-subtle);
-    font-family:
-      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-      monospace;
+    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
     font-size: 10px;
   }
 
@@ -1317,9 +1313,7 @@
 
   .workspace-welcome__line span {
     text-align: center;
-    font-family:
-      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-      monospace;
+    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
     font-size: 12px;
     color: var(--welcome-subtle);
   }
@@ -1327,9 +1321,7 @@
   .workspace-welcome__line code {
     overflow: hidden;
     padding-right: 10px;
-    font-family:
-      'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-      monospace;
+    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;

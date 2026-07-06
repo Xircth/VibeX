@@ -394,7 +394,7 @@
 }
 
 .conv-file-card .conv-file-name {
-  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
   font-size: 12px;
   color: var(--conv-text-primary);
   cursor: pointer;
@@ -413,13 +413,13 @@
 .conv-file-card .conv-file-stat-add {
   color: var(--conv-tool-success);
   font-size: 12px;
-  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
 }
 
 .conv-file-card .conv-file-stat-del {
   color: var(--conv-tool-error);
   font-size: 12px;
-  font-family: 'IBM Plex Mono', 'Cascadia Code', monospace;
+  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', monospace);
 }
 
 .conv-file-card .conv-file-icon {

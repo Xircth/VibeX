@@ -11,6 +11,7 @@ import {
 import { isBinaryContentError } from '@/utils/filePreviewKind';
 import { isCanceledError } from '@/lib/tauriApi';
 import { initUiZoom } from '@/lib/uiZoom';
+import { initMonoFont } from '@/lib/uiFont';
 // Initialize the i18n runtime (module side-effect) before first render.
 import '@/i18n';
 // Import modal type definitions
@@ -54,6 +55,7 @@ export const queryClient = new QueryClient({
 });
 
 initUiZoom();
+initMonoFont();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -33,7 +33,7 @@
   --status-success: hsl(var(--success));
   --status-warning: hsl(var(--warning));
   --shadow-accent: hsl(var(--primary) / 0.25);
-  --code-font-family: var(--font-ibm-plex-mono, 'IBM Plex Mono', monospace);
+  --code-font-family: var(--font-mono, 'IBM Plex Mono', monospace);
   --code-font-size: 11px;
   --code-font-weight: 400;
   --code-line-height: 1.28;

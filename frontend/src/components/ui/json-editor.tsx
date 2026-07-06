@@ -38,8 +38,7 @@ export const JSONEditor: React.FC<JSONEditorProps> = ({
         className="w-full resize-y border-0 bg-transparent px-3 py-2 text-sm font-mono leading-6 text-foreground outline-none"
         style={{
           minHeight: `${minHeight}px`,
-          fontFamily:
-            'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+          // Font comes from the `font-mono` class (→ --font-mono token, P3-2).
         }}
       />
     </div>

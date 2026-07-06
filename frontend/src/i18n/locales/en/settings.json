@@ -38,6 +38,12 @@
       "label": "Zoom level",
       "hint": "Affects the display size of the entire app interface."
     },
+    "monoFont": {
+      "title": "Monospace font",
+      "description": "Choose the monospace font for code, terminals, and diffs. Applies instantly and is remembered.",
+      "label": "Monospace font",
+      "hint": "Falls back to the bundled IBM Plex Mono when the chosen font isn't installed."
+    },
     "language": {
       "title": "Language",
       "description": "Choose the interface display language. Applies instantly and is remembered.",

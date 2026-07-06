@@ -137,7 +137,9 @@ module.exports = {
           '"Noto Emoji"',
           'sans-serif',
         ],
-        mono: ['"IBM Plex Mono"', '"Noto Emoji"', 'monospace'],
+        // Route every `font-mono` utility through the --font-mono token so the
+        // AppearanceSettings font picker (P3-2) governs all of them at once.
+        mono: ['var(--font-mono)', '"Noto Emoji"', 'monospace'],
         'chivo-mono': ['Chivo Mono', 'Noto Emoji', 'monospace'],
       },
       keyframes: {

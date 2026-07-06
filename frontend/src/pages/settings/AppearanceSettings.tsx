@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Languages, Loader2, Maximize2, Sun } from 'lucide-react';
+import { Languages, Loader2, Maximize2, Sun, Type } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
 import { UI_ZOOM_LEVELS, getUiZoom, setUiZoom } from '@/lib/uiZoom';
+import { MONO_FONT_OPTIONS, getMonoFontId, setMonoFont } from '@/lib/uiFont';
 import { setUiLanguage } from '@/i18n';
 import {
   LANGUAGE_LABELS,
@@ -39,6 +40,7 @@ export function AppearanceSettings() {
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
   const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
+  const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
 
   useEffect(() => {
     if (config) {
@@ -151,6 +153,41 @@ export function AppearanceSettings() {
                 {UI_ZOOM_LEVELS.map((level) => (
                   <SelectItem key={level} value={String(level)}>
                     {Math.round(level * 100)}%
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Type}
+          title={t('appearance.monoFont.title')}
+          description={t('appearance.monoFont.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.monoFont.label')}</Label>
+              <p className="settings-row__description">
+                {t('appearance.monoFont.hint')}
+              </p>
+            </div>
+            <Select
+              value={monoFont}
+              onValueChange={(value) => {
+                setMonoFontState(value);
+                setMonoFont(value);
+              }}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {MONO_FONT_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    <span style={{ fontFamily: option.stack }}>
+                      {option.label}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>

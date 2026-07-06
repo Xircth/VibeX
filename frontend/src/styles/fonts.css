@@ -57,3 +57,15 @@
   font-display: swap;
   src: url('/fonts/IBMPlexMono-Bold.woff2') format('woff2');
 }
+
+/*
+ * Single source of truth for the monospace family (P3-2 font selector). Defined
+ * on :root (documentElement) so both CSS `var(--font-mono)` usages AND the
+ * JS-driven xterm terminal (which reads it via getComputedStyle(documentElement))
+ * resolve it. The AppearanceSettings picker overrides this property on
+ * documentElement; the bundled 'IBM Plex Mono' stays the final fallback.
+ */
+:root {
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, monospace;
+}

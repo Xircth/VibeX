@@ -38,6 +38,12 @@
       "label": "缩放比例",
       "hint": "影响整个应用界面的显示大小。"
     },
+    "monoFont": {
+      "title": "等宽字体",
+      "description": "选择代码、终端与差异视图使用的等宽字体。即时生效并记住。",
+      "label": "等宽字体",
+      "hint": "系统未安装所选字体时回退到内置 IBM Plex Mono。"
+    },
     "language": {
       "title": "语言",
       "description": "选择界面显示语言。即时生效并记住。",

@@ -36,7 +36,7 @@
 **合计已交付 12 项**（整个 P0 层 + 大部分 P1 + 关键 P2），全部经 `cargo clippy --workspace --features qa-mode -D warnings`/后端全量测试(0 失败)/前端 752 测试/`generate-types:check`/`prepare-db:check` 验证全绿。
 
 **未实施（可增量推进）**，按建议顺序与理由：
-- **P1-4 真 fork**：非破坏性事件复制可做（设计见 [ADR-0005](./adr/0005-session-fork-copies-events.md)），但 agent 上下文无法随分叉延续（VibeX 无 ACP `session/fork` 线路调用），价值受限；需谨慎操作事件日志。
+- **P1-4 真 fork（2026-07-06 复核：codeg 做法可移植）**：原判"VibeX 无 ACP `session/fork`"**不准确**——`agent-client-protocol` v0.11 提供 `session/fork`（feature `unstable_session_fork` 门控），`AgentCapabilities.fork` 可动态探测 agent 支持。因此可像 codeg 一样发真实 fork 请求，让 agent 服务端分叉出**保留上下文**的会话，克服了"agent 冷启动"的核心局限（见 [ADR-0005](./adr/0005-session-fork-copies-events.md) 2026-07-06 更新）。**技术上可行**，但工作量大且触及事件溯源核心，真实可用性取决于目标 agent 是否广告 fork（需实机验证）——建议作为独立专项，不在长会话尾部仓促实现（刚在 P0-3 尾部发现 3 个 bug 是前车之鉴）。
 - **P2-4 选区入对话**：composer WYSIWYG 集成（多文件前端）。
 - **P1-6 更新器 / P2-5 托盘·深链**：需新增 tauri 插件依赖 + 签名密钥/发布基建，非纯代码。
 - **P2-3 平铺 / P2-8 日志查看器 / P3 外壳**：多为前端多文件或独立基建。

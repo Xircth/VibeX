@@ -31,12 +31,12 @@
 | **P1-5** 部署形态方案 B | ✅ 完成 | 本机 API 定位文档化 + spec-08 作废横幅 + API 文档 |
 | **P2-1** git stash 套件 | ✅ 完成 | crates/git stash 全套 + 6 命令 + GitStashSection UI；解析 4 单测 + push/pop 集成测试 |
 | **P2-2** 克隆入口 + remote 管理 | ✅ 完成 | 去 cloud 门 + clone_repo/add·remove·set_remote 命令 + CloneRepoDialog + 欢迎页入口 |
+| **P2-7** IM 通道投递/审计日志 | ✅ 完成 | chat_channel_message_log 表 + 出站/入站/拒绝审计 + 命令 + 消息渠道设置内联记录 |
 
-**合计已交付 11 项**（整个 P0 层 + 大部分 P1 + 关键 P2），全部经 `cargo check --workspace`/`clippy --features qa-mode`/后端全量测试/前端 752 测试/`generate-types:check`/`prepare-db:check` 验证。
+**合计已交付 12 项**（整个 P0 层 + 大部分 P1 + 关键 P2），全部经 `cargo clippy --workspace --features qa-mode -D warnings`/后端全量测试(0 失败)/前端 752 测试/`generate-types:check`/`prepare-db:check` 验证全绿。
 
 **未实施（可增量推进）**，按建议顺序与理由：
 - **P1-4 真 fork**：非破坏性事件复制可做（设计见 [ADR-0005](./adr/0005-session-fork-copies-events.md)），但 agent 上下文无法随分叉延续（VibeX 无 ACP `session/fork` 线路调用），价值受限；需谨慎操作事件日志。
-- **P2-7 IM 审计**：chat_channel_message_log 表 + 投递日志 + 设置展示。
 - **P2-4 选区入对话**：composer WYSIWYG 集成（多文件前端）。
 - **P1-6 更新器 / P2-5 托盘·深链**：需新增 tauri 插件依赖 + 签名密钥/发布基建，非纯代码。
 - **P2-3 平铺 / P2-8 日志查看器 / P3 外壳**：多为前端多文件或独立基建。

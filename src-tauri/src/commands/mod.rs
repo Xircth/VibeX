@@ -2,6 +2,7 @@ pub mod agent_settings;
 pub mod agent_skills;
 pub mod agents;
 pub mod approvals;
+pub mod automation;
 pub mod backup;
 pub mod chat_channel;
 pub mod config;

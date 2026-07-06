@@ -1,4 +1,5 @@
 pub mod agent_setting;
+pub mod automation;
 pub mod conversation;
 pub mod conversation_bundle;
 pub mod conversation_event;

@@ -11,6 +11,7 @@ import { Projects } from '@/pages/Projects';
 import {
   AgentSettings,
   AppearanceSettings,
+  AutomationsSettings,
   ChatChannelSettings,
   EditorSettings,
   GeneralSettings,
@@ -93,6 +94,7 @@ export function MainAppRoutes() {
         <Route path="editor" element={<EditorSettings />} />
         <Route path="version-control" element={<VersionControlSettings />} />
         <Route path="chat-channels" element={<ChatChannelSettings />} />
+        <Route path="automations" element={<AutomationsSettings />} />
         <Route path="web-service" element={<WebServiceSettings />} />
         <Route path="system" element={<SystemSettings />} />
       </Route>

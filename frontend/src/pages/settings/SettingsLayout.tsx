@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
   BookOpenText,
+  Clock,
   GitBranch,
   Globe,
   Keyboard,
@@ -35,6 +36,7 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: '/settings/shortcuts', label: '交互', icon: Keyboard },
   { path: '/settings/version-control', label: '版本管理', icon: GitBranch },
   { path: '/settings/chat-channels', label: '消息渠道', icon: SendHorizontal },
+  { path: '/settings/automations', label: '自动化', icon: Clock },
   { path: '/settings/web-service', label: 'Web 服务', icon: Globe },
   { path: '/settings/system', label: '系统', icon: Settings },
 ];

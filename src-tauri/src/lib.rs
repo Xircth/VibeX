@@ -103,6 +103,18 @@ pub fn run() {
             // Bidirectional IM channels: run inbound loops + conversation command dispatch.
             commands::chat_channel::start_inbound_manager(app.handle().clone());
 
+            // Automations (P0-3): recover orphaned runs, then start the cron poller.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let pool = handle.state::<state::AppState>().deployment.db().pool.clone();
+                    if let Err(error) = commands::automation::recover_automation_runs(&pool).await {
+                        tracing::warn!("automation run recovery failed: {error}");
+                    }
+                });
+                commands::automation::start_automation_scheduler(app.handle().clone());
+            }
+
             if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
                 tracing::error!("Failed to start preview proxy: {}", error);
             }
@@ -258,6 +270,15 @@ pub fn run() {
             commands::conversations::conversation_export_html,
             commands::conversations::conversation_search,
             commands::conversations::conversation_import,
+            commands::automation::automation_list,
+            commands::automation::automation_create,
+            commands::automation::automation_update,
+            commands::automation::automation_set_enabled,
+            commands::automation::automation_delete,
+            commands::automation::automation_run_now,
+            commands::automation::automation_runs,
+            commands::automation::automation_unseen_failures,
+            commands::automation::automation_mark_seen,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,
             commands::events::subscribe_log_stream,

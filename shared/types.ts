@@ -1032,4 +1032,26 @@ export type ConversationSearchHit = { conversation_id: string, workspace_id: str
  */
 snippet: string, };
 
+export type Automation = { id: string, name: string, project_id: string, executor: string | null, prompt: string,
+/**
+ * `in_place` | `new_worktree`.
+ */
+isolation: string,
+/**
+ * `manual` | `cron`.
+ */
+trigger_kind: string,
+/**
+ * 5-field cron expression, evaluated in local time (present when cron-triggered).
+ */
+cron: string | null, enabled: boolean, next_run_at: string | null, created_at: string, updated_at: string, };
+
+export type AutomationInput = { name: string, project_id: string, executor: string | null, prompt: string, isolation: string, trigger_kind: string, cron: string | null, enabled: boolean, };
+
+export type AutomationRun = { id: string, automation_id: string,
+/**
+ * `running` | `completed` | `failed` | `interrupted`.
+ */
+status: string, conversation_id: string | null, summary: string | null, error: string | null, seen: boolean, started_at: string, finished_at: string | null, };
+
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";

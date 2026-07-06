@@ -50,6 +50,7 @@ use executors::{
 };
 use api_types::AgentKind;
 use conversations::ConversationSearchHit;
+use db::models::automation::{Automation, AutomationInput, AutomationRun};
 use git::GitBranch;
 use git::StashEntry;
 use services::services::config::Config;
@@ -241,6 +242,9 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<GitBranch>(&mut decls);
     insert_declaration::<StashEntry>(&mut decls);
     insert_declaration::<ConversationSearchHit>(&mut decls);
+    insert_declaration::<Automation>(&mut decls);
+    insert_declaration::<AutomationInput>(&mut decls);
+    insert_declaration::<AutomationRun>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);
     insert_declaration::<AgentAvailabilityInfo>(&mut decls);
     insert_declaration::<AgentRegistryEntry>(&mut decls);

@@ -183,7 +183,7 @@ async fn find_matching_project_worktree_workspace(
     Ok(workspaces.into_iter().next())
 }
 
-async fn resolve_project_workspace(
+pub(crate) async fn resolve_project_workspace(
     state: &AppState,
     project_id: Uuid,
     branch: Option<&str>,

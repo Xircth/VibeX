@@ -5,6 +5,7 @@ import {
   useState,
 } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, Minimize2, Power, X } from 'lucide-react';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
@@ -52,6 +53,7 @@ import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 
 function MainWindowCloseToastBridge() {
+  const { t } = useTranslation(['app', 'common']);
   const [isOpen, setIsOpen] = useState(false);
   const [rememberBehavior, setRememberBehavior] = useState(true);
 
@@ -105,16 +107,16 @@ function MainWindowCloseToastBridge() {
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="main-window-close-title" className="text-base font-semibold">
-              选择关闭行为
+              {t('shell.closeBehaviorTitle')}
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              退出应用会结束 VibeX，最小化会保留当前窗口状态。
+              {t('shell.closeBehaviorDescription')}
             </p>
           </div>
           <button
             type="button"
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="关闭提示"
+            aria-label={t('shell.closeBehaviorDismissAria')}
             onClick={() => setIsOpen(false)}
           >
             <X className="h-4 w-4" />
@@ -127,7 +129,7 @@ function MainWindowCloseToastBridge() {
             checked={rememberBehavior}
             onChange={(event) => setRememberBehavior(event.target.checked)}
           />
-          下次保持该行为，不再询问
+          {t('shell.closeBehaviorRemember')}
         </label>
         <div className="grid grid-cols-2 gap-3 border-t border-border/80 p-4">
           <button
@@ -136,7 +138,7 @@ function MainWindowCloseToastBridge() {
             onClick={() => chooseBehavior('exit')}
           >
             <Power className="h-4 w-4" />
-            退出应用
+            {t('shell.closeBehaviorExit')}
           </button>
           <button
             type="button"
@@ -144,7 +146,7 @@ function MainWindowCloseToastBridge() {
             onClick={() => chooseBehavior('minimize')}
           >
             <Minimize2 className="h-4 w-4" />
-            最小化
+            {t('shell.closeBehaviorMinimize')}
           </button>
         </div>
       </section>
@@ -167,11 +169,12 @@ function LocalDependencyUpdateToast({
   tools: LocalToolStatus[];
   onUpdate: () => void;
 }) {
+  const { t } = useTranslation(['app', 'common']);
   const [expanded, setExpanded] = useState(false);
   const title =
     tools.length > 1
-      ? `有 ${tools.length} 个依赖需要更新`
-      : '有依赖需要更新';
+      ? t('shell.dependencyUpdateTitleMany', { count: tools.length })
+      : t('shell.dependencyUpdateTitleOne');
 
   return (
     <div
@@ -194,7 +197,7 @@ function LocalDependencyUpdateToast({
           <div>
             <div className="text-sm font-semibold leading-5">{title}</div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              是否现在更新本地 Agent 依赖？
+              {t('shell.dependencyUpdatePrompt')}
             </div>
           </div>
           <ChevronDown
@@ -213,11 +216,21 @@ function LocalDependencyUpdateToast({
               >
                 <div className="font-medium text-foreground">{tool.label}</div>
                 <div className="text-muted-foreground">
-                  当前版本：{tool.installed_version ?? '未安装'}
+                  {t('shell.dependencyCurrentVersion', {
+                    version:
+                      tool.installed_version ??
+                      t('shell.dependencyNotInstalled'),
+                  })}
                   {tool.minimum_supported_version
-                    ? `，最低支持：${tool.minimum_supported_version}`
+                    ? t('shell.dependencyMinimumSupported', {
+                        version: tool.minimum_supported_version,
+                      })
                     : ''}
-                  {tool.latest_version ? `，可更新：${tool.latest_version}` : ''}
+                  {tool.latest_version
+                    ? t('shell.dependencyLatestVersion', {
+                        version: tool.latest_version,
+                      })
+                    : ''}
                 </div>
               </div>
             ))}
@@ -233,7 +246,7 @@ function LocalDependencyUpdateToast({
               toast.dismiss(toastId);
             }}
           >
-            稍后
+            {t('shell.dependencyLater')}
           </button>
           <button
             type="button"
@@ -243,7 +256,7 @@ function LocalDependencyUpdateToast({
               onUpdate();
             }}
           >
-            更新
+            {t('shell.dependencyUpdate')}
           </button>
         </div>
       </div>
@@ -252,6 +265,7 @@ function LocalDependencyUpdateToast({
 }
 
 function MainAppContent() {
+  const { t } = useTranslation(['app', 'common']);
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
   const location = useLocation();
@@ -335,19 +349,24 @@ function MainAppContent() {
         if (cancelled) return;
 
         if (shouldShowAppUpdateToast({ config, status })) {
-          toast.warning(`VibeX ${status.app.latest_version} 可更新。`, {
-            action: status.app.release_url
-              ? {
-                  label: '打开发布页',
-                  onClick: () =>
-                    window.open(
-                      status.app.release_url!,
-                      '_blank',
-                      'noopener,noreferrer'
-                    ),
-                }
-              : undefined,
-          });
+          toast.warning(
+            t('shell.appUpdateAvailable', {
+              version: status.app.latest_version,
+            }),
+            {
+              action: status.app.release_url
+                ? {
+                    label: t('shell.openReleasePage'),
+                    onClick: () =>
+                      window.open(
+                        status.app.release_url!,
+                        '_blank',
+                        'noopener,noreferrer'
+                      ),
+                  }
+                : undefined,
+            }
+          );
         }
 
         const toolsNeedingDecision = getLocalDependencyUpdatePromptTools({
@@ -359,14 +378,14 @@ function MainAppContent() {
           const installLocalDependencyGroups = async (
             tools: LocalToolStatus[]
           ) => {
-            const toastId = toast.loading('正在更新本地 Agent 依赖...');
+            const toastId = toast.loading(t('shell.updatingDependencies'));
             try {
               await configApi.installSystemDependencies(
                 false,
                 tools.map((tool) => tool.id)
               );
               if (!cancelled) {
-                toast.success('本地 Agent 依赖已更新。', {
+                toast.success(t('shell.dependenciesUpdated'), {
                   id: toastId,
                 });
               }
@@ -375,7 +394,7 @@ function MainAppContent() {
                 toast.error(
                   error instanceof Error
                     ? error.message
-                    : '本地 Agent 依赖更新失败。',
+                    : t('shell.dependenciesUpdateFailed'),
                   { id: toastId }
                 );
               }
@@ -414,7 +433,7 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config]);
+  }, [config, t]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>

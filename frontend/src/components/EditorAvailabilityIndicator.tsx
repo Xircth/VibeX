@@ -1,4 +1,5 @@
 import { Check, AlertCircle, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { EditorAvailabilityState } from '@/hooks/useEditorAvailability';
 
 interface EditorAvailabilityIndicatorProps {
@@ -12,6 +13,8 @@ interface EditorAvailabilityIndicatorProps {
 export function EditorAvailabilityIndicator({
   availability,
 }: EditorAvailabilityIndicatorProps) {
+  const { t } = useTranslation(['app', 'common']);
+
   if (!availability) return null;
 
   return (
@@ -19,19 +22,25 @@ export function EditorAvailabilityIndicator({
       {availability === 'checking' && (
         <>
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-muted-foreground">{'检查可用性...'}</span>
+          <span className="text-muted-foreground">
+            {t('editorAvailability.checking')}
+          </span>
         </>
       )}
       {availability === 'available' && (
         <>
           <Check className="h-4 w-4 text-success" />
-          <span className="text-success">{'可用'}</span>
+          <span className="text-success">
+            {t('editorAvailability.available')}
+          </span>
         </>
       )}
       {availability === 'unavailable' && (
         <>
           <AlertCircle className="h-4 w-4 text-warning" />
-          <span className="text-warning">{'在 PATH 中未找到'}</span>
+          <span className="text-warning">
+            {t('editorAvailability.notFoundInPath')}
+          </span>
         </>
       )}
     </div>

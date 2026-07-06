@@ -2,6 +2,7 @@
 import '@/vscode/bridge';
 
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { AppWithStyleOverride } from '@/utils/StyleOverride';
 import { WebviewContextMenu } from '@/vscode/ContextMenu';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
@@ -11,6 +12,7 @@ import { ClickedElementsProvider } from '@/contexts/ClickedElementsProvider';
 import { Loader } from '@/components/ui/loader';
 
 export function FullAttemptLogsPage() {
+  const { t } = useTranslation(['app', 'common']);
   const { workspaceId = '' } = useParams<{
     projectId: string;
     workspaceId: string;
@@ -37,7 +39,11 @@ export function FullAttemptLogsPage() {
               </ReviewProvider>
             </ClickedElementsProvider>
           ) : (
-            <Loader message={'加载会话中...'} size={32} className="py-8" />
+            <Loader
+              message={t('fullAttemptLogs.loadingSession')}
+              size={32}
+              className="py-8"
+            />
           )}
         </main>
       </div>

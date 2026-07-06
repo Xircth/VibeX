@@ -1,4 +1,5 @@
 import { Columns, FileText, Pilcrow, WrapText } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
   useDiffViewMode,
@@ -19,6 +20,7 @@ type Props = {
 };
 
 export default function DiffViewSwitch({ className }: Props) {
+  const { t } = useTranslation(['app', 'common']);
   const mode = useDiffViewMode();
   const setMode = useDiffViewStore((s) => s.setMode);
   const ignoreWhitespace = useIgnoreWhitespaceDiff();
@@ -49,7 +51,9 @@ export default function DiffViewSwitch({ className }: Props) {
                 <FileText className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'内联视图'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('diffViewSwitch.inlineView')}
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -62,7 +66,9 @@ export default function DiffViewSwitch({ className }: Props) {
                 <Columns className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'分割视图'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('diffViewSwitch.splitView')}
+            </TooltipContent>
           </Tooltip>
         </ToggleGroup>
 
@@ -73,19 +79,21 @@ export default function DiffViewSwitch({ className }: Props) {
             setIgnoreWhitespace(values.includes('ignoreWhitespace'))
           }
           className="inline-flex gap-4"
-          aria-label={'忽略空格更改'}
+          aria-label={t('diffViewSwitch.ignoreWhitespace')}
         >
           <Tooltip>
             <TooltipTrigger asChild>
               <ToggleGroupItem
                 value="ignoreWhitespace"
-                aria-label={'忽略空格更改'}
+                aria-label={t('diffViewSwitch.ignoreWhitespace')}
                 active={ignoreWhitespace}
               >
                 <Pilcrow className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'忽略空格更改'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('diffViewSwitch.ignoreWhitespace')}
+            </TooltipContent>
           </Tooltip>
         </ToggleGroup>
 
@@ -94,19 +102,21 @@ export default function DiffViewSwitch({ className }: Props) {
           value={wrapTextValue}
           onValueChange={(values) => setWrapText(values.includes('wrapText'))}
           className="inline-flex gap-4"
-          aria-label={'自动换行'}
+          aria-label={t('diffViewSwitch.wrapText')}
         >
           <Tooltip>
             <TooltipTrigger asChild>
               <ToggleGroupItem
                 value="wrapText"
-                aria-label={'自动换行'}
+                aria-label={t('diffViewSwitch.wrapText')}
                 active={wrapText}
               >
                 <WrapText className="h-4 w-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'自动换行'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('diffViewSwitch.wrapText')}
+            </TooltipContent>
           </Tooltip>
         </ToggleGroup>
       </div>

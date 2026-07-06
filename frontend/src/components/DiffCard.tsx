@@ -1,4 +1,5 @@
 import { Diff } from 'shared/types';
+import { useTranslation } from 'react-i18next';
 import { DiffModeEnum, DiffView, SplitSide } from '@git-diff-view/react';
 import { generateDiffFile, type DiffFile } from '@git-diff-view/file';
 import { useMemo, useState, useCallback, useEffect } from 'react';
@@ -115,6 +116,7 @@ export default function DiffCard({
   onToggle,
   selectedAttempt,
 }: Props) {
+  const { t } = useTranslation(['app', 'common']);
   const { config } = useUserSystem();
   const theme = getActualTheme(config?.theme);
   const { comments, drafts, setDraft } = useReview();
@@ -527,13 +529,13 @@ export default function DiffCard({
                   <>
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                      加载文件内容中…
+                      {t('diffCard.loadingContent')}
                     </span>
                   </>
                 ) : (
                   <div className="flex flex-col items-center gap-2">
                     <p className="text-sm text-muted-foreground">
-                      内容加载失败
+                      {t('diffCard.contentLoadFailed')}
                     </p>
                     <div className="flex gap-2">
                       <Button
@@ -542,7 +544,7 @@ export default function DiffCard({
                         onClick={handleLoadContent}
                         className="h-7 text-xs"
                       >
-                        重新加载
+                        {t('diffCard.reload')}
                       </Button>
                       <Button
                         variant="ghost"
@@ -550,7 +552,7 @@ export default function DiffCard({
                         onClick={handleOpenDiffInTab}
                         className="h-7 text-xs"
                       >
-                        在标签页中打开
+                        {t('diffCard.openInTab')}
                       </Button>
                     </div>
                   </div>

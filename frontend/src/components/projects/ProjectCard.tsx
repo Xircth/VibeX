@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner';
 import { Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
 import { useNavigateWithSearch, useProjectRepos } from '@/hooks';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -39,6 +40,7 @@ type Props = {
 };
 
 function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
+  const { t } = useTranslation(['app', 'common']);
   const navigate = useNavigateWithSearch();
   const ref = useRef<HTMLDivElement>(null);
   const handleOpenInEditor = useOpenProjectInEditor(project);
@@ -111,7 +113,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   }}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  {'查看详情'}
+                  {t('projectCard.viewDetails')}
                 </DropdownMenuItem>
                 {isSingleRepoProject && (
                   <DropdownMenuItem
@@ -121,7 +123,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                     }}
                   >
                     <FolderOpen className="mr-2 h-4 w-4" />
-                    {'在 IDE 中打开'}
+                    {t('projectCard.openInIde')}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem
@@ -131,7 +133,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   }}
                 >
                   <Edit className="mr-2 h-4 w-4" />
-                  {'编辑'}
+                  {t('projectCard.edit')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={(e) => {
@@ -141,7 +143,7 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
                   className="text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  {'删除'}
+                  {t('common:delete')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -149,7 +151,9 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
         </div>
         <CardDescription className="flex items-center">
           <Calendar className="mr-1 h-3 w-3" />
-          {`创建于 ${new Date(project.created_at).toLocaleDateString()}`}
+          {t('projectCard.createdAt', {
+            date: new Date(project.created_at).toLocaleDateString(),
+          })}
         </CardDescription>
       </CardHeader>
     </Card>

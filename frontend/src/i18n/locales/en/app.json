@@ -1,1 +1,134 @@
-{}
+{
+  "editorAvailability": {
+    "checking": "Checking availability...",
+    "available": "Available",
+    "notFoundInPath": "Not found in PATH"
+  },
+  "agentAvailability": {
+    "checking": "Checking...",
+    "loginDetectedTitle": "Recent use detected",
+    "loginDetectedDescription": "Found recent authentication credentials for this agent",
+    "installationFoundTitle": "Previous use detected",
+    "installationFoundDescription": "Found agent configuration. You may need to log in to use it."
+  },
+  "diffCard": {
+    "loadingContent": "Loading file content…",
+    "contentLoadFailed": "Failed to load content",
+    "reload": "Reload",
+    "openInTab": "Open in tab"
+  },
+  "tagManager": {
+    "title": "Tags",
+    "newTag": "New Tag",
+    "emptyState": "No saved tags yet. Once you create reusable snippets, you can insert them in tasks with `#tag_name`.",
+    "columnName": "Name",
+    "columnContent": "Content",
+    "columnActions": "Actions"
+  },
+  "showcaseMedia": {
+    "replay": "Replay"
+  },
+  "diffViewSwitch": {
+    "inlineView": "Inline view",
+    "splitView": "Split view",
+    "ignoreWhitespace": "Ignore whitespace changes",
+    "wrapText": "Wrap text"
+  },
+  "projectCard": {
+    "viewDetails": "View details",
+    "openInIde": "Open in IDE",
+    "edit": "Edit",
+    "createdAt": "Created {{date}}"
+  },
+  "breadcrumb": {
+    "more": "More"
+  },
+  "projectList": {
+    "title": "Projects",
+    "subtitle": "Manage your projects and track their progress",
+    "createProject": "Create Project",
+    "fetchFailed": "Failed to fetch projects",
+    "loading": "Loading projects...",
+    "emptyTitle": "No projects yet",
+    "emptyDescription": "Get started by creating your first project.",
+    "createFirstProject": "Create your first project"
+  },
+  "errorBoundary": {
+    "title": "Page Error",
+    "description": "The application encountered an unexpected error. Please refresh the page or click the button below to retry.",
+    "refresh": "Refresh Page"
+  },
+  "kanbanBoard": {
+    "clearCompletedTasks": "Clear completed tasks",
+    "addTask": "Add task"
+  },
+  "fullAttemptLogs": {
+    "loadingSession": "Loading session..."
+  },
+  "prCommentCard": {
+    "viewEditHint": "Click to view, double-click to edit",
+    "review": "Review"
+  },
+  "slashCommand": {
+    "loadingCommands": "Loading commands...",
+    "discoveringCommands": "Discovering commands...",
+    "noCommands": "No commands available for the current configuration."
+  },
+  "followUpSend": {
+    "sessionScopedSlashCommandError": "This / command must run in an existing session and cannot be triggered by creating a new session.",
+    "startFailed": "Failed to start follow-up execution: {{error}}",
+    "unknownError": "Unknown error"
+  },
+  "workspaceSessions": {
+    "statusRunning": "Running",
+    "statusQueued": "Queued",
+    "statusTodo": "To do",
+    "statusInProgress": "In progress",
+    "statusInReview": "In review",
+    "statusDone": "Done",
+    "statusIdle": "Idle"
+  },
+  "shell": {
+    "closeBehaviorTitle": "Choose close behavior",
+    "closeBehaviorDescription": "Exiting the app quits VibeX; minimizing preserves the current window state.",
+    "closeBehaviorDismissAria": "Dismiss prompt",
+    "closeBehaviorRemember": "Keep this behavior next time and don't ask again",
+    "closeBehaviorExit": "Exit app",
+    "closeBehaviorMinimize": "Minimize",
+    "dependencyUpdateTitleMany": "{{count}} dependencies need updating",
+    "dependencyUpdateTitleOne": "A dependency needs updating",
+    "dependencyUpdatePrompt": "Update local Agent dependencies now?",
+    "dependencyCurrentVersion": "Current version: {{version}}",
+    "dependencyNotInstalled": "Not installed",
+    "dependencyMinimumSupported": ", minimum supported: {{version}}",
+    "dependencyLatestVersion": ", update available: {{version}}",
+    "dependencyLater": "Later",
+    "dependencyUpdate": "Update",
+    "appUpdateAvailable": "VibeX {{version}} is available to update.",
+    "openReleasePage": "Open release page",
+    "updatingDependencies": "Updating local Agent dependencies...",
+    "dependenciesUpdated": "Local Agent dependencies updated.",
+    "dependenciesUpdateFailed": "Failed to update local Agent dependencies."
+  },
+  "welcomePage": {
+    "processing": "Processing...",
+    "recentProjectTooltip": "Left-click to open the project, right-click for open and delete actions",
+    "createProjectFailed": "Failed to create project: {{error}}",
+    "deleteProjectConfirmTitle": "Delete project \"{{name}}\"?",
+    "deleteProjectConfirmMessage": "Deleting the project will remove all sessions and workspace data under it. This action cannot be undone.",
+    "confirmDelete": "Confirm Delete",
+    "projectDeleted": "Deleted project \"{{name}}\"",
+    "deleteProjectFailed": "Failed to delete project",
+    "startSection": "Get Started",
+    "createNewProject": "Create New Project",
+    "selectFolder": "Select Folder",
+    "cloneRepo": "Clone Repository",
+    "recentProjects": "Recent Projects",
+    "loadingProjects": "Loading projects...",
+    "noProjects": "No projects yet. Create one to get started.",
+    "open": "Open"
+  },
+  "kanbanSessions": {
+    "sessionFallback": "Session"
+  }
+}

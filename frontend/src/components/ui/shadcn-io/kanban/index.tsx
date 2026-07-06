@@ -19,6 +19,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { type ReactNode, type Ref, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ClientRect } from '@dnd-kit/core';
 import type { Transform } from '@dnd-kit/utilities';
@@ -157,11 +158,13 @@ export type KanbanHeaderProps =
     };
 
 export const KanbanHeader = (props: KanbanHeaderProps) => {
+  const { t } = useTranslation(['app', 'common']);
+
   if ('children' in props) {
     return props.children;
   }
 
-  const clearLabel = props.clearLabel ?? '清除已完成的任务';
+  const clearLabel = props.clearLabel ?? t('kanbanBoard.clearCompletedTasks');
 
   return (
     <Card
@@ -207,12 +210,12 @@ export const KanbanHeader = (props: KanbanHeaderProps) => {
               size="icon"
               className="h-7 w-7 text-foreground/50 hover:text-foreground"
               onClick={props.onAddTask}
-              aria-label={'添加任务'}
+              aria-label={t('kanbanBoard.addTask')}
             >
               <Plus className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">{'添加任务'}</TooltipContent>
+          <TooltipContent side="top">{t('kanbanBoard.addTask')}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </Card>

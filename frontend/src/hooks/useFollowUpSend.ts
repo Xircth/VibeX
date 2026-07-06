@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
 import type { ExecutorProfileId } from 'shared/types';
@@ -50,6 +51,7 @@ export function useFollowUpSend({
   onBeforeSend,
   onAfterSendCleanup,
 }: Args) {
+  const { t } = useTranslation(['app', 'common']);
   const queryClient = useQueryClient();
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
@@ -92,7 +94,7 @@ export function useFollowUpSend({
         (!!sessionExecutor && sessionExecutor !== executorProfileId.executor);
 
       if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
-        throw new Error('该 / 命令需要在已有会话中执行，不能创建新会话触发。');
+        throw new Error(t('followUpSend.sessionScopedSlashCommandError'));
       }
 
       if (shouldCreateNewSession) {
@@ -140,12 +142,17 @@ export function useFollowUpSend({
       await onAfterSendCleanup();
     } catch (error: unknown) {
       const err = error as { message?: string };
-      setFollowUpError(`启动后续执行失败：${err.message ?? '未知错误'}`);
+      setFollowUpError(
+        t('followUpSend.startFailed', {
+          error: err.message ?? t('followUpSend.unknownError'),
+        }),
+      );
     } finally {
       isSendingRef.current = false;
       setIsSendingFollowUp(false);
     }
   }, [
+    t,
     queryClient,
     sessionId,
     sessionExecutor,

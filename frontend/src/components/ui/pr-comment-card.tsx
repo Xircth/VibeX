@@ -1,4 +1,5 @@
 import { MessageSquare, Code, ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
 export interface PrCommentCardProps {
@@ -71,6 +72,7 @@ function CompactCard({
   onDoubleClick,
   className,
 }: PrCommentCardProps) {
+  const { t } = useTranslation(['app', 'common']);
   const isReview = commentType === 'review';
   const Icon = isReview ? Code : MessageSquare;
   const displayText = isReview && path ? `${path}: ${body}` : body;
@@ -85,7 +87,7 @@ function CompactCard({
       onDoubleClick={onDoubleClick}
       role="button"
       tabIndex={0}
-      title={`@${author}: ${body}\n\n${'点击查看，双击编辑'}`}
+      title={`@${author}: ${body}\n\n${t('prCommentCard.viewEditHint')}`}
     >
       <Icon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
       <span className="text-xs font-medium flex-shrink-0">@{author}</span>
@@ -112,6 +114,7 @@ function FullCard({
   variant,
   className,
 }: PrCommentCardProps) {
+  const { t } = useTranslation(['app', 'common']);
   const isReview = commentType === 'review';
   const Icon = isReview ? Code : MessageSquare;
 
@@ -133,7 +136,7 @@ function FullCard({
           <span className="font-medium text-sm">@{author}</span>
           {isReview && (
             <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-              {'审查'}
+              {t('prCommentCard.review')}
             </span>
           )}
         </div>

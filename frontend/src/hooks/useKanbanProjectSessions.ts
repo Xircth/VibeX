@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { Session, TaskWithAttemptStatus, Workspace } from 'shared/types';
 import type { SessionStatus, SessionSummary } from '@/lib/api';
 import type { KanbanSessionPlacement } from '@/lib/kanbanSessionLayout';
@@ -36,7 +38,10 @@ function truncateSessionName(name: string, length = 7) {
   return chars.slice(0, length).join('');
 }
 
-function buildDefaultSessionName(summary: SessionSummary) {
+function buildDefaultSessionName(
+  summary: SessionSummary,
+  t: TFunction<['app', 'common']>
+) {
   const manualName = summary.name?.trim();
   if (manualName) {
     return {
@@ -63,7 +68,7 @@ function buildDefaultSessionName(summary: SessionSummary) {
   }
 
   return {
-    name: '会话',
+    name: t('kanbanSessions.sessionFallback'),
     source: 'fallback' as const,
     prompt: null,
   };
@@ -75,6 +80,7 @@ function getWorkspaceName(workspace: Workspace, summary: SessionSummary) {
 
 export function useKanbanProjectSessions(projectId: string | undefined) {
   const queryClient = useQueryClient();
+  const { t } = useTranslation(['app', 'common']);
   const {
     workspaces,
     workspacesWithStatus,
@@ -149,7 +155,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         const summaries = sessionSummaryQueries[index]?.data ?? [];
 
         return summaries.map((summary) => {
-          const derivedName = buildDefaultSessionName(summary);
+          const derivedName = buildDefaultSessionName(summary, t);
           const workspaceName = getWorkspaceName(workspace, summary);
           const isErrored = workspaceStatusById.get(workspace.id) ?? false;
           nameMetaById.set(summary.id, {
@@ -248,7 +254,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         shortName: truncateSessionName(resolvedName),
       };
     });
-  }, [sessionSummaryQueries, workspaces, workspacesWithStatus]);
+  }, [sessionSummaryQueries, t, workspaces, workspacesWithStatus]);
 
   const sessionsById = useMemo(
     () =>

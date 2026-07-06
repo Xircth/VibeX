@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { tagsApi } from '@/lib/api';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import type { Tag } from 'shared/types';
 
 export function TagManager() {
+  const { t } = useTranslation(['app', 'common']);
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,16 +84,16 @@ export function TagManager() {
   return (
     <div className="space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">标签</h3>
+        <h3 className="text-sm font-semibold">{t('tagManager.title')}</h3>
         <Button variant="outline" size="sm" onClick={() => handleOpenDialog()}>
           <Plus className="mr-1.5 h-3.5 w-3.5" />
-          新建标签
+          {t('tagManager.newTag')}
         </Button>
       </div>
 
       {tags.length === 0 ? (
         <div className="py-6 text-center text-xs text-muted-foreground">
-          暂无已保存的标签。创建可复用片段后，可在任务中用 `#tag_name` 插入。
+          {t('tagManager.emptyState')}
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border">
@@ -99,9 +101,15 @@ export function TagManager() {
             <table className="w-full">
               <thead className="sticky top-0 border-b bg-muted/50">
                 <tr>
-                  <th className="p-2 text-left text-sm font-medium">名称</th>
-                  <th className="p-2 text-left text-sm font-medium">内容</th>
-                  <th className="p-2 text-right text-sm font-medium">操作</th>
+                  <th className="p-2 text-left text-sm font-medium">
+                    {t('tagManager.columnName')}
+                  </th>
+                  <th className="p-2 text-left text-sm font-medium">
+                    {t('tagManager.columnContent')}
+                  </th>
+                  <th className="p-2 text-right text-sm font-medium">
+                    {t('tagManager.columnActions')}
+                  </th>
                 </tr>
               </thead>
               <tbody>

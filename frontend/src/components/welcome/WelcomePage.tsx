@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen, GitBranch, Loader2, Plus, Settings } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
@@ -47,6 +48,7 @@ function WelcomeAction({
   onClick: () => void;
   loading?: boolean;
 }) {
+  const { t } = useTranslation(['app', 'common']);
   return (
     <button
       onClick={onClick}
@@ -58,7 +60,7 @@ function WelcomeAction({
       ) : (
         <Icon className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
       )}
-      <span>{loading ? '处理中...' : label}</span>
+      <span>{loading ? t('welcomePage.processing') : label}</span>
     </button>
   );
 }
@@ -72,6 +74,7 @@ function RecentProjectItem({
   onClick: () => void;
   onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
+  const { t } = useTranslation(['app', 'common']);
   const { data: repos } = useProjectRepos(project.id);
   const repoPath = repos?.[0]?.path ?? '';
 
@@ -80,7 +83,7 @@ function RecentProjectItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       className="group flex w-full items-center gap-3 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted/60"
-      title="左键打开项目，右键显示打开和删除操作"
+      title={t('welcomePage.recentProjectTooltip')}
     >
       <span className="truncate font-medium text-foreground transition-colors">
         {project.name}
@@ -102,6 +105,7 @@ type ProjectContextMenuState = {
 };
 
 export function WelcomePage() {
+  const { t } = useTranslation(['app', 'common']);
   const navigate = useNavigate();
   const { projects, isLoading } = useProjects();
   const [contextMenu, setContextMenu] =
@@ -163,7 +167,7 @@ export function WelcomePage() {
       });
       navigate(`/local-projects/${project.id}/sessions`);
     } catch (error) {
-      toast.error(`创建项目失败：${error}`);
+      toast.error(t('welcomePage.createProjectFailed', { error: String(error) }));
     }
   };
 
@@ -211,10 +215,12 @@ export function WelcomePage() {
     setContextMenu(null);
 
     const result = await ConfirmDialog.show({
-      title: `删除项目“${targetProject.name}”？`,
-      message: '删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。',
-      confirmText: '确认删除',
-      cancelText: '取消',
+      title: t('welcomePage.deleteProjectConfirmTitle', {
+        name: targetProject.name,
+      }),
+      message: t('welcomePage.deleteProjectConfirmMessage'),
+      confirmText: t('welcomePage.confirmDelete'),
+      cancelText: t('common:cancel'),
       variant: 'destructive',
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
@@ -228,16 +234,16 @@ export function WelcomePage() {
     try {
       await projectsApi.delete(targetProject.id);
       toast.success(
-        `已删除项目“${targetProject.name}”`,
+        t('welcomePage.projectDeleted', { name: targetProject.name }),
         PROJECT_DELETE_TOAST_OPTIONS
       );
     } catch (error) {
       console.error('Failed to delete recent project:', error);
-      toast.error('删除项目失败', PROJECT_DELETE_TOAST_OPTIONS);
+      toast.error(t('welcomePage.deleteProjectFailed'), PROJECT_DELETE_TOAST_OPTIONS);
     } finally {
       setIsDeletingProject(false);
     }
-  }, [contextMenu, isDeletingProject]);
+  }, [contextMenu, isDeletingProject, t]);
 
   return (
     <div className="h-full overflow-auto bg-background">
@@ -272,32 +278,32 @@ export function WelcomePage() {
           </div>
         </div>
 
-        <WelcomeSection title="开始">
+        <WelcomeSection title={t('welcomePage.startSection')}>
           <WelcomeAction
             icon={Plus}
-            label="创建新项目"
+            label={t('welcomePage.createNewProject')}
             onClick={handleCreateProject}
           />
           <WelcomeAction
             icon={FolderOpen}
-            label="选择文件夹"
+            label={t('welcomePage.selectFolder')}
             onClick={handleOpenFolder}
           />
           <WelcomeAction
             icon={GitBranch}
-            label="克隆仓库"
+            label={t('welcomePage.cloneRepo')}
             onClick={handleCloneRepo}
           />
         </WelcomeSection>
 
-        <WelcomeSection title="最近项目">
+        <WelcomeSection title={t('welcomePage.recentProjects')}>
           {isLoading ? (
             <div className="px-2 py-4 text-xs text-muted-foreground">
-              加载项目中...
+              {t('welcomePage.loadingProjects')}
             </div>
           ) : projects.length === 0 ? (
             <div className="px-2 py-4 text-xs text-muted-foreground">
-              暂无项目，创建一个开始使用吧。
+              {t('welcomePage.noProjects')}
             </div>
           ) : (
             projects.map((project) => (
@@ -325,7 +331,7 @@ export function WelcomePage() {
             className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/70"
             onClick={handleOpenFromContextMenu}
           >
-            打开
+            {t('welcomePage.open')}
           </button>
           <button
             type="button"
@@ -333,7 +339,7 @@ export function WelcomePage() {
             onClick={() => void handleDeleteFromContextMenu()}
             disabled={isDeletingProject}
           >
-            删除
+            {t('common:delete')}
           </button>
         </div>
       ) : null}

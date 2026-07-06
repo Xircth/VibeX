@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { withTranslation, type WithTranslation } from 'react-i18next';
 
-interface Props {
+interface Props extends WithTranslation {
   children: ReactNode;
 }
 
@@ -14,7 +15,7 @@ interface State {
  * Top-level error boundary that catches uncaught React errors and prevents
  * a full white-screen crash. Shows an error message with reload option.
  */
-export class AppErrorBoundary extends Component<Props, State> {
+class AppErrorBoundaryInner extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null, errorInfo: null };
@@ -30,15 +31,16 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   render() {
+    const { t } = this.props;
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-screen p-8 bg-background text-foreground">
           <div className="max-w-lg w-full space-y-4">
             <h1 className="text-xl font-semibold text-destructive">
-              页面发生错误
+              {t('errorBoundary.title')}
             </h1>
             <p className="text-sm text-muted-foreground">
-              应用遇到了未预期的错误。请刷新页面或点击下方按钮重试。
+              {t('errorBoundary.description')}
             </p>
             {this.state.error && (
               <pre className="text-xs bg-muted p-3 rounded overflow-auto max-h-48 text-left">
@@ -52,7 +54,7 @@ export class AppErrorBoundary extends Component<Props, State> {
               onClick={() => window.location.reload()}
               className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm hover:opacity-90"
             >
-              刷新页面
+              {t('errorBoundary.refresh')}
             </button>
           </div>
         </div>
@@ -62,3 +64,7 @@ export class AppErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+export const AppErrorBoundary = withTranslation(['app', 'common'])(
+  AppErrorBoundaryInner
+);

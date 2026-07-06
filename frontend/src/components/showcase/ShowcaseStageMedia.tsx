@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader } from '@/components/ui/loader';
 import { useVideoProgress } from '@/hooks/useVideoProgress';
 import type { ShowcaseMedia } from '@/types/showcase';
@@ -21,6 +22,7 @@ interface ShowcaseStageMediaProps {
  * @param media - ShowcaseMedia object with type ('image' or 'video') and src URL
  */
 export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {
+  const { t } = useTranslation(['app', 'common']);
   const { setVideoRef, videoEl, isLoading, playedPercent, bufferedPercent } =
     useVideoProgress();
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -59,7 +61,7 @@ export function ShowcaseStageMedia({ media }: ShowcaseStageMediaProps) {
               className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             >
               <RefreshCw size={20} />
-              {'重播'}
+              {t('showcaseMedia.replay')}
             </button>
           </div>
         )}

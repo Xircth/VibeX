@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { sessionsApi } from '@/lib/api';
 import type {
   SessionStatus,
@@ -84,22 +86,24 @@ export function resolveActiveSession(
 function getSessionStatusLabel(
   status: SessionStatus,
   isRunning: boolean,
-  queueStatus: QueueStatus | null
+  queueStatus: QueueStatus | null,
+  t: TFunction<['app', 'common']>
 ) {
-  if (isRunning) return '执行中';
-  if (queueStatus?.status === 'queued') return '排队中';
+  if (isRunning) return t('workspaceSessions.statusRunning');
+  if (queueStatus?.status === 'queued')
+    return t('workspaceSessions.statusQueued');
 
   switch (status) {
     case 'todo':
-      return '待开始';
+      return t('workspaceSessions.statusTodo');
     case 'inprogress':
-      return '进行中';
+      return t('workspaceSessions.statusInProgress');
     case 'inreview':
-      return '待检查';
+      return t('workspaceSessions.statusInReview');
     case 'done':
-      return '已完成';
+      return t('workspaceSessions.statusDone');
     default:
-      return '空闲';
+      return t('workspaceSessions.statusIdle');
   }
 }
 
@@ -107,6 +111,7 @@ export function useWorkspaceSessions(
   workspaceId: string | undefined,
   options: UseWorkspaceSessionsOptions = {}
 ): UseWorkspaceSessionsResult {
+  const { t } = useTranslation(['app', 'common']);
   const {
     enabled = true,
     initialSessionId,
@@ -151,13 +156,14 @@ export function useWorkspaceSessions(
           statusLabel: getSessionStatusLabel(
             session.status,
             session.is_running,
-            null
+            null,
+            t
           ),
           continuityMode: session.continuity_mode,
           continuityLabel: getContinuityLabel(session.continuity_mode),
         } as WorkspaceSessionSummary;
       }),
-    [sessionSummaries]
+    [sessionSummaries, t]
   );
 
   useEffect(() => {

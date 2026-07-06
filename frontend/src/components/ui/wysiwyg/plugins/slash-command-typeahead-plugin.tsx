@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   LexicalTypeaheadMenuPlugin,
@@ -93,6 +94,7 @@ export function SlashCommandTypeaheadPlugin({
   executorProfile: ExecutorProfileId | null;
   repoId?: string;
 }) {
+  const { t } = useTranslation(['app', 'common']);
   const [editor] = useLexicalComposerContext();
   const portalContainer = usePortalContainer();
   const taskAttemptId = useTaskAttemptId();
@@ -231,13 +233,15 @@ export function SlashCommandTypeaheadPlugin({
           metaState === 'empty' ||
           (!isLoading && !isDiscovering && allCommands.length === 0);
         const showLoadingRow = isLoading || isDiscovering;
-        const loadingText = isLoading ? '正在加载命令...' : '正在发现命令...';
+        const loadingText = isLoading
+          ? t('slashCommand.loadingCommands')
+          : t('slashCommand.discoveringCommands');
 
         return createPortal(
           <TypeaheadMenu anchorEl={anchorRef.current}>
             {isEmpty ? (
               <TypeaheadMenu.Empty>
-                {'当前配置没有可用命令。'}
+                {t('slashCommand.noCommands')}
               </TypeaheadMenu.Empty>
             ) : commandOptions.length === 0 && !showLoadingRow ? null : (
               <TypeaheadMenu.ScrollArea>

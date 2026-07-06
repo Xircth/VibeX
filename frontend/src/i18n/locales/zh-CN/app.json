@@ -1,1 +1,134 @@
-{}
+{
+  "editorAvailability": {
+    "checking": "检查可用性...",
+    "available": "可用",
+    "notFoundInPath": "在 PATH 中未找到"
+  },
+  "agentAvailability": {
+    "checking": "检查中...",
+    "loginDetectedTitle": "检测到最近使用",
+    "loginDetectedDescription": "找到此代理的最近身份验证凭据",
+    "installationFoundTitle": "检测到以前使用",
+    "installationFoundDescription": "找到代理配置。您可能需要登录才能使用它。"
+  },
+  "diffCard": {
+    "loadingContent": "加载文件内容中…",
+    "contentLoadFailed": "内容加载失败",
+    "reload": "重新加载",
+    "openInTab": "在标签页中打开"
+  },
+  "tagManager": {
+    "title": "标签",
+    "newTag": "新建标签",
+    "emptyState": "暂无已保存的标签。创建可复用片段后，可在任务中用 `#tag_name` 插入。",
+    "columnName": "名称",
+    "columnContent": "内容",
+    "columnActions": "操作"
+  },
+  "showcaseMedia": {
+    "replay": "重播"
+  },
+  "diffViewSwitch": {
+    "inlineView": "内联视图",
+    "splitView": "分割视图",
+    "ignoreWhitespace": "忽略空格更改",
+    "wrapText": "自动换行"
+  },
+  "projectCard": {
+    "viewDetails": "查看详情",
+    "openInIde": "在 IDE 中打开",
+    "edit": "编辑",
+    "createdAt": "创建于 {{date}}"
+  },
+  "breadcrumb": {
+    "more": "更多"
+  },
+  "projectList": {
+    "title": "项目",
+    "subtitle": "管理您的项目并跟踪其进度",
+    "createProject": "创建项目",
+    "fetchFailed": "获取项目失败",
+    "loading": "加载项目中...",
+    "emptyTitle": "还没有项目",
+    "emptyDescription": "通过创建您的第一个项目开始。",
+    "createFirstProject": "创建您的第一个项目"
+  },
+  "errorBoundary": {
+    "title": "页面发生错误",
+    "description": "应用遇到了未预期的错误。请刷新页面或点击下方按钮重试。",
+    "refresh": "刷新页面"
+  },
+  "kanbanBoard": {
+    "clearCompletedTasks": "清除已完成的任务",
+    "addTask": "添加任务"
+  },
+  "fullAttemptLogs": {
+    "loadingSession": "加载会话中..."
+  },
+  "prCommentCard": {
+    "viewEditHint": "点击查看，双击编辑",
+    "review": "审查"
+  },
+  "slashCommand": {
+    "loadingCommands": "正在加载命令...",
+    "discoveringCommands": "正在发现命令...",
+    "noCommands": "当前配置没有可用命令。"
+  },
+  "followUpSend": {
+    "sessionScopedSlashCommandError": "该 / 命令需要在已有会话中执行，不能创建新会话触发。",
+    "startFailed": "启动后续执行失败：{{error}}",
+    "unknownError": "未知错误"
+  },
+  "workspaceSessions": {
+    "statusRunning": "执行中",
+    "statusQueued": "排队中",
+    "statusTodo": "待开始",
+    "statusInProgress": "进行中",
+    "statusInReview": "待检查",
+    "statusDone": "已完成",
+    "statusIdle": "空闲"
+  },
+  "shell": {
+    "closeBehaviorTitle": "选择关闭行为",
+    "closeBehaviorDescription": "退出应用会结束 VibeX，最小化会保留当前窗口状态。",
+    "closeBehaviorDismissAria": "关闭提示",
+    "closeBehaviorRemember": "下次保持该行为，不再询问",
+    "closeBehaviorExit": "退出应用",
+    "closeBehaviorMinimize": "最小化",
+    "dependencyUpdateTitleMany": "有 {{count}} 个依赖需要更新",
+    "dependencyUpdateTitleOne": "有依赖需要更新",
+    "dependencyUpdatePrompt": "是否现在更新本地 Agent 依赖？",
+    "dependencyCurrentVersion": "当前版本：{{version}}",
+    "dependencyNotInstalled": "未安装",
+    "dependencyMinimumSupported": "，最低支持：{{version}}",
+    "dependencyLatestVersion": "，可更新：{{version}}",
+    "dependencyLater": "稍后",
+    "dependencyUpdate": "更新",
+    "appUpdateAvailable": "VibeX {{version}} 可更新。",
+    "openReleasePage": "打开发布页",
+    "updatingDependencies": "正在更新本地 Agent 依赖...",
+    "dependenciesUpdated": "本地 Agent 依赖已更新。",
+    "dependenciesUpdateFailed": "本地 Agent 依赖更新失败。"
+  },
+  "welcomePage": {
+    "processing": "处理中...",
+    "recentProjectTooltip": "左键打开项目，右键显示打开和删除操作",
+    "createProjectFailed": "创建项目失败：{{error}}",
+    "deleteProjectConfirmTitle": "删除项目“{{name}}”？",
+    "deleteProjectConfirmMessage": "删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。",
+    "confirmDelete": "确认删除",
+    "projectDeleted": "已删除项目“{{name}}”",
+    "deleteProjectFailed": "删除项目失败",
+    "startSection": "开始",
+    "createNewProject": "创建新项目",
+    "selectFolder": "选择文件夹",
+    "cloneRepo": "克隆仓库",
+    "recentProjects": "最近项目",
+    "loadingProjects": "加载项目中...",
+    "noProjects": "暂无项目，创建一个开始使用吧。",
+    "open": "打开"
+  },
+  "kanbanSessions": {
+    "sessionFallback": "会话"
+  }
+}

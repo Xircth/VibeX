@@ -1,8 +1,11 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { DiffView, DiffModeEnum } from '@git-diff-view/react';
 import { generateDiffFile } from '@git-diff-view/file';
+import { MessageSquarePlus } from 'lucide-react';
 /* diff-style-overrides.css and edit-diff-overrides.css imported by parent FileChangeRenderer */
 import { cn } from '@/lib/utils';
+import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
+import { computeLineRange } from '@/utils/codeSelection';
 
 type Props = {
   content: string;
@@ -12,6 +15,12 @@ type Props = {
   diffMode?: 'unified' | 'split';
   emptyMessage?: string;
   className?: string;
+  /**
+   * Repo-relative path of the file. When set, selecting text in the view shows
+   * an "add to chat" action that inserts a `path:start-end` reference into the
+   * composer (P2-4). Omit to disable the selection affordance.
+   */
+  filePath?: string;
 };
 
 /**
@@ -25,11 +34,39 @@ function FileContentView({
   diffMode = 'unified',
   emptyMessage = 'No differences to show.',
   className,
+  filePath,
 }: Props) {
   // Uses the syntax highlighter from @git-diff-view/react without any diff-related features.
   // This allows uniform styling with EditDiffRenderer.
   const baseContent = originalContent ?? '';
   const isComparisonMode = originalContent !== undefined;
+
+  const requestInsert = useComposerSelectionStore((s) => s.requestInsert);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [selectionRange, setSelectionRange] = useState<{
+    startLine: number;
+    endLine: number;
+  } | null>(null);
+
+  const handleSelectionChange = useCallback(() => {
+    if (!filePath) return;
+    const selection = window.getSelection();
+    const text = selection?.toString() ?? '';
+    // Only act when the selection lives inside this view.
+    const anchor = selection?.anchorNode;
+    if (!text.trim() || !anchor || !rootRef.current?.contains(anchor)) {
+      setSelectionRange(null);
+      return;
+    }
+    setSelectionRange(computeLineRange(content, text));
+  }, [filePath, content]);
+
+  const addSelectionToChat = useCallback(() => {
+    if (!filePath || !selectionRange) return;
+    requestInsert({ filePath, ...selectionRange });
+    setSelectionRange(null);
+    window.getSelection()?.removeAllRanges();
+  }, [filePath, selectionRange, requestInsert]);
 
   const diffFile = useMemo(() => {
     try {
@@ -56,7 +93,7 @@ function FileContentView({
     );
   }
 
-  return diffFile ? (
+  const body = diffFile ? (
     <div className={cn('min-h-full overflow-visible', className)}>
       <DiffView
         diffFile={diffFile}
@@ -78,6 +115,34 @@ function FileContentView({
     >
       {content}
     </pre>
+  );
+
+  if (!filePath) return body;
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative"
+      onMouseUp={handleSelectionChange}
+      onKeyUp={handleSelectionChange}
+    >
+      {body}
+      {selectionRange ? (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={addSelectionToChat}
+          className="tahoe-popover sticky bottom-2 left-2 z-10 ml-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground shadow"
+        >
+          <MessageSquarePlus className="h-3.5 w-3.5" />
+          第 {selectionRange.startLine}
+          {selectionRange.endLine !== selectionRange.startLine
+            ? `–${selectionRange.endLine}`
+            : ''}{' '}
+          行加入对话
+        </button>
+      ) : null}
+    </div>
   );
 }
 

@@ -494,6 +494,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                   theme={resolvedTheme}
                   diffMode={diffViewMode === 'inline' ? 'unified' : 'split'}
                   emptyMessage="No differences against HEAD."
+                  filePath={resolvedDisplayPath ?? undefined}
                   className="min-h-full"
                 />
               </Suspense>

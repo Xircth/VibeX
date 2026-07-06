@@ -29,6 +29,8 @@ import {
 } from '@/lib/conversation-rendering/commandSources';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
+import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
+import { formatFileRangeRef } from '@/utils/codeSelection';
 import {
   FILE_REFERENCE_DRAG_MIME,
   parseFileReferencePayload,
@@ -718,6 +720,41 @@ export function SessionComposerInput({
     },
     [disabled, structuredSegments, value]
   );
+
+  // P2-4: consume a code selection requested from a file viewer, inserting a
+  // `@path:start-end` reference at the caret (or end of input).
+  const pendingComposerSelection = useComposerSelectionStore((s) => s.pending);
+  const consumeComposerSelection = useComposerSelectionStore((s) => s.consume);
+  useEffect(() => {
+    if (!pendingComposerSelection || disabled) return;
+    const consumed = consumeComposerSelection();
+    if (!consumed) return;
+    const relativePath = formatFileRangeRef(
+      consumed.filePath,
+      consumed.startLine,
+      consumed.endLine
+    );
+    const editor = editorRef.current;
+    const hasActiveEditor = !!editor && document.activeElement === editor;
+    const selection = hasActiveEditor
+      ? (getEditorSelection(editor) ?? selectionRef.current)
+      : { start: value.length, end: value.length };
+    const next = insertFileReferenceToken({
+      value,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+      relativePath,
+    });
+    pendingSelectionRef.current = { start: next.caretOffset, end: next.caretOffset };
+    onChange(next.value);
+    window.requestAnimationFrame(() => editorRef.current?.focus());
+  }, [
+    pendingComposerSelection,
+    consumeComposerSelection,
+    disabled,
+    value,
+    onChange,
+  ]);
 
   const insertDroppedFileReference = useCallback(
     (payload: FileReferencePayload | null) => {

@@ -24,6 +24,8 @@ export interface ProjectRecentSessionSnapshot {
 export interface ProjectActivitySnapshot {
   isLoading: boolean;
   hasRunning: boolean;
+  /** Number of in-flight (running) sessions — drives the status-bar count (P3-5). */
+  runningCount: number;
   hasError: boolean;
   hasSessions: boolean;
   recentSessions: ProjectRecentSessionSnapshot[];
@@ -110,6 +112,7 @@ function isSameSnapshot(
   if (
     left.isLoading !== right.isLoading ||
     left.hasRunning !== right.hasRunning ||
+    left.runningCount !== right.runningCount ||
     left.hasError !== right.hasError ||
     left.hasSessions !== right.hasSessions ||
     left.recentSessions.length !== right.recentSessions.length

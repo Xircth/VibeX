@@ -170,6 +170,7 @@ function ProjectActivityTracker({
     return {
       isLoading,
       hasRunning: sessions.some((session) => session.isRunning),
+      runningCount: sessions.filter((session) => session.isRunning).length,
       hasError: sessions.some((session) => session.isErrored),
       hasSessions: sessions.length > 0,
       recentSessions,

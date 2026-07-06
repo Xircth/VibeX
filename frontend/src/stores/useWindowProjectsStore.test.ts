@@ -16,6 +16,7 @@ describe('useWindowProjectsStore', () => {
         'project-1': {
           isLoading: false,
           hasRunning: true,
+          runningCount: 1,
           hasError: false,
           hasSessions: true,
           recentSessions: [

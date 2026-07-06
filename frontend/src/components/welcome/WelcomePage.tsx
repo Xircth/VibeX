@@ -8,7 +8,7 @@ import { useProjectRepos } from '@/hooks';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { CloneRepoDialog } from '@/components/dialogs/projects/CloneRepoDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
-import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
+import { APP_NAME } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { projectsApi, settingsWindowApi } from '@/lib/api';
@@ -260,7 +260,7 @@ export function WelcomePage() {
                 {APP_NAME}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {APP_TAGLINE}
+                {t('welcomePage.tagline')}
               </p>
             </div>
           </div>

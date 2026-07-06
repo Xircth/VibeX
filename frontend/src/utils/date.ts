@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 export function dateTimestamp(value: string | number | Date): number {
   return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
@@ -23,16 +25,22 @@ export function formatDateShortWithTime(dateString: string): string {
 export function formatRelativeTime(value: string | number | Date): string {
   const diffMs = Date.now() - dateTimestamp(value);
   const seconds = Math.max(Math.round(Math.abs(diffMs) / 1000), 1);
-  const suffix = diffMs < 0 ? '后' : '前';
+  const future = diffMs < 0;
 
-  if (seconds < 60) return '刚刚';
+  if (seconds < 60) return i18n.t('app:date.justNow');
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟${suffix}`;
+  if (minutes < 60)
+    return i18n.t(future ? 'app:date.minutesLater' : 'app:date.minutesAgo', { value: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时${suffix}`;
+  if (hours < 24)
+    return i18n.t(future ? 'app:date.hoursLater' : 'app:date.hoursAgo', { value: hours });
   const days = Math.round(hours / 24);
-  if (days < 30) return `${days} 天${suffix}`;
+  if (days < 30)
+    return i18n.t(future ? 'app:date.daysLater' : 'app:date.daysAgo', { value: days });
   const months = Math.round(days / 30);
-  if (months < 12) return `${months} 个月${suffix}`;
-  return `${Math.round(months / 12)} 年${suffix}`;
+  if (months < 12)
+    return i18n.t(future ? 'app:date.monthsLater' : 'app:date.monthsAgo', { value: months });
+  return i18n.t(future ? 'app:date.yearsLater' : 'app:date.yearsAgo', {
+    value: Math.round(months / 12),
+  });
 }

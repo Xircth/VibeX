@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { LocalToolStatus } from '@/lib/api';
 
 type LocalDependencyTone = 'destructive' | 'warning' | 'success' | 'muted';
@@ -16,7 +17,10 @@ const AGENT_DEPENDENCY_GROUPS: Record<string, string> = {
   opencode: 'opencode',
 };
 
-function formatVersion(version: string | null, fallback = '未安装'): string {
+function formatVersion(
+  version: string | null,
+  fallback = i18n.t('app:localDeps.notInstalled')
+): string {
   return version && version.trim().length > 0 ? version : fallback;
 }
 
@@ -35,14 +39,26 @@ export function getAgentDependencyTool(
 export function getLocalDependencyVersionSummary(
   tool: LocalToolStatus
 ): string {
-  const parts = [`当前版本：${formatVersion(tool.installed_version)}`];
+  const parts = [
+    i18n.t('app:localDeps.versionSummary.current', {
+      version: formatVersion(tool.installed_version),
+    }),
+  ];
 
   if (tool.minimum_supported_version) {
-    parts.push(`最低支持：${tool.minimum_supported_version}`);
+    parts.push(
+      i18n.t('app:localDeps.versionSummary.minimum', {
+        version: tool.minimum_supported_version,
+      })
+    );
   }
 
   if (tool.latest_version) {
-    parts.push(`最新版本：${tool.latest_version}`);
+    parts.push(
+      i18n.t('app:localDeps.versionSummary.latest', {
+        version: tool.latest_version,
+      })
+    );
   }
 
   return parts.join(' / ');
@@ -53,39 +69,55 @@ export function getLocalDependencyStatusPresentation(
 ): LocalDependencyStatusPresentation {
   if (!tool.installed) {
     return {
-      label: '缺失',
+      label: i18n.t('app:localDeps.status.missing.label'),
       tone: 'destructive',
-      summary: `尚未检测到 ${tool.label} 的本地安装。`,
-      detail: '安装时会同时补齐该 Agent 所需的隐藏依赖。',
-      actionLabel: '安装',
+      summary: i18n.t('app:localDeps.status.missing.summary', {
+        label: tool.label,
+      }),
+      detail: i18n.t('app:localDeps.status.missing.detail'),
+      actionLabel: i18n.t('app:localDeps.status.missing.action'),
     };
   }
 
   if (!tool.supported) {
     return {
-      label: '版本不兼容',
+      label: i18n.t('app:localDeps.status.incompatible.label'),
       tone: 'warning',
-      summary: `当前版本 ${formatVersion(tool.installed_version)} 低于最低要求 ${formatVersion(tool.minimum_supported_version, '未知')}。`,
-      detail: '更新时会同时处理该 Agent 的隐藏依赖。',
-      actionLabel: '更新',
+      summary: i18n.t('app:localDeps.status.incompatible.summary', {
+        current: formatVersion(tool.installed_version),
+        minimum: formatVersion(
+          tool.minimum_supported_version,
+          i18n.t('app:localDeps.unknown')
+        ),
+      }),
+      detail: i18n.t('app:localDeps.status.incompatible.detail'),
+      actionLabel: i18n.t('app:localDeps.status.incompatible.action'),
     };
   }
 
   if (tool.update_available) {
     return {
-      label: '可更新',
+      label: i18n.t('app:localDeps.status.updateAvailable.label'),
       tone: 'warning',
-      summary: `当前版本 ${formatVersion(tool.installed_version)}，检测到更高版本 ${formatVersion(tool.latest_version, '未知')}。`,
-      detail: '更新时会同时处理该 Agent 的隐藏依赖。',
-      actionLabel: '更新',
+      summary: i18n.t('app:localDeps.status.updateAvailable.summary', {
+        current: formatVersion(tool.installed_version),
+        latest: formatVersion(
+          tool.latest_version,
+          i18n.t('app:localDeps.unknown')
+        ),
+      }),
+      detail: i18n.t('app:localDeps.status.updateAvailable.detail'),
+      actionLabel: i18n.t('app:localDeps.status.updateAvailable.action'),
     };
   }
 
   return {
-    label: '已兼容',
+    label: i18n.t('app:localDeps.status.compatible.label'),
     tone: 'success',
-    summary: `当前版本 ${formatVersion(tool.installed_version)} 已满足 VibeX 运行要求。`,
-    detail: '当前安装满足要求，无需额外处理。',
+    summary: i18n.t('app:localDeps.status.compatible.summary', {
+      current: formatVersion(tool.installed_version),
+    }),
+    detail: i18n.t('app:localDeps.status.compatible.detail'),
     actionLabel: null,
   };
 }

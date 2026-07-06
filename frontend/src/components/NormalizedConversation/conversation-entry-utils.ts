@@ -28,6 +28,7 @@ import type {
   PatchTypeWithKey,
 } from '@/hooks/useConversationHistory/types';
 import type { ScriptType } from '@/components/dialogs/scripts/ScriptFixerDialog';
+import i18n from '@/i18n';
 
 /***********************
  * Type definitions     *
@@ -98,23 +99,35 @@ export const AGGREGATION_LABELS: Record<
 > = {
   file_read: {
     icon: createElement(Eye, { className: 'h-3 w-3' }),
-    label: '查看文件',
+    // Getter so i18n.t resolves at access time (reflects the current language),
+    // not at module load — the const shape stays a plain `{ icon, label }`.
+    get label() {
+      return i18n.t('app:entryUtils.fileRead');
+    },
   },
   search: {
     icon: createElement(Search, { className: 'h-3 w-3' }),
-    label: '搜索',
+    get label() {
+      return i18n.t('app:entryUtils.search');
+    },
   },
   web_fetch: {
     icon: createElement(Globe, { className: 'h-3 w-3' }),
-    label: '网页抓取',
+    get label() {
+      return i18n.t('app:entryUtils.webFetch');
+    },
   },
   command_run: {
     icon: createElement(TerminalSquare, { className: 'h-3 w-3' }),
-    label: '终端',
+    get label() {
+      return i18n.t('app:entryUtils.terminal');
+    },
   },
   task_create: {
     icon: createElement(Bot, { className: 'h-3 w-3' }),
-    label: '正在生成智能体',
+    get label() {
+      return i18n.t('app:entryUtils.generatingAgent');
+    },
   },
 };
 
@@ -635,7 +648,8 @@ export const getToolSummary = (
   entryType: Extract<NormalizedEntryType, { type: 'tool_use' }> | undefined,
   content: string
 ): { label: string; detail: string } => {
-  if (!entryType) return { label: '工具', detail: content.trim() };
+  if (!entryType)
+    return { label: i18n.t('app:entryUtils.tool'), detail: content.trim() };
   const at = entryType.action_type;
   switch (at.action) {
     case 'command_run': {
@@ -643,20 +657,20 @@ export const getToolSummary = (
         typeof at.command === 'string' ? at.command.trim() : content.trim();
       const firstLine = cmd.split(/\r?\n/)[0];
       return {
-        label: '终端',
+        label: i18n.t('app:entryUtils.terminal'),
         detail:
           firstLine.length > 80 ? firstLine.slice(0, 77) + '\u2026' : firstLine,
       };
     }
     case 'file_read':
-      return { label: '查看文件', detail: at.path };
+      return { label: i18n.t('app:entryUtils.fileRead'), detail: at.path };
     case 'search':
-      return { label: '搜索', detail: at.query };
+      return { label: i18n.t('app:entryUtils.search'), detail: at.query };
     case 'web_fetch':
-      return { label: '网页抓取', detail: at.url };
+      return { label: i18n.t('app:entryUtils.webFetch'), detail: at.url };
     case 'task_create':
       return {
-        label: '子代理',
+        label: i18n.t('app:entryUtils.subagent'),
         detail:
           at.description.length > 60
             ? at.description.slice(0, 57) + '\u2026'
@@ -672,7 +686,7 @@ export const getToolSummary = (
       ) {
         const firstLine = content.trim().split(/\r?\n/)[0] ?? '';
         return {
-          label: '子代理状态',
+          label: i18n.t('app:entryUtils.subagentStatus'),
           detail:
             firstLine.length > 80
               ? firstLine.slice(0, 77) + '\u2026'
@@ -680,18 +694,22 @@ export const getToolSummary = (
         };
       }
       return {
-        label: at.tool_name || entryType.tool_name || '工具',
+        label:
+          at.tool_name || entryType.tool_name || i18n.t('app:entryUtils.tool'),
         detail: '',
       };
     case 'todo_management':
       return {
-        label: '待办',
+        label: i18n.t('app:entryUtils.todo'),
         detail: `${at.operation}${at.todos.length > 0 ? ` (${at.todos.length})` : ''}`,
       };
     case 'plan_presentation':
-      return { label: '计划', detail: '' };
+      return { label: i18n.t('app:entryUtils.plan'), detail: '' };
     default:
-      return { label: entryType.tool_name || '工具', detail: content.trim() };
+      return {
+        label: entryType.tool_name || i18n.t('app:entryUtils.tool'),
+        detail: content.trim(),
+      };
   }
 };
 export const isPendingApprovalStatus = (

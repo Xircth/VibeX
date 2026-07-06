@@ -4,9 +4,29 @@ import type {
   ExecutorAction,
 } from 'shared/types';
 
-export const CONTEXT_COMPACT_RUNNING_TEXT = '正在执行上下文压缩...';
-export const CONTEXT_COMPACT_SUCCESS_TEXT = '上下文已压缩';
-export const CONTEXT_COMPACT_FAILED_TEXT = '上下文压缩失败';
+import i18n from '@/i18n';
+
+export type ContextCompactStatusKind = 'running' | 'success' | 'failed';
+
+/**
+ * Localized user-visible label for a context-compaction status. Resolved at call
+ * time so it reflects the current UI language; pass `lng` to force a specific
+ * language (used when matching historical entries produced in another language).
+ */
+function contextCompactStatusLabel(
+  kind: ContextCompactStatusKind,
+  lng?: string
+): string {
+  const options = lng ? { lng } : undefined;
+  switch (kind) {
+    case 'running':
+      return i18n.t('app:contextCompact.running', options);
+    case 'success':
+      return i18n.t('app:contextCompact.success', options);
+    case 'failed':
+      return i18n.t('app:contextCompact.failed', options);
+  }
+}
 
 type ExecutorActionWithPrompt = Pick<ExecutorAction, 'typ'>;
 
@@ -44,29 +64,35 @@ export function getContextCompactStatusText(
   status: ExecutionProcessStatus | undefined
 ): string {
   if (status === 'failed' || status === 'killed') {
-    return CONTEXT_COMPACT_FAILED_TEXT;
+    return contextCompactStatusLabel('failed');
   }
 
   if (status === 'running') {
-    return CONTEXT_COMPACT_RUNNING_TEXT;
+    return contextCompactStatusLabel('running');
   }
 
-  return CONTEXT_COMPACT_SUCCESS_TEXT;
+  return contextCompactStatusLabel('success');
 }
-
-export type ContextCompactStatusKind = 'running' | 'success' | 'failed';
 
 export function getContextCompactStatusKind(
   content: string | null | undefined
 ): ContextCompactStatusKind | null {
-  switch (content?.trim()) {
-    case CONTEXT_COMPACT_RUNNING_TEXT:
-      return 'running';
-    case CONTEXT_COMPACT_SUCCESS_TEXT:
-      return 'success';
-    case CONTEXT_COMPACT_FAILED_TEXT:
-      return 'failed';
-    default:
-      return null;
+  const trimmed = content?.trim();
+  if (!trimmed) {
+    return null;
   }
+
+  // Match against every supported language so entries produced under a different
+  // UI language are still recognized after the user switches languages.
+  const kinds: ContextCompactStatusKind[] = ['running', 'success', 'failed'];
+  for (const kind of kinds) {
+    if (
+      trimmed === contextCompactStatusLabel(kind, 'zh-CN') ||
+      trimmed === contextCompactStatusLabel(kind, 'en')
+    ) {
+      return kind;
+    }
+  }
+
+  return null;
 }

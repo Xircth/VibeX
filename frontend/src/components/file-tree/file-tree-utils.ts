@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { FileTreeNode, FileTreeBuildNode } from './file-tree-types';
 import type { DirectoryChildrenResponse } from '../../lib/api';
 import { languageFromPath } from '../../utils/shikiHighlighter';
@@ -137,11 +138,6 @@ export type FileTreeInlineNewInputConfig = {
   isFolder: boolean;
 };
 
-const TEXT_PREVIEW_SELECTION_HINTS = [
-  'Shift+\u70b9\u51fb\u9009\u62e9\u8303\u56f4',
-  '\u62d6\u62fd\u9009\u62e9\u591a\u884c',
-];
-
 export type DeriveFileTreeEntriesInput = {
   files: string[];
   directories: string[];
@@ -244,7 +240,13 @@ export function buildFilePreviewSelectionSnippet({
 }
 
 export function getFilePreviewSelectionHints(previewKind: FilePreviewKind) {
-  return previewKind === 'text' ? TEXT_PREVIEW_SELECTION_HINTS : [];
+  if (previewKind !== 'text') {
+    return [];
+  }
+  return [
+    i18n.t('app:fileTreeUtils.selectionHintRange'),
+    i18n.t('app:fileTreeUtils.selectionHintMultiline'),
+  ];
 }
 
 export function getFilePreviewKind(path: string | null): FilePreviewKind {
@@ -593,7 +595,7 @@ export function getFileTreeInlineNewInputConfig(
   }
 
   return {
-    fallbackName: '\u65b0\u5efa\u6587\u4ef6\u5939',
+    fallbackName: i18n.t('app:fileTreeUtils.newFolderName'),
     iconPath: 'folder',
     isFolder: true,
   };
@@ -614,12 +616,12 @@ export function buildFileTreeDeleteConfirmation(
 ) {
   const name = relativePath.split('/').pop() ?? relativePath;
   return {
-    title: '删除',
+    title: i18n.t('common:delete'),
     message: isFolder
-      ? `确定要删除文件夹“${name}”吗？`
-      : `确定要删除文件“${name}”吗？`,
-    confirmText: '删除',
-    cancelText: '取消',
+      ? i18n.t('app:fileTreeUtils.deleteFolderConfirm', { name })
+      : i18n.t('app:fileTreeUtils.deleteFileConfirm', { name }),
+    confirmText: i18n.t('common:delete'),
+    cancelText: i18n.t('common:cancel'),
     variant: 'destructive' as const,
   };
 }

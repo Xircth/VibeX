@@ -5,6 +5,7 @@ import type {
   NormalizedEntry,
 } from 'shared/types';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
+import i18n from '@/i18n';
 
 /**
  * Adapts a unified-timeline tool block (the codeg-aligned `ContentBlock`
@@ -409,9 +410,11 @@ function displayToolName(
   if (!OPAQUE_TOOL_ID.test(toolName.trim())) return toolName;
   if (looksLikeEdit(obj)) {
     const path = firstString(obj, 'file_path', 'path', 'filename');
-    return path ? `编辑 ${path}` : '编辑文件';
+    return path
+      ? i18n.t('app:turnTool.editFile', { path })
+      : i18n.t('app:turnTool.editFileGeneric');
   }
-  return '工具调用';
+  return i18n.t('app:turnTool.toolCall');
 }
 
 export function toolBlockToNormalizedEntry(

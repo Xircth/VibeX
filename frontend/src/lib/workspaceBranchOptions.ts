@@ -1,5 +1,6 @@
 import type { GitBranch, Workspace } from 'shared/types';
 import { dateTimestamp } from '@/utils/date';
+import i18n from '@/i18n';
 
 export interface WorkspaceBranchOption {
   value: string;
@@ -151,7 +152,7 @@ export function getWorkspaceBranchWarning(
     return null;
   }
 
-  return '当前分支非 Git Worktree，建议选择 Worktree 分支。';
+  return i18n.t('app:workspaceBranch.notWorktreeWarning');
 }
 
 export function getWorkspaceBranchCheckoutHint(
@@ -161,7 +162,7 @@ export function getWorkspaceBranchCheckoutHint(
     return null;
   }
 
-  return '选择后会先在当前项目目录 checkout 到该分支，以确保工作区正确。';
+  return i18n.t('app:workspaceBranch.checkoutHint');
 }
 
 export function resolveWorkspaceBranchSelection(

@@ -126,9 +126,169 @@
     "recentProjects": "Recent Projects",
     "loadingProjects": "Loading projects...",
     "noProjects": "No projects yet. Create one to get started.",
-    "open": "Open"
+    "open": "Open",
+    "tagline": "High-throughput, multi-concurrent Vibe Coding"
   },
   "kanbanSessions": {
     "sessionFallback": "Session"
+  },
+  "turnTool": {
+    "editFile": "Edit {{path}}",
+    "editFileGeneric": "Edit file",
+    "toolCall": "Tool call"
+  },
+  "codexGoal": {},
+  "exportConversation": {
+    "success": "Conversation exported",
+    "failed": "Export failed: {{error}}"
+  },
+  "gitHostErrors": {
+    "noRemotes": {
+      "title": "Failed to load {{subject}}: the current repository has no remote configured yet.",
+      "hint": "How to fix: first add a remote such as origin to the repository, for example run git remote add origin <repository-url>, then click Refresh."
+    },
+    "invalidRepository": {
+      "title": "Failed to load {{subject}}: the current repository's Git remote configuration is invalid.",
+      "hint": "How to fix: make sure the repository is initialized and has a working remote configured, and that the current project directory points to the correct repository, then try again."
+    },
+    "generic": {
+      "title": "Failed to load {{subject}}."
+    }
+  },
+  "workspaceBranch": {
+    "notWorktreeWarning": "The current branch is not a Git Worktree. We recommend selecting a Worktree branch.",
+    "checkoutHint": "After selecting, it will first check out this branch in the current project directory to ensure the workspace is correct."
+  },
+  "searchTags": {
+    "devServer": {
+      "name": "Start project dev server",
+      "content": "Analyze the current project and identify the correct way to start its dev server; check or install dependencies and fix basic environment issues as needed; after a successful start, verify that the service is reachable, then tell me the reachable local URL directly."
+    },
+    "reviewChanges": {
+      "name": "Review changes",
+      "content": "Please review all uncommitted code changes in the current workspace. Prioritize pointing out possible bugs, behavior regressions, maintainability issues, performance issues, and test gaps; sort them by severity and include file and line numbers where possible. If you find no issues, clearly state that no high-risk problems were found, and list the risks that remain unverified."
+    }
+  },
+  "fileTreeUtils": {
+    "selectionHintRange": "Shift+click to select range",
+    "selectionHintMultiline": "Drag to select multiple lines",
+    "newFolderName": "New Folder",
+    "deleteFolderConfirm": "Are you sure you want to delete the folder \"{{name}}\"?",
+    "deleteFileConfirm": "Are you sure you want to delete the file \"{{name}}\"?"
+  },
+  "sessionErrors": {
+    "uncommittedChangesCannotSwitch": "The current branch has uncommitted changes, so the branch cannot be switched. Please commit or discard your changes first.",
+    "workspaceRequired": "Please select a workspace.",
+    "sessionStillRunning": "The session is still running and cannot be deleted right now.",
+    "sessionNotFound": "The session does not exist or has already been deleted.",
+    "workspaceNotFound": "The workspace does not exist.",
+    "executorMismatch": "The agent bound to the current session does not match the selected agent.",
+    "invalidReference": "The selected branch does not exist; the workspace/branch list may be out of date. Please refresh and select again."
+  },
+  "localDeps": {
+    "notInstalled": "Not installed",
+    "unknown": "Unknown",
+    "versionSummary": {
+      "current": "Current version: {{version}}",
+      "minimum": "Minimum supported: {{version}}",
+      "latest": "Latest version: {{version}}"
+    },
+    "status": {
+      "missing": {
+        "label": "Missing",
+        "summary": "No local installation of {{label}} detected yet.",
+        "detail": "Installing will also provision the hidden dependencies this Agent requires.",
+        "action": "Install"
+      },
+      "incompatible": {
+        "label": "Version incompatible",
+        "summary": "The current version {{current}} is below the minimum requirement {{minimum}}.",
+        "detail": "Updating will also handle this Agent's hidden dependencies.",
+        "action": "Update"
+      },
+      "updateAvailable": {
+        "label": "Update available",
+        "summary": "Current version {{current}}; a newer version {{latest}} was detected.",
+        "detail": "Updating will also handle this Agent's hidden dependencies.",
+        "action": "Update"
+      },
+      "compatible": {
+        "label": "Compatible",
+        "summary": "The current version {{current}} already meets VibeX runtime requirements.",
+        "detail": "The current installation meets requirements; no extra action needed."
+      }
+    }
+  },
+  "showcases": {
+    "taskPanel": {
+      "companion": {
+        "title": "VibeX Companion Click-to-Locate",
+        "description": "Enable click-to-locate components on the preview page to help the Agent understand the relationship between the current UI and the source code faster."
+      },
+      "installCompanion": {
+        "title": "Install Companion for the Dev Server",
+        "description": "When the project has a dev server configured, VibeX Web Companion can be installed and connected automatically."
+      },
+      "codeReview": {
+        "title": "View Code Review Feedback",
+        "description": "Review code review results in one place in the task panel and keep refining your implementation based on the feedback."
+      },
+      "createPr": {
+        "title": "Create a PR from Git Changes",
+        "description": "Generate commits and a PR description from the current workspace changes, reducing the effort of assembling context by hand."
+      },
+      "tagPrompts": {
+        "title": "Reuse Tagged Prompts",
+        "description": "Save frequently used prompt snippets and quickly insert them into task input via tags."
+      }
+    }
+  },
+  "sessionContinuity": {
+    "resumeInPlace": {
+      "shortLabel": "Back to here",
+      "retryLabel": "Retry from here",
+      "retryDescription": "Rewinds to this point, deletes the messages after it, then re-runs."
+    },
+    "newSession": {
+      "shortLabel": "Fresh context",
+      "retryLabel": "Retry in new session",
+      "retryDescription": "Creates a new execution context and starts over."
+    }
+  },
+  "installCompanion": {
+    "entryFileNotFound": "Could not find an entry file for automatic integration: src/main.tsx/jsx/ts/js.",
+    "appTagNotFound": "Could not find <App /> in the entry file; cannot automatically integrate Web Companion.",
+    "noProjectDir": "The current workspace has no available project directory.",
+    "noRepo": "The current workspace has no available repository."
+  },
+  "date": {
+    "justNow": "just now",
+    "minutesAgo": "{{value}} minutes ago",
+    "minutesLater": "in {{value}} minutes",
+    "hoursAgo": "{{value}} hours ago",
+    "hoursLater": "in {{value}} hours",
+    "daysAgo": "{{value}} days ago",
+    "daysLater": "in {{value}} days",
+    "monthsAgo": "{{value}} months ago",
+    "monthsLater": "in {{value}} months",
+    "yearsAgo": "{{value}} years ago",
+    "yearsLater": "in {{value}} years"
+  },
+  "entryUtils": {
+    "fileRead": "View file",
+    "search": "Search",
+    "webFetch": "Web fetch",
+    "terminal": "Terminal",
+    "generatingAgent": "Generating agent",
+    "tool": "Tool",
+    "subagent": "Sub-agent",
+    "subagentStatus": "Sub-agent status",
+    "todo": "To-do",
+    "plan": "Plan"
+  },
+  "contextCompact": {
+    "running": "Compacting context...",
+    "success": "Context compacted",
+    "failed": "Context compaction failed"
   }
 }

@@ -126,9 +126,169 @@
     "recentProjects": "最近项目",
     "loadingProjects": "加载项目中...",
     "noProjects": "暂无项目，创建一个开始使用吧。",
-    "open": "打开"
+    "open": "打开",
+    "tagline": "高效多并发驱动的 Vibe Coding"
   },
   "kanbanSessions": {
     "sessionFallback": "会话"
+  },
+  "turnTool": {
+    "editFile": "编辑 {{path}}",
+    "editFileGeneric": "编辑文件",
+    "toolCall": "工具调用"
+  },
+  "codexGoal": {},
+  "exportConversation": {
+    "success": "已导出会话",
+    "failed": "导出失败：{{error}}"
+  },
+  "gitHostErrors": {
+    "noRemotes": {
+      "title": "无法加载{{subject}}：当前仓库还没有配置远程仓库。",
+      "hint": "解决方法：先为仓库添加 origin 等远程地址，例如执行 git remote add origin <仓库地址>，然后再点击刷新。"
+    },
+    "invalidRepository": {
+      "title": "无法加载{{subject}}：当前仓库的 Git 远程配置无效。",
+      "hint": "解决方法：确认仓库已初始化、已配置可用远程地址，并且当前项目目录指向正确仓库后再重试。"
+    },
+    "generic": {
+      "title": "无法加载{{subject}}。"
+    }
+  },
+  "workspaceBranch": {
+    "notWorktreeWarning": "当前分支非 Git Worktree，建议选择 Worktree 分支。",
+    "checkoutHint": "选择后会先在当前项目目录 checkout 到该分支，以确保工作区正确。"
+  },
+  "searchTags": {
+    "devServer": {
+      "name": "启动项目开发服务器",
+      "content": "分析当前项目并识别正确的开发服务器启动方式；必要时检查或安装依赖并修复基础环境问题；成功启动后验证服务可访问，再把可访问的本地 URL 直接告诉我。"
+    },
+    "reviewChanges": {
+      "name": "审查变更",
+      "content": "请审查当前工作区的所有未提交代码变更。优先指出可能的 Bug、行为回归、可维护性问题、性能问题和测试缺口；按严重程度排序，尽量附上文件和行号。若没有发现问题，请明确说明未发现高风险问题，并列出仍未验证的风险。"
+    }
+  },
+  "fileTreeUtils": {
+    "selectionHintRange": "Shift+点击选择范围",
+    "selectionHintMultiline": "拖拽选择多行",
+    "newFolderName": "新建文件夹",
+    "deleteFolderConfirm": "确定要删除文件夹“{{name}}”吗？",
+    "deleteFileConfirm": "确定要删除文件“{{name}}”吗？"
+  },
+  "sessionErrors": {
+    "uncommittedChangesCannotSwitch": "当前分支存在未提交更改，无法切换分支，请先提交或放弃更改。",
+    "workspaceRequired": "请选择工作区。",
+    "sessionStillRunning": "会话仍在执行，暂时无法删除。",
+    "sessionNotFound": "会话不存在或已被删除。",
+    "workspaceNotFound": "工作区不存在。",
+    "executorMismatch": "当前会话绑定的代理与所选代理不一致。",
+    "invalidReference": "所选分支不存在，工作区/分支列表可能已过期。请刷新后重新选择。"
+  },
+  "localDeps": {
+    "notInstalled": "未安装",
+    "unknown": "未知",
+    "versionSummary": {
+      "current": "当前版本：{{version}}",
+      "minimum": "最低支持：{{version}}",
+      "latest": "最新版本：{{version}}"
+    },
+    "status": {
+      "missing": {
+        "label": "缺失",
+        "summary": "尚未检测到 {{label}} 的本地安装。",
+        "detail": "安装时会同时补齐该 Agent 所需的隐藏依赖。",
+        "action": "安装"
+      },
+      "incompatible": {
+        "label": "版本不兼容",
+        "summary": "当前版本 {{current}} 低于最低要求 {{minimum}}。",
+        "detail": "更新时会同时处理该 Agent 的隐藏依赖。",
+        "action": "更新"
+      },
+      "updateAvailable": {
+        "label": "可更新",
+        "summary": "当前版本 {{current}}，检测到更高版本 {{latest}}。",
+        "detail": "更新时会同时处理该 Agent 的隐藏依赖。",
+        "action": "更新"
+      },
+      "compatible": {
+        "label": "已兼容",
+        "summary": "当前版本 {{current}} 已满足 VibeX 运行要求。",
+        "detail": "当前安装满足要求，无需额外处理。"
+      }
+    }
+  },
+  "showcases": {
+    "taskPanel": {
+      "companion": {
+        "title": "VibeX Companion 点击能力",
+        "description": "在预览页面中启用点击组件定位，帮助 Agent 更快理解当前 UI 与源代码之间的关系。"
+      },
+      "installCompanion": {
+        "title": "为开发服务器安装 Companion",
+        "description": "当项目已配置开发服务器时，可以自动安装并接入 VibeX Web Companion。"
+      },
+      "codeReview": {
+        "title": "查看代码审查反馈",
+        "description": "在任务面板中集中查看代码审查结果，并根据反馈继续调整实现。"
+      },
+      "createPr": {
+        "title": "从 Git 变更创建 PR",
+        "description": "结合当前工作区变更生成提交与 PR 描述，减少手动整理上下文的成本。"
+      },
+      "tagPrompts": {
+        "title": "复用标签提示词",
+        "description": "保存常用提示词片段，并通过标签快速插入到任务输入中。"
+      }
+    }
+  },
+  "sessionContinuity": {
+    "resumeInPlace": {
+      "shortLabel": "回到此处",
+      "retryLabel": "回到此处重试",
+      "retryDescription": "会回退到此处并删除其后的消息，然后重新执行。"
+    },
+    "newSession": {
+      "shortLabel": "全新上下文",
+      "retryLabel": "新会话重试",
+      "retryDescription": "会创建一条新的执行上下文重新开始。"
+    }
+  },
+  "installCompanion": {
+    "entryFileNotFound": "未找到可自动接入的入口文件：src/main.tsx/jsx/ts/js。",
+    "appTagNotFound": "未在入口文件中找到 <App />，无法自动接入 Web Companion。",
+    "noProjectDir": "当前工作区没有可用的项目目录。",
+    "noRepo": "当前工作区没有可用的仓库。"
+  },
+  "date": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{value}} 分钟前",
+    "minutesLater": "{{value}} 分钟后",
+    "hoursAgo": "{{value}} 小时前",
+    "hoursLater": "{{value}} 小时后",
+    "daysAgo": "{{value}} 天前",
+    "daysLater": "{{value}} 天后",
+    "monthsAgo": "{{value}} 个月前",
+    "monthsLater": "{{value}} 个月后",
+    "yearsAgo": "{{value}} 年前",
+    "yearsLater": "{{value}} 年后"
+  },
+  "entryUtils": {
+    "fileRead": "查看文件",
+    "search": "搜索",
+    "webFetch": "网页抓取",
+    "terminal": "终端",
+    "generatingAgent": "正在生成智能体",
+    "tool": "工具",
+    "subagent": "子代理",
+    "subagentStatus": "子代理状态",
+    "todo": "待办",
+    "plan": "计划"
+  },
+  "contextCompact": {
+    "running": "正在执行上下文压缩...",
+    "success": "上下文已压缩",
+    "failed": "上下文压缩失败"
   }
 }

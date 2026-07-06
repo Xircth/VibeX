@@ -60,7 +60,7 @@ initMonoFont();
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <React.Suspense fallback={<p>错误</p>}>
+      <React.Suspense fallback={null}>
         <App />
         {/*<TanStackDevtools plugins={[FormDevtoolsPlugin()]} />*/}
         {/* <ReactQueryDevtools initialIsOpen={false} /> */}

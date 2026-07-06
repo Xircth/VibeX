@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 export interface GitHostErrorPresentation {
   title: string;
   hint?: string;
@@ -20,20 +22,20 @@ export function getGitHostErrorPresentation(
 
   if (lowered.includes('no remotes configured')) {
     return {
-      title: `无法加载${subject}：当前仓库还没有配置远程仓库。`,
-      hint: '解决方法：先为仓库添加 origin 等远程地址，例如执行 git remote add origin <仓库地址>，然后再点击刷新。',
+      title: i18n.t('app:gitHostErrors.noRemotes.title', { subject }),
+      hint: i18n.t('app:gitHostErrors.noRemotes.hint'),
     };
   }
 
   if (lowered.includes('invalid repository')) {
     return {
-      title: `无法加载${subject}：当前仓库的 Git 远程配置无效。`,
-      hint: '解决方法：确认仓库已初始化、已配置可用远程地址，并且当前项目目录指向正确仓库后再重试。',
+      title: i18n.t('app:gitHostErrors.invalidRepository.title', { subject }),
+      hint: i18n.t('app:gitHostErrors.invalidRepository.hint'),
     };
   }
 
   return {
-    title: `无法加载${subject}。`,
+    title: i18n.t('app:gitHostErrors.generic.title', { subject }),
     hint: message,
   };
 }

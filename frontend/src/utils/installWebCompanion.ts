@@ -3,6 +3,7 @@ import type {
   RepoWithTargetBranch,
   Workspace,
 } from 'shared/types';
+import i18n from '@/i18n';
 import { attemptsApi, fileTreeApi } from '@/lib/api';
 import { getDevServerWorkingDir } from '@/lib/devServerUtils';
 
@@ -107,7 +108,7 @@ async function findEntryFile(
     }
   }
 
-  throw new Error('未找到可自动接入的入口文件：src/main.tsx/jsx/ts/js。');
+  throw new Error(i18n.t('app:installCompanion.entryFileNotFound'));
 }
 
 function ensureCompanionImport(source: string): string {
@@ -133,7 +134,7 @@ function ensureCompanionRender(source: string): string {
     );
   }
 
-  throw new Error('未在入口文件中找到 <App />，无法自动接入 Web Companion。');
+  throw new Error(i18n.t('app:installCompanion.appTagNotFound'));
 }
 
 function ensureCompanionToolbarBridge(source: string): string {
@@ -156,11 +157,11 @@ export async function installWebCompanion({
   runningDevServers: ExecutionProcess[];
 }): Promise<{ entryPath: string; repoName: string }> {
   if (!attempt?.container_ref) {
-    throw new Error('当前工作区没有可用的项目目录。');
+    throw new Error(i18n.t('app:installCompanion.noProjectDir'));
   }
 
   if (repos.length === 0) {
-    throw new Error('当前工作区没有可用的仓库。');
+    throw new Error(i18n.t('app:installCompanion.noRepo'));
   }
 
   const targetRepo = chooseTargetRepo(repos, runningDevServers);

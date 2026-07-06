@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { AgentKind, SessionContinuityMode } from 'shared/types';
 
 export function getExecutorContinuityMode(
@@ -12,16 +13,16 @@ export function getContinuityActionCopy(mode: SessionContinuityMode) {
   switch (mode) {
     case 'resume_in_place':
       return {
-        shortLabel: '回到此处',
-        retryLabel: '回到此处重试',
-        retryDescription: '会回退到此处并删除其后的消息，然后重新执行。',
+        shortLabel: i18n.t('app:sessionContinuity.resumeInPlace.shortLabel'),
+        retryLabel: i18n.t('app:sessionContinuity.resumeInPlace.retryLabel'),
+        retryDescription: i18n.t('app:sessionContinuity.resumeInPlace.retryDescription'),
       };
     case 'new_session':
     default:
       return {
-        shortLabel: '全新上下文',
-        retryLabel: '新会话重试',
-        retryDescription: '会创建一条新的执行上下文重新开始。',
+        shortLabel: i18n.t('app:sessionContinuity.newSession.shortLabel'),
+        retryLabel: i18n.t('app:sessionContinuity.newSession.retryLabel'),
+        retryDescription: i18n.t('app:sessionContinuity.newSession.retryDescription'),
       };
   }
 }

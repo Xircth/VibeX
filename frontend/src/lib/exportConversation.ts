@@ -3,6 +3,7 @@ import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { toast } from 'sonner';
 
 import { conversationApi } from '@/features/conversation/conversationApi';
+import i18n from '@/i18n';
 
 /** Sanitize a conversation title into a safe file stem. */
 function fileStem(name: string): string {
@@ -35,8 +36,8 @@ export async function exportConversation(
     });
     if (!path) return;
     await writeTextFile(path, content);
-    toast.success('已导出会话');
+    toast.success(i18n.t('app:exportConversation.success'));
   } catch (error) {
-    toast.error(`导出失败：${error}`);
+    toast.error(i18n.t('app:exportConversation.failed', { error }));
   }
 }

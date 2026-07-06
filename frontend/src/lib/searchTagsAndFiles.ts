@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { projectsApi, searchApi, tagsApi } from '@/lib/api';
 import type { SearchResult, Tag } from 'shared/types';
 
@@ -19,23 +20,27 @@ export interface SearchOptions {
 }
 
 const TAG_CACHE_TTL_MS = 30_000;
-const BUILTIN_DEV_SERVER_TAG: Tag = {
-  id: 'builtin:start-project-dev-server',
-  tag_name: '启动项目开发服务器',
-  content:
-    '分析当前项目并识别正确的开发服务器启动方式；必要时检查或安装依赖并修复基础环境问题；成功启动后验证服务可访问，再把可访问的本地 URL 直接告诉我。',
-  created_at: '',
-  updated_at: '',
-};
-const BUILTIN_REVIEW_CHANGES_TAG: Tag = {
-  id: 'builtin:review-changes',
-  tag_name: '审查变更',
-  content:
-    '请审查当前工作区的所有未提交代码变更。优先指出可能的 Bug、行为回归、可维护性问题、性能问题和测试缺口；按严重程度排序，尽量附上文件和行号。若没有发现问题，请明确说明未发现高风险问题，并列出仍未验证的风险。',
-  created_at: '',
-  updated_at: '',
-};
-const BUILTIN_TAGS = [BUILTIN_DEV_SERVER_TAG, BUILTIN_REVIEW_CHANGES_TAG];
+
+// Built-in tags are constructed at call time so their user-visible strings
+// reflect the current i18n language rather than the language at module load.
+function getBuiltinTags(): Tag[] {
+  return [
+    {
+      id: 'builtin:start-project-dev-server',
+      tag_name: i18n.t('app:searchTags.devServer.name'),
+      content: i18n.t('app:searchTags.devServer.content'),
+      created_at: '',
+      updated_at: '',
+    },
+    {
+      id: 'builtin:review-changes',
+      tag_name: i18n.t('app:searchTags.reviewChanges.name'),
+      content: i18n.t('app:searchTags.reviewChanges.content'),
+      created_at: '',
+      updated_at: '',
+    },
+  ];
+}
 
 let cachedTags: Tag[] | null = null;
 let cachedTagsAt = 0;
@@ -55,7 +60,7 @@ async function loadCachedTags(): Promise<Tag[]> {
     .list()
     .then((tags) => {
       const mergedTags = new Map<string, Tag>();
-      for (const tag of BUILTIN_TAGS) {
+      for (const tag of getBuiltinTags()) {
         mergedTags.set(tag.tag_name.toLowerCase(), tag);
       }
       for (const tag of tags) {

@@ -1,12 +1,22 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react';
-import { Search as SearchIcon, File, KanbanSquare } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Search as SearchIcon,
+  File,
+  KanbanSquare,
+  MessagesSquare,
+} from 'lucide-react';
 import { useSearchStore } from '@/stores/useSearchStore';
 import { useProject } from '@/contexts/ProjectContext';
 import { projectsApi } from '@/lib/api';
-import type { SearchResult as FileSearchResult } from 'shared/types';
+import { conversationApi } from '@/features/conversation/conversationApi';
+import type {
+  SearchResult as FileSearchResult,
+  ConversationSearchHit,
+} from 'shared/types';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 
-type PaletteResultKind = 'file' | 'directory';
+type PaletteResultKind = 'file' | 'directory' | 'conversation';
 
 interface PaletteResult {
   id: string;
@@ -14,6 +24,8 @@ interface PaletteResult {
   title: string;
   subtitle?: string;
   filePath?: string;
+  conversationId?: string;
+  workspaceId?: string;
 }
 
 export function SearchPalette() {
@@ -28,9 +40,13 @@ export function SearchPalette() {
 
   const { openFilePreview } = usePanelActionsContext();
   const { projectId } = useProject();
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [fileResults, setFileResults] = useState<FileSearchResult[]>([]);
+  const [conversationResults, setConversationResults] = useState<
+    ConversationSearchHit[]
+  >([]);
 
   // Focus input when opened
   useEffect(() => {
@@ -70,24 +86,73 @@ export function SearchPalette() {
     };
   }, [paletteQuery, isSearchPaletteOpen, projectId]);
 
+  // Full-text search across conversations (P1-2). Debounced so we don't fire on
+  // every keystroke; needs at least 3 chars (trigram index minimum).
+  useEffect(() => {
+    if (!isSearchPaletteOpen) {
+      setConversationResults([]);
+      return;
+    }
+    const trimmed = paletteQuery.trim();
+    if (trimmed.length < 3) {
+      setConversationResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      conversationApi
+        .search(trimmed, null, 20)
+        .then((hits) => {
+          if (!cancelled) setConversationResults(hits);
+        })
+        .catch(() => {
+          if (!cancelled) setConversationResults([]);
+        });
+    }, 150);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [paletteQuery, isSearchPaletteOpen]);
+
   const results: PaletteResult[] = useMemo(() => {
-    return fileResults.map((r) => ({
-      id: r.path,
+    const files: PaletteResult[] = fileResults.map((r) => ({
+      id: `file:${r.path}`,
       kind: r.is_file ? ('file' as const) : ('directory' as const),
       title: r.path.split(/[/\\]/).pop() || r.path,
       subtitle: r.path,
       filePath: r.path,
     }));
-  }, [fileResults]);
+    const conversations: PaletteResult[] = conversationResults.map((hit) => ({
+      id: `conv:${hit.conversation_id}`,
+      kind: 'conversation' as const,
+      title: hit.title || '未命名会话',
+      subtitle: hit.snippet,
+      conversationId: hit.conversation_id,
+      workspaceId: hit.workspace_id,
+    }));
+    return [...conversations, ...files];
+  }, [fileResults, conversationResults]);
 
   const handleSelect = useCallback(
     (result: PaletteResult) => {
       if (result.kind === 'file' && result.filePath) {
         openFilePreview(result.filePath);
+      } else if (
+        result.kind === 'conversation' &&
+        result.conversationId &&
+        result.workspaceId &&
+        projectId
+      ) {
+        navigate(
+          `/local-projects/${projectId}/workspaces/${result.workspaceId}/sessions/${result.conversationId}`
+        );
       }
       closeSearchPalette();
     },
-    [openFilePreview, closeSearchPalette]
+    [openFilePreview, closeSearchPalette, navigate, projectId]
   );
 
   // Keyboard navigation
@@ -165,7 +230,7 @@ export function SearchPalette() {
           <input
             ref={inputRef}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-            placeholder="搜索文件..."
+            placeholder="搜索文件与会话..."
             value={paletteQuery}
             onChange={(e) => setPaletteQuery(e.target.value)}
           />
@@ -175,7 +240,9 @@ export function SearchPalette() {
         <div ref={listRef} className="max-h-[min(50vh,400px)] overflow-y-auto">
           {results.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              {paletteQuery.trim() ? '未找到匹配结果' : '输入文件名开始搜索'}
+              {paletteQuery.trim()
+                ? '未找到匹配结果'
+                : '搜索文件名，或输入 3+ 字符搜索会话内容'}
             </div>
           ) : (
             results.map((result, index) => (
@@ -192,6 +259,8 @@ export function SearchPalette() {
               >
                 {result.kind === 'file' ? (
                   <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                ) : result.kind === 'conversation' ? (
+                  <MessagesSquare className="h-4 w-4 text-muted-foreground shrink-0" />
                 ) : (
                   <KanbanSquare className="h-4 w-4 text-muted-foreground shrink-0" />
                 )}

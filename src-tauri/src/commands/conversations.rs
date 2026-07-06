@@ -499,6 +499,29 @@ pub async fn conversation_export_html(
     Ok(conversations::render_html(&title, &timeline.rows))
 }
 
+/// Full-text search across conversations (P1-2). `workspace_id`, when set,
+/// restricts results to one workspace.
+#[tauri::command]
+pub async fn conversation_search(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    workspace_id: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<conversations::ConversationSearchHit>, AppError> {
+    let workspace_id = match workspace_id {
+        Some(raw) => Some(Uuid::parse_str(&raw).map_err(|error| {
+            AppError::BadRequest(format!("invalid workspace id: {error}"))
+        })?),
+        None => None,
+    };
+    let pool = &state.deployment.db().pool;
+    let mut conn = pool.acquire().await?;
+    let limit = limit.unwrap_or(50).clamp(1, 200);
+    conversations::search_conversations(&mut conn, &query, workspace_id, limit)
+        .await
+        .map_err(AppError::from)
+}
+
 async fn export_title_and_timeline(
     state: &AppState,
     conversation_id: &str,

@@ -82,6 +82,23 @@ pub fn run() {
             events::start_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
+
+            // Backfill the conversation full-text index for any conversation not
+            // yet indexed (first run after the FTS migration, imported histories).
+            // Background + best-effort so it never delays launch (P1-2).
+            let search_pool = state.deployment.db().pool.clone();
+            tauri::async_runtime::spawn(async move {
+                match conversations::backfill_missing(&search_pool).await {
+                    Ok(indexed) if indexed > 0 => {
+                        tracing::info!("indexed {indexed} conversations for search")
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::warn!("conversation search backfill failed: {error}")
+                    }
+                }
+            });
+
             app.manage(state);
             // Bidirectional IM channels: run inbound loops + conversation command dispatch.
             commands::chat_channel::start_inbound_manager(app.handle().clone());
@@ -239,6 +256,7 @@ pub fn run() {
             commands::conversations::conversation_export,
             commands::conversations::conversation_export_markdown,
             commands::conversations::conversation_export_html,
+            commands::conversations::conversation_search,
             commands::conversations::conversation_import,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,

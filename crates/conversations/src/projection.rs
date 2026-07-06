@@ -389,7 +389,18 @@ impl ConversationProjector {
         for record in &tail {
             fold.apply(record)?;
         }
-        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await
+        Self::persist_snapshot(&mut *conn, conversation_id, &fold).await?;
+
+        // Best-effort full-text reindex from the freshly-settled projection.
+        // A search-index failure must never block a turn from settling (P1-2).
+        let timeline = fold.into_timeline(conversation_id);
+        let body = crate::search::extract_searchable_text(&timeline);
+        if let Err(error) =
+            crate::search::reindex_conversation(&mut *conn, conversation_id, &body).await
+        {
+            tracing::warn!("conversation FTS reindex on settle failed: {error}");
+        }
+        Ok(())
     }
 
     /// Authoritatively rebuild the derived projection tables and the snapshot from the
@@ -513,7 +524,21 @@ impl ConversationProjector {
         .await?;
 
         // Re-derive the side-effect tables + snapshot from the surviving events.
-        Self::rebuild_on_connection(conn, conversation_id).await
+        Self::rebuild_on_connection(conn, conversation_id).await?;
+
+        // Best-effort full-text reindex — truncate removed message text, so the
+        // stale index would otherwise still match the discarded turns (P1-2).
+        let reindex = async {
+            let fold = Self::load_fold_from_snapshot(&mut *conn, conversation_id).await?;
+            let timeline = fold.into_timeline(conversation_id);
+            let body = crate::search::extract_searchable_text(&timeline);
+            crate::search::reindex_conversation(&mut *conn, conversation_id, &body).await
+        }
+        .await;
+        if let Err(error) = reindex {
+            tracing::warn!("conversation FTS reindex on truncate failed: {error}");
+        }
+        Ok(())
     }
 
     async fn persist_snapshot<'e, E>(

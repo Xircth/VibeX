@@ -1026,4 +1026,10 @@ export type StashEntry = { index: number, message: string,
  */
 branch?: string, };
 
+export type ConversationSearchHit = { conversation_id: string, workspace_id: string, title: string | null,
+/**
+ * A short highlighted excerpt around the match (`[` … `]` mark the terms).
+ */
+snippet: string, };
+
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";

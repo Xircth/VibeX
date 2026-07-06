@@ -7,6 +7,7 @@ import type {
   ConversationBundlePayload,
   ConversationExportResult,
   ConversationImportResult,
+  ConversationSearchHit,
   ConversationTimelinePage,
   ConversationTurnSnapshot,
   DbConversationDetail,
@@ -143,6 +144,17 @@ export const conversationApi = {
 
   exportHtml: (conversationId: string): Promise<string> =>
     tauriInvoke('conversation_export_html', { conversationId }),
+
+  search: (
+    query: string,
+    workspaceId?: string | null,
+    limit?: number
+  ): Promise<ConversationSearchHit[]> =>
+    tauriInvoke('conversation_search', {
+      query,
+      workspaceId: workspaceId ?? null,
+      limit: limit ?? null,
+    }),
 
   import: (request: ConversationImportRequest): Promise<ConversationImportResult> =>
     tauriInvoke('conversation_import', { request }),

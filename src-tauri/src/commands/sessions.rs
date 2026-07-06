@@ -734,6 +734,14 @@ pub async fn delete_session(
         )));
     }
 
+    // Drop the conversation's full-text index row so search doesn't return a
+    // deleted conversation (P1-2).
+    if let Ok(mut conn) = pool.acquire().await
+        && let Err(error) = conversations::search::delete_from_index(&mut conn, session_id).await
+    {
+        tracing::warn!("failed to remove conversation from search index: {error}");
+    }
+
     Ok(())
 }
 

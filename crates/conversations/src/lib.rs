@@ -7,9 +7,13 @@
 
 pub mod export;
 pub mod projection;
+pub mod search;
 pub mod service;
 
 pub use export::{render_html, render_markdown};
+pub use search::{
+    ConversationSearchHit, backfill_missing, reindex_from_projection, search_conversations,
+};
 
 pub use projection::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,

@@ -16,7 +16,7 @@
 
 ## 0.1 实施进度（2026-07-04-06，TDD 执行）
 
-本轮全部通过验证（`cargo check --workspace`/`clippy --features qa-mode -D warnings`/后端全量测试/前端 778 测试+tsc+eslint/`generate-types:check`/`prepare-db:check` 全绿），每项独立提交：
+本轮全部通过验证（`cargo check --workspace`/`clippy --features qa-mode -D warnings`/后端全量测试/前端 780 测试+tsc+eslint/`generate-types:check`/`prepare-db:check` 全绿），每项独立提交：
 
 | 项 | 状态 | 交付物与测试 |
 |---|---|---|
@@ -38,15 +38,22 @@
 | **P3-1** i18n 有限完善 | ✅ 完成（有界切片）| react-i18next 单例（默认 zh-CN）+ zh/en 三命名空间 + 外观页语言切换器 + 设置外壳/外观/自动化/状态栏切片 100% 转换；键集对等测试 6 条 |
 | **P3-2** 键位重绑 | ✅ 完成 | 注册表驱动重绑 UI + 冲突检测 + 恢复默认 + localStorage 覆盖（实时生效）；chord/覆盖/冲突 11 单测 |
 | **P3-4** 备份口令加密 | ✅ 完成 | AES-256-GCM + Argon2id 信封（移植 codeg）+ 自动探测/向后兼容 + 头部 DoS 校验 + UI 口令输入；5 单测 |
-| **P3-5** 状态栏模块补齐 | ✅ 完成（a+c）| 后台任务数徽标 + 更新可用徽标；token 环/预览状态因缺外壳级"当前会话"指针推迟 |
+| **P3-4** 备份 restore 原子化 + 冲突扫描 | ✅ 完成 | 两阶段 temp+rename（RAII 清理）消除中途部分写；already_exists 覆盖标记（恢复预览显示"将覆盖"）|
+| **P3-5** 状态栏模块补齐 | ✅ 完成（a+c+b）| 后台任务数徽标 + 更新可用徽标 + 当前会话上下文窗口环（session_stats 复用 TokenUsageIndicator）；(d) web/预览状态推迟 |
+| **P2-8** 应用日志查看器 | ✅ 完成 | 新增文件 tracing 层（此前无 subscriber，日志全丢）按天轮转 + get_app_logs 尾读 + /settings/logs 页 |
+| **P2-5** 系统托盘（菜单 + 徽标）| ✅ 完成（tray）| Tauri v2 内置 tray-icon：显示/隐藏/退出菜单 + 左键点击 + 活动徽标同步；深链另立（需插件 + 三平台注册）|
+| **P3-2** 等宽字体选择 | ✅ 完成 | --font-mono token 收敛（tailwind + 全部硬编码族）+ 外观页字体选择器 + xterm 实时联动 |
+| **P3-1** i18n 第二切片 | ✅ 完成 | WebService/Instructions/ModelProvider 三设置页 100% 转换（~130 键，agent 并行转换 + 中心合并）|
 | **P3-3** 无项目聊天（决策产物）| 🟡 仅决策 | CONTEXT 术语 +（[ADR-0006](./adr/0006-workspace-less-conversation.md)：nullable workspace_id + 专用 scratch 工作目录）；no-too-big，代码分片后续 |
 
-**合计已交付 20 项**（整个 P0 层 + P1 全部 + 多数 P2 + 多数 P3），全部经 `cargo clippy --workspace --features qa-mode -D warnings`/后端全量测试(0 失败)/前端 778 测试/`generate-types:check`/`prepare-db:check` 验证全绿；两轮对抗性审查（automation 3 处 + fork/composer 4 处）确认缺陷均已修复。
+**合计已交付 27 项**（整个 P0 层 + P1 全部 + 多数 P2 + 多数 P3），全部经 `cargo clippy --workspace --features qa-mode -D warnings`/后端全量测试(0 失败)/前端 780 测试/`generate-types:check`/`prepare-db:check` 验证全绿；三轮对抗性审查（automation 3 + fork/composer 4 + i18n/P3-2/P3-5 5）确认缺陷均已修复。
 
-**未实施（可增量推进）**，按理由：
-- **P3-3 无项目聊天代码分片**：决策已定（ADR-0006），首片为后端 schema+turn 分支，前端再分片；no-too-big，需专门会话。
-- **P3-1 i18n 全量**：已落基础与首切片；其余重设置页/非设置屏/后端用户可见串（IM 模板等）+ localStorage→Config.language 同步为后续切片。
-- **P2-3 多会话平铺 / P2-8 应用日志查看器 / P2-5 托盘·深链**：多文件前端或独立基建。
+**未实施（诚实推迟——均为大/高风险/部分无价值，宜作专项而非会话尾仓促）**：
+- **P3-3 无项目聊天代码分片**：决策已定（ADR-0006），但只做第 1 片（nullable workspace_id）是跨 ~6 查询方法的大改且**在步骤 2–4 落地前零用户价值**，比不动更糟；须整体（schema→turn 分支→列表面→前端路由）作专项。
+- **P2-3 多会话平铺**：会话非 Dockview 面板，属新布局模式（~8 文件），大。
+- **P2-5 深链（vibex://）**：需 deep-link + single-instance 两插件 + 三平台 bundle 注册（Info.plist/注册表/.desktop），single-instance 改变启动行为、风险高。
+- **P3-5(d) web/预览状态 / P3-4 外部历史纳入备份**：前者需新增跨工作区 running-dev-servers 聚合命令（价值低）；后者不 bounded（GB 级、含活 SQLite，会 OOM/撕裂快照）。
+- **P3-1 i18n 全量**：已落基础 + 两切片；其余重设置页/非设置屏/后端串 + localStorage→Config.language 同步为后续切片。
 - **P0-3 worktree 隔离 / run 事件总线终态判定**：在已交付 v1 上的增强项。
 
 ## 1. 第一性原则框架

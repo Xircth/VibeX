@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
   Bot,
   Check,
+  FileCode,
+  FileDown,
   GitBranch,
   Loader2,
   Pencil,
@@ -9,6 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { exportConversation } from '@/lib/exportConversation';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -123,7 +126,6 @@ export function SessionHubListItem({
       aria-busy={isOpening || undefined}
       onClick={onClick}
       onContextMenu={(event) => {
-        if (!onRestoreFromArchive) return;
         event.preventDefault();
         event.stopPropagation();
         setContextMenu({ x: event.clientX, y: event.clientY });
@@ -337,16 +339,44 @@ export function SessionHubListItem({
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.preventDefault()}
         >
+          {onRestoreFromArchive ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setContextMenu(null);
+                void onRestoreFromArchive?.();
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              移至会话列表
+            </button>
+          ) : null}
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
             onClick={() => {
               setContextMenu(null);
-              void onRestoreFromArchive?.();
+              void exportConversation(
+                session.id,
+                'markdown',
+                session.name ?? '会话'
+              );
             }}
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-            移至会话列表
+            <FileDown className="h-3.5 w-3.5" />
+            导出为 Markdown
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              setContextMenu(null);
+              void exportConversation(session.id, 'html', session.name ?? '会话');
+            }}
+          >
+            <FileCode className="h-3.5 w-3.5" />
+            导出为 HTML
           </button>
         </div>
       ) : null}

@@ -479,6 +479,42 @@ pub async fn conversation_export(
     .await
 }
 
+/// Render a conversation as human-readable Markdown (for sharing / PR bodies).
+#[tauri::command]
+pub async fn conversation_export_markdown(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<String, AppError> {
+    let (title, timeline) = export_title_and_timeline(&state, &conversation_id).await?;
+    Ok(conversations::render_markdown(&title, &timeline.rows))
+}
+
+/// Render a conversation as a self-contained HTML document.
+#[tauri::command]
+pub async fn conversation_export_html(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<String, AppError> {
+    let (title, timeline) = export_title_and_timeline(&state, &conversation_id).await?;
+    Ok(conversations::render_html(&title, &timeline.rows))
+}
+
+async fn export_title_and_timeline(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<(String, ConversationTimeline), AppError> {
+    let id = Uuid::parse_str(conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    let pool = &state.deployment.db().pool;
+    let title = DbConversationSummary::find_by_id(pool, id)
+        .await?
+        .and_then(|summary| summary.title)
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| "会话".to_string());
+    let timeline = ConversationProjector::project(pool, id).await?;
+    Ok((title, timeline))
+}
+
 #[tauri::command]
 pub async fn conversation_import(
     state: tauri::State<'_, AppState>,

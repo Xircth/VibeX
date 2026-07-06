@@ -237,6 +237,8 @@ pub fn run() {
             commands::conversations::conversation_truncate_to_turn,
             commands::conversations::conversation_close,
             commands::conversations::conversation_export,
+            commands::conversations::conversation_export_markdown,
+            commands::conversations::conversation_export_html,
             commands::conversations::conversation_import,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,

@@ -138,6 +138,12 @@ export const conversationApi = {
   export: (request: ConversationExportRequest): Promise<ConversationExportResult> =>
     tauriInvoke('conversation_export', { request }),
 
+  exportMarkdown: (conversationId: string): Promise<string> =>
+    tauriInvoke('conversation_export_markdown', { conversationId }),
+
+  exportHtml: (conversationId: string): Promise<string> =>
+    tauriInvoke('conversation_export_html', { conversationId }),
+
   import: (request: ConversationImportRequest): Promise<ConversationImportResult> =>
     tauriInvoke('conversation_import', { request }),
 };

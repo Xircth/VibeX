@@ -5,8 +5,11 @@
 //! db→agents reverse dependency is now gone). `crates/db` is a dumb storage layer;
 //! this crate owns the folding of the event log into timeline projections.
 
+pub mod export;
 pub mod projection;
 pub mod service;
+
+pub use export::{render_html, render_markdown};
 
 pub use projection::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,

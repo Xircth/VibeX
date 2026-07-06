@@ -8,8 +8,11 @@
 //! VibeX-authored. The on-disk session formats are the agents' own.
 
 pub mod claude;
+pub mod cline;
 pub mod codex;
+pub mod gemini;
 pub mod loader;
+pub mod openclaw;
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;

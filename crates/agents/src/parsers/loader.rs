@@ -9,7 +9,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use super::{
-    ConversationParser, ParseContext, ParseError, claude::ClaudeParser, codex::CodexParser,
+    ConversationParser, ParseContext, ParseError, claude::ClaudeParser, cline::ClineParser,
+    codex::CodexParser, gemini::GeminiParser, openclaw::OpenClawParser,
 };
 use crate::{
     conversation::ConversationDetail, history::default_history_sources, registry::AgentKind,
@@ -28,8 +29,12 @@ pub fn parser_for(agent_type: AgentKind) -> Option<Box<dyn ConversationParser>> 
     match agent_type {
         AgentKind::ClaudeCode => Some(Box::new(ClaudeParser)),
         AgentKind::Codex => Some(Box::new(CodexParser)),
-        // Gemini / Cline / OpenClaw / OpenCode / Hermes parsers are not yet
-        // implemented; callers fall back to no transcript.
+        AgentKind::Gemini => Some(Box::new(GeminiParser)),
+        AgentKind::Cline => Some(Box::new(ClineParser)),
+        AgentKind::Openclaw => Some(Box::new(OpenClawParser)),
+        // OpenCode / Hermes store history in SQLite DBs (opencode.db / state.db),
+        // which don't fit the text `parse(&str)` interface — a DB reader path is
+        // needed for those and is out of scope here.
         _ => None,
     }
 }
@@ -163,7 +168,12 @@ mod tests {
     fn parser_dispatch_covers_implemented_agents() {
         assert!(parser_for(AgentKind::ClaudeCode).is_some());
         assert!(parser_for(AgentKind::Codex).is_some());
-        assert!(parser_for(AgentKind::Gemini).is_none());
+        assert!(parser_for(AgentKind::Gemini).is_some());
+        assert!(parser_for(AgentKind::Cline).is_some());
+        assert!(parser_for(AgentKind::Openclaw).is_some());
+        // OpenCode / Hermes use SQLite DBs, not the text parser interface.
+        assert!(parser_for(AgentKind::Opencode).is_none());
+        assert!(parser_for(AgentKind::Hermes).is_none());
     }
 
     #[test]

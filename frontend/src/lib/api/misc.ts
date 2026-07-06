@@ -262,6 +262,15 @@ export const desktopApi = {
   exitApp: async (): Promise<void> => {
     return tauriInvoke<void>('exit_app');
   },
+  // Application log viewer (P2-8).
+  getAppLogs: async (maxLines?: number): Promise<string[]> => {
+    return tauriInvoke<string[]>('get_app_logs', {
+      maxLines: maxLines ?? null,
+    });
+  },
+  getLogsDir: async (): Promise<string> => {
+    return tauriInvoke<string>('get_logs_dir');
+  },
 };
 
 // File System APIs

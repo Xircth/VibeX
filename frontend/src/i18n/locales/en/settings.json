@@ -12,7 +12,16 @@
     "chatChannels": "Chat channels",
     "automations": "Automations",
     "webService": "Web service",
+    "logs": "Logs",
     "system": "System"
+  },
+  "logs": {
+    "title": "Application logs",
+    "description": "View the latest slice of the application's runtime log for troubleshooting.",
+    "refresh": "Refresh",
+    "openFolder": "Open folder",
+    "lines": "{{count}} lines",
+    "empty": "No logs yet."
   },
   "appearance": {
     "title": "Appearance",

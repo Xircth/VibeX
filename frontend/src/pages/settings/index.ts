@@ -6,6 +6,7 @@ export { ChatChannelSettings } from './ChatChannelSettings';
 export { EditorSettings } from './EditorSettings';
 export { GeneralSettings } from './GeneralSettings';
 export { InstructionsSettings } from './InstructionsSettings';
+export { LogsSettings } from './LogsSettings';
 export { McpSettings } from './McpSettings';
 export { ModelProviderSettings } from './ModelProviderSettings';
 export { SkillsSettings } from './SkillsSettings';

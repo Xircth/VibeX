@@ -15,6 +15,7 @@ import { SearchProvider } from '@/contexts/SearchContext';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
+import { TrayBadgeSync } from '@/components/layout/TrayBadgeSync';
 import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
 import { ProjectRail } from '@/components/layout/ProjectRail';
 
@@ -420,6 +421,7 @@ function MainAppContent() {
       <SearchProvider>
         <AgentWorkbenchProvider>
           <ProjectWindowManager />
+          <TrayBadgeSync />
           <MainWindowCloseToastBridge />
           <ThemedToaster />
           <MainAppRoutes />

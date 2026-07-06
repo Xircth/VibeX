@@ -6,6 +6,8 @@ pub mod conversation_bundle;
 pub mod conversation_service;
 mod delegation;
 mod error;
+mod logging;
+mod tray;
 mod events;
 mod preview_proxy;
 mod state;
@@ -55,6 +57,10 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 pub fn run() {
+    // Install the file+stderr tracing subscriber first so startup is logged. The
+    // guard flushes the non-blocking writer on drop; run() blocks until app exit,
+    // so a local binding keeps it alive for the whole process (P2-8).
+    let _log_guard = logging::init_logging();
     install_rustls_crypto_provider();
 
     tauri::Builder::default()
@@ -160,7 +166,17 @@ pub fn run() {
                 });
             }
 
+            // System tray (P2-5). Best-effort: on Linux the tray may be absent
+            // (no StatusNotifierWatcher) even on success, so log and continue.
+            if let Err(error) = tray::install_tray_icon(app.handle()) {
+                tracing::warn!("Failed to install tray icon: {}", error);
+            }
+
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            // Tray menu clicks (Show / Hide / Quit) share this dispatcher (P2-5).
+            tray::handle_menu_event(app, event.id().as_ref());
         })
         .invoke_handler(tauri::generate_handler![
             health_check,
@@ -308,6 +324,11 @@ pub fn run() {
             commands::filesystem::list_directory,
             commands::filesystem::list_git_repos,
             commands::filesystem::reveal_in_file_manager,
+            // Log viewer commands (P2-8)
+            commands::logs::get_app_logs,
+            commands::logs::get_logs_dir,
+            // Tray badge (P2-5)
+            tray::update_tray_badge,
             // Repo commands
             commands::repos::get_repos,
             commands::repos::register_repo,

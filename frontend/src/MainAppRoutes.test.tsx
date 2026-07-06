@@ -72,6 +72,8 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-general' }),
     InstructionsSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-instructions' }),
+    LogsSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-logs' }),
     McpSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-mcp' }),
     ModelProviderSettings: () =>

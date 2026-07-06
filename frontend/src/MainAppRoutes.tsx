@@ -16,6 +16,7 @@ import {
   EditorSettings,
   GeneralSettings,
   InstructionsSettings,
+  LogsSettings,
   McpSettings,
   ModelProviderSettings,
   SettingsLayout,
@@ -96,6 +97,7 @@ export function MainAppRoutes() {
         <Route path="chat-channels" element={<ChatChannelSettings />} />
         <Route path="automations" element={<AutomationsSettings />} />
         <Route path="web-service" element={<WebServiceSettings />} />
+        <Route path="logs" element={<LogsSettings />} />
         <Route path="system" element={<SystemSettings />} />
       </Route>
 

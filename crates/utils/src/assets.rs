@@ -28,6 +28,15 @@ pub fn config_path() -> std::path::PathBuf {
     asset_dir().join("config.json")
 }
 
+/// Directory for rotating application log files (P2-8). Created on first use.
+pub fn logs_dir() -> std::path::PathBuf {
+    let path = asset_dir().join("logs");
+    if !path.exists() {
+        let _ = std::fs::create_dir_all(&path);
+    }
+    path
+}
+
 pub fn profiles_path() -> std::path::PathBuf {
     asset_dir().join("profiles.json")
 }

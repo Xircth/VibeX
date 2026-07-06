@@ -30,6 +30,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", 
 thiserror = "2.0.12"
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-appender = "0.2"
 ts-rs = { git = "https://github.com/xazukx/ts-rs.git", branch = "use-ts-enum", features = ["uuid-impl", "chrono-impl", "no-serde-warnings", "serde-json-impl"] }
 schemars = { version = "1.0.4", features = ["derive", "chrono04", "uuid1", "preserve_order"] }
 serde_with = "3"

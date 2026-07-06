@@ -12,7 +12,16 @@
     "chatChannels": "消息渠道",
     "automations": "自动化",
     "webService": "Web 服务",
+    "logs": "日志",
     "system": "系统"
+  },
+  "logs": {
+    "title": "应用日志",
+    "description": "查看应用运行日志的最新片段，便于排查问题。",
+    "refresh": "刷新",
+    "openFolder": "打开文件夹",
+    "lines": "{{count}} 行",
+    "empty": "暂无日志。"
   },
   "appearance": {
     "title": "外观",

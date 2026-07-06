@@ -12,7 +12,7 @@ cc = "1"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools", "image-png"] }
+tauri = { version = "2", features = ["devtools", "image-png", "tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
@@ -27,6 +27,8 @@ reqwest = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
 uuid = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
 rustls = { workspace = true }
 base64 = "0.22"
 futures = { workspace = true }

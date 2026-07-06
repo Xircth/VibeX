@@ -5,6 +5,7 @@ import {
   Bot,
   BookOpenText,
   Clock,
+  FileText,
   GitBranch,
   Globe,
   Keyboard,
@@ -40,6 +41,7 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { path: '/settings/chat-channels', labelKey: 'chatChannels', icon: SendHorizontal },
   { path: '/settings/automations', labelKey: 'automations', icon: Clock },
   { path: '/settings/web-service', labelKey: 'webService', icon: Globe },
+  { path: '/settings/logs', labelKey: 'logs', icon: FileText },
   { path: '/settings/system', labelKey: 'system', icon: Settings },
 ];
 

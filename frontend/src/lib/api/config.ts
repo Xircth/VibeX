@@ -281,6 +281,8 @@ export interface BackupPreviewEntry {
   path: string;
   size_bytes: number;
   modified_at: string | null;
+  /** Whether a live file already exists at this entry's restore target (P3-4). */
+  already_exists: boolean;
 }
 
 export interface BackupPreview {

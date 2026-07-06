@@ -53,6 +53,9 @@ pub struct BackupPreviewEntry {
     pub path: String,
     pub size_bytes: u64,
     pub modified_at: Option<String>,
+    /// Whether a live file already exists at this entry's restore target — used
+    /// to warn which files a restore would overwrite (meaningful on inspect/restore).
+    pub already_exists: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +261,9 @@ fn preview_from_backup(backup: &PortableBackup) -> BackupPreview {
                 path: entry.path.clone(),
                 size_bytes: entry.size_bytes,
                 modified_at: entry.modified_at.clone(),
+                already_exists: resolve_restore_target(&entry.path)
+                    .map(|target| target.exists())
+                    .unwrap_or(false),
             })
             .collect(),
     }
@@ -460,6 +466,26 @@ pub async fn backup_inspect(options: BackupInspectOptions) -> Result<BackupPrevi
     Ok(preview_from_backup(&backup))
 }
 
+/// Tracks staged restore temp files so an early return in phase 1 (or a failure
+/// partway through the phase-2 commit) removes any temps not yet renamed into place.
+#[derive(Default)]
+struct StagedRestore {
+    temps: Vec<PathBuf>,
+    pairs: Vec<(PathBuf, PathBuf)>,
+    committed: bool,
+}
+
+impl Drop for StagedRestore {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        for temp in &self.temps {
+            let _ = fs::remove_file(temp);
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn backup_restore_stage(
     app: AppHandle,
@@ -482,43 +508,75 @@ pub async fn backup_restore_stage(
     let preview = preview_from_backup(&backup);
     let total = backup.entries.len();
 
+    // Two-phase restore so a mid-restore failure never leaves live files in a
+    // mixed old/new state. Phase 1 (stage): validate paths, decode payloads, and
+    // write each to a temp file IN THE TARGET'S PARENT (same filesystem, so the
+    // later rename is atomic). Any error here aborts before a single live file is
+    // touched; the RAII guard removes staged temps on early return. Phase 2
+    // (commit): rename every staged temp over its target.
+    let mut staged = StagedRestore::default();
     for (index, entry) in backup.entries.iter().enumerate() {
         let target = resolve_restore_target(&entry.path)?;
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                AppError::Internal(format!(
-                    "Failed to create restore directory {}: {error}",
-                    parent.display()
-                ))
-            })?;
-        }
+        let parent = target.parent().ok_or_else(|| {
+            AppError::BadRequest(format!("Invalid restore target for {}", entry.path))
+        })?;
+        fs::create_dir_all(parent).map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to create restore directory {}: {error}",
+                parent.display()
+            ))
+        })?;
 
         let bytes = general_purpose::STANDARD
             .decode(&entry.bytes_base64)
             .map_err(|error| {
-                AppError::BadRequest(format!(
-                    "Invalid backup payload for {}: {error}",
-                    entry.path
-                ))
+                AppError::BadRequest(format!("Invalid backup payload for {}: {error}", entry.path))
             })?;
 
-        fs::write(&target, bytes).map_err(|error| {
+        let file_name = target
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| format!("entry{index}"));
+        let temp = parent.join(format!(".{file_name}.vibex-restore.{index}.tmp"));
+        fs::write(&temp, bytes).map_err(|error| {
             AppError::Internal(format!(
-                "Failed to restore {} to {}: {error}",
+                "Failed to stage restore for {} at {}: {error}",
                 entry.path,
-                target.display()
+                temp.display()
             ))
         })?;
+        staged.temps.push(temp.clone());
+        staged.pairs.push((temp, target));
 
         emit_progress(
             &app,
             "restore",
-            "write",
+            "stage",
             index + 1,
             total,
-            format!("Restored {}", entry.path),
+            format!("Staged {}", entry.path),
         );
     }
+
+    // Phase 2 (commit): atomic renames. fs::rename replaces an existing dest
+    // atomically on both Unix and Windows.
+    for (index, (temp, target)) in staged.pairs.iter().enumerate() {
+        fs::rename(temp, target).map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to commit restore to {}: {error}",
+                target.display()
+            ))
+        })?;
+        emit_progress(
+            &app,
+            "restore",
+            "commit",
+            index + 1,
+            total,
+            format!("Restored {}", backup.entries[index].path),
+        );
+    }
+    staged.committed = true;
 
     emit_progress(
         &app,

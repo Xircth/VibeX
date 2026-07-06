@@ -148,6 +148,9 @@ export function SystemSettings() {
   const [restorePath, setRestorePath] = useState('');
   const [backupPassphrase, setBackupPassphrase] = useState('');
   const [restorePassphrase, setRestorePassphrase] = useState('');
+  // The preview's already_exists flag is only meaningful for an inspect/restore
+  // preview (on a create preview every entry trivially exists), so track the source.
+  const [previewIsRestore, setPreviewIsRestore] = useState(false);
   const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(
     null
   );
@@ -299,6 +302,7 @@ export function SystemSettings() {
       });
       setBackupPreview(preview);
       setBackupPreviewPath(path);
+      setPreviewIsRestore(false);
       toast.success('备份已导出', { id: toastId });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '备份导出失败', {
@@ -324,6 +328,7 @@ export function SystemSettings() {
       });
       setBackupPreview(preview);
       setBackupPreviewPath(path);
+      setPreviewIsRestore(true);
       toast.success('备份预览已读取');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '备份预览失败');
@@ -349,6 +354,7 @@ export function SystemSettings() {
       });
       setBackupPreview(result.preview);
       setBackupPreviewPath(path);
+      setPreviewIsRestore(true);
       toast.success(
         result.requires_reload ? '备份已恢复，建议重启应用' : '备份已恢复',
         { id: toastId }
@@ -831,7 +837,12 @@ export function SystemSettings() {
                       className="flex items-center justify-between gap-3 px-2 py-1.5 text-[11px]"
                     >
                       <span className="min-w-0 truncate">{entry.path}</span>
-                      <span className="shrink-0 text-muted-foreground">
+                      <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                        {previewIsRestore && entry.already_exists ? (
+                          <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] text-amber-600 dark:text-amber-300">
+                            将覆盖
+                          </span>
+                        ) : null}
                         {formatBytes(entry.size_bytes)}
                       </span>
                     </div>

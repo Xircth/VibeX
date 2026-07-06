@@ -86,7 +86,8 @@ pub use metadata::{
 };
 pub use permissions::{
     AgentAutoApproveMode, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
-    AgentPermissionResponse, decide_auto_permission_response,
+    AgentPermissionResponse, RemotePermissionIntent, decide_auto_permission_response,
+    decide_remote_permission_response,
 };
 pub use preflight::{
     AgentPreflightCheckItem, AgentPreflightCheckStatus, AgentPreflightFixAction,

@@ -73,6 +73,56 @@ pub enum AgentPermissionResponse {
     Cancelled,
 }
 
+/// A human's explicit approval intent, expressed out-of-band (e.g. an IM
+/// `/approve` / `/deny` command) rather than through the desktop permission UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemotePermissionIntent {
+    ApproveOnce,
+    ApproveAlways,
+    Deny,
+}
+
+/// Map an explicit remote approval intent onto one of a request's agent-supplied
+/// options.
+///
+/// - Approve resolves to the most specific matching allow option, falling back
+///   to any allow option; if the request exposes no allow option it is not
+///   actionable (`None`) so the caller can report it rather than mis-reject.
+/// - Deny resolves to a reject option when one exists, otherwise cancels the
+///   request outright — deny must never fall through to an allow.
+pub fn decide_remote_permission_response(
+    intent: RemotePermissionIntent,
+    options: &[AgentPermissionOption],
+) -> Option<AgentPermissionResponse> {
+    let select = |option: &AgentPermissionOption| AgentPermissionResponse::Selected {
+        option_id: option.id.clone(),
+    };
+    match intent {
+        RemotePermissionIntent::ApproveOnce => options
+            .iter()
+            .find(|option| option.kind == AgentPermissionOptionKind::AllowOnce)
+            .or_else(|| options.iter().find(|option| option.kind.is_allow()))
+            .map(select),
+        RemotePermissionIntent::ApproveAlways => options
+            .iter()
+            .find(|option| option.kind == AgentPermissionOptionKind::AllowAlways)
+            .or_else(|| options.iter().find(|option| option.kind.is_allow()))
+            .map(select),
+        RemotePermissionIntent::Deny => Some(
+            options
+                .iter()
+                .find(|option| option.kind == AgentPermissionOptionKind::RejectOnce)
+                .or_else(|| {
+                    options
+                        .iter()
+                        .find(|option| option.kind == AgentPermissionOptionKind::RejectAlways)
+                })
+                .map(select)
+                .unwrap_or(AgentPermissionResponse::Cancelled),
+        ),
+    }
+}
+
 pub fn decide_auto_permission_response(
     mode: AgentAutoApproveMode,
     request: &AgentPermissionRequest,
@@ -171,6 +221,88 @@ mod tests {
 
         assert_eq!(
             decide_auto_permission_response(AgentAutoApproveMode::Yolo, &request),
+            None
+        );
+    }
+
+    // ── Remote (IM) approval intent → option selection (P0-1) ──
+
+    #[test]
+    fn remote_approve_once_prefers_allow_once() {
+        let request = request_with_options(vec![
+            option("reject", AgentPermissionOptionKind::RejectOnce),
+            option("allow-once", AgentPermissionOptionKind::AllowOnce),
+            option("allow-always", AgentPermissionOptionKind::AllowAlways),
+        ]);
+        assert_eq!(
+            decide_remote_permission_response(RemotePermissionIntent::ApproveOnce, &request.options),
+            Some(AgentPermissionResponse::Selected {
+                option_id: "allow-once".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn remote_approve_always_prefers_persistent_allow() {
+        let request = request_with_options(vec![
+            option("allow-once", AgentPermissionOptionKind::AllowOnce),
+            option("allow-always", AgentPermissionOptionKind::AllowAlways),
+        ]);
+        assert_eq!(
+            decide_remote_permission_response(RemotePermissionIntent::ApproveAlways, &request.options),
+            Some(AgentPermissionResponse::Selected {
+                option_id: "allow-always".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn remote_approve_once_falls_back_to_any_allow() {
+        let request =
+            request_with_options(vec![option("only-always", AgentPermissionOptionKind::AllowAlways)]);
+        assert_eq!(
+            decide_remote_permission_response(RemotePermissionIntent::ApproveOnce, &request.options),
+            Some(AgentPermissionResponse::Selected {
+                option_id: "only-always".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn remote_deny_prefers_reject_once() {
+        let request = request_with_options(vec![
+            option("allow", AgentPermissionOptionKind::AllowOnce),
+            option("reject-once", AgentPermissionOptionKind::RejectOnce),
+            option("reject-always", AgentPermissionOptionKind::RejectAlways),
+        ]);
+        assert_eq!(
+            decide_remote_permission_response(RemotePermissionIntent::Deny, &request.options),
+            Some(AgentPermissionResponse::Selected {
+                option_id: "reject-once".to_string()
+            })
+        );
+    }
+
+    // Denying a request that exposes no reject option still stops the tool by
+    // cancelling the permission — deny must never fall through to an allow.
+    #[test]
+    fn remote_deny_without_reject_option_cancels() {
+        let request =
+            request_with_options(vec![option("allow", AgentPermissionOptionKind::AllowOnce)]);
+        assert_eq!(
+            decide_remote_permission_response(RemotePermissionIntent::Deny, &request.options),
+            Some(AgentPermissionResponse::Cancelled)
+        );
+    }
+
+    // Approving a request that exposes no allow option is not actionable —
+    // return None so the caller reports it rather than silently rejecting.
+    #[test]
+    fn remote_approve_without_allow_option_is_unactionable() {
+        let request =
+            request_with_options(vec![option("reject", AgentPermissionOptionKind::RejectOnce)]);
+        assert_eq!(
+            decide_remote_permission_response(RemotePermissionIntent::ApproveOnce, &request.options),
             None
         );
     }

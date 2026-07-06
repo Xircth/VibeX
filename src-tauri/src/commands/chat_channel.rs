@@ -19,10 +19,12 @@ use std::{
 };
 
 use agents::{
-    AgentEventEnvelope, AgentKind,
+    AgentEventEnvelope, AgentKind, AgentPermissionOption, RemotePermissionIntent,
     conversation::{ConversationEvent, ConversationEventEnvelope},
+    decide_remote_permission_response,
 };
 use chrono::Utc;
+use db::models::conversation_side_effects::ConversationPermissionRecord;
 use db::models::session::SessionStatus;
 use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
@@ -668,9 +670,11 @@ fn build_conversation_rich(
             RichMessage::info(body).with_title("🚀 任务开始")
         }
         ConversationEvent::PermissionRequested { request } => {
-            RichMessage::info("智能体正在等待你的授权。请回到 VibeX 桌面端处理。")
-                .with_title("🔐 权限请求")
-                .with_field("权限", request.request.title.clone())
+            RichMessage::info(
+                "智能体正在等待你的授权。回复 approve（或 approve always）批准、deny 拒绝，也可在桌面端处理。",
+            )
+            .with_title("🔐 权限请求")
+            .with_field("权限", request.request.title.clone())
         }
         ConversationEvent::TurnCompleted { .. } => {
             RichMessage::info("智能体已完成本次任务。").with_title("✅ 任务完成")
@@ -1444,6 +1448,26 @@ async fn dispatch_command(
         "sessions" | "conversations" | "ls" => list_conversations(app, prefix).await,
         "use" => select_conversation(app, channel_id, sender_id, args, prefix).await,
         "task" | "do" | "ask" => send_task(app, channel_id, sender_id, args, prefix).await,
+        "approve" | "allow" => {
+            let intent = if args.trim().eq_ignore_ascii_case("always") {
+                RemotePermissionIntent::ApproveAlways
+            } else {
+                RemotePermissionIntent::ApproveOnce
+            };
+            respond_permission_command(app, channel_id, sender_id, intent, prefix).await
+        }
+        "deny" | "reject" => {
+            respond_permission_command(
+                app,
+                channel_id,
+                sender_id,
+                RemotePermissionIntent::Deny,
+                prefix,
+            )
+            .await
+        }
+        "cancel" | "stop" => cancel_command(app, channel_id, sender_id, prefix).await,
+        "resume" => resume_command(app, channel_id, sender_id, args, prefix).await,
         "echo" => {
             if args.is_empty() {
                 format!("用法：{prefix} echo <文本>")
@@ -1457,7 +1481,7 @@ async fn dispatch_command(
 
 fn help_text(prefix: &str) -> String {
     format!(
-        "🤖 VibeX 机器人命令：\n{prefix} help — 显示帮助\n{prefix} ping — 检测在线\n{prefix} status — 运行状态\n{prefix} conversations — 列出最近对话\n{prefix} use <序号> — 选择对话\n{prefix} task <内容> — 给所选对话发任务/追问\n{prefix} echo <文本> — 回显"
+        "🤖 VibeX 机器人命令：\n{prefix} help — 显示帮助\n{prefix} ping — 检测在线\n{prefix} status — 运行状态\n{prefix} conversations — 列出最近对话\n{prefix} use <序号> — 选择对话\n{prefix} task <内容> — 给所选对话发任务/追问\n{prefix} approve [always] — 批准待处理的权限请求\n{prefix} deny — 拒绝待处理的权限请求\n{prefix} cancel — 取消当前回合\n{prefix} resume <序号> — 切换到对话（下次发送将自动恢复会话）\n{prefix} echo <文本> — 回显"
     )
 }
 
@@ -1718,6 +1742,142 @@ async fn send_task(
         Ok(_) => format!("✅ 已发送到对话 {}", short_id(&target.id.to_string())),
         Err(error) => format!("❌ 发送失败：{error}"),
     }
+}
+
+/// Respond to the sender's bound conversation's earliest pending permission
+/// request (P0-1). The option is chosen from the agent-supplied options by
+/// `decide_remote_permission_response`, keeping the desktop and IM paths in sync.
+async fn respond_permission_command(
+    app: &AppHandle,
+    channel_id: &str,
+    sender_id: &str,
+    intent: RemotePermissionIntent,
+    prefix: &str,
+) -> String {
+    let target = match resolve_target(app, channel_id, sender_id, prefix).await {
+        Ok(target) => target,
+        Err(message) => return message,
+    };
+    let state = app.state::<AppState>();
+    let pool = state.deployment.db().pool.clone();
+    let permissions =
+        match ConversationPermissionRecord::list_for_conversation(&pool, target.id).await {
+            Ok(list) => list,
+            Err(error) => return format!("❌ 无法读取权限请求：{error}"),
+        };
+    let Some(pending) = permissions
+        .into_iter()
+        .find(|record| record.status == "pending")
+    else {
+        return "当前没有待处理的权限请求。".to_string();
+    };
+    let options: Vec<AgentPermissionOption> =
+        serde_json::from_str(&pending.options_json).unwrap_or_default();
+    let Some(response) = decide_remote_permission_response(intent, &options) else {
+        return "该权限请求没有可用的批准选项，请回到桌面端处理。".to_string();
+    };
+
+    let previous_last_sequence = match conversation_last_sequence(&pool, target.id).await {
+        Ok(sequence) => sequence,
+        Err(error) => return format!("❌ 操作失败：{error}"),
+    };
+    let result = ConversationSessionService::new(state.conversation_context())
+        .respond_permission(target.id, pending.permission_id.clone(), response)
+        .await;
+    emit_conversation_events_after(
+        app,
+        &state.conversation_row_projectors,
+        &pool,
+        target.id,
+        previous_last_sequence,
+    )
+    .await;
+
+    match result {
+        Ok(_) => match intent {
+            RemotePermissionIntent::Deny => "🚫 已拒绝该权限请求。".to_string(),
+            _ => "✅ 已批准该权限请求。".to_string(),
+        },
+        Err(error) => format!("❌ 操作失败：{error}"),
+    }
+}
+
+/// Cancel the in-flight turn of the sender's bound conversation (P0-1).
+async fn cancel_command(
+    app: &AppHandle,
+    channel_id: &str,
+    sender_id: &str,
+    prefix: &str,
+) -> String {
+    let target = match resolve_target(app, channel_id, sender_id, prefix).await {
+        Ok(target) => target,
+        Err(message) => return message,
+    };
+    let state = app.state::<AppState>();
+    let pool = state.deployment.db().pool.clone();
+    let previous_last_sequence = match conversation_last_sequence(&pool, target.id).await {
+        Ok(sequence) => sequence,
+        Err(error) => return format!("❌ 操作失败：{error}"),
+    };
+    let result = ConversationSessionService::new(state.conversation_context())
+        .cancel_turn(target.id, Some("用户通过 IM 取消".to_string()))
+        .await;
+    emit_conversation_events_after(
+        app,
+        &state.conversation_row_projectors,
+        &pool,
+        target.id,
+        previous_last_sequence,
+    )
+    .await;
+
+    match result {
+        Ok(_) => "🛑 已请求取消当前回合。".to_string(),
+        Err(error) => format!("❌ 取消失败：{error}"),
+    }
+}
+
+/// Bind the sender to a conversation by index and report its status (P0-1).
+/// VibeX resumes lazily, so the next `task` reconnects the agent session.
+async fn resume_command(
+    app: &AppHandle,
+    channel_id: &str,
+    sender_id: &str,
+    args: &str,
+    prefix: &str,
+) -> String {
+    let index: usize = match args.trim().parse() {
+        Ok(value) if value >= 1 => value,
+        _ => return format!("用法：{prefix} resume <序号>（先用 {prefix} conversations 查看）"),
+    };
+    let state = app.state::<AppState>();
+    let conversations = match recent_conversations(&state, 10).await {
+        Ok(conversations) => conversations,
+        Err(error) => return format!("❌ 无法读取对话：{error}"),
+    };
+    let Some(conversation) = conversations.get(index - 1) else {
+        return format!("序号超出范围，当前有 {} 个对话。", conversations.len());
+    };
+    session_bridge()
+        .lock()
+        .map(|mut bridge| {
+            bridge.insert(
+                (channel_id.to_string(), sender_id.to_string()),
+                conversation.id.to_string(),
+            );
+        })
+        .ok();
+    let title = conversation
+        .title
+        .as_deref()
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("未命名对话");
+    format!(
+        "🔄 已切换到对话 {}（{}，状态：{:?}）。发送 {prefix} task <内容> 将自动恢复会话。",
+        short_id(&conversation.id.to_string()),
+        title,
+        conversation.status
+    )
 }
 
 #[cfg(test)]

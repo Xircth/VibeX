@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import {
   chatChannelApi,
   type ChatChannel,
@@ -92,6 +93,31 @@ function cfgStr(config: Record<string, unknown> | undefined, key: string): strin
   return typeof value === 'string' ? value : '';
 }
 
+/** Read an `authorized_senders` array back into a newline-joined edit string. */
+function cfgSendersText(config: Record<string, unknown> | undefined): string {
+  const value = config?.authorized_senders;
+  if (!Array.isArray(value)) return '';
+  return value
+    .map((item) => (typeof item === 'number' ? String(item) : String(item ?? '')))
+    .filter((item) => item.trim().length > 0)
+    .join('\n');
+}
+
+/** Parse the allowlist edit box (comma/whitespace/newline separated) into ids. */
+function parseSenders(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .split(/[\s,]+/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    )
+  );
+}
+
+/** Channel kinds that accept inbound commands and therefore gate on an allowlist. */
+const INBOUND_KINDS = new Set(['telegram', 'feishu', 'qq']);
+
 function channelSummary(channel: ChatChannel): string {
   const c = channel.config ?? {};
   switch (channel.kind) {
@@ -122,6 +148,7 @@ interface ChannelDraft {
   message_type: string;
   target_id: string;
   webhook_url: string;
+  authorized_senders: string;
 }
 
 function emptyDraft(): ChannelDraft {
@@ -137,6 +164,7 @@ function emptyDraft(): ChannelDraft {
     message_type: 'group',
     target_id: '',
     webhook_url: '',
+    authorized_senders: '',
   };
 }
 
@@ -154,15 +182,21 @@ function draftFromChannel(channel: ChatChannel): ChannelDraft {
     message_type: cfgStr(c, 'message_type') || 'group',
     target_id: cfgStr(c, 'target_id'),
     webhook_url: cfgStr(c, 'webhook_url'),
+    authorized_senders: cfgSendersText(c),
   };
 }
 
 function buildConfig(draft: ChannelDraft): Record<string, unknown> {
+  const senders = parseSenders(draft.authorized_senders);
   switch (draft.kind) {
     case 'telegram':
-      return { chat_id: draft.chat_id.trim() };
+      return { chat_id: draft.chat_id.trim(), authorized_senders: senders };
     case 'feishu':
-      return { app_id: draft.app_id.trim(), chat_id: draft.chat_id.trim() };
+      return {
+        app_id: draft.app_id.trim(),
+        chat_id: draft.chat_id.trim(),
+        authorized_senders: senders,
+      };
     case 'weixin':
       return {};
     case 'qq':
@@ -171,6 +205,7 @@ function buildConfig(draft: ChannelDraft): Record<string, unknown> {
         ws_url: draft.ws_url.trim(),
         message_type: draft.message_type,
         target_id: draft.target_id.trim(),
+        authorized_senders: senders,
       };
     default:
       return { webhook_url: draft.webhook_url.trim() };
@@ -777,6 +812,29 @@ export function ChatChannelSettings() {
                 }
                 placeholder="https://example.com/webhook"
               />
+            </div>
+          ) : null}
+
+          {/* Inbound allowlist (P0-0): only senders/chats listed here — plus the
+              bound destination above — may drive agents remotely. */}
+          {INBOUND_KINDS.has(draft.kind) ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="channel-allowlist" className="text-xs">
+                授权发送者
+                <span className="ml-1 text-muted-foreground">（安全）</span>
+              </Label>
+              <Textarea
+                id="channel-allowlist"
+                value={draft.authorized_senders}
+                onChange={(event) =>
+                  updateDraft({ authorized_senders: event.target.value })
+                }
+                placeholder="每行一个用户 ID（留空则仅信任上方绑定的会话/群，其余一律拒绝）"
+                rows={2}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                入站命令仅对绑定的会话/群或此列表内的发送者生效；其余消息静默丢弃。
+              </p>
             </div>
           ) : null}
 

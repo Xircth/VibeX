@@ -1,4 +1,5 @@
 pub mod approvals;
+pub mod automation;
 pub mod chat_delivery;
 pub mod config;
 pub mod container;

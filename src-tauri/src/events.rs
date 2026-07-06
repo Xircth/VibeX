@@ -847,9 +847,6 @@ fn map_agent_event_to_conversation_event(
         } => Some(ConversationEvent::TurnCompleted {
             stop_reason: stop_reason.clone(),
         }),
-        AgentEvent::ForkSupported => {
-            Some(ConversationEvent::ForkSupportUpdated { supported: true })
-        }
         AgentEvent::SessionConfigStale { reason } => Some(ConversationEvent::SessionConfigStale {
             stale: true,
             reason: reason.clone(),

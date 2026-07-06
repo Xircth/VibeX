@@ -120,8 +120,8 @@ export function RetryEditorInline({
           type="button"
           onClick={onSend}
           disabled={!canSend || isSending}
-          title="快照重试"
-          aria-label="快照重试"
+          title="回到此处重试"
+          aria-label="回到此处重试"
           className="h-9 min-w-20 gap-1.5"
         >
           <Send className="h-3.5 w-3.5" />

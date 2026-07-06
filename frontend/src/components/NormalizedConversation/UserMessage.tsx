@@ -406,10 +406,10 @@ const UserMessage = ({
     };
   }, [displayText]);
 
-  const canFork = !!(
+  const canResetToHere = !!(
     taskAttempt?.session?.executor &&
     capabilities?.[taskAttempt.session.executor]?.includes(
-      AgentCapability.SESSION_FORK
+      AgentCapability.RESET_TO_HERE
     )
   );
 
@@ -433,7 +433,7 @@ const UserMessage = ({
     isProcessGreyed(executionProcessId) &&
     !showRetryEditor;
 
-  const canRetry = !!executionProcessId && canFork && !isAttemptRunning;
+  const canRetry = !!executionProcessId && canResetToHere && !isAttemptRunning;
   const showActionRail = displayContent.trim().length > 0 || canRetry;
   const hasTextBubble = displayText.trim().length > 0;
 

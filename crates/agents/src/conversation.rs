@@ -627,9 +627,6 @@ pub enum ConversationEvent {
     PromptCapabilitiesUpdated {
         capabilities: AgentPromptCapabilities,
     },
-    ForkSupportUpdated {
-        supported: bool,
-    },
     AvailableCommandsUpdated {
         commands: Vec<AgentAvailableCommand>,
     },
@@ -954,7 +951,6 @@ mod event_sourced_tests {
                     resource: false,
                 },
             },
-            ConversationEvent::ForkSupportUpdated { supported: true },
             ConversationEvent::AgentBindingLoadFailed {
                 reason: SessionLoadFailureReason::ResourceNotFound,
             },

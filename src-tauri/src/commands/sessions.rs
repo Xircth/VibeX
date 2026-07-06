@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use agents::{AgentCapability, agent_capabilities, AgentKind};
 use db::models::{
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
@@ -41,25 +40,13 @@ pub struct SessionSummary {
 pub enum SessionContinuityMode {
     NewSession,
     ResumeInPlace,
-    ForkSnapshot,
 }
 
-fn derive_session_continuity_mode(
-    executor: Option<&str>,
-    has_resume_context: bool,
-) -> SessionContinuityMode {
-    if !has_resume_context {
-        return SessionContinuityMode::NewSession;
-    }
-
-    if executor
-        .and_then(AgentKind::from_lenient)
-        .map(|agent_type| agent_capabilities(agent_type).contains(&AgentCapability::SessionFork))
-        .unwrap_or(false)
-    {
-        SessionContinuityMode::ForkSnapshot
-    } else {
+fn derive_session_continuity_mode(has_resume_context: bool) -> SessionContinuityMode {
+    if has_resume_context {
         SessionContinuityMode::ResumeInPlace
+    } else {
+        SessionContinuityMode::NewSession
     }
 }
 
@@ -484,7 +471,7 @@ pub async fn get_session_summaries(
         let is_running =
             ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
                 .await?;
-        let continuity_mode = derive_session_continuity_mode(session.executor.as_deref(), false);
+        let continuity_mode = derive_session_continuity_mode(false);
 
         summaries.push(SessionSummary {
             id: session.id,

@@ -322,7 +322,7 @@ pub enum ConversationEvent {
     SessionConfigOptionsUpdated { options: Vec<AgentSessionConfigOption> },
     SessionConfigStale { stale: bool, reason: Option<String> },
     PromptCapabilitiesUpdated { capabilities: AgentPromptCapabilities },
-    ForkSupportUpdated { supported: bool },
+    // ⚠️ 2026-07-04 P0-2 已移除：ForkSupportUpdated（从未在生产发射；VibeX 无真 fork）。
     AvailableCommandsUpdated { commands: Vec<AgentAvailableCommand> },
     DelegationStarted { delegation: ConversationDelegation },
     DelegationCompleted { delegation_id: String, result: ConversationDelegationResult },
@@ -388,7 +388,6 @@ ConversationRuntimeState
   current_mode
   config_options
   prompt_capabilities
-  fork_supported
   available_commands
   usage
   event_sequence

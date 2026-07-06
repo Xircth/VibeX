@@ -8,7 +8,9 @@ use crate::AgentKind;
 #[ts(use_ts_enum)]
 #[ts(export)]
 pub enum AgentCapability {
-    SessionFork,
+    /// Reset-to-here: truncate the conversation at a chosen turn and resend.
+    /// Honestly universal — the backend truncate path has no capability gate.
+    ResetToHere,
     SetupHelper,
     ContextUsage,
 }
@@ -31,10 +33,10 @@ impl AgentAvailabilityInfo {
 pub fn agent_capabilities(agent_type: AgentKind) -> Vec<AgentCapability> {
     match agent_type {
         AgentKind::ClaudeCode | AgentKind::Opencode => {
-            vec![AgentCapability::SessionFork, AgentCapability::ContextUsage]
+            vec![AgentCapability::ResetToHere, AgentCapability::ContextUsage]
         }
         AgentKind::Codex => vec![
-            AgentCapability::SessionFork,
+            AgentCapability::ResetToHere,
             AgentCapability::SetupHelper,
             AgentCapability::ContextUsage,
         ],
@@ -43,7 +45,7 @@ pub fn agent_capabilities(agent_type: AgentKind) -> Vec<AgentCapability> {
         | AgentKind::Cline
         | AgentKind::Hermes
         | AgentKind::QaMock => {
-            vec![AgentCapability::ContextUsage]
+            vec![AgentCapability::ResetToHere, AgentCapability::ContextUsage]
         }
     }
 }
@@ -158,4 +160,31 @@ fn modified_timestamp(path: Option<std::path::PathBuf>) -> Option<i64> {
         .and_then(|metadata| metadata.modified().ok())
         .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Reset-to-here (truncate + resend) has no capability gate on its backend
+    // path and its shipped button is ungated, so the capability must be honest:
+    // advertised for every agent, never claiming a fork the app cannot perform.
+    #[test]
+    fn reset_to_here_is_advertised_for_every_agent() {
+        for kind in [
+            AgentKind::ClaudeCode,
+            AgentKind::Codex,
+            AgentKind::Opencode,
+            AgentKind::Gemini,
+            AgentKind::Openclaw,
+            AgentKind::Cline,
+            AgentKind::Hermes,
+            AgentKind::QaMock,
+        ] {
+            assert!(
+                agent_capabilities(kind).contains(&AgentCapability::ResetToHere),
+                "{kind:?} should advertise ResetToHere"
+            );
+        }
+    }
 }

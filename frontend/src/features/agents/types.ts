@@ -286,7 +286,6 @@ export type AgentEvent =
   | { kind: 'available_commands'; commands: AgentAvailableCommand[] }
   | { kind: 'session_load_failed'; reason: string }
   | { kind: 'turn_completed'; stop_reason?: string | null }
-  | { kind: 'fork_supported' }
   | { kind: 'session_config_stale'; reason?: string | null }
   | { kind: 'permission_requested'; request: AgentPermissionRequest }
   | {

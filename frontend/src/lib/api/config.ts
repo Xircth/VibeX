@@ -87,10 +87,10 @@ export interface InstallSystemDependenciesResult {
   status: SystemMaintenanceStatus;
 }
 
-export type AgentCapability = 'SESSION_FORK' | 'SETUP_HELPER' | 'CONTEXT_USAGE';
+export type AgentCapability = 'RESET_TO_HERE' | 'SETUP_HELPER' | 'CONTEXT_USAGE';
 
 export const AgentCapability = {
-  SESSION_FORK: 'SESSION_FORK',
+  RESET_TO_HERE: 'RESET_TO_HERE',
   SETUP_HELPER: 'SETUP_HELPER',
   CONTEXT_USAGE: 'CONTEXT_USAGE',
 } as const satisfies Record<AgentCapability, AgentCapability>;

@@ -1,27 +1,20 @@
 import type { AgentKind, SessionContinuityMode } from 'shared/types';
 
 export function getExecutorContinuityMode(
-  executor?: AgentKind | string | null
+  _executor?: AgentKind | string | null
 ): SessionContinuityMode {
-  if (executor === 'codex' || executor === 'opencode') {
-    return 'fork_snapshot';
-  }
+  // Reset-to-here is a destructive truncate-and-resend on the same conversation
+  // — never a fork. Every executor resumes in place.
   return 'resume_in_place';
 }
 
 export function getContinuityActionCopy(mode: SessionContinuityMode) {
   switch (mode) {
-    case 'fork_snapshot':
-      return {
-        shortLabel: '快照分叉',
-        retryLabel: '快照重试',
-        retryDescription: '会从当前保留快照分叉出一条新会话继续执行。',
-      };
     case 'resume_in_place':
       return {
-        shortLabel: '原地续写',
-        retryLabel: '原地重试',
-        retryDescription: '会在当前会话上下文中回退后继续执行。',
+        shortLabel: '回到此处',
+        retryLabel: '回到此处重试',
+        retryDescription: '会回退到此处并删除其后的消息，然后重新执行。',
       };
     case 'new_session':
     default:

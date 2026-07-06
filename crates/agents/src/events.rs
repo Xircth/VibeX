@@ -233,7 +233,6 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stop_reason: Option<String>,
     },
-    ForkSupported,
     SessionConfigStale {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
@@ -361,7 +360,6 @@ mod tests {
             AgentEvent::TurnCompleted {
                 stop_reason: Some("end_turn".to_string()),
             },
-            AgentEvent::ForkSupported,
             AgentEvent::SessionConfigStale {
                 reason: Some("adapter changed".to_string()),
             },

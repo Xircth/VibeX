@@ -28,6 +28,7 @@
   "bundle": {
     "active": true,
     "useLocalToolsDir": true,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,6 +43,12 @@
     },
     "fs": {
       "requireLiteralLeadingDot": false
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/vibex/vibex/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCQjZGQkYxNERBNzMwODMKUldTRE1LZE44ZnUyeXdOZFNFWHBIZDJjZDZYN0xnRzVFcDhhSmlwNmJ1aFE1L2xCYUZ1UzExRnAK"
     }
   }
 }

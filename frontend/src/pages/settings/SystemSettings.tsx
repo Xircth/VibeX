@@ -39,6 +39,7 @@ import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 
 import { SettingsSection } from './SettingsUi';
+import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
 
 type SystemSettingsConfig = Config;
 
@@ -469,6 +470,7 @@ export function SystemSettings() {
   return (
     <div className="settings-content">
       <div className="space-y-7">
+        <AppUpdaterSection />
         <SettingsSection
           icon={PackageCheck}
           title="本地环境"

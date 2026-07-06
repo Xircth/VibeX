@@ -58,4 +58,6 @@ agents = { path = "../crates/agents" }
 delegation = { path = "../crates/delegation" }
 utils = { path = "../crates/utils" }
 deployment = { path = "../crates/deployment" }
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
 # Note: review crate is binary-only (no lib target), cannot be used as dependency

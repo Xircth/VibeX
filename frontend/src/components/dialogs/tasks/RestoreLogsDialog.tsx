@@ -22,6 +22,7 @@ import type {
   SessionContinuityMode,
 } from 'shared/types';
 import { getContinuityActionCopy } from '@/utils/sessionContinuity';
+import { useTranslation } from 'react-i18next';
 
 export interface RestoreLogsDialogProps {
   executionProcessId: string;
@@ -124,6 +125,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
     continuityMode = 'resume_in_place',
   }) => {
     const modal = useModal();
+    const { t } = useTranslation(['dialogs', 'common']);
     const [isLoading, setIsLoading] = useState(true);
     const [worktreeResetOn, setWorktreeResetOn] = useState(
       initialWorktreeResetOn
@@ -268,7 +270,9 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 mb-3 md:mb-4">
               <AlertTriangle className="h-4 w-4 text-destructive" />{' '}
-              {mode === 'reset' ? '确认重置' : '确认重试'}
+              {mode === 'reset'
+                ? t('restoreLogs.confirmReset')
+                : t('restoreLogs.confirmRetry')}
             </DialogTitle>
             <div className="mt-6 break-words text-sm text-muted-foreground">
               {isLoading ? (
@@ -287,30 +291,42 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                       <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
                       <div className="text-sm min-w-0 w-full break-words">
                         <p className="font-medium text-destructive mb-2">
-                          {'历史记录变更'}
+                          {t('restoreLogs.historyChange')}
                         </p>
                         <>
                           <p className="mt-0.5">
                             {mode === 'reset' ? (
-                              `将删除 ${deletedCount} 个进程`
+                              t('restoreLogs.willDeleteProcesses', {
+                                count: deletedCount,
+                              })
                             ) : (
                               <>
-                                {'将删除此进程'}
+                                {t('restoreLogs.willDeleteThisProcess')}
                                 {deletedCount > 0 && (
-                                  <> {`及后续 ${deletedCount} 个进程`}</>
+                                  <>
+                                    {' '}
+                                    {t('restoreLogs.andSubsequentProcesses', {
+                                      count: deletedCount,
+                                    })}
+                                  </>
                                 )}
                               </>
                             )}{' '}
-                            {'从历史记录中删除。'}
+                            {t('restoreLogs.deleteFromHistory')}
                           </p>
                           <ul className="mt-1 text-xs text-muted-foreground list-disc pl-5">
                             {deletedSetup + deletedCleanup > 0 && (
                               <li>
-                                {`${deletedSetup + deletedCleanup} 个脚本进程`}
+                                {t('restoreLogs.scriptProcesses', {
+                                  count: deletedSetup + deletedCleanup,
+                                })}
                                 {deletedSetup > 0 && deletedCleanup > 0 && (
                                   <>
                                     {' '}
-                                    {`(${deletedSetup} 个设置，${deletedCleanup} 个清理)`}
+                                    {t('restoreLogs.scriptBreakdown', {
+                                      setup: deletedSetup,
+                                      cleanup: deletedCleanup,
+                                    })}
                                   </>
                                 )}
                               </li>
@@ -318,7 +334,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           </ul>
                         </>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {'此操作将永久更改历史记录，无法撤消。'}
+                          {t('restoreLogs.permanentWarning')}
                         </p>
                       </div>
                     </div>
@@ -329,12 +345,16 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                       <AlertTriangle className="h-4 w-4 text-[hsl(var(--warning))] mt-0.5" />
                       <div className="text-sm min-w-0 w-full break-words">
                         <p className="font-medium text-[hsl(var(--warning))]">
-                          {'检测到未提交的更改'}
+                          {t('restoreLogs.uncommittedDetected')}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {`您有 ${totalUncommitted} 个未提交的更改`}
+                          {t('restoreLogs.youHaveUncommitted', {
+                            count: totalUncommitted,
+                          })}
                           {totalUntracked > 0 &&
-                            `和 ${totalUntracked} 个未跟踪的文件`}
+                            t('restoreLogs.andUntracked', {
+                              count: totalUntracked,
+                            })}
                           .
                         </p>
                         <div
@@ -344,12 +364,12 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           onClick={() => setAcknowledgeUncommitted((v) => !v)}
                         >
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
-                            {'我了解这些更改可能会受到影响'}
+                            {t('restoreLogs.acknowledgeAffected')}
                           </div>
                           <ResetSwitch
                             checked={acknowledgeUncommitted}
                             tone="warning"
-                            label="确认了解未提交更改风险"
+                            label={t('restoreLogs.acknowledgeRiskLabel')}
                             onClick={() => setAcknowledgeUncommitted((v) => !v)}
                           />
                         </div>
@@ -378,7 +398,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                       />
                       <div className="text-sm min-w-0 w-full break-words">
                         <p className="font-medium mb-2">
-                          {'重置工作树'}
+                          {t('restoreLogs.resetWorktree')}
                           {repoCount > 1 && ` (${repoCount} repos)`}
                         </p>
                         <div
@@ -388,19 +408,21 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           onClick={() => setWorktreeResetOn((v) => !v)}
                         >
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
-                            {worktreeResetOn ? '已启用' : '已禁用'}
+                            {worktreeResetOn
+                              ? t('restoreLogs.enabled')
+                              : t('restoreLogs.disabled')}
                           </div>
                           <ResetSwitch
                             checked={worktreeResetOn}
                             tone="success"
-                            label="切换重置工作树"
+                            label={t('restoreLogs.toggleResetWorktree')}
                             onClick={() => setWorktreeResetOn((v) => !v)}
                           />
                         </div>
                         {worktreeResetOn && (
                           <>
                             <p className="mt-2 text-xs text-muted-foreground">
-                              {'您的工作树将被恢复到此提交。'}
+                              {t('restoreLogs.worktreeRestoreNote')}
                             </p>
                             <div className="mt-1 space-y-1">
                               {repoInfo.map((repo) => (
@@ -426,12 +448,16 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                               <ul className="mt-2 space-y-1 text-xs text-muted-foreground list-disc pl-5">
                                 {totalUncommitted > 0 && (
                                   <li>
-                                    {`丢弃 ${totalUncommitted} 个未提交的更改。`}
+                                    {t('restoreLogs.discardUncommitted', {
+                                      count: totalUncommitted,
+                                    })}
                                   </li>
                                 )}
                                 {totalUntracked > 0 && (
                                   <li>
-                                    {`存在 ${totalUntracked} 个未跟踪的文件（不受重置影响）。`}
+                                    {t('restoreLogs.untrackedNote', {
+                                      count: totalUntracked,
+                                    })}
                                   </li>
                                 )}
                               </ul>
@@ -453,7 +479,7 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                       <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
                       <div className="text-sm min-w-0 w-full break-words">
                         <p className="font-medium text-destructive">
-                          {'重置工作树'}
+                          {t('restoreLogs.resetWorktree')}
                           {repoCount > 1 && ` (${repoCount} repos)`}
                         </p>
                         <div
@@ -471,14 +497,14 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           <div className="text-xs text-muted-foreground flex-1 min-w-0 break-words">
                             {forceReset
                               ? worktreeResetOn
-                                ? '已启用'
-                                : '已禁用'
-                              : '已禁用（检测到未提交的更改）'}
+                                ? t('restoreLogs.enabled')
+                                : t('restoreLogs.disabled')
+                              : t('restoreLogs.disabledUncommitted')}
                           </div>
                           <ResetSwitch
                             checked={worktreeResetOn && forceReset}
                             tone="success"
-                            label="切换重置工作树"
+                            label={t('restoreLogs.toggleResetWorktree')}
                             onClick={() => {
                               setWorktreeResetOn((on) => {
                                 if (forceReset) return !on;
@@ -504,12 +530,12 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                           }}
                         >
                           <div className="text-xs font-medium text-destructive flex-1 min-w-0 break-words">
-                            {'强制重置（丢弃未提交的更改）'}
+                            {t('restoreLogs.forceResetLabel')}
                           </div>
                           <ResetSwitch
                             checked={forceReset}
                             tone="destructive"
-                            label="切换强制重置"
+                            label={t('restoreLogs.toggleForceReset')}
                             onClick={() => {
                               setForceReset((v) => {
                                 const next = !v;
@@ -524,13 +550,13 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
                           {forceReset
-                            ? '未提交的更改将被丢弃。'
-                            : '存在未提交的更改。请打开强制重置或提交/暂存后继续。'}
+                            ? t('restoreLogs.forceDiscardNote')
+                            : t('restoreLogs.uncommittedBlockNote')}
                         </p>
                         {repoInfo.length > 0 && (
                           <>
                             <p className="mt-2 text-xs text-muted-foreground">
-                              {'您的工作树将被恢复到此提交。'}
+                              {t('restoreLogs.worktreeRestoreNote')}
                             </p>
                             <div className="mt-1 space-y-1">
                               {repoInfo.map((repo) => (
@@ -563,14 +589,14 @@ const RestoreLogsDialogImpl = NiceModal.create<RestoreLogsDialogProps>(
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={handleCancel}>
-              {'取消'}
+              {t('common:cancel')}
             </Button>
             <Button
               variant="destructive"
               disabled={isConfirmDisabled}
               onClick={handleConfirm}
             >
-              {mode === 'reset' ? '重置' : '重试'}
+              {mode === 'reset' ? t('common:reset') : t('restoreLogs.retry')}
             </Button>
           </DialogFooter>
         </DialogContent>

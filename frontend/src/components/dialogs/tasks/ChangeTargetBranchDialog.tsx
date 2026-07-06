@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,7 @@ export type ChangeTargetBranchDialogResult = {
 const ChangeTargetBranchDialogImpl =
   NiceModal.create<ChangeTargetBranchDialogProps>(
     ({ branches, isChangingTargetBranch: isChangingTargetBranch = false }) => {
+      const { t } = useTranslation(['dialogs', 'common']);
       const modal = useModal();
       const [selectedBranch, setSelectedBranch] = useState<string>('');
 
@@ -54,22 +56,22 @@ const ChangeTargetBranchDialogImpl =
         <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>{'更改目标分支'}</DialogTitle>
+              <DialogTitle>{t('changeTargetBranch.title')}</DialogTitle>
               <DialogDescription>
-                {'为任务尝试选择新的目标分支。'}
+                {t('changeTargetBranch.description')}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="space-y-2">
                 <label htmlFor="base-branch" className="text-sm font-medium">
-                  {'目标分支'}
+                  {t('changeTargetBranch.targetBranchLabel')}
                 </label>
                 <BranchSelector
                   branches={branches}
                   selectedBranch={selectedBranch}
                   onBranchSelect={setSelectedBranch}
-                  placeholder={'选择目标分支'}
+                  placeholder={t('changeTargetBranch.selectPlaceholder')}
                   excludeCurrentBranch={false}
                 />
               </div>
@@ -81,13 +83,15 @@ const ChangeTargetBranchDialogImpl =
                 onClick={handleCancel}
                 disabled={isChangingTargetBranch}
               >
-                {'取消'}
+                {t('common:cancel')}
               </Button>
               <Button
                 onClick={handleConfirm}
                 disabled={isChangingTargetBranch || !selectedBranch}
               >
-                {isChangingTargetBranch ? '更改中...' : '更改分支'}
+                {isChangingTargetBranch
+                  ? t('changeTargetBranch.changing')
+                  : t('changeTargetBranch.changeBranch')}
               </Button>
             </DialogFooter>
           </DialogContent>

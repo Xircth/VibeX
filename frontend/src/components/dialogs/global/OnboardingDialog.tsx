@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -80,6 +81,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
+  const { t } = useTranslation(['dialogs', 'common']);
   const modal = useModal();
   const { profiles, config } = useUserSystem();
   const { settings: claudeSettings } = useClaudeSettings();
@@ -133,7 +135,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
             <DialogTitle className="text-lg">{`Welcome to ${APP_NAME}`}</DialogTitle>
           </div>
           <DialogDescription className="text-left pt-1 text-xs">
-            设置编码偏好，稍后可在设置中修改。
+            {t('onboarding.description')}
           </DialogDescription>
           <div className="pt-2">
             <StepIndicator current={step} total={2} />
@@ -145,7 +147,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
           <div className="space-y-3 pt-1">
             <div className="space-y-2">
               <Label htmlFor="profile" className="text-sm font-medium">
-                默认 Agent
+                {t('onboarding.defaultAgent')}
               </Label>
               <Select
                 value={profile.executor}
@@ -155,7 +157,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                 }}
               >
                 <SelectTrigger id="profile">
-                  <SelectValue placeholder="选择编码代理" />
+                  <SelectValue placeholder={t('onboarding.selectAgentPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {profiles &&
@@ -174,7 +176,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
             {/* Claude Code: show model choices from settings.json */}
             {isClaudeCode && (
               <div className="space-y-2">
-                <Label className="text-sm font-medium">模型配置</Label>
+                <Label className="text-sm font-medium">
+                  {t('onboarding.modelConfig')}
+                </Label>
                 <div className="grid grid-cols-2 gap-1.5">
                   {CLAUDE_MODEL_CHOICES.map((model) => {
                     const modelId = claudeEnv[model.envKey];
@@ -213,14 +217,16 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  读取自 ~/.claude/settings.json
+                  {t('onboarding.readFromSettings')}
                 </p>
               </div>
             )}
 
             {!isClaudeCode && isCodex && codexModelOptions.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-sm font-medium">模型</Label>
+                <Label className="text-sm font-medium">
+                  {t('onboarding.model')}
+                </Label>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -278,7 +284,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
 
                 return (
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium">变体</Label>
+                    <Label className="text-sm font-medium">
+                      {t('onboarding.variant')}
+                    </Label>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -321,14 +329,14 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
           <div className="space-y-3 pt-1">
             <div className="space-y-2">
               <Label htmlFor="editor" className="text-sm font-medium">
-                首选编辑器
+                {t('onboarding.preferredEditor')}
               </Label>
               <Select
                 value={editorType}
                 onValueChange={(value: EditorType) => setEditorType(value)}
               >
                 <SelectTrigger id="editor">
-                  <SelectValue placeholder="选择编辑器" />
+                  <SelectValue placeholder={t('onboarding.selectEditorPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
                   {Object.values(EditorType).map((type) => (
@@ -346,7 +354,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               )}
 
               <p className="text-xs text-muted-foreground">
-                此编辑器用于打开任务和项目文件。
+                {t('onboarding.editorUsageHint')}
               </p>
 
               {editorType === EditorType.CUSTOM && (
@@ -355,16 +363,16 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                     htmlFor="custom-command"
                     className="text-sm font-medium"
                   >
-                    自定义命令
+                    {t('onboarding.customCommand')}
                   </Label>
                   <Input
                     id="custom-command"
-                    placeholder="例如: code, subl, vim"
+                    placeholder={t('onboarding.customCommandPlaceholder')}
                     value={customCommand}
                     onChange={(e) => setCustomCommand(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    输入编辑器的启动命令，可使用空格添加参数。
+                    {t('onboarding.customCommandHint')}
                   </p>
                 </div>
               )}
@@ -381,12 +389,12 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               className="mr-auto"
             >
               <ChevronLeft className="h-4 w-4 mr-1" />
-              上一步
+              {t('onboarding.back')}
             </Button>
           )}
           {step === 1 && (
             <Button onClick={() => setStep(2)} className="flex-1">
-              下一步
+              {t('onboarding.next')}
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           )}
@@ -396,7 +404,7 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               disabled={!isStep2Valid}
               className="flex-1"
             >
-              完成
+              {t('onboarding.complete')}
             </Button>
           )}
         </DialogFooter>

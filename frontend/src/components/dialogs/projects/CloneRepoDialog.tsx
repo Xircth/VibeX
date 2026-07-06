@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import {
@@ -32,6 +33,7 @@ function joinPath(dir: string, name: string): string {
 }
 
 const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
+  const { t } = useTranslation(['dialogs', 'common']);
   const modal = useModal();
   const [url, setUrl] = useState('');
   const [parentDir, setParentDir] = useState('');
@@ -57,11 +59,11 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
 
   const clone = async () => {
     if (!url.trim()) {
-      setError('请填写仓库地址');
+      setError(t('cloneRepo.urlRequired'));
       return;
     }
     if (!parentDir) {
-      setError('请选择克隆到的目录');
+      setError(t('cloneRepo.dirRequired'));
       return;
     }
     setCloning(true);
@@ -74,7 +76,7 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
       modal.resolve({ status: 'cloned', repo } as CloneRepoDialogResult);
       modal.hide();
     } catch (err) {
-      setError(getErrorMessage(err) || '克隆失败');
+      setError(getErrorMessage(err) || t('cloneRepo.cloneFailed'));
     } finally {
       setCloning(false);
     }
@@ -84,34 +86,36 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
     <Dialog open={modal.visible} onOpenChange={(o) => !o && cancel()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>克隆仓库</DialogTitle>
-          <DialogDescription>
-            输入 Git 仓库地址并选择本地目录，克隆完成后自动加入工作区。
-          </DialogDescription>
+          <DialogTitle>{t('cloneRepo.title')}</DialogTitle>
+          <DialogDescription>{t('cloneRepo.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">仓库地址</label>
+            <label className="text-sm font-medium">
+              {t('cloneRepo.urlLabel')}
+            </label>
             <Input
               value={url}
               onChange={(e) => {
                 setUrl(e.target.value);
                 setError(null);
               }}
-              placeholder="https://github.com/owner/repo.git 或 git@..."
+              placeholder={t('cloneRepo.urlPlaceholder')}
               autoFocus
               disabled={cloning}
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">克隆到</label>
+            <label className="text-sm font-medium">
+              {t('cloneRepo.cloneToLabel')}
+            </label>
             <div className="flex gap-2">
               <Input
                 value={parentDir}
                 onChange={(e) => setParentDir(e.target.value)}
-                placeholder="选择父目录"
+                placeholder={t('cloneRepo.parentDirPlaceholder')}
                 disabled={cloning}
               />
               <Button
@@ -120,12 +124,12 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
                 onClick={() => void pickDir()}
                 disabled={cloning}
               >
-                浏览…
+                {t('cloneRepo.browse')}
               </Button>
             </div>
             {targetPath ? (
               <p className="text-[11px] text-muted-foreground">
-                将克隆到：{targetPath}
+                {t('cloneRepo.willCloneTo', { path: targetPath })}
               </p>
             ) : null}
           </div>
@@ -135,13 +139,13 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
 
         <DialogFooter>
           <Button variant="outline" onClick={cancel} disabled={cloning}>
-            取消
+            {t('common:cancel')}
           </Button>
           <Button
             onClick={() => void clone()}
             disabled={cloning || !url.trim() || !parentDir}
           >
-            {cloning ? '克隆中…' : '克隆'}
+            {cloning ? t('cloneRepo.cloning') : t('cloneRepo.clone')}
           </Button>
         </DialogFooter>
       </DialogContent>

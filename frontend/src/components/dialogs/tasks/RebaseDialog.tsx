@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -32,10 +33,14 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
     branches,
     isRebasing = false,
     initialTargetBranch,
-    title = '选择目标分支',
-    description = '选择一个目标分支继续执行当前 Git 操作。',
-    confirmLabel = '确认',
+    title: titleProp,
+    description: descriptionProp,
+    confirmLabel: confirmLabelProp,
   }) => {
+    const { t } = useTranslation(['dialogs', 'common']);
+    const title = titleProp ?? t('rebase.title');
+    const description = descriptionProp ?? t('rebase.description');
+    const confirmLabel = confirmLabelProp ?? t('rebase.confirm');
     const modal = useModal();
     const [selectedBranch, setSelectedBranch] = useState<string>(
       initialTargetBranch ?? ''
@@ -77,13 +82,13 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
 
           <div className="space-y-2">
             <label htmlFor="target-branch" className="text-sm font-medium">
-              目标分支
+              {t('rebase.targetBranchLabel')}
             </label>
             <BranchSelector
               branches={branches}
               selectedBranch={selectedBranch}
               onBranchSelect={setSelectedBranch}
-              placeholder="选择目标分支"
+              placeholder={t('rebase.targetBranchPlaceholder')}
               excludeCurrentBranch={false}
             />
           </div>
@@ -94,13 +99,13 @@ const RebaseDialogImpl = NiceModal.create<RebaseDialogProps>(
               onClick={handleCancel}
               disabled={isRebasing}
             >
-              取消
+              {t('common:cancel')}
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={isRebasing || !selectedBranch}
             >
-              {isRebasing ? '处理中...' : confirmLabel}
+              {isRebasing ? t('rebase.processing') : confirmLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
 import { ExternalLink, GitPullRequest } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,7 @@ function GitActionsDialogContent({
   attempt,
   task,
 }: GitActionsDialogContentProps) {
+  const { t } = useTranslation(['dialogs', 'common']);
   const { data: branchStatus, error: branchStatusError } = useBranchStatus(
     attempt.id
   );
@@ -54,7 +56,11 @@ function GitActionsDialogContent({
     <div className="space-y-4">
       {mergedPR && mergedPR.type === 'pr' && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>{`PR #${mergedPR.pr_info.number || ''} 已合并`}</span>
+          <span>
+            {t('gitActions.prMerged', {
+              number: mergedPR.pr_info.number || '',
+            })}
+          </span>
           {mergedPR.pr_info.url && (
             <a
               href={mergedPR.pr_info.url}
@@ -89,6 +95,7 @@ function GitActionsDialogContent({
 
 const GitActionsDialogImpl = NiceModal.create<GitActionsDialogProps>(
   ({ attemptId, task }) => {
+    const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
     const { data: attempt } = useTaskAttemptWithSession(attemptId);
 
@@ -104,7 +111,7 @@ const GitActionsDialogImpl = NiceModal.create<GitActionsDialogProps>(
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{'Git 操作'}</DialogTitle>
+            <DialogTitle>{t('gitActions.title')}</DialogTitle>
           </DialogHeader>
 
           {isLoading ? (

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
@@ -13,6 +14,7 @@ interface FeatureShowcaseDialogProps {
 
 const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
   ({ config }: FeatureShowcaseDialogProps) => {
+    const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
     const [currentStage, setCurrentStage] = useState(0);
     const stage = config.stages[currentStage];
@@ -95,14 +97,16 @@ const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
                         className="inline-flex h-10 items-center justify-center gap-2 border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
                       >
                         <ChevronLeft className="h-4 w-4" />
-                        上一步
+                        {t('featureShowcase.previous')}
                       </button>
                     )}
                     <button
                       onClick={handleNext}
                       className="inline-flex h-10 items-center justify-center gap-2 bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                     >
-                      {currentStage === totalStages - 1 ? '完成' : '下一步'}
+                      {currentStage === totalStages - 1
+                        ? t('featureShowcase.finish')
+                        : t('featureShowcase.next')}
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   </div>

@@ -11,6 +11,8 @@ import { defineModal, getErrorMessage } from '@/lib/modals';
 import { attemptsApi } from '@/lib/api';
 import type { GhCliSetupError } from 'shared/types';
 import { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
 interface GhCliSetupDialogProps {
@@ -34,14 +36,14 @@ export const mapGhCliErrorToUi = (
 
   if (error === 'BREW_MISSING') {
     return {
-      message: '未安装 Homebrew。安装它以启用自动设置。',
+      message: i18n.t('dialogs:ghCliSetup.brewMissing'),
       variant: 'homebrew',
     };
   }
 
   if (error === 'SETUP_HELPER_NOT_SUPPORTED') {
     return {
-      message: '此平台不支持自动设置。请手动安装 GitHub CLI。',
+      message: i18n.t('dialogs:ghCliSetup.helperNotSupported'),
       variant: 'manual',
     };
   }
@@ -61,11 +63,13 @@ export const GhCliHelpInstructions = ({
 }: {
   variant: GhCliSupportVariant;
 }) => {
+  const { t } = useTranslation(['dialogs', 'common']);
+
   if (variant === 'homebrew') {
     return (
       <div className="space-y-2 text-sm">
         <p>
-          {'自动安装需要 Homebrew。从'}{' '}
+          {t('ghCliSetup.homebrewIntroBefore')}{' '}
           <a
             href="https://brew.sh/"
             target="_blank"
@@ -74,15 +78,13 @@ export const GhCliHelpInstructions = ({
           >
             {'brew.sh'}
           </a>{' '}
-          {
-            '安装 Homebrew，然后重新运行设置。或者，使用以下命令手动安装 GitHub CLI：'
-          }
+          {t('ghCliSetup.homebrewIntroAfter')}
         </p>
         <pre className="rounded bg-muted px-2 py-1 text-xs">
           brew install gh
         </pre>
         <p>
-          {'安装后，使用以下命令进行身份验证：'}
+          {t('ghCliSetup.homebrewAuthPrompt')}
           <br />
           <code className="rounded bg-muted px-1 py-0.5 text-xs">
             gh auth login --web --git-protocol https
@@ -95,16 +97,16 @@ export const GhCliHelpInstructions = ({
   return (
     <div className="space-y-2 text-sm">
       <p>
-        {'从'}{' '}
+        {t('ghCliSetup.manualIntroBefore')}{' '}
         <a
           href="https://cli.github.com/"
           target="_blank"
           rel="noreferrer"
           className="underline"
         >
-          {'官方文档'}
+          {t('ghCliSetup.manualDocsLinkText')}
         </a>{' '}
-        {'安装 GitHub CLI，然后使用您的 GitHub 账户进行身份验证。'}
+        {t('ghCliSetup.manualIntroAfter')}
       </p>
       <pre className="rounded bg-muted px-2 py-1 text-xs">
         gh auth login --web --git-protocol https
@@ -116,6 +118,7 @@ export const GhCliHelpInstructions = ({
 const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
   ({ attemptId }) => {
     const modal = useModal();
+    const { t } = useTranslation(['dialogs', 'common']);
     const [isRunning, setIsRunning] = useState(false);
     const [errorInfo, setErrorInfo] = useState<{
       error: GhCliSetupError;
@@ -136,7 +139,8 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
         modal.resolve(null);
         modal.hide();
       } catch (err: unknown) {
-        const rawMessage = getErrorMessage(err) || '运行 GitHub CLI 设置失败。';
+        const rawMessage =
+          getErrorMessage(err) || t('ghCliSetup.runFailed');
 
         const maybeErrorData =
           typeof err === 'object' && err !== null && 'error_data' in err
@@ -182,22 +186,20 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{'GitHub CLI 设置'}</DialogTitle>
+            <DialogTitle>{t('ghCliSetup.title')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p>
-              {'需要 GitHub CLI 身份验证才能创建拉取请求并与 GitHub 仓库交互。'}
-            </p>
+            <p>{t('ghCliSetup.description')}</p>
 
             <div className="space-y-2">
-              <p className="text-sm">{'此设置将：'}</p>
+              <p className="text-sm">{t('ghCliSetup.setupWill')}</p>
               <ol className="text-sm list-decimal list-inside space-y-1 ml-2">
-                <li>{'检查是否安装了 GitHub CLI (gh)'}</li>
-                <li>{'如果需要，通过 Homebrew 安装它（macOS）'}</li>
-                <li>{'使用 OAuth 进行 GitHub 身份验证'}</li>
+                <li>{t('ghCliSetup.step1')}</li>
+                <li>{t('ghCliSetup.step2')}</li>
+                <li>{t('ghCliSetup.step3')}</li>
               </ol>
               <p className="text-sm text-muted-foreground mt-4">
-                {'设置将在聊天窗口中运行。您需要在浏览器中完成身份验证。'}
+                {t('ghCliSetup.runNote')}
               </p>
             </div>
             {errorInfo && (
@@ -216,10 +218,10 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
               {isRunning ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {'运行中...'}
+                  {t('ghCliSetup.running')}
                 </>
               ) : (
-                '运行设置'
+                t('ghCliSetup.runSetup')
               )}
             </Button>
             <Button
@@ -227,7 +229,7 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
               onClick={handleClose}
               disabled={isRunning}
             >
-              {'关闭'}
+              {t('common:close')}
             </Button>
           </DialogFooter>
         </DialogContent>

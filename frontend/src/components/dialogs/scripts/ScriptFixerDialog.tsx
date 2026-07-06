@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
@@ -45,6 +46,7 @@ type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
 const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
   ({ scriptType, repos, workspaceId, sessionId, initialRepoId }) => {
+    const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
     const queryClient = useQueryClient();
 
@@ -137,7 +139,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
           setOriginalScript(scriptContent);
         } catch (err) {
           if (cancelled) return;
-          setError(err instanceof Error ? err.message : '发生错误');
+          setError(err instanceof Error ? err.message : t('scriptFixer.error'));
         } finally {
           if (!cancelled) setIsLoadingRepo(false);
         }
@@ -146,7 +148,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
       return () => {
         cancelled = true;
       };
-    }, [selectedRepoId, scriptType]);
+    }, [selectedRepoId, scriptType, t]);
 
     const hasChanges = script !== originalScript;
 
@@ -188,11 +190,11 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
         modal.resolve({ action: 'saved' } as ScriptFixerDialogResult);
         modal.hide();
       } catch (err) {
-        setError(err instanceof Error ? err.message : '发生错误');
+        setError(err instanceof Error ? err.message : t('scriptFixer.error'));
       } finally {
         setIsSaving(false);
       }
-    }, [selectedRepoId, script, scriptType, queryClient, modal]);
+    }, [selectedRepoId, script, scriptType, queryClient, modal, t]);
 
     const handleSaveAndTest = useCallback(async () => {
       if (!selectedRepoId) return;
@@ -246,20 +248,20 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
         // Keep dialog open so user can see the new execution logs
         // The logs will update automatically via useLogStream/useExecutionProcesses
       } catch (err) {
-        setError(err instanceof Error ? err.message : '发生错误');
+        setError(err instanceof Error ? err.message : t('scriptFixer.error'));
       } finally {
         setIsTesting(false);
       }
-    }, [selectedRepoId, script, scriptType, workspaceId, queryClient]);
+    }, [selectedRepoId, script, scriptType, workspaceId, queryClient, t]);
 
     const dialogTitle =
       scriptType === 'setup'
-        ? '修复设置脚本'
+        ? t('scriptFixer.titleSetup')
         : scriptType === 'cleanup'
-          ? '修复清理脚本'
+          ? t('scriptFixer.titleCleanup')
           : scriptType === 'archive'
-            ? '修复归档脚本'
-            : '修复开发服务器脚本';
+            ? t('scriptFixer.titleArchive')
+            : t('scriptFixer.titleDevServer');
 
     return (
       <Dialog
@@ -277,7 +279,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
             {repos.length > 1 && (
               <div className="flex items-center gap-2">
                 <Label htmlFor="repo-select" className="shrink-0">
-                  {'仓库'}
+                  {t('scriptFixer.repo')}
                 </Label>
                 <Select
                   value={selectedRepoId}
@@ -299,7 +301,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
 
             {/* Script editor */}
             <div className="flex flex-col gap-2 flex-1 min-h-0 min-w-0">
-              <Label>{'脚本（编辑）'}</Label>
+              <Label>{t('scriptFixer.scriptEdit')}</Label>
               <div className="bg-panel flex-1 min-h-[150px] max-h-[300px] overflow-auto border rounded-md min-w-0">
                 {isLoadingRepo ? (
                   <div className="h-full flex items-center justify-center">
@@ -329,7 +331,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
               style={{ height: '200px' }}
             >
               <div className="flex items-center justify-between gap-2">
-                <Label>{'上次执行日志'}</Label>
+                <Label>{t('scriptFixer.lastExecutionLogs')}</Label>
                 {/* Status indicator */}
                 {latestProcess && (
                   <div className="flex items-center gap-2 text-sm">
@@ -337,26 +339,30 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         <span className="text-muted-foreground">
-                          {'运行中...'}
+                          {t('scriptFixer.running')}
                         </span>
                       </>
                     ) : isProcessSuccessful ? (
                       <>
                         <span className="size-2 rounded-full bg-success" />
-                        <span className="text-success">{'成功完成'}</span>
+                        <span className="text-success">
+                          {t('scriptFixer.successCompleted')}
+                        </span>
                       </>
                     ) : hasProcessError ? (
                       <>
                         <span className="size-2 rounded-full bg-destructive bg-error" />
                         <span className="text-destructive text-error">
-                          {`失败，退出代码 ${Number(latestProcess.exit_code ?? 0)}`}
+                          {t('scriptFixer.failedExitCode', {
+                            code: Number(latestProcess.exit_code ?? 0),
+                          })}
                         </span>
                       </>
                     ) : isProcessKilled ? (
                       <>
                         <span className="size-2 rounded-full bg-low" />
                         <span className="text-muted-foreground">
-                          {'进程已被终止'}
+                          {t('scriptFixer.processKilled')}
                         </span>
                       </>
                     ) : null}
@@ -372,7 +378,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                       </div>
                     ) : logs.length === 0 ? (
                       <div className="text-muted-foreground">
-                        {'没有可用的执行日志'}
+                        {t('scriptFixer.noExecutionLogs')}
                       </div>
                     ) : (
                       logs.map((log, index) => (
@@ -382,7 +388,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
                   </div>
                 ) : (
                   <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
-                    {'没有可用的执行日志'}
+                    {t('scriptFixer.noExecutionLogs')}
                   </div>
                 )}
               </div>
@@ -394,7 +400,7 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={handleClose}>
-              {'关闭'}
+              {t('common:close')}
             </Button>
             <Button
               variant="outline"
@@ -402,14 +408,14 @@ const ScriptFixerDialogImpl = NiceModal.create<ScriptFixerDialogProps>(
               disabled={!hasChanges || isSaving || isTesting}
             >
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {'保存'}
+              {t('common:save')}
             </Button>
             <Button
               onClick={handleSaveAndTest}
               disabled={isSaving || isTesting}
             >
               {isTesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {'保存并测试'}
+              {t('scriptFixer.saveAndTest')}
             </Button>
           </DialogFooter>
         </DialogContent>

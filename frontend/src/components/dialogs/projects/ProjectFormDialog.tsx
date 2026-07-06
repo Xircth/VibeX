@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
@@ -118,6 +119,7 @@ const MIT_LICENSE_TEMPLATE = [
 
 const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
   ({ autoOpenFolderPicker = false }) => {
+    const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
     const isOpenExistingFolderMode = autoOpenFolderPicker;
     const { createProject } = useProjectMutations();
@@ -173,8 +175,8 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
           directory: true,
           multiple: false,
           title: isOpenExistingFolderMode
-            ? '选择项目文件夹'
-            : '选择项目创建位置',
+            ? t('projectForm.pickFolderTitleExisting')
+            : t('projectForm.pickFolderTitleNew'),
         });
         if (!selected || typeof selected !== 'string') {
           return;
@@ -192,11 +194,13 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
 
         setParentFolderPath(normalizedSelected);
       } catch (err) {
-        setError(err instanceof Error ? err.message : '选择文件夹失败');
+        setError(
+          err instanceof Error ? err.message : t('projectForm.pickFolderFailed')
+        );
       } finally {
         setIsPickingFolder(false);
       }
-    }, [isOpenExistingFolderMode]);
+    }, [isOpenExistingFolderMode, t]);
 
     useEffect(() => {
       if (
@@ -270,17 +274,17 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       const finalProjectName = projectName.trim();
 
       if (!finalProjectName) {
-        setError('请输入项目名称');
+        setError(t('projectForm.nameRequired'));
         return;
       }
 
       if (!folderName) {
-        setError('项目名称无法作为文件夹名称，请修改项目名称');
+        setError(t('projectForm.invalidFolderName'));
         return;
       }
 
       if (!parentFolderPath) {
-        setError('请选择项目创建位置');
+        setError(t('projectForm.locationRequired'));
         return;
       }
 
@@ -297,7 +301,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         modal.resolve({ status: 'saved', project } as ProjectFormDialogResult);
         modal.hide();
       } catch (err) {
-        setError(err instanceof Error ? err.message : '创建项目失败');
+        setError(
+          err instanceof Error ? err.message : t('projectForm.createFailed')
+        );
       } finally {
         setIsSubmitting(false);
       }
@@ -308,7 +314,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         projectName.trim() || getPathName(selectedFolderPath);
 
       if (!selectedFolderPath) {
-        setError('请先选择项目文件夹');
+        setError(t('projectForm.selectFolderRequired'));
         return;
       }
 
@@ -330,7 +336,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         modal.resolve({ status: 'saved', project } as ProjectFormDialogResult);
         modal.hide();
       } catch (err) {
-        setError(err instanceof Error ? err.message : '打开文件夹失败');
+        setError(
+          err instanceof Error ? err.message : t('projectForm.openFolderFailed')
+        );
       } finally {
         setIsSubmitting(false);
       }
@@ -351,9 +359,9 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
       : !!projectName.trim() && !!parentFolderPath && !!folderName;
     const submitLabel = isOpenExistingFolderMode
       ? selectedFolderPath && selectedFolderIsGitRepo === false
-        ? '初始化 Git 并打开'
-        : '打开文件夹'
-      : '创建项目';
+        ? t('projectForm.submitInitGitAndOpen')
+        : t('projectForm.submitOpenFolder')
+      : t('projectForm.submitCreate');
 
     const handleOpenChange = (openState: boolean) => {
       if (!openState && !isBusy) {
@@ -366,19 +374,21 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
         <DialogContent className="sm:max-w-[640px]">
           <DialogHeader>
             <DialogTitle>
-              {isOpenExistingFolderMode ? '选择文件夹' : '创建新项目'}
+              {isOpenExistingFolderMode
+                ? t('projectForm.titleExisting')
+                : t('projectForm.titleNew')}
             </DialogTitle>
             <DialogDescription>
               {isOpenExistingFolderMode
-                ? '打开已有项目文件夹；如果还不是 Git 仓库，会先完成 Git 初始化。'
-                : '创建新项目会在指定位置新建文件夹，并自动完成 Git 初始化。'}
+                ? t('projectForm.descriptionExisting')
+                : t('projectForm.descriptionNew')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             {isOpenExistingFolderMode ? (
               <div className="space-y-2">
-                <Label>项目文件夹</Label>
+                <Label>{t('projectForm.folderLabel')}</Label>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -388,13 +398,13 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     className="h-9"
                   >
                     <FolderOpen className="mr-2 h-4 w-4" />
-                    选择文件夹
+                    {t('projectForm.chooseFolder')}
                   </Button>
                   <div
                     className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border px-3 text-xs text-muted-foreground"
                     title={normalizeDisplayPath(selectedFolderPath)}
                   >
-                    {selectedFolderPath || '未选择文件夹'}
+                    {selectedFolderPath || t('projectForm.noFolderSelected')}
                   </div>
                 </div>
                 {selectedFolderPath && selectedFolderIsGitRepo !== null ? (
@@ -406,20 +416,22 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     }
                   >
                     {selectedFolderIsGitRepo
-                      ? '已识别为 Git 仓库'
-                      : '该文件夹还不是 Git 仓库，打开时会先初始化 Git。'}
+                      ? t('projectForm.recognizedGitRepo')
+                      : t('projectForm.notGitRepoHint')}
                   </p>
                 ) : null}
               </div>
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="project-name">项目名称</Label>
+                  <Label htmlFor="project-name">
+                    {t('projectForm.nameLabel')}
+                  </Label>
                   <Input
                     id="project-name"
                     value={projectName}
                     onChange={(event) => setProjectName(event.target.value)}
-                    placeholder="例如：Marketing Site"
+                    placeholder={t('projectForm.namePlaceholder')}
                     disabled={isBusy}
                     autoFocus
                   />
@@ -427,7 +439,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
 
                 <div className="space-y-2">
                   <Label htmlFor="project-description">
-                    项目简介（可选，用于 README）
+                    {t('projectForm.descriptionLabel')}
                   </Label>
                   <Textarea
                     id="project-description"
@@ -435,14 +447,14 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     onChange={(event) =>
                       setProjectDescription(event.target.value)
                     }
-                    placeholder="简单描述这个项目要解决的问题"
+                    placeholder={t('projectForm.descriptionPlaceholder')}
                     disabled={isBusy}
                     className="min-h-20 resize-none"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>创建位置</Label>
+                  <Label>{t('projectForm.locationLabel')}</Label>
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
@@ -452,18 +464,18 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                       className="h-9"
                     >
                       <FolderOpen className="mr-2 h-4 w-4" />
-                      选择位置
+                      {t('projectForm.chooseLocation')}
                     </Button>
                     <div
                       className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border px-3 text-xs text-muted-foreground"
                       title={normalizeDisplayPath(parentFolderPath)}
                     >
-                      {parentFolderPath || '未选择创建位置'}
+                      {parentFolderPath || t('projectForm.noLocationSelected')}
                     </div>
                   </div>
                   {targetProjectPath ? (
                     <p className="truncate text-xs text-muted-foreground">
-                      将创建：{targetProjectPath}
+                      {t('projectForm.willCreate', { path: targetProjectPath })}
                     </p>
                   ) : null}
                 </div>
@@ -471,7 +483,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                 <div className="rounded-lg border bg-muted/20 p-3">
                   <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                     <GitBranch className="h-4 w-4 text-muted-foreground" />
-                    创建后会自动初始化 Git 仓库
+                    {t('projectForm.gitInitNote')}
                   </div>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm">
@@ -482,7 +494,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                         }
                         disabled={isBusy}
                       />
-                      创建 README.md
+                      {t('projectForm.createReadme')}
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <Checkbox
@@ -492,7 +504,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                         }
                         disabled={isBusy}
                       />
-                      创建 .gitignore
+                      {t('projectForm.createGitignore')}
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <Checkbox
@@ -502,7 +514,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                         }
                         disabled={isBusy}
                       />
-                      创建 MIT LICENSE
+                      {t('projectForm.createLicense')}
                     </label>
                   </div>
                 </div>
@@ -524,7 +536,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
               onClick={handleCancel}
               disabled={isBusy}
             >
-              取消
+              {t('common:cancel')}
             </Button>
             <Button
               type="button"
@@ -534,7 +546,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
               {isBusy ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  处理中...
+                  {t('projectForm.processing')}
                 </>
               ) : (
                 submitLabel

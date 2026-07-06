@@ -13,6 +13,7 @@ import { defineModal } from '@/lib/modals';
 import { usePush } from '@/hooks/usePush';
 import { useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useTranslation } from 'react-i18next';
 export interface ForcePushDialogProps {
   attemptId: string;
   repoId: string;
@@ -20,6 +21,7 @@ export interface ForcePushDialogProps {
 }
 
 const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
+  const { t } = useTranslation(['dialogs', 'common']);
   const modal = useModal();
   const { attemptId, repoId, branchName } = props;
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,7 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
       const message =
         err && typeof err === 'object' && 'message' in err
           ? String(err.message)
-          : '强制推送失败';
+          : t('forcePush.pushFailed');
       setError(message);
     },
     { force: true }
@@ -65,15 +67,13 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
         <DialogHeader>
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-6 w-6 text-destructive" />
-            <DialogTitle>{'需要强制推送'}</DialogTitle>
+            <DialogTitle>{t('forcePush.title')}</DialogTitle>
           </div>
           <DialogDescription className="text-left pt-2 space-y-2">
-            <p>{`远程分支${branchLabel}已与您的本地分支分离。常规推送被拒绝。`}</p>
-            <p className="font-medium">
-              {'强制推送将用您的本地更改覆盖远程更改。此操作无法撤消。'}
-            </p>
+            <p>{t('forcePush.description', { branch: branchLabel })}</p>
+            <p className="font-medium">{t('forcePush.warning')}</p>
             <p className="text-sm text-muted-foreground">
-              {'仅当您确定要替换远程分支历史记录时才继续。'}
+              {t('forcePush.hint')}
             </p>
           </DialogDescription>
         </DialogHeader>
@@ -88,7 +88,7 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
             onClick={handleCancel}
             disabled={isProcessing}
           >
-            {'取消'}
+            {t('common:cancel')}
           </Button>
           <Button
             variant="destructive"
@@ -96,7 +96,9 @@ const ForcePushDialogImpl = NiceModal.create<ForcePushDialogProps>((props) => {
             disabled={isProcessing}
           >
             {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isProcessing ? '强制推送中...' : '强制推送'}
+            {isProcessing
+              ? t('forcePush.processing')
+              : t('forcePush.confirmButton')}
           </Button>
         </DialogFooter>
       </DialogContent>

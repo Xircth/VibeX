@@ -24,15 +24,52 @@ import {
 import commonZh from './locales/zh-CN/common.json';
 import settingsZh from './locales/zh-CN/settings.json';
 import statusbarZh from './locales/zh-CN/statusbar.json';
+import appZh from './locales/zh-CN/app.json';
+import tasksZh from './locales/zh-CN/tasks.json';
+import dialogsZh from './locales/zh-CN/dialogs.json';
+import conversationZh from './locales/zh-CN/conversation.json';
+import panelsZh from './locales/zh-CN/panels.json';
 import commonEn from './locales/en/common.json';
 import settingsEn from './locales/en/settings.json';
 import statusbarEn from './locales/en/statusbar.json';
+import appEn from './locales/en/app.json';
+import tasksEn from './locales/en/tasks.json';
+import dialogsEn from './locales/en/dialogs.json';
+import conversationEn from './locales/en/conversation.json';
+import panelsEn from './locales/en/panels.json';
 
-export const NAMESPACES = ['common', 'settings', 'statusbar'] as const;
+export const NAMESPACES = [
+  'common',
+  'settings',
+  'statusbar',
+  'app',
+  'tasks',
+  'dialogs',
+  'conversation',
+  'panels',
+] as const;
 
 export const resources = {
-  'zh-CN': { common: commonZh, settings: settingsZh, statusbar: statusbarZh },
-  en: { common: commonEn, settings: settingsEn, statusbar: statusbarEn },
+  'zh-CN': {
+    common: commonZh,
+    settings: settingsZh,
+    statusbar: statusbarZh,
+    app: appZh,
+    tasks: tasksZh,
+    dialogs: dialogsZh,
+    conversation: conversationZh,
+    panels: panelsZh,
+  },
+  en: {
+    common: commonEn,
+    settings: settingsEn,
+    statusbar: statusbarEn,
+    app: appEn,
+    tasks: tasksEn,
+    dialogs: dialogsEn,
+    conversation: conversationEn,
+    panels: panelsEn,
+  },
 } as const;
 
 void i18n.use(initReactI18next).init({

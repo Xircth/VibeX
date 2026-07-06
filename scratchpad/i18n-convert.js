@@ -6,17 +6,27 @@ export const meta = {
 
 // Edit NAMESPACE + ITEMS per wave, then re-invoke with this scriptPath.
 const REPO = '/Users/sean/Documents/Projetcs/VibeX'
-const namespace = 'settings'
+const namespace = 'dialogs'
 const items = [
-  { file: 'frontend/src/pages/settings/GeneralSettings.tsx', key: 'general' },
-  { file: 'frontend/src/pages/settings/VersionControlSettings.tsx', key: 'versionControl' },
-  { file: 'frontend/src/pages/settings/SystemSettings.tsx', key: 'system' },
-  { file: 'frontend/src/pages/settings/AgentSettings.tsx', key: 'agents' },
-  { file: 'frontend/src/pages/settings/McpSettings.tsx', key: 'mcp' },
-  { file: 'frontend/src/pages/settings/ChatChannelSettings.tsx', key: 'chatChannels' },
-  { file: 'frontend/src/pages/settings/AgentConfigManager.tsx', key: 'agentConfig' },
-  { file: 'frontend/src/pages/settings/SkillsSettings.tsx', key: 'skills' },
-  { file: 'frontend/src/components/settings/AppUpdaterSection.tsx', key: 'appUpdater' },
+  { file: 'frontend/src/components/dialogs/tasks/PrCommentsDialog.tsx', key: 'prComments' },
+  { file: 'frontend/src/components/dialogs/tasks/GitActionsDialog.tsx', key: 'gitActions' },
+  { file: 'frontend/src/components/dialogs/tasks/CreatePRDialog.tsx', key: 'createPr' },
+  { file: 'frontend/src/components/dialogs/tasks/EditBranchNameDialog.tsx', key: 'editBranchName' },
+  { file: 'frontend/src/components/dialogs/tasks/RebaseDialog.tsx', key: 'rebase' },
+  { file: 'frontend/src/components/dialogs/tasks/TagEditDialog.tsx', key: 'tagEdit' },
+  { file: 'frontend/src/components/dialogs/tasks/ChangeTargetBranchDialog.tsx', key: 'changeTargetBranch' },
+  { file: 'frontend/src/components/dialogs/auth/GhCliSetupDialog.tsx', key: 'ghCliSetup' },
+  { file: 'frontend/src/components/dialogs/tasks/RestoreLogsDialog.tsx', key: 'restoreLogs' },
+  { file: 'frontend/src/components/dialogs/tasks/ViewProcessesDialog.tsx', key: 'viewProcesses' },
+  { file: 'frontend/src/components/dialogs/shared/FolderPickerDialog.tsx', key: 'folderPicker' },
+  { file: 'frontend/src/components/dialogs/projects/CloneRepoDialog.tsx', key: 'cloneRepo' },
+  { file: 'frontend/src/components/dialogs/projects/ProjectFormDialog.tsx', key: 'projectForm' },
+  { file: 'frontend/src/components/dialogs/global/DisclaimerDialog.tsx', key: 'disclaimer' },
+  { file: 'frontend/src/components/dialogs/global/FeatureShowcaseDialog.tsx', key: 'featureShowcase' },
+  { file: 'frontend/src/components/dialogs/git/ForcePushDialog.tsx', key: 'forcePush' },
+  { file: 'frontend/src/components/dialogs/scripts/ScriptFixerDialog.tsx', key: 'scriptFixer' },
+  { file: 'frontend/src/components/dialogs/global/BetaWorkspacesDialog.tsx', key: 'betaWorkspaces' },
+  { file: 'frontend/src/components/dialogs/global/OnboardingDialog.tsx', key: 'onboarding' },
 ]
 
 const SCHEMA = {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal } from '@/lib/modals';
 import {
@@ -33,6 +34,7 @@ function getCommentId(comment: UnifiedPrComment): string {
 
 const PrCommentsDialogImpl = NiceModal.create<PrCommentsDialogProps>(
   ({ attemptId, repoId }) => {
+    const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
     const { data, isLoading, isError, error } = usePrComments(
       attemptId,
@@ -107,7 +109,7 @@ const PrCommentsDialogImpl = NiceModal.create<PrCommentsDialogProps>(
           <DialogHeader className="px-4 py-3 border-b">
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="h-5 w-5" />
-              {'选择 PR 评论'}
+              {t('prComments.title')}
             </DialogTitle>
           </DialogHeader>
 
@@ -124,20 +126,25 @@ const PrCommentsDialogImpl = NiceModal.create<PrCommentsDialogProps>(
                 </div>
               ) : comments.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">
-                  {'此 PR 未找到评论'}
+                  {t('prComments.noComments')}
                 </p>
               ) : (
                 <>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-muted-foreground">
-                      {`已选择 ${selectedIds.size} / ${comments.length}`}
+                      {t('prComments.selectedCount', {
+                        selected: selectedIds.size,
+                        total: comments.length,
+                      })}
                     </span>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={isAllSelected ? deselectAll : selectAll}
                     >
-                      {isAllSelected ? '取消全选' : '全选'}
+                      {isAllSelected
+                        ? t('prComments.deselectAll')
+                        : t('prComments.selectAll')}
                     </Button>
                   </div>
                   <div className="space-y-3">
@@ -191,10 +198,10 @@ const PrCommentsDialogImpl = NiceModal.create<PrCommentsDialogProps>(
           {!errorMessage && !isLoading && comments.length > 0 && (
             <DialogFooter className="px-4 py-3 border-t">
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
-                {'取消'}
+                {t('common:cancel')}
               </Button>
               <Button onClick={handleConfirm} disabled={selectedIds.size === 0}>
-                {'添加'}
+                {t('prComments.add')}
                 {selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
               </Button>
             </DialogFooter>

@@ -16,6 +16,7 @@ import { tagsApi } from '@/lib/api';
 import type { Tag, CreateTag, UpdateTag } from 'shared/types';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, getErrorMessage } from '@/lib/modals';
+import { useTranslation } from 'react-i18next';
 
 export interface TagEditDialogProps {
   tag?: Tag | null; // null for create mode
@@ -25,6 +26,7 @@ export type TagEditResult = 'saved' | 'canceled';
 
 const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
   const modal = useModal();
+  const { t } = useTranslation(['dialogs', 'common']);
   const [formData, setFormData] = useState({
     tag_name: '',
     content: '',
@@ -53,7 +55,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
 
   const handleSave = async () => {
     if (!formData.tag_name.trim()) {
-      setError('标签名称是必需的');
+      setError(t('tagEdit.nameRequired'));
       return;
     }
 
@@ -78,7 +80,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
       modal.resolve('saved' as TagEditResult);
       modal.hide();
     } catch (err: unknown) {
-      setError(getErrorMessage(err) || '保存标签失败');
+      setError(getErrorMessage(err) || t('tagEdit.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -105,15 +107,20 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
     <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? '编辑标签' : '创建标签'}</DialogTitle>
+          <DialogTitle>
+            {isEditMode ? t('tagEdit.editTitle') : t('tagEdit.createTitle')}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div>
             <Label htmlFor="tag-name">
-              {'标签名称'} <span className="text-destructive">{'*'}</span>
+              {t('tagEdit.nameLabel')}{' '}
+              <span className="text-destructive">{'*'}</span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
-              {`在任务描述中使用 # 加此名称：#${formData.tag_name || 'tag_name'}`}
+              {t('tagEdit.nameHint', {
+                name: formData.tag_name || 'tag_name',
+              })}
             </p>
             <Input
               id="tag-name"
@@ -124,14 +131,12 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
 
                 // Validate in real-time for spaces
                 if (value.includes(' ')) {
-                  setTagNameError(
-                    '标签名称不能包含空格。请使用下划线代替（例如：my_tag）'
-                  );
+                  setTagNameError(t('tagEdit.nameSpaceError'));
                 } else {
                   setTagNameError(null);
                 }
               }}
-              placeholder={'例如：bug_fix、test_plan、api_docs'}
+              placeholder={t('tagEdit.namePlaceholder')}
               disabled={saving}
               autoFocus
               aria-invalid={!!tagNameError}
@@ -143,10 +148,13 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
           </div>
           <div>
             <Label htmlFor="tag-content">
-              {'内容'} <span className="text-destructive">{'*'}</span>
+              {t('tagEdit.contentLabel')}{' '}
+              <span className="text-destructive">{'*'}</span>
             </Label>
             <p className="text-xs text-muted-foreground mb-1.5">
-              {`当您在任务描述中使用 #${formData.tag_name || 'tag_name'} 时将插入的文本`}
+              {t('tagEdit.contentHint', {
+                name: formData.tag_name || 'tag_name',
+              })}
             </p>
             <Textarea
               id="tag-content"
@@ -155,7 +163,7 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
                 const value = e.target.value;
                 setFormData({ ...formData, content: value });
               }}
-              placeholder={'输入使用此标签时将插入的文本'}
+              placeholder={t('tagEdit.contentPlaceholder')}
               rows={6}
               disabled={saving}
             />
@@ -164,14 +172,14 @@ const TagEditDialogImpl = NiceModal.create<TagEditDialogProps>(({ tag }) => {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel} disabled={saving}>
-            {'取消'}
+            {t('common:cancel')}
           </Button>
           <Button
             onClick={handleSave}
             disabled={saving || !!tagNameError || !formData.content.trim()}
           >
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isEditMode ? '更新' : '创建'}
+            {isEditMode ? t('tagEdit.update') : t('common:create')}
           </Button>
         </DialogFooter>
       </DialogContent>

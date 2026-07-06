@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ export type EditBranchNameDialogResult = {
 
 const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
   ({ attemptId, currentBranchName }) => {
+    const { t } = useTranslation(['dialogs', 'common']);
     const modal = useModal();
     const [branchName, setBranchName] = useState<string>(currentBranchName);
     const [error, setError] = useState<string | null>(null);
@@ -86,16 +88,16 @@ const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
       <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{'编辑分支名称'}</DialogTitle>
+            <DialogTitle>{t('editBranchName.title')}</DialogTitle>
             <DialogDescription>
-              {'输入分支的新名称。如果存在未关闭的 PR，则无法重命名。'}
+              {t('editBranchName.description')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="branch-name" className="text-sm font-medium">
-                {'分支名称'}
+                {t('editBranchName.branchNameLabel')}
               </label>
               <Input
                 id="branch-name"
@@ -110,7 +112,7 @@ const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
                     handleConfirm();
                   }
                 }}
-                placeholder={'例如：feature/my-branch'}
+                placeholder={t('editBranchName.placeholder')}
                 disabled={renameMutation.isPending}
                 autoFocus
               />
@@ -124,13 +126,15 @@ const EditBranchNameDialogImpl = NiceModal.create<EditBranchNameDialogProps>(
               onClick={handleCancel}
               disabled={renameMutation.isPending}
             >
-              {'取消'}
+              {t('common:cancel')}
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={renameMutation.isPending || !branchName.trim()}
             >
-              {renameMutation.isPending ? '重命名中...' : '重命名分支'}
+              {renameMutation.isPending
+                ? t('editBranchName.renaming')
+                : t('editBranchName.renameButton')}
             </Button>
           </DialogFooter>
         </DialogContent>

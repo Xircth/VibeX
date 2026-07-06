@@ -1,4 +1,5 @@
 import { Circle, Check, CircleDot, ChevronUp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useTodos } from '@/hooks/useTodos';
 import { Card } from '../ui/card';
@@ -17,6 +18,7 @@ function getStatusIcon(status?: string) {
 }
 
 function TodoPanel() {
+  const { t } = useTranslation(['tasks', 'common']);
   const { entries } = useEntries();
   const { todos } = useTodos(entries);
   const [isOpen, setIsOpen] = useState(() => {
@@ -38,7 +40,7 @@ function TodoPanel() {
     >
       <summary className="list-none cursor-pointer">
         <Card className="bg-muted p-3 text-sm flex items-center justify-between">
-          <span>{`待办事项（${todos.length}）`}</span>
+          <span>{t('todoPanel.title', { count: todos.length })}</span>
           <ChevronUp
             aria-hidden
             className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180"

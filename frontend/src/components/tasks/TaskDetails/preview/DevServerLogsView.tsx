@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Terminal, ChevronDown } from 'lucide-react';
 import ProcessLogsViewer from '../ProcessLogsViewer';
 import { getDevServerWorkingDir } from '@/lib/devServerUtils';
@@ -20,6 +21,7 @@ export function DevServerLogsView({
   height = 'h-60',
   showToggleText = true,
 }: DevServerLogsViewProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [activeProcessId, setActiveProcessId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,14 +53,18 @@ export function DevServerLogsView({
           <div className="flex items-center gap-2">
             <Terminal className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium text-foreground">
-              {'开发服务器日志'}
+              {t('devServerLogs.title')}
             </span>
           </div>
           <div className="flex items-center text-sm">
             <ChevronDown
               className={`h-4 w-4 mr-1 ${showToggleText ? 'transition-transform' : ''} ${showLogs ? '' : 'rotate-180'}`}
             />
-            {showToggleText ? (showLogs ? '隐藏' : '显示') : '隐藏'}
+            {showToggleText
+              ? showLogs
+                ? t('devServerLogs.hide')
+                : t('devServerLogs.show')
+              : t('devServerLogs.hide')}
           </div>
         </div>
       </summary>

@@ -1,1 +1,321 @@
-{}
+{
+  "sessionConversationView": {
+    "backToBottom": "Back to bottom",
+    "loadingSession": "Loading session..."
+  },
+  "hubListItem": {
+    "running": "Running",
+    "deleteSession": "Delete session",
+    "moveToSessionList": "Move to session list",
+    "forkSuccess": "Session forked",
+    "forkFailed": "Fork failed: {{error}}",
+    "forkSession": "Fork session",
+    "sessionFallback": "Session",
+    "exportAsMarkdown": "Export as Markdown",
+    "exportAsHtml": "Export as HTML"
+  },
+  "hubMonitor": {
+    "title": "Session Monitor",
+    "emptyHint": "Click a session on the left to open it in the right panel or the monitor area.",
+    "failed": "Failed",
+    "moveToExecutionArea": "Move to execution area",
+    "openInExecutionArea": "Open in execution area",
+    "cancelMonitor": "Cancel monitoring"
+  },
+  "sessionCreation": {
+    "submit": "Create Session",
+    "creationMethod": "Creation method",
+    "existingWorkspace": "Existing workspace",
+    "newWorkspace": "New workspace",
+    "workspaceBranch": "Workspace branch",
+    "newWorkspaceHint": "Create a new worktree workspace based on the target branch, then create a session in it.",
+    "sessionNameLabel": "Session name (optional)",
+    "sessionNamePlaceholder": "Auto-named from the first message if left blank",
+    "codingAgent": "Coding agent",
+    "creating": "Creating..."
+  },
+  "sessionHub": {
+    "updateStatusFailed": "Failed to update session status. Please try again later.",
+    "restoreArchivedFailed": "Failed to restore the archived session. Please try again later.",
+    "deleteSessionTitle": "Delete session",
+    "deleteSessionConfirm": "Delete session “{{name}}”? Sessions that are currently running will not be deleted.",
+    "deleteSelectedConfirm": "Delete the {{count}} selected sessions? Sessions that are currently running will not be deleted.",
+    "deleteSuccess": "Deleted {{count}} sessions.",
+    "deleteFailed": "Delete failed. Please try again later.",
+    "errorSeparator": "; "
+  },
+  "branchSelector": {
+    "current": "Current",
+    "remote": "Remote",
+    "selectBranch": "Select branch",
+    "cannotSelectCurrentBranch": "Cannot select the current branch",
+    "searchBranchesPlaceholder": "Search branches...",
+    "noBranchesFound": "No branches found"
+  },
+  "agentSelector": {
+    "selectAgentAriaLabel": "Select agent",
+    "noAgentsAvailable": "No agents available",
+    "notInstalledHint": "Not installed, please install it in Settings",
+    "notInstalled": "Not installed",
+    "manageAgents": "Manage Agents…"
+  },
+  "workspaceSelector": {
+    "currentProjectBranch": "Current project directory branch",
+    "nonWorktreeCheckout": "Not a Worktree; will checkout first when selected",
+    "selectBranchAriaLabel": "Select workspace branch",
+    "selectBranchPlaceholder": "Please select a workspace branch"
+  },
+  "codexModelSelector": {
+    "defaultLabel": "Default",
+    "modelLabel": "Model"
+  },
+  "configSelector": {
+    "label": "Configuration",
+    "selectAriaLabel": "Select configuration"
+  },
+  "repoSelector": {
+    "placeholder": "Select repository",
+    "noRepos": "No repositories available"
+  },
+  "pluginSelector": {
+    "default": "Default"
+  },
+  "permissionSelector": {
+    "auto": "Auto",
+    "ask": "Ask",
+    "plan": "Plan"
+  },
+  "repoBranchSelector": {
+    "baseBranch": "Base branch",
+    "loadingBranches": "Loading branches...",
+    "selectBranch": "Select branch"
+  },
+  "hubUtils": {
+    "statusTodo": "To Do",
+    "statusInProgress": "In Progress",
+    "statusInReview": "To Review",
+    "statusDone": "Done",
+    "sortByName": "Name",
+    "sortByTime": "Time",
+    "sortByStatus": "Status",
+    "unassignedExecutor": "No agent set"
+  },
+  "devServerLogs": {
+    "title": "Dev Server Logs",
+    "hide": "Hide",
+    "show": "Show"
+  },
+  "hubSidebar": {
+    "dragHereToArchive": "Drag here to archive",
+    "archiveArea": "Archive",
+    "sessionList": "Sessions",
+    "newSession": "New session",
+    "createSessionTitle": "Create session",
+    "createSessionFailed": "Failed to create session. Please try again later.",
+    "sort": "Sort",
+    "sortDefault": "Default order",
+    "sortName": "Name",
+    "sortTime": "Time",
+    "sortStatus": "Status",
+    "filter": "Filter",
+    "filterConditions": "Filters",
+    "clear": "Clear",
+    "workspace": "Workspace",
+    "codingAgent": "Coding agent",
+    "backToSessionList": "Back to sessions",
+    "openArchive": "Open archive",
+    "exitDeleteMode": "Exit delete mode",
+    "bulkDelete": "Bulk delete",
+    "sortChip": "Sort: {{label}}",
+    "workspaceChip": "Workspaces: {{count}}",
+    "agentChip": "Agents: {{count}}",
+    "restoreDefault": "Restore defaults",
+    "selectedCount": "{{count}} selected",
+    "selectSessionsToDelete": "Select sessions to delete",
+    "deleting": "Deleting...",
+    "deleteSelected": "Delete selected",
+    "loadingSessions": "Loading sessions...",
+    "archiveEmpty": "No archived sessions yet.",
+    "noSessions": "No sessions yet. Click \"New\" above to create one.",
+    "noFilterMatch": "No sessions match the current filters or sorting."
+  },
+  "todoPanel": {
+    "title": "Todos ({{count}})"
+  },
+  "previewToolbar": {
+    "refreshPreview": "Refresh preview",
+    "copyUrl": "Copy URL",
+    "openInNewTab": "Open in new tab",
+    "stopDevServer": "Stop dev server",
+    "clickToEditUrl": "Click to edit URL",
+    "resetToDetectedUrl": "Reset to detected URL"
+  },
+  "reasoningEffortSelector": {
+    "title": "Reasoning Depth",
+    "lowDescription": "Fast responses with lighter reasoning",
+    "mediumDescription": "Balances speed and reasoning depth, suitable for everyday tasks",
+    "highDescription": "Greater reasoning depth, suitable for complex problems",
+    "xhighDescription": "Maximum reasoning depth, suitable for complex problems"
+  },
+  "diffStatsBar": {
+    "currentTerminal": "Current terminal: {{executor}}"
+  },
+  "noServerContent": {
+    "startFailedTitle": "Failed to start dev server",
+    "title": "Start project dev server",
+    "descriptionWithScript": "You can start the dev server directly, or use the #start-project-dev-server tag in the session input to have the Agent handle the startup.",
+    "descriptionWithoutScript": "Enter a start command, or use the #start-project-dev-server tag in the session input to have the Agent handle the startup.",
+    "previewUrlLabel": "Preview URL",
+    "enterPreview": "Open preview",
+    "startCommandLabel": "Start command",
+    "saveAndStart": "Save and start",
+    "modifyCommand": "Edit command",
+    "stopDevServer": "Stop dev server",
+    "startDevServer": "Start dev server",
+    "settings": "Settings",
+    "fixStartScript": "Fix start script",
+    "companionDescription": "To enable click-to-locate components in the preview, install the VibeX Web Companion.",
+    "installingCompanion": "Installing Companion",
+    "installCompanion": "Install Companion",
+    "viewCompanionRepo": "View Companion repository"
+  },
+  "sessionModeSelector": {
+    "title": "Session Mode",
+    "fallbackLabel": "Mode"
+  },
+  "readyContent": {
+    "back": "Back",
+    "forward": "Forward",
+    "urlPlaceholder": "Enter URL...",
+    "copyUrl": "Copy URL",
+    "openInNewTab": "Open in new tab",
+    "refresh": "Refresh",
+    "selectElement": "Select element as content",
+    "toggleInspector": "Toggle inspector",
+    "stopDevServer": "Stop dev server",
+    "previewTitle": "Dev server preview"
+  },
+  "processesTab": {
+    "emptySelectAttempt": "Select an attempt to view execution processes.",
+    "realtimeUpdatesFailed": "Failed to load real-time process updates.",
+    "reconnecting": "Reconnecting...",
+    "loadingProcesses": "Loading execution processes...",
+    "noProcessesFound": "No execution processes found for this attempt.",
+    "processId": "Process ID: {{id}}",
+    "droppedTooltip": "Removed due to recovery: the timeline was restored to a checkpoint and subsequent executions were removed",
+    "dropped": "Removed",
+    "agentLabel": "Agent:",
+    "exitCode": "Exit: {{code}}",
+    "startedAt": "Started: {{time}}",
+    "completedAt": "Completed: {{time}}",
+    "processDetails": "Process Details",
+    "copied": "Copied!",
+    "copyLogs": "Copy Logs",
+    "backToList": "Back to List",
+    "loadingProcessDetails": "Loading process details...",
+    "loadProcessDetailsFailed": "Failed to load process details. Please try again."
+  },
+  "todoListButton": {
+    "title": "Task List",
+    "empty": "No tasks",
+    "titleWithCount": "Task List ({{count}})"
+  },
+  "messageQueue": {
+    "description": "Message queued. It will be sent automatically when the current run finishes.",
+    "editMessage": "Edit queued message",
+    "deleteMessage": "Delete queued message",
+    "moveUp": "Move queued message up",
+    "moveDown": "Move queued message down",
+    "singleQueueOnly": "Only a single queued message is supported for now"
+  },
+  "usageDashboard": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "daysAgo": "{{count}} days ago",
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} hr ago",
+    "trendFlat": "Flat 0%",
+    "trendUp": "Up",
+    "trendDown": "Down",
+    "tabOverview": "Overview",
+    "tabModels": "Models",
+    "tabSessions": "Sessions",
+    "tabPlan": "Plan",
+    "global": "Global",
+    "currentProject": "Current project",
+    "title": "Usage Statistics",
+    "noticeTag": "Note",
+    "pricingNoticeDefault": "Estimated using official pricing; Claude cache writes default to the 5-minute tier",
+    "range7d": "7d",
+    "range30d": "30d",
+    "rangeAll": "All",
+    "refresh": "Refresh",
+    "lastUpdated": "Last updated: {{time}}",
+    "updating": "Updating",
+    "providerScanFailed": "Some data sources failed to scan: {{providers}}",
+    "loading": "Loading...",
+    "noData": "No data",
+    "totalCost": "Total cost",
+    "totalSessions": "Total sessions",
+    "totalTokens": "Total tokens",
+    "avgPerSession": "Avg/session",
+    "dailyTrend": "Daily trend",
+    "daysCount": "{{count}} days",
+    "tokenComposition": "Token composition",
+    "tokenInput": "Input",
+    "tokenOutput": "Output",
+    "tokenCacheWrite": "Cache write",
+    "tokenCacheRead": "Cache read",
+    "topModels": "Top models",
+    "sessionsCount": "{{count}} sessions",
+    "byModelTitle": "By model",
+    "noModelData": "No model data",
+    "modelInput": "Input: {{value}}",
+    "modelOutput": "Output: {{value}}",
+    "modelTotalTokens": "Total tokens: {{value}}",
+    "avgCostPerSession": "Avg {{cost}}/session",
+    "sessionListTitle": "Session list ({{count}})",
+    "sortByCost": "By cost",
+    "sortByTime": "By time",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "tooltipCost": "Cost: {{cost}}",
+    "tooltipSessions": "{{count}} sessions"
+  },
+  "composerCompact": {
+    "unknownError": "Unknown error",
+    "startCompactFailed": "Failed to start context compaction: {{message}}"
+  },
+  "gitOperations": {
+    "merged": "Merged!",
+    "merging": "Merging...",
+    "merge": "Merge",
+    "rebased": "Rebased!",
+    "rebasing": "Rebasing...",
+    "rebase": "Rebase",
+    "rebasedBack": "Rebased Back!",
+    "rebasingBack": "Rebasing Back...",
+    "rebaseBack": "Rebase Back",
+    "pushed": "Pushed!",
+    "pushing": "Pushing...",
+    "push": "Push",
+    "createPR": "Create PR",
+    "notInWorktree": "Not currently in a worktree. Please switch the target branch manually.",
+    "rebaseCurrentWorktreeTitle": "Rebase Current Worktree",
+    "rebaseCurrentWorktreeDescription": "Select a target branch to rebase its latest changes onto the current worktree.",
+    "rebaseBackTitle": "Rebase Back to Target Branch",
+    "rebaseBackDescription": "Select a target branch. The system first rebases that branch's latest changes onto the current worktree, then merges the current worktree's changes back into the target branch.",
+    "conflict": "Conflict",
+    "openPR": "Open PR #{{number}}",
+    "commitsAhead": "+{{count}} commits ahead",
+    "commitsBehind": "{{count}} commits behind",
+    "upToDate": "Up to date",
+    "taskBranch": "Task Branch",
+    "current": "Current",
+    "targetBranch": "Target Branch",
+    "changeTargetBranch": "Change Target Branch",
+    "selectRepo": "Select Repository",
+    "branchStatusUnavailable": "Unable to fetch branch status. You can still change the target branch."
+  }
+}

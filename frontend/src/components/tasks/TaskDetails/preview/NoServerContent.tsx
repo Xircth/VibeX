@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ExternalLink,
@@ -44,6 +45,7 @@ export function NoServerContent({
   startError = null,
   onPreviewUrlSubmit,
 }: NoServerContentProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
   const { data: projectRepos = [] } = useProjectRepos(project?.id);
   const [scriptInput, setScriptInput] = useState('');
@@ -100,25 +102,27 @@ export function NoServerContent({
         <div className="space-y-4">
           {startError ? (
             <Alert variant="destructive" className="text-left text-sm">
-              <p className="font-medium">开发服务器启动失败</p>
+              <p className="font-medium">
+                {t('noServerContent.startFailedTitle')}
+              </p>
               <p>{startError}</p>
             </Alert>
           ) : null}
 
           <div>
             <h3 className="mb-2 text-lg font-medium text-foreground">
-              启动项目开发服务器
+              {t('noServerContent.title')}
             </h3>
             <p className="text-sm text-muted-foreground">
               {projectHasDevScript
-                ? '你可以直接启动开发服务器，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。'
-                : '请输入启动命令，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。'}
+                ? t('noServerContent.descriptionWithScript')
+                : t('noServerContent.descriptionWithoutScript')}
             </p>
           </div>
 
           <div className="space-y-3 text-left">
             <label className="text-sm font-medium text-foreground">
-              预览 URL
+              {t('noServerContent.previewUrlLabel')}
             </label>
             <div className="flex gap-2">
               <input
@@ -136,7 +140,7 @@ export function NoServerContent({
                 onClick={handleOpenPreviewUrl}
                 disabled={!previewUrlInput.trim()}
               >
-                进入预览
+                {t('noServerContent.enterPreview')}
               </Button>
             </div>
           </div>
@@ -144,7 +148,7 @@ export function NoServerContent({
           {!projectHasDevScript && !runningDevServer ? (
             <div className="space-y-3 text-left">
               <label className="text-sm font-medium text-foreground">
-                启动命令
+                {t('noServerContent.startCommandLabel')}
               </label>
               <input
                 type="text"
@@ -161,7 +165,7 @@ export function NoServerContent({
                   className="gap-1"
                 >
                   <Play className="h-4 w-4" />
-                  保存并启动
+                  {t('noServerContent.saveAndStart')}
                 </Button>
                 <Button
                   size="sm"
@@ -171,7 +175,7 @@ export function NoServerContent({
                   className="gap-1"
                 >
                   <Settings className="h-4 w-4" />
-                  修改命令
+                  {t('noServerContent.modifyCommand')}
                 </Button>
               </div>
             </div>
@@ -195,12 +199,12 @@ export function NoServerContent({
                 {runningDevServer ? (
                   <>
                     <Square className="h-4 w-4" />
-                    停止开发服务器
+                    {t('noServerContent.stopDevServer')}
                   </>
                 ) : (
                   <>
                     <Play className="h-4 w-4" />
-                    启动开发服务器
+                    {t('noServerContent.startDevServer')}
                   </>
                 )}
               </Button>
@@ -213,7 +217,7 @@ export function NoServerContent({
                   className="gap-1"
                 >
                   <Settings className="h-3 w-3" />
-                  设置
+                  {t('noServerContent.settings')}
                 </Button>
               ) : null}
 
@@ -225,7 +229,7 @@ export function NoServerContent({
                   className="gap-1"
                 >
                   <Wrench className="h-4 w-4" />
-                  修复启动脚本
+                  {t('noServerContent.fixStartScript')}
                 </Button>
               ) : null}
             </div>
@@ -233,7 +237,7 @@ export function NoServerContent({
 
           <div className="space-y-4 border-t border-border pt-6">
             <p className="text-sm text-muted-foreground">
-              如果需要在预览中启用点击组件定位，请安装 VibeX Web Companion。
+              {t('noServerContent.companionDescription')}
             </p>
             <div className="space-y-2">
               <Button
@@ -246,10 +250,10 @@ export function NoServerContent({
                 {isInstallingCompanion ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    正在安装 Companion
+                    {t('noServerContent.installingCompanion')}
                   </>
                 ) : (
-                  '安装 Companion'
+                  t('noServerContent.installCompanion')
                 )}
               </Button>
               <div>
@@ -260,7 +264,7 @@ export function NoServerContent({
                   className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
-                  查看 Companion 仓库
+                  {t('noServerContent.viewCompanionRepo')}
                 </a>
               </div>
             </div>

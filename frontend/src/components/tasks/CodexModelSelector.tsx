@@ -1,4 +1,5 @@
 import { ChevronDown, Cpu, Zap } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -47,10 +48,11 @@ export function CodexModelSelector({
   iconOnly = false,
   dropdownSide = 'bottom',
 }: CodexModelSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const current = options.find((option) => option.value === value) ??
     options[0] ?? {
       value: null,
-      label: '默认',
+      label: t('codexModelSelector.defaultLabel'),
     };
 
   return (
@@ -90,7 +92,7 @@ export function CodexModelSelector({
         avoidCollisions={false}
         className="min-w-[220px]"
       >
-        <DropdownMenuLabel>模型</DropdownMenuLabel>
+        <DropdownMenuLabel>{t('codexModelSelector.modelLabel')}</DropdownMenuLabel>
         {fastMode ? (
           <div className="px-1 pb-1">
             <TooltipProvider delayDuration={200}>

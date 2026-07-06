@@ -1,4 +1,5 @@
 import { AlertCircle, PanelRightOpen, Rows2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -28,6 +29,7 @@ export function SessionHubMonitor({
   onOpenInExecutionArea,
   onCancelMonitor,
 }: SessionHubMonitorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const monitorGridClassName = getMonitorGridClassName(monitorRecords.length);
 
   return (
@@ -35,7 +37,7 @@ export function SessionHubMonitor({
       <div className="session-hub-monitor-inner flex min-h-0 flex-1 flex-col">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
           <Rows2 className="h-4 w-4" />
-          <span>会话监控区</span>
+          <span>{t('hubMonitor.title')}</span>
           {monitorRecords.length > 0 ? (
             <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
               {monitorRecords.length} / 4
@@ -45,7 +47,7 @@ export function SessionHubMonitor({
 
         {monitorRecords.length === 0 ? (
           <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-[var(--surface-content)] px-6 text-center text-sm text-muted-foreground">
-            点击左侧会话即可在右侧栏或监控区中展开。
+            {t('hubMonitor.emptyHint')}
           </div>
         ) : (
           <div
@@ -75,7 +77,7 @@ export function SessionHubMonitor({
                       {session.isErrored ? (
                         <span className="session-monitor-error-badge inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none">
                           <AlertCircle className="h-3 w-3" />
-                          失败
+                          {t('hubMonitor.failed')}
                         </span>
                       ) : null}
                       <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -92,7 +94,7 @@ export function SessionHubMonitor({
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 rounded-full text-muted-foreground hover:bg-background/40 hover:text-foreground"
-                          aria-label="移入执行区"
+                          aria-label={t('hubMonitor.moveToExecutionArea')}
                           onClick={(event) => {
                             event.stopPropagation();
                             onOpenInExecutionArea(session);
@@ -103,8 +105,8 @@ export function SessionHubMonitor({
                       </TooltipTrigger>
                       <TooltipContent>
                         {canUseRightPanelForSessions
-                          ? '移入执行区'
-                          : '在执行区打开'}
+                          ? t('hubMonitor.moveToExecutionArea')
+                          : t('hubMonitor.openInExecutionArea')}
                       </TooltipContent>
                     </Tooltip>
 
@@ -115,7 +117,7 @@ export function SessionHubMonitor({
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 rounded-full text-muted-foreground hover:bg-background/40 hover:text-foreground"
-                          aria-label="取消监控"
+                          aria-label={t('hubMonitor.cancelMonitor')}
                           onClick={(event) => {
                             event.stopPropagation();
                             onCancelMonitor(session);
@@ -124,7 +126,7 @@ export function SessionHubMonitor({
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>取消监控</TooltipContent>
+                      <TooltipContent>{t('hubMonitor.cancelMonitor')}</TooltipContent>
                     </Tooltip>
                   </div>
                 </div>

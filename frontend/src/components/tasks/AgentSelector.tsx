@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Bot, ArrowDown, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,6 +34,7 @@ export function AgentSelector({
   iconOnly = false,
   dropdownSide = 'bottom',
 }: AgentSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const selectable = useSelectableAgents();
   const agents = useMemo(() => {
     // agent -> installed. Disabled agents are dropped so they never appear.
@@ -69,7 +71,7 @@ export function AgentSelector({
             size="sm"
             className={`${iconOnly ? 'h-7 w-7 px-0 justify-center gap-0 border-0 shadow-none' : 'w-full justify-between'} text-xs ${className}`}
             disabled={disabled}
-            aria-label="选择代理"
+            aria-label={t('agentSelector.selectAgentAriaLabel')}
             title={selectedAgentLabel}
           >
             <div
@@ -100,7 +102,7 @@ export function AgentSelector({
         >
           {agents.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground text-center">
-              暂无可用代理
+              {t('agentSelector.noAgentsAvailable')}
             </div>
           ) : (
             agents.map(({ agent, installed }) =>
@@ -122,14 +124,14 @@ export function AgentSelector({
                   key={agent}
                   disabled
                   className="justify-between"
-                  title="未安装，请在设置中安装"
+                  title={t('agentSelector.notInstalledHint')}
                 >
                   <span className="flex items-center gap-2">
                     <AgentIcon agent={agent} className="h-3.5 w-3.5" />
                     {getAgentName(agent)}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
-                    未安装
+                    {t('agentSelector.notInstalled')}
                   </span>
                 </DropdownMenuItem>
               )
@@ -142,7 +144,7 @@ export function AgentSelector({
           >
             <span className="flex items-center gap-2">
               <Settings2 className="h-3.5 w-3.5" />
-              管理 Agent…
+              {t('agentSelector.manageAgents')}
             </span>
           </DropdownMenuItem>
         </DropdownMenuContent>

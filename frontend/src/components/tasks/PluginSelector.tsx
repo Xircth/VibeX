@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,13 +24,14 @@ function PluginSelectorInner({
   disabled,
   className,
 }: PluginSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const { settings } = useClaudeSettings();
   const pluginsMap = settings?.enabled_plugins ?? {};
   const plugins = Object.entries(pluginsMap)
     .filter(([, enabled]) => enabled)
     .map(([name]) => name);
 
-  const displayName = value ?? '默认';
+  const displayName = value ?? t('pluginSelector.default');
 
   return (
     <DropdownMenu>
@@ -54,7 +56,7 @@ function PluginSelectorInner({
           onClick={() => onChange(null)}
           className={value === null ? 'bg-accent' : ''}
         >
-          默认
+          {t('pluginSelector.default')}
         </DropdownMenuItem>
         {plugins.map((plugin) => (
           <DropdownMenuItem

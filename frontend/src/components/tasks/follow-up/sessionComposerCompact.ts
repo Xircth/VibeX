@@ -1,5 +1,7 @@
 import type { ExecutorProfileId } from 'shared/types';
 
+import i18n from '@/i18n';
+
 export const CONTEXT_COMPACT_PROMPT = '/compact';
 
 export function buildCompactContextTurnInput({
@@ -39,6 +41,9 @@ export function getIsCompactingContext({
 }
 
 export function getCompactContextErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : '未知错误';
-  return `启动上下文压缩失败：${message}`;
+  const message =
+    error instanceof Error
+      ? error.message
+      : i18n.t('tasks:composerCompact.unknownError');
+  return i18n.t('tasks:composerCompact.startCompactFailed', { message });
 }

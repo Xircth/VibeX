@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button.tsx';
 import { ChevronsUpDown, FolderGit } from 'lucide-react';
 import {
@@ -26,9 +27,10 @@ function RepoSelector({
   className = '',
   disabled = false,
 }: Props) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [open, setOpen] = useState(false);
 
-  const effectivePlaceholder = placeholder ?? '选择仓库';
+  const effectivePlaceholder = placeholder ?? t('repoSelector.placeholder');
 
   const selectedRepo = repos.find((r) => r.id === selectedRepoId);
 
@@ -70,7 +72,7 @@ function RepoSelector({
       >
         {repos.length === 0 ? (
           <div className="p-2 text-sm text-muted-foreground text-center">
-            {'没有可用的仓库'}
+            {t('repoSelector.noRepos')}
           </div>
         ) : (
           repos.map((repo) => {

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, Loader2 } from 'lucide-react';
@@ -248,6 +249,7 @@ function KanbanSessionConversationContent({
   }) => void;
   onCreateSessionRequested?: () => void;
 }) {
+  const { t } = useTranslation(['tasks', 'common']);
   const logsRef = useRef<VirtualizedListRef | null>(null);
   const [isAtConversationBottom, setIsAtConversationBottom] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -314,8 +316,8 @@ function KanbanSessionConversationContent({
                   <button
                     type="button"
                     className="tahoe-popover pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full text-foreground/80 transition-colors hover:text-foreground"
-                    aria-label={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
-                    title={'\u56de\u5230\u6d88\u606f\u5e95\u90e8'}
+                    aria-label={t('sessionConversationView.backToBottom')}
+                    title={t('sessionConversationView.backToBottom')}
                     onClick={() => logsRef.current?.scrollToBottom()}
                   >
                     <ChevronDown className="h-4 w-4" />
@@ -356,6 +358,7 @@ function KanbanSessionConversationSurface({
   onCreateSessionRequested,
   className,
 }: KanbanSessionConversationSurfaceProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const { data: workspace, isLoading: isWorkspaceLoading } =
     useQuery<Workspace>({
       queryKey: ['taskAttempt', workspaceId],
@@ -394,7 +397,7 @@ function KanbanSessionConversationSurface({
       <div className={`relative ${className ?? ''}`}>
         <div className="tahoe-popover pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          <span>正在加载会话...</span>
+          <span>{t('sessionConversationView.loadingSession')}</span>
         </div>
       </div>
     );

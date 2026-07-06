@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import type {
   RepoBranchStatus,
@@ -55,6 +56,7 @@ function GitOperations({
   selectedBranch,
   layout = 'horizontal',
 }: GitOperationsProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const { repos, selectedRepoId, setSelectedRepoId } = useAttemptRepo(
     selectedAttempt.id
   );
@@ -185,29 +187,33 @@ function GitOperations({
   }, [getSelectedRepoStatus]);
 
   const mergeButtonLabel = useMemo(() => {
-    if (mergeSuccess) return '已合并！';
-    if (merging) return '合并中...';
-    return '合并';
-  }, [mergeSuccess, merging]);
+    if (mergeSuccess) return t('gitOperations.merged');
+    if (merging) return t('gitOperations.merging');
+    return t('gitOperations.merge');
+  }, [mergeSuccess, merging, t]);
 
   const rebaseButtonLabel = useMemo(() => {
-    if (rebaseSuccess) return '已变基！';
-    if (rebasing) return '变基中...';
-    return '变基';
-  }, [rebaseSuccess, rebasing]);
+    if (rebaseSuccess) return t('gitOperations.rebased');
+    if (rebasing) return t('gitOperations.rebasing');
+    return t('gitOperations.rebase');
+  }, [rebaseSuccess, rebasing, t]);
 
   const rebaseBackButtonLabel = useMemo(() => {
-    if (rebaseBackSuccess) return '已回基！';
-    if (rebasingBack) return '回基中...';
-    return '回基';
-  }, [rebaseBackSuccess, rebasingBack]);
+    if (rebaseBackSuccess) return t('gitOperations.rebasedBack');
+    if (rebasingBack) return t('gitOperations.rebasingBack');
+    return t('gitOperations.rebaseBack');
+  }, [rebaseBackSuccess, rebasingBack, t]);
 
   const prButtonLabel = useMemo(() => {
     if (mergeInfo.hasOpenPR) {
-      return pushSuccess ? '已推送！' : pushing ? '推送中...' : '推送';
+      return pushSuccess
+        ? t('gitOperations.pushed')
+        : pushing
+          ? t('gitOperations.pushing')
+          : t('gitOperations.push');
     }
-    return '创建 PR';
-  }, [mergeInfo.hasOpenPR, pushSuccess, pushing]);
+    return t('gitOperations.createPR');
+  }, [mergeInfo.hasOpenPR, pushSuccess, pushing, t]);
 
   const handleMergeClick = async () => {
     // Directly perform merge without checking branch status
@@ -265,7 +271,7 @@ function GitOperations({
 
   const handleRebaseDialogOpen = async () => {
     if (!selectedAttempt.use_worktree) {
-      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      setError(t('gitOperations.notInWorktree'));
       return;
     }
 
@@ -275,10 +281,9 @@ function GitOperations({
         branches,
         isRebasing: rebasing,
         initialTargetBranch: defaultTargetBranch,
-        title: '变基当前 Worktree',
-        description:
-          '选择一个目标分支，将该分支的最新更改变基到当前 Worktree。',
-        confirmLabel: '变基',
+        title: t('gitOperations.rebaseCurrentWorktreeTitle'),
+        description: t('gitOperations.rebaseCurrentWorktreeDescription'),
+        confirmLabel: t('gitOperations.rebase'),
       });
       if (result.action === 'confirmed' && result.branchName) {
         await handleRebaseToTargetBranch(result.branchName);
@@ -293,7 +298,7 @@ function GitOperations({
 
   const handleRebaseBack = async () => {
     if (!selectedAttempt.use_worktree) {
-      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      setError(t('gitOperations.notInWorktree'));
       return;
     }
 
@@ -302,10 +307,9 @@ function GitOperations({
       branches,
       isRebasing: rebasingBack,
       initialTargetBranch: defaultTargetBranch,
-      title: '回基到目标分支',
-      description:
-        '选择一个目标分支。系统会先将该分支的最新更改变基到当前 Worktree，再把当前 Worktree 的更改合并回目标分支。',
-      confirmLabel: '回基',
+      title: t('gitOperations.rebaseBackTitle'),
+      description: t('gitOperations.rebaseBackDescription'),
+      confirmLabel: t('gitOperations.rebaseBack'),
     });
 
     if (result.action !== 'confirmed' || !result.branchName) {
@@ -374,7 +378,7 @@ function GitOperations({
           return (
             <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning)/0.12)] px-2 py-0.5 text-[hsl(var(--warning))]">
               <AlertTriangle className="h-3.5 w-3.5" />
-              {'冲突'}
+              {t('gitOperations.conflict')}
             </span>
           );
         }
@@ -383,7 +387,7 @@ function GitOperations({
           return (
             <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning)/0.12)] px-2 py-0.5 text-[hsl(var(--warning))]">
               <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              {'变基中...'}
+              {t('gitOperations.rebasing')}
             </span>
           );
         }
@@ -392,7 +396,7 @@ function GitOperations({
           return (
             <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--success)/0.12)] px-2 py-0.5 text-[hsl(var(--success))]">
               <CheckCircle className="h-3.5 w-3.5" />
-              {'已合并！'}
+              {t('gitOperations.merged')}
             </span>
           );
         }
@@ -403,7 +407,9 @@ function GitOperations({
             <button
               onClick={() => window.open(prMerge.pr_info.url, '_blank')}
               className="inline-flex max-w-[180px] items-center gap-1 truncate rounded-full bg-[hsl(var(--info)/0.12)] px-2 py-0.5 text-[hsl(var(--info))] hover:underline sm:max-w-none"
-              aria-label={`打开 PR #${Number(prMerge.pr_info.number)}`}
+              aria-label={t('gitOperations.openPR', {
+                number: Number(prMerge.pr_info.number),
+              })}
             >
               <GitPullRequest className="h-3.5 w-3.5" />
               {`PR #${Number(prMerge.pr_info.number)}`}
@@ -419,7 +425,7 @@ function GitOperations({
               key="ahead"
               className="hidden items-center gap-1 rounded-full bg-[hsl(var(--success)/0.12)] px-2 py-0.5 text-[hsl(var(--success))] sm:inline-flex"
             >
-              +{commitsAhead} {'提交'} {'领先'}
+              {t('gitOperations.commitsAhead', { count: commitsAhead })}
             </span>
           );
         }
@@ -429,7 +435,7 @@ function GitOperations({
               key="behind"
               className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning)/0.12)] px-2 py-0.5 text-[hsl(var(--warning))]"
             >
-              {commitsBehind} {'提交'} {'落后'}
+              {t('gitOperations.commitsBehind', { count: commitsBehind })}
             </span>
           );
         }
@@ -438,7 +444,7 @@ function GitOperations({
 
         return (
           <span className="text-muted-foreground hidden sm:inline">
-            {'最新'}
+            {t('gitOperations.upToDate')}
           </span>
         );
       })()}
@@ -456,7 +462,9 @@ function GitOperations({
               <span className="truncate">{selectedAttempt.branch}</span>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom">{'任务分支'}</TooltipContent>
+          <TooltipContent side="bottom">
+            {t('gitOperations.taskBranch')}
+          </TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -472,11 +480,13 @@ function GitOperations({
                 <span className="truncate">
                   {getSelectedRepoStatus()?.target_branch_name ||
                     selectedBranch ||
-                    '当前'}
+                    t('gitOperations.current')}
                 </span>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'目标分支'}</TooltipContent>
+            <TooltipContent side="bottom">
+            {t('gitOperations.targetBranch')}
+          </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -489,12 +499,14 @@ function GitOperations({
                 onClick={handleChangeTargetBranchDialogOpen}
                 disabled={isAttemptRunning || hasConflictsCalculated}
                 className={settingsBtnClasses}
-                aria-label={'更改目标分支'}
+                aria-label={t('gitOperations.changeTargetBranch')}
               >
                 <Settings className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'更改目标分支'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('gitOperations.changeTargetBranch')}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
@@ -512,7 +524,7 @@ function GitOperations({
                 selectedRepoId={getSelectedRepoId() ?? null}
                 onRepoSelect={setSelectedRepoId}
                 disabled={isAttemptRunning}
-                placeholder={'选择仓库'}
+                placeholder={t('gitOperations.selectRepo')}
               />
             )}
             <div className="flex flex-wrap items-center gap-2 min-w-0">
@@ -528,7 +540,7 @@ function GitOperations({
                 selectedRepoId={getSelectedRepoId() ?? null}
                 onRepoSelect={setSelectedRepoId}
                 disabled={isAttemptRunning}
-                placeholder={'选择仓库'}
+                placeholder={t('gitOperations.selectRepo')}
                 className="w-auto max-w-[200px] rounded-full bg-muted border-0 h-6 px-2 py-0.5 text-xs font-medium"
               />
             )}
@@ -545,7 +557,7 @@ function GitOperations({
         {branchStatusError && !selectedRepoStatus ? (
           <div className="flex items-center gap-2 text-xs text-destructive">
             <AlertTriangle className="h-3.5 w-3.5" />
-            <span>{'无法获取分支状态。您仍然可以更改目标分支。'}</span>
+            <span>{t('gitOperations.branchStatusUnavailable')}</span>
           </div>
         ) : selectedRepoStatus ? (
           <div className={actionsClasses}>

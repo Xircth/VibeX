@@ -1,4 +1,5 @@
 import { ChevronsRight, Hand, ListTodo, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -19,9 +20,13 @@ interface PermissionSelectorProps {
 }
 
 const MODES = [
-  { value: 'auto' as const, label: '自动', icon: ChevronsRight },
-  { value: 'ask' as const, label: '询问', icon: Hand },
-  { value: 'plan' as const, label: '计划', icon: ListTodo },
+  {
+    value: 'auto' as const,
+    labelKey: 'permissionSelector.auto',
+    icon: ChevronsRight,
+  },
+  { value: 'ask' as const, labelKey: 'permissionSelector.ask', icon: Hand },
+  { value: 'plan' as const, labelKey: 'permissionSelector.plan', icon: ListTodo },
 ] as const;
 
 export function PermissionSelector({
@@ -31,6 +36,7 @@ export function PermissionSelector({
   className,
   modes,
 }: PermissionSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const availableModes = modes
     ? MODES.filter((mode) => modes.includes(mode.value))
     : MODES;
@@ -68,7 +74,7 @@ export function PermissionSelector({
               className={value === mode.value ? 'bg-accent' : ''}
             >
               <ModeIcon className="h-3.5 w-3.5 mr-2" />
-              {mode.label}
+              {t(mode.labelKey)}
             </DropdownMenuItem>
           );
         })}

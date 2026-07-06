@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Settings2, ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,6 +32,7 @@ export function ConfigSelector({
   iconOnly = false,
   dropdownSide = 'bottom',
 }: ConfigSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const selectedAgent = selectedExecutorProfile?.executor;
   const configs = selectedAgent && profiles ? profiles[selectedAgent] : null;
   const configOptions = getVariantOptions(selectedAgent, profiles);
@@ -49,7 +51,7 @@ export function ConfigSelector({
     <div className={iconOnly ? 'shrink-0' : 'flex-1'}>
       {showLabel ? (
         <Label htmlFor="executor-variant" className="text-sm font-medium">
-          配置
+          {t('configSelector.label')}
         </Label>
       ) : null}
       <DropdownMenu modal={false}>
@@ -59,7 +61,7 @@ export function ConfigSelector({
             size="sm"
             className={`${iconOnly ? 'h-7 w-7 px-0 justify-center gap-0 border-0 shadow-none' : 'w-full justify-between'} text-xs ${showLabel ? 'mt-1.5' : ''} ${className}`}
             disabled={disabled}
-            aria-label="选择配置"
+            aria-label={t('configSelector.selectAriaLabel')}
             title={selectedVariant}
           >
             <div className="flex items-center gap-1.5 w-full">

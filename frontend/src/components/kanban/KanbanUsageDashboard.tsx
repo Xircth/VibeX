@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   RefreshCw,
   CreditCard,
@@ -85,6 +86,7 @@ function getUsageStatisticsQueryOptions(target: string, dateRange: DateRange) {
 }
 
 export function KanbanUsageDashboard() {
+  const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
   const { projectId } = useProject();
   const { projects } = useProjects();
@@ -162,15 +164,15 @@ export function KanbanUsageDashboard() {
     const diffMs = now.getTime() - date.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return '今天';
-    if (diffDays === 1) return '昨天';
-    if (diffDays < 7) return `${diffDays}天前`;
+    if (diffDays === 0) return t('usageDashboard.today');
+    if (diffDays === 1) return t('usageDashboard.yesterday');
+    if (diffDays < 7) return t('usageDashboard.daysAgo', { count: diffDays });
 
     return date.toLocaleDateString('zh-CN', {
       month: 'short',
       day: 'numeric',
     });
-  }, []);
+  }, [t]);
 
   const formatRelativeTime = useCallback(
     (timestamp: number): string => {
@@ -180,32 +182,45 @@ export function KanbanUsageDashboard() {
       const diffMin = Math.floor(diffSec / 60);
       const diffHour = Math.floor(diffMin / 60);
 
-      if (diffSec < 60) return '刚刚';
-      if (diffMin < 60) return `${diffMin}分钟前`;
-      if (diffHour < 24) return `${diffHour}小时前`;
+      if (diffSec < 60) return t('usageDashboard.justNow');
+      if (diffMin < 60) return t('usageDashboard.minutesAgo', { count: diffMin });
+      if (diffHour < 24)
+        return t('usageDashboard.hoursAgo', { count: diffHour });
 
       return formatDate(timestamp);
     },
-    [formatDate]
+    [formatDate, t]
   );
 
-  const renderTrend = useCallback((value: number) => {
-    if (value === 0) {
-      return <span className="text-[10px] text-muted-foreground">持平 0%</span>;
-    }
+  const renderTrend = useCallback(
+    (value: number) => {
+      if (value === 0) {
+        return (
+          <span className="text-[10px] text-muted-foreground">
+            {t('usageDashboard.trendFlat')}
+          </span>
+        );
+      }
 
-    const isUp = value > 0;
-    return (
-      <span
-        className={cn(
-          'text-[10px] font-medium',
-          isUp ? 'text-[hsl(var(--destructive))]' : 'text-[hsl(var(--success))]'
-        )}
-      >
-        {isUp ? '上涨' : '下降'} {Math.abs(value).toFixed(1)}%
-      </span>
-    );
-  }, []);
+      const isUp = value > 0;
+      return (
+        <span
+          className={cn(
+            'text-[10px] font-medium',
+            isUp
+              ? 'text-[hsl(var(--destructive))]'
+              : 'text-[hsl(var(--success))]'
+          )}
+        >
+          {isUp
+            ? t('usageDashboard.trendUp')
+            : t('usageDashboard.trendDown')}{' '}
+          {Math.abs(value).toFixed(1)}%
+        </span>
+      );
+    },
+    [t]
+  );
 
   const filteredSessions = useMemo(() => {
     const source = statistics?.sessions ?? [];
@@ -267,25 +282,25 @@ export function KanbanUsageDashboard() {
   const tabs = [
     {
       key: 'overview' as UsageTab,
-      label: '概览',
+      label: t('usageDashboard.tabOverview'),
       icon: TrendingUp,
       activeColor: 'is-active',
     },
     {
       key: 'models' as UsageTab,
-      label: '模型',
+      label: t('usageDashboard.tabModels'),
       icon: Hash,
       activeColor: 'is-active',
     },
     {
       key: 'sessions' as UsageTab,
-      label: '会话',
+      label: t('usageDashboard.tabSessions'),
       icon: List,
       activeColor: 'is-active',
     },
     {
       key: 'plan' as UsageTab,
-      label: '套餐',
+      label: t('usageDashboard.tabPlan'),
       icon: Package,
       activeColor: 'is-active',
     },
@@ -293,9 +308,9 @@ export function KanbanUsageDashboard() {
 
   const selectedProjectName =
     selectedTarget === 'global'
-      ? '全局'
+      ? t('usageDashboard.global')
       : (projects.find((project) => `project:${project.id}` === selectedTarget)
-          ?.name ?? '当前项目');
+          ?.name ?? t('usageDashboard.currentProject'));
 
   const topModels = statistics?.by_model.slice(0, 5) ?? [];
 
@@ -304,15 +319,17 @@ export function KanbanUsageDashboard() {
       <div className="flex shrink-0 items-center gap-3 px-4 py-2">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-base font-semibold text-foreground">计量统计</h2>
+          <h2 className="text-base font-semibold text-foreground">
+            {t('usageDashboard.title')}
+          </h2>
         </div>
 
         {noticeVisible && activeTab !== 'plan' ? (
           <div className="kanban-usage-message-warning flex items-center gap-1.5 rounded-md px-2 py-1 text-xs">
-            <span className="text-[10px]">提示</span>
+            <span className="text-[10px]">{t('usageDashboard.noticeTag')}</span>
             <span>
               {statistics?.pricing_notice ??
-                '按官方定价估算，Claude 缓存写入默认按 5 分钟档处理'}
+                t('usageDashboard.pricingNoticeDefault')}
             </span>
             <button
               type="button"
@@ -339,7 +356,7 @@ export function KanbanUsageDashboard() {
                 }}
                 className="h-7 appearance-none rounded-lg border border-border bg-background px-3 pr-7 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="global">全局</option>
+                <option value="global">{t('usageDashboard.global')}</option>
                 {projects.map((project) => (
                   <option key={project.id} value={`project:${project.id}`}>
                     {project.name}
@@ -366,7 +383,11 @@ export function KanbanUsageDashboard() {
                     });
                   }}
                 >
-                  {range === '7d' ? '7天' : range === '30d' ? '30天' : '全部'}
+                  {range === '7d'
+                    ? t('usageDashboard.range7d')
+                    : range === '30d'
+                      ? t('usageDashboard.range30d')
+                      : t('usageDashboard.rangeAll')}
                 </button>
               ))}
             </div>
@@ -376,7 +397,7 @@ export function KanbanUsageDashboard() {
               onClick={() => void statisticsQuery.refetch()}
               disabled={statisticsQuery.isFetching}
               className="rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-              title="刷新"
+              title={t('usageDashboard.refresh')}
             >
               <RefreshCw
                 className={cn(
@@ -422,7 +443,9 @@ export function KanbanUsageDashboard() {
                 <>
                   <span className="text-border">•</span>
                   <span>
-                    最后更新：{formatRelativeTime(statistics.last_updated)}
+                    {t('usageDashboard.lastUpdated', {
+                      time: formatRelativeTime(statistics.last_updated),
+                    })}
                   </span>
                 </>
               ) : null}
@@ -431,7 +454,7 @@ export function KanbanUsageDashboard() {
                   <span className="text-border">•</span>
                   <span className="flex items-center gap-1">
                     <RefreshCw className="h-3 w-3 animate-spin" />
-                    更新中
+                    {t('usageDashboard.updating')}
                   </span>
                 </>
               ) : null}
@@ -440,8 +463,9 @@ export function KanbanUsageDashboard() {
 
           {activeTab !== 'plan' && failedProviders.length > 0 ? (
             <div className="kanban-usage-message-error mb-4 rounded-lg px-4 py-2.5 text-sm">
-              部分数据源扫描失败：
-              {failedProviders.map((p) => p.provider).join(', ')}
+              {t('usageDashboard.providerScanFailed', {
+                providers: failedProviders.map((p) => p.provider).join(', '),
+              })}
             </div>
           ) : null}
 
@@ -454,14 +478,14 @@ export function KanbanUsageDashboard() {
           {activeTab !== 'plan' && loading ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <RefreshCw className="mr-2 h-5 w-5 animate-spin" />
-              <span className="text-base">加载中...</span>
+              <span className="text-base">{t('usageDashboard.loading')}</span>
             </div>
           ) : null}
 
           {activeTab !== 'plan' && !loading && !statistics && !error ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <BarChart3 className="mb-3 h-10 w-10 opacity-50" />
-              <p className="text-base">暂无数据</p>
+              <p className="text-base">{t('usageDashboard.noData')}</p>
             </div>
           ) : null}
 
@@ -473,7 +497,7 @@ export function KanbanUsageDashboard() {
                     <div className="mb-2 flex items-center gap-2">
                       <CreditCard className="h-5 w-5 text-primary" />
                       <span className="text-sm text-muted-foreground">
-                        总费用
+                        {t('usageDashboard.totalCost')}
                       </span>
                     </div>
                     <div className="text-2xl font-bold text-foreground">
@@ -488,7 +512,7 @@ export function KanbanUsageDashboard() {
                     <div className="mb-2 flex items-center gap-2">
                       <MessageSquare className="h-5 w-5 text-[hsl(var(--success))]" />
                       <span className="text-sm text-muted-foreground">
-                        总会话
+                        {t('usageDashboard.totalSessions')}
                       </span>
                     </div>
                     <div className="text-2xl font-bold text-foreground">
@@ -505,7 +529,7 @@ export function KanbanUsageDashboard() {
                     <div className="mb-2 flex items-center gap-2">
                       <Hash className="h-5 w-5 text-[hsl(var(--status-running))]" />
                       <span className="text-sm text-muted-foreground">
-                        总 Token
+                        {t('usageDashboard.totalTokens')}
                       </span>
                     </div>
                     <div className="text-2xl font-bold text-foreground">
@@ -520,7 +544,7 @@ export function KanbanUsageDashboard() {
                     <div className="mb-2 flex items-center gap-2">
                       <TrendingUp className="h-5 w-5 text-[hsl(var(--warning))]" />
                       <span className="text-sm text-muted-foreground">
-                        平均/会话
+                        {t('usageDashboard.avgPerSession')}
                       </span>
                     </div>
                     <div className="text-2xl font-bold text-foreground">
@@ -538,10 +562,12 @@ export function KanbanUsageDashboard() {
                   <div className="kanban-usage-card flex-1 p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <span className="text-sm font-medium text-muted-foreground">
-                        每日趋势
+                        {t('usageDashboard.dailyTrend')}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {filteredDailyUsage.length}天
+                        {t('usageDashboard.daysCount', {
+                          count: filteredDailyUsage.length,
+                        })}
                       </span>
                     </div>
 
@@ -683,32 +709,36 @@ export function KanbanUsageDashboard() {
 
               <div className="kanban-usage-card p-5">
                 <h4 className="mb-4 text-base font-medium text-foreground">
-                  Token 构成
+                  {t('usageDashboard.tokenComposition')}
                 </h4>
                 <div className="space-y-4">
                   {[
                     {
-                      label: '输入',
+                      id: 'input',
+                      label: t('usageDashboard.tokenInput'),
                       value: statistics.total_usage.input_tokens,
                       color: 'kanban-usage-progress-primary',
                     },
                     {
-                      label: '输出',
+                      id: 'output',
+                      label: t('usageDashboard.tokenOutput'),
                       value: statistics.total_usage.output_tokens,
                       color: 'kanban-usage-progress-success',
                     },
                     {
-                      label: '缓存写入',
+                      id: 'cacheWrite',
+                      label: t('usageDashboard.tokenCacheWrite'),
                       value: statistics.total_usage.cache_write_tokens,
                       color: 'kanban-usage-progress-warning',
                     },
                     {
-                      label: '缓存读取',
+                      id: 'cacheRead',
+                      label: t('usageDashboard.tokenCacheRead'),
                       value: statistics.total_usage.cache_read_tokens,
                       color: 'kanban-usage-progress-running',
                     },
                   ].map((item) => (
-                    <div key={item.label}>
+                    <div key={item.id}>
                       <div className="mb-1.5 flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
                           {item.label}
@@ -736,7 +766,7 @@ export function KanbanUsageDashboard() {
               {topModels.length > 0 ? (
                 <div className="kanban-usage-card p-5">
                   <h4 className="mb-4 text-base font-medium text-foreground">
-                    热门模型
+                    {t('usageDashboard.topModels')}
                   </h4>
                   <div className="space-y-2.5">
                     {topModels.map((model, index) => (
@@ -766,7 +796,9 @@ export function KanbanUsageDashboard() {
                           </div>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {model.session_count} 会话
+                          {t('usageDashboard.sessionsCount', {
+                            count: model.session_count,
+                          })}
                         </div>
                       </div>
                     ))}
@@ -779,12 +811,12 @@ export function KanbanUsageDashboard() {
           {statistics && activeTab === 'models' ? (
             <div>
               <h4 className="mb-4 text-sm font-medium text-foreground">
-                按模型统计
+                {t('usageDashboard.byModelTitle')}
               </h4>
               {statistics.by_model.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
                   <Hash className="mb-2 h-8 w-8 opacity-50" />
-                  <p className="text-sm">暂无模型数据</p>
+                  <p className="text-sm">{t('usageDashboard.noModelData')}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -804,18 +836,26 @@ export function KanbanUsageDashboard() {
                               {model.model}
                             </span>
                             <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-                              {model.session_count} 会话
+                              {t('usageDashboard.sessionsCount', {
+                                count: model.session_count,
+                              })}
                             </span>
                           </div>
                           <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
                             <span>
-                              输入：{formatNumber(model.input_tokens)}
+                              {t('usageDashboard.modelInput', {
+                                value: formatNumber(model.input_tokens),
+                              })}
                             </span>
                             <span>
-                              输出：{formatNumber(model.output_tokens)}
+                              {t('usageDashboard.modelOutput', {
+                                value: formatNumber(model.output_tokens),
+                              })}
                             </span>
                             <span>
-                              总 Token：{formatNumber(model.total_tokens)}
+                              {t('usageDashboard.modelTotalTokens', {
+                                value: formatNumber(model.total_tokens),
+                              })}
                             </span>
                           </div>
                         </div>
@@ -825,12 +865,12 @@ export function KanbanUsageDashboard() {
                             {formatCost(model.total_cost)}
                           </div>
                           <div className="text-[10px] text-muted-foreground">
-                            平均{' '}
-                            {formatCost(
-                              model.total_cost /
-                                Math.max(1, model.session_count)
-                            )}
-                            /会话
+                            {t('usageDashboard.avgCostPerSession', {
+                              cost: formatCost(
+                                model.total_cost /
+                                  Math.max(1, model.session_count)
+                              ),
+                            })}
                           </div>
                         </div>
                       </div>
@@ -845,7 +885,9 @@ export function KanbanUsageDashboard() {
             <div>
               <div className="mb-4 flex items-center justify-between">
                 <h4 className="text-sm font-medium text-foreground">
-                  会话列表 ({filteredSessions.length})
+                  {t('usageDashboard.sessionListTitle', {
+                    count: filteredSessions.length,
+                  })}
                 </h4>
                 <div className="flex gap-0.5 rounded-lg bg-muted p-0.5">
                   <button
@@ -858,7 +900,7 @@ export function KanbanUsageDashboard() {
                     )}
                     onClick={() => setSessionSortBy('cost')}
                   >
-                    按费用
+                    {t('usageDashboard.sortByCost')}
                   </button>
                   <button
                     type="button"
@@ -870,7 +912,7 @@ export function KanbanUsageDashboard() {
                     )}
                     onClick={() => setSessionSortBy('time')}
                   >
-                    按时间
+                    {t('usageDashboard.sortByTime')}
                   </button>
                 </div>
               </div>
@@ -931,7 +973,7 @@ export function KanbanUsageDashboard() {
                     disabled={sessionPage === 1}
                     className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
-                    上一页
+                    {t('usageDashboard.prevPage')}
                   </button>
                   <span className="text-xs text-muted-foreground">
                     {sessionPage} / {totalPages}
@@ -944,7 +986,7 @@ export function KanbanUsageDashboard() {
                     disabled={sessionPage === totalPages}
                     className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
-                    下一页
+                    {t('usageDashboard.nextPage')}
                   </button>
                 </div>
               ) : null}
@@ -966,10 +1008,14 @@ export function KanbanUsageDashboard() {
             {formatShortDate(tooltip.content.date)}
           </div>
           <div className="text-[10px] text-muted-foreground">
-            费用：{formatCost(tooltip.content.cost)}
+            {t('usageDashboard.tooltipCost', {
+              cost: formatCost(tooltip.content.cost),
+            })}
           </div>
           <div className="text-[10px] text-muted-foreground">
-            {tooltip.content.sessions} 个会话
+            {t('usageDashboard.tooltipSessions', {
+              count: tooltip.content.sessions,
+            })}
           </div>
         </div>
       ) : null}

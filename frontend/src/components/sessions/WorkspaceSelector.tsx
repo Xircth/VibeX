@@ -1,4 +1,6 @@
 import { ArrowDown, FolderTree } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -20,7 +22,10 @@ interface WorkspaceSelectorProps {
   dropdownSide?: 'top' | 'bottom';
 }
 
-function getOptionDescription(option: WorkspaceBranchOption) {
+function getOptionDescription(
+  option: WorkspaceBranchOption,
+  t: TFunction<['tasks', 'common']>
+) {
   if (option.useWorktree) {
     return option.workspace?.name?.trim()
       ? `${option.workspace.name} · Git Worktree`
@@ -28,8 +33,8 @@ function getOptionDescription(option: WorkspaceBranchOption) {
   }
 
   return option.isCurrentProjectBranch
-    ? '当前项目目录分支'
-    : '非 Worktree，选择后将先 checkout';
+    ? t('workspaceSelector.currentProjectBranch')
+    : t('workspaceSelector.nonWorktreeCheckout');
 }
 
 export function WorkspaceSelector({
@@ -40,6 +45,7 @@ export function WorkspaceSelector({
   className = '',
   dropdownSide = 'bottom',
 }: WorkspaceSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const selectedOption = findWorkspaceBranchOption(options, value);
 
   return (
@@ -51,13 +57,18 @@ export function WorkspaceSelector({
           size="sm"
           className={`h-9 w-full justify-between text-xs ${className}`}
           disabled={disabled || options.length === 0}
-          aria-label="选择工作区分支"
-          title={selectedOption ? selectedOption.branch : '请选择工作区分支'}
+          aria-label={t('workspaceSelector.selectBranchAriaLabel')}
+          title={
+            selectedOption
+              ? selectedOption.branch
+              : t('workspaceSelector.selectBranchPlaceholder')
+          }
         >
           <div className="flex min-w-0 w-full items-center gap-1.5">
             <FolderTree className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
-              {selectedOption?.branch ?? '请选择工作区分支'}
+              {selectedOption?.branch ??
+                t('workspaceSelector.selectBranchPlaceholder')}
             </span>
           </div>
           <ArrowDown className="h-3 w-3 shrink-0" />
@@ -92,7 +103,7 @@ export function WorkspaceSelector({
                 </span>
               </div>
               <div className="truncate text-[10px] text-muted-foreground">
-                {getOptionDescription(option)}
+                {getOptionDescription(option, t)}
               </div>
             </div>
           </DropdownMenuItem>

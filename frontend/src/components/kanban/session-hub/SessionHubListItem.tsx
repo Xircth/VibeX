@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Bot,
   Check,
@@ -62,6 +63,7 @@ export function SessionHubListItem({
   dragging = false,
   isOpening = false,
 }: SessionHubListItemProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const isKanbanBoardMode = displayMode === 'kanban-board';
   const showRenameControls = !isDeleteMode && !isKanbanBoardMode;
   const branchHoverText = session.workspaceName || session.branch;
@@ -217,7 +219,7 @@ export function SessionHubListItem({
                 </span>
                 {session.isRunning ? (
                   <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
-                    运行中
+                    {t('hubListItem.running')}
                   </span>
                 ) : null}
               </div>
@@ -258,7 +260,7 @@ export function SessionHubListItem({
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>删除会话</TooltipContent>
+                  <TooltipContent>{t('hubListItem.deleteSession')}</TooltipContent>
                 </Tooltip>
               ) : null}
 
@@ -352,7 +354,7 @@ export function SessionHubListItem({
               }}
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              移至会话列表
+              {t('hubListItem.moveToSessionList')}
             </button>
           ) : null}
           <button
@@ -362,12 +364,16 @@ export function SessionHubListItem({
               setContextMenu(null);
               void conversationApi
                 .fork(session.id)
-                .then(() => toast.success('已分叉会话'))
-                .catch((error) => toast.error(`分叉失败：${error}`));
+                .then(() => toast.success(t('hubListItem.forkSuccess')))
+                .catch((error) =>
+                  toast.error(
+                    t('hubListItem.forkFailed', { error: String(error) })
+                  )
+                );
             }}
           >
             <GitFork className="h-3.5 w-3.5" />
-            分叉会话
+            {t('hubListItem.forkSession')}
           </button>
           <button
             type="button"
@@ -377,23 +383,27 @@ export function SessionHubListItem({
               void exportConversation(
                 session.id,
                 'markdown',
-                session.name ?? '会话'
+                session.name ?? t('hubListItem.sessionFallback')
               );
             }}
           >
             <FileDown className="h-3.5 w-3.5" />
-            导出为 Markdown
+            {t('hubListItem.exportAsMarkdown')}
           </button>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
             onClick={() => {
               setContextMenu(null);
-              void exportConversation(session.id, 'html', session.name ?? '会话');
+              void exportConversation(
+                session.id,
+                'html',
+                session.name ?? t('hubListItem.sessionFallback')
+              );
             }}
           >
             <FileCode className="h-3.5 w-3.5" />
-            导出为 HTML
+            {t('hubListItem.exportAsHtml')}
           </button>
         </div>
       ) : null}

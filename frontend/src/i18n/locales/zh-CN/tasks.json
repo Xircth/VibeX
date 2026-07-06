@@ -1,1 +1,321 @@
-{}
+{
+  "sessionConversationView": {
+    "backToBottom": "回到消息底部",
+    "loadingSession": "正在加载会话..."
+  },
+  "hubListItem": {
+    "running": "运行中",
+    "deleteSession": "删除会话",
+    "moveToSessionList": "移至会话列表",
+    "forkSuccess": "已分叉会话",
+    "forkFailed": "分叉失败：{{error}}",
+    "forkSession": "分叉会话",
+    "sessionFallback": "会话",
+    "exportAsMarkdown": "导出为 Markdown",
+    "exportAsHtml": "导出为 HTML"
+  },
+  "hubMonitor": {
+    "title": "会话监控区",
+    "emptyHint": "点击左侧会话即可在右侧栏或监控区中展开。",
+    "failed": "失败",
+    "moveToExecutionArea": "移入执行区",
+    "openInExecutionArea": "在执行区打开",
+    "cancelMonitor": "取消监控"
+  },
+  "sessionCreation": {
+    "submit": "创建会话",
+    "creationMethod": "创建方式",
+    "existingWorkspace": "现有工作区",
+    "newWorkspace": "新工作区",
+    "workspaceBranch": "工作区分支",
+    "newWorkspaceHint": "基于 target branch 创建新的 worktree 工作区，然后在其中创建会话。",
+    "sessionNameLabel": "会话名称（可选）",
+    "sessionNamePlaceholder": "不填则使用首条消息自动命名",
+    "codingAgent": "编程代理",
+    "creating": "创建中..."
+  },
+  "sessionHub": {
+    "updateStatusFailed": "更新会话状态失败，请稍后重试。",
+    "restoreArchivedFailed": "恢复归档会话失败，请稍后重试。",
+    "deleteSessionTitle": "删除会话",
+    "deleteSessionConfirm": "确定删除会话“{{name}}”吗？正在执行中的会话不会被删除。",
+    "deleteSelectedConfirm": "确定删除已选中的 {{count}} 个会话吗？正在执行中的会话不会被删除。",
+    "deleteSuccess": "已删除 {{count}} 个会话。",
+    "deleteFailed": "删除失败，请稍后重试。",
+    "errorSeparator": "；"
+  },
+  "branchSelector": {
+    "current": "当前",
+    "remote": "远程",
+    "selectBranch": "选择分支",
+    "cannotSelectCurrentBranch": "无法选择当前分支",
+    "searchBranchesPlaceholder": "搜索分支...",
+    "noBranchesFound": "未找到分支"
+  },
+  "agentSelector": {
+    "selectAgentAriaLabel": "选择代理",
+    "noAgentsAvailable": "暂无可用代理",
+    "notInstalledHint": "未安装，请在设置中安装",
+    "notInstalled": "未安装",
+    "manageAgents": "管理 Agent…"
+  },
+  "workspaceSelector": {
+    "currentProjectBranch": "当前项目目录分支",
+    "nonWorktreeCheckout": "非 Worktree，选择后将先 checkout",
+    "selectBranchAriaLabel": "选择工作区分支",
+    "selectBranchPlaceholder": "请选择工作区分支"
+  },
+  "codexModelSelector": {
+    "defaultLabel": "默认",
+    "modelLabel": "模型"
+  },
+  "configSelector": {
+    "label": "配置",
+    "selectAriaLabel": "选择配置"
+  },
+  "repoSelector": {
+    "placeholder": "选择仓库",
+    "noRepos": "没有可用的仓库"
+  },
+  "pluginSelector": {
+    "default": "默认"
+  },
+  "permissionSelector": {
+    "auto": "自动",
+    "ask": "询问",
+    "plan": "计划"
+  },
+  "repoBranchSelector": {
+    "baseBranch": "基础分支",
+    "loadingBranches": "加载分支中...",
+    "selectBranch": "选择分支"
+  },
+  "hubUtils": {
+    "statusTodo": "待开始",
+    "statusInProgress": "进行中",
+    "statusInReview": "待检查",
+    "statusDone": "已完成",
+    "sortByName": "名称",
+    "sortByTime": "时间",
+    "sortByStatus": "状态",
+    "unassignedExecutor": "未设置代理"
+  },
+  "devServerLogs": {
+    "title": "开发服务器日志",
+    "hide": "隐藏",
+    "show": "显示"
+  },
+  "hubSidebar": {
+    "dragHereToArchive": "拖到这里归档",
+    "archiveArea": "归档区",
+    "sessionList": "会话列表",
+    "newSession": "新增会话",
+    "createSessionTitle": "新建会话",
+    "createSessionFailed": "创建会话失败，请稍后重试。",
+    "sort": "排序",
+    "sortDefault": "默认顺序",
+    "sortName": "名称",
+    "sortTime": "时间",
+    "sortStatus": "状态",
+    "filter": "筛选",
+    "filterConditions": "筛选条件",
+    "clear": "清空",
+    "workspace": "工作区",
+    "codingAgent": "编程代理",
+    "backToSessionList": "返回会话列表",
+    "openArchive": "打开归档区",
+    "exitDeleteMode": "退出删除模式",
+    "bulkDelete": "批量删除",
+    "sortChip": "排序：{{label}}",
+    "workspaceChip": "工作区：{{count}}",
+    "agentChip": "代理：{{count}}",
+    "restoreDefault": "恢复默认",
+    "selectedCount": "已选择 {{count}} 项",
+    "selectSessionsToDelete": "请选择要删除的会话",
+    "deleting": "删除中...",
+    "deleteSelected": "删除选中",
+    "loadingSessions": "正在加载会话...",
+    "archiveEmpty": "归档区暂无会话。",
+    "noSessions": "暂无会话，点击上方“新增”即可创建。",
+    "noFilterMatch": "没有符合当前筛选或排序条件的会话。"
+  },
+  "todoPanel": {
+    "title": "待办事项（{{count}}）"
+  },
+  "previewToolbar": {
+    "refreshPreview": "刷新预览",
+    "copyUrl": "复制 URL",
+    "openInNewTab": "在新标签页中打开",
+    "stopDevServer": "停止开发服务器",
+    "clickToEditUrl": "点击编辑 URL",
+    "resetToDetectedUrl": "重置为检测到的 URL"
+  },
+  "reasoningEffortSelector": {
+    "title": "思考深度",
+    "lowDescription": "快速响应，推理较轻",
+    "mediumDescription": "平衡速度和推理深度，适用于日常任务",
+    "highDescription": "更高的推理深度，适用于复杂问题",
+    "xhighDescription": "极高的推理深度，适用于复杂问题"
+  },
+  "diffStatsBar": {
+    "currentTerminal": "当前终端：{{executor}}"
+  },
+  "noServerContent": {
+    "startFailedTitle": "开发服务器启动失败",
+    "title": "启动项目开发服务器",
+    "descriptionWithScript": "你可以直接启动开发服务器，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。",
+    "descriptionWithoutScript": "请输入启动命令，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。",
+    "previewUrlLabel": "预览 URL",
+    "enterPreview": "进入预览",
+    "startCommandLabel": "启动命令",
+    "saveAndStart": "保存并启动",
+    "modifyCommand": "修改命令",
+    "stopDevServer": "停止开发服务器",
+    "startDevServer": "启动开发服务器",
+    "settings": "设置",
+    "fixStartScript": "修复启动脚本",
+    "companionDescription": "如果需要在预览中启用点击组件定位，请安装 VibeX Web Companion。",
+    "installingCompanion": "正在安装 Companion",
+    "installCompanion": "安装 Companion",
+    "viewCompanionRepo": "查看 Companion 仓库"
+  },
+  "sessionModeSelector": {
+    "title": "会话模式",
+    "fallbackLabel": "模式"
+  },
+  "readyContent": {
+    "back": "后退",
+    "forward": "前进",
+    "urlPlaceholder": "输入 URL...",
+    "copyUrl": "复制 URL",
+    "openInNewTab": "在新标签页中打开",
+    "refresh": "刷新",
+    "selectElement": "选择元素作为内容",
+    "toggleInspector": "切换检查器",
+    "stopDevServer": "停止开发服务器",
+    "previewTitle": "开发服务器预览"
+  },
+  "processesTab": {
+    "emptySelectAttempt": "选择尝试以查看执行进程。",
+    "realtimeUpdatesFailed": "加载进程的实时更新失败。",
+    "reconnecting": "重新连接中...",
+    "loadingProcesses": "加载执行进程中...",
+    "noProcessesFound": "未找到此尝试的执行进程。",
+    "processId": "进程 ID：{{id}}",
+    "droppedTooltip": "因恢复而删除：时间轴已恢复到检查点，后续执行已被移除",
+    "dropped": "已删除",
+    "agentLabel": "代理：",
+    "exitCode": "退出：{{code}}",
+    "startedAt": "开始：{{time}}",
+    "completedAt": "完成：{{time}}",
+    "processDetails": "进程详情",
+    "copied": "已复制！",
+    "copyLogs": "复制日志",
+    "backToList": "返回列表",
+    "loadingProcessDetails": "加载进程详情中...",
+    "loadProcessDetailsFailed": "加载进程详情失败。请重试。"
+  },
+  "todoListButton": {
+    "title": "任务列表",
+    "empty": "暂无任务",
+    "titleWithCount": "任务列表 ({{count}})"
+  },
+  "messageQueue": {
+    "description": "消息已排队，当前运行完成后会自动发送。",
+    "editMessage": "编辑队列消息",
+    "deleteMessage": "删除队列消息",
+    "moveUp": "上移队列消息",
+    "moveDown": "下移队列消息",
+    "singleQueueOnly": "当前仅支持单条队列"
+  },
+  "usageDashboard": {
+    "today": "今天",
+    "yesterday": "昨天",
+    "daysAgo": "{{count}}天前",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}}分钟前",
+    "hoursAgo": "{{count}}小时前",
+    "trendFlat": "持平 0%",
+    "trendUp": "上涨",
+    "trendDown": "下降",
+    "tabOverview": "概览",
+    "tabModels": "模型",
+    "tabSessions": "会话",
+    "tabPlan": "套餐",
+    "global": "全局",
+    "currentProject": "当前项目",
+    "title": "计量统计",
+    "noticeTag": "提示",
+    "pricingNoticeDefault": "按官方定价估算，Claude 缓存写入默认按 5 分钟档处理",
+    "range7d": "7天",
+    "range30d": "30天",
+    "rangeAll": "全部",
+    "refresh": "刷新",
+    "lastUpdated": "最后更新：{{time}}",
+    "updating": "更新中",
+    "providerScanFailed": "部分数据源扫描失败：{{providers}}",
+    "loading": "加载中...",
+    "noData": "暂无数据",
+    "totalCost": "总费用",
+    "totalSessions": "总会话",
+    "totalTokens": "总 Token",
+    "avgPerSession": "平均/会话",
+    "dailyTrend": "每日趋势",
+    "daysCount": "{{count}}天",
+    "tokenComposition": "Token 构成",
+    "tokenInput": "输入",
+    "tokenOutput": "输出",
+    "tokenCacheWrite": "缓存写入",
+    "tokenCacheRead": "缓存读取",
+    "topModels": "热门模型",
+    "sessionsCount": "{{count}} 会话",
+    "byModelTitle": "按模型统计",
+    "noModelData": "暂无模型数据",
+    "modelInput": "输入：{{value}}",
+    "modelOutput": "输出：{{value}}",
+    "modelTotalTokens": "总 Token：{{value}}",
+    "avgCostPerSession": "平均 {{cost}}/会话",
+    "sessionListTitle": "会话列表 ({{count}})",
+    "sortByCost": "按费用",
+    "sortByTime": "按时间",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "tooltipCost": "费用：{{cost}}",
+    "tooltipSessions": "{{count}} 个会话"
+  },
+  "composerCompact": {
+    "unknownError": "未知错误",
+    "startCompactFailed": "启动上下文压缩失败：{{message}}"
+  },
+  "gitOperations": {
+    "merged": "已合并！",
+    "merging": "合并中...",
+    "merge": "合并",
+    "rebased": "已变基！",
+    "rebasing": "变基中...",
+    "rebase": "变基",
+    "rebasedBack": "已回基！",
+    "rebasingBack": "回基中...",
+    "rebaseBack": "回基",
+    "pushed": "已推送！",
+    "pushing": "推送中...",
+    "push": "推送",
+    "createPR": "创建 PR",
+    "notInWorktree": "当前未处于 Worktree 中，请手动切换目标分支。",
+    "rebaseCurrentWorktreeTitle": "变基当前 Worktree",
+    "rebaseCurrentWorktreeDescription": "选择一个目标分支，将该分支的最新更改变基到当前 Worktree。",
+    "rebaseBackTitle": "回基到目标分支",
+    "rebaseBackDescription": "选择一个目标分支。系统会先将该分支的最新更改变基到当前 Worktree，再把当前 Worktree 的更改合并回目标分支。",
+    "conflict": "冲突",
+    "openPR": "打开 PR #{{number}}",
+    "commitsAhead": "+{{count}} 提交 领先",
+    "commitsBehind": "{{count}} 提交 落后",
+    "upToDate": "最新",
+    "taskBranch": "任务分支",
+    "current": "当前",
+    "targetBranch": "目标分支",
+    "changeTargetBranch": "更改目标分支",
+    "selectRepo": "选择仓库",
+    "branchStatusUnavailable": "无法获取分支状态。您仍然可以更改目标分支。"
+  }
+}

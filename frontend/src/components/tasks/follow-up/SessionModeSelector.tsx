@@ -1,4 +1,5 @@
 import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { AgentSessionMode } from 'shared/types';
 import {
   DropdownMenu,
@@ -29,6 +30,8 @@ export function SessionModeSelector({
   onSelect: (modeId: string) => void;
   disabled?: boolean;
 }) {
+  const { t } = useTranslation(['tasks', 'common']);
+
   if (modes.length === 0) return null;
 
   const activeId = selected ?? current;
@@ -42,11 +45,11 @@ export function SessionModeSelector({
           'inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-foreground/80',
           'hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
         )}
-        title="会话模式"
+        title={t('sessionModeSelector.title')}
       >
         <SlidersHorizontal className="h-3.5 w-3.5" />
         <span className="max-w-[10rem] truncate">
-          {activeMode?.label ?? '模式'}
+          {activeMode?.label ?? t('sessionModeSelector.fallbackLabel')}
         </span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </DropdownMenuTrigger>

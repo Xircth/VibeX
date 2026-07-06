@@ -9,6 +9,7 @@ import {
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { dateTimestamp, formatRelativeTime } from '@/utils/date';
+import i18n from '@/i18n';
 
 // 监控区 Slot 配色（见 Kanban 会话看板升级设计）：Slot 1 蓝 / 2 紫 / 3 绿 / 4 橙。
 // `shell` 为监控卡片的着色边框 + 浅色背景，`bar` 为左侧会话列表卡片的色条。
@@ -42,10 +43,10 @@ export const SESSION_STATUS_ORDER: ActiveSessionStatus[] = [
   'done',
 ];
 export const SESSION_STATUS_LABELS: Record<ActiveSessionStatus, string> = {
-  todo: '待开始',
-  inprogress: '进行中',
-  inreview: '待检查',
-  done: '已完成',
+  todo: i18n.t('tasks:hubUtils.statusTodo'),
+  inprogress: i18n.t('tasks:hubUtils.statusInProgress'),
+  inreview: i18n.t('tasks:hubUtils.statusInReview'),
+  done: i18n.t('tasks:hubUtils.statusDone'),
 };
 export const SESSION_STATUS_LIGHT_COLORS: Record<ActiveSessionStatus, string> =
   {
@@ -110,11 +111,11 @@ export function formatTimeAgo(iso: string) {
 export function getSortLabel(sortField: SortField | null) {
   switch (sortField) {
     case 'name':
-      return '名称';
+      return i18n.t('tasks:hubUtils.sortByName');
     case 'time':
-      return '时间';
+      return i18n.t('tasks:hubUtils.sortByTime');
     case 'status':
-      return '状态';
+      return i18n.t('tasks:hubUtils.sortByStatus');
     default:
       return '';
   }
@@ -125,7 +126,7 @@ export function getExecutorFilterValue(executor: string | null) {
 }
 
 export function getExecutorDisplayName(executor: string | null) {
-  if (!executor) return '未设置代理';
+  if (!executor) return i18n.t('tasks:hubUtils.unassignedExecutor');
   return getAgentName(executor as ExecutorProfileId['executor']);
 }
 

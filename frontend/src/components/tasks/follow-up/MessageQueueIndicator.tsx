@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowDown,
   ArrowUp,
@@ -27,6 +28,7 @@ export function MessageQueueIndicator({
   onEditQueuedMessage,
   onDeleteQueuedMessage,
 }: MessageQueueIndicatorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [expanded, setExpanded] = useState(false);
   if (!isQueued) return null;
 
@@ -46,7 +48,7 @@ export function MessageQueueIndicator({
         >
           <div className="flex items-center gap-1 font-medium">
             <span className="truncate">
-              消息已排队，当前运行完成后会自动发送。
+              {t('messageQueue.description')}
             </span>
             <ChevronDown
               className={cn(
@@ -73,8 +75,8 @@ export function MessageQueueIndicator({
             className="rounded p-1 hover:bg-background/80 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={() => queuedMessage && onEditQueuedMessage?.(queuedMessage)}
             disabled={!queuedMessage || !onEditQueuedMessage}
-            aria-label="编辑队列消息"
-            title="编辑队列消息"
+            aria-label={t('messageQueue.editMessage')}
+            title={t('messageQueue.editMessage')}
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -83,8 +85,8 @@ export function MessageQueueIndicator({
             className="rounded p-1 hover:bg-background/80 disabled:cursor-not-allowed disabled:opacity-40"
             onClick={onDeleteQueuedMessage}
             disabled={!onDeleteQueuedMessage}
-            aria-label="删除队列消息"
-            title="删除队列消息"
+            aria-label={t('messageQueue.deleteMessage')}
+            title={t('messageQueue.deleteMessage')}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -92,8 +94,8 @@ export function MessageQueueIndicator({
             type="button"
             className="rounded p-1 opacity-40"
             disabled
-            aria-label="上移队列消息"
-            title="当前仅支持单条队列"
+            aria-label={t('messageQueue.moveUp')}
+            title={t('messageQueue.singleQueueOnly')}
           >
             <ArrowUp className="h-3.5 w-3.5" />
           </button>
@@ -101,8 +103,8 @@ export function MessageQueueIndicator({
             type="button"
             className="rounded p-1 opacity-40"
             disabled
-            aria-label="下移队列消息"
-            title="当前仅支持单条队列"
+            aria-label={t('messageQueue.moveDown')}
+            title={t('messageQueue.singleQueueOnly')}
           >
             <ArrowDown className="h-3.5 w-3.5" />
           </button>

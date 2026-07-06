@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import BranchSelector from './BranchSelector';
 import type { RepoBranchConfig } from '@/hooks';
@@ -19,6 +20,8 @@ export function RepoBranchSelector({
   className,
   dropdownSide = 'bottom',
 }: Props) {
+  const { t } = useTranslation(['tasks', 'common']);
+
   if (configs.length === 0) {
     return null;
   }
@@ -29,14 +32,19 @@ export function RepoBranchSelector({
       <div className={className}>
         {showLabel && (
           <Label className="text-sm font-medium">
-            {'基础分支'} <span className="text-destructive">*</span>
+            {t('repoBranchSelector.baseBranch')}{' '}
+            <span className="text-destructive">*</span>
           </Label>
         )}
         <BranchSelector
           branches={config.branches}
           selectedBranch={config.targetBranch}
           onBranchSelect={(branch) => onBranchChange(config.repoId, branch)}
-          placeholder={isLoading ? '加载分支中...' : '选择分支'}
+          placeholder={
+            isLoading
+              ? t('repoBranchSelector.loadingBranches')
+              : t('repoBranchSelector.selectBranch')
+          }
           dropdownSide={dropdownSide}
         />
       </div>
@@ -56,7 +64,11 @@ export function RepoBranchSelector({
               branches={config.branches}
               selectedBranch={config.targetBranch}
               onBranchSelect={(branch) => onBranchChange(config.repoId, branch)}
-              placeholder={isLoading ? '加载分支中...' : '选择分支'}
+              placeholder={
+                isLoading
+                  ? t('repoBranchSelector.loadingBranches')
+                  : t('repoBranchSelector.selectBranch')
+              }
               dropdownSide={dropdownSide}
             />
           </div>

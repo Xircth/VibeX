@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
 import { Button } from '@/components/ui/button';
@@ -61,12 +62,15 @@ export function SessionCreationForm({
   errorMessage,
   onSubmit,
   onCancel,
-  submitLabel = '创建会话',
-  cancelLabel = '取消',
+  submitLabel,
+  cancelLabel,
   className,
   compact = false,
   dropdownSide = 'bottom',
 }: SessionCreationFormProps) {
+  const { t } = useTranslation(['tasks', 'common']);
+  const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
+  const resolvedCancelLabel = cancelLabel ?? t('common:cancel');
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
   const selectedWorkspaceOption = findWorkspaceBranchOption(
     workspaceBranchOptions,
@@ -86,7 +90,7 @@ export function SessionCreationForm({
       }}
     >
       <div className="space-y-2">
-        <Label>创建方式</Label>
+        <Label>{t('sessionCreation.creationMethod')}</Label>
         <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"
@@ -95,7 +99,7 @@ export function SessionCreationForm({
             onClick={() => onModeChange('existing_workspace')}
             className="h-8 text-xs"
           >
-            现有工作区
+            {t('sessionCreation.existingWorkspace')}
           </Button>
           <Button
             type="button"
@@ -104,14 +108,16 @@ export function SessionCreationForm({
             onClick={() => onModeChange('new_workspace')}
             className="h-8 text-xs"
           >
-            新工作区
+            {t('sessionCreation.newWorkspace')}
           </Button>
         </div>
       </div>
 
       {mode === 'existing_workspace' ? (
         <div className="space-y-2">
-          <Label htmlFor="session-create-workspace">工作区分支</Label>
+          <Label htmlFor="session-create-workspace">
+            {t('sessionCreation.workspaceBranch')}
+          </Label>
           <WorkspaceSelector
             options={workspaceBranchOptions}
             value={selectedWorkspaceValue}
@@ -134,7 +140,7 @@ export function SessionCreationForm({
       ) : (
         <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
           <div className="text-[11px] text-muted-foreground">
-            基于 target branch 创建新的 worktree 工作区，然后在其中创建会话。
+            {t('sessionCreation.newWorkspaceHint')}
           </div>
           <RepoBranchSelector
             configs={repoBranchConfigs}
@@ -147,18 +153,20 @@ export function SessionCreationForm({
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="session-create-name">会话名称（可选）</Label>
+        <Label htmlFor="session-create-name">
+          {t('sessionCreation.sessionNameLabel')}
+        </Label>
         <Input
           id="session-create-name"
           value={sessionName}
           onChange={(event) => onSessionNameChange(event.target.value)}
-          placeholder="不填则使用首条消息自动命名"
+          placeholder={t('sessionCreation.sessionNamePlaceholder')}
           className="h-9 text-sm"
         />
       </div>
 
       <div className="space-y-2">
-        <Label>编程代理</Label>
+        <Label>{t('sessionCreation.codingAgent')}</Label>
         <TerminalProfileControls
           profiles={profiles}
           selectedProfile={selectedExecutorProfile}
@@ -179,11 +187,13 @@ export function SessionCreationForm({
       <div className="flex items-center justify-end gap-2">
         {onCancel ? (
           <Button type="button" variant="outline" onClick={onCancel}>
-            {cancelLabel}
+            {resolvedCancelLabel}
           </Button>
         ) : null}
         <Button type="submit" disabled={!canSubmit}>
-          {isSubmitting ? '创建中...' : submitLabel}
+          {isSubmitting
+            ? t('sessionCreation.creating')
+            : resolvedSubmitLabel}
         </Button>
       </div>
     </form>

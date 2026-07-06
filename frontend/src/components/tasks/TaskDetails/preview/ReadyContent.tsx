@@ -22,6 +22,7 @@ import {
   Smartphone,
   Tablet,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 type ViewMode = 'desktop' | 'tablet' | 'mobile';
 type DeviceViewMode = Exclude<ViewMode, 'desktop'>;
@@ -71,6 +72,7 @@ export function ReadyContent({
   hasUrlOverride = false,
   onClearUrlOverride,
 }: ReadyContentProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [urlInput, setUrlInput] = useState(url ?? '');
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const resizeDragRef = useRef<{
@@ -176,14 +178,14 @@ export function ReadyContent({
         <button
           disabled
           className="cursor-not-allowed rounded p-1 text-muted-foreground/40"
-          title="后退"
+          title={t('readyContent.back')}
         >
           <ArrowLeft className="h-3.5 w-3.5" />
         </button>
         <button
           disabled
           className="cursor-not-allowed rounded p-1 text-muted-foreground/40"
-          title="前进"
+          title={t('readyContent.forward')}
         >
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
@@ -193,7 +195,7 @@ export function ReadyContent({
           onChange={(event) => setUrlInput(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && handleNavigate()}
           className="flex-1 rounded border bg-background px-2 py-0.5 font-mono text-xs"
-          placeholder="输入 URL..."
+          placeholder={t('readyContent.urlPlaceholder')}
         />
 
         <div className="mx-0.5 h-4 border-l border-border" />
@@ -213,7 +215,7 @@ export function ReadyContent({
           <button
             onClick={onCopyUrl}
             className="rounded p-1 hover:bg-accent"
-            title="复制 URL"
+            title={t('readyContent.copyUrl')}
           >
             <Copy className="h-3.5 w-3.5" />
           </button>
@@ -225,7 +227,7 @@ export function ReadyContent({
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex rounded p-1 hover:bg-accent"
-            title="在新标签页中打开"
+            title={t('readyContent.openInNewTab')}
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
@@ -234,7 +236,7 @@ export function ReadyContent({
         <button
           onClick={handleRefresh}
           className="rounded p-1 hover:bg-accent"
-          title="刷新"
+          title={t('readyContent.refresh')}
         >
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
@@ -250,8 +252,8 @@ export function ReadyContent({
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:bg-accent'
             }`}
-            title="选择元素作为内容"
-            aria-label="选择元素作为内容"
+            title={t('readyContent.selectElement')}
+            aria-label={t('readyContent.selectElement')}
           >
             <Crosshair className="h-3.5 w-3.5" />
           </button>
@@ -265,8 +267,8 @@ export function ReadyContent({
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:bg-accent'
             }`}
-            title="切换检查器"
-            aria-label="切换检查器"
+            title={t('readyContent.toggleInspector')}
+            aria-label={t('readyContent.toggleInspector')}
           >
             <Bug className="h-3.5 w-3.5" />
           </button>
@@ -302,7 +304,7 @@ export function ReadyContent({
               onClick={onStop}
               disabled={isStopping}
               className="rounded p-1 text-destructive hover:bg-accent"
-              title="停止开发服务器"
+              title={t('readyContent.stopDevServer')}
             >
               {isStopping ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -326,7 +328,7 @@ export function ReadyContent({
               key={`${iframeKey}-${localRefreshKey}`}
               ref={iframeRef}
               src={effectiveSrc}
-              title="开发服务器预览"
+              title={t('readyContent.previewTitle')}
               className="h-full w-full border-0 bg-[var(--preview-canvas,hsl(var(--background)))]"
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
               referrerPolicy="no-referrer"

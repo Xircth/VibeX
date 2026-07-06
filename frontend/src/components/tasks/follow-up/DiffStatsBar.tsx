@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import {
   Tooltip,
@@ -15,6 +17,8 @@ export function DiffStatsBar({
   executorProfile,
   sessionExecutor,
 }: DiffStatsBarProps) {
+  const { t } = useTranslation(['tasks', 'common']);
+
   if (!executorProfile?.executor) {
     return null;
   }
@@ -27,7 +31,9 @@ export function DiffStatsBar({
         </div>
       </TooltipTrigger>
       <TooltipContent>
-        当前终端：{sessionExecutor ?? executorProfile.executor}
+        {t('diffStatsBar.currentTerminal', {
+          executor: sessionExecutor ?? executorProfile.executor,
+        })}
       </TooltipContent>
     </Tooltip>
   );

@@ -1,4 +1,5 @@
 import { Brain, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,22 +23,22 @@ export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<ReasoningEffortOption
     {
       value: 'low',
       label: 'Low',
-      description: '快速响应，推理较轻',
+      description: 'reasoningEffortSelector.lowDescription',
     },
     {
       value: 'medium',
       label: 'Medium',
-      description: '平衡速度和推理深度，适用于日常任务',
+      description: 'reasoningEffortSelector.mediumDescription',
     },
     {
       value: 'high',
       label: 'High',
-      description: '更高的推理深度，适用于复杂问题',
+      description: 'reasoningEffortSelector.highDescription',
     },
     {
       value: 'xhigh',
       label: 'Extra High',
-      description: '极高的推理深度，适用于复杂问题',
+      description: 'reasoningEffortSelector.xhighDescription',
     },
   ];
 
@@ -56,6 +57,7 @@ export function ReasoningEffortSelector({
   disabled,
   className,
 }: ReasoningEffortSelectorProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const current =
     CODEX_REASONING_EFFORT_OPTIONS.find((opt) => opt.value === value) ??
     CODEX_REASONING_EFFORT_OPTIONS[2]; // Default to 'high'
@@ -81,7 +83,7 @@ export function ReasoningEffortSelector({
         avoidCollisions={false}
         className="min-w-[200px]"
       >
-        <DropdownMenuLabel>思考深度</DropdownMenuLabel>
+        <DropdownMenuLabel>{t('reasoningEffortSelector.title')}</DropdownMenuLabel>
         {CODEX_REASONING_EFFORT_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
@@ -91,7 +93,7 @@ export function ReasoningEffortSelector({
             <div className="flex flex-col">
               <span className="text-xs font-medium">{option.label}</span>
               <span className="text-[10px] text-muted-foreground">
-                {option.description}
+                {t(option.description)}
               </span>
             </div>
           </DropdownMenuItem>

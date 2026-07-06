@@ -1,4 +1,5 @@
 import { CheckSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   Popover,
   PopoverContent,
@@ -16,6 +17,7 @@ interface TodoItem {
 }
 
 export function TodoListButton({ todos }: { todos: TodoItem[] }) {
+  const { t } = useTranslation(['tasks', 'common']);
   const todoListState = getComposerTodoListState(todos.length);
 
   return (
@@ -23,8 +25,8 @@ export function TodoListButton({ todos }: { todos: TodoItem[] }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          title="任务列表"
-          aria-label="任务列表"
+          title={t('todoListButton.title')}
+          aria-label={t('todoListButton.title')}
           className={cn(
             'composer-control flex items-center justify-center rounded-md px-1.5 py-0.5 transition-colors',
             todoListState.isEmpty && 'opacity-50'
@@ -41,12 +43,12 @@ export function TodoListButton({ todos }: { todos: TodoItem[] }) {
       <PopoverContent align="end" side="top" className="w-72 p-2">
         {todoListState.isEmpty ? (
           <div className="py-2 text-center text-xs text-muted-foreground">
-            暂无任务
+            {t('todoListButton.empty')}
           </div>
         ) : (
           <>
             <div className="mb-1.5 text-xs font-medium">
-              任务列表 ({todos.length})
+              {t('todoListButton.titleWithCount', { count: todos.length })}
             </div>
             <ul className="max-h-48 space-y-1 overflow-auto">
               {todos.map((todo, index) => {

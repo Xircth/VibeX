@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Button } from '@/components/ui/button.tsx';
 import { ArrowDown, GitBranch as GitBranchIcon, Search } from 'lucide-react';
@@ -48,6 +49,7 @@ const BranchRow = memo(function BranchRow({
   onSelect,
   disabledTooltip,
 }: RowProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const classes =
     (isSelected ? 'bg-accent text-accent-foreground ' : '') +
     (isDisabled ? 'opacity-50 cursor-not-allowed ' : '') +
@@ -69,10 +71,14 @@ const BranchRow = memo(function BranchRow({
         </span>
         <div className="flex gap-1 flex-shrink-0">
           {branch.is_current && (
-            <span className="text-xs bg-background px-1 rounded">{'当前'}</span>
+            <span className="text-xs bg-background px-1 rounded">
+              {t('branchSelector.current')}
+            </span>
           )}
           {branch.is_remote && (
-            <span className="text-xs bg-background px-1 rounded">{'远程'}</span>
+            <span className="text-xs bg-background px-1 rounded">
+              {t('branchSelector.remote')}
+            </span>
           )}
         </div>
       </div>
@@ -105,14 +111,15 @@ function BranchSelector({
   disabledTooltip,
   dropdownSide = 'bottom',
 }: Props) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [branchSearchTerm, setBranchSearchTerm] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
 
-  const effectivePlaceholder = placeholder ?? '选择分支';
-  const defaultDisabledTooltip = '无法选择当前分支';
+  const effectivePlaceholder = placeholder ?? t('branchSelector.selectBranch');
+  const defaultDisabledTooltip = t('branchSelector.cannotSelectCurrentBranch');
 
   const filteredBranches = useMemo(() => {
     let filtered = branches;
@@ -230,7 +237,7 @@ function BranchSelector({
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 ref={searchInputRef}
-                placeholder={'搜索分支...'}
+                placeholder={t('branchSelector.searchBranchesPlaceholder')}
                 value={branchSearchTerm}
                 onChange={(e) => setBranchSearchTerm(e.target.value)}
                 onKeyDown={(e) => {
@@ -268,7 +275,7 @@ function BranchSelector({
           <DropdownMenuSeparator />
           {filteredBranches.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground text-center">
-              {'未找到分支'}
+              {t('branchSelector.noBranchesFound')}
             </div>
           ) : (
             <Virtuoso

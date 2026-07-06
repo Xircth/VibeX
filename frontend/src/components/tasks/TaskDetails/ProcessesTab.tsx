@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import {
   Play,
@@ -25,6 +26,7 @@ interface ProcessesTabProps {
 }
 
 function ProcessesTab({ sessionId }: ProcessesTabProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const {
     executionProcesses,
     executionProcessesById,
@@ -154,7 +156,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         <div className="text-center">
           <Cog className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>{'选择尝试以查看执行进程。'}</p>
+          <p>{t('processesTab.emptySelectAttempt')}</p>
         </div>
       </div>
     );
@@ -166,19 +168,19 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
         <div className="flex-1 overflow-auto px-4 pb-20 pt-4">
           {processesError && (
             <div className="mb-3 text-sm text-destructive">
-              {'加载进程的实时更新失败。'}
-              {!isConnected && ` ${'重新连接中...'}`}
+              {t('processesTab.realtimeUpdatesFailed')}
+              {!isConnected && ` ${t('processesTab.reconnecting')}`}
             </div>
           )}
           {processesLoading && executionProcesses.length === 0 ? (
             <div className="flex items-center justify-center text-muted-foreground py-10">
-              <p>{'加载执行进程中...'}</p>
+              <p>{t('processesTab.loadingProcesses')}</p>
             </div>
           ) : executionProcesses.length === 0 ? (
             <div className="flex items-center justify-center text-muted-foreground py-10">
               <div className="text-center">
                 <Cog className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>{'未找到此尝试的执行进程。'}</p>
+                <p>{t('processesTab.noProcessesFound')}</p>
               </div>
             </div>
           ) : (
@@ -206,21 +208,19 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                           className="text-sm text-muted-foreground mt-1 truncate"
                           title={process.id}
                         >
-                          {`进程 ID：${process.id}`}
+                          {t('processesTab.processId', { id: process.id })}
                         </p>
                         {process.dropped && (
                           <span
                             className="mt-1 inline-block rounded-full border border-[hsl(var(--warning)/0.28)] bg-[hsl(var(--warning)/0.08)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--warning))]"
-                            title={
-                              '因恢复而删除：时间轴已恢复到检查点，后续执行已被移除'
-                            }
+                            title={t('processesTab.droppedTooltip')}
                           >
-                            {'已删除'}
+                            {t('processesTab.dropped')}
                           </span>
                         )}
                         {
                           <p className="text-sm text-muted-foreground mt-1">
-                            {'代理：'}{' '}
+                            {t('processesTab.agentLabel')}{' '}
                             {(() => {
                               const profileVariant = extractProfileFromAction(
                                 process.executor_action ?? null
@@ -246,17 +246,25 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                       </span>
                       {process.exit_code !== null && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          {`退出：${process.exit_code.toString()}`}
+                          {t('processesTab.exitCode', {
+                            code: process.exit_code.toString(),
+                          })}
                         </p>
                       )}
                     </div>
                   </div>
                   <div className="mt-3 text-xs text-muted-foreground">
                     <div className="flex justify-between">
-                      <span>{`开始：${formatDate(process.started_at)}`}</span>
+                      <span>
+                        {t('processesTab.startedAt', {
+                          time: formatDate(process.started_at),
+                        })}
+                      </span>
                       {process.completed_at && (
                         <span>
-                          {`完成：${formatDate(process.completed_at)}`}
+                          {t('processesTab.completedAt', {
+                            time: formatDate(process.completed_at),
+                          })}
                         </span>
                       )}
                     </div>
@@ -269,7 +277,9 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
       ) : (
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center justify-between px-4 py-2 border-b flex-shrink-0">
-            <h2 className="text-lg font-semibold">{'进程详情'}</h2>
+            <h2 className="text-lg font-semibold">
+              {t('processesTab.processDetails')}
+            </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCopyLogs}
@@ -282,14 +292,16 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                 }`}
               >
-                {copied ? '已复制！' : '复制日志'}
+                {copied
+                  ? t('processesTab.copied')
+                  : t('processesTab.copyLogs')}
               </button>
               <button
                 onClick={() => setSelectedProcessId(null)}
                 className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md border border-border transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
-                {'返回列表'}
+                {t('processesTab.backToList')}
               </button>
             </div>
           </div>
@@ -298,11 +310,11 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
               <ProcessLogsViewerContent logs={logs} error={logsError} />
             ) : loadingProcessId === selectedProcessId ? (
               <div className="text-center text-muted-foreground">
-                <p>{'加载进程详情中...'}</p>
+                <p>{t('processesTab.loadingProcessDetails')}</p>
               </div>
             ) : (
               <div className="text-center text-muted-foreground">
-                <p>{'加载进程详情失败。请重试。'}</p>
+                <p>{t('processesTab.loadProcessDetailsFailed')}</p>
               </div>
             )}
           </div>

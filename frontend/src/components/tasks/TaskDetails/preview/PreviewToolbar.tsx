@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ExternalLink, RefreshCw, Copy, Loader2, Pause, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,6 +34,7 @@ export function PreviewToolbar({
   detectedUrl,
   onUrlChange,
 }: PreviewToolbarProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [isEditing, setIsEditing] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,13 +82,15 @@ export function PreviewToolbar({
             <TooltipTrigger asChild>
               <Button
                 variant="icon"
-                aria-label={'刷新预览'}
+                aria-label={t('previewToolbar.refreshPreview')}
                 onClick={onRefresh}
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'刷新预览'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('previewToolbar.refreshPreview')}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -95,14 +99,16 @@ export function PreviewToolbar({
             <TooltipTrigger asChild>
               <Button
                 variant="icon"
-                aria-label={'复制 URL'}
+                aria-label={t('previewToolbar.copyUrl')}
                 onClick={onCopyUrl}
                 disabled={!url}
               >
                 <Copy className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'复制 URL'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('previewToolbar.copyUrl')}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -111,7 +117,7 @@ export function PreviewToolbar({
             <TooltipTrigger asChild>
               <Button
                 variant="icon"
-                aria-label={'在新标签页中打开'}
+                aria-label={t('previewToolbar.openInNewTab')}
                 asChild
                 disabled={!url}
               >
@@ -125,7 +131,9 @@ export function PreviewToolbar({
                 </a>
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'在新标签页中打开'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('previewToolbar.openInNewTab')}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -136,7 +144,7 @@ export function PreviewToolbar({
             <TooltipTrigger asChild>
               <Button
                 variant="icon"
-                aria-label={'停止开发服务器'}
+                aria-label={t('previewToolbar.stopDevServer')}
                 onClick={onStop}
                 disabled={isStopping}
               >
@@ -147,7 +155,9 @@ export function PreviewToolbar({
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{'停止开发服务器'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {t('previewToolbar.stopDevServer')}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </>
@@ -173,7 +183,7 @@ export function PreviewToolbar({
               onClick={handleStartEdit}
               className="text-sm text-muted-foreground font-mono truncate hover:text-foreground transition-colors cursor-text text-left"
               aria-live="polite"
-              title={'点击编辑 URL'}
+              title={t('previewToolbar.clickToEditUrl')}
             >
               {url || <Loader2 className="h-4 w-4 animate-spin" />}
             </button>
@@ -191,7 +201,7 @@ export function PreviewToolbar({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    {'重置为检测到的 URL'}
+                    {t('previewToolbar.resetToDetectedUrl')}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

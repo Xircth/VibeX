@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   PointerSensor,
@@ -293,6 +294,7 @@ function StatusDropZone({
 }
 
 function ArchiveDropZone({ enabled }: { enabled: boolean }) {
+  const { t } = useTranslation(['tasks', 'common']);
   const { setNodeRef, isOver } = useDroppable({
     id: ARCHIVE_DROP_ID,
     disabled: !enabled,
@@ -313,7 +315,7 @@ function ArchiveDropZone({ enabled }: { enabled: boolean }) {
     >
       <div className="flex items-center gap-2 text-xs font-medium">
         <Archive className="h-3.5 w-3.5" />
-        拖到这里归档
+        {t('hubSidebar.dragHereToArchive')}
       </div>
     </div>
   );
@@ -519,6 +521,7 @@ export function SessionHubSidebar({
   onRestoreArchivedSession,
   onExpandedChange,
 }: SessionHubSidebarProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const hasActiveFilters =
     workspaceFilterIds.length > 0 || executorFilterValues.length > 0;
   const isFlatListMode =
@@ -589,7 +592,9 @@ export function SessionHubSidebar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="cursor-default text-sm font-semibold text-foreground">
-                  {isArchiveView ? '归档区' : '会话列表'}
+                  {isArchiveView
+                    ? t('hubSidebar.archiveArea')
+                    : t('hubSidebar.sessionList')}
                 </div>
               </TooltipTrigger>
               <TooltipContent>
@@ -616,7 +621,7 @@ export function SessionHubSidebar({
                       </Button>
                     </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>新增会话</TooltipContent>
+                  <TooltipContent>{t('hubSidebar.newSession')}</TooltipContent>
                 </Tooltip>
 
                 <PopoverContent
@@ -635,11 +640,11 @@ export function SessionHubSidebar({
                     onClick={() => onCreatePopoverOpenChange(false)}
                   >
                     <X className="h-4 w-4" />
-                    <span className="sr-only">关闭</span>
+                    <span className="sr-only">{t('common:close')}</span>
                   </button>
                   <div className="space-y-1">
                     <div className="text-sm font-semibold text-foreground">
-                      新建会话
+                      {t('hubSidebar.createSessionTitle')}
                     </div>
                   </div>
 
@@ -667,7 +672,7 @@ export function SessionHubSidebar({
                       createError
                         ? mapSessionErrorMessage(
                             createError,
-                            '创建会话失败，请稍后重试。'
+                            t('hubSidebar.createSessionFailed')
                           )
                         : null
                     }
@@ -687,7 +692,7 @@ export function SessionHubSidebar({
                       SESSION_LIST_ACTION_BUTTON_CLASS,
                       sortField && 'text-foreground'
                     )}
-                    aria-label="排序"
+                    aria-label={t('hubSidebar.sort')}
                   >
                     <ArrowUpDown className={SESSION_LIST_ACTION_ICON_CLASS} />
                   </Button>
@@ -702,16 +707,16 @@ export function SessionHubSidebar({
                     }
                   >
                     <DropdownMenuRadioItem value="default">
-                      默认顺序
+                      {t('hubSidebar.sortDefault')}
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="name">
-                      名称
+                      {t('hubSidebar.sortName')}
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="time">
-                      时间
+                      {t('hubSidebar.sortTime')}
                     </DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="status">
-                      状态
+                      {t('hubSidebar.sortStatus')}
                     </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
@@ -729,7 +734,7 @@ export function SessionHubSidebar({
                           SESSION_LIST_ACTION_BUTTON_CLASS,
                           hasActiveFilters && 'text-foreground'
                         )}
-                        aria-label="筛选"
+                        aria-label={t('hubSidebar.filter')}
                       >
                         <ListFilter
                           className={SESSION_LIST_ACTION_ICON_CLASS}
@@ -737,7 +742,7 @@ export function SessionHubSidebar({
                       </Button>
                     </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>筛选</TooltipContent>
+                  <TooltipContent>{t('hubSidebar.filter')}</TooltipContent>
                 </Tooltip>
 
                 <PopoverContent
@@ -746,7 +751,7 @@ export function SessionHubSidebar({
                 >
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-medium text-foreground">
-                      筛选条件
+                      {t('hubSidebar.filterConditions')}
                     </div>
                     <Button
                       type="button"
@@ -758,13 +763,13 @@ export function SessionHubSidebar({
                         onExecutorFilterValuesChange([]);
                       }}
                     >
-                      清空
+                      {t('hubSidebar.clear')}
                     </Button>
                   </div>
 
                   <div className="space-y-2">
                     <div className="text-[11px] font-medium text-muted-foreground">
-                      工作区
+                      {t('hubSidebar.workspace')}
                     </div>
                     <ScrollArea className="max-h-32">
                       <div className="space-y-2 pr-3">
@@ -801,7 +806,7 @@ export function SessionHubSidebar({
 
                   <div className="space-y-2">
                     <div className="text-[11px] font-medium text-muted-foreground">
-                      编程代理
+                      {t('hubSidebar.codingAgent')}
                     </div>
                     <ScrollArea className="max-h-32">
                       <div className="space-y-2 pr-3">
@@ -845,14 +850,20 @@ export function SessionHubSidebar({
                       'order-2 border border-border/60',
                       isArchiveView && 'text-foreground'
                     )}
-                    aria-label={isArchiveView ? '返回会话列表' : '打开归档区'}
+                    aria-label={
+                      isArchiveView
+                        ? t('hubSidebar.backToSessionList')
+                        : t('hubSidebar.openArchive')
+                    }
                     onClick={() => onArchiveViewChange(!isArchiveView)}
                   >
                     <Archive className={SESSION_LIST_ACTION_ICON_CLASS} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {isArchiveView ? '返回会话列表' : '打开归档区'}
+                  {isArchiveView
+                    ? t('hubSidebar.backToSessionList')
+                    : t('hubSidebar.openArchive')}
                 </TooltipContent>
               </Tooltip>
 
@@ -869,14 +880,20 @@ export function SessionHubSidebar({
                           ? 'text-destructive hover:text-destructive'
                           : undefined
                       )}
-                      aria-label={isDeleteMode ? '退出删除模式' : '批量删除'}
+                      aria-label={
+                        isDeleteMode
+                          ? t('hubSidebar.exitDeleteMode')
+                          : t('hubSidebar.bulkDelete')
+                      }
                       onClick={onToggleDeleteMode}
                     >
                       <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {isDeleteMode ? '退出删除模式' : '批量删除'}
+                    {isDeleteMode
+                      ? t('hubSidebar.exitDeleteMode')
+                      : t('hubSidebar.bulkDelete')}
                   </TooltipContent>
                 </Tooltip>
             </div>
@@ -886,17 +903,21 @@ export function SessionHubSidebar({
             <div className="session-hub-drop-zone flex flex-wrap items-center gap-2 rounded-xl px-2.5 py-2 text-[11px] text-muted-foreground">
               {sortField ? (
                 <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
-                  排序：{getSortLabel(sortField)}
+                  {t('hubSidebar.sortChip', { label: getSortLabel(sortField) })}
                 </span>
               ) : null}
               {workspaceFilterIds.length > 0 ? (
                 <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
-                  工作区：{workspaceFilterIds.length}
+                  {t('hubSidebar.workspaceChip', {
+                    count: workspaceFilterIds.length,
+                  })}
                 </span>
               ) : null}
               {executorFilterValues.length > 0 ? (
                 <span className="session-hub-filter-chip rounded-full px-2 py-0.5">
-                  代理：{executorFilterValues.length}
+                  {t('hubSidebar.agentChip', {
+                    count: executorFilterValues.length,
+                  })}
                 </span>
               ) : null}
               <Button
@@ -906,7 +927,7 @@ export function SessionHubSidebar({
                 className="ml-auto h-6 px-2 text-[11px]"
                 onClick={onResetViewState}
               >
-                恢复默认
+                {t('hubSidebar.restoreDefault')}
               </Button>
             </div>
           ) : null}
@@ -916,8 +937,10 @@ export function SessionHubSidebar({
               <div className="flex items-center justify-between gap-2 text-[11px]">
                 <span className="text-muted-foreground">
                   {selectedSessionIdSet.size > 0
-                    ? `已选择 ${selectedSessionIdSet.size} 项`
-                    : '请选择要删除的会话'}
+                    ? t('hubSidebar.selectedCount', {
+                        count: selectedSessionIdSet.size,
+                      })
+                    : t('hubSidebar.selectSessionsToDelete')}
                 </span>
                 <div className="flex items-center gap-2">
                   <Button
@@ -930,7 +953,9 @@ export function SessionHubSidebar({
                     }
                     onClick={() => void onDeleteSelectedSessions()}
                   >
-                    {isDeletingSessions ? '删除中...' : '删除选中'}
+                    {isDeletingSessions
+                      ? t('hubSidebar.deleting')
+                      : t('hubSidebar.deleteSelected')}
                   </Button>
                   <Button
                     type="button"
@@ -940,7 +965,7 @@ export function SessionHubSidebar({
                     disabled={isDeletingSessions}
                     onClick={onCancelDeleteMode}
                   >
-                    取消
+                    {t('common:cancel')}
                   </Button>
                 </div>
               </div>
@@ -976,7 +1001,7 @@ export function SessionHubSidebar({
               ) : null}
               {isLoading ? (
                 <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                  正在加载会话...
+                  {t('hubSidebar.loadingSessions')}
                 </div>
               ) : isArchiveView ? (
                 archivedSessions.length > 0 ? (
@@ -997,12 +1022,12 @@ export function SessionHubSidebar({
                   )
                 ) : (
                   <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                    归档区暂无会话。
+                    {t('hubSidebar.archiveEmpty')}
                   </div>
                 )
               ) : sessions.length === 0 ? (
                 <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                  暂无会话，点击上方“新增”即可创建。
+                  {t('hubSidebar.noSessions')}
                 </div>
               ) : isFlatListMode ? (
                 flatSessions.length > 0 ? (
@@ -1022,7 +1047,7 @@ export function SessionHubSidebar({
                   )
                 ) : (
                   <div className="session-hub-drop-zone rounded-xl border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                    没有符合当前筛选或排序条件的会话。
+                    {t('hubSidebar.noFilterMatch')}
                   </div>
                 )
               ) : (

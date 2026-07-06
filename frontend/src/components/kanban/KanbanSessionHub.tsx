@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { type ExecutorProfileId } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -105,6 +106,7 @@ function resolveRestoredSessionName(
 }
 
 export function KanbanSessionHub() {
+  const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -697,7 +699,7 @@ export function KanbanSessionHub() {
         return next;
       });
       setDeleteErrorMessage(
-        mapSessionErrorMessage(error, '更新会话状态失败，请稍后重试。')
+        mapSessionErrorMessage(error, t('sessionHub.updateStatusFailed'))
       );
     }
   };
@@ -742,7 +744,7 @@ export function KanbanSessionHub() {
         return next;
       });
       setDeleteErrorMessage(
-        mapSessionErrorMessage(error, '恢复归档会话失败，请稍后重试。')
+        mapSessionErrorMessage(error, t('sessionHub.restoreArchivedFailed'))
       );
     }
   };
@@ -753,10 +755,12 @@ export function KanbanSessionHub() {
     }
 
     const result = await ConfirmDialog.show({
-      title: '删除会话',
-      message: `确定删除会话“${session.fullName}”吗？正在执行中的会话不会被删除。`,
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t('sessionHub.deleteSessionTitle'),
+      message: t('sessionHub.deleteSessionConfirm', {
+        name: session.fullName,
+      }),
+      confirmText: t('common:delete'),
+      cancelText: t('common:cancel'),
       variant: 'destructive',
     });
 
@@ -787,10 +791,10 @@ export function KanbanSessionHub() {
       setSelectedSessionIds((current) =>
         current.filter((sessionId) => sessionId !== session.id)
       );
-      setDeleteSuccessMessage('已删除 1 个会话。');
+      setDeleteSuccessMessage(t('sessionHub.deleteSuccess', { count: 1 }));
     } catch (error) {
       setDeleteErrorMessage(
-        mapSessionErrorMessage(error, '删除失败，请稍后重试。')
+        mapSessionErrorMessage(error, t('sessionHub.deleteFailed'))
       );
     } finally {
       setIsDeletingSessions(false);
@@ -803,10 +807,12 @@ export function KanbanSessionHub() {
     }
 
     const result = await ConfirmDialog.show({
-      title: '删除会话',
-      message: `确定删除已选中的 ${selectedSessionIds.length} 个会话吗？正在执行中的会话不会被删除。`,
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t('sessionHub.deleteSessionTitle'),
+      message: t('sessionHub.deleteSelectedConfirm', {
+        count: selectedSessionIds.length,
+      }),
+      confirmText: t('common:delete'),
+      cancelText: t('common:cancel'),
       variant: 'destructive',
     });
 
@@ -855,16 +861,18 @@ export function KanbanSessionHub() {
 
     if (deleteSummary.succeededIds.length > 0) {
       pruneSessions(deleteSummary.remainingSessionIds);
-      setDeleteSuccessMessage(`已删除 ${succeededIds.length} 个会话。`);
+      setDeleteSuccessMessage(
+        t('sessionHub.deleteSuccess', { count: succeededIds.length })
+      );
     }
 
     if (deleteSummary.failedResults.length > 0) {
       setDeleteErrorMessage(
         deleteSummary.failedResults
           .map(({ result }) =>
-            mapSessionErrorMessage(result.reason, '删除失败，请稍后重试。')
+            mapSessionErrorMessage(result.reason, t('sessionHub.deleteFailed'))
           )
-          .join('；')
+          .join(t('sessionHub.errorSeparator'))
       );
       setSelectedSessionIds(deleteSummary.failedSessionIds);
     } else {

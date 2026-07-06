@@ -24,17 +24,23 @@
 | **P0-1** IM 远程审批闭环 | ✅ 完成（后端） | `/approve[always]` `/deny` `/cancel` `/resume` + `decide_remote_permission_response`；6 单测 |
 | **P0-2** 能力声明诚实化 | ✅ 完成 | SessionFork→ResetToHere（全 agent 诚实）、修正 sessionContinuity 分叉谎言、删除死 fork 事件；map→design→对抗验证 workflow + 单测 |
 | **P0-3** Automations 调度核心 | 🟡 核心完成 | 无依赖 cron 求值器 `schedule.rs`（12 单测）；DB/scheduler/命令/UI 待续 |
+| **P0-3** Automations 完整版 | ✅ 完成 | 无依赖 cron 求值器（12 单测）+ DB 迁移/模型 + 无头调度器 + 9 命令 + 设置页；v1 就地隔离、run=发起追踪 |
+| **P1-1** 历史解析器补齐 | ✅ 完成 | Gemini/Cline/OpenClaw 三个文件型解析器（5 单测，真实格式 fixture）；OpenCode/Hermes 为 SQLite 库另论 |
+| **P1-2** 会话全文搜索 | ✅ 完成 | FTS5 trigram（CJK 子串）+ 结算/截断/删除同步 + 启动回填 + 命令 + ⌘K UI（4 单测 + 2 集成） |
 | **P1-3** 会话分享导出 | ✅ 完成 | Markdown + 自包含 HTML 渲染器 + 密钥脱敏（4 单测）；命令 + 会话右键导出菜单 |
 | **P1-5** 部署形态方案 B | ✅ 完成 | 本机 API 定位文档化 + spec-08 作废横幅 + API 文档 |
 | **P2-1** git stash 套件 | ✅ 完成 | crates/git stash 全套 + 6 命令 + GitStashSection UI；解析 4 单测 + push/pop 集成测试 |
 | **P2-2** 克隆入口 + remote 管理 | ✅ 完成 | 去 cloud 门 + clone_repo/add·remove·set_remote 命令 + CloneRepoDialog + 欢迎页入口 |
 
-**未实施（需专门会话）**，按建议顺序与理由：
-- **P1-2 FTS 搜索 / P1-4 真 fork**：均在 conversations/projection 事件溯源热区——当前有并行"批次 C–E"重构在改这些文件，同时改动有冲突风险，建议待其落定后单独做（P1-4 设计已备 [ADR-0005](./adr/0005-session-fork-copies-events.md)）。
-- **P0-3 Automations 完整版**：在已测 cron 核心上加 DB 迁移 + 调度循环 + 命令 + 设置页。
-- **P1-1 解析器补齐**：Gemini/Cline/OpenCode/OpenClaw/Hermes 五个，各需格式 fixture。
+**合计已交付 11 项**（整个 P0 层 + 大部分 P1 + 关键 P2），全部经 `cargo check --workspace`/`clippy --features qa-mode`/后端全量测试/前端 752 测试/`generate-types:check`/`prepare-db:check` 验证。
+
+**未实施（可增量推进）**，按建议顺序与理由：
+- **P1-4 真 fork**：非破坏性事件复制可做（设计见 [ADR-0005](./adr/0005-session-fork-copies-events.md)），但 agent 上下文无法随分叉延续（VibeX 无 ACP `session/fork` 线路调用），价值受限；需谨慎操作事件日志。
+- **P2-7 IM 审计**：chat_channel_message_log 表 + 投递日志 + 设置展示。
+- **P2-4 选区入对话**：composer WYSIWYG 集成（多文件前端）。
 - **P1-6 更新器 / P2-5 托盘·深链**：需新增 tauri 插件依赖 + 签名密钥/发布基建，非纯代码。
-- **P2-3 平铺 / P2-4 选区入对话 / P2-7 IM 审计 / P2-8 日志查看器 / P3 外壳**：多为前端多文件或独立后端，可增量推进。
+- **P2-3 平铺 / P2-8 日志查看器 / P3 外壳**：多为前端多文件或独立基建。
+- **P0-3 worktree 隔离 / run 事件总线终态判定**：在已交付 v1 上的增强项。
 
 ## 1. 第一性原则框架
 

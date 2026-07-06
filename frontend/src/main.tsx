@@ -11,6 +11,8 @@ import {
 import { isBinaryContentError } from '@/utils/filePreviewKind';
 import { isCanceledError } from '@/lib/tauriApi';
 import { initUiZoom } from '@/lib/uiZoom';
+// Initialize the i18n runtime (module side-effect) before first render.
+import '@/i18n';
 // Import modal type definitions
 import './types/modals';
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Clock, Play, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ function emptyInput(projectId: string): AutomationInput {
 }
 
 export function AutomationsSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const { projects } = useProjects();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [draft, setDraft] = useState<AutomationInput | null>(null);
@@ -46,9 +48,9 @@ export function AutomationsSettings() {
     try {
       setAutomations(await automationApi.list());
     } catch (error) {
-      toast.error(`加载自动化失败：${error}`);
+      toast.error(t('automations.loadFailed', { error: String(error) }));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void reload();
@@ -62,25 +64,25 @@ export function AutomationsSettings() {
   const save = async () => {
     if (!draft) return;
     if (!draft.name.trim() || !draft.prompt.trim()) {
-      toast.error('请填写名称与提示词');
+      toast.error(t('automations.nameAndPromptRequired'));
       return;
     }
     if (!draft.project_id) {
-      toast.error('请选择项目');
+      toast.error(t('automations.projectRequired'));
       return;
     }
     if (draft.trigger_kind === 'cron' && !draft.cron?.trim()) {
-      toast.error('定时触发需要填写 cron 表达式');
+      toast.error(t('automations.cronRequired'));
       return;
     }
     setBusy(true);
     try {
       await automationApi.create(draft);
-      toast.success('已创建自动化');
+      toast.success(t('automations.created'));
       setDraft(null);
       await reload();
     } catch (error) {
-      toast.error(`保存失败：${error}`);
+      toast.error(t('automations.saveFailed', { error: String(error) }));
     } finally {
       setBusy(false);
     }
@@ -89,10 +91,10 @@ export function AutomationsSettings() {
   const runNow = async (automation: Automation) => {
     try {
       await automationApi.runNow(automation.id);
-      toast.success('已触发运行');
+      toast.success(t('automations.triggered'));
       await loadRuns(automation.id);
     } catch (error) {
-      toast.error(`运行失败：${error}`);
+      toast.error(t('automations.runFailed', { error: String(error) }));
     }
   };
 
@@ -101,7 +103,7 @@ export function AutomationsSettings() {
       await automationApi.setEnabled(automation.id, enabled);
       await reload();
     } catch (error) {
-      toast.error(`操作失败：${error}`);
+      toast.error(t('automations.toggleFailed', { error: String(error) }));
     }
   };
 
@@ -110,7 +112,7 @@ export function AutomationsSettings() {
       await automationApi.remove(automation.id);
       await reload();
     } catch (error) {
-      toast.error(`删除失败：${error}`);
+      toast.error(t('automations.deleteFailed', { error: String(error) }));
     }
   };
 
@@ -129,20 +131,20 @@ export function AutomationsSettings() {
   return (
     <div className="space-y-4">
       <SettingsPageHeader
-        title="自动化"
-        description="把一次“发起回合”存为可复用的自动化，手动或按 cron 定时无头运行；运行会创建真实会话，可在工作区打开查看。"
+        title={t('automations.pageTitle')}
+        description={t('automations.pageDescription')}
       />
 
       <SettingsSection
         icon={Clock}
-        title="自动化"
-        description="应用运行时才会触发；错过的定时不补跑。"
+        title={t('automations.pageTitle')}
+        description={t('automations.sectionDescription')}
       >
         <div className="mb-3">
           {draft ? null : (
             <Button size="sm" variant="outline" onClick={startNew}>
               <Plus className="mr-1 h-4 w-4" />
-              新建自动化
+              {t('automations.newAutomation')}
             </Button>
           )}
         </div>
@@ -151,21 +153,25 @@ export function AutomationsSettings() {
           <div className="mb-4 space-y-3 rounded-[10px] border border-border p-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">名称</label>
+                <label className="text-xs font-medium">
+                  {t('automations.name')}
+                </label>
                 <Input
                   value={draft.name}
                   onChange={(e) => patchDraft({ name: e.target.value })}
-                  placeholder="如：夜间跑测试"
+                  placeholder={t('automations.namePlaceholder')}
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">项目</label>
+                <label className="text-xs font-medium">
+                  {t('automations.project')}
+                </label>
                 <Select
                   value={draft.project_id}
                   onValueChange={(v) => patchDraft({ project_id: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="选择项目" />
+                    <SelectValue placeholder={t('automations.selectProject')} />
                   </SelectTrigger>
                   <SelectContent>
                     {projects.map((p) => (
@@ -179,18 +185,22 @@ export function AutomationsSettings() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">提示词</label>
+              <label className="text-xs font-medium">
+                {t('automations.prompt')}
+              </label>
               <Textarea
                 value={draft.prompt}
                 onChange={(e) => patchDraft({ prompt: e.target.value })}
-                placeholder="要让 agent 做什么…"
+                placeholder={t('automations.promptPlaceholder')}
                 rows={3}
               />
             </div>
 
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">执行器</label>
+                <label className="text-xs font-medium">
+                  {t('automations.executor')}
+                </label>
                 <Select
                   value={draft.executor ?? 'CLAUDE_CODE'}
                   onValueChange={(v) => patchDraft({ executor: v })}
@@ -208,7 +218,9 @@ export function AutomationsSettings() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">触发</label>
+                <label className="text-xs font-medium">
+                  {t('automations.trigger')}
+                </label>
                 <Select
                   value={draft.trigger_kind}
                   onValueChange={(v) =>
@@ -222,13 +234,19 @@ export function AutomationsSettings() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="manual">手动</SelectItem>
-                    <SelectItem value="cron">定时 (cron)</SelectItem>
+                    <SelectItem value="manual">
+                      {t('automations.triggerManual')}
+                    </SelectItem>
+                    <SelectItem value="cron">
+                      {t('automations.triggerCron')}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium">cron（本地时间）</label>
+                <label className="text-xs font-medium">
+                  {t('automations.cronLabel')}
+                </label>
                 <Input
                   value={draft.cron ?? ''}
                   onChange={(e) => patchDraft({ cron: e.target.value })}
@@ -240,14 +258,14 @@ export function AutomationsSettings() {
 
             <div className="flex items-center justify-between">
               <p className="text-[11px] text-muted-foreground">
-                v1 在项目根工作区就地运行（不隔离 worktree）。
+                {t('automations.isolationHint')}
               </p>
               <div className="flex gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
-                  取消
+                  {t('common:cancel')}
                 </Button>
                 <Button size="sm" onClick={() => void save()} disabled={busy}>
-                  保存
+                  {t('common:save')}
                 </Button>
               </div>
             </div>
@@ -255,7 +273,9 @@ export function AutomationsSettings() {
         ) : null}
 
         {automations.length === 0 ? (
-          <p className="text-xs text-muted-foreground">暂无自动化。</p>
+          <p className="text-xs text-muted-foreground">
+            {t('automations.empty')}
+          </p>
         ) : (
           <ul className="space-y-2">
             {automations.map((automation) => (
@@ -270,9 +290,10 @@ export function AutomationsSettings() {
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {automation.trigger_kind === 'cron'
-                        ? `cron ${automation.cron}`
-                        : '手动'}{' '}
-                      · {automation.executor ?? '默认'}
+                        ? t('automations.cronSummary', { cron: automation.cron })
+                        : t('automations.triggerManual')}{' '}
+                      ·{' '}
+                      {automation.executor ?? t('automations.defaultExecutor')}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -287,7 +308,7 @@ export function AutomationsSettings() {
                       onClick={() => void runNow(automation)}
                     >
                       <Play className="mr-1 h-3.5 w-3.5" />
-                      运行
+                      {t('common:run')}
                     </Button>
                     <Button
                       size="sm"
@@ -295,7 +316,7 @@ export function AutomationsSettings() {
                       className="h-7 px-2"
                       onClick={() => void loadRuns(automation.id)}
                     >
-                      历史
+                      {t('common:history')}
                     </Button>
                     <Button
                       size="sm"

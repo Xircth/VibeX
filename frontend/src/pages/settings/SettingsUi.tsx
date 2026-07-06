@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Loader2, Save, Undo2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 
@@ -83,15 +84,16 @@ export function SettingsActionBar({
   onDiscard,
   onSave,
   disabled = false,
-  message = '设置已修改，保存后生效。',
+  message,
 }: SettingsActionBarProps) {
+  const { t } = useTranslation('common');
   if (!dirty) {
     return null;
   }
 
   return (
     <div className="settings-action-bar">
-      <span>{message}</span>
+      <span>{message ?? t('settingsChanged')}</span>
       <div className="flex gap-2">
         <Button
           variant="outline"
@@ -100,7 +102,7 @@ export function SettingsActionBar({
           disabled={saving}
         >
           <Undo2 className="mr-2 h-4 w-4" />
-          放弃
+          {t('discard')}
         </Button>
         <Button size="sm" onClick={onSave} disabled={disabled || saving}>
           {saving ? (
@@ -108,7 +110,7 @@ export function SettingsActionBar({
           ) : (
             <Save className="mr-2 h-4 w-4" />
           )}
-          保存
+          {t('save')}
         </Button>
       </div>
     </div>

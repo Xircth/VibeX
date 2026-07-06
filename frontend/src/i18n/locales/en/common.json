@@ -1,0 +1,12 @@
+{
+  "save": "Save",
+  "cancel": "Cancel",
+  "discard": "Discard",
+  "delete": "Delete",
+  "create": "New",
+  "run": "Run",
+  "history": "History",
+  "close": "Close",
+  "reset": "Reset to default",
+  "settingsChanged": "Settings changed. They take effect after saving."
+}

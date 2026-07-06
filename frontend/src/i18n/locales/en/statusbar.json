@@ -1,0 +1,7 @@
+{
+  "online": "online",
+  "offline": "offline",
+  "automationFailureTitle": "Automation run failed",
+  "backgroundTasksTitle": "{{count}} background task(s) running",
+  "updateAvailableTitle": "An update is available"
+}

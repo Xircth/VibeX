@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Maximize2, Sun } from 'lucide-react';
+import { Languages, Loader2, Maximize2, Sun } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
 import { UI_ZOOM_LEVELS, getUiZoom, setUiZoom } from '@/lib/uiZoom';
+import { setUiLanguage } from '@/i18n';
+import {
+  LANGUAGE_LABELS,
+  SUPPORTED_LANGUAGES,
+  getUiLanguage,
+  type UiLanguage,
+} from '@/lib/uiLanguage';
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Label } from '@/components/ui/label';
@@ -24,11 +32,13 @@ import {
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
   const { setTheme } = useTheme();
+  const { t } = useTranslation('settings');
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? structuredClone(config) : null
   );
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
+  const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
 
   useEffect(() => {
     if (config) {
@@ -79,21 +89,21 @@ export function AppearanceSettings() {
   return (
     <div className="settings-content">
       <SettingsPageHeader
-        title="外观"
-        description="管理应用主题与亮暗模式。"
+        title={t('appearance.title')}
+        description={t('appearance.description')}
       />
 
       <div className="settings-sections">
         <SettingsSection
           icon={Sun}
-          title="主题"
-          description="选择浅色、深色或跟随系统的配色方案。"
+          title={t('appearance.theme.title')}
+          description={t('appearance.theme.description')}
         >
           <div className="settings-row">
             <div>
-              <Label>应用主题</Label>
+              <Label>{t('appearance.theme.label')}</Label>
               <p className="settings-row__description">
-                深色模式（Ayu Mirage）针对代码密集会话优化。
+                {t('appearance.theme.hint')}
               </p>
             </div>
             <Select
@@ -116,14 +126,14 @@ export function AppearanceSettings() {
 
         <SettingsSection
           icon={Maximize2}
-          title="界面缩放"
-          description="整体缩放界面以适应你的显示器与视力。即时生效并记住。"
+          title={t('appearance.zoom.title')}
+          description={t('appearance.zoom.description')}
         >
           <div className="settings-row">
             <div>
-              <Label>缩放比例</Label>
+              <Label>{t('appearance.zoom.label')}</Label>
               <p className="settings-row__description">
-                影响整个应用界面的显示大小。
+                {t('appearance.zoom.hint')}
               </p>
             </div>
             <Select
@@ -141,6 +151,40 @@ export function AppearanceSettings() {
                 {UI_ZOOM_LEVELS.map((level) => (
                   <SelectItem key={level} value={String(level)}>
                     {Math.round(level * 100)}%
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Languages}
+          title={t('appearance.language.title')}
+          description={t('appearance.language.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.language.label')}</Label>
+              <p className="settings-row__description">
+                {t('appearance.language.hint')}
+              </p>
+            </div>
+            <Select
+              value={language}
+              onValueChange={(value) => {
+                const next = value as UiLanguage;
+                setLanguage(next);
+                setUiLanguage(next);
+              }}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {SUPPORTED_LANGUAGES.map((lng) => (
+                  <SelectItem key={lng} value={lng}>
+                    {LANGUAGE_LABELS[lng]}
                   </SelectItem>
                 ))}
               </SelectContent>

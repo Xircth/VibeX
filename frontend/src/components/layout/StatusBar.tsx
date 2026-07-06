@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { useProject } from '@/contexts/ProjectContext';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
@@ -14,6 +15,7 @@ const CORE_AGENTS = [
 ] as const;
 
 function AgentStatusLight({ agent }: { agent: AgentKind }) {
+  const { t } = useTranslation('statusbar');
   const availability = useAgentAvailability(agent);
   const isOnline =
     availability?.status === 'login_detected' ||
@@ -23,7 +25,7 @@ function AgentStatusLight({ agent }: { agent: AgentKind }) {
   return (
     <span
       className="flex items-center gap-1 rounded-full border border-border/60 bg-background/50 px-1.5 py-[1px]"
-      title={`${label}: ${isOnline ? 'online' : 'offline'}`}
+      title={`${label}: ${isOnline ? t('online') : t('offline')}`}
     >
       <span
         className={`h-2 w-2 rounded-full ${

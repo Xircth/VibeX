@@ -1,0 +1,70 @@
+{
+  "nav": {
+    "agents": "Agents",
+    "appearance": "Appearance",
+    "general": "General",
+    "modelProviders": "Model providers",
+    "mcp": "MCP",
+    "skills": "Skills",
+    "instructions": "Instructions",
+    "shortcuts": "Shortcuts",
+    "versionControl": "Version control",
+    "chatChannels": "Chat channels",
+    "automations": "Automations",
+    "webService": "Web service",
+    "system": "System"
+  },
+  "appearance": {
+    "title": "Appearance",
+    "description": "Manage the app theme, interface zoom, and display language.",
+    "theme": {
+      "title": "Theme",
+      "description": "Choose a light, dark, or system-matching color scheme.",
+      "label": "App theme",
+      "hint": "Dark mode (Ayu Mirage) is tuned for code-dense sessions."
+    },
+    "zoom": {
+      "title": "Interface zoom",
+      "description": "Scale the whole interface for your display and eyesight. Applies instantly and is remembered.",
+      "label": "Zoom level",
+      "hint": "Affects the display size of the entire app interface."
+    },
+    "language": {
+      "title": "Language",
+      "description": "Choose the interface display language. Applies instantly and is remembered.",
+      "label": "Interface language",
+      "hint": "Bilingual coverage is progressive — some screens are still Chinese-only and will be completed over time."
+    }
+  },
+  "automations": {
+    "pageTitle": "Automations",
+    "pageDescription": "Save a “start turn” as a reusable automation that runs headlessly, manually or on a cron schedule; each run creates a real session you can open in the workspace.",
+    "sectionDescription": "Only triggers while the app is running; missed schedules are not backfilled.",
+    "newAutomation": "New automation",
+    "name": "Name",
+    "namePlaceholder": "e.g. nightly test run",
+    "project": "Project",
+    "selectProject": "Select a project",
+    "prompt": "Prompt",
+    "promptPlaceholder": "What should the agent do…",
+    "executor": "Executor",
+    "trigger": "Trigger",
+    "triggerManual": "Manual",
+    "triggerCron": "Scheduled (cron)",
+    "cronLabel": "cron (local time)",
+    "cronSummary": "cron {{cron}}",
+    "isolationHint": "v1 runs in place in the project root workspace (no isolated worktree).",
+    "empty": "No automations yet.",
+    "defaultExecutor": "default",
+    "loadFailed": "Failed to load automations: {{error}}",
+    "nameAndPromptRequired": "Please fill in a name and a prompt",
+    "projectRequired": "Please select a project",
+    "cronRequired": "A scheduled trigger needs a cron expression",
+    "created": "Automation created",
+    "saveFailed": "Save failed: {{error}}",
+    "triggered": "Run triggered",
+    "runFailed": "Run failed: {{error}}",
+    "toggleFailed": "Operation failed: {{error}}",
+    "deleteFailed": "Delete failed: {{error}}"
+  }
+}

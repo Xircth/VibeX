@@ -1,0 +1,12 @@
+{
+  "save": "保存",
+  "cancel": "取消",
+  "discard": "放弃",
+  "delete": "删除",
+  "create": "新建",
+  "run": "运行",
+  "history": "历史",
+  "close": "关闭",
+  "reset": "恢复默认",
+  "settingsChanged": "设置已修改，保存后生效。"
+}

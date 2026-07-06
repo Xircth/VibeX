@@ -1,5 +1,6 @@
 import { useCallback, type ComponentType } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Bot,
   BookOpenText,
@@ -21,29 +22,31 @@ import { cn } from '@/lib/utils';
 
 interface SettingsNavItem {
   path: string;
-  label: string;
+  /** Key under the `settings:nav` namespace. */
+  labelKey: string;
   icon: ComponentType<{ className?: string }>;
 }
 
 const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
-  { path: '/settings/agents', label: 'Agent', icon: Bot },
-  { path: '/settings/appearance', label: '外观', icon: Sun },
-  { path: '/settings/general', label: '常规', icon: SlidersHorizontal },
-  { path: '/settings/model-providers', label: '模型供应商', icon: Server },
-  { path: '/settings/mcp', label: 'MCP', icon: PlugZap },
-  { path: '/settings/skills', label: '技能', icon: BookOpenText },
-  { path: '/settings/instructions', label: '指令', icon: MessageSquareText },
-  { path: '/settings/shortcuts', label: '交互', icon: Keyboard },
-  { path: '/settings/version-control', label: '版本管理', icon: GitBranch },
-  { path: '/settings/chat-channels', label: '消息渠道', icon: SendHorizontal },
-  { path: '/settings/automations', label: '自动化', icon: Clock },
-  { path: '/settings/web-service', label: 'Web 服务', icon: Globe },
-  { path: '/settings/system', label: '系统', icon: Settings },
+  { path: '/settings/agents', labelKey: 'agents', icon: Bot },
+  { path: '/settings/appearance', labelKey: 'appearance', icon: Sun },
+  { path: '/settings/general', labelKey: 'general', icon: SlidersHorizontal },
+  { path: '/settings/model-providers', labelKey: 'modelProviders', icon: Server },
+  { path: '/settings/mcp', labelKey: 'mcp', icon: PlugZap },
+  { path: '/settings/skills', labelKey: 'skills', icon: BookOpenText },
+  { path: '/settings/instructions', labelKey: 'instructions', icon: MessageSquareText },
+  { path: '/settings/shortcuts', labelKey: 'shortcuts', icon: Keyboard },
+  { path: '/settings/version-control', labelKey: 'versionControl', icon: GitBranch },
+  { path: '/settings/chat-channels', labelKey: 'chatChannels', icon: SendHorizontal },
+  { path: '/settings/automations', labelKey: 'automations', icon: Clock },
+  { path: '/settings/web-service', labelKey: 'webService', icon: Globe },
+  { path: '/settings/system', labelKey: 'system', icon: Settings },
 ];
 
 export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useTranslation('settings');
 
   const navigateTo = useCallback(
     (path: string) => {
@@ -79,7 +82,7 @@ export function SettingsLayout() {
                 >
                   <span className="inline-flex items-center gap-2">
                     <Icon className="h-4 w-4" />
-                    {item.label}
+                    {t(`nav.${item.labelKey}`)}
                   </span>
                 </Button>
               );

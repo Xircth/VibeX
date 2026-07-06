@@ -1,0 +1,70 @@
+{
+  "nav": {
+    "agents": "Agent",
+    "appearance": "外观",
+    "general": "常规",
+    "modelProviders": "模型供应商",
+    "mcp": "MCP",
+    "skills": "技能",
+    "instructions": "指令",
+    "shortcuts": "交互",
+    "versionControl": "版本管理",
+    "chatChannels": "消息渠道",
+    "automations": "自动化",
+    "webService": "Web 服务",
+    "system": "系统"
+  },
+  "appearance": {
+    "title": "外观",
+    "description": "管理应用主题、界面缩放与显示语言。",
+    "theme": {
+      "title": "主题",
+      "description": "选择浅色、深色或跟随系统的配色方案。",
+      "label": "应用主题",
+      "hint": "深色模式（Ayu Mirage）针对代码密集会话优化。"
+    },
+    "zoom": {
+      "title": "界面缩放",
+      "description": "整体缩放界面以适应你的显示器与视力。即时生效并记住。",
+      "label": "缩放比例",
+      "hint": "影响整个应用界面的显示大小。"
+    },
+    "language": {
+      "title": "语言",
+      "description": "选择界面显示语言。即时生效并记住。",
+      "label": "界面语言",
+      "hint": "当前为渐进式双语，部分界面仍为中文，将逐步完善。"
+    }
+  },
+  "automations": {
+    "pageTitle": "自动化",
+    "pageDescription": "把一次“发起回合”存为可复用的自动化，手动或按 cron 定时无头运行；运行会创建真实会话，可在工作区打开查看。",
+    "sectionDescription": "应用运行时才会触发；错过的定时不补跑。",
+    "newAutomation": "新建自动化",
+    "name": "名称",
+    "namePlaceholder": "如：夜间跑测试",
+    "project": "项目",
+    "selectProject": "选择项目",
+    "prompt": "提示词",
+    "promptPlaceholder": "要让 agent 做什么…",
+    "executor": "执行器",
+    "trigger": "触发",
+    "triggerManual": "手动",
+    "triggerCron": "定时 (cron)",
+    "cronLabel": "cron（本地时间）",
+    "cronSummary": "cron {{cron}}",
+    "isolationHint": "v1 在项目根工作区就地运行（不隔离 worktree）。",
+    "empty": "暂无自动化。",
+    "defaultExecutor": "默认",
+    "loadFailed": "加载自动化失败：{{error}}",
+    "nameAndPromptRequired": "请填写名称与提示词",
+    "projectRequired": "请选择项目",
+    "cronRequired": "定时触发需要填写 cron 表达式",
+    "created": "已创建自动化",
+    "saveFailed": "保存失败：{{error}}",
+    "triggered": "已触发运行",
+    "runFailed": "运行失败：{{error}}",
+    "toggleFailed": "操作失败：{{error}}",
+    "deleteFailed": "删除失败：{{error}}"
+  }
+}

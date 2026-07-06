@@ -1,0 +1,7 @@
+{
+  "online": "在线",
+  "offline": "离线",
+  "automationFailureTitle": "自动化运行失败",
+  "backgroundTasksTitle": "{{count}} 个后台任务运行中",
+  "updateAvailableTitle": "有新版本可更新"
+}

@@ -9,6 +9,7 @@ import type {
   Environment,
   ExecutorConfig,
   JsonValue,
+  ChatChannelMessageLog,
 } from 'shared/types';
 
 import { tauriInvoke } from './base';
@@ -556,6 +557,15 @@ export interface ChatChannelTestResult {
 export const chatChannelApi = {
   list: async (): Promise<ChatChannel[]> => {
     return tauriInvoke<ChatChannel[]>('list_chat_channels');
+  },
+  messageLogs: async (
+    channelId: string,
+    limit?: number
+  ): Promise<ChatChannelMessageLog[]> => {
+    return tauriInvoke<ChatChannelMessageLog[]>(
+      'list_chat_channel_message_logs',
+      { channelId, limit: limit ?? null }
+    );
   },
   create: async (payload: ChatChannelPayload): Promise<ChatChannel> => {
     return tauriInvoke<ChatChannel>('create_chat_channel', { payload });

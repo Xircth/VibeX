@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
+  History,
   KeyRound,
   Loader2,
   MessageSquare,
@@ -38,6 +39,7 @@ import {
   type ChatChannel,
   type ChatChannelPayload,
 } from '@/lib/api';
+import type { ChatChannelMessageLog } from 'shared/types';
 
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 
@@ -250,6 +252,24 @@ export function ChatChannelSettings() {
   const [draft, setDraft] = useState<ChannelDraft>(() => emptyDraft());
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  // Delivery/audit log viewer (P2-7).
+  const [logChannelId, setLogChannelId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<ChatChannelMessageLog[]>([]);
+
+  const toggleLogs = useCallback(async (channelId: string) => {
+    if (logChannelIdRef.current === channelId) {
+      setLogChannelId(null);
+      return;
+    }
+    try {
+      setLogs(await chatChannelApi.messageLogs(channelId, 15));
+      setLogChannelId(channelId);
+    } catch (error) {
+      toast.error(`读取投递记录失败：${error}`);
+    }
+  }, []);
+  const logChannelIdRef = useRef(logChannelId);
+  logChannelIdRef.current = logChannelId;
 
   // App-level notification settings.
   const [eventFilter, setEventFilter] = useState<string[]>([]);
@@ -502,8 +522,8 @@ export function ChatChannelSettings() {
                   </div>
                 ) : (
                   visibleChannels.map((channel) => (
+                    <div key={channel.id}>
                     <div
-                      key={channel.id}
                       className="group flex items-center gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-[var(--surface-control-hover)]"
                     >
                       <button
@@ -541,6 +561,16 @@ export function ChatChannelSettings() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                        onClick={() => void toggleLogs(channel.id)}
+                        title="投递记录"
+                        aria-label="投递记录"
+                      >
+                        <History className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                         onClick={() => deleteChannel(channel)}
                         title="删除渠道"
@@ -548,6 +578,39 @@ export function ChatChannelSettings() {
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
+                    </div>
+                    {logChannelId === channel.id ? (
+                      <div className="mb-1 ml-2.5 space-y-1 border-l border-border pl-2.5">
+                        {logs.length === 0 ? (
+                          <p className="py-1 text-[11px] text-muted-foreground">
+                            暂无投递记录。
+                          </p>
+                        ) : (
+                          logs.map((log) => (
+                            <div
+                              key={log.id}
+                              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
+                            >
+                              <span className="truncate">
+                                {log.direction === 'inbound' ? '⬇' : '⬆'}{' '}
+                                {log.event ?? '—'}
+                              </span>
+                              <span
+                                className={
+                                  log.status === 'failed' ||
+                                  log.status === 'rejected'
+                                    ? 'shrink-0 text-destructive'
+                                    : 'shrink-0'
+                                }
+                              >
+                                {log.status}
+                                {log.detail ? `：${log.detail}` : ''}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    ) : null}
                     </div>
                   ))
                 )}

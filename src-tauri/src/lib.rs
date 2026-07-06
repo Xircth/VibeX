@@ -101,6 +101,9 @@ pub fn run() {
 
             app.manage(state);
             // Bidirectional IM channels: run inbound loops + conversation command dispatch.
+            commands::chat_channel::set_audit_pool(
+                app.state::<state::AppState>().deployment.db().pool.clone(),
+            );
             commands::chat_channel::start_inbound_manager(app.handle().clone());
 
             // Automations (P0-3): recover orphaned runs, then start the cron poller.
@@ -410,6 +413,7 @@ pub fn run() {
             commands::model_provider::clear_agent_provider_key,
             commands::model_provider::fetch_agent_provider_models,
             commands::chat_channel::list_chat_channels,
+            commands::chat_channel::list_chat_channel_message_logs,
             commands::chat_channel::create_chat_channel,
             commands::chat_channel::update_chat_channel,
             commands::chat_channel::delete_chat_channel,

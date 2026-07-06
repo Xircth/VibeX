@@ -59,6 +59,29 @@ const DEFAULT_EVENTS: &[&str] = &[
 
 const SUPPORTED_KINDS: &[&str] = &["telegram", "feishu", "weixin", "qq", "webhook"];
 
+/// DB pool for the chat-channel delivery/audit log (P2-7). Set once at startup;
+/// logging is best-effort and skipped if unset (e.g. in tests).
+static AUDIT_POOL: OnceLock<SqlitePool> = OnceLock::new();
+
+/// Register the pool used for chat-channel audit logging.
+pub fn set_audit_pool(pool: SqlitePool) {
+    let _ = AUDIT_POOL.set(pool);
+}
+
+/// Best-effort audit record of an outbound delivery or inbound command.
+async fn audit(channel_id: &str, direction: &str, event: Option<&str>, status: &str, detail: Option<&str>) {
+    let Some(pool) = AUDIT_POOL.get() else {
+        return;
+    };
+    if let Err(error) = db::models::chat_channel_message_log::ChatChannelMessageLog::record(
+        pool, channel_id, direction, event, status, detail,
+    )
+    .await
+    {
+        tracing::warn!(%error, "failed to write chat channel audit log");
+    }
+}
+
 /// How often the inbound manager reconciles running loops against config.
 const INBOUND_RECONCILE_SECS: u64 = 10;
 
@@ -696,6 +719,23 @@ fn build_conversation_rich(
     }
 }
 
+/// Recent delivery/audit log entries for a channel (P2-7).
+#[tauri::command]
+pub async fn list_chat_channel_message_logs(
+    state: tauri::State<'_, AppState>,
+    channel_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<db::models::chat_channel_message_log::ChatChannelMessageLog>, AppError> {
+    let pool = &state.deployment.db().pool;
+    db::models::chat_channel_message_log::ChatChannelMessageLog::list_recent(
+        pool,
+        &channel_id,
+        limit.unwrap_or(20).clamp(1, 200),
+    )
+    .await
+    .map_err(AppError::from)
+}
+
 pub async fn notify_conversation_event(
     envelope: &ConversationEventEnvelope,
 ) -> Result<(), AppError> {
@@ -718,13 +758,24 @@ pub async fn notify_conversation_event(
             continue;
         }
         let token = tokens.get(&channel.id).map(String::as_str);
-        if let Err(error) = deliver_rich(&channel.kind, &channel.config, token, &msg).await {
-            tracing::warn!(
-                channel_id = %channel.id,
-                kind = %channel.kind,
-                error = %error,
-                "Failed to send conversation chat channel notification"
-            );
+        match deliver_rich(&channel.kind, &channel.config, token, &msg).await {
+            Ok(_) => audit(&channel.id, "outbound", Some(event), "sent", None).await,
+            Err(error) => {
+                tracing::warn!(
+                    channel_id = %channel.id,
+                    kind = %channel.kind,
+                    error = %error,
+                    "Failed to send conversation chat channel notification"
+                );
+                audit(
+                    &channel.id,
+                    "outbound",
+                    Some(event),
+                    "failed",
+                    Some(&error.to_string()),
+                )
+                .await;
+            }
         }
     }
 
@@ -1431,6 +1482,7 @@ async fn dispatch_command(
     // entry point. Unauthorized messages are silently dropped (empty reply) so
     // an unbound bot cannot be probed for command surface.
     if !authorize_inbound(channel_id, sender_id, chat_id).await {
+        audit(channel_id, "inbound", None, "rejected", Some(sender_id)).await;
         return String::new();
     }
     let Some(rest) = text.strip_prefix(prefix) else {
@@ -1440,6 +1492,7 @@ async fn dispatch_command(
     let mut parts = rest.splitn(2, char::is_whitespace);
     let command = parts.next().unwrap_or("").to_lowercase();
     let args = parts.next().unwrap_or("").trim();
+    audit(channel_id, "inbound", Some(&command), "ok", None).await;
 
     match command.as_str() {
         "" | "help" | "start" => help_text(prefix),

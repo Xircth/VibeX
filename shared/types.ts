@@ -1054,4 +1054,14 @@ export type AutomationRun = { id: string, automation_id: string,
  */
 status: string, conversation_id: string | null, summary: string | null, error: string | null, seen: boolean, started_at: string, finished_at: string | null, };
 
+export type ChatChannelMessageLog = { id: string, channel_id: string,
+/**
+ * `outbound` | `inbound`.
+ */
+direction: string, event: string | null,
+/**
+ * `sent` | `failed` | `ok` | `rejected`.
+ */
+status: string, detail: string | null, created_at: string, };
+
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";

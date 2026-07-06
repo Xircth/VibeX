@@ -1,5 +1,6 @@
 pub mod agent_setting;
 pub mod automation;
+pub mod chat_channel_message_log;
 pub mod conversation;
 pub mod conversation_bundle;
 pub mod conversation_event;

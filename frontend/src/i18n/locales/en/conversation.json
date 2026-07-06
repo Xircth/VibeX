@@ -1,1 +1,198 @@
-{}
+{
+  "loadingCard": {
+    "thinking": "AI is thinking...",
+    "copy": "Copy"
+  },
+  "thinking": {
+    "statusThinking": "Thinking",
+    "statusCompleted": "Completed"
+  },
+  "displayEntry": {
+    "userDeniedTool": "User denied {{tool}}",
+    "stoppingHook": "Stopping Hook..."
+  },
+  "fileContentView": {
+    "addLinesToChat": "Add lines {{range}} to chat"
+  },
+  "retryEditor": {
+    "placeholder": "Edit and resend...",
+    "retryHere": "Retry from here",
+    "send": "Send"
+  },
+  "pendingApproval": {
+    "submitting": "Submitting",
+    "approve": "Approve",
+    "submittingEllipsis": "Submitting…",
+    "approveRequest": "Approve request",
+    "deny": "Deny",
+    "provideDenyReason": "Provide a denial reason",
+    "denyReasonPlaceholder": "Tell the Agent why this request was denied... Type # to insert a tag or search files.",
+    "approveThisRequest": "Approve this request?"
+  },
+  "userMessage": {
+    "viewFullMessage": "View full message",
+    "collapseMessage": "Collapse message",
+    "rollbackToHere": "Roll back to here"
+  },
+  "nextActionCard": {
+    "viewDiffs": "View diffs",
+    "filesChanged": "{{count}} files changed",
+    "copyWorktreePath": "Copy worktree path",
+    "copied": "Copied!",
+    "viewChangesInEditor": "View changes in {{editor}}",
+    "gitActions": "Git actions",
+    "runSetup": "Run setup",
+    "summaryAndActions": "Summary and actions"
+  },
+  "turnErrorCard": {
+    "reloadSession": "Reload session",
+    "cancelledTitle": "Cancelled",
+    "resourceNotFoundTitle": "Agent session expired",
+    "resourceNotFoundDetail": "This session no longer exists on the agent side. Reloading will re-establish the session on the next message.",
+    "idleTimeoutTitle": "Agent not responding",
+    "idleTimeoutDetail": "The agent returned nothing for a long time, so this turn was ended automatically. Common causes: the network/agent can't reach the model, or the agent needs to re-authenticate.",
+    "connectionClosedTitle": "Connection closed",
+    "connectionClosedDetail": "The agent connection was closed before this turn completed.",
+    "authRequiredTitle": "Re-authentication required",
+    "authRequiredDetail": "The agent requires re-authentication before continuing.",
+    "defaultTitle": "Conversation error",
+    "detailWithCode": "{{message}} ({{code}})"
+  },
+  "generatedImageCard": {
+    "generating": "Generating image…",
+    "title": "Generated image",
+    "downloadTooltip": "Download image",
+    "download": "Download",
+    "previewLabel": "Preview generated image",
+    "revisedPrompt": "Revised prompt"
+  },
+  "delegationCard": {
+    "delegatedTo": "Delegated to {{agent}}",
+    "subAgentDelegation": "Sub-agent delegation",
+    "openChildSession": "Open child session",
+    "duration": "Took {{duration}}",
+    "running": "Running",
+    "completed": "Completed",
+    "failed": "Failed"
+  },
+  "commandTool": {
+    "commandLabel": "Command",
+    "outputLabel": "Output"
+  },
+  "askQuestion": {
+    "title": "Question",
+    "questionLabel": "Question",
+    "optionsLabel": "Options",
+    "answerLabel": "Answer"
+  },
+  "permissionRequestCard": {
+    "title": "Permission Request",
+    "responded": "Responded",
+    "newFile": "New file",
+    "modified": "Modified",
+    "before": "Before",
+    "content": "Content",
+    "after": "After",
+    "viewDetails": "View details"
+  },
+  "messageTurnView": {
+    "streamingOutput": "AI is responding...",
+    "streamingThinking": "AI is thinking...",
+    "copied": "Copied",
+    "copyMessage": "Copy message",
+    "resendHint": "Resend: optionally restore files first, then resend",
+    "resend": "Resend",
+    "interruptedTitle": "Interrupted by restart",
+    "interruptedDescription": "This turn was interrupted by an app restart while generating and did not complete.",
+    "collapsedMessages": "Collapsed {{count}} messages",
+    "toolCall": "Tool call",
+    "generatingAgents": "Generating {{count}} agents"
+  },
+  "feedbackCheck": {
+    "label": "Feedback",
+    "checkItems": "Check Items",
+    "result": "Result"
+  },
+  "fileTool": {
+    "openPreview": "Open preview",
+    "copied": "Copied",
+    "copyPath": "Copy path",
+    "path": "Path",
+    "tool": "Tool"
+  },
+  "goalTool": {
+    "title": "Goal",
+    "objectiveLabel": "Goal",
+    "statusLabel": "Status",
+    "resultLabel": "Result"
+  },
+  "messageNav": {
+    "railLabel": "Message navigation",
+    "jumpToMessage": "Jump to message {{ordinal}}"
+  },
+  "planCard": {
+    "label": "Plan",
+    "updating": "Updating",
+    "itemsSummary": "{{count}} items - {{content}}",
+    "planUpdated": "Plan updated"
+  },
+  "searchTool": {
+    "openLink": "Open link",
+    "copied": "Copied",
+    "copyUrl": "Copy URL",
+    "copyQuery": "Copy query",
+    "query": "Query",
+    "tool": "Tool"
+  },
+  "genericTool": {
+    "process": "Process",
+    "reason": "Reason",
+    "status": "Status",
+    "action": "Action",
+    "startedAt": "Started at",
+    "subagent": "Subagent",
+    "todo": "Todo",
+    "description": "Description",
+    "result": "Result",
+    "arguments": "Arguments",
+    "content": "Content"
+  },
+  "turnStats": {
+    "copyReply": "Copy reply",
+    "jumpBack": "Back to previous user message",
+    "statusLabel": "Status",
+    "generating": "Generating",
+    "modelLabel": "Model",
+    "elapsedLabel": "Elapsed",
+    "completedLabel": "Completed",
+    "stopReasonLabel": "Finished"
+  },
+  "generatedImages": {
+    "statusFailed": "Failed",
+    "statusGenerating": "Generating",
+    "statusCompleted": "Completed",
+    "label": "Image",
+    "status": "Status",
+    "previewImage": "Preview generated image",
+    "prompt": "Prompt",
+    "revisedPrompt": "Revised prompt",
+    "error": "Error",
+    "rawResult": "Raw result"
+  },
+  "bundle": {
+    "fillConversationId": "Please enter a conversation ID",
+    "exported": "Conversation bundle exported",
+    "exportFailed": "Failed to export conversation bundle",
+    "fillWorkspaceId": "Please enter a workspace ID",
+    "imported": "Conversation bundle imported",
+    "importFailed": "Failed to import conversation bundle",
+    "title": "Conversation Bundle Import/Export",
+    "description": "Export a VibeX event-sourced conversation, or restore one from a bundle into a renderable timeline.",
+    "conversationIdPlaceholder": "Conversation ID",
+    "destinationPathPlaceholder": "Optional export path",
+    "exportButton": "Export bundle",
+    "workspaceIdPlaceholder": "Target workspace ID for import",
+    "importButton": "Import",
+    "textareaPlaceholder": "The exported conversation bundle JSON appears here; you can also paste bundle JSON to import."
+  }
+}

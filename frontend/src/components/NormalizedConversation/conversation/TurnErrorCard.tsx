@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Ban, RefreshCw, ShieldAlert, TriangleAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { ConversationError } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -19,8 +21,9 @@ export function TurnErrorCard({
   error: ConversationError;
   onReload?: () => void | Promise<unknown>;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [reloading, setReloading] = useState(false);
-  const view = describeError(error);
+  const view = describeError(error, t);
 
   const handleReload = () => {
     if (!onReload) return;
@@ -58,7 +61,7 @@ export function TurnErrorCard({
                 <RefreshCw
                   className={cn('mr-1 h-3.5 w-3.5', reloading && 'animate-spin')}
                 />
-                重新加载会话
+                {t('turnErrorCard.reloadSession')}
               </Button>
             </div>
           ) : null}
@@ -78,13 +81,16 @@ type ErrorView = {
   canReload: boolean;
 };
 
-function describeError(error: ConversationError): ErrorView {
+function describeError(
+  error: ConversationError,
+  t: TFunction
+): ErrorView {
   const message = error.message?.trim() || null;
   switch (error.code) {
     case 'cancelled':
     case 'request_cancelled':
       return {
-        title: '已取消',
+        title: t('turnErrorCard.cancelledTitle'),
         detail: message,
         tone: 'neutral',
         icon: <Ban className="h-4 w-4" />,
@@ -92,43 +98,40 @@ function describeError(error: ConversationError): ErrorView {
       };
     case 'resource_not_found':
       return {
-        title: '代理会话已过期',
-        detail:
-          message ??
-          '该会话在代理侧已不存在。重新加载会在下一条消息时重新建立会话。',
+        title: t('turnErrorCard.resourceNotFoundTitle'),
+        detail: message ?? t('turnErrorCard.resourceNotFoundDetail'),
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
       };
     case 'idle_timeout':
       return {
-        title: '代理无响应',
-        detail:
-          '代理长时间未返回任何内容，已自动结束本回合。常见原因：网络/代理无法连接模型，或代理需要重新登录认证。',
+        title: t('turnErrorCard.idleTimeoutTitle'),
+        detail: t('turnErrorCard.idleTimeoutDetail'),
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
       };
     case 'connection_closed':
       return {
-        title: '连接已断开',
-        detail: message ?? '代理连接在本回合完成前断开。',
+        title: t('turnErrorCard.connectionClosedTitle'),
+        detail: message ?? t('turnErrorCard.connectionClosedDetail'),
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
       };
     case 'auth_required':
       return {
-        title: '需要重新认证',
-        detail: message ?? '代理要求重新认证后才能继续。',
+        title: t('turnErrorCard.authRequiredTitle'),
+        detail: message ?? t('turnErrorCard.authRequiredDetail'),
         tone: 'error',
         icon: <ShieldAlert className="h-4 w-4" />,
         canReload: false,
       };
     default:
       return {
-        title: '会话出错',
-        detail: errorDetail(message, error.code),
+        title: t('turnErrorCard.defaultTitle'),
+        detail: errorDetail(message, error.code, t),
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
@@ -138,9 +141,11 @@ function describeError(error: ConversationError): ErrorView {
 
 function errorDetail(
   message: string | null,
-  code: string | null | undefined
+  code: string | null | undefined,
+  t: TFunction
 ): string | null {
-  if (message && code) return `${message}（${code}）`;
+  if (message && code)
+    return t('turnErrorCard.detailWithCode', { message, code });
   if (message) return message;
   if (code) return code;
   return null;

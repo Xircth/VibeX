@@ -1,4 +1,5 @@
 import { Hammer, ListTodo, PlayCircle, Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
 import type { ProcessStartPayload } from '@/types/logs';
 import { useExpandable } from '@/stores/useExpandableStore';
@@ -42,6 +43,7 @@ export function GenericToolCard({
   defaultExpanded?: boolean;
   taskAttemptId?: string;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const isNormalizedEntry = 'entry_type' in entry;
   const toolEntry =
     isNormalizedEntry && entry.entry_type.type === 'tool_use'
@@ -63,7 +65,7 @@ export function GenericToolCard({
     return (
       <ToolCardShell
         icon={<PlayCircle className="h-3 w-3" />}
-        label="进程"
+        label={t('genericTool.process')}
         detail={entry.runReason || processDetail || entry.status}
         expanded={effectiveExpanded}
         expandable={hasDetails}
@@ -71,21 +73,29 @@ export function GenericToolCard({
       >
         {entry.runReason ? (
           <>
-            <div className="conv-tool-details-section-label">原因</div>
+            <div className="conv-tool-details-section-label">
+              {t('genericTool.reason')}
+            </div>
             <div className="conv-tool-details-content">{entry.runReason}</div>
           </>
         ) : null}
-        <div className="conv-tool-details-section-label">状态</div>
+        <div className="conv-tool-details-section-label">
+          {t('genericTool.status')}
+        </div>
         <div className="conv-tool-details-content">{entry.status}</div>
         {processDetail ? (
           <>
-            <div className="conv-tool-details-section-label">操作</div>
+            <div className="conv-tool-details-section-label">
+              {t('genericTool.action')}
+            </div>
             <div className="conv-tool-details-content">{processDetail}</div>
           </>
         ) : null}
         {entry.startedAt ? (
           <>
-            <div className="conv-tool-details-section-label">开始时间</div>
+            <div className="conv-tool-details-section-label">
+              {t('genericTool.startedAt')}
+            </div>
             <div className="conv-tool-details-content">{entry.startedAt}</div>
           </>
         ) : null}
@@ -101,7 +111,11 @@ export function GenericToolCard({
   const isTodo = actionType.action === 'todo_management';
   const isGenericTool = actionType.action === 'tool';
   const isOther = actionType.action === 'other';
-  const label = isTaskCreate ? '子代理' : isTodo ? '待办' : summary.label;
+  const label = isTaskCreate
+    ? t('genericTool.subagent')
+    : isTodo
+      ? t('genericTool.todo')
+      : summary.label;
   const detail = isTaskCreate
     ? [actionType.subagent_type, actionType.description]
         .filter(Boolean)
@@ -142,7 +156,9 @@ export function GenericToolCard({
         <>
           {actionType.description ? (
             <>
-              <div className="conv-tool-details-section-label">描述</div>
+              <div className="conv-tool-details-section-label">
+                {t('genericTool.description')}
+              </div>
               <div className="conv-tool-details-content">
                 {actionType.description}
               </div>
@@ -150,7 +166,9 @@ export function GenericToolCard({
           ) : null}
           {actionType.subagent_type ? (
             <>
-              <div className="conv-tool-details-section-label">子代理</div>
+              <div className="conv-tool-details-section-label">
+                {t('genericTool.subagent')}
+              </div>
               <div className="conv-tool-details-content">
                 {actionType.subagent_type}
               </div>
@@ -158,7 +176,9 @@ export function GenericToolCard({
           ) : null}
           {actionType.result ? (
             <>
-              <div className="conv-tool-details-section-label">结果</div>
+              <div className="conv-tool-details-section-label">
+                {t('genericTool.result')}
+              </div>
               <div className="conv-tool-details-content">
                 <ToolResultView
                   result={actionType.result}
@@ -172,7 +192,9 @@ export function GenericToolCard({
 
       {isTodo ? (
         <>
-          <div className="conv-tool-details-section-label">待办</div>
+          <div className="conv-tool-details-section-label">
+            {t('genericTool.todo')}
+          </div>
           <div className="conv-tool-details-content font-sans">
             <div className="space-y-1.5">
               {actionType.todos.map((todo, index) => (
@@ -202,7 +224,9 @@ export function GenericToolCard({
         <>
           {actionType.arguments ? (
             <>
-              <div className="conv-tool-details-section-label">参数</div>
+              <div className="conv-tool-details-section-label">
+                {t('genericTool.arguments')}
+              </div>
               <div className="conv-tool-details-content">
                 {renderJson(actionType.arguments)}
               </div>
@@ -210,7 +234,9 @@ export function GenericToolCard({
           ) : null}
           {actionType.result ? (
             <>
-              <div className="conv-tool-details-section-label">结果</div>
+              <div className="conv-tool-details-section-label">
+                {t('genericTool.result')}
+              </div>
               <div className="conv-tool-details-content">
                 <ToolResultView
                   result={actionType.result}
@@ -221,7 +247,9 @@ export function GenericToolCard({
           ) : null}
           {!actionType.arguments && !actionType.result && inlineText ? (
             <>
-              <div className="conv-tool-details-section-label">内容</div>
+              <div className="conv-tool-details-section-label">
+                {t('genericTool.content')}
+              </div>
               <div className="conv-tool-details-content">{inlineText}</div>
             </>
           ) : null}
@@ -230,7 +258,9 @@ export function GenericToolCard({
 
       {isOther ? (
         <>
-          <div className="conv-tool-details-section-label">描述</div>
+          <div className="conv-tool-details-section-label">
+            {t('genericTool.description')}
+          </div>
           <div className="conv-tool-details-content">
             {actionType.description}
           </div>

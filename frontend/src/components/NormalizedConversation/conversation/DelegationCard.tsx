@@ -1,4 +1,5 @@
 import { ArrowUpRight, GitBranch, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { AgentKind, ConversationDelegationView } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,7 @@ export function DelegationCard({
   delegation: ConversationDelegationView;
   onOpenChild?: (childConversationId: string) => void;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const status = normalizeStatus(delegation.status);
   const childId = delegation.child_conversation_id ?? null;
   const result = delegation.result ?? null;
@@ -36,8 +38,10 @@ export function DelegationCard({
           <div className="flex items-center gap-2">
             <span className="font-medium text-indigo-900 dark:text-indigo-100">
               {delegation.agent_type
-                ? `委派给 ${agentLabel(delegation.agent_type)}`
-                : '子代理委派'}
+                ? t('delegationCard.delegatedTo', {
+                    agent: agentLabel(delegation.agent_type),
+                  })
+                : t('delegationCard.subAgentDelegation')}
             </span>
             <StatusPill status={status} />
           </div>
@@ -70,12 +74,14 @@ export function DelegationCard({
                   onClick={() => onOpenChild(childId)}
                 >
                   <ArrowUpRight className="mr-1 h-3.5 w-3.5" />
-                  打开子会话
+                  {t('delegationCard.openChildSession')}
                 </Button>
               ) : null}
               {durationMs != null ? (
                 <span className="text-xs text-indigo-700/70 dark:text-indigo-200/60">
-                  耗时 {formatDuration(durationMs)}
+                  {t('delegationCard.duration', {
+                    duration: formatDuration(durationMs),
+                  })}
                 </span>
               ) : null}
             </div>
@@ -94,11 +100,12 @@ function normalizeStatus(raw: string): Status {
 }
 
 function StatusPill({ status }: { status: Status }) {
+  const { t } = useTranslation(['conversation', 'common']);
   if (status === 'running') {
     return (
       <span className="conv-count-badge inline-flex shrink-0 items-center gap-1 text-indigo-700 dark:text-indigo-200">
         <Loader2 className="h-3 w-3 animate-spin" />
-        运行中
+        {t('delegationCard.running')}
       </span>
     );
   }
@@ -111,7 +118,9 @@ function StatusPill({ status }: { status: Status }) {
           : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
       )}
     >
-      {status === 'completed' ? '已完成' : '失败'}
+      {status === 'completed'
+        ? t('delegationCard.completed')
+        : t('delegationCard.failed')}
     </span>
   );
 }

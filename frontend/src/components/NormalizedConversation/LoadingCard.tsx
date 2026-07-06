@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Copy, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 
 interface LoadingCardProps {
@@ -7,12 +8,11 @@ interface LoadingCardProps {
   shimmer?: boolean;
 }
 
-export const LoadingCard = ({
-  label = 'AI 正在思考...',
-  shimmer = true,
-}: LoadingCardProps) => {
+export const LoadingCard = ({ label, shimmer = true }: LoadingCardProps) => {
+  const { t } = useTranslation(['conversation', 'common']);
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(Date.now());
+  const displayLabel = label ?? t('loadingCard.thinking');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -32,7 +32,7 @@ export const LoadingCard = ({
       <span
         className={`text-sm font-medium ${shimmer ? 'conv-shimmer-text' : ''}`}
       >
-        {label}
+        {displayLabel}
       </span>
       <span className="ml-auto tabular-nums text-xs text-muted-foreground">
         {formatElapsed(elapsed)}
@@ -42,6 +42,7 @@ export const LoadingCard = ({
 };
 
 export const CopyButton: React.FC<{ text: string }> = ({ text }) => {
+  const { t } = useTranslation(['conversation', 'common']);
   const [copied, triggerCopied] = useTemporaryFlag(2000);
 
   const handleCopy = useCallback(async () => {
@@ -57,7 +58,7 @@ export const CopyButton: React.FC<{ text: string }> = ({ text }) => {
     <button
       onClick={handleCopy}
       className="conv-copy-btn rounded p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-      title="复制"
+      title={t('loadingCard.copy')}
     >
       {copied ? (
         <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />

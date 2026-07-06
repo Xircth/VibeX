@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ImageIcon, Loader2 } from 'lucide-react';
 import type { JsonValue, NormalizedEntry } from 'shared/types';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
@@ -100,8 +101,12 @@ function isGeneratedImageToolName(toolName: string): boolean {
   );
 }
 
-function getStatusText(status: string, hasError: boolean): string {
-  if (hasError) return '失败';
+function getStatusText(
+  status: string,
+  hasError: boolean,
+  t: (key: string) => string
+): string {
+  if (hasError) return t('generatedImages.statusFailed');
 
   const normalized = status.toLowerCase();
   if (
@@ -110,7 +115,7 @@ function getStatusText(status: string, hasError: boolean): string {
     normalized === 'created' ||
     normalized === 'pending'
   ) {
-    return '生成中';
+    return t('generatedImages.statusGenerating');
   }
 
   if (
@@ -119,11 +124,11 @@ function getStatusText(status: string, hasError: boolean): string {
     normalized === 'succeeded' ||
     normalized === 'completed'
   ) {
-    return '完成';
+    return t('generatedImages.statusCompleted');
   }
 
   if (normalized === 'failed' || normalized === 'error') {
-    return '失败';
+    return t('generatedImages.statusFailed');
   }
 
   return status;
@@ -144,6 +149,7 @@ export function GeneratedImagesBlock({
   entry: NormalizedEntry;
   taskAttemptId?: string;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action =
@@ -164,7 +170,7 @@ export function GeneratedImagesBlock({
     readString(resultValue, ['status', 'state']) ||
     (toolEntry?.status.status === 'created' ? 'generating' : 'ready');
   const error = readString(resultValue, ['error', 'message']);
-  const statusText = getStatusText(status, Boolean(error));
+  const statusText = getStatusText(status, Boolean(error), t);
   const resolvedImageUrl = metadata?.proxy_url || imagePath;
   const previewImageUrl = isDirectImageUrl(resolvedImageUrl)
     ? resolvedImageUrl
@@ -195,7 +201,7 @@ export function GeneratedImagesBlock({
   return (
     <ToolCardShell
       icon={<ImageIcon className="h-3 w-3" />}
-      label="图片"
+      label={t('generatedImages.label')}
       detail={detail}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
@@ -204,7 +210,9 @@ export function GeneratedImagesBlock({
     >
       <div className="space-y-2 font-sans">
         <div>
-          <div className="conv-tool-details-section-label">状态</div>
+          <div className="conv-tool-details-section-label">
+            {t('generatedImages.status')}
+          </div>
           <div className="conv-tool-details-content">{statusText}</div>
         </div>
         {showImage ? (
@@ -212,8 +220,8 @@ export function GeneratedImagesBlock({
             type="button"
             className="conv-generated-image-preview"
             onClick={handlePreview}
-            aria-label="预览生成图片"
-            title="预览生成图片"
+            aria-label={t('generatedImages.previewImage')}
+            title={t('generatedImages.previewImage')}
           >
             <img
               src={previewImageUrl}
@@ -230,25 +238,33 @@ export function GeneratedImagesBlock({
         ) : null}
         {prompt ? (
           <div>
-            <div className="conv-tool-details-section-label">提示词</div>
+            <div className="conv-tool-details-section-label">
+              {t('generatedImages.prompt')}
+            </div>
             <div className="conv-tool-details-content">{prompt}</div>
           </div>
         ) : null}
         {revisedPrompt ? (
           <div>
-            <div className="conv-tool-details-section-label">修订提示词</div>
+            <div className="conv-tool-details-section-label">
+              {t('generatedImages.revisedPrompt')}
+            </div>
             <div className="conv-tool-details-content">{revisedPrompt}</div>
           </div>
         ) : null}
         {error ? (
           <div>
-            <div className="conv-tool-details-section-label">错误</div>
+            <div className="conv-tool-details-section-label">
+              {t('generatedImages.error')}
+            </div>
             <div className="conv-tool-details-content">{error}</div>
           </div>
         ) : null}
         {action.result ? (
           <div>
-            <div className="conv-tool-details-section-label">原始结果</div>
+            <div className="conv-tool-details-section-label">
+              {t('generatedImages.rawResult')}
+            </div>
             <div className="conv-tool-details-content">
               {renderJson(action.result.value)}
             </div>

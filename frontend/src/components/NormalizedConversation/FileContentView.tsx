@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DiffView, DiffModeEnum } from '@git-diff-view/react';
 import { generateDiffFile } from '@git-diff-view/file';
 import { MessageSquarePlus } from 'lucide-react';
@@ -38,6 +39,7 @@ function FileContentView({
 }: Props) {
   // Uses the syntax highlighter from @git-diff-view/react without any diff-related features.
   // This allows uniform styling with EditDiffRenderer.
+  const { t } = useTranslation(['conversation', 'common']);
   const baseContent = originalContent ?? '';
   const isComparisonMode = originalContent !== undefined;
 
@@ -135,11 +137,12 @@ function FileContentView({
           className="tahoe-popover sticky bottom-2 left-2 z-10 ml-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground shadow"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
-          第 {selectionRange.startLine}
-          {selectionRange.endLine !== selectionRange.startLine
-            ? `–${selectionRange.endLine}`
-            : ''}{' '}
-          行加入对话
+          {t('fileContentView.addLinesToChat', {
+            range:
+              selectionRange.endLine !== selectionRange.startLine
+                ? `${selectionRange.startLine}–${selectionRange.endLine}`
+                : `${selectionRange.startLine}`,
+          })}
         </button>
       ) : null}
     </div>

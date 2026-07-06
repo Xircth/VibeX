@@ -1,5 +1,6 @@
 import '@/styles/conversation.css';
 import { memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import {
   ActionType,
@@ -90,6 +91,7 @@ function DisplayConversationEntry({
     entry: NormalizedEntry | ProcessStartPayload
   ): entry is ProcessStartPayload => 'processId' in entry;
 
+  const { t } = useTranslation(['conversation', 'common']);
   const { isProcessGreyed } = useRetryUi();
   const greyed = isProcessGreyed(executionProcessId);
   const { isStopping } = useTaskStopping(taskAttempt?.task_id ?? '');
@@ -174,7 +176,9 @@ function DisplayConversationEntry({
       <div className="conv-entry-item px-4 py-1.5">
         <div className="conv-feedback-card">
           <div className="conv-feedback-label">
-            {`用户拒绝了 ${feedbackEntry.denied_tool}`}
+            {t('displayEntry.userDeniedTool', {
+              tool: feedbackEntry.denied_tool,
+            })}
           </div>
           <WYSIWYGEditor
             value={entry.content}
@@ -403,7 +407,7 @@ function DisplayConversationEntry({
     return (
       <div className="conv-entry-item px-4 py-2 text-sm">
         <LoadingCard
-          label={isStopping ? '正在停止Hook...' : undefined}
+          label={isStopping ? t('displayEntry.stoppingHook') : undefined}
           shimmer={!isStopping}
         />
       </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronRight, ShieldQuestion, Terminal } from 'lucide-react';
 import type {
   AgentPermissionOption,
@@ -25,6 +26,7 @@ export function PermissionRequestCard({
   onRespond: (permissionId: string, response: AgentPermissionResponse) => void;
   responding?: boolean;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const pending = request.status === 'pending';
   const options = request.options ?? [];
   const detail = useMemo(() => parseToolDetail(request.details), [request.details]);
@@ -38,7 +40,7 @@ export function PermissionRequestCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-medium text-amber-900 dark:text-amber-100">
-              {request.title ?? '请求权限'}
+              {request.title ?? t('permissionRequestCard.title')}
             </span>
             {detail.kind ? (
               <span className="conv-count-badge shrink-0">{detail.kind}</span>
@@ -77,12 +79,12 @@ export function PermissionRequestCard({
                   onRespond(request.permission_id, { kind: 'cancelled' })
                 }
               >
-                取消
+                {t('common:cancel')}
               </Button>
             </div>
           ) : (
             <div className="mt-2 text-xs text-amber-800/70 dark:text-amber-100/60">
-              已响应
+              {t('permissionRequestCard.responded')}
             </div>
           )}
         </div>
@@ -222,6 +224,7 @@ function DiffPreview({
   oldText: string;
   newText: string;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [open, setOpen] = useState(false);
   const isNew = !oldText;
   return (
@@ -239,15 +242,29 @@ function DiffPreview({
           {path}
         </span>
         <span className="ml-auto shrink-0 text-amber-700/70 dark:text-amber-200/60">
-          {isNew ? '新文件' : '修改'}
+          {isNew
+            ? t('permissionRequestCard.newFile')
+            : t('permissionRequestCard.modified')}
         </span>
       </button>
       {open ? (
         <div className="space-y-1 px-2.5 pb-2">
           {!isNew ? (
-            <DiffPane label="变更前" text={oldText} tone="del" />
+            <DiffPane
+              label={t('permissionRequestCard.before')}
+              text={oldText}
+              tone="del"
+            />
           ) : null}
-          <DiffPane label={isNew ? '内容' : '变更后'} text={newText} tone="add" />
+          <DiffPane
+            label={
+              isNew
+                ? t('permissionRequestCard.content')
+                : t('permissionRequestCard.after')
+            }
+            text={newText}
+            tone="add"
+          />
         </div>
       ) : null}
     </div>
@@ -283,6 +300,7 @@ function DiffPane({
 }
 
 function RawDetail({ details }: { details: unknown }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [open, setOpen] = useState(false);
   const json = useMemo(() => {
     try {
@@ -302,7 +320,7 @@ function RawDetail({ details }: { details: unknown }) {
         <ChevronRight
           className={cn('h-3 w-3 transition-transform', open && 'rotate-90')}
         />
-        查看详情
+        {t('permissionRequestCard.viewDetails')}
       </button>
       {open ? (
         <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-amber-300/40 bg-amber-100/40 px-2.5 py-1.5 font-mono text-[11px] text-amber-950 dark:border-amber-500/25 dark:bg-amber-900/25 dark:text-amber-100">

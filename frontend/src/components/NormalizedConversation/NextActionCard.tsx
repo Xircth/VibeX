@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { Check, Copy, FileDiff, GitBranch, Settings } from 'lucide-react';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
@@ -57,6 +58,8 @@ function DiffSummarySection({
   error,
   onOpenDiffs,
 }: DiffSummarySectionProps) {
+  const { t } = useTranslation(['conversation', 'common']);
+
   if (error || fileCount <= 0) {
     return null;
   }
@@ -65,9 +68,9 @@ function DiffSummarySection({
     <button
       onClick={onOpenDiffs}
       className="flex items-center gap-1.5 rounded-md px-2 py-1 text-sm shrink-0 cursor-pointer transition-colors hover:bg-muted/60"
-      aria-label={'查看差异'}
+      aria-label={t('nextActionCard.viewDiffs')}
     >
-      <span>{`${fileCount} 个文件已更改`}</span>
+      <span>{t('nextActionCard.filesChanged', { count: fileCount })}</span>
       <span className="opacity-50">•</span>
       <span className="text-[hsl(var(--success))]">+{added}</span>
       <span className="opacity-50">•</span>
@@ -101,6 +104,8 @@ function ActionButtonsSection({
   onOpenInEditor,
   onGitActions,
 }: ActionButtonsSectionProps) {
+  const { t } = useTranslation(['conversation', 'common']);
+
   if (!hasDiffs) {
     return null;
   }
@@ -114,12 +119,12 @@ function ActionButtonsSection({
             size="sm"
             className="h-7 w-7 p-0"
             onClick={onOpenDiffs}
-            aria-label={'查看差异'}
+            aria-label={t('nextActionCard.viewDiffs')}
           >
             <FileDiff className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{'查看差异'}</TooltipContent>
+        <TooltipContent>{t('nextActionCard.viewDiffs')}</TooltipContent>
       </Tooltip>
 
       {containerRef && (
@@ -130,7 +135,7 @@ function ActionButtonsSection({
               size="sm"
               className="h-7 w-7 p-0"
               onClick={onCopy}
-              aria-label={'复制工作树路径'}
+              aria-label={t('nextActionCard.copyWorktreePath')}
             >
               {copied ? (
                 <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
@@ -140,7 +145,9 @@ function ActionButtonsSection({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {copied ? '已复制！' : '复制工作树路径'}
+            {copied
+              ? t('nextActionCard.copied')
+              : t('nextActionCard.copyWorktreePath')}
           </TooltipContent>
         </Tooltip>
       )}
@@ -153,12 +160,16 @@ function ActionButtonsSection({
             className="h-7 w-7 p-0"
             onClick={onOpenInEditor}
             disabled={!attemptId}
-            aria-label={`在 ${editorName} 中查看更改`}
+            aria-label={t('nextActionCard.viewChangesInEditor', {
+              editor: editorName,
+            })}
           >
             <IdeIcon editorType={editorType} className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{`在 ${editorName} 中查看更改`}</TooltipContent>
+        <TooltipContent>
+          {t('nextActionCard.viewChangesInEditor', { editor: editorName })}
+        </TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -169,12 +180,12 @@ function ActionButtonsSection({
             className="h-7 w-7 p-0"
             onClick={onGitActions}
             disabled={!attemptId}
-            aria-label={'Git 操作'}
+            aria-label={t('nextActionCard.gitActions')}
           >
             <GitBranch className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{'Git 操作'}</TooltipContent>
+        <TooltipContent>{t('nextActionCard.gitActions')}</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -195,6 +206,7 @@ function PrimaryActionsSection({
   attempt,
   onRunSetup,
 }: PrimaryActionsSectionProps) {
+  const { t } = useTranslation(['conversation', 'common']);
   const showSetupHelp = needsSetup && setupHelpText;
   const showAction = failed && needsSetup;
 
@@ -218,9 +230,9 @@ function PrimaryActionsSection({
           onClick={onRunSetup}
           disabled={!attempt}
           className="text-sm w-full sm:w-auto"
-          aria-label={'运行设置'}
+          aria-label={t('nextActionCard.runSetup')}
         >
-          {'运行设置'}
+          {t('nextActionCard.runSetup')}
         </Button>
       )}
     </div>
@@ -235,6 +247,7 @@ export function NextActionCard({
   needsSetup,
   setupHelpText: initialSetupHelpText,
 }: NextActionCardProps) {
+  const { t } = useTranslation(['conversation', 'common']);
   const { config } = useUserSystem();
   const panelActions = useOptionalPanelActionsContext();
   const navigateWithSearch = useNavigateWithSearch();
@@ -312,7 +325,7 @@ export function NextActionCard({
     <TooltipProvider>
       <div className="pb-8 pt-4">
         <div className="overflow-hidden rounded-md border border-border bg-background">
-          <NextActionHeader title={'摘要和操作'} />
+          <NextActionHeader title={t('nextActionCard.summaryAndActions')} />
 
           <PrimaryActionsSection
             failed={failed}

@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, Copy, ExternalLink, Globe, Search } from 'lucide-react';
 import type { NormalizedEntry } from 'shared/types';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ export function SearchToolCard({
   expansionKey: string;
   forceExpanded?: boolean;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : undefined;
   const actionType =
@@ -65,8 +67,8 @@ export function SearchToolCard({
           variant="ghost"
           size="sm"
           className="h-5 w-5 p-0"
-          title="打开链接"
-          aria-label="打开链接"
+          title={t('searchTool.openLink')}
+          aria-label={t('searchTool.openLink')}
           onClick={handleOpenLink}
         >
           <ExternalLink className="h-3.5 w-3.5" />
@@ -77,8 +79,20 @@ export function SearchToolCard({
         variant="ghost"
         size="sm"
         className="h-5 w-5 p-0"
-        title={copied ? '已复制' : isWebFetch ? '复制 URL' : '复制查询'}
-        aria-label={copied ? '已复制' : isWebFetch ? '复制 URL' : '复制查询'}
+        title={
+          copied
+            ? t('searchTool.copied')
+            : isWebFetch
+              ? t('searchTool.copyUrl')
+              : t('searchTool.copyQuery')
+        }
+        aria-label={
+          copied
+            ? t('searchTool.copied')
+            : isWebFetch
+              ? t('searchTool.copyUrl')
+              : t('searchTool.copyQuery')
+        }
         onClick={handleCopy}
       >
         {copied ? (
@@ -109,12 +123,14 @@ export function SearchToolCard({
       onToggle={toggle}
     >
       <div className="conv-tool-details-section-label">
-        {isWebFetch ? 'URL' : '查询'}
+        {isWebFetch ? 'URL' : t('searchTool.query')}
       </div>
       <div className="conv-tool-details-content">{detail}</div>
       {toolEntry.tool_name ? (
         <>
-          <div className="conv-tool-details-section-label">工具</div>
+          <div className="conv-tool-details-section-label">
+            {t('searchTool.tool')}
+          </div>
           <div className="conv-tool-details-content">{toolEntry.tool_name}</div>
         </>
       ) : null}

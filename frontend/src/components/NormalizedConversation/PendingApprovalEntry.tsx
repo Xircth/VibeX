@@ -19,6 +19,7 @@ import { approvalsApi } from '@/lib/api';
 import { Check, X } from 'lucide-react';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 
+import { useTranslation } from 'react-i18next';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { TabNavContext } from '@/contexts/TabNavigationContext';
 import { useKeyApproveRequest, useKeyDenyApproval, Scope } from '@/keyboard';
@@ -84,6 +85,7 @@ function ActionButtons({
   onApprove: () => void;
   onStartDeny: () => void;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   return (
     <div className="flex items-center gap-1.5 pr-4">
       <Tooltip>
@@ -93,14 +95,22 @@ function ActionButtons({
             variant="ghost"
             className="h-8 w-8 rounded-full p-0"
             disabled={disabled}
-            aria-label={isResponding ? '提交中' : '批准'}
+            aria-label={
+              isResponding
+                ? t('pendingApproval.submitting')
+                : t('pendingApproval.approve')
+            }
             aria-busy={isResponding}
           >
             <Check className="h-5 w-5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{isResponding ? '提交中…' : '批准请求'}</p>
+          <p>
+            {isResponding
+              ? t('pendingApproval.submittingEllipsis')
+              : t('pendingApproval.approveRequest')}
+          </p>
         </TooltipContent>
       </Tooltip>
 
@@ -111,14 +121,22 @@ function ActionButtons({
             variant="ghost"
             className="h-8 w-8 rounded-full p-0"
             disabled={disabled}
-            aria-label={isResponding ? '提交中' : '拒绝'}
+            aria-label={
+              isResponding
+                ? t('pendingApproval.submitting')
+                : t('pendingApproval.deny')
+            }
             aria-busy={isResponding}
           >
             <X className="h-5 w-5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{isResponding ? '提交中…' : '提供拒绝原因'}</p>
+          <p>
+            {isResponding
+              ? t('pendingApproval.submittingEllipsis')
+              : t('pendingApproval.provideDenyReason')}
+          </p>
         </TooltipContent>
       </Tooltip>
     </div>
@@ -140,12 +158,13 @@ function DenyReasonForm({
   onSubmit: () => void;
   projectId?: string;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   return (
     <div className="flex flex-col gap-2 p-4">
       <WYSIWYGEditor
         value={value}
         onChange={onChange}
-        placeholder="告诉 Agent 此请求被拒绝的原因... 输入 # 插入标签或搜索文件。"
+        placeholder={t('pendingApproval.denyReasonPlaceholder')}
         disabled={isResponding}
         className="min-h-[80px]"
         projectId={projectId}
@@ -158,10 +177,10 @@ function DenyReasonForm({
           onClick={onCancel}
           disabled={isResponding}
         >
-          {'取消'}
+          {t('common:cancel')}
         </Button>
         <Button size="sm" onClick={onSubmit} disabled={isResponding}>
-          {'拒绝'}
+          {t('pendingApproval.deny')}
         </Button>
       </div>
     </div>
@@ -174,6 +193,7 @@ const PendingApprovalEntry = ({
   executionProcessId,
   children,
 }: PendingApprovalEntryProps) => {
+  const { t } = useTranslation(['conversation', 'common']);
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -336,7 +356,7 @@ const PendingApprovalEntry = ({
                 {!isEnteringReason && (
                   <>
                     <span className="text-muted-foreground">
-                      {'是否批准此请求？'}
+                      {t('pendingApproval.approveThisRequest')}
                     </span>
                     {timeLeft > 0 && (
                       <span className="text-muted-foreground/70 text-xs tabular-nums">

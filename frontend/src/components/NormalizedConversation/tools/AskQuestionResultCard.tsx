@@ -1,4 +1,5 @@
 import { CircleHelp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
 import { renderJson } from '../conversation-entry-utils';
 import { ToolResultView } from './ToolResultView';
@@ -27,6 +28,7 @@ export function AskQuestionResultCard({
   entry: NormalizedEntry;
   expansionKey: string;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action =
@@ -46,18 +48,22 @@ export function AskQuestionResultCard({
   return (
     <ToolCardShell
       icon={<CircleHelp className="h-3 w-3" />}
-      label="问题"
+      label={t('askQuestion.title')}
       detail={answer ? `${question} -> ${answer}` : question}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
       expanded
       expandable={false}
     >
-      <div className="conv-tool-details-section-label">问题</div>
+      <div className="conv-tool-details-section-label">
+        {t('askQuestion.questionLabel')}
+      </div>
       <div className="conv-tool-details-content">{question}</div>
       {action.arguments ? (
         <>
-          <div className="conv-tool-details-section-label">选项</div>
+          <div className="conv-tool-details-section-label">
+            {t('askQuestion.optionsLabel')}
+          </div>
           <div className="conv-tool-details-content">
             {renderJson(action.arguments)}
           </div>
@@ -65,7 +71,9 @@ export function AskQuestionResultCard({
       ) : null}
       {action.result ? (
         <>
-          <div className="conv-tool-details-section-label">回答</div>
+          <div className="conv-tool-details-section-label">
+            {t('askQuestion.answerLabel')}
+          </div>
           <div className="conv-tool-details-content">
             <ToolResultView result={action.result} />
           </div>

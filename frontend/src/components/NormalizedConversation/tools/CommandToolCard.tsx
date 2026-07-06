@@ -1,4 +1,5 @@
 import { TerminalSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry, ToolStatus } from 'shared/types';
 import RawLogText from '@/components/common/RawLogText';
 import { useExpandable } from '@/stores/useExpandableStore';
@@ -64,6 +65,7 @@ export function CommandToolCard({
   defaultExpanded?: boolean;
   linkifyUrls?: boolean;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : undefined;
   const actionType =
@@ -103,13 +105,17 @@ export function CommandToolCard({
     >
       {command ? (
         <>
-          <div className="conv-tool-details-section-label">命令</div>
+          <div className="conv-tool-details-section-label">
+            {t('commandTool.commandLabel')}
+          </div>
           <div className="conv-tool-details-content">{command}</div>
         </>
       ) : null}
       {output ? (
         <>
-          <div className="conv-tool-details-section-label">输出</div>
+          <div className="conv-tool-details-section-label">
+            {t('commandTool.outputLabel')}
+          </div>
           {compactOutput ? (
             <details className="conv-output-details">
               <summary className="conv-compact-output" title={output}>

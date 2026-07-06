@@ -1,4 +1,5 @@
 import { Target } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
 import { renderJson } from '../conversation-entry-utils';
 import {
@@ -23,6 +24,7 @@ export function isGoalToolEntry(entry: NormalizedEntry): boolean {
 }
 
 export function GoalToolCall({ entry }: { entry: NormalizedEntry }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action =
@@ -39,24 +41,30 @@ export function GoalToolCall({ entry }: { entry: NormalizedEntry }) {
   return (
     <ToolCardShell
       icon={<Target className="h-3 w-3" />}
-      label="目标"
+      label={t('goalTool.title')}
       detail={status ? `${status}: ${objective}` : objective}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
       expanded
       expandable={false}
     >
-      <div className="conv-tool-details-section-label">目标</div>
+      <div className="conv-tool-details-section-label">
+        {t('goalTool.objectiveLabel')}
+      </div>
       <div className="conv-tool-details-content">{objective}</div>
       {status ? (
         <>
-          <div className="conv-tool-details-section-label">状态</div>
+          <div className="conv-tool-details-section-label">
+            {t('goalTool.statusLabel')}
+          </div>
           <div className="conv-tool-details-content">{status}</div>
         </>
       ) : null}
       {action.result ? (
         <>
-          <div className="conv-tool-details-section-label">结果</div>
+          <div className="conv-tool-details-section-label">
+            {t('goalTool.resultLabel')}
+          </div>
           <div className="conv-tool-details-content">
             {renderJson(action.result.value)}
           </div>

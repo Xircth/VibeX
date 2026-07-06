@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import WYSIWYGEditor, {
   SESSION_INPUT_EDITOR_CLASS_NAME,
   SESSION_INPUT_MARKDOWN_PRESET,
@@ -24,6 +25,7 @@ export function RetryEditorInline({
   initialContent: string;
   onCancelled?: () => void;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const attemptId = attempt.id;
   const { isAttemptRunning, attemptData } = useAttemptExecution(attemptId);
   const { data: branchStatus } = useBranchStatus(attemptId);
@@ -86,7 +88,7 @@ export function RetryEditorInline({
     <div className="retry-editor-inline space-y-3">
       <div className="relative">
         <WYSIWYGEditor
-          placeholder="编辑后重新发送..."
+          placeholder={t('retryEditor.placeholder')}
           value={message}
           onChange={setMessage}
           disabled={isSending}
@@ -114,18 +116,18 @@ export function RetryEditorInline({
           className="h-9 min-w-20 gap-1.5"
         >
           <X className="h-3.5 w-3.5" />
-          取消
+          {t('common:cancel')}
         </Button>
         <Button
           type="button"
           onClick={onSend}
           disabled={!canSend || isSending}
-          title="回到此处重试"
-          aria-label="回到此处重试"
+          title={t('retryEditor.retryHere')}
+          aria-label={t('retryEditor.retryHere')}
           className="h-9 min-w-20 gap-1.5"
         >
           <Send className="h-3.5 w-3.5" />
-          发送
+          {t('retryEditor.send')}
         </Button>
       </div>
 

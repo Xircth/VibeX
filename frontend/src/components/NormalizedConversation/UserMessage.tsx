@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Check,
   ChevronDown,
@@ -355,6 +356,7 @@ const UserMessage = ({
   executionProcessId?: string;
   taskAttempt?: WorkspaceWithSession;
 }) => {
+  const { t } = useTranslation(['conversation', 'common']);
   const [isEditing, setIsEditing] = useState(false);
   const [isRollingBack, setIsRollingBack] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
@@ -554,8 +556,16 @@ const UserMessage = ({
               {isCollapseMeasured && needsCollapse && (
                 <button
                   className="conv-user-toggle"
-                  title={isCollapsed ? '查看完整消息' : '收起消息'}
-                  aria-label={isCollapsed ? '查看完整消息' : '收起消息'}
+                  title={
+                    isCollapsed
+                      ? t('userMessage.viewFullMessage')
+                      : t('userMessage.collapseMessage')
+                  }
+                  aria-label={
+                    isCollapsed
+                      ? t('userMessage.viewFullMessage')
+                      : t('userMessage.collapseMessage')
+                  }
                   onClick={() => setIsCollapsed((value) => !value)}
                 >
                   <ChevronDown
@@ -593,8 +603,8 @@ const UserMessage = ({
                       onClick={handleRollback}
                       disabled={isRollingBack}
                       className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                      title="回滚到此处"
-                      aria-label="回滚到此处"
+                      title={t('userMessage.rollbackToHere')}
+                      aria-label={t('userMessage.rollbackToHere')}
                     >
                       <Undo2 className="h-3.5 w-3.5" />
                     </button>

@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Download, ImageIcon, Loader2 } from 'lucide-react';
 import type { ImageData } from 'shared/types';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
@@ -16,6 +17,7 @@ export function GeneratedImageCard({
   image: ImageData | null;
   revisedPrompt: string | null;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const src = useMemo(() => {
     if (!image) return null;
     return image.uri ?? `data:${image.mime_type};base64,${image.data}`;
@@ -25,27 +27,29 @@ export function GeneratedImageCard({
     return (
       <div className="conv-tool-card conv-tool-card-pending inline-flex items-center gap-2">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        正在生成图片…
+        {t('generatedImageCard.generating')}
       </div>
     );
   }
 
-  const altText = revisedPrompt ?? '生成的图片';
+  const altText = revisedPrompt ?? t('generatedImageCard.title');
   const fileName = fileNameFor(image);
 
   return (
     <div className="conv-entry-item overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
         <ImageIcon className="h-3.5 w-3.5" />
-        <span className="font-medium text-foreground">生成的图片</span>
+        <span className="font-medium text-foreground">
+          {t('generatedImageCard.title')}
+        </span>
         <a
           href={src}
           download={fileName}
           className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-muted hover:text-foreground"
-          title="下载图片"
+          title={t('generatedImageCard.downloadTooltip')}
         >
           <Download className="h-3.5 w-3.5" />
-          下载
+          {t('generatedImageCard.download')}
         </a>
       </div>
       <button
@@ -54,8 +58,8 @@ export function GeneratedImageCard({
         onClick={() =>
           ImagePreviewDialog.show({ imageUrl: src, altText, fileName })
         }
-        aria-label="预览生成图片"
-        title="预览生成图片"
+        aria-label={t('generatedImageCard.previewLabel')}
+        title={t('generatedImageCard.previewLabel')}
       >
         <img
           src={src}
@@ -66,7 +70,7 @@ export function GeneratedImageCard({
       {revisedPrompt ? (
         <div className="border-t border-border/60 px-3 py-2 text-xs">
           <div className="mb-0.5 font-medium text-muted-foreground">
-            修订提示词
+            {t('generatedImageCard.revisedPrompt')}
           </div>
           <div className="whitespace-pre-wrap break-words text-foreground/90">
             {revisedPrompt}

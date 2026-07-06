@@ -1,4 +1,5 @@
 import { useCallback, type ComponentType } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Check,
   Clock3,
@@ -86,6 +87,7 @@ export function TurnStats({
   live = false,
   className,
 }: TurnStatsProps) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [copied, triggerCopied] = useTemporaryFlag(1600);
   const hasCopy = Boolean(copyText?.trim());
   const tokenText = (() => {
@@ -132,8 +134,8 @@ export function TurnStats({
               type="button"
               className="conv-turn-stat-button"
               onClick={handleCopy}
-              aria-label="复制回复"
-              title="复制回复"
+              aria-label={t('turnStats.copyReply')}
+              title={t('turnStats.copyReply')}
             >
               {copied ? (
                 <Check className="h-3.5 w-3.5" />
@@ -147,29 +149,51 @@ export function TurnStats({
               type="button"
               className="conv-turn-stat-button"
               onClick={onJumpBack}
-              aria-label="回到上一条用户消息"
-              title="回到上一条用户消息"
+              aria-label={t('turnStats.jumpBack')}
+              title={t('turnStats.jumpBack')}
             >
               <CornerUpLeft className="h-3.5 w-3.5" />
             </button>
           ) : null}
         </div>
         <div className="conv-turn-stats-items">
-          {live ? <StatItem icon={Gauge} label="状态" value="生成中" /> : null}
+          {live ? (
+            <StatItem
+              icon={Gauge}
+              label={t('turnStats.statusLabel')}
+              value={t('turnStats.generating')}
+            />
+          ) : null}
           {modelText ? (
-            <StatItem icon={Cpu} label="模型" value={modelText} />
+            <StatItem
+              icon={Cpu}
+              label={t('turnStats.modelLabel')}
+              value={modelText}
+            />
           ) : null}
           {tokenText ? (
             <StatItem icon={Gauge} label="Token" value={tokenText} />
           ) : null}
           {elapsedText ? (
-            <StatItem icon={Timer} label="耗时" value={elapsedText} />
+            <StatItem
+              icon={Timer}
+              label={t('turnStats.elapsedLabel')}
+              value={elapsedText}
+            />
           ) : null}
           {completedAtText ? (
-            <StatItem icon={Clock3} label="完成" value={completedAtText} />
+            <StatItem
+              icon={Clock3}
+              label={t('turnStats.completedLabel')}
+              value={completedAtText}
+            />
           ) : null}
           {stopReasonText ? (
-            <StatItem icon={Check} label="结束" value={stopReasonText} />
+            <StatItem
+              icon={Check}
+              label={t('turnStats.stopReasonLabel')}
+              value={stopReasonText}
+            />
           ) : null}
         </div>
       </div>

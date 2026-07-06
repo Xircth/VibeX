@@ -1,4 +1,5 @@
 import { Check, Circle, CircleDot, ClipboardList } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { ActionType, NormalizedEntry, TodoItem } from 'shared/types';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
 import { useExpandable } from '@/stores/useExpandableStore';
@@ -115,6 +116,7 @@ export function PlanCard({
   forceExpanded?: boolean;
   taskAttemptId?: string;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const planData = getPlanData(entry);
@@ -133,15 +135,18 @@ export function PlanCard({
   const detail =
     planData.operation ??
     (isStreaming
-      ? '更新中'
+      ? t('planCard.updating')
       : firstItem
-        ? `${planData.items.length} 项 - ${firstItem.content}`
-        : '计划已更新');
+        ? t('planCard.itemsSummary', {
+            count: planData.items.length,
+            content: firstItem.content,
+          })
+        : t('planCard.planUpdated'));
 
   return (
     <ToolCardShell
       icon={<ClipboardList className="h-3 w-3" />}
-      label="计划"
+      label={t('planCard.label')}
       detail={detail}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}

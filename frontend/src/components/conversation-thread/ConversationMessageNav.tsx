@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { ConversationMessageNavEntry } from './messageNavEntries';
 import { findActiveConversationMessageNavEntry } from './messageNavEntries';
@@ -11,6 +12,8 @@ export function ConversationMessageNav({
   activeIndex: number | null;
   onSelect: (index: number) => void;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
+
   if (entries.length === 0) return null;
 
   const activeEntry = findActiveConversationMessageNavEntry(
@@ -19,7 +22,7 @@ export function ConversationMessageNav({
   );
 
   return (
-    <nav className="conv-message-nav-rail" aria-label="消息导航">
+    <nav className="conv-message-nav-rail" aria-label={t('messageNav.railLabel')}>
       <div className="conv-message-nav-list">
         {entries.map((entry) => {
           const isActive = activeEntry?.key === entry.key;
@@ -30,7 +33,9 @@ export function ConversationMessageNav({
               className={cn('conv-message-nav-dot', isActive && 'is-active')}
               onClick={() => onSelect(entry.index)}
               aria-current={isActive ? 'true' : undefined}
-              aria-label={`跳转到第 ${entry.ordinal} 条消息`}
+              aria-label={t('messageNav.jumpToMessage', {
+                ordinal: entry.ordinal,
+              })}
               title={entry.preview}
             />
           );

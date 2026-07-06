@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Check,
   ChevronDown,
@@ -135,7 +136,10 @@ function renderItem(
 }
 
 function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
-  const label = hasContent ? 'AI 正在输出...' : 'AI 正在思考中...';
+  const { t } = useTranslation(['conversation', 'common']);
+  const label = hasContent
+    ? t('messageTurnView.streamingOutput')
+    : t('messageTurnView.streamingThinking');
   return (
     <div
       className={cn(
@@ -164,6 +168,7 @@ function UserMessageActions({
   text: string;
   onRetry?: () => void;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [copied, triggerCopied] = useTemporaryFlag(1600);
 
   const handleCopy = useCallback(async () => {
@@ -185,8 +190,16 @@ function UserMessageActions({
           type="button"
           onClick={handleCopy}
           className="conv-user-action-btn"
-          title={copied ? '已复制' : '复制消息'}
-          aria-label={copied ? '已复制' : '复制消息'}
+          title={
+            copied
+              ? t('messageTurnView.copied')
+              : t('messageTurnView.copyMessage')
+          }
+          aria-label={
+            copied
+              ? t('messageTurnView.copied')
+              : t('messageTurnView.copyMessage')
+          }
         >
           {copied ? (
             <Check className="h-3.5 w-3.5" />
@@ -200,8 +213,8 @@ function UserMessageActions({
           type="button"
           onClick={onRetry}
           className="conv-user-action-btn"
-          title="重发：可选择先恢复文件再重新发送"
-          aria-label="重发"
+          title={t('messageTurnView.resendHint')}
+          aria-label={t('messageTurnView.resend')}
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -218,20 +231,23 @@ function UserMessageActions({
  * produced side effects only the user can judge.
  */
 function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
+  const { t } = useTranslation(['conversation', 'common']);
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">因重启中断</span>
-      <span>此回合在生成过程中因应用重启而中断，未能完成。</span>
+      <span className="font-medium text-foreground">
+        {t('messageTurnView.interruptedTitle')}
+      </span>
+      <span>{t('messageTurnView.interruptedDescription')}</span>
       {onResend ? (
         <button
           type="button"
           onClick={onResend}
           className="ml-auto inline-flex items-center gap-1 rounded border px-2 py-0.5 font-medium text-foreground transition-colors hover:bg-muted"
-          title="重发：可选择先恢复文件再重新发送"
-          aria-label="重发"
+          title={t('messageTurnView.resendHint')}
+          aria-label={t('messageTurnView.resend')}
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          重发
+          {t('messageTurnView.resend')}
         </button>
       ) : null}
     </div>
@@ -247,6 +263,7 @@ function CollapsedProcessGroup({
   items: TurnRenderItem[];
   renderUnits: (list: TurnRenderItem[], offset: number) => ReactNode[];
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [expanded, toggle] = useExpandable(`process:${turnId}`, false);
   return (
     <div className="conv-collapsed-process px-1 py-1">
@@ -262,7 +279,9 @@ function CollapsedProcessGroup({
             expanded ? '' : '-rotate-90'
           )}
         />
-        <span>已折叠 {items.length} 条消息</span>
+        <span>
+          {t('messageTurnView.collapsedMessages', { count: items.length })}
+        </span>
       </button>
       {expanded ? (
         <div className="conv-assistant-body mt-1">{renderUnits(items, 0)}</div>
@@ -291,6 +310,7 @@ function TurnToolGroupCard({
   items: IndexedTurnItem[];
   renderTurnItem: (item: TurnRenderItem, key: string) => ReactNode;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const [expanded, toggle] = useExpandable(
     `turn-tool-group:${turnId}:${groupKey}`,
     false
@@ -298,13 +318,16 @@ function TurnToolGroupCard({
   // Generic tool calls have no AGGREGATION_LABELS entry — give them a Wrench.
   const { icon, label } =
     aggregationType === 'tool'
-      ? { icon: <Wrench className="h-3 w-3" />, label: '工具调用' }
+      ? {
+          icon: <Wrench className="h-3 w-3" />,
+          label: t('messageTurnView.toolCall'),
+        }
       : AGGREGATION_LABELS[aggregationType];
   // Sub-agent groups fold the count into the label (no separate badge), matching
   // the pre-ACP AggregatedGroupCard.
   const isTaskCreate = aggregationType === 'task_create';
   const displayLabel = isTaskCreate
-    ? `正在生成 ${items.length} 个智能体`
+    ? t('messageTurnView.generatingAgents', { count: items.length })
     : label;
   return (
     <div className="conv-entry-item">

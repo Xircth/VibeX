@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, Copy, Eye, FolderOpen } from 'lucide-react';
 import type { NormalizedEntry } from 'shared/types';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,7 @@ export function FileToolCard({
   forceExpanded?: boolean;
   containerRef?: string | null;
 }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : undefined;
   const actionType =
@@ -90,8 +92,8 @@ export function FileToolCard({
           variant="ghost"
           size="sm"
           className="h-5 w-5 p-0"
-          title="打开预览"
-          aria-label="打开预览"
+          title={t('fileTool.openPreview')}
+          aria-label={t('fileTool.openPreview')}
           onClick={handleOpenPreview}
         >
           <FolderOpen className="h-3.5 w-3.5" />
@@ -102,8 +104,8 @@ export function FileToolCard({
         variant="ghost"
         size="sm"
         className="h-5 w-5 p-0"
-        title={copied ? '已复制' : '复制路径'}
-        aria-label={copied ? '已复制' : '复制路径'}
+        title={copied ? t('fileTool.copied') : t('fileTool.copyPath')}
+        aria-label={copied ? t('fileTool.copied') : t('fileTool.copyPath')}
         onClick={handleCopy}
       >
         {copied ? (
@@ -127,11 +129,13 @@ export function FileToolCard({
       expandable
       onToggle={toggle}
     >
-      <div className="conv-tool-details-section-label">路径</div>
+      <div className="conv-tool-details-section-label">{t('fileTool.path')}</div>
       <div className="conv-tool-details-content">{path}</div>
       {toolEntry.tool_name ? (
         <>
-          <div className="conv-tool-details-section-label">工具</div>
+          <div className="conv-tool-details-section-label">
+            {t('fileTool.tool')}
+          </div>
           <div className="conv-tool-details-content">{toolEntry.tool_name}</div>
         </>
       ) : null}

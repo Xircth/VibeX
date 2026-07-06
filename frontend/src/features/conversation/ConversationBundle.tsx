@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Download, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,7 @@ import { conversationApi } from './conversationApi';
 import type { ConversationBundlePayload } from 'shared/types';
 
 export function ConversationBundlePanel() {
+  const { t } = useTranslation(['conversation', 'common']);
   const [conversationId, setConversationId] = useState('');
   const [workspaceId, setWorkspaceId] = useState('');
   const [destinationPath, setDestinationPath] = useState('');
@@ -17,7 +19,7 @@ export function ConversationBundlePanel() {
   const exportBundle = async () => {
     const id = conversationId.trim();
     if (!id) {
-      toast.error('请填写会话 ID');
+      toast.error(t('bundle.fillConversationId'));
       return;
     }
     setBusy(true);
@@ -27,9 +29,9 @@ export function ConversationBundlePanel() {
         destinationPath: destinationPath.trim() || null,
       });
       setBundleText(JSON.stringify(result.bundle, null, 2));
-      toast.success('会话包已导出');
+      toast.success(t('bundle.exported'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '会话包导出失败');
+      toast.error(error instanceof Error ? error.message : t('bundle.exportFailed'));
     } finally {
       setBusy(false);
     }
@@ -38,7 +40,7 @@ export function ConversationBundlePanel() {
   const importBundle = async () => {
     const workspace = workspaceId.trim();
     if (!workspace) {
-      toast.error('请填写工作区 ID');
+      toast.error(t('bundle.fillWorkspaceId'));
       return;
     }
     setBusy(true);
@@ -46,9 +48,9 @@ export function ConversationBundlePanel() {
       const bundle = JSON.parse(bundleText) as ConversationBundlePayload;
       const result = await conversationApi.import({ workspaceId: workspace, bundle });
       setConversationId(result.conversationId);
-      toast.success('会话包已导入');
+      toast.success(t('bundle.imported'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '会话包导入失败');
+      toast.error(error instanceof Error ? error.message : t('bundle.importFailed'));
     } finally {
       setBusy(false);
     }
@@ -57,21 +59,21 @@ export function ConversationBundlePanel() {
   return (
     <div className="settings-inline-group space-y-3 p-3">
       <div>
-        <div className="text-xs font-semibold">会话包导入导出</div>
+        <div className="text-xs font-semibold">{t('bundle.title')}</div>
         <div className="mt-1 text-[11px] text-muted-foreground">
-          导出 VibeX 事件源会话，或从会话包恢复为可渲染时间线。
+          {t('bundle.description')}
         </div>
       </div>
       <div className="grid gap-2 md:grid-cols-2">
         <Input
           value={conversationId}
-          placeholder="会话 ID"
+          placeholder={t('bundle.conversationIdPlaceholder')}
           onChange={(event) => setConversationId(event.target.value)}
           disabled={busy}
         />
         <Input
           value={destinationPath}
-          placeholder="可选导出路径"
+          placeholder={t('bundle.destinationPathPlaceholder')}
           onChange={(event) => setDestinationPath(event.target.value)}
           disabled={busy}
         />
@@ -84,11 +86,11 @@ export function ConversationBundlePanel() {
           disabled={busy}
         >
           <Download className="mr-1 h-3.5 w-3.5" />
-          导出会话包
+          {t('bundle.exportButton')}
         </Button>
         <Input
           value={workspaceId}
-          placeholder="导入目标工作区 ID"
+          placeholder={t('bundle.workspaceIdPlaceholder')}
           onChange={(event) => setWorkspaceId(event.target.value)}
           disabled={busy}
         />
@@ -100,12 +102,12 @@ export function ConversationBundlePanel() {
           disabled={busy || !bundleText.trim()}
         >
           <Upload className="mr-1 h-3.5 w-3.5" />
-          导入
+          {t('bundle.importButton')}
         </Button>
       </div>
       <Textarea
         value={bundleText}
-        placeholder="导出的会话包 JSON 会显示在这里，也可以粘贴会话包 JSON 后导入。"
+        placeholder={t('bundle.textareaPlaceholder')}
         onChange={(event) => setBundleText(event.target.value)}
         disabled={busy}
         className="min-h-28 text-xs"

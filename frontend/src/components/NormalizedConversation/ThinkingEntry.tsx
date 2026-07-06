@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Brain, ChevronRight } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { Markdown } from './Markdown';
@@ -36,12 +37,15 @@ export const ThinkingEntry: React.FC<{
   isStreaming?: boolean;
   elapsedMs?: number;
 }> = ({ content, expansionKey, isStreaming = false, elapsedMs }) => {
+  const { t } = useTranslation(['conversation', 'common']);
   const [expanded, toggle] = useExpandable(
     `thinking:${expansionKey}`,
     isStreaming
   );
   const elapsedSeconds = useThinkingElapsed(isStreaming, elapsedMs);
-  const statusText = isStreaming ? '思考中' : '已完成';
+  const statusText = isStreaming
+    ? t('thinking.statusThinking')
+    : t('thinking.statusCompleted');
   const elapsedText = useMemo(
     () =>
       typeof elapsedSeconds === 'number' ? formatElapsed(elapsedSeconds) : null,

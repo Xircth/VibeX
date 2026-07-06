@@ -1,1 +1,198 @@
-{}
+{
+  "loadingCard": {
+    "thinking": "AI 正在思考...",
+    "copy": "复制"
+  },
+  "thinking": {
+    "statusThinking": "思考中",
+    "statusCompleted": "已完成"
+  },
+  "displayEntry": {
+    "userDeniedTool": "用户拒绝了 {{tool}}",
+    "stoppingHook": "正在停止Hook..."
+  },
+  "fileContentView": {
+    "addLinesToChat": "第 {{range}} 行加入对话"
+  },
+  "retryEditor": {
+    "placeholder": "编辑后重新发送...",
+    "retryHere": "回到此处重试",
+    "send": "发送"
+  },
+  "pendingApproval": {
+    "submitting": "提交中",
+    "approve": "批准",
+    "submittingEllipsis": "提交中…",
+    "approveRequest": "批准请求",
+    "deny": "拒绝",
+    "provideDenyReason": "提供拒绝原因",
+    "denyReasonPlaceholder": "告诉 Agent 此请求被拒绝的原因... 输入 # 插入标签或搜索文件。",
+    "approveThisRequest": "是否批准此请求？"
+  },
+  "userMessage": {
+    "viewFullMessage": "查看完整消息",
+    "collapseMessage": "收起消息",
+    "rollbackToHere": "回滚到此处"
+  },
+  "nextActionCard": {
+    "viewDiffs": "查看差异",
+    "filesChanged": "{{count}} 个文件已更改",
+    "copyWorktreePath": "复制工作树路径",
+    "copied": "已复制！",
+    "viewChangesInEditor": "在 {{editor}} 中查看更改",
+    "gitActions": "Git 操作",
+    "runSetup": "运行设置",
+    "summaryAndActions": "摘要和操作"
+  },
+  "turnErrorCard": {
+    "reloadSession": "重新加载会话",
+    "cancelledTitle": "已取消",
+    "resourceNotFoundTitle": "代理会话已过期",
+    "resourceNotFoundDetail": "该会话在代理侧已不存在。重新加载会在下一条消息时重新建立会话。",
+    "idleTimeoutTitle": "代理无响应",
+    "idleTimeoutDetail": "代理长时间未返回任何内容，已自动结束本回合。常见原因：网络/代理无法连接模型，或代理需要重新登录认证。",
+    "connectionClosedTitle": "连接已断开",
+    "connectionClosedDetail": "代理连接在本回合完成前断开。",
+    "authRequiredTitle": "需要重新认证",
+    "authRequiredDetail": "代理要求重新认证后才能继续。",
+    "defaultTitle": "会话出错",
+    "detailWithCode": "{{message}}（{{code}}）"
+  },
+  "generatedImageCard": {
+    "generating": "正在生成图片…",
+    "title": "生成的图片",
+    "downloadTooltip": "下载图片",
+    "download": "下载",
+    "previewLabel": "预览生成图片",
+    "revisedPrompt": "修订提示词"
+  },
+  "delegationCard": {
+    "delegatedTo": "委派给 {{agent}}",
+    "subAgentDelegation": "子代理委派",
+    "openChildSession": "打开子会话",
+    "duration": "耗时 {{duration}}",
+    "running": "运行中",
+    "completed": "已完成",
+    "failed": "失败"
+  },
+  "commandTool": {
+    "commandLabel": "命令",
+    "outputLabel": "输出"
+  },
+  "askQuestion": {
+    "title": "问题",
+    "questionLabel": "问题",
+    "optionsLabel": "选项",
+    "answerLabel": "回答"
+  },
+  "permissionRequestCard": {
+    "title": "请求权限",
+    "responded": "已响应",
+    "newFile": "新文件",
+    "modified": "修改",
+    "before": "变更前",
+    "content": "内容",
+    "after": "变更后",
+    "viewDetails": "查看详情"
+  },
+  "messageTurnView": {
+    "streamingOutput": "AI 正在输出...",
+    "streamingThinking": "AI 正在思考中...",
+    "copied": "已复制",
+    "copyMessage": "复制消息",
+    "resendHint": "重发：可选择先恢复文件再重新发送",
+    "resend": "重发",
+    "interruptedTitle": "因重启中断",
+    "interruptedDescription": "此回合在生成过程中因应用重启而中断，未能完成。",
+    "collapsedMessages": "已折叠 {{count}} 条消息",
+    "toolCall": "工具调用",
+    "generatingAgents": "正在生成 {{count}} 个智能体"
+  },
+  "feedbackCheck": {
+    "label": "反馈",
+    "checkItems": "检查项",
+    "result": "结果"
+  },
+  "fileTool": {
+    "openPreview": "打开预览",
+    "copied": "已复制",
+    "copyPath": "复制路径",
+    "path": "路径",
+    "tool": "工具"
+  },
+  "goalTool": {
+    "title": "目标",
+    "objectiveLabel": "目标",
+    "statusLabel": "状态",
+    "resultLabel": "结果"
+  },
+  "messageNav": {
+    "railLabel": "消息导航",
+    "jumpToMessage": "跳转到第 {{ordinal}} 条消息"
+  },
+  "planCard": {
+    "label": "计划",
+    "updating": "更新中",
+    "itemsSummary": "{{count}} 项 - {{content}}",
+    "planUpdated": "计划已更新"
+  },
+  "searchTool": {
+    "openLink": "打开链接",
+    "copied": "已复制",
+    "copyUrl": "复制 URL",
+    "copyQuery": "复制查询",
+    "query": "查询",
+    "tool": "工具"
+  },
+  "genericTool": {
+    "process": "进程",
+    "reason": "原因",
+    "status": "状态",
+    "action": "操作",
+    "startedAt": "开始时间",
+    "subagent": "子代理",
+    "todo": "待办",
+    "description": "描述",
+    "result": "结果",
+    "arguments": "参数",
+    "content": "内容"
+  },
+  "turnStats": {
+    "copyReply": "复制回复",
+    "jumpBack": "回到上一条用户消息",
+    "statusLabel": "状态",
+    "generating": "生成中",
+    "modelLabel": "模型",
+    "elapsedLabel": "耗时",
+    "completedLabel": "完成",
+    "stopReasonLabel": "结束"
+  },
+  "generatedImages": {
+    "statusFailed": "失败",
+    "statusGenerating": "生成中",
+    "statusCompleted": "完成",
+    "label": "图片",
+    "status": "状态",
+    "previewImage": "预览生成图片",
+    "prompt": "提示词",
+    "revisedPrompt": "修订提示词",
+    "error": "错误",
+    "rawResult": "原始结果"
+  },
+  "bundle": {
+    "fillConversationId": "请填写会话 ID",
+    "exported": "会话包已导出",
+    "exportFailed": "会话包导出失败",
+    "fillWorkspaceId": "请填写工作区 ID",
+    "imported": "会话包已导入",
+    "importFailed": "会话包导入失败",
+    "title": "会话包导入导出",
+    "description": "导出 VibeX 事件源会话，或从会话包恢复为可渲染时间线。",
+    "conversationIdPlaceholder": "会话 ID",
+    "destinationPathPlaceholder": "可选导出路径",
+    "exportButton": "导出会话包",
+    "workspaceIdPlaceholder": "导入目标工作区 ID",
+    "importButton": "导入",
+    "textareaPlaceholder": "导出的会话包 JSON 会显示在这里，也可以粘贴会话包 JSON 后导入。"
+  }
+}

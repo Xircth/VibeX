@@ -1,4 +1,5 @@
 import { MessageSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
 import { renderJson } from '../conversation-entry-utils';
 import { ToolResultView } from './ToolResultView';
@@ -22,6 +23,7 @@ export function isFeedbackCheckToolEntry(entry: NormalizedEntry): boolean {
 }
 
 export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
+  const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action =
@@ -38,7 +40,7 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
   return (
     <ToolCardShell
       icon={<MessageSquare className="h-3 w-3" />}
-      label="反馈"
+      label={t('feedbackCheck.label')}
       detail={summary}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
@@ -47,7 +49,9 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
     >
       {action.arguments ? (
         <>
-          <div className="conv-tool-details-section-label">检查项</div>
+          <div className="conv-tool-details-section-label">
+            {t('feedbackCheck.checkItems')}
+          </div>
           <div className="conv-tool-details-content">
             {renderJson(action.arguments)}
           </div>
@@ -55,7 +59,9 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
       ) : null}
       {action.result ? (
         <>
-          <div className="conv-tool-details-section-label">结果</div>
+          <div className="conv-tool-details-section-label">
+            {t('feedbackCheck.result')}
+          </div>
           <div className="conv-tool-details-content">
             <ToolResultView result={action.result} />
           </div>

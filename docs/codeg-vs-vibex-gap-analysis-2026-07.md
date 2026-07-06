@@ -16,7 +16,7 @@
 
 ## 0.1 实施进度（2026-07-04-06，TDD 执行）
 
-本轮全部通过验证（`cargo check --workspace`/`clippy --features qa-mode`/后端全量测试/前端 752 测试+tsc+eslint/`generate-types:check` 全绿），每项独立提交：
+本轮全部通过验证（`cargo check --workspace`/`clippy --features qa-mode -D warnings`/后端全量测试/前端 778 测试+tsc+eslint/`generate-types:check`/`prepare-db:check` 全绿），每项独立提交：
 
 | 项 | 状态 | 交付物与测试 |
 |---|---|---|
@@ -32,14 +32,21 @@
 | **P2-1** git stash 套件 | ✅ 完成 | crates/git stash 全套 + 6 命令 + GitStashSection UI；解析 4 单测 + push/pop 集成测试 |
 | **P2-2** 克隆入口 + remote 管理 | ✅ 完成 | 去 cloud 门 + clone_repo/add·remove·set_remote 命令 + CloneRepoDialog + 欢迎页入口 |
 | **P2-7** IM 通道投递/审计日志 | ✅ 完成 | chat_channel_message_log 表 + 出站/入站/拒绝审计 + 命令 + 消息渠道设置内联记录 |
+| **P1-4** 真 Session Fork（ACP session/fork） | ✅ 完成 | Cargo `unstable_session_fork` + initialize 动态探测 fork 能力 + manager `fork_acp_session`/runtime `fork_session`；`conversation_fork` 命令（导出→导入复制历史 + 绑定 fork 后 acp session + binding 行使续接真正恢复上下文）；对抗性审查修复 4 处 |
+| **P1-6** 桌面自更新 | ✅ 完成 | tauri-plugin-updater/process + 设置页检查/下载/安装/重启；仅提交公钥，私钥需维护者自备（docs/desktop-updater.md）|
+| **P2-4** 选区入对话 | ✅ 完成 | computeLineRange（唯一匹配防错行）+ FileContentView 浮层"加入对话"+ composer 选区 store；7+2 单测 |
+| **P3-1** i18n 有限完善 | ✅ 完成（有界切片）| react-i18next 单例（默认 zh-CN）+ zh/en 三命名空间 + 外观页语言切换器 + 设置外壳/外观/自动化/状态栏切片 100% 转换；键集对等测试 6 条 |
+| **P3-2** 键位重绑 | ✅ 完成 | 注册表驱动重绑 UI + 冲突检测 + 恢复默认 + localStorage 覆盖（实时生效）；chord/覆盖/冲突 11 单测 |
+| **P3-4** 备份口令加密 | ✅ 完成 | AES-256-GCM + Argon2id 信封（移植 codeg）+ 自动探测/向后兼容 + 头部 DoS 校验 + UI 口令输入；5 单测 |
+| **P3-5** 状态栏模块补齐 | ✅ 完成（a+c）| 后台任务数徽标 + 更新可用徽标；token 环/预览状态因缺外壳级"当前会话"指针推迟 |
+| **P3-3** 无项目聊天（决策产物）| 🟡 仅决策 | CONTEXT 术语 +（[ADR-0006](./adr/0006-workspace-less-conversation.md)：nullable workspace_id + 专用 scratch 工作目录）；no-too-big，代码分片后续 |
 
-**合计已交付 12 项**（整个 P0 层 + 大部分 P1 + 关键 P2），全部经 `cargo clippy --workspace --features qa-mode -D warnings`/后端全量测试(0 失败)/前端 752 测试/`generate-types:check`/`prepare-db:check` 验证全绿。
+**合计已交付 20 项**（整个 P0 层 + P1 全部 + 多数 P2 + 多数 P3），全部经 `cargo clippy --workspace --features qa-mode -D warnings`/后端全量测试(0 失败)/前端 778 测试/`generate-types:check`/`prepare-db:check` 验证全绿；两轮对抗性审查（automation 3 处 + fork/composer 4 处）确认缺陷均已修复。
 
-**未实施（可增量推进）**，按建议顺序与理由：
-- **P1-4 真 fork（2026-07-06 复核：codeg 做法可移植）**：原判"VibeX 无 ACP `session/fork`"**不准确**——`agent-client-protocol` v0.11 提供 `session/fork`（feature `unstable_session_fork` 门控），`AgentCapabilities.fork` 可动态探测 agent 支持。因此可像 codeg 一样发真实 fork 请求，让 agent 服务端分叉出**保留上下文**的会话，克服了"agent 冷启动"的核心局限（见 [ADR-0005](./adr/0005-session-fork-copies-events.md) 2026-07-06 更新）。**技术上可行**，但工作量大且触及事件溯源核心，真实可用性取决于目标 agent 是否广告 fork（需实机验证）——建议作为独立专项，不在长会话尾部仓促实现（刚在 P0-3 尾部发现 3 个 bug 是前车之鉴）。
-- **P2-4 选区入对话**：composer WYSIWYG 集成（多文件前端）。
-- **P1-6 更新器 / P2-5 托盘·深链**：需新增 tauri 插件依赖 + 签名密钥/发布基建，非纯代码。
-- **P2-3 平铺 / P2-8 日志查看器 / P3 外壳**：多为前端多文件或独立基建。
+**未实施（可增量推进）**，按理由：
+- **P3-3 无项目聊天代码分片**：决策已定（ADR-0006），首片为后端 schema+turn 分支，前端再分片；no-too-big，需专门会话。
+- **P3-1 i18n 全量**：已落基础与首切片；其余重设置页/非设置屏/后端用户可见串（IM 模板等）+ localStorage→Config.language 同步为后续切片。
+- **P2-3 多会话平铺 / P2-8 应用日志查看器 / P2-5 托盘·深链**：多文件前端或独立基建。
 - **P0-3 worktree 隔离 / run 事件总线终态判定**：在已交付 v1 上的增强项。
 
 ## 1. 第一性原则框架
@@ -360,22 +367,27 @@ VibeX 弱项（全部已核验）：
 - **现状锚点**：无 i18n 框架，硬编码中文为主（~197/634 前端文件含 CJK）。
 - **决策**：目标双语（zh-CN/en），渐进落地。**立即生效的只有一条纪律**（已并入 §4.0 第 3 条）：新增/改动代码的用户可见文案必须收敛到集中常量模块（前端按 feature 的 `strings.ts` 等价物；后端用户可见串集中于模块级常量），不再新增散落字符串——为未来接 react-i18next 留门，增量成本≈0。
 - **全量执行（P0–P2 清空后启动）**：react-i18next + zh-CN/en；后端用户可见文案（IM 模板、恢复原因等）同步进资源体系。**禁止**机器翻译未审校上线；**禁止**在全量启动前就引入 i18n 框架半用不用（避免两套并存）。
+- **状态：基础 + 首切片已完成 2026-07-06（有限完善）。** react-i18next 单例（默认 zh-CN，localStorage `vibex:ui-language`，不接 Config.language 以免双源）；三命名空间 common/settings/statusbar；外观页语言切换器；**100% 转换**设置外壳 + 外观页 + 自动化页 + 状态栏（避免半译屏）；zh/en 键集对等测试防漏译。ShortcutSettings 由 P3-2 以 i18n 原生方式重建。**其余重设置页/非设置屏/后端串 + localStorage→Config.language 同步为后续切片。**
 
 #### P3-2 主题定制 + 全键位重绑 【M】
 
 - 主题色板/界面缩放/等宽字体选择（token 体系内做，遵循 DESIGN.md 两层模型）；键位全量重绑 + 冲突检测 + 恢复默认（现有 `keyboard/registry.ts` 已是注册表结构，是好底子）。
+- **状态：键位重绑已完成 2026-07-06。** 设置页"快捷键"改为注册表驱动可重绑面板：`getKeysFor` 增 overrides + useSemanticKey 订阅覆盖 store 实时重注册；chord 从 `event.code` 物理键生成（规避 Shift 变形）；冲突检测（作用域重叠+同和弦）；单项/全部恢复默认；覆盖持久化 localStorage（不引 Rust Config 迁移）。顺序组合键/系统级只读。**推迟：等宽字体选择**（现无 `--font-mono` token、字体可用性依赖 OS，需先做 token 收敛，独立任务）。
 
 #### P3-3 无项目纯聊天模式 【M】
 
 - 允许创建不挂项目/工作区的 Conversation（无 worktree、无 git 面板）；入口在欢迎页。**先决**：CONTEXT.md 需为"无工作区会话"落术语（与 Workspace 关系）。
+- **状态：决策产物已完成 2026-07-06（no-too-big，代码未动）。** 先决已解除：CONTEXT.md 增术语 + [ADR-0006](./adr/0006-workspace-less-conversation.md) 锁定两项阻塞决策——A：`sessions.workspace_id` 置 nullable（否决 sentinel 工作区）；B：agent 工作目录指向专用 `~/.vibex/scratch/<id>/`（否决 $HOME，定性为能力受限低权限模式）。首片为后端 schema+turn 分支，前端再分片；需专门会话，不在长会话尾部动 DB 迁移与 turn 核心。
 
 #### P3-4 备份加密 + 外部记录纳入 【S–M】
 
 - backup_create 增加口令加密（age 或等价）；可选把外部 agent 历史目录（P1-1 的源）纳入备份；restore 时冲突扫描。参考 codeg `commands/backup/crypto.rs`。
+- **状态：口令加密已完成 2026-07-06。** 移植 codeg 信封（AES-256-GCM STREAM + Argon2id）为字节进/出适配内存态载荷；`is_encrypted` 魔数自动探测（明文旧备份直读，向后兼容）；`validate_header` 上界校验拒 DoS；create/inspect/restore 全接通 + UI 口令输入。**推迟：外部历史目录纳入 + restore 冲突扫描**（独立增量）。
 
 #### P3-5 状态栏模块补齐 【S】
 
 - StatusBar 增加：在途后台任务数、当前会话 token/上下文环、更新徽标（衔接 P1-6）、web 服务状态。
+- **状态：(a) 后台任务数 + (c) 更新徽标已完成 2026-07-06。** ProjectActivitySnapshot 增 runningCount 跨项目汇总；更新徽标惰性轮询 `plugin-updater.check()` 吞错静默。**推迟：(b) token/上下文环 + (d) web/预览状态**——都需先定义外壳级"当前会话指针"（b 需 session→conversationId 解析读 session_stats；d 需该指针或新增跨工作区 running-dev-servers 聚合）。
 
 #### P3-6 Office 工作流 【已决策 2026-07-04：不做】
 

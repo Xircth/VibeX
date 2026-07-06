@@ -1,5 +1,11 @@
 # Requirements: Phase 8 — Web 服务器模式与部署形态 (server-deployment)
 
+> **⛔ 已裁决不实施（2026-07-04，方案 B）。** 见 [codeg-vs-vibex-gap-analysis-2026-07.md](../../codeg-vs-vibex-gap-analysis-2026-07.md) §P1-5。
+> VibeX 的 web 服务正式定位为**本机自动化 API**（`web_service.rs` 绑定 127.0.0.1，token 鉴权），
+> 不做独立 `vibex-server` 二进制 / 浏览器 UI / Docker / 远程访问 / 自更新监督器。
+> 远程可达性由 IM 通道（P0-1）承担。本规格仅作历史留档，**任何执行 Agent 不得据此立项**；
+> 未来重开需新的产品决策 + 真实需求证据。
+
 ## Objective
 
 让 VibeX 像 Codeg 一样可以脱离桌面环境运行：独立 `vibex-server` 二进制

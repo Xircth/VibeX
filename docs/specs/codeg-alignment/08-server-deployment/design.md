@@ -1,5 +1,7 @@
 # Design: Phase 8 — Web 服务器模式与部署形态
 
+> **⛔ 已裁决不实施（2026-07-04，方案 B）。** 见 [codeg-vs-vibex-gap-analysis-2026-07.md](../../codeg-vs-vibex-gap-analysis-2026-07.md) §P1-5。仅历史留档，勿据此立项。
+
 ## 所属层
 
 - 新 crate：`crates/server`（Axum app、ws 事件桥、auth、静态服务、upload

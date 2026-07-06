@@ -1,5 +1,7 @@
 # Tasks: Phase 8 — Web 服务器模式与部署形态
 
+> **⛔ 已裁决不实施（2026-07-04，方案 B）。** 见 [codeg-vs-vibex-gap-analysis-2026-07.md](../../codeg-vs-vibex-gap-analysis-2026-07.md) §P1-5。以下任务全部作废，勿执行。
+
 执行环境：worktree `../VibeX-server-deploy`，分支 `feature/server-deploy`。
 可拆为 8a（transport/server）与 8b（Docker/update）两段串行。
 

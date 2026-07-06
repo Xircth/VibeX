@@ -14,6 +14,20 @@
 
 背景事实：[docs/specs/codeg-alignment/](./specs/codeg-alignment/) 的 10 阶段对齐计划中，本文发现的缺口几乎精确落在**未实施的阶段 3（历史聚合）、7（i18n）、8（服务器部署——实际远薄于规格）、10（Project Boot / 托盘 / 宠物）**。差距不是没被认知，而是没被执行。
 
+## 0.1 实施进度（2026-07-04，TDD 执行）
+
+本轮已按 P0 优先级执行并全部通过验证（`cargo check`/`clippy --features qa-mode`/后端 443 测试/前端 tsc+eslint/`generate-types:check` 全绿）：
+
+| 项 | 状态 | 交付物与测试 |
+|---|---|---|
+| **P0-0** IM 发送者白名单 | ✅ 完成 | `is_sender_authorized` + dispatch 单点门 + fail-closed + 前端授权列表 UI；7 单测 |
+| **P0-1** IM 远程审批闭环 | ✅ 完成（后端） | `/approve[always]` `/deny` `/cancel` `/resume` + `decide_remote_permission_response`；6 单测 |
+| **P0-2** 能力声明诚实化 | ✅ 完成 | SessionFork→ResetToHere（全 agent 诚实）、修正 sessionContinuity 分叉谎言、删除死 fork 事件；map→design→对抗验证 workflow + 单测 |
+| **P0-3** Automations 调度核心 | 🟡 核心完成 | 无依赖 cron 求值器 `schedule.rs`（12 单测）；DB/scheduler/命令/UI 待续 |
+| **P1-5** 部署形态方案 B | ✅ 完成 | 本机 API 定位文档化 + spec-08 作废横幅 + API 文档 |
+
+**未开始（需专门会话，规模见各条）**：P1-1 解析器补齐、P1-2 FTS、P1-3 导出、P1-4 真 fork（ADR-0005 已备）、P1-6 更新器、P2-1 stash、P2-2 克隆、P2-3/4/5/7/8、P3。
+
 ## 1. 第一性原则框架
 
 这类产品的本质工作：**把开发者的意图，经由多个 AI agent，安全、持续地转化为已验证的工作产物。**
@@ -161,6 +175,7 @@ VibeX 弱项（全部已核验）：
   6. 权限经 IM 批准后，桌面 UI 的权限卡即时消解（事件驱动，非轮询）。
 - **实施边界**：只改 `dispatch_command` 增加 handler + `chat_delivery` 增加通知模板；**禁止**在 IM 层复制权限状态（唯一权威是事件日志）；**禁止**为 weixin/webhook 这类出站-only 通道伪造入站。
 - **参考实现**：codeg `src-tauri/src/chat_channel/session_commands.rs`（`/approve /deny` 语义）、`command_dispatcher.rs`（前缀路由）、`event_subscriber.rs`（权限通知格式）。
+- **状态：后端已完成 2026-07-04。** 选项选择逻辑 `decide_remote_permission_response`（[permissions.rs](../crates/agents/src/permissions.rs)，6 单测覆盖 approve/always/deny/无选项边界）+ `chat_channel.rs` 的 `respond_permission_command`/`cancel_command`/`resume_command` 命令，权限请求通知文案已改为提示远程 approve/deny。**v1 已接受的简化**：`/approve` 作用于最早一条 pending 权限（未做 `/approve <序号>` 多条选择——ACP 单回合在途时通常至多一条 pending，够用）。
 
 #### P0-2 能力声明诚实化：capability 动态化 【S】
 
@@ -171,6 +186,7 @@ VibeX 弱项（全部已核验）：
   2. 在 P1-4 落地前，前端不再出现任何"分叉"可点入口（或置灰 + "即将支持"）。
   3. 静态表仅作为"未连接时的展示默认"，且 `SessionFork` 从静态默认中移除。
 - **实施边界**：改 `metadata.rs` + 连接握手处一次事件发射；不新增命令。**禁止**顺手实现 fork（那是 P1-4）。
+- **状态：已完成 2026-07-04（经 map→design→对抗性验证 workflow 定案）。** 实施为 Option A：`AgentCapability::SessionFork` → `ResetToHere` 并对**全部 agent** 诚实声明（reset-to-here 后端 truncate 路径本就无能力门）；删除从未在生产发射的 `AgentEvent::ForkSupported` / `ConversationEvent::ForkSupportUpdated` / 翻译 shim / 前端 `fork_supported` 手写镜像；**修正了一处真实用户可见谎言** [sessionContinuity.ts](../frontend/src/utils/sessionContinuity.ts)（原文案称"从快照分叉出新会话"，实为破坏性截断）。continuity 模式与能力解耦（去掉 `ForkSnapshot`）。验证：`agent_capabilities` 单测（ResetToHere 全覆盖）、224 个 agents 测试、UserMessage 测试、`generate-types:check`、前端 tsc 全绿；全库 fork 引用清零。**真 fork（P1-4）落地时以 ACP initialize 动态协商重新引入独立能力，不再复用 reset 门。**
 
 #### P0-3 Automations：可调度的无头运行 【L】
 
@@ -186,6 +202,7 @@ VibeX 弱项（全部已核验）：
 - **形态约束（随 P1-5 决策 B 而定）**：调度宿主 = 桌面应用进程。UI 必须明示"应用未运行时不执行"；**错过的 cron 触发不补跑**，启动时只重算 `next_run_at`（简单可预期；codeg 的 boot-reconcile 仅用于在途运行收敛，遵循批次 B 的 Interrupted 语义）。
 - **参考实现**：codeg `src-tauri/src/automation/engine.rs`（触发/对账/恢复/强杀语义）、`commands/automation.rs`（API 面）、`db/entities/{automation,automation_run}.rs`（字段设计）。
 - **裁剪线**：v1 不做"运行中途 IM 通知细粒度事件"（复用现有会话事件通知即可）；不做自动重试。
+- **状态：调度核心已完成 2026-07-04（[schedule.rs](../crates/services/src/services/automation/schedule.rs)，无依赖的 5 字段 cron 求值器 + `next_after`，12 单测覆盖步长/范围/列表/DOW/Vixie DOM-DOW OR 规则/滚动到次日）。** 剩余（未实施，需专门会话）：`automation`/`automation_run` DB 迁移、调度循环 service、命令层、AppState 接线、generate-types、设置页 UI。调度核心是纯逻辑基石，独立可用、无死迁移风险。
 
 ---
 
@@ -244,9 +261,10 @@ VibeX 弱项（全部已核验）：
 - **决策**：web_service 正式定位为**"本机自动化 API"**（供脚本/快捷指令/本机集成调用），**不做**独立 server / 浏览器 UI / Docker（方案 A 不立项；未来重开需新决策 + 真实需求证据）。远程可达性由 IM 通道（P0-1）承担。
 - **现状锚点**：[web_service.rs](../src-tauri/src/commands/web_service.rs)（:651 绑 127.0.0.1；仅会话 REST + SSE）。
 - **执行内容（验收标准）**：
-  1. 设置页与文档明确"仅本机"的定位描述（去掉任何"远程访问"暗示）。
-  2. `docs/specs/codeg-alignment/08-server-deployment/` 标注为已裁决不实施（留档），避免后续 Agent 误把规格当待办。
-  3. 保持 127.0.0.1 绑定不变；API 面向本机自动化场景补最小文档（端点清单 + token 获取方式）。
+  1. 设置页与文档明确"仅本机"的定位描述（去掉任何"远程访问"暗示）。✅ 设置页文案已本机化（`WebServiceSettings.tsx`：仅回环、本地集成/自动化）。
+  2. `docs/specs/codeg-alignment/08-server-deployment/`（requirements/design/tasks）已加"⛔ 已裁决不实施"横幅，避免后续 Agent 误把规格当待办。✅
+  3. 保持 127.0.0.1 绑定不变；API 最小文档见 [local-automation-api.md](./local-automation-api.md)（端点清单 + token 获取方式）。✅
+- **状态：已完成 2026-07-04（纯文档/定位，无代码风险）。**
 - **防偏移**：**任何 Agent 不得实施方案 A 的任何组成部分**（独立二进制/静态托管/0.0.0.0/Docker）。
 
 #### P1-6 桌面自更新 【M】

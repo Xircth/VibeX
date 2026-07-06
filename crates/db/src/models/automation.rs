@@ -230,13 +230,18 @@ impl AutomationRun {
         pool: &SqlitePool,
         id: Uuid,
         status: &str,
+        conversation_id: Option<Uuid>,
         summary: Option<&str>,
         error: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        // COALESCE keeps an existing conversation_id when None is passed.
         sqlx::query(
-            "UPDATE automation_runs SET status=?, summary=?, error=?, finished_at=? WHERE id=?",
+            "UPDATE automation_runs \
+             SET status=?, conversation_id=COALESCE(?, conversation_id), \
+                 summary=?, error=?, finished_at=? WHERE id=?",
         )
         .bind(status)
+        .bind(conversation_id)
         .bind(summary)
         .bind(error)
         .bind(Utc::now())

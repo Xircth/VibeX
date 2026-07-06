@@ -29,13 +29,22 @@ use crate::{
 const POLL_INTERVAL_SECS: u64 = 30;
 
 /// Next fire time strictly after now, in local time, as UTC for storage.
+///
+/// DST-robust: `earliest()` resolves an ambiguous fall-back hour to the first
+/// occurrence; a spring-forward gap (a wall-clock time that doesn't exist)
+/// yields `None`, so we skip that occurrence and try the next cron match rather
+/// than silently dropping the schedule forever.
 fn next_run_after_now(cron: &str) -> Option<DateTime<Utc>> {
     let schedule = CronSchedule::parse(cron).ok()?;
-    let next_local = schedule.next_after(Local::now().naive_local())?;
-    Local
-        .from_local_datetime(&next_local)
-        .single()
-        .map(|dt| dt.with_timezone(&Utc))
+    let mut cursor = Local::now().naive_local();
+    for _ in 0..8 {
+        let next_local = schedule.next_after(cursor)?;
+        match Local.from_local_datetime(&next_local).earliest() {
+            Some(dt) => return Some(dt.with_timezone(&Utc)),
+            None => cursor = next_local, // non-existent local time (DST gap): skip it
+        }
+    }
+    None
 }
 
 /// Recompute `next_run_at` for a saved automation: the next cron tail when
@@ -155,19 +164,31 @@ pub async fn automation_run_now(
 // ── Run execution ──────────────────────────────────────────────────────────
 
 /// Record a run, launch the session+turn, and settle the run's launch status.
+/// The run row is inserted (`running`) BEFORE the launch so a host crash mid-
+/// launch leaves a recoverable orphan (→ `interrupted` on next startup) rather
+/// than losing the record entirely.
 async fn fire(state: &AppState, automation: &Automation) -> Uuid {
     let pool = &state.deployment.db().pool;
     let run_id = Uuid::new_v4();
+    let _ = AutomationRun::start(pool, run_id, automation.id, None).await;
 
     match launch(state, automation).await {
         Ok(conversation_id) => {
-            let _ = AutomationRun::start(pool, run_id, automation.id, Some(conversation_id)).await;
             let summary = format!("已启动会话 {}", &conversation_id.to_string()[..8]);
-            let _ = AutomationRun::finish(pool, run_id, "completed", Some(&summary), None).await;
+            let _ = AutomationRun::finish(
+                pool,
+                run_id,
+                "completed",
+                Some(conversation_id),
+                Some(&summary),
+                None,
+            )
+            .await;
         }
         Err(error) => {
-            let _ = AutomationRun::start(pool, run_id, automation.id, None).await;
-            let _ = AutomationRun::finish(pool, run_id, "failed", None, Some(&error.to_string())).await;
+            let _ =
+                AutomationRun::finish(pool, run_id, "failed", None, None, Some(&error.to_string()))
+                    .await;
         }
     }
     run_id
@@ -248,9 +269,15 @@ pub fn start_automation_scheduler(app: AppHandle) {
                 }
             };
             for automation in due {
-                let next = automation.cron.as_deref().and_then(next_run_after_now);
-                let _ = Automation::set_next_run(&pool, automation.id, next).await;
-                fire(state.inner(), &automation).await;
+                // Re-fetch fresh state: the due snapshot may be stale (the user
+                // could have disabled or deleted this automation since the query).
+                let fresh = match Automation::find_by_id(&pool, automation.id).await {
+                    Ok(Some(fresh)) if fresh.enabled && fresh.trigger_kind == "cron" => fresh,
+                    _ => continue,
+                };
+                let next = fresh.cron.as_deref().and_then(next_run_after_now);
+                let _ = Automation::set_next_run(&pool, fresh.id, next).await;
+                fire(state.inner(), &fresh).await;
             }
         }
     });

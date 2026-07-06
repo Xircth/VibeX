@@ -5,13 +5,16 @@ import {
   FileCode,
   FileDown,
   GitBranch,
+  GitFork,
   Loader2,
   Pencil,
   RotateCcw,
   Trash2,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { exportConversation } from '@/lib/exportConversation';
+import { conversationApi } from '@/features/conversation/conversationApi';
 import type { ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -352,6 +355,20 @@ export function SessionHubListItem({
               移至会话列表
             </button>
           ) : null}
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              setContextMenu(null);
+              void conversationApi
+                .fork(session.id)
+                .then(() => toast.success('已分叉会话'))
+                .catch((error) => toast.error(`分叉失败：${error}`));
+            }}
+          >
+            <GitFork className="h-3.5 w-3.5" />
+            分叉会话
+          </button>
           <button
             type="button"
             className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"

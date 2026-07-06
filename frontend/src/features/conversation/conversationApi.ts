@@ -158,4 +158,7 @@ export const conversationApi = {
 
   import: (request: ConversationImportRequest): Promise<ConversationImportResult> =>
     tauriInvoke('conversation_import', { request }),
+
+  fork: (conversationId: string): Promise<ConversationImportResult> =>
+    tauriInvoke('conversation_fork', { conversationId }),
 };

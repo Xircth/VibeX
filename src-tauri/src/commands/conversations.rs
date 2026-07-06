@@ -4,8 +4,8 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentPermissionResponse, AgentSessionConfigOverride, AgentKind, ImportedAgentMessageRole,
-    ImportedAgentSession,
+    AgentPermissionResponse, AgentSessionConfigOverride, AgentKind, AgentSessionId,
+    ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationInputBlock,
@@ -546,6 +546,66 @@ pub async fn conversation_import(
     let workspace_id = Uuid::parse_str(&request.workspace_id)
         .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
     import_conversation_bundle(&state.deployment.db().pool, request.bundle, workspace_id).await
+}
+
+/// Fork a conversation (P1-4): produce an independent, non-destructive copy of
+/// its full history, then—when the agent advertised `session/fork` and has a
+/// live session—branch the agent's server-side context into the new session so
+/// continuing the fork keeps the pre-fork context. If ACP fork is unavailable,
+/// the fork is a context-free copy that cold-starts on the next turn.
+///
+/// Forks from the CURRENT state (like codeg's real fork), not a past turn:
+/// truncating the copy would desync the visible history from the agent context.
+#[tauri::command]
+pub async fn conversation_fork(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<ConversationImportResult, AppError> {
+    let source_id = Uuid::parse_str(&conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    let pool = &state.deployment.db().pool;
+
+    let summary = DbConversationSummary::find_by_id(pool, source_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("conversation {source_id} not found")))?;
+
+    // Full non-destructive copy with fresh ids via the tested export→import path.
+    let exported = export_conversation_bundle(pool, source_id, None).await?;
+    let result = import_conversation_bundle(pool, exported.bundle, summary.workspace_id).await?;
+    let new_id = result.conversation_id;
+
+    let base = summary
+        .title
+        .as_deref()
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or("会话");
+    let _ = DbConversationSummary::set_title(pool, new_id, &format!("{base}（分叉）")).await;
+
+    // Best-effort ACP fork: branch the agent's live context into the new session.
+    if let Some(agent_type) = summary.agent_type.as_deref() {
+        match state
+            .agent_runtime
+            .fork_session(AgentSessionId(source_id))
+            .await
+        {
+            Ok(forked_external_id) => {
+                if let Err(error) =
+                    DbConversationSummary::bind_external_id(pool, new_id, &forked_external_id, agent_type)
+                        .await
+                {
+                    tracing::warn!(%error, "failed to bind forked ACP session to conversation");
+                }
+            }
+            Err(error) => {
+                tracing::info!(
+                    %error,
+                    "ACP session/fork unavailable; forked conversation will cold-start"
+                );
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTurn> {

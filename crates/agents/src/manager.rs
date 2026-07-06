@@ -14,8 +14,9 @@ use agent_client_protocol::{
     schema::{
         AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
         CancelNotification, ClientCapabilities, ClientResponse, ContentBlock,
-        CreateTerminalResponse, ImageContent, Implementation, InitializeRequest,
-        KillTerminalRequest, KillTerminalResponse, LoadSessionRequest, NewSessionRequest,
+        CreateTerminalResponse, ForkSessionRequest, ImageContent, Implementation,
+        InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
+        NewSessionRequest,
         PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
         RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
         SelectedPermissionOutcome, SessionConfigKind,
@@ -203,6 +204,12 @@ pub enum AgentConnectionCommand {
     ResumeSession {
         session_id: AgentSessionId,
         external_session_id: String,
+        result_tx: oneshot::Sender<AgentResult<String>>,
+    },
+    /// Fork the live ACP session (P1-4): the agent branches its context into a
+    /// new server-side session; the returned id is the new (forked) session.
+    ForkSession {
+        session_id: AgentSessionId,
         result_tx: oneshot::Sender<AgentResult<String>>,
     },
     Prompt {
@@ -415,6 +422,27 @@ impl AgentConnectionManager {
         })?
     }
 
+    /// Fork the live ACP session, returning the new (forked) external session id.
+    /// Errors if the agent did not advertise `session/fork` support at handshake.
+    pub async fn fork_session(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+    ) -> AgentResult<String> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::ForkSession {
+                session_id,
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before session fork completed".into())
+        })?
+    }
+
     pub async fn disconnect(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
         let connection = self.connections.lock().await.remove(&connection_id);
         let Some(connection) = connection else {
@@ -583,6 +611,14 @@ impl AgentConnectionRunner {
                     ..
                 } => {
                     let _ = result_tx.send(Ok(external_session_id));
+                }
+                AgentConnectionCommand::ForkSession {
+                    session_id,
+                    result_tx,
+                } => {
+                    // The in-memory agent has no server-side session; hand back a
+                    // synthetic forked id so the fork flow is exercisable in tests.
+                    let _ = result_tx.send(Ok(format!("fork-{}", session_id.0)));
                 }
                 AgentConnectionCommand::Prompt {
                     session_id,
@@ -979,6 +1015,11 @@ impl AgentConnectionRunner {
                         }
                     };
                 let supports_load_session = initialize_response.agent_capabilities.load_session;
+                let supports_fork = initialize_response
+                    .agent_capabilities
+                    .session_capabilities
+                    .fork
+                    .is_some();
                 // Handshake succeeded — the connection is now genuinely reachable.
                 // Signal readiness so `connect` can mark it Ready. A failure before
                 // this point leaves the sender for `run` to forward the real error.
@@ -1033,6 +1074,24 @@ impl AgentConnectionRunner {
                                     &mut cmd_rx,
                                 )
                                 .await?;
+                        }
+                        AgentConnectionCommand::ForkSession {
+                            session_id,
+                            result_tx,
+                        } => {
+                            let result = if supports_fork {
+                                runner
+                                    .fork_acp_session(&conn, &working_dir, session_id)
+                                    .await
+                                    .map_err(|error| {
+                                        AgentError::Runtime(format!("ACP session fork failed: {error}"))
+                                    })
+                            } else {
+                                Err(AgentError::Runtime(
+                                    "agent does not support session/fork".into(),
+                                ))
+                            };
+                            let _ = result_tx.send(result);
                         }
                         AgentConnectionCommand::Cancel {
                             session_id,
@@ -1128,6 +1187,26 @@ impl AgentConnectionRunner {
         }
 
         self.new_acp_session(conn, working_dir, session_id).await
+    }
+
+    /// Fork the live ACP session for `session_id`, returning the new (forked)
+    /// external session id the agent created (branched from the original's
+    /// context). Requires the agent to have advertised `session/fork`.
+    async fn fork_acp_session(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+    ) -> Result<String, acp::Error> {
+        let acp_session_id = self.ensure_acp_session(conn, working_dir, session_id).await?;
+        let response = conn
+            .send_request(ForkSessionRequest::new(
+                SessionId::new(acp_session_id),
+                working_dir.to_path_buf(),
+            ))
+            .block_task()
+            .await?;
+        Ok(response.session_id.0.to_string())
     }
 
     async fn new_acp_session(

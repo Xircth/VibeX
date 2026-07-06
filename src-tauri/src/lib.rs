@@ -275,6 +275,7 @@ pub fn run() {
             commands::conversations::conversation_export_html,
             commands::conversations::conversation_search,
             commands::conversations::conversation_import,
+            commands::conversations::conversation_fork,
             commands::automation::automation_list,
             commands::automation::automation_create,
             commands::automation::automation_update,

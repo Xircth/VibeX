@@ -624,6 +624,26 @@ impl AgentRuntime {
         Ok(session_state.snapshot.clone())
     }
 
+    /// Fork the live ACP session behind `session_id` (P1-4). Returns the new
+    /// forked external session id (the agent branched its context). Errors when
+    /// the session has no live connection or the agent doesn't support fork —
+    /// the caller then falls back to a context-free (import-semantics) branch.
+    pub async fn fork_session(&self, session_id: AgentSessionId) -> AgentResult<String> {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return Err(AgentError::SessionNotFound(session_id.to_string()));
+        };
+        self.connection_manager
+            .fork_session(connection_id, session_id)
+            .await
+    }
+
     pub async fn send_prompt(
         &self,
         input: SendAgentPromptInput,

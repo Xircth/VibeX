@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   CheckCircle2,
@@ -116,10 +117,13 @@ function isJsonObject(value: unknown): value is Record<string, JsonValue> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parseSpecObject(text: string): Record<string, JsonValue> {
+function parseSpecObject(
+  text: string,
+  invalidMessage: string
+): Record<string, JsonValue> {
   const parsed = JSON.parse(text) as unknown;
   if (!isJsonObject(parsed)) {
-    throw new Error('配置必须是一个 JSON 对象');
+    throw new Error(invalidMessage);
   }
   return parsed;
 }
@@ -184,6 +188,7 @@ function TargetSelector({
   onGlobalChange: (next: boolean) => void;
   onToggleApp: (app: McpAppType, next: boolean) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="space-y-1.5">
       <label className="flex w-full cursor-pointer items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
@@ -193,10 +198,8 @@ function TargetSelector({
           onChange={(event) => onGlobalChange(event.target.checked)}
         />
         <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="font-medium">全局</span>
-        <span className="text-muted-foreground">
-          写入 ~/.vibex/mcp.json 并同步到所有 Agent
-        </span>
+        <span className="font-medium">{t('mcp.global')}</span>
+        <span className="text-muted-foreground">{t('mcp.globalHint')}</span>
       </label>
       <div
         className={cn(
@@ -230,6 +233,7 @@ function TargetSelector({
 /* ── main component ──────────────────────────────────────── */
 
 export function McpSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
@@ -429,14 +433,17 @@ export function McpSettings() {
     if (!marketDetail) return;
     const apps = installGlobal ? [] : selectedApps(installApps);
     if (!installGlobal && apps.length === 0) {
-      setError('请至少选择一个目标应用，或勾选「全局」');
+      setError(t('mcp.selectTargetOrGlobal'));
       return;
     }
 
     let specOverride: Record<string, JsonValue> | null = null;
     if (marketSpecDirty) {
       try {
-        specOverride = parseSpecObject(marketSpecText);
+        specOverride = parseSpecObject(
+          marketSpecText,
+          t('mcp.specMustBeObject')
+        );
       } catch (err) {
         setError(errorMessage(err));
         return;
@@ -477,6 +484,7 @@ export function McpSettings() {
     selectedOption,
     installParamDraft,
     triggerSuccess,
+    t,
   ]);
 
   /* ── local actions ────────────────────────────────────── */
@@ -494,7 +502,7 @@ export function McpSettings() {
     if (!selectedLocal) return;
     let spec: Record<string, JsonValue>;
     try {
-      spec = parseSpecObject(localSpecText);
+      spec = parseSpecObject(localSpecText, t('mcp.specMustBeObject'));
     } catch (err) {
       setError(errorMessage(err));
       return;
@@ -516,23 +524,23 @@ export function McpSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [selectedLocal, localSpecText, localGlobal, localApps, triggerSuccess]);
+  }, [selectedLocal, localSpecText, localGlobal, localApps, triggerSuccess, t]);
 
   const createDraft = useCallback(async () => {
     const id = draftId.trim();
     if (!id) {
-      setError('请填写服务器 ID');
+      setError(t('mcp.enterServerId'));
       return;
     }
     let spec: Record<string, JsonValue>;
     try {
-      spec = parseSpecObject(draftSpecText);
+      spec = parseSpecObject(draftSpecText, t('mcp.specMustBeObject'));
     } catch (err) {
       setError(errorMessage(err));
       return;
     }
     if (!draftGlobal && selectedApps(draftApps).length === 0) {
-      setError('请至少选择一个目标应用，或勾选「全局」');
+      setError(t('mcp.selectTargetOrGlobal'));
       return;
     }
     setRunningAction('create');
@@ -552,7 +560,7 @@ export function McpSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [draftId, draftSpecText, draftGlobal, draftApps, triggerSuccess]);
+  }, [draftId, draftSpecText, draftGlobal, draftApps, triggerSuccess, t]);
 
   const uninstall = useCallback(
     async (serverId: string) => {
@@ -593,7 +601,7 @@ export function McpSettings() {
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              {tab === 'local' ? '本地 MCP' : 'MCP 市场'}
+              {tab === 'local' ? t('mcp.localTab') : t('mcp.marketTab')}
             </button>
           ))}
         </div>
@@ -638,7 +646,7 @@ export function McpSettings() {
             <Alert variant="success">
               <CheckCircle2 className="h-4 w-4" />
               <AlertDescription className="font-medium">
-                操作成功
+                {t('mcp.operationSuccess')}
               </AlertDescription>
             </Alert>
           </div>
@@ -701,23 +709,25 @@ export function McpSettings() {
       <Dialog open={installDialogOpen} onOpenChange={setInstallDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>确认安装 MCP</DialogTitle>
+            <DialogTitle>{t('mcp.confirmInstallTitle')}</DialogTitle>
             <DialogDescription>
               {marketDetail
-                ? `将 ${marketDetail.name} 安装到所选目标。`
-                : '安装 MCP 服务器。'}
+                ? t('mcp.installDescWithName', { name: marketDetail.name })
+                : t('mcp.installDesc')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">协议</Label>
+              <Label className="text-xs text-muted-foreground">
+                {t('mcp.protocol')}
+              </Label>
               <Select
                 value={selectedOptionId}
                 onValueChange={switchInstallOption}
               >
                 <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="选择协议" />
+                  <SelectValue placeholder={t('mcp.selectProtocol')} />
                 </SelectTrigger>
                 <SelectContent>
                   {(marketDetail?.install_options ?? []).map((option) => (
@@ -731,7 +741,9 @@ export function McpSettings() {
 
             {selectedOption && selectedOption.parameters.length > 0 ? (
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">参数</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {t('mcp.parameters')}
+                </Label>
                 <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
                   {selectedOption.parameters.map((field) => (
                     <div key={field.key} className="space-y-1">
@@ -775,7 +787,7 @@ export function McpSettings() {
                           }
                         >
                           <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="选择一个值" />
+                            <SelectValue placeholder={t('mcp.selectValue')} />
                           </SelectTrigger>
                           <SelectContent>
                             {field.enum_values.map((value) => (
@@ -811,7 +823,9 @@ export function McpSettings() {
             ) : null}
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">目标应用</Label>
+              <Label className="text-xs text-muted-foreground">
+                {t('mcp.targetApps')}
+              </Label>
               <TargetSelector
                 global={installGlobal}
                 apps={installApps}
@@ -830,7 +844,7 @@ export function McpSettings() {
               onClick={() => setInstallDialogOpen(false)}
               disabled={!!runningAction?.startsWith('install:')}
             >
-              取消
+              {t('common:cancel')}
             </Button>
             <Button
               type="submit"
@@ -840,7 +854,7 @@ export function McpSettings() {
               {runningAction?.startsWith('install:') ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : null}
-              确认安装
+              {t('mcp.confirmInstallButton')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -870,13 +884,14 @@ function LocalListPanel({
   onRefresh: () => void;
   onNew: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
       <div className="p-2.5">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜索本地服务器..."
+            placeholder={t('mcp.searchLocalPlaceholder')}
             value={filter}
             onChange={(event) => onFilterChange(event.target.value)}
             className="h-8 pl-8 text-xs"
@@ -888,13 +903,13 @@ function LocalListPanel({
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            加载中…
+            {t('mcp.loading')}
           </div>
         ) : servers.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <Server className="h-6 w-6 text-muted-foreground/40" />
             <p className="text-xs text-muted-foreground">
-              {filter ? '无匹配结果' : '暂无 MCP 服务器，去市场安装或新建。'}
+              {filter ? t('mcp.noMatch') : t('mcp.noLocalServers')}
             </p>
           </div>
         ) : (
@@ -929,11 +944,11 @@ function LocalListPanel({
                       className="h-5 shrink-0 gap-1 px-1.5 text-[9px]"
                     >
                       <Globe className="h-2.5 w-2.5" />
-                      全局
+                      {t('mcp.global')}
                     </Badge>
                   ) : (
                     <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {server.apps.length} 个 Agent
+                      {t('mcp.agentCount', { count: server.apps.length })}
                     </span>
                   )}
                 </div>
@@ -951,7 +966,7 @@ function LocalListPanel({
           size="sm"
           variant="ghost"
           className="h-7 w-7 p-0"
-          title="刷新"
+          title={t('mcp.refresh')}
           disabled={loading}
           onClick={onRefresh}
         >
@@ -959,7 +974,7 @@ function LocalListPanel({
         </Button>
         <Button size="sm" className="h-7 flex-1 text-xs" onClick={onNew}>
           <Plus className="mr-1 h-3.5 w-3.5" />
-          新建 MCP
+          {t('mcp.newMcp')}
         </Button>
       </div>
     </div>
@@ -987,6 +1002,7 @@ function MarketListPanel({
   activeId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
       <div className="p-2.5">
@@ -994,7 +1010,7 @@ function MarketListPanel({
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索 MCP..."
+              placeholder={t('mcp.searchMarketPlaceholder')}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               onKeyDown={(event) => {
@@ -1022,13 +1038,13 @@ function MarketListPanel({
         {searching ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            搜索中…
+            {t('mcp.searching')}
           </div>
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <Server className="h-6 w-6 text-muted-foreground/40" />
             <p className="text-xs text-muted-foreground">
-              无结果，换个关键词试试。
+              {t('mcp.noResults')}
             </p>
           </div>
         ) : (
@@ -1087,11 +1103,13 @@ function MarketListPanel({
                     </Badge>
                   ))}
                   {item.verified ? (
-                    <Badge className="h-4 px-1.5 text-[9px]">已验证</Badge>
+                    <Badge className="h-4 px-1.5 text-[9px]">
+                      {t('mcp.verified')}
+                    </Badge>
                   ) : null}
                   {typeof item.downloads === 'number' ? (
                     <Badge variant="outline" className="h-4 px-1.5 text-[9px]">
-                      {item.downloads} 次使用
+                      {t('mcp.downloadsCount', { count: item.downloads })}
                     </Badge>
                   ) : null}
                 </div>
@@ -1125,18 +1143,19 @@ function MarketDetailPanel({
   onSpecChange: (text: string) => void;
   onInstall: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   if (loading) {
     return (
       <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        加载详情…
+        {t('mcp.loadingDetail')}
       </div>
     );
   }
   if (detailError) {
     return (
       <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-        加载详情失败：{detailError}
+        {t('mcp.loadDetailFailed', { error: detailError })}
       </div>
     );
   }
@@ -1169,21 +1188,27 @@ function MarketDetailPanel({
           </div>
         </div>
         <Button size="sm" className="shrink-0" onClick={onInstall}>
-          安装
+          {t('mcp.install')}
         </Button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {detail.verified ? <Badge>已验证</Badge> : null}
-        {detail.remote ? <Badge variant="secondary">远程</Badge> : null}
-        {detail.homepage ? <Badge variant="outline">有主页</Badge> : null}
+        {detail.verified ? <Badge>{t('mcp.verified')}</Badge> : null}
+        {detail.remote ? (
+          <Badge variant="secondary">{t('mcp.remote')}</Badge>
+        ) : null}
+        {detail.homepage ? (
+          <Badge variant="outline">{t('mcp.hasHomepage')}</Badge>
+        ) : null}
         {detail.protocols.map((protocol) => (
           <Badge key={protocol} variant="secondary">
             {protocolLabel(protocol)}
           </Badge>
         ))}
         {typeof detail.downloads === 'number' ? (
-          <Badge variant="outline">{detail.downloads} 次使用</Badge>
+          <Badge variant="outline">
+            {t('mcp.downloadsCount', { count: detail.downloads })}
+          </Badge>
         ) : null}
       </div>
 
@@ -1206,28 +1231,30 @@ function MarketDetailPanel({
         {detail.owner ? (
           <div className="inline-flex items-center gap-1.5">
             <ShieldCheck className="h-3.5 w-3.5" />
-            所有者：{detail.owner}
+            {t('mcp.owner', { owner: detail.owner })}
           </div>
         ) : null}
         {detail.namespace ? (
           <div className="inline-flex items-center gap-1.5">
             <TerminalSquare className="h-3.5 w-3.5" />
-            命名空间：{detail.namespace}
+            {t('mcp.namespace', { namespace: detail.namespace })}
           </div>
         ) : null}
         {detail.is_deployed != null ? (
           <div className="inline-flex items-center gap-1.5">
             <Globe className="h-3.5 w-3.5" />
-            {detail.is_deployed ? '已部署' : '未部署'}
+            {detail.is_deployed ? t('mcp.deployed') : t('mcp.notDeployed')}
           </div>
         ) : null}
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">默认安装协议</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('mcp.defaultInstallProtocol')}
+        </Label>
         <Select value={selectedOption?.id ?? ''} onValueChange={onSwitchOption}>
           <SelectTrigger className="h-9 text-xs">
-            <SelectValue placeholder="选择协议" />
+            <SelectValue placeholder={t('mcp.selectProtocol')} />
           </SelectTrigger>
           <SelectContent>
             {detail.install_options.map((option) => (
@@ -1238,13 +1265,15 @@ function MarketDetailPanel({
           </SelectContent>
         </Select>
         <p className="text-[11px] text-muted-foreground">
-          当前选项参数数：{selectedOption?.parameters.length ?? 0}
+          {t('mcp.currentOptionParamCount', {
+            count: selectedOption?.parameters.length ?? 0,
+          })}
         </p>
       </div>
 
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">
-          安装配置（JSON，可修改后安装；修改后将覆盖协议/参数表单）
+          {t('mcp.installConfigLabel')}
         </Label>
         <Textarea
           value={specText}
@@ -1284,13 +1313,14 @@ function LocalEditor({
   onSave: () => void;
   onUninstall: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="break-all text-base font-semibold">{server.id}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            编辑该 MCP 服务器的配置与目标应用。
+            {t('mcp.localEditorDesc')}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -1306,7 +1336,7 @@ function LocalEditor({
             ) : (
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
             )}
-            卸载
+            {t('mcp.uninstall')}
           </Button>
           <Button size="sm" disabled={saving} onClick={onSave}>
             {saving ? (
@@ -1314,13 +1344,15 @@ function LocalEditor({
             ) : (
               <Save className="mr-1.5 h-3.5 w-3.5" />
             )}
-            保存
+            {t('common:save')}
           </Button>
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">目标应用</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('mcp.targetApps')}
+        </Label>
         <TargetSelector
           global={global}
           apps={apps}
@@ -1330,7 +1362,9 @@ function LocalEditor({
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">配置（JSON）</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('mcp.configJson')}
+        </Label>
         <Textarea
           value={specText}
           spellCheck={false}
@@ -1369,27 +1403,32 @@ function DraftEditor({
   onCancel: () => void;
   onCreate: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-base font-semibold">新建 MCP 服务器</h2>
+        <h2 className="text-base font-semibold">{t('mcp.newMcpServer')}</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          手动配置一个 MCP 服务器并写入所选目标。
+          {t('mcp.draftDesc')}
         </p>
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">服务器 ID</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('mcp.serverId')}
+        </Label>
         <Input
           value={id}
-          placeholder="例如 filesystem"
+          placeholder={t('mcp.serverIdPlaceholder')}
           className="h-8 text-xs"
           onChange={(event) => onIdChange(event.target.value)}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">目标应用</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('mcp.targetApps')}
+        </Label>
         <TargetSelector
           global={global}
           apps={apps}
@@ -1399,7 +1438,9 @@ function DraftEditor({
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">配置（JSON）</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('mcp.configJson')}
+        </Label>
         <Textarea
           value={specText}
           spellCheck={false}
@@ -1415,13 +1456,13 @@ function DraftEditor({
           disabled={busy}
           onClick={onCancel}
         >
-          取消
+          {t('common:cancel')}
         </Button>
         <Button type="button" disabled={busy} onClick={onCreate}>
           {busy ? (
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
           ) : null}
-          创建
+          {t('common:create')}
         </Button>
       </div>
     </div>
@@ -1431,13 +1472,14 @@ function DraftEditor({
 /* ── right: placeholder ──────────────────────────────────── */
 
 function Placeholder({ tab }: { tab: LeftTab }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
       <Server className="h-10 w-10 opacity-30" />
       <p className="mt-3 text-sm">
         {tab === 'local'
-          ? '选择左侧服务器查看与编辑，或点击「新建 MCP」。'
-          : '搜索并选择一个市场服务器查看详情。'}
+          ? t('mcp.placeholderLocal')
+          : t('mcp.placeholderMarket')}
       </p>
     </div>
   );

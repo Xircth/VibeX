@@ -38,8 +38,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-
-const DEFAULT_LOAD_ERROR = '无法加载 Agent 设置。';
+import { useTranslation } from 'react-i18next';
 
 type AgentSettingsState = {
   registry: AgentRegistryEntry[];
@@ -59,16 +58,15 @@ type RuntimeStatus = 'idle' | 'ready' | 'warning' | 'failed';
 
 type RuntimeSummary = {
   status: RuntimeStatus;
-  version: string;
-  runtimeMessage: string;
+  version: string | null;
 };
 
-function getLoadErrorMessage(error: unknown): string {
+function getLoadErrorMessage(error: unknown): string | null {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
 
-  return DEFAULT_LOAD_ERROR;
+  return null;
 }
 
 function draftFromSetting(setting: AgentSettingInfo | null): AgentDraft {
@@ -102,36 +100,23 @@ function runtimeSummary(
     installedVersion ??
     (versionCheck?.status === 'pass'
       ? extractVersion(versionCheck.message)
-      : null) ??
-    '未知';
+      : null);
 
   // The runtime card reflects the runtime entry + version only; auth/network
   // warnings surface as their own checklist rows below. This keeps the badge,
   // version, and message consistent with one another.
   let status: RuntimeStatus;
-  let runtimeMessage: string;
   if (!result) {
     status = 'idle';
-    runtimeMessage = '还没有运行检查。';
   } else if (runtimeCheck?.status === 'fail') {
     status = 'failed';
-    runtimeMessage = '运行入口不可用。';
-  } else if (version === '未知') {
+  } else if (version === null) {
     status = 'warning';
-    runtimeMessage = '运行入口可用，但未能确认版本。';
   } else {
     status = 'ready';
-    runtimeMessage = '运行入口可用。';
   }
 
-  return { status, version, runtimeMessage };
-}
-
-function runtimeStatusLabel(status: RuntimeStatus): string {
-  if (status === 'ready') return '可用';
-  if (status === 'warning') return '需确认';
-  if (status === 'failed') return '不可用';
-  return '未检查';
+  return { status, version };
 }
 
 function runtimeStatusClass(status: RuntimeStatus): string {
@@ -141,14 +126,14 @@ function runtimeStatusClass(status: RuntimeStatus): string {
   return 'settings-status-pill-neutral';
 }
 
-function fixLabel(fix: PreflightFix): string {
+function fixLabelKey(fix: PreflightFix): string | null {
   if (fix.action === 'install_npm' || fix.action === 'manual_install')
-    return '安装';
-  if (fix.action === 'upgrade_npm') return '更新';
-  if (fix.action === 'uninstall_npm') return '卸载';
-  if (fix.action === 'install_uv') return '安装 uv';
-  if (fix.action.startsWith('open_url:')) return '下载';
-  return fix.label;
+    return 'agents.fixInstall';
+  if (fix.action === 'upgrade_npm') return 'agents.fixUpdate';
+  if (fix.action === 'uninstall_npm') return 'agents.fixUninstall';
+  if (fix.action === 'install_uv') return 'agents.fixInstallUv';
+  if (fix.action.startsWith('open_url:')) return 'agents.fixDownload';
+  return null;
 }
 
 /** Open an external URL via the OS, falling back to a new browser tab. */
@@ -162,6 +147,7 @@ async function openExternalUrl(url: string): Promise<void> {
 }
 
 export function AgentSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const [state, setState] = useState<AgentSettingsState>({
     registry: [],
     settings: [],
@@ -213,11 +199,11 @@ export function AgentSettings() {
     } catch (error) {
       setState({ registry: [], settings: [] });
       setDrafts({});
-      setLoadError(getLoadErrorMessage(error));
+      setLoadError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadAgents();
@@ -307,12 +293,12 @@ export function AgentSettings() {
           ...current,
           [agentType]: draftFromSetting(setting),
         }));
-        setSaveError(getLoadErrorMessage(error));
+        setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
       } finally {
         setBusyAction(null);
       }
     },
-    [selectedRow]
+    [selectedRow, t]
   );
 
   const updateDetectedVersion = useCallback(
@@ -345,12 +331,12 @@ export function AgentSettings() {
           updateDetectedVersion(agentType, version);
         }
       } catch (error) {
-        setSaveError(getLoadErrorMessage(error));
+        setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
       } finally {
         setBusyAction(null);
       }
     },
-    [updateDetectedVersion]
+    [updateDetectedVersion, t]
   );
 
   const runFix = useCallback(
@@ -371,12 +357,12 @@ export function AgentSettings() {
           [agentType]: preflight,
         }));
       } catch (error) {
-        setSaveError(getLoadErrorMessage(error));
+        setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
       } finally {
         setBusyAction(null);
       }
     },
-    [updateDetectedVersion]
+    [updateDetectedVersion, t]
   );
 
   // Apply a single preflight fix. npm actions run on the backend; download /
@@ -415,12 +401,12 @@ export function AgentSettings() {
           await handleFix(agentType, action);
         }
       } catch (error) {
-        setSaveError(getLoadErrorMessage(error));
+        setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
       } finally {
         setAutoFixing(false);
       }
     },
-    [preflightByAgent, handleFix]
+    [preflightByAgent, handleFix, t]
   );
 
   const reorderSelected = useCallback(
@@ -445,12 +431,12 @@ export function AgentSettings() {
         const settings = await agentSettingsApi.reorder(order);
         setState((current) => ({ ...current, settings }));
       } catch (error) {
-        setSaveError(getLoadErrorMessage(error));
+        setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
       } finally {
         setBusyAction(null);
       }
     },
-    [rows, selectedRow]
+    [rows, selectedRow, t]
   );
 
   if (isLoading) {
@@ -513,7 +499,7 @@ export function AgentSettings() {
             variant="ghost"
             className="h-9 w-9 shrink-0 p-0"
             onClick={() => void loadAgents()}
-            title="刷新"
+            title={t('agents.refresh')}
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
@@ -521,7 +507,7 @@ export function AgentSettings() {
       </TooltipProvider>
 
       {loadError ? (
-        <InlineMessage tone="error" title="Agent 设置不可用">
+        <InlineMessage tone="error" title={t('agents.settingsUnavailable')}>
           {loadError}
         </InlineMessage>
       ) : selectedRow && selectedDraft ? (
@@ -547,7 +533,9 @@ export function AgentSettings() {
                         : 'bg-muted text-muted-foreground'
                     )}
                   >
-                    {selectedDraft.enabled ? '已启用' : '已停用'}
+                    {selectedDraft.enabled
+                      ? t('agents.enabled')
+                      : t('agents.disabled')}
                   </span>
                 </div>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -562,7 +550,7 @@ export function AgentSettings() {
                 className="h-8 w-8 p-0"
                 disabled={!selectedRow.setting || busyAction !== null}
                 onClick={() => void reorderSelected(-1)}
-                title="上移"
+                title={t('agents.moveUp')}
               >
                 <ChevronUp className="h-4 w-4" />
               </Button>
@@ -572,37 +560,39 @@ export function AgentSettings() {
                 className="h-8 w-8 p-0"
                 disabled={!selectedRow.setting || busyAction !== null}
                 onClick={() => void reorderSelected(1)}
-                title="下移"
+                title={t('agents.moveDown')}
               >
                 <ChevronDown className="h-4 w-4" />
               </Button>
               <div className="ml-1 flex h-8 items-center gap-2 rounded-md border bg-card px-2.5">
-                <span className="text-xs text-muted-foreground">启用</span>
+                <span className="text-xs text-muted-foreground">
+                  {t('agents.enable')}
+                </span>
                 <Switch
                   checked={selectedDraft.enabled}
                   disabled={!selectedRow.setting || busyAction !== null}
                   onCheckedChange={(checked) => void toggleEnabled(checked)}
-                  aria-label="启用 Agent"
+                  aria-label={t('agents.enableAgent')}
                 />
               </div>
             </div>
           </div>
 
           {!selectedRow.setting ? (
-            <InlineMessage tone="warning" title="该 Agent 尚未纳管">
-              这里只能查看注册表信息。启用、排序和安装修复需要后端先创建持久化设置记录。
+            <InlineMessage tone="warning" title={t('agents.notManagedTitle')}>
+              {t('agents.notManagedDescription')}
             </InlineMessage>
           ) : null}
 
           {saveError ? (
-            <InlineMessage tone="error" title="操作失败">
+            <InlineMessage tone="error" title={t('agents.actionFailed')}>
               {saveError}
             </InlineMessage>
           ) : null}
 
           <SettingsSection
             id="preflight"
-            title="预检查"
+            title={t('agents.preflightTitle')}
             icon={ShieldCheck}
             expanded={expandedSections.preflight}
             onToggle={() =>
@@ -626,14 +616,14 @@ export function AgentSettings() {
                     )
                   }
                   onClick={() => void autoFix(selectedRow.entry.agent_type)}
-                  title="自动安装/修复所有缺失项"
+                  title={t('agents.autoFixTooltip')}
                 >
                   {autoFixing ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <Wand2 className="mr-1.5 h-3.5 w-3.5" />
                   )}
-                  自动补全
+                  {t('agents.autoFix')}
                 </Button>
                 <Button
                   size="sm"
@@ -652,7 +642,7 @@ export function AgentSettings() {
                   ) : (
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                   )}
-                  立即检查
+                  {t('agents.checkNow')}
                 </Button>
               </div>
             }
@@ -677,7 +667,7 @@ export function AgentSettings() {
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-          请选择一个 Agent 查看设置。
+          {t('agents.selectAgentPrompt')}
         </div>
       )}
     </div>
@@ -685,8 +675,27 @@ export function AgentSettings() {
 }
 
 function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
+  const { t } = useTranslation(['settings', 'common']);
   const isFailed = summary.status === 'failed';
   const StatusIcon = isFailed ? XCircle : CheckCircle2;
+
+  const statusLabel =
+    summary.status === 'ready'
+      ? t('agents.statusReady')
+      : summary.status === 'warning'
+        ? t('agents.statusNeedsConfirm')
+        : summary.status === 'failed'
+          ? t('agents.statusUnavailable')
+          : t('agents.statusNotChecked');
+
+  const runtimeMessage =
+    summary.status === 'idle'
+      ? t('agents.runtimeNotChecked')
+      : summary.status === 'failed'
+        ? t('agents.runtimeEntryUnavailable')
+        : summary.status === 'warning'
+          ? t('agents.runtimeVersionUnconfirmed')
+          : t('agents.runtimeEntryAvailable');
 
   return (
     <div className="settings-inline-group flex flex-wrap items-center justify-between gap-3 p-3">
@@ -716,7 +725,7 @@ function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-foreground">
-              运行状态
+              {t('agents.runtimeStatus')}
             </span>
             <span
               className={cn(
@@ -724,15 +733,15 @@ function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
                 runtimeStatusClass(summary.status)
               )}
             >
-              {runtimeStatusLabel(summary.status)}
+              {statusLabel}
             </span>
             <span className="text-xs text-muted-foreground">
-              版本 {summary.version}
+              {t('agents.versionLabel', {
+                version: summary.version ?? t('agents.versionUnknown'),
+              })}
             </span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {summary.runtimeMessage}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{runtimeMessage}</p>
         </div>
       </div>
     </div>
@@ -752,6 +761,7 @@ function PreflightChecklist({
   disabled: boolean;
   onFix: (agentType: string, action: string) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   if (checks.length === 0) {
     return null;
   }
@@ -800,23 +810,26 @@ function PreflightChecklist({
                 </div>
                 {check.status !== 'pass' && check.fixes.length > 0 ? (
                   <div className="flex shrink-0 flex-wrap gap-1.5">
-                    {check.fixes.map((fix) => (
-                      <Button
-                        key={`${check.check_id}:${fix.action}`}
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        disabled={disabled}
-                        onClick={() => onFix(agentType, fix.action)}
-                      >
-                        {busyAction === `fix:${agentType}:${fix.action}` ? (
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                        ) : (
-                          <Wrench className="mr-1 h-3 w-3" />
-                        )}
-                        {fixLabel(fix)}
-                      </Button>
-                    ))}
+                    {check.fixes.map((fix) => {
+                      const labelKey = fixLabelKey(fix);
+                      return (
+                        <Button
+                          key={`${check.check_id}:${fix.action}`}
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          disabled={disabled}
+                          onClick={() => onFix(agentType, fix.action)}
+                        >
+                          {busyAction === `fix:${agentType}:${fix.action}` ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Wrench className="mr-1 h-3 w-3" />
+                          )}
+                          {labelKey ? t(labelKey) : fix.label}
+                        </Button>
+                      );
+                    })}
                   </div>
                 ) : null}
               </div>

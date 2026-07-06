@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   BookOpenText,
@@ -124,6 +125,7 @@ function SkillTargetSelector({
   onGlobalChange: (next: boolean) => void;
   onToggleAgent: (agent: string, next: boolean) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="space-y-1.5">
       <label className="flex w-full cursor-pointer items-center gap-2 rounded-md border bg-muted/20 px-2.5 py-2 text-xs">
@@ -133,10 +135,8 @@ function SkillTargetSelector({
           onChange={(event) => onGlobalChange(event.target.checked)}
         />
         <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="font-medium">全局</span>
-        <span className="text-muted-foreground">
-          托管到 ~/.vibex/skills 并同步到所有 Agent
-        </span>
+        <span className="font-medium">{t('skills.global')}</span>
+        <span className="text-muted-foreground">{t('skills.globalHint')}</span>
       </label>
       <div
         className={cn(
@@ -172,6 +172,7 @@ function SkillTargetSelector({
 /* ── main component ──────────────────────────────────────── */
 
 export function SkillsSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +361,7 @@ export function SkillsSettings() {
     if (!selectedMarket) return;
     const apps = installGlobal ? [] : selectedAgents(installAgents);
     if (!installGlobal && apps.length === 0) {
-      setError('请至少选择一个 Agent，或勾选「全局」');
+      setError(t('skills.selectAgentError'));
       return;
     }
     setRunningAction('install');
@@ -383,7 +384,7 @@ export function SkillsSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [selectedMarket, installGlobal, installAgents, link, triggerSuccess]);
+  }, [selectedMarket, installGlobal, installAgents, link, triggerSuccess, t]);
 
   /* ── local hosting / uninstall ────────────────────────── */
 
@@ -391,7 +392,7 @@ export function SkillsSettings() {
     if (!selectedSkill) return;
     const apps = localGlobal ? [] : selectedAgents(localAgents);
     if (!localGlobal && apps.length === 0) {
-      setError('请至少选择一个 Agent，或勾选「全局」');
+      setError(t('skills.selectAgentError'));
       return;
     }
     setRunningAction(`host:${selectedSkill.id}`);
@@ -410,7 +411,7 @@ export function SkillsSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [selectedSkill, localGlobal, localAgents, link, triggerSuccess]);
+  }, [selectedSkill, localGlobal, localAgents, link, triggerSuccess, t]);
 
   const uninstall = useCallback(
     async (skillId: string) => {
@@ -451,7 +452,7 @@ export function SkillsSettings() {
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              {tab === 'local' ? '本地 Skill' : 'Skill 市场'}
+              {tab === 'local' ? t('skills.localTab') : t('skills.marketTab')}
             </button>
           ))}
         </div>
@@ -499,7 +500,7 @@ export function SkillsSettings() {
             <Alert variant="success">
               <CheckCircle2 className="h-4 w-4" />
               <AlertDescription className="font-medium">
-                操作成功
+                {t('skills.operationSuccess')}
               </AlertDescription>
             </Alert>
           </div>
@@ -541,17 +542,21 @@ export function SkillsSettings() {
       <Dialog open={installOpen} onOpenChange={setInstallOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>安装 Skill</DialogTitle>
+            <DialogTitle>{t('skills.installTitle')}</DialogTitle>
             <DialogDescription>
               {selectedMarket
-                ? `通过 skills.sh 安装 ${selectedMarket.name}，并按所选目标托管。`
-                : '安装技能。'}
+                ? t('skills.installDescription', {
+                    name: selectedMarket.name,
+                  })
+                : t('skills.installDescriptionFallback')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">目标</Label>
+              <Label className="text-xs text-muted-foreground">
+                {t('skills.target')}
+              </Label>
               <SkillTargetSelector
                 global={installGlobal}
                 agents={installAgents}
@@ -562,8 +567,12 @@ export function SkillsSettings() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              托管方式：{hostMode === 'symlink' ? '软链接' : '复制文件'}
-              （可在「本地 Skill」列表下方修改）。
+              {t('skills.installHostModeHint', {
+                mode:
+                  hostMode === 'symlink'
+                    ? t('skills.hostModeSymlink')
+                    : t('skills.hostModeCopy'),
+              })}
             </p>
           </div>
 
@@ -574,7 +583,7 @@ export function SkillsSettings() {
               onClick={() => setInstallOpen(false)}
               disabled={runningAction === 'install'}
             >
-              取消
+              {t('common:cancel')}
             </Button>
             <Button
               type="submit"
@@ -584,7 +593,7 @@ export function SkillsSettings() {
               {runningAction === 'install' ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
               ) : null}
-              确认安装
+              {t('skills.confirmInstall')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -622,6 +631,7 @@ function LocalListPanel({
   hostMode: HostMode;
   onHostModeChange: (mode: HostMode) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   const flat = groups.flatMap(([, items]) => items);
 
   return (
@@ -630,7 +640,7 @@ function LocalListPanel({
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="搜索本地技能..."
+            placeholder={t('skills.searchLocalPlaceholder')}
             value={filter}
             onChange={(event) => onFilterChange(event.target.value)}
             className="h-8 pl-8 text-xs"
@@ -642,13 +652,13 @@ function LocalListPanel({
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            加载中…
+            {t('skills.loading')}
           </div>
         ) : count === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
             <p className="text-xs text-muted-foreground">
-              {filter ? '无匹配结果' : '暂无技能，去市场安装。'}
+              {filter ? t('skills.noMatch') : t('skills.emptyLocal')}
             </p>
           </div>
         ) : grouping ? (
@@ -699,7 +709,9 @@ function LocalListPanel({
       {/* Config controls (below the list) */}
       <div className="space-y-2 border-t p-2.5">
         <label className="flex cursor-pointer items-center justify-between text-xs">
-          <span className="text-muted-foreground">分组显示</span>
+          <span className="text-muted-foreground">
+            {t('skills.groupDisplay')}
+          </span>
           <input
             type="checkbox"
             checked={grouping}
@@ -707,7 +719,9 @@ function LocalListPanel({
           />
         </label>
         <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="shrink-0 text-muted-foreground">托管方式</span>
+          <span className="shrink-0 text-muted-foreground">
+            {t('skills.hostModeLabel')}
+          </span>
           <div className="flex items-center gap-0.5 rounded-md border bg-muted/20 p-0.5">
             {(['copy', 'symlink'] as const).map((mode) => (
               <button
@@ -721,14 +735,16 @@ function LocalListPanel({
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {mode === 'copy' ? '复制文件' : '软链接'}
+                {mode === 'copy'
+                  ? t('skills.hostModeCopy')
+                  : t('skills.hostModeSymlink')}
               </button>
             ))}
           </div>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-muted-foreground">
-            共 {count} 个
+            {t('skills.totalCount', { count })}
           </span>
           <Button
             size="sm"
@@ -738,7 +754,7 @@ function LocalListPanel({
             onClick={onRefresh}
           >
             <RefreshCw className="mr-1 h-3.5 w-3.5" />
-            刷新
+            {t('skills.refresh')}
           </Button>
         </div>
       </div>
@@ -757,6 +773,7 @@ function SkillRow({
   indented?: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <button
       type="button"
@@ -779,11 +796,11 @@ function SkillRow({
             className="h-5 shrink-0 gap-1 px-1.5 text-[9px]"
           >
             <Globe className="h-2.5 w-2.5" />
-            全局
+            {t('skills.global')}
           </Badge>
         ) : (
           <span className="shrink-0 text-[10px] text-muted-foreground">
-            {skill.apps.length} 个 Agent
+            {t('skills.agentCount', { count: skill.apps.length })}
           </span>
         )}
       </div>
@@ -813,18 +830,19 @@ function MarketListPanel({
   activeId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
       <div className="space-y-2 p-2.5">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Globe className="h-3.5 w-3.5" />
-          来源：skills.sh
+          {t('skills.source')}
         </div>
         <div className="flex gap-1.5">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索技能..."
+              placeholder={t('skills.searchMarketPlaceholder')}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               onKeyDown={(event) => {
@@ -852,13 +870,13 @@ function MarketListPanel({
         {searching ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            搜索中…
+            {t('skills.searching')}
           </div>
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <BookOpenText className="h-6 w-6 text-muted-foreground/40" />
             <p className="text-xs text-muted-foreground">
-              无结果，换个关键词试试。
+              {t('skills.noResults')}
             </p>
           </div>
         ) : (
@@ -892,7 +910,7 @@ function MarketListPanel({
                       variant="outline"
                       className="h-4 shrink-0 px-1.5 text-[9px]"
                     >
-                      {item.installs} 安装
+                      {t('skills.installs', { count: item.installs })}
                     </Badge>
                   ) : null}
                 </div>
@@ -939,6 +957,7 @@ function LocalDetail({
   onApply: () => void;
   onUninstall: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -948,7 +967,7 @@ function LocalDetail({
           {skill.global ? (
             <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[9px]">
               <Globe className="h-2.5 w-2.5" />
-              全局
+              {t('skills.global')}
             </Badge>
           ) : null}
         </div>
@@ -964,7 +983,7 @@ function LocalDetail({
           ) : (
             <Trash2 className="mr-1.5 h-3.5 w-3.5" />
           )}
-          卸载
+          {t('skills.uninstall')}
         </Button>
       </div>
 
@@ -985,7 +1004,9 @@ function LocalDetail({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <Label className="text-xs text-muted-foreground">托管目标</Label>
+          <Label className="text-xs text-muted-foreground">
+            {t('skills.hostTarget')}
+          </Label>
           <Button
             size="sm"
             className="h-7 text-xs"
@@ -995,7 +1016,12 @@ function LocalDetail({
             {applying ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : null}
-            应用（{hostMode === 'symlink' ? '软链接' : '复制'}）
+            {t('skills.applyWithMode', {
+              mode:
+                hostMode === 'symlink'
+                  ? t('skills.hostModeSymlink')
+                  : t('skills.hostModeCopyShort'),
+            })}
           </Button>
         </div>
         <SkillTargetSelector
@@ -1007,11 +1033,13 @@ function LocalDetail({
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">SKILL.md 预览</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('skills.skillMdPreview')}
+        </Label>
         {contentLoading ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            读取中…
+            {t('skills.reading')}
           </div>
         ) : (
           <div className="space-y-2">
@@ -1025,7 +1053,9 @@ function LocalDetail({
                 {body}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">仅包含元数据。</p>
+              <p className="text-xs text-muted-foreground">
+                {t('skills.onlyMetadata')}
+              </p>
             )}
           </div>
         )}
@@ -1050,6 +1080,7 @@ function MarketDetail({
   descriptionLoading: boolean;
   onInstall: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   const homepage = `https://skills.sh/${item.source}/${item.skill_id}`;
   const installCommand = `npx skills add ${item.source} --skill ${item.skill_id}`;
   const [copied, setCopied] = useState(false);
@@ -1075,31 +1106,37 @@ function MarketDetail({
         </div>
         <Button size="sm" className="shrink-0" onClick={onInstall}>
           <Download className="mr-1.5 h-3.5 w-3.5" />
-          安装
+          {t('skills.install')}
         </Button>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
         {typeof item.installs === 'number' ? (
-          <Badge variant="outline">{item.installs} 安装</Badge>
+          <Badge variant="outline">
+            {t('skills.installs', { count: item.installs })}
+          </Badge>
         ) : null}
         <Badge variant="secondary">skills.sh</Badge>
       </div>
 
       {/* Description */}
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">描述</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('skills.description')}
+        </Label>
         {descriptionLoading ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            读取中…
+            {t('skills.reading')}
           </div>
         ) : description ? (
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
             {description}
           </p>
         ) : (
-          <p className="text-xs text-muted-foreground">该技能未提供描述。</p>
+          <p className="text-xs text-muted-foreground">
+            {t('skills.noDescription')}
+          </p>
         )}
       </div>
 
@@ -1114,11 +1151,13 @@ function MarketDetail({
 
       {/* Install command — label separate from the click-to-copy command. */}
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">安装命令</Label>
+        <Label className="text-xs text-muted-foreground">
+          {t('skills.installCommand')}
+        </Label>
         <button
           type="button"
           onClick={copyCommand}
-          title="点击复制"
+          title={t('skills.clickToCopy')}
           className="flex w-full items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40"
         >
           <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">
@@ -1138,13 +1177,14 @@ function MarketDetail({
 /* ── right: placeholder ──────────────────────────────────── */
 
 function Placeholder({ tab }: { tab: LeftTab }) {
+  const { t } = useTranslation(['settings', 'common']);
   return (
     <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
       <BookOpenText className="h-10 w-10 opacity-30" />
       <p className="mt-3 text-sm">
         {tab === 'local'
-          ? '选择左侧技能查看详情与托管设置。'
-          : '搜索并选择一个技能查看详情并安装。'}
+          ? t('skills.placeholderLocal')
+          : t('skills.placeholderMarket')}
       </p>
     </div>
   );

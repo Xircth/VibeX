@@ -13,6 +13,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { type Config } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,6 @@ import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
 
 type SystemSettingsConfig = Config;
 
-const CLEAR_LOCAL_DATA_TITLE = '清除 VibeX 本地数据';
 const DEFAULT_PROXY_SETTINGS: SystemProxySettings = {
   enabled: false,
   proxy_url: null,
@@ -117,6 +117,7 @@ function sanitizeDraft(draft: SystemSettingsConfig): SystemSettingsConfig {
 }
 
 export function SystemSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
 
   const [draft, setDraft] = useState<SystemSettingsConfig | null>(() =>
@@ -172,11 +173,13 @@ export function SystemSettings() {
       const status = await configApi.getSystemMaintenanceStatus();
       setMaintenanceStatus(status);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '本地环境检查失败');
+      toast.error(
+        error instanceof Error ? error.message : t('system.maintenanceCheckFailed')
+      );
     } finally {
       setMaintenanceLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refreshMaintenanceStatus();
@@ -196,12 +199,14 @@ export function SystemSettings() {
       setRenderingSettings(rendering);
       setRenderingDraft(rendering);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '系统设置读取失败');
+      toast.error(
+        error instanceof Error ? error.message : t('system.loadSettingsFailed')
+      );
     } finally {
       setProxyLoading(false);
       setRenderingLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refreshSystemSettings();
@@ -262,10 +267,10 @@ export function SystemSettings() {
       const saved = await systemSettingsApi.updateProxy(proxyDraft);
       setProxySettings(saved);
       setProxyDraft(saved);
-      toast.success('网络代理设置已保存');
+      toast.success(t('system.proxySaved'));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : '网络代理设置保存失败'
+        error instanceof Error ? error.message : t('system.proxySaveFailed')
       );
     } finally {
       setProxySaving(false);
@@ -278,9 +283,11 @@ export function SystemSettings() {
       const saved = await systemSettingsApi.updateRendering(renderingDraft);
       setRenderingSettings(saved);
       setRenderingDraft(saved);
-      toast.success('渲染设置已保存，重启应用后完全生效');
+      toast.success(t('system.renderingSaved'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '渲染设置保存失败');
+      toast.error(
+        error instanceof Error ? error.message : t('system.renderingSaveFailed')
+      );
     } finally {
       setRenderingSaving(false);
     }
@@ -289,12 +296,12 @@ export function SystemSettings() {
   const handleCreateBackup = async () => {
     const path = backupPath.trim();
     if (!path) {
-      toast.error('请填写备份导出路径');
+      toast.error(t('system.backupPathRequired'));
       return;
     }
 
     setBackupBusy(true);
-    const toastId = toast.loading('正在导出 VibeX 备份...');
+    const toastId = toast.loading(t('system.backupExporting'));
     try {
       const preview = await backupApi.create({
         path,
@@ -303,11 +310,14 @@ export function SystemSettings() {
       setBackupPreview(preview);
       setBackupPreviewPath(path);
       setPreviewIsRestore(false);
-      toast.success('备份已导出', { id: toastId });
+      toast.success(t('system.backupExported'), { id: toastId });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '备份导出失败', {
-        id: toastId,
-      });
+      toast.error(
+        error instanceof Error ? error.message : t('system.backupExportFailed'),
+        {
+          id: toastId,
+        }
+      );
     } finally {
       setBackupBusy(false);
     }
@@ -316,7 +326,7 @@ export function SystemSettings() {
   const handleInspectBackup = async () => {
     const path = restorePath.trim();
     if (!path) {
-      toast.error('请填写备份文件路径');
+      toast.error(t('system.restorePathRequired'));
       return;
     }
 
@@ -329,9 +339,11 @@ export function SystemSettings() {
       setBackupPreview(preview);
       setBackupPreviewPath(path);
       setPreviewIsRestore(true);
-      toast.success('备份预览已读取');
+      toast.success(t('system.backupPreviewLoaded'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '备份预览失败');
+      toast.error(
+        error instanceof Error ? error.message : t('system.backupPreviewFailed')
+      );
     } finally {
       setRestoreBusy(false);
     }
@@ -340,12 +352,12 @@ export function SystemSettings() {
   const restoreInspectedBackup = async () => {
     const path = restorePath.trim();
     if (!path || !backupPreview || backupPreviewPath !== path) {
-      toast.error('请先预览要恢复的备份');
+      toast.error(t('system.previewBeforeRestore'));
       return;
     }
 
     setRestoreBusy(true);
-    const toastId = toast.loading('正在恢复 VibeX 备份...');
+    const toastId = toast.loading(t('system.backupRestoring'));
     try {
       const result = await backupApi.restoreStage({
         path,
@@ -356,13 +368,18 @@ export function SystemSettings() {
       setBackupPreviewPath(path);
       setPreviewIsRestore(true);
       toast.success(
-        result.requires_reload ? '备份已恢复，建议重启应用' : '备份已恢复',
+        result.requires_reload
+          ? t('system.backupRestoredReload')
+          : t('system.backupRestored'),
         { id: toastId }
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '备份恢复失败', {
-        id: toastId,
-      });
+      toast.error(
+        error instanceof Error ? error.message : t('system.backupRestoreFailed'),
+        {
+          id: toastId,
+        }
+      );
     } finally {
       setRestoreBusy(false);
     }
@@ -374,21 +391,21 @@ export function SystemSettings() {
       !backupPreview ||
       backupPreviewPath !== restorePath.trim()
     ) {
-      toast.error('请先预览要恢复的备份');
+      toast.error(t('system.previewBeforeRestore'));
       return;
     }
 
-    const toastId = toast.warning('确认从备份恢复 VibeX 数据？', {
+    const toastId = toast.warning(t('system.confirmRestore'), {
       duration: 8000,
       action: {
-        label: '恢复',
+        label: t('system.restore'),
         onClick: () => {
           toast.dismiss(toastId);
           void restoreInspectedBackup();
         },
       },
       cancel: {
-        label: '取消',
+        label: t('common:cancel'),
         onClick: () => toast.dismiss(toastId),
       },
     });
@@ -431,12 +448,12 @@ export function SystemSettings() {
 
   const confirmClearLocalData = useCallback(async () => {
     setIsClearingLocalData(true);
-    const toastId = toast.loading('正在清除本地数据...');
+    const toastId = toast.loading(t('system.clearingLocalData'));
 
     try {
       const result = await configApi.clearLocalData();
       useWindowProjectsStore.getState().resetProjectWindowState();
-      toast.success('本地数据已清除', { id: toastId });
+      toast.success(t('system.localDataCleared'), { id: toastId });
       if (
         result.requires_reload &&
         !window.location.pathname.startsWith('/settings')
@@ -444,30 +461,33 @@ export function SystemSettings() {
         window.setTimeout(() => window.location.reload(), 700);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '清除本地数据失败', {
-        id: toastId,
-      });
+      toast.error(
+        error instanceof Error ? error.message : t('system.clearLocalDataFailed'),
+        {
+          id: toastId,
+        }
+      );
     } finally {
       setIsClearingLocalData(false);
     }
-  }, []);
+  }, [t]);
 
   const handleClearLocalData = useCallback(() => {
-    const toastId = toast.warning('确认清除本地数据？', {
+    const toastId = toast.warning(t('system.confirmClearLocalData'), {
       duration: 8000,
       action: {
-        label: '清除',
+        label: t('system.clear'),
         onClick: () => {
           toast.dismiss(toastId);
           void confirmClearLocalData();
         },
       },
       cancel: {
-        label: '取消',
+        label: t('common:cancel'),
         onClick: () => toast.dismiss(toastId),
       },
     });
-  }, [confirmClearLocalData]);
+  }, [confirmClearLocalData, t]);
 
   if (loading) {
     return (
@@ -487,8 +507,8 @@ export function SystemSettings() {
         <AppUpdaterSection />
         <SettingsSection
           icon={PackageCheck}
-          title="本地环境"
-          description="检查应用更新，并维护代理运行所需的本地依赖。"
+          title={t('system.localEnvTitle')}
+          description={t('system.localEnvDescription')}
         >
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
@@ -497,10 +517,10 @@ export function SystemSettings() {
                   htmlFor="auto-update-enabled"
                   className="cursor-pointer text-xs"
                 >
-                  自动检查应用更新
+                  {t('system.autoCheckUpdate')}
                 </Label>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  VibeX 启动时检查当前远程仓库是否有新版本。
+                  {t('system.autoCheckUpdateDesc')}
                 </p>
               </div>
               <Switch
@@ -519,10 +539,10 @@ export function SystemSettings() {
                   htmlFor="auto-install-local-dependencies"
                   className="cursor-pointer text-xs"
                 >
-                  自动维护本地依赖
+                  {t('system.autoMaintainDeps')}
                 </Label>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  启动时检查并按需安装或更新受支持的本地依赖。
+                  {t('system.autoMaintainDepsDesc')}
                 </p>
               </div>
               <Switch
@@ -538,21 +558,28 @@ export function SystemSettings() {
             <div className="rounded-lg border bg-card p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold">应用版本</div>
+                  <div className="text-xs font-semibold">
+                    {t('system.appVersion')}
+                  </div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
-                    当前版本：{' '}
-                    {maintenanceStatus?.app.current_version ?? '检查中...'}
+                    {t('system.currentVersion', {
+                      version:
+                        maintenanceStatus?.app.current_version ??
+                        t('system.checking'),
+                    })}
                     {maintenanceStatus?.app.latest_version
-                      ? ` / 最新版本：${maintenanceStatus.app.latest_version}`
+                      ? t('system.latestVersionSuffix', {
+                          version: maintenanceStatus.app.latest_version,
+                        })
                       : ''}
                   </div>
                   {maintenanceStatus?.app.update_available ? (
                     <div className="settings-status-warning mt-1 text-[11px] font-medium">
-                      检测到新版本。请打开 Release 页面更新应用安装包。
+                      {t('system.updateAvailable')}
                     </div>
                   ) : maintenanceStatus?.app.checked ? (
                     <div className="settings-status-success mt-1 text-[11px]">
-                      应用已是最新版本。
+                      {t('system.appUpToDate')}
                     </div>
                   ) : maintenanceStatus?.app.error ? (
                     <div className="mt-1 text-[11px] text-muted-foreground">
@@ -590,7 +617,7 @@ export function SystemSettings() {
                         maintenanceLoading ? 'animate-spin' : ''
                       }`}
                     />
-                    检查
+                    {t('system.check')}
                   </Button>
                 </div>
               </div>
@@ -600,17 +627,17 @@ export function SystemSettings() {
 
         <SettingsSection
           icon={Network}
-          title="网络代理"
-          description="配置 VibeX 后端网络请求和新启动进程可继承的代理地址。"
+          title={t('system.proxyTitle')}
+          description={t('system.proxyDescription')}
         >
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <Label htmlFor="system-proxy-enabled" className="text-xs">
-                  启用代理
+                  {t('system.enableProxy')}
                 </Label>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  保存前会校验代理地址格式。
+                  {t('system.proxyValidateHint')}
                 </p>
               </div>
               <Switch
@@ -632,7 +659,7 @@ export function SystemSettings() {
                 htmlFor="system-proxy-url"
                 className="text-xs font-medium text-muted-foreground"
               >
-                代理地址
+                {t('system.proxyUrl')}
               </Label>
               <div className="flex gap-2">
                 <Input
@@ -658,12 +685,11 @@ export function SystemSettings() {
                   ) : (
                     <Save className="mr-1 h-3.5 w-3.5" />
                   )}
-                  保存
+                  {t('common:save')}
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                支持 HTTP、HTTPS 和 SOCKS
-                代理；已运行的代理进程可能需要重启后继承。
+                {t('system.proxyProtocolHint')}
               </p>
             </div>
           </div>
@@ -671,14 +697,14 @@ export function SystemSettings() {
 
         <SettingsSection
           icon={Gauge}
-          title="渲染加速"
-          description="控制 WebView 渲染策略；部分平台需要重启应用后完全生效。"
+          title={t('system.renderingTitle')}
+          description={t('system.renderingDescription')}
         >
           <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-xs">加速模式</Label>
+              <Label className="text-xs">{t('system.accelerationMode')}</Label>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Windows 上可在 GPU 驱动异常时切换为禁用 GPU。
+                {t('system.accelerationModeDesc')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -697,9 +723,15 @@ export function SystemSettings() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
-                  <SelectItem value="auto">自动</SelectItem>
-                  <SelectItem value="force_gpu">强制 GPU</SelectItem>
-                  <SelectItem value="disable_gpu">禁用 GPU</SelectItem>
+                  <SelectItem value="auto">
+                    {t('system.accelerationAuto')}
+                  </SelectItem>
+                  <SelectItem value="force_gpu">
+                    {t('system.accelerationForceGpu')}
+                  </SelectItem>
+                  <SelectItem value="disable_gpu">
+                    {t('system.accelerationDisableGpu')}
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <Button
@@ -715,7 +747,7 @@ export function SystemSettings() {
                 ) : (
                   <Save className="mr-1 h-3.5 w-3.5" />
                 )}
-                保存
+                {t('common:save')}
               </Button>
             </div>
           </div>
@@ -723,12 +755,14 @@ export function SystemSettings() {
 
         <SettingsSection
           icon={Archive}
-          title="备份与恢复"
-          description="导出一份可移动的 VibeX 数据备份，或在预览后从备份恢复。"
+          title={t('system.backupTitle')}
+          description={t('system.backupDescription')}
         >
           <div className="space-y-4">
             <div className="space-y-2">
-              <div className="text-xs font-semibold">导出备份</div>
+              <div className="text-xs font-semibold">
+                {t('system.exportBackup')}
+              </div>
               <div className="flex gap-2">
                 <Input
                   value={backupPath}
@@ -747,24 +781,26 @@ export function SystemSettings() {
                   ) : (
                     <Download className="mr-1 h-3.5 w-3.5" />
                   )}
-                  导出
+                  {t('system.export')}
                 </Button>
               </div>
               <Input
                 type="password"
                 value={backupPassphrase}
-                placeholder="加密口令（可选，留空则不加密）"
+                placeholder={t('system.encryptPassphrasePlaceholder')}
                 onChange={(event) => setBackupPassphrase(event.target.value)}
                 disabled={backupBusy}
               />
             </div>
 
             <div className="space-y-2">
-              <div className="text-xs font-semibold">恢复备份</div>
+              <div className="text-xs font-semibold">
+                {t('system.restoreBackup')}
+              </div>
               <div className="flex gap-2">
                 <Input
                   value={restorePath}
-                  placeholder="选择或粘贴 .vibexbak 文件路径"
+                  placeholder={t('system.restorePathPlaceholder')}
                   onChange={(event) => setRestorePath(event.target.value)}
                   disabled={restoreBusy}
                 />
@@ -776,7 +812,7 @@ export function SystemSettings() {
                   disabled={restoreBusy}
                 >
                   <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                  预览
+                  {t('system.preview')}
                 </Button>
                 <Button
                   size="sm"
@@ -793,13 +829,13 @@ export function SystemSettings() {
                   ) : (
                     <Archive className="mr-1 h-3.5 w-3.5" />
                   )}
-                  恢复
+                  {t('system.restore')}
                 </Button>
               </div>
               <Input
                 type="password"
                 value={restorePassphrase}
-                placeholder="解密口令（加密备份需填写）"
+                placeholder={t('system.decryptPassphrasePlaceholder')}
                 onChange={(event) => setRestorePassphrase(event.target.value)}
                 disabled={restoreBusy}
               />
@@ -809,25 +845,44 @@ export function SystemSettings() {
               <div className="settings-inline-group p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold">备份预览</div>
+                    <div className="text-xs font-semibold">
+                      {t('system.backupPreviewTitle')}
+                    </div>
                     <div className="mt-1 text-[11px] text-muted-foreground">
                       {backupPreviewPath}
                     </div>
                   </div>
                   <div className="text-right text-[11px] text-muted-foreground">
-                    <div>{backupPreview.manifest.entry_count} 个文件</div>
+                    <div>
+                      {t('system.fileCount', {
+                        count: backupPreview.manifest.entry_count,
+                      })}
+                    </div>
                     <div>{formatBytes(backupPreview.manifest.total_bytes)}</div>
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-                  <div>格式：{backupPreview.manifest.format}</div>
-                  <div>版本：{backupPreview.manifest.version}</div>
-                  <div>应用：{backupPreview.manifest.app_version}</div>
                   <div>
-                    创建：
-                    {new Date(
-                      backupPreview.manifest.created_at
-                    ).toLocaleString()}
+                    {t('system.formatLabel', {
+                      format: backupPreview.manifest.format,
+                    })}
+                  </div>
+                  <div>
+                    {t('system.versionLabel', {
+                      version: backupPreview.manifest.version,
+                    })}
+                  </div>
+                  <div>
+                    {t('system.appLabel', {
+                      version: backupPreview.manifest.app_version,
+                    })}
+                  </div>
+                  <div>
+                    {t('system.createdLabel', {
+                      date: new Date(
+                        backupPreview.manifest.created_at
+                      ).toLocaleString(),
+                    })}
                   </div>
                 </div>
                 <div className="mt-3 max-h-32 overflow-y-auto rounded-md border border-border/70">
@@ -840,7 +895,7 @@ export function SystemSettings() {
                       <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                         {previewIsRestore && entry.already_exists ? (
                           <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] text-amber-600 dark:text-amber-300">
-                            将覆盖
+                            {t('system.willOverwrite')}
                           </span>
                         ) : null}
                         {formatBytes(entry.size_bytes)}
@@ -849,7 +904,9 @@ export function SystemSettings() {
                   ))}
                   {backupPreview.entries.length > 8 ? (
                     <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                      还有 {backupPreview.entries.length - 8} 个条目未显示
+                      {t('system.moreEntries', {
+                        count: backupPreview.entries.length - 8,
+                      })}
                     </div>
                   ) : null}
                 </div>
@@ -859,9 +916,11 @@ export function SystemSettings() {
           </div>
         </SettingsSection>
 
-        <SettingsSection icon={Trash2} title={CLEAR_LOCAL_DATA_TITLE}>
+        <SettingsSection icon={Trash2} title={t('system.clearLocalDataTitle')}>
           <div className="flex items-center justify-between gap-4">
-            <span className="text-sm font-medium">清除本机配置和缓存</span>
+            <span className="text-sm font-medium">
+              {t('system.clearLocalDataLabel')}
+            </span>
             <Button
               variant="destructive"
               size="sm"
@@ -873,7 +932,7 @@ export function SystemSettings() {
               ) : (
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
               )}
-              清除
+              {t('system.clear')}
             </Button>
           </div>
         </SettingsSection>
@@ -883,7 +942,7 @@ export function SystemSettings() {
         <div className="settings-action-bar sticky bottom-0 z-10 mt-4 py-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              设置已修改，保存后生效。
+              {t('common:settingsChanged')}
             </span>
             <div className="flex gap-2">
               <Button
@@ -894,7 +953,7 @@ export function SystemSettings() {
                 disabled={saving}
               >
                 <Undo2 className="mr-1 h-3 w-3" />
-                取消
+                {t('common:cancel')}
               </Button>
               <Button
                 size="sm"
@@ -907,7 +966,7 @@ export function SystemSettings() {
                 ) : (
                   <Save className="mr-1 h-3 w-3" />
                 )}
-                保存设置
+                {t('system.saveSettings')}
               </Button>
             </div>
           </div>

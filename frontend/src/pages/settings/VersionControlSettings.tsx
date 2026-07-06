@@ -18,6 +18,7 @@ import {
   RefreshCw,
   TerminalSquare,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   DEFAULT_COMMIT_REMINDER_PROMPT,
@@ -48,21 +49,24 @@ function cloneConfig(config: Config): Config {
   return structuredClone(config);
 }
 
-function validateBranchPrefix(prefix: string): string | null {
+function validateBranchPrefix(
+  prefix: string,
+  t: (key: string) => string
+): string | null {
   if (!prefix.trim()) {
-    return '分支前缀不能为空。';
+    return t('versionControl.branchPrefixEmpty');
   }
   if (prefix.includes(' ')) {
-    return '分支前缀不能包含空格。';
+    return t('versionControl.branchPrefixNoSpaces');
   }
   if (prefix.startsWith('/') || prefix.endsWith('/')) {
-    return '分支前缀不能以 / 开头或结尾。';
+    return t('versionControl.branchPrefixNoSlashEnds');
   }
   if (prefix.includes('//')) {
-    return '分支前缀不能包含连续的 /。';
+    return t('versionControl.branchPrefixNoDoubleSlash');
   }
   if (/[~^:?*[\\]/.test(prefix)) {
-    return '分支前缀包含 Git 不支持的字符。';
+    return t('versionControl.branchPrefixInvalidChars');
   }
   return null;
 }
@@ -94,6 +98,7 @@ function StatusLine({
 }
 
 export function VersionControlSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
@@ -119,8 +124,8 @@ export function VersionControlSettings() {
   }, [config, dirty]);
 
   const branchPrefixError = useMemo(
-    () => validateBranchPrefix(draft?.git_branch_prefix || ''),
-    [draft?.git_branch_prefix]
+    () => validateBranchPrefix(draft?.git_branch_prefix || '', t),
+    [draft?.git_branch_prefix, t]
   );
 
   const updateDraft = useCallback((patch: Partial<Config>) => {
@@ -136,13 +141,16 @@ export function VersionControlSettings() {
       setGitLoading(true);
       setGitStatus(await versionControlApi.detectGit());
     } catch (error) {
-      toast.error('Git 检测失败', {
-        description: error instanceof Error ? error.message : '无法检测 Git。',
+      toast.error(t('versionControl.gitDetectFailed'), {
+        description:
+          error instanceof Error
+            ? error.message
+            : t('versionControl.gitDetectFailedDesc'),
       });
     } finally {
       setGitLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const refreshGithub = useCallback(async () => {
     try {
@@ -151,14 +159,16 @@ export function VersionControlSettings() {
       setGithubStatus(status);
       setGithubHost(status.host);
     } catch (error) {
-      toast.error('GitHub 状态检测失败', {
+      toast.error(t('versionControl.githubStatusFailed'), {
         description:
-          error instanceof Error ? error.message : '无法检测 GitHub CLI。',
+          error instanceof Error
+            ? error.message
+            : t('versionControl.githubStatusFailedDesc'),
       });
     } finally {
       setGithubLoading(false);
     }
-  }, [githubHost]);
+  }, [githubHost, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,9 +180,11 @@ export function VersionControlSettings() {
         setCliSettings(settings);
         setCustomGitPath(settings.git_custom_path ?? '');
       } catch (error) {
-        toast.error('版本管理设置读取失败', {
+        toast.error(t('versionControl.settingsLoadFailed'), {
           description:
-            error instanceof Error ? error.message : '无法读取版本管理设置。',
+            error instanceof Error
+              ? error.message
+              : t('versionControl.settingsLoadFailedDesc'),
         });
       }
     };
@@ -185,9 +197,11 @@ export function VersionControlSettings() {
         setGithubStatus(status);
         setGithubHost(status.host);
       } catch (error) {
-        toast.error('GitHub 状态检测失败', {
+        toast.error(t('versionControl.githubStatusFailed'), {
           description:
-            error instanceof Error ? error.message : '无法检测 GitHub CLI。',
+            error instanceof Error
+              ? error.message
+              : t('versionControl.githubStatusFailedDesc'),
         });
       } finally {
         if (!cancelled) {
@@ -203,13 +217,13 @@ export function VersionControlSettings() {
     return () => {
       cancelled = true;
     };
-  }, [refreshGit]);
+  }, [refreshGit, t]);
 
   const handleBrowseWorkspaceDir = async () => {
     const result = await FolderPickerDialog.show({
       value: draft?.workspace_dir ?? '',
-      title: '选择工作区目录',
-      description: '选择用于创建任务工作树和临时项目目录的根目录。',
+      title: t('versionControl.pickWorkspaceTitle'),
+      description: t('versionControl.pickWorkspaceDescription'),
     });
 
     if (result) {
@@ -220,7 +234,7 @@ export function VersionControlSettings() {
   const handleSave = async () => {
     if (!draft) return;
     if (branchPrefixError) {
-      toast.error('分支前缀无效', {
+      toast.error(t('versionControl.branchPrefixInvalid'), {
         description: branchPrefixError,
       });
       return;
@@ -230,14 +244,18 @@ export function VersionControlSettings() {
       setSaving(true);
       const saved = await updateAndSaveConfig(draft);
       if (!saved) {
-        throw new Error('无法保存版本管理设置。');
+        throw new Error(t('versionControl.saveFailedDesc'));
       }
       setDirty(false);
-      toast.success('设置已保存', { description: '版本管理设置已更新。' });
+      toast.success(t('versionControl.settingsSaved'), {
+        description: t('versionControl.settingsSavedDesc'),
+      });
     } catch (error) {
-      toast.error('保存失败', {
+      toast.error(t('versionControl.saveFailed'), {
         description:
-          error instanceof Error ? error.message : '无法保存版本管理设置。',
+          error instanceof Error
+            ? error.message
+            : t('versionControl.saveFailedDesc'),
       });
     } finally {
       setSaving(false);
@@ -262,18 +280,21 @@ export function VersionControlSettings() {
       const status = await versionControlApi.testGitPath(trimmed);
       setGitStatus(status);
       if (status.installed) {
-        toast.success('Git 路径可用', {
+        toast.success(t('versionControl.gitPathAvailable'), {
           description: status.version ?? status.path ?? undefined,
         });
       } else {
-        toast.warning('Git 路径不可用', {
-          description: status.message ?? '无法执行该 Git 路径。',
+        toast.warning(t('versionControl.gitPathUnavailable'), {
+          description:
+            status.message ?? t('versionControl.gitPathUnavailableDesc'),
         });
       }
     } catch (error) {
-      toast.error('Git 路径测试失败', {
+      toast.error(t('versionControl.gitPathTestFailed'), {
         description:
-          error instanceof Error ? error.message : '无法测试 Git 路径。',
+          error instanceof Error
+            ? error.message
+            : t('versionControl.gitPathTestFailedDesc'),
       });
     } finally {
       setGitLoading(false);
@@ -289,11 +310,13 @@ export function VersionControlSettings() {
       setCliSettings(next);
       setCustomGitPath(next.git_custom_path ?? '');
       await refreshGit();
-      toast.success('Git 设置已保存');
+      toast.success(t('versionControl.gitSettingsSaved'));
     } catch (error) {
-      toast.error('Git 设置保存失败', {
+      toast.error(t('versionControl.gitSettingsSaveFailed'), {
         description:
-          error instanceof Error ? error.message : '无法保存 Git 设置。',
+          error instanceof Error
+            ? error.message
+            : t('versionControl.gitSettingsSaveFailedDesc'),
       });
     } finally {
       setGitSaving(false);
@@ -303,11 +326,13 @@ export function VersionControlSettings() {
   const handleOpenGithubLogin = async () => {
     try {
       await versionControlApi.openGithubCliLogin(githubHost);
-      toast.info('已打开 GitHub CLI 登录终端');
+      toast.info(t('versionControl.githubLoginTerminalOpened'));
     } catch (error) {
-      toast.error('无法打开 GitHub 登录终端', {
+      toast.error(t('versionControl.githubLoginTerminalFailed'), {
         description:
-          error instanceof Error ? error.message : 'GitHub CLI 登录启动失败。',
+          error instanceof Error
+            ? error.message
+            : t('versionControl.githubLoginStartFailed'),
       });
     }
   };
@@ -320,11 +345,13 @@ export function VersionControlSettings() {
         githubStatus?.username
       );
       setGithubStatus(status);
-      toast.success('GitHub 已退出登录');
+      toast.success(t('versionControl.githubLoggedOut'));
     } catch (error) {
-      toast.error('GitHub 退出失败', {
+      toast.error(t('versionControl.githubLogoutFailed'), {
         description:
-          error instanceof Error ? error.message : '无法退出 GitHub CLI 登录。',
+          error instanceof Error
+            ? error.message
+            : t('versionControl.githubLogoutFailedDesc'),
       });
     } finally {
       setGithubLoading(false);
@@ -346,22 +373,22 @@ export function VersionControlSettings() {
   return (
     <div className="settings-content">
       <SettingsPageHeader
-        title="版本管理"
-        description="管理 Git、工作树、PR 描述和 GitHub 账号。"
+        title={t('versionControl.title')}
+        description={t('versionControl.description')}
       />
 
       <div className="settings-sections">
         <SettingsSection
           icon={TerminalSquare}
-          title="Git 版本设置"
-          description="检测当前 Git 环境，或指定一个自定义 Git 可执行文件。"
+          title={t('versionControl.gitVersionSectionTitle')}
+          description={t('versionControl.gitVersionSectionDescription')}
         >
           <div className="space-y-4">
             <div className="settings-row">
               <div>
-                <Label>当前 Git</Label>
+                <Label>{t('versionControl.currentGitLabel')}</Label>
                 <p className="settings-row__description">
-                  {gitStatus?.path ?? '使用系统 PATH 中的 Git 命令。'}
+                  {gitStatus?.path ?? t('versionControl.currentGitFallback')}
                 </p>
               </div>
               <StatusLine
@@ -369,24 +396,23 @@ export function VersionControlSettings() {
                 loading={gitLoading}
               >
                 {gitStatus?.installed
-                  ? (gitStatus.version ?? 'Git 可用')
-                  : (gitStatus?.message ?? '未检测到 Git')}
+                  ? (gitStatus.version ?? t('versionControl.gitAvailable'))
+                  : (gitStatus?.message ?? t('versionControl.gitNotDetected'))}
               </StatusLine>
             </div>
 
             <div className="settings-row settings-row--stacked">
               <div>
-                <Label>自定义 Git 路径</Label>
+                <Label>{t('versionControl.customGitPathLabel')}</Label>
                 <p className="settings-row__description">
-                  为空时使用系统
-                  PATH；保存后检测和后续设置页操作会优先使用该路径。
+                  {t('versionControl.customGitPathDescription')}
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   value={customGitPath}
                   onChange={(event) => setCustomGitPath(event.target.value)}
-                  placeholder="例如 C:\\Program Files\\Git\\cmd\\git.exe"
+                  placeholder={t('versionControl.customGitPathPlaceholder')}
                 />
                 <div className="flex shrink-0 gap-2">
                   <Button
@@ -400,7 +426,7 @@ export function VersionControlSettings() {
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    检测
+                    {t('versionControl.detect')}
                   </Button>
                   <Button
                     type="button"
@@ -412,7 +438,7 @@ export function VersionControlSettings() {
                     {gitSaving ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : null}
-                    保存
+                    {t('common:save')}
                   </Button>
                 </div>
               </div>
@@ -424,7 +450,7 @@ export function VersionControlSettings() {
                   onClick={() => handleSaveGitPath(null)}
                   disabled={gitSaving}
                 >
-                  使用系统 Git
+                  {t('versionControl.useSystemGit')}
                 </Button>
               ) : null}
             </div>
@@ -433,15 +459,15 @@ export function VersionControlSettings() {
 
         <SettingsSection
           icon={FolderGit2}
-          title="工作树设置"
-          description="配置任务工作目录与分支命名规则。"
+          title={t('versionControl.worktreeSectionTitle')}
+          description={t('versionControl.worktreeSectionDescription')}
         >
           <div className="space-y-4">
             <div className="settings-row settings-row--stacked">
               <div>
-                <Label>工作区目录</Label>
+                <Label>{t('versionControl.workspaceDirLabel')}</Label>
                 <p className="settings-row__description">
-                  用于创建任务工作树和临时项目目录。
+                  {t('versionControl.workspaceDirDescription')}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -450,23 +476,23 @@ export function VersionControlSettings() {
                   onChange={(event) =>
                     updateDraft({ workspace_dir: event.target.value || null })
                   }
-                  placeholder="选择工作区目录"
+                  placeholder={t('versionControl.workspaceDirPlaceholder')}
                 />
                 <Button
                   variant="outline"
                   type="button"
                   onClick={handleBrowseWorkspaceDir}
                 >
-                  选择
+                  {t('versionControl.browse')}
                 </Button>
               </div>
             </div>
 
             <div className="settings-row settings-row--stacked">
               <div>
-                <Label>分支前缀</Label>
+                <Label>{t('versionControl.branchPrefixLabel')}</Label>
                 <p className="settings-row__description">
-                  新建任务分支时使用的默认前缀。
+                  {t('versionControl.branchPrefixDescription')}
                 </p>
               </div>
               <Input
@@ -486,14 +512,14 @@ export function VersionControlSettings() {
 
         <SettingsSection
           icon={Bell}
-          title="提交提醒"
-          description="配置任务完成后是否提示生成提交说明。"
+          title={t('versionControl.commitReminderSectionTitle')}
+          description={t('versionControl.commitReminderSectionDescription')}
         >
           <div className="settings-row">
             <div>
-              <Label>启用提交提醒</Label>
+              <Label>{t('versionControl.enableCommitReminderLabel')}</Label>
               <p className="settings-row__description">
-                当任务完成时提示检查未提交更改。
+                {t('versionControl.enableCommitReminderDescription')}
               </p>
             </div>
             <Switch
@@ -507,9 +533,9 @@ export function VersionControlSettings() {
             <div className="space-y-4">
               <div className="settings-row">
                 <div>
-                  <Label>自定义提交提示词</Label>
+                  <Label>{t('versionControl.customCommitPromptLabel')}</Label>
                   <p className="settings-row__description">
-                    关闭后使用系统默认提交提醒。
+                    {t('versionControl.customCommitPromptDescription')}
                   </p>
                 </div>
                 <Switch
@@ -539,14 +565,14 @@ export function VersionControlSettings() {
 
         <SettingsSection
           icon={GitPullRequest}
-          title="PR 设置"
-          description="配置 PR 描述生成的启用状态与默认提示词。"
+          title={t('versionControl.prSectionTitle')}
+          description={t('versionControl.prSectionDescription')}
         >
           <div className="settings-row">
             <div>
-              <Label>自动生成 PR 描述</Label>
+              <Label>{t('versionControl.autoPrDescriptionLabel')}</Label>
               <p className="settings-row__description">
-                创建 PR 时自动准备描述草稿。
+                {t('versionControl.autoPrDescriptionDescription')}
               </p>
             </div>
             <Switch
@@ -559,9 +585,9 @@ export function VersionControlSettings() {
           <div className="space-y-4">
             <div className="settings-row">
               <div>
-                <Label>自定义 PR 提示词</Label>
+                <Label>{t('versionControl.customPrPromptLabel')}</Label>
                 <p className="settings-row__description">
-                  关闭后使用系统默认 PR 描述模板。
+                  {t('versionControl.customPrPromptDescription')}
                 </p>
               </div>
               <Switch
@@ -591,15 +617,16 @@ export function VersionControlSettings() {
 
         <SettingsSection
           icon={Github}
-          title="GitHub 账号"
-          description="通过 GitHub CLI 管理用于仓库操作和 PR 流程的身份。"
+          title={t('versionControl.githubAccountSectionTitle')}
+          description={t('versionControl.githubAccountSectionDescription')}
         >
           <div className="space-y-4">
             <div className="settings-row">
               <div>
-                <Label>登录状态</Label>
+                <Label>{t('versionControl.loginStatusLabel')}</Label>
                 <p className="settings-row__description">
-                  {githubStatus?.gh_path ?? '检测 GitHub CLI 与当前登录账号。'}
+                  {githubStatus?.gh_path ??
+                    t('versionControl.loginStatusFallback')}
                 </p>
               </div>
               <StatusLine
@@ -607,10 +634,11 @@ export function VersionControlSettings() {
                 loading={githubLoading}
               >
                 {githubStatus?.authenticated
-                  ? (githubStatus.username ?? '已登录')
+                  ? (githubStatus.username ?? t('versionControl.loggedIn'))
                   : githubStatus?.gh_installed
-                    ? (githubStatus.message ?? '未登录')
-                    : '未安装 gh'}
+                    ? (githubStatus.message ??
+                      t('versionControl.notLoggedIn'))
+                    : t('versionControl.ghNotInstalled')}
               </StatusLine>
             </div>
 
@@ -618,7 +646,7 @@ export function VersionControlSettings() {
               <div>
                 <Label>GitHub Host</Label>
                 <p className="settings-row__description">
-                  GitHub Enterprise 可填写自定义主机。
+                  {t('versionControl.githubHostDescription')}
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -639,7 +667,7 @@ export function VersionControlSettings() {
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    刷新
+                    {t('versionControl.refresh')}
                   </Button>
                   <Button
                     variant="outline"
@@ -648,7 +676,7 @@ export function VersionControlSettings() {
                     disabled={githubLoading}
                   >
                     <LogIn className="mr-2 h-4 w-4" />
-                    登录
+                    {t('versionControl.login')}
                   </Button>
                   <Button
                     variant="outline"
@@ -657,7 +685,7 @@ export function VersionControlSettings() {
                     disabled={githubLoading || !githubStatus?.authenticated}
                   >
                     <LogOut className="mr-2 h-4 w-4" />
-                    退出
+                    {t('versionControl.logout')}
                   </Button>
                 </div>
               </div>

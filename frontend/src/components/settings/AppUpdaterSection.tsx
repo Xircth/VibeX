@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { DownloadCloud, Loader2, RefreshCw } from 'lucide-react';
@@ -22,6 +23,7 @@ type UpdaterState =
  * and public key are configured in tauri.conf.json.
  */
 export function AppUpdaterSection() {
+  const { t } = useTranslation(['settings', 'common']);
   const [state, setState] = useState<UpdaterState>('idle');
   const [update, setUpdate] = useState<Update | null>(null);
   const [progress, setProgress] = useState(0);
@@ -75,8 +77,8 @@ export function AppUpdaterSection() {
   return (
     <SettingsSection
       icon={DownloadCloud}
-      title="应用更新"
-      description="从签名的发布源检查更新，下载并安装后重启。"
+      title={t('appUpdater.title')}
+      description={t('appUpdater.description')}
     >
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -91,17 +93,19 @@ export function AppUpdaterSection() {
             ) : (
               <RefreshCw className="mr-1 h-4 w-4" />
             )}
-            检查更新
+            {t('appUpdater.checkForUpdate')}
           </Button>
           {state === 'up-to-date' ? (
-            <span className="text-xs text-muted-foreground">已是最新版本。</span>
+            <span className="text-xs text-muted-foreground">
+              {t('appUpdater.upToDate')}
+            </span>
           ) : null}
         </div>
 
         {state === 'available' && update ? (
           <div className="space-y-2 rounded-[10px] border border-border p-3">
             <div className="text-sm font-medium">
-              发现新版本 {update.version}
+              {t('appUpdater.newVersionFound', { version: update.version })}
             </div>
             {update.body ? (
               <p className="max-h-32 overflow-y-auto whitespace-pre-wrap text-[11px] text-muted-foreground">
@@ -109,7 +113,7 @@ export function AppUpdaterSection() {
               </p>
             ) : null}
             <Button size="sm" onClick={() => void downloadAndInstall()}>
-              下载并安装
+              {t('appUpdater.downloadAndInstall')}
             </Button>
           </div>
         ) : null}
@@ -123,7 +127,7 @@ export function AppUpdaterSection() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              下载中… {progress}%
+              {t('appUpdater.downloadingProgress', { progress })}
             </p>
           </div>
         ) : null}
@@ -131,16 +135,18 @@ export function AppUpdaterSection() {
         {state === 'ready' ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
-              更新已安装，重启后生效。
+              {t('appUpdater.updateInstalled')}
             </span>
             <Button size="sm" onClick={() => void restart()}>
-              立即重启
+              {t('appUpdater.restartNow')}
             </Button>
           </div>
         ) : null}
 
         {state === 'error' ? (
-          <p className="text-xs text-destructive">更新失败：{message}</p>
+          <p className="text-xs text-destructive">
+            {t('appUpdater.updateFailed', { error: message })}
+          </p>
         ) : null}
       </div>
     </SettingsSection>

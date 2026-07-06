@@ -13,6 +13,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { EditorType, SoundFile, type Config } from 'shared/types';
 
 import { IdeIcon } from '@/components/ide/IdeIcon';
@@ -47,31 +48,6 @@ interface EditorOption {
   label: string;
   hint: string;
 }
-
-const EDITOR_OPTIONS: EditorOption[] = [
-  { value: EditorType.VS_CODE, label: 'Visual Studio Code', hint: 'code' },
-  {
-    value: EditorType.VS_CODE_INSIDERS,
-    label: 'VS Code Insiders',
-    hint: 'code-insiders',
-  },
-  { value: EditorType.CURSOR, label: 'Cursor', hint: 'cursor' },
-  { value: EditorType.WINDSURF, label: 'Windsurf', hint: 'windsurf' },
-  { value: EditorType.INTELLI_J, label: 'IntelliJ IDEA', hint: 'idea' },
-  { value: EditorType.ZED, label: 'Zed', hint: 'zed' },
-  { value: EditorType.XCODE, label: 'Xcode', hint: 'xed' },
-  {
-    value: EditorType.GOOGLE_ANTIGRAVITY,
-    label: 'Google Antigravity',
-    hint: 'antigravity',
-  },
-  {
-    value: EditorType.FILE_MANAGER,
-    label: isMac ? '访达（Finder）' : '文件资源管理器',
-    hint: '系统文件管理器',
-  },
-  { value: EditorType.CUSTOM, label: '自定义命令', hint: '自定义命令' },
-];
 
 const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
 
@@ -145,7 +121,42 @@ function cloneConfig(config: Config): Config {
 }
 
 export function GeneralSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
+
+  const editorOptions = useMemo<EditorOption[]>(
+    () => [
+      { value: EditorType.VS_CODE, label: 'Visual Studio Code', hint: 'code' },
+      {
+        value: EditorType.VS_CODE_INSIDERS,
+        label: 'VS Code Insiders',
+        hint: 'code-insiders',
+      },
+      { value: EditorType.CURSOR, label: 'Cursor', hint: 'cursor' },
+      { value: EditorType.WINDSURF, label: 'Windsurf', hint: 'windsurf' },
+      { value: EditorType.INTELLI_J, label: 'IntelliJ IDEA', hint: 'idea' },
+      { value: EditorType.ZED, label: 'Zed', hint: 'zed' },
+      { value: EditorType.XCODE, label: 'Xcode', hint: 'xed' },
+      {
+        value: EditorType.GOOGLE_ANTIGRAVITY,
+        label: 'Google Antigravity',
+        hint: 'antigravity',
+      },
+      {
+        value: EditorType.FILE_MANAGER,
+        label: isMac
+          ? t('general.editorFinder')
+          : t('general.editorFileExplorer'),
+        hint: t('general.editorFileManagerHint'),
+      },
+      {
+        value: EditorType.CUSTOM,
+        label: t('general.editorCustomCommand'),
+        hint: t('general.editorCustomCommand'),
+      },
+    ],
+    [t]
+  );
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
   );
@@ -175,8 +186,9 @@ export function GeneralSettings() {
   useEffect(() => {
     let alive = true;
     void Promise.all(
-      EDITOR_OPTIONS.filter((option) => option.value !== EditorType.CUSTOM).map(
-        async (option) => {
+      editorOptions
+        .filter((option) => option.value !== EditorType.CUSTOM)
+        .map(async (option) => {
           try {
             const result = await configApi.checkEditorAvailability(
               option.value
@@ -185,15 +197,14 @@ export function GeneralSettings() {
           } catch {
             return [option.value, false] as const;
           }
-        }
-      )
+        })
     ).then((entries) => {
       if (alive) setEditorAvailability(Object.fromEntries(entries));
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [editorOptions]);
 
   const updateDraft = useCallback((patch: Partial<Config>) => {
     setDraft((prev) => {
@@ -208,15 +219,17 @@ export function GeneralSettings() {
     try {
       const result = await configApi.listOpencodeModels();
       setOpencodeModels(result.models);
-      toast.success('模型列表已刷新');
+      toast.success(t('general.modelsRefreshed'));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : '读取模型列表失败，请稍后重试'
+        error instanceof Error
+          ? error.message
+          : t('general.modelsRefreshFailed')
       );
     } finally {
       setOpencodeModelsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const promptEnhancementModels = useMemo(() => {
     const models = [...opencodeModels, ...FALLBACK_OPENCODE_MODELS];
@@ -256,14 +269,18 @@ export function GeneralSettings() {
       setSaving(true);
       const saved = await updateAndSaveConfig(draft);
       if (!saved) {
-        throw new Error('无法保存常规设置。');
+        throw new Error(t('general.saveGeneralFailed'));
       }
       setDirty(false);
-      toast.success('设置已保存', { description: '常规设置已更新。' });
+      toast.success(t('general.settingsSaved'), {
+        description: t('general.generalSettingsUpdated'),
+      });
     } catch (error) {
-      toast.error('保存失败', {
+      toast.error(t('general.saveFailed'), {
         description:
-          error instanceof Error ? error.message : '无法保存常规设置。',
+          error instanceof Error
+            ? error.message
+            : t('general.saveGeneralFailed'),
       });
     } finally {
       setSaving(false);
@@ -288,7 +305,7 @@ export function GeneralSettings() {
     return null;
   }
 
-  const selectedEditor = EDITOR_OPTIONS.find(
+  const selectedEditor = editorOptions.find(
     (option) => option.value === draft.editor.editor_type
   );
   const selectedAvailability =
@@ -302,14 +319,14 @@ export function GeneralSettings() {
       <div className="settings-sections">
         <SettingsSection
           icon={Terminal}
-          title="终端"
-          description="选择新建终端会话使用的默认终端。"
+          title={t('general.terminalTitle')}
+          description={t('general.terminalDescription')}
         >
           <div className="settings-row">
             <div>
-              <Label>默认终端</Label>
+              <Label>{t('general.defaultTerminal')}</Label>
               <p className="settings-row__description">
-                内置终端使用 Shell，Warp 会打开外部应用到当前工作区。
+                {t('general.defaultTerminalDescription')}
               </p>
             </div>
             <Select
@@ -334,17 +351,17 @@ export function GeneralSettings() {
 
         <SettingsSection
           icon={Code2}
-          title="外部编辑器"
-          description="选择从任务、文件和代码定位入口打开使用的外部编辑器或文件管理器。"
+          title={t('general.externalEditorTitle')}
+          description={t('general.externalEditorDescription')}
         >
           <div className="space-y-4">
             <div className="settings-row">
               <div>
-                <Label>外部编辑器</Label>
+                <Label>{t('general.externalEditorLabel')}</Label>
                 <p className="settings-row__description">
                   {selectedAvailability === false
-                    ? '当前选择在 PATH 中未找到，可能无法打开。'
-                    : '从下拉中选择编辑器，列表会标注其可用状态。'}
+                    ? t('general.editorNotInPath')
+                    : t('general.editorSelectHint')}
                 </p>
               </div>
               <Select
@@ -359,10 +376,10 @@ export function GeneralSettings() {
                 }
               >
                 <SelectTrigger className="!w-64">
-                  <SelectValue placeholder="选择编辑器" />
+                  <SelectValue placeholder={t('general.selectEditorPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent align="start" className="max-h-80">
-                  {EDITOR_OPTIONS.map((option) => {
+                  {editorOptions.map((option) => {
                     const available =
                       option.value === EditorType.CUSTOM
                         ? null
@@ -391,11 +408,12 @@ export function GeneralSettings() {
             {selectedEditor &&
             draft.editor.editor_type !== EditorType.CUSTOM ? (
               <p className="text-[11px] text-muted-foreground">
-                命令：<code className="font-mono">{selectedEditor.hint}</code>
+                {t('general.commandLabel')}
+                <code className="font-mono">{selectedEditor.hint}</code>
                 {selectedAvailability === true
-                  ? ' · 已就绪'
+                  ? t('general.editorReadySuffix')
                   : selectedAvailability === false
-                    ? ' · 未在 PATH 中找到'
+                    ? t('general.editorNotFoundSuffix')
                     : ''}
               </p>
             ) : null}
@@ -403,13 +421,13 @@ export function GeneralSettings() {
             {draft.editor.editor_type === EditorType.CUSTOM ? (
               <div className="settings-row settings-row--stacked">
                 <div>
-                  <Label>自定义编辑器命令</Label>
+                  <Label>{t('general.customEditorCommand')}</Label>
                   <p className="settings-row__description">
-                    输入可在终端中执行的编辑器命令。
+                    {t('general.customEditorCommandHint')}
                   </p>
                 </div>
                 <Input
-                  placeholder="例如 code、subl、vim"
+                  placeholder={t('general.customEditorCommandPlaceholder')}
                   value={draft.editor.custom_command || ''}
                   onChange={(event) =>
                     updateDraft({
@@ -427,8 +445,8 @@ export function GeneralSettings() {
 
         <SettingsSection
           icon={Lightbulb}
-          title="提示词优化"
-          description="配置输入框提示词优化功能和使用的 OpenCode 模型。"
+          title={t('general.promptEnhancementTitle')}
+          description={t('general.promptEnhancementDescription')}
         >
           <div className="space-y-4">
             <div className="space-y-2">
@@ -437,7 +455,7 @@ export function GeneralSettings() {
                   htmlFor="prompt-enhancement-enabled"
                   className="cursor-pointer text-xs"
                 >
-                  启用提示词优化按钮
+                  {t('general.enablePromptEnhancement')}
                 </Label>
                 <Switch
                   id="prompt-enhancement-enabled"
@@ -449,13 +467,13 @@ export function GeneralSettings() {
                 />
               </div>
               <p className="text-[11px] text-muted-foreground">
-                在会话输入框中显示提示词优化入口，帮助改写当前输入。
+                {t('general.enablePromptEnhancementHint')}
               </p>
             </div>
 
             <div className="flex items-center justify-between gap-4">
               <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                OpenCode 模型
+                {t('general.opencodeModel')}
               </Label>
               <div className="flex items-center justify-end gap-2">
                 <Select
@@ -466,7 +484,7 @@ export function GeneralSettings() {
                   disabled={promptEnhancementModels.length === 0}
                 >
                   <SelectTrigger className="!w-72">
-                    <SelectValue placeholder="选择模型" />
+                    <SelectValue placeholder={t('general.selectModelPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent align="start" className="max-h-72">
                     {promptEnhancementModels.map((model) => {
@@ -501,8 +519,8 @@ export function GeneralSettings() {
                   className="h-8 w-8 p-0"
                   onClick={() => void refreshOpencodeModels()}
                   disabled={opencodeModelsLoading}
-                  title="刷新模型列表"
-                  aria-label="刷新模型列表"
+                  title={t('general.refreshModels')}
+                  aria-label={t('general.refreshModels')}
                 >
                   <RefreshCw
                     className={`h-3.5 w-3.5 ${
@@ -519,7 +537,7 @@ export function GeneralSettings() {
                   htmlFor="use-custom-pe-prompt"
                   className="cursor-pointer text-xs"
                 >
-                  使用自定义优化提示词
+                  {t('general.useCustomPrompt')}
                 </Label>
                 <Switch
                   id="use-custom-pe-prompt"
@@ -545,7 +563,7 @@ export function GeneralSettings() {
                     prompt_enhancement_prompt: event.target.value,
                   })
                 }
-                placeholder="输入提示词优化系统提示词"
+                placeholder={t('general.customPromptPlaceholder')}
                 className={`min-h-32 font-mono text-xs ${
                   draft.prompt_enhancement_prompt == null
                     ? 'cursor-not-allowed opacity-50'
@@ -553,7 +571,7 @@ export function GeneralSettings() {
                 }`}
               />
               <p className="text-[11px] text-muted-foreground">
-                关闭自定义时使用内置默认提示词；开启后可直接编辑。
+                {t('general.customPromptHint')}
               </p>
             </div>
           </div>
@@ -561,13 +579,13 @@ export function GeneralSettings() {
 
         <SettingsSection
           icon={Bell}
-          title="通知"
-          description="配置声音和系统推送通知。"
+          title={t('general.notificationsTitle')}
+          description={t('general.notificationsDescription')}
         >
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <Label htmlFor="sound-enabled" className="cursor-pointer text-xs">
-                声音通知
+                {t('general.soundNotification')}
               </Label>
               <Switch
                 id="sound-enabled"
@@ -587,7 +605,7 @@ export function GeneralSettings() {
             {draft.notifications.sound_enabled ? (
               <div className="flex items-center justify-between gap-4">
                 <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                  声音
+                  {t('general.sound')}
                 </Label>
                 <div className="flex items-center justify-end gap-2">
                   <Select
@@ -629,7 +647,7 @@ export function GeneralSettings() {
                 htmlFor="push-notifications"
                 className="cursor-pointer text-xs"
               >
-                系统推送通知
+                {t('general.pushNotification')}
               </Label>
               <Switch
                 id="push-notifications"
@@ -650,17 +668,17 @@ export function GeneralSettings() {
 
         <SettingsSection
           icon={Eye}
-          title="预览"
-          description="设置文件预览和会话文件变更摘要的显示偏好。"
+          title={t('general.previewTitle')}
+          description={t('general.previewDescription')}
         >
           <div className="space-y-4">
             <div className="settings-row">
               <div className="flex items-center gap-2">
                 <Type className="h-3.5 w-3.5 text-muted-foreground" />
                 <div>
-                  <Label>预览字体大小</Label>
+                  <Label>{t('general.previewFontSize')}</Label>
                   <p className="settings-row__description">
-                    当前为 {previewFontSize}px。
+                    {t('general.currentFontSize', { size: previewFontSize })}
                   </p>
                 </div>
               </div>
@@ -681,9 +699,9 @@ export function GeneralSettings() {
 
             <div className="settings-row">
               <div>
-                <Label>`files changed` 默认折叠</Label>
+                <Label>{t('general.filesChangedCollapsed')}</Label>
                 <p className="settings-row__description">
-                  控制新的会话 Hook 文件变更摘要是否默认折叠。
+                  {t('general.filesChangedCollapsedHint')}
                 </p>
               </div>
               <Switch
@@ -697,9 +715,9 @@ export function GeneralSettings() {
 
             <div className="settings-row">
               <div>
-                <Label>AI 消息默认折叠</Label>
+                <Label>{t('general.aiMessageCollapsed')}</Label>
                 <p className="settings-row__description">
-                  包含命令输出的 AI 最终消息默认只显示结果。
+                  {t('general.aiMessageCollapsedHint')}
                 </p>
               </div>
               <Switch

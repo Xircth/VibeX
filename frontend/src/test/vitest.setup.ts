@@ -1,4 +1,7 @@
 import '@testing-library/jest-dom/vitest';
+// Initialize the i18n runtime (default zh-CN) so components using useTranslation
+// render real strings in tests instead of raw keys.
+import '@/i18n';
 
 const localStorageStore = new Map<string, string>();
 const localStorageMock: Storage = {

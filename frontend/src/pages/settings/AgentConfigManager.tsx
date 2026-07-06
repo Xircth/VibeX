@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Eye,
@@ -9,6 +9,7 @@ import {
   Save,
   Settings2,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -74,280 +75,6 @@ const EFFORT_OPTIONS = [
   { value: 'high', label: 'High' },
   { value: 'xhigh', label: 'X-High' },
 ];
-
-const CLAUDE_EFFORT_OPTIONS = [
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'xhigh', label: '超高' },
-];
-
-const AGENT_SPECS: Record<string, AgentSpec> = {
-  claude_code: {
-    subtitle:
-      '支持 API URL、API Key 与 Claude 模型快捷配置，并与 settings.json 双向联动。',
-    auth: {
-      options: [
-        {
-          value: 'official',
-          label: '官网订阅',
-          hint: '使用 Anthropic 官方订阅，无需 API Key。',
-          clear: [
-            {
-              kind: 'json',
-              fileId: 'settings',
-              path: ['env', 'ANTHROPIC_API_KEY'],
-            },
-            {
-              kind: 'json',
-              fileId: 'settings',
-              path: ['env', 'ANTHROPIC_BASE_URL'],
-            },
-          ],
-        },
-        {
-          value: 'custom',
-          label: '自定义 API',
-          hint: '使用自定义 API URL 与 API Key。',
-        },
-      ],
-      detect: (read) =>
-        read({
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_API_KEY'],
-        })
-          ? 'custom'
-          : 'official',
-    },
-    fields: [
-      {
-        label: 'API Base URL',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_BASE_URL'],
-        },
-        placeholder: 'https://api.anthropic.com',
-        authMethods: ['custom'],
-      },
-      {
-        label: 'API Key',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_API_KEY'],
-        },
-        control: 'password',
-        placeholder: 'sk-ant-...',
-        authMethods: ['custom'],
-      },
-      {
-        label: '主模型',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_MODEL'],
-        },
-        placeholder: 'claude-sonnet-4-6',
-      },
-      {
-        label: '推理模型 (thinking)',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_REASONING_MODEL'],
-        },
-        placeholder: 'claude-opus-4-8',
-      },
-      {
-        label: 'Haiku 默认模型',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_DEFAULT_HAIKU_MODEL'],
-        },
-        placeholder: 'claude-haiku-4-5',
-      },
-      {
-        label: 'Sonnet 默认模型',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_DEFAULT_SONNET_MODEL'],
-        },
-        placeholder: 'claude-sonnet-4-6',
-      },
-      {
-        label: 'Opus 默认模型',
-        target: {
-          kind: 'json',
-          fileId: 'settings',
-          path: ['env', 'ANTHROPIC_DEFAULT_OPUS_MODEL'],
-        },
-        placeholder: 'claude-opus-4-8',
-        span2: true,
-      },
-      {
-        label: '推理级别',
-        target: { kind: 'json', fileId: 'settings', path: ['effortLevel'] },
-        control: 'select',
-        options: CLAUDE_EFFORT_OPTIONS,
-        span2: true,
-      },
-    ],
-  },
-  codex: {
-    subtitle:
-      '支持 API URL、API Key、模型名称、Reasoning Effort 快捷配置，并与 auth.json / config.toml 双向联动。',
-    auth: {
-      options: [
-        {
-          value: 'official',
-          label: '官网订阅 (ChatGPT)',
-          hint: '使用 ChatGPT 官网订阅登录，无需配置 API Key。',
-          loginFileId: 'auth',
-          clear: [
-            { kind: 'env', key: 'OPENAI_API_KEY' },
-            { kind: 'env', key: 'OPENAI_BASE_URL' },
-          ],
-        },
-        {
-          value: 'api_key',
-          label: 'API Key',
-          hint: '使用 OpenAI API Key。',
-        },
-      ],
-      detect: (read) =>
-        read({ kind: 'env', key: 'OPENAI_API_KEY' }) ? 'api_key' : 'official',
-    },
-    fields: [
-      {
-        label: 'API Base URL',
-        target: { kind: 'env', key: 'OPENAI_BASE_URL' },
-        placeholder: 'https://api.openai.com/v1',
-        authMethods: ['api_key'],
-      },
-      {
-        label: 'API Key',
-        target: { kind: 'env', key: 'OPENAI_API_KEY' },
-        control: 'password',
-        placeholder: 'sk-...',
-        authMethods: ['api_key'],
-      },
-      {
-        label: 'Model',
-        target: { kind: 'toml', fileId: 'config', key: 'model' },
-        placeholder: 'gpt-5.4',
-      },
-      {
-        label: 'Reasoning Effort',
-        target: {
-          kind: 'toml',
-          fileId: 'config',
-          key: 'model_reasoning_effort',
-        },
-        control: 'select',
-        options: EFFORT_OPTIONS,
-      },
-    ],
-  },
-  gemini: {
-    subtitle:
-      'API Key 或 Google Cloud 凭据快捷配置，并与 settings.json 双向联动。',
-    auth: {
-      options: [
-        {
-          value: 'api_key',
-          label: 'API Key',
-          hint: '使用 Gemini API Key。',
-          clear: [
-            { kind: 'env', key: 'GOOGLE_CLOUD_PROJECT' },
-            { kind: 'env', key: 'GOOGLE_CLOUD_LOCATION' },
-          ],
-        },
-        {
-          value: 'vertex',
-          label: 'Google Cloud',
-          hint: '使用 Vertex AI / GCP 凭据。',
-          clear: [{ kind: 'env', key: 'GEMINI_API_KEY' }],
-        },
-      ],
-      detect: (read) =>
-        read({ kind: 'env', key: 'GEMINI_API_KEY' }) ? 'api_key' : 'vertex',
-    },
-    fields: [
-      {
-        label: 'API Key',
-        target: { kind: 'env', key: 'GEMINI_API_KEY' },
-        control: 'password',
-        placeholder: 'AIza...',
-        authMethods: ['api_key'],
-        span2: true,
-      },
-      {
-        label: 'Google Cloud Project',
-        target: { kind: 'env', key: 'GOOGLE_CLOUD_PROJECT' },
-        placeholder: 'my-project',
-        authMethods: ['vertex'],
-      },
-      {
-        label: 'Google Cloud Location',
-        target: { kind: 'env', key: 'GOOGLE_CLOUD_LOCATION' },
-        placeholder: 'us-central1',
-        authMethods: ['vertex'],
-      },
-    ],
-  },
-  opencode: {
-    subtitle: 'Model 与 Small Model 快捷配置，并与 opencode.json 双向联动。',
-    fields: [
-      {
-        label: 'Model',
-        target: { kind: 'json', fileId: 'config', path: ['model'] },
-        placeholder: 'anthropic/claude-sonnet-4-6',
-      },
-      {
-        label: 'Small Model',
-        target: { kind: 'json', fileId: 'config', path: ['small_model'] },
-        placeholder: 'anthropic/claude-haiku-4-5',
-      },
-    ],
-  },
-  openclaw: {
-    subtitle: 'OpenClaw 通过网关环境变量配置（无独立配置文件）。',
-    fields: [
-      {
-        label: 'Gateway URL',
-        target: { kind: 'env', key: 'OPENCLAW_GATEWAY_URL' },
-        placeholder: 'https://gateway.example.com',
-        span2: true,
-      },
-      {
-        label: 'Gateway Token',
-        target: { kind: 'env', key: 'OPENCLAW_GATEWAY_TOKEN' },
-        control: 'password',
-        placeholder: '网关访问令牌',
-      },
-      {
-        label: 'Session Key',
-        target: { kind: 'env', key: 'OPENCLAW_SESSION_KEY' },
-        control: 'password',
-        placeholder: '会话密钥',
-      },
-    ],
-  },
-  cline: {
-    subtitle:
-      'Cline 的服务商、模型与密钥保存在 globalState.json / secrets.json（按服务商不同字段各异），请在下方原生文件中编辑。',
-    fields: [],
-  },
-  hermes: {
-    subtitle:
-      'Hermes 的服务商与模型保存在 config.yaml / .env，请在下方原生文件中编辑。',
-    fields: [],
-  },
-};
 
 // ─── env (KEY=VALUE) helpers ────────────────────────────────────────────────
 
@@ -539,31 +266,6 @@ function setTomlSectionBool(
   return base ? `${base}\n\n${block}\n` : `${block}\n`;
 }
 
-/** Codex feature toggles backed by config.toml (matching the codex CLI keys). */
-const CODEX_TOGGLES: {
-  label: string;
-  get: (toml: string) => boolean;
-  set: (toml: string, on: boolean) => string;
-}[] = [
-  {
-    label: '启用 WebSocket',
-    get: (toml) =>
-      getTomlSectionBool(toml, 'features', 'responses_websockets_v2'),
-    set: (toml, on) =>
-      setTomlSectionBool(toml, 'features', 'responses_websockets_v2', on),
-  },
-  {
-    label: '启用 Skills',
-    get: (toml) => getTomlSectionBool(toml, 'features', 'skills'),
-    set: (toml, on) => setTomlSectionBool(toml, 'features', 'skills', on),
-  },
-  {
-    label: '启用 Fast',
-    get: (toml) => getTomlValue(toml, 'service_tier') === 'fast',
-    set: (toml, on) => setTomlValue(toml, 'service_tier', on ? 'fast' : ''),
-  },
-];
-
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function AgentConfigManager({
@@ -575,8 +277,310 @@ export function AgentConfigManager({
   setting: AgentSettingInfo | null;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   const hasSetting = !!setting;
-  const spec = AGENT_SPECS[agentType];
+
+  const agentSpecs = useMemo<Record<string, AgentSpec>>(
+    () => ({
+      claude_code: {
+        subtitle: t('agentConfig.claudeCodeSubtitle'),
+        auth: {
+          options: [
+            {
+              value: 'official',
+              label: t('agentConfig.claudeAuthOfficialLabel'),
+              hint: t('agentConfig.claudeAuthOfficialHint'),
+              clear: [
+                {
+                  kind: 'json',
+                  fileId: 'settings',
+                  path: ['env', 'ANTHROPIC_API_KEY'],
+                },
+                {
+                  kind: 'json',
+                  fileId: 'settings',
+                  path: ['env', 'ANTHROPIC_BASE_URL'],
+                },
+              ],
+            },
+            {
+              value: 'custom',
+              label: t('agentConfig.claudeAuthCustomLabel'),
+              hint: t('agentConfig.claudeAuthCustomHint'),
+            },
+          ],
+          detect: (read) =>
+            read({
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_API_KEY'],
+            })
+              ? 'custom'
+              : 'official',
+        },
+        fields: [
+          {
+            label: 'API Base URL',
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_BASE_URL'],
+            },
+            placeholder: 'https://api.anthropic.com',
+            authMethods: ['custom'],
+          },
+          {
+            label: 'API Key',
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_API_KEY'],
+            },
+            control: 'password',
+            placeholder: 'sk-ant-...',
+            authMethods: ['custom'],
+          },
+          {
+            label: t('agentConfig.mainModel'),
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_MODEL'],
+            },
+            placeholder: 'claude-sonnet-4-6',
+          },
+          {
+            label: t('agentConfig.reasoningModel'),
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_REASONING_MODEL'],
+            },
+            placeholder: 'claude-opus-4-8',
+          },
+          {
+            label: t('agentConfig.haikuDefaultModel'),
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_DEFAULT_HAIKU_MODEL'],
+            },
+            placeholder: 'claude-haiku-4-5',
+          },
+          {
+            label: t('agentConfig.sonnetDefaultModel'),
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_DEFAULT_SONNET_MODEL'],
+            },
+            placeholder: 'claude-sonnet-4-6',
+          },
+          {
+            label: t('agentConfig.opusDefaultModel'),
+            target: {
+              kind: 'json',
+              fileId: 'settings',
+              path: ['env', 'ANTHROPIC_DEFAULT_OPUS_MODEL'],
+            },
+            placeholder: 'claude-opus-4-8',
+            span2: true,
+          },
+          {
+            label: t('agentConfig.effortLevel'),
+            target: { kind: 'json', fileId: 'settings', path: ['effortLevel'] },
+            control: 'select',
+            options: [
+              { value: 'low', label: t('agentConfig.effortLow') },
+              { value: 'medium', label: t('agentConfig.effortMedium') },
+              { value: 'high', label: t('agentConfig.effortHigh') },
+              { value: 'xhigh', label: t('agentConfig.effortXHigh') },
+            ],
+            span2: true,
+          },
+        ],
+      },
+      codex: {
+        subtitle: t('agentConfig.codexSubtitle'),
+        auth: {
+          options: [
+            {
+              value: 'official',
+              label: t('agentConfig.codexAuthOfficialLabel'),
+              hint: t('agentConfig.codexAuthOfficialHint'),
+              loginFileId: 'auth',
+              clear: [
+                { kind: 'env', key: 'OPENAI_API_KEY' },
+                { kind: 'env', key: 'OPENAI_BASE_URL' },
+              ],
+            },
+            {
+              value: 'api_key',
+              label: 'API Key',
+              hint: t('agentConfig.codexAuthApiKeyHint'),
+            },
+          ],
+          detect: (read) =>
+            read({ kind: 'env', key: 'OPENAI_API_KEY' }) ? 'api_key' : 'official',
+        },
+        fields: [
+          {
+            label: 'API Base URL',
+            target: { kind: 'env', key: 'OPENAI_BASE_URL' },
+            placeholder: 'https://api.openai.com/v1',
+            authMethods: ['api_key'],
+          },
+          {
+            label: 'API Key',
+            target: { kind: 'env', key: 'OPENAI_API_KEY' },
+            control: 'password',
+            placeholder: 'sk-...',
+            authMethods: ['api_key'],
+          },
+          {
+            label: 'Model',
+            target: { kind: 'toml', fileId: 'config', key: 'model' },
+            placeholder: 'gpt-5.4',
+          },
+          {
+            label: 'Reasoning Effort',
+            target: {
+              kind: 'toml',
+              fileId: 'config',
+              key: 'model_reasoning_effort',
+            },
+            control: 'select',
+            options: EFFORT_OPTIONS,
+          },
+        ],
+      },
+      gemini: {
+        subtitle: t('agentConfig.geminiSubtitle'),
+        auth: {
+          options: [
+            {
+              value: 'api_key',
+              label: 'API Key',
+              hint: t('agentConfig.geminiAuthApiKeyHint'),
+              clear: [
+                { kind: 'env', key: 'GOOGLE_CLOUD_PROJECT' },
+                { kind: 'env', key: 'GOOGLE_CLOUD_LOCATION' },
+              ],
+            },
+            {
+              value: 'vertex',
+              label: 'Google Cloud',
+              hint: t('agentConfig.geminiAuthVertexHint'),
+              clear: [{ kind: 'env', key: 'GEMINI_API_KEY' }],
+            },
+          ],
+          detect: (read) =>
+            read({ kind: 'env', key: 'GEMINI_API_KEY' }) ? 'api_key' : 'vertex',
+        },
+        fields: [
+          {
+            label: 'API Key',
+            target: { kind: 'env', key: 'GEMINI_API_KEY' },
+            control: 'password',
+            placeholder: 'AIza...',
+            authMethods: ['api_key'],
+            span2: true,
+          },
+          {
+            label: 'Google Cloud Project',
+            target: { kind: 'env', key: 'GOOGLE_CLOUD_PROJECT' },
+            placeholder: 'my-project',
+            authMethods: ['vertex'],
+          },
+          {
+            label: 'Google Cloud Location',
+            target: { kind: 'env', key: 'GOOGLE_CLOUD_LOCATION' },
+            placeholder: 'us-central1',
+            authMethods: ['vertex'],
+          },
+        ],
+      },
+      opencode: {
+        subtitle: t('agentConfig.opencodeSubtitle'),
+        fields: [
+          {
+            label: 'Model',
+            target: { kind: 'json', fileId: 'config', path: ['model'] },
+            placeholder: 'anthropic/claude-sonnet-4-6',
+          },
+          {
+            label: 'Small Model',
+            target: { kind: 'json', fileId: 'config', path: ['small_model'] },
+            placeholder: 'anthropic/claude-haiku-4-5',
+          },
+        ],
+      },
+      openclaw: {
+        subtitle: t('agentConfig.openclawSubtitle'),
+        fields: [
+          {
+            label: 'Gateway URL',
+            target: { kind: 'env', key: 'OPENCLAW_GATEWAY_URL' },
+            placeholder: 'https://gateway.example.com',
+            span2: true,
+          },
+          {
+            label: 'Gateway Token',
+            target: { kind: 'env', key: 'OPENCLAW_GATEWAY_TOKEN' },
+            control: 'password',
+            placeholder: t('agentConfig.gatewayTokenPlaceholder'),
+          },
+          {
+            label: 'Session Key',
+            target: { kind: 'env', key: 'OPENCLAW_SESSION_KEY' },
+            control: 'password',
+            placeholder: t('agentConfig.sessionKeyPlaceholder'),
+          },
+        ],
+      },
+      cline: {
+        subtitle: t('agentConfig.clineSubtitle'),
+        fields: [],
+      },
+      hermes: {
+        subtitle: t('agentConfig.hermesSubtitle'),
+        fields: [],
+      },
+    }),
+    [t]
+  );
+
+  const spec = agentSpecs[agentType];
+
+  /** Codex feature toggles backed by config.toml (matching the codex CLI keys). */
+  const codexToggles = useMemo<
+    {
+      label: string;
+      get: (toml: string) => boolean;
+      set: (toml: string, on: boolean) => string;
+    }[]
+  >(
+    () => [
+      {
+        label: t('agentConfig.codexToggleWebsocket'),
+        get: (toml) =>
+          getTomlSectionBool(toml, 'features', 'responses_websockets_v2'),
+        set: (toml, on) =>
+          setTomlSectionBool(toml, 'features', 'responses_websockets_v2', on),
+      },
+      {
+        label: t('agentConfig.codexToggleSkills'),
+        get: (toml) => getTomlSectionBool(toml, 'features', 'skills'),
+        set: (toml, on) => setTomlSectionBool(toml, 'features', 'skills', on),
+      },
+      {
+        label: t('agentConfig.codexToggleFast'),
+        get: (toml) => getTomlValue(toml, 'service_tier') === 'fast',
+        set: (toml, on) => setTomlValue(toml, 'service_tier', on ? 'fast' : ''),
+      },
+    ],
+    [t]
+  );
 
   const [envText, setEnvText] = useState('');
   const [files, setFiles] = useState<AgentNativeFile[]>([]);
@@ -631,7 +635,11 @@ export function AgentConfigManager({
         if (!active) return;
         setFiles([]);
         setContents({});
-        setFilesError(err instanceof Error ? err.message : '加载配置文件失败');
+        setFilesError(
+          err instanceof Error
+            ? err.message
+            : t('agentConfig.loadConfigFilesFailed')
+        );
       })
       .finally(() => {
         if (active) setLoadingFiles(false);
@@ -639,7 +647,7 @@ export function AgentConfigManager({
     return () => {
       active = false;
     };
-  }, [agentType, setting?.env_json, spec]);
+  }, [agentType, setting?.env_json, spec, t]);
 
   const readTarget = useCallback(
     (target: Target): string => {
@@ -689,11 +697,13 @@ export function AgentConfigManager({
       setSaved('env');
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存环境变量失败');
+      setError(
+        err instanceof Error ? err.message : t('agentConfig.saveEnvVarsFailed')
+      );
     } finally {
       setBusy(null);
     }
-  }, [agentType, envText, hasSetting, onSaved]);
+  }, [agentType, envText, hasSetting, onSaved, t]);
 
   const saveConfig = useCallback(async () => {
     setBusy('config');
@@ -723,20 +733,26 @@ export function AgentConfigManager({
       setSaved('config');
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存配置失败');
+      setError(
+        err instanceof Error ? err.message : t('agentConfig.saveConfigFailed')
+      );
     } finally {
       setBusy(null);
     }
-  }, [agentType, contents, envText, files, hasSetting, onSaved]);
+  }, [agentType, contents, envText, files, hasSetting, onSaved, t]);
 
   const login = useCallback(async () => {
     setError(null);
     try {
       await agentSettingsApi.openLoginTerminal(agentType);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '无法打开登录终端');
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('agentConfig.openLoginTerminalFailed')
+      );
     }
-  }, [agentType]);
+  }, [agentType, t]);
 
   const renderField = (field: ConfigField) => {
     const value = readTarget(field.target);
@@ -746,7 +762,7 @@ export function AgentConfigManager({
       return (
         <Select value={value} onValueChange={onChange}>
           <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="默认" />
+            <SelectValue placeholder={t('agentConfig.defaultPlaceholder')} />
           </SelectTrigger>
           <SelectContent>
             {field.options?.map((option) => (
@@ -820,11 +836,13 @@ export function AgentConfigManager({
       {/* Configuration management */}
       <SettingsSection
         id="config-management"
-        title="配置管理"
+        title={t('agentConfig.configManagement')}
         icon={Settings2}
         action={
           saved === 'config' ? (
-            <span className="text-[11px] text-success">已保存</span>
+            <span className="text-[11px] text-success">
+              {t('agentConfig.saved')}
+            </span>
           ) : null
         }
       >
@@ -836,11 +854,11 @@ export function AgentConfigManager({
           {spec?.auth ? (
             <div className="space-y-2">
               <Label className="text-[11px] text-muted-foreground">
-                认证方式
+                {t('agentConfig.authMethod')}
               </Label>
               <Select value={authMethod} onValueChange={onAuthChange}>
                 <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="选择认证方式" />
+                  <SelectValue placeholder={t('agentConfig.selectAuthMethod')} />
                 </SelectTrigger>
                 <SelectContent>
                   {spec.auth.options.map((option) => (
@@ -860,11 +878,11 @@ export function AgentConfigManager({
                   {loginFile?.content ? (
                     <span className="flex items-center gap-1.5 text-success">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      账号已登录
+                      {t('agentConfig.accountLoggedIn')}
                     </span>
                   ) : (
                     <span className="text-muted-foreground">
-                      未检测到登录凭据
+                      {t('agentConfig.noLoginCredentials')}
                     </span>
                   )}
                   <Button
@@ -875,7 +893,9 @@ export function AgentConfigManager({
                     onClick={() => void login()}
                   >
                     <LogIn className="mr-1 h-3 w-3" />
-                    {loginFile?.content ? '重新登录 / 切换账号' : '登录'}
+                    {loginFile?.content
+                      ? t('agentConfig.reLoginSwitchAccount')
+                      : t('agentConfig.login')}
                   </Button>
                 </div>
               ) : null}
@@ -901,7 +921,7 @@ export function AgentConfigManager({
           {/* Codex feature toggles (config.toml). */}
           {agentType === 'codex' ? (
             <div className="divide-y divide-border-subtle overflow-hidden rounded-lg border">
-              {CODEX_TOGGLES.map((toggle) => {
+              {codexToggles.map((toggle) => {
                 const tomlText = contents['config'] ?? '';
                 return (
                   <div
@@ -930,7 +950,7 @@ export function AgentConfigManager({
           {loadingFiles ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              正在加载配置文件…
+              {t('agentConfig.loadingConfigFiles')}
             </div>
           ) : filesError ? (
             <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
@@ -939,7 +959,7 @@ export function AgentConfigManager({
           ) : files.length === 0 ? (
             !spec ? (
               <p className="text-[11px] text-muted-foreground">
-                该 Agent 没有独立配置文件，通过下方环境变量进行配置。
+                {t('agentConfig.noConfigFileHint')}
               </p>
             ) : null
           ) : (
@@ -952,7 +972,7 @@ export function AgentConfigManager({
                   <code className="font-mono">{file.path}</code>
                   {!file.exists ? (
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[10px]">
-                      尚未创建
+                      {t('agentConfig.notCreated')}
                     </span>
                   ) : null}
                 </Label>
@@ -983,7 +1003,7 @@ export function AgentConfigManager({
               ) : (
                 <Save className="mr-1.5 h-3.5 w-3.5" />
               )}
-              保存配置
+              {t('agentConfig.saveConfig')}
             </Button>
           </div>
         </div>
@@ -992,11 +1012,13 @@ export function AgentConfigManager({
       {/* Environment variables (kept at the bottom) */}
       <SettingsSection
         id="environment-variables"
-        title="环境变量"
+        title={t('agentConfig.environmentVariables')}
         icon={KeyRound}
         action={
           saved === 'env' ? (
-            <span className="text-[11px] text-success">已保存</span>
+            <span className="text-[11px] text-success">
+              {t('agentConfig.saved')}
+            </span>
           ) : null
         }
       >
@@ -1011,8 +1033,8 @@ export function AgentConfigManager({
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] text-muted-foreground">
               {hasSetting
-                ? '注入到 Agent 进程的环境变量（KEY=VALUE，每行一个）。'
-                : '该 Agent 尚未纳管，无法保存环境变量。'}
+                ? t('agentConfig.envVarsInjectHint')
+                : t('agentConfig.agentNotManagedHint')}
             </p>
             <Button
               size="sm"
@@ -1026,7 +1048,7 @@ export function AgentConfigManager({
               ) : (
                 <Save className="mr-1.5 h-3.5 w-3.5" />
               )}
-              保存环境变量
+              {t('agentConfig.saveEnvVars')}
             </Button>
           </div>
         </div>

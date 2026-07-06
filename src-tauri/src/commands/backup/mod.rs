@@ -176,6 +176,16 @@ fn collect_directory_sources(
             continue;
         }
 
+        // Skip leftover restore staging temps (`.<name>.vibex-restore.N.tmp`) so an
+        // orphan from an abnormally-terminated restore is never baked into a backup.
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.contains(".vibex-restore.") && name.ends_with(".tmp"))
+        {
+            continue;
+        }
+
         let relative = path.strip_prefix(base).map_err(|error| {
             AppError::Internal(format!(
                 "Failed to derive relative backup path for {}: {error}",

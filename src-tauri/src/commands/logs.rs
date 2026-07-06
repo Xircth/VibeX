@@ -17,10 +17,14 @@ fn newest_log_file() -> Option<std::path::PathBuf> {
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| {
+            // Match by filename prefix, not extension: the primary appender writes
+            // `vibex.<date>.log` (ext "log") but the fallback writes `vibex.log.<date>`
+            // (ext = the date), and both must be found.
             path.is_file()
                 && path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("log"))
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("vibex") && name.contains(".log"))
         })
         .max_by_key(|path| {
             std::fs::metadata(path)

@@ -58,9 +58,9 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
 
 pub fn run() {
     // Install the file+stderr tracing subscriber first so startup is logged. The
-    // guard flushes the non-blocking writer on drop; run() blocks until app exit,
-    // so a local binding keeps it alive for the whole process (P2-8).
-    let _log_guard = logging::init_logging();
+    // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
+    // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
+    let mut log_guard = Some(logging::init_logging());
     install_rustls_crypto_provider();
 
     tauri::Builder::default()
@@ -531,8 +531,14 @@ pub fn run() {
             // Local usage commands
             commands::local_usage::get_project_usage_statistics,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(move |_app_handle, event| {
+            // Flush the non-blocking log writer on exit before the process leaves.
+            if let tauri::RunEvent::Exit = event {
+                log_guard.take();
+            }
+        });
 }
 
 #[cfg(test)]

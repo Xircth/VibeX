@@ -374,10 +374,17 @@ export function useTauriTerminal({
           // The documentElement style MutationObserver below also fires when the
           // --font-mono token changes (P3-2 picker), so keep the font in sync here.
           const font = readMonoFont();
-          if (term.options.fontFamily !== font) {
+          const fontChanged = term.options.fontFamily !== font;
+          if (fontChanged) {
             term.options.fontFamily = font;
           }
           term.refresh(0, Math.max(0, term.rows - 1));
+          // A font swap changes glyph cell metrics; re-fit so cols/rows and the
+          // PTY winsize track the new advance width (otherwise columns clip or a
+          // gap appears until the next resize).
+          if (fontChanged && fitAddonRef.current) {
+            fitTerminalIfReady(fitAddonRef.current, term, activeContainer);
+          }
         } catch {
           // Panel may be mid-layout, hidden, or disposing.
         }

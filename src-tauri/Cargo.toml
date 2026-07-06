@@ -44,6 +44,10 @@ tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 prost = "0.13"
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# Optional passphrase encryption for portable backups (P3-4).
+aes-gcm = { version = "0.10", features = ["stream"] }
+argon2 = "0.5"
+rand = "0.8"
 
 # Reuse existing workspace crates
 db = { path = "../crates/db" }

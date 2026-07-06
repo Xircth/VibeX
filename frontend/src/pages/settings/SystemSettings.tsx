@@ -146,6 +146,8 @@ export function SystemSettings() {
   const [renderingSaving, setRenderingSaving] = useState(false);
   const [backupPath, setBackupPath] = useState('');
   const [restorePath, setRestorePath] = useState('');
+  const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [restorePassphrase, setRestorePassphrase] = useState('');
   const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(
     null
   );
@@ -291,7 +293,10 @@ export function SystemSettings() {
     setBackupBusy(true);
     const toastId = toast.loading('正在导出 VibeX 备份...');
     try {
-      const preview = await backupApi.create({ path });
+      const preview = await backupApi.create({
+        path,
+        passphrase: backupPassphrase.trim() || null,
+      });
       setBackupPreview(preview);
       setBackupPreviewPath(path);
       toast.success('备份已导出', { id: toastId });
@@ -313,7 +318,10 @@ export function SystemSettings() {
 
     setRestoreBusy(true);
     try {
-      const preview = await backupApi.inspect({ path, passphrase: null });
+      const preview = await backupApi.inspect({
+        path,
+        passphrase: restorePassphrase.trim() || null,
+      });
       setBackupPreview(preview);
       setBackupPreviewPath(path);
       toast.success('备份预览已读取');
@@ -336,7 +344,7 @@ export function SystemSettings() {
     try {
       const result = await backupApi.restoreStage({
         path,
-        passphrase: null,
+        passphrase: restorePassphrase.trim() || null,
         confirmed: true,
       });
       setBackupPreview(result.preview);
@@ -738,9 +746,10 @@ export function SystemSettings() {
               </div>
               <Input
                 type="password"
-                value=""
-                placeholder="加密口令：当前构建仅支持未加密备份"
-                disabled
+                value={backupPassphrase}
+                placeholder="加密口令（可选，留空则不加密）"
+                onChange={(event) => setBackupPassphrase(event.target.value)}
+                disabled={backupBusy}
               />
             </div>
 
@@ -783,9 +792,10 @@ export function SystemSettings() {
               </div>
               <Input
                 type="password"
-                value=""
-                placeholder="解密口令：当前构建仅支持未加密备份"
-                disabled
+                value={restorePassphrase}
+                placeholder="解密口令（加密备份需填写）"
+                onChange={(event) => setRestorePassphrase(event.target.value)}
+                disabled={restoreBusy}
               />
             </div>
 

@@ -253,6 +253,8 @@ export interface SystemRenderingSettings {
 
 export interface BackupCreateOptions {
   path: string;
+  /** When set (non-empty), the backup is encrypted with this passphrase (P3-4). */
+  passphrase?: string | null;
 }
 
 export interface BackupInspectOptions {

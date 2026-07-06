@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Sun } from 'lucide-react';
+import { Loader2, Maximize2, Sun } from 'lucide-react';
 import { ThemeMode, type Config } from 'shared/types';
+import { UI_ZOOM_LEVELS, getUiZoom, setUiZoom } from '@/lib/uiZoom';
 import { useTheme } from '@/components/ThemeProvider';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Label } from '@/components/ui/label';
@@ -27,6 +28,7 @@ export function AppearanceSettings() {
     config ? structuredClone(config) : null
   );
   const [saving, setSaving] = useState(false);
+  const [zoom, setZoom] = useState<number>(() => getUiZoom());
 
   useEffect(() => {
     if (config) {
@@ -105,6 +107,40 @@ export function AppearanceSettings() {
                 {Object.values(ThemeMode).map((theme) => (
                   <SelectItem key={theme} value={theme}>
                     {toPrettyCase(theme)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Maximize2}
+          title="界面缩放"
+          description="整体缩放界面以适应你的显示器与视力。即时生效并记住。"
+        >
+          <div className="settings-row">
+            <div>
+              <Label>缩放比例</Label>
+              <p className="settings-row__description">
+                影响整个应用界面的显示大小。
+              </p>
+            </div>
+            <Select
+              value={String(zoom)}
+              onValueChange={(value) => {
+                const next = Number(value);
+                setZoom(next);
+                setUiZoom(next);
+              }}
+            >
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {UI_ZOOM_LEVELS.map((level) => (
+                  <SelectItem key={level} value={String(level)}>
+                    {Math.round(level * 100)}%
                   </SelectItem>
                 ))}
               </SelectContent>

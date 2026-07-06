@@ -3,6 +3,7 @@ import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { APP_NAME } from '@/lib/branding';
 import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
+import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBadge';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { AgentKind } from 'shared/types';
 
@@ -59,6 +60,7 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-2">
+        <AutomationFailureBadge />
         <span className="hidden text-[10px] uppercase tracking-wide opacity-60 sm:inline">
           {APP_NAME}
         </span>

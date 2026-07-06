@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-query';
 import { isBinaryContentError } from '@/utils/filePreviewKind';
 import { isCanceledError } from '@/lib/tauriApi';
+import { initUiZoom } from '@/lib/uiZoom';
 // Import modal type definitions
 import './types/modals';
 
@@ -49,6 +50,8 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+initUiZoom();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

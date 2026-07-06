@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, Loader2, Plus, Settings } from 'lucide-react';
+import { FolderOpen, GitBranch, Loader2, Plus, Settings } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectRepos } from '@/hooks';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
+import { CloneRepoDialog } from '@/components/dialogs/projects/CloneRepoDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { Logo } from '@/components/Logo';
@@ -147,6 +148,25 @@ export function WelcomePage() {
     }
   };
 
+  const handleCloneRepo = async () => {
+    const result = await CloneRepoDialog.show();
+    if (result.status !== 'cloned') {
+      return;
+    }
+    const name = result.repo.display_name || result.repo.name;
+    try {
+      const project = await projectsApi.create({
+        name,
+        repositories: [
+          { display_name: name, git_repo_path: result.repo.path },
+        ],
+      });
+      navigate(`/local-projects/${project.id}/sessions`);
+    } catch (error) {
+      toast.error(`创建项目失败：${error}`);
+    }
+  };
+
   const handleProjectClick = useCallback(
     (projectId: string) => {
       navigate(`/local-projects/${projectId}/sessions`);
@@ -262,6 +282,11 @@ export function WelcomePage() {
             icon={FolderOpen}
             label="选择文件夹"
             onClick={handleOpenFolder}
+          />
+          <WelcomeAction
+            icon={GitBranch}
+            label="克隆仓库"
+            onClick={handleCloneRepo}
           />
         </WelcomeSection>
 

@@ -65,6 +65,38 @@ export const repoApi = {
     return tauriInvoke<boolean>('check_git_repo_path', { path });
   },
 
+  clone: async (data: {
+    clone_url: string;
+    target_path: string;
+    display_name?: string;
+  }): Promise<Repo> => {
+    return tauriInvoke<Repo>('clone_repo', {
+      cloneUrl: data.clone_url,
+      targetPath: data.target_path,
+      displayName: data.display_name ?? null,
+    });
+  },
+
+  addRemote: async (
+    repoId: string,
+    name: string,
+    url: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('add_repo_remote', { repoId, name, url });
+  },
+
+  removeRemote: async (repoId: string, name: string): Promise<void> => {
+    return tauriInvoke<void>('remove_repo_remote', { repoId, name });
+  },
+
+  setRemoteUrl: async (
+    repoId: string,
+    name: string,
+    url: string
+  ): Promise<void> => {
+    return tauriInvoke<void>('set_repo_remote_url', { repoId, name, url });
+  },
+
   initAtPath: async (data: {
     path: string;
     display_name?: string;

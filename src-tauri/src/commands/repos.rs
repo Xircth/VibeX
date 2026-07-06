@@ -317,6 +317,93 @@ pub async fn check_git_repo_path(
     Ok(is_git_repo)
 }
 
+/// Clone a git repository into `target_path`, then register it as a VibeX repo.
+/// Cloning runs on a blocking thread (libgit2). Credentials use the SSH agent /
+/// default key; public HTTPS clones need no token.
+#[tauri::command]
+pub async fn clone_repo(
+    state: tauri::State<'_, AppState>,
+    clone_url: String,
+    target_path: String,
+    display_name: Option<String>,
+) -> Result<Repo, AppError> {
+    let url = clone_url.trim().to_string();
+    if url.is_empty() {
+        return Err(AppError::BadRequest("clone URL 不能为空".to_string()));
+    }
+    let target = PathBuf::from(&target_path);
+    if target.exists() && target.read_dir().is_ok_and(|mut d| d.next().is_some()) {
+        return Err(AppError::BadRequest(format!(
+            "目标目录已存在且非空：{target_path}"
+        )));
+    }
+
+    let target_for_clone = target.clone();
+    tokio::task::spawn_blocking(move || {
+        git::GitService::clone_repository(&url, &target_for_clone, None)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("clone task panicked: {e}")))?
+    .map_err(|e| AppError::Internal(format!("git clone failed: {e}")))?;
+
+    let repo = state
+        .deployment
+        .repo()
+        .register(
+            &state.deployment.db().pool,
+            &target_path,
+            display_name.as_deref(),
+        )
+        .await?;
+    Ok(repo)
+}
+
+#[tauri::command]
+pub async fn add_repo_remote(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    name: String,
+    url: String,
+) -> Result<(), AppError> {
+    let path = resolve_repo_path(&state, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .add_remote(&path, name.trim(), url.trim())
+        .map_err(|e| AppError::Internal(format!("git remote add failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn remove_repo_remote(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    name: String,
+) -> Result<(), AppError> {
+    let path = resolve_repo_path(&state, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .remove_remote(&path, name.trim())
+        .map_err(|e| AppError::Internal(format!("git remote remove failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn set_repo_remote_url(
+    state: tauri::State<'_, AppState>,
+    repo_id: Uuid,
+    name: String,
+    url: String,
+) -> Result<(), AppError> {
+    let path = resolve_repo_path(&state, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .set_remote_url(&path, name.trim(), url.trim())
+        .map_err(|e| AppError::Internal(format!("git remote set-url failed: {e}")))
+}
+
 #[tauri::command]
 pub async fn init_repo_at_path(
     state: tauri::State<'_, AppState>,

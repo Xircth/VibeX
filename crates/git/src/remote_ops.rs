@@ -93,6 +93,37 @@ impl GitService {
             .collect())
     }
 
+    /// Add a new remote `name` pointing at `url`.
+    pub fn add_remote(
+        &self,
+        repo_path: &Path,
+        name: &str,
+        url: &str,
+    ) -> Result<(), GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        repo.remote(name, url)?;
+        Ok(())
+    }
+
+    /// Remove the remote `name` (and its tracking refs).
+    pub fn remove_remote(&self, repo_path: &Path, name: &str) -> Result<(), GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        repo.remote_delete(name)?;
+        Ok(())
+    }
+
+    /// Point the existing remote `name` at `url`.
+    pub fn set_remote_url(
+        &self,
+        repo_path: &Path,
+        name: &str,
+        url: &str,
+    ) -> Result<(), GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        repo.remote_set_url(name, url)?;
+        Ok(())
+    }
+
     pub fn check_remote_branch_exists(
         &self,
         repo_path: &Path,
@@ -252,7 +283,6 @@ impl GitService {
     }
 
     /// Clone a repository to the specified directory.
-    #[cfg(feature = "cloud")]
     pub fn clone_repository(
         clone_url: &str,
         target_path: &Path,

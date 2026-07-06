@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { EnableOnFormTags } from './types';
 import { Action, Scope, getKeysFor } from './registry';
+import { useKeyBindingOverridesStore } from './useKeyBindingOverrides';
 import { useHotkeys } from 'react-hotkeys-hook';
 
 export interface SemanticKeyOptions {
@@ -34,8 +35,14 @@ export function createSemanticHook<A extends Action>(action: A) {
     // Use 'when' as alias for 'enabled' if provided
     const isEnabled = when !== undefined ? when : enabled;
 
+    // Subscribe to user overrides so a rebind re-registers the hotkey live.
+    const overrides = useKeyBindingOverridesStore((state) => state.overrides);
+
     // Memoize to get stable array references and prevent unnecessary re-registrations
-    const keys = useMemo(() => getKeysFor(action, scope), [scope]);
+    const keys = useMemo(
+      () => getKeysFor(action, scope, overrides),
+      [scope, overrides]
+    );
 
     useHotkeys(
       keys,

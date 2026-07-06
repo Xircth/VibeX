@@ -438,21 +438,94 @@ export const keyBindings: KeyBinding[] = [
   },
 ];
 
+/** User keybinding overrides: binding id → single chord token (P3-2). */
+export type KeyBindingOverrides = Record<string, string>;
+
 /**
- * Get keyboard bindings for a specific action and scope
+ * Stable id for a single-chord binding, derived from its action + scopes.
+ * Unique across `keyBindings` (same action always differs by scope).
  */
-export function getKeysFor(action: Action, scope?: Scope): string[] {
-  const bindings = keyBindings
+export function bindingKey(action: Action, scopes?: Scope[]): string {
+  return `${action}:${(scopes ?? []).join(',')}`;
+}
+
+function defaultKeysOf(binding: KeyBinding): string[] {
+  return Array.isArray(binding.keys) ? binding.keys : [binding.keys];
+}
+
+/**
+ * Get keyboard bindings for a specific action and scope, applying any user
+ * overrides (which replace a binding's default keys with a single chord).
+ */
+export function getKeysFor(
+  action: Action,
+  scope?: Scope,
+  overrides?: KeyBindingOverrides
+): string[] {
+  return keyBindings
     .filter(
       (binding) =>
         binding.action === action &&
         (!scope || !binding.scopes || binding.scopes.includes(scope))
     )
-    .flatMap((binding) =>
-      Array.isArray(binding.keys) ? binding.keys : [binding.keys]
-    );
+    .flatMap((binding) => {
+      const override = overrides?.[bindingKey(binding.action, binding.scopes)];
+      return override ? [override] : defaultKeysOf(binding);
+    });
+}
 
-  return bindings;
+export interface EffectiveKeyBinding {
+  id: string;
+  action: Action;
+  scopes?: Scope[];
+  description: string;
+  group?: string;
+  defaultKeys: string[];
+  keys: string[];
+  overridden: boolean;
+}
+
+/** All single-chord bindings with overrides applied, for the rebinding UI. */
+export function getEffectiveKeyBindings(
+  overrides: KeyBindingOverrides
+): EffectiveKeyBinding[] {
+  return keyBindings.map((binding) => {
+    const id = bindingKey(binding.action, binding.scopes);
+    const defaultKeys = defaultKeysOf(binding);
+    const override = overrides[id];
+    return {
+      id,
+      action: binding.action,
+      scopes: binding.scopes,
+      description: binding.description,
+      group: binding.group,
+      defaultKeys,
+      keys: override ? [override] : defaultKeys,
+      overridden: !!override,
+    };
+  });
+}
+
+function scopesOverlap(a?: Scope[], b?: Scope[]): boolean {
+  // An undefined scope means global — it overlaps every scope.
+  if (!a || !b) return true;
+  return a.some((scope) => b.includes(scope));
+}
+
+/**
+ * Bindings that collide with `target`: an overlapping scope AND a shared chord.
+ * Used to warn on rebind (two actions firing on the same key in the same scope).
+ */
+export function findChordConflicts(
+  target: EffectiveKeyBinding,
+  all: EffectiveKeyBinding[]
+): EffectiveKeyBinding[] {
+  return all.filter(
+    (other) =>
+      other.id !== target.id &&
+      scopesOverlap(other.scopes, target.scopes) &&
+      other.keys.some((key) => target.keys.includes(key))
+  );
 }
 
 /**

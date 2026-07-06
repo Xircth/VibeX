@@ -36,6 +36,27 @@
       "hint": "当前为渐进式双语，部分界面仍为中文，将逐步完善。"
     }
   },
+  "shortcuts": {
+    "inputTitle": "输入",
+    "sendLabel": "发送快捷键",
+    "sendModifierEnterLabel": "Ctrl / Cmd + Enter",
+    "sendModifierEnterHelper": "使用 Ctrl / Cmd + Enter 发送消息，Enter 仅换行。",
+    "sendEnterLabel": "Enter",
+    "sendEnterHelper": "使用 Enter 直接发送消息，Shift + Enter 换行。",
+    "sectionTitle": "快捷键",
+    "sectionDescription": "为下列操作重新绑定按键；即时生效并记住。",
+    "resetAll": "全部恢复默认",
+    "rebind": "重绑",
+    "capturing": "按下新的按键组合…（Esc 取消）",
+    "unsupportedKey": "不支持的按键，请换一个组合。",
+    "conflict": "冲突",
+    "conflictWith": "与「{{description}}」冲突",
+    "sequentialTitle": "组合键（只读）",
+    "sequentialDescription": "两步组合键（如先按 G 再按 S），暂不支持重绑。",
+    "readOnlyNote": "系统级/原始快捷键（如 Cmd+P、Cmd+,）暂不在此重绑。",
+    "unsaved": "有未保存的更改",
+    "saveSettings": "保存设置"
+  },
   "automations": {
     "pageTitle": "自动化",
     "pageDescription": "把一次“发起回合”存为可复用的自动化，手动或按 cron 定时无头运行；运行会创建真实会话，可在工作区打开查看。",

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Keyboard, Loader2, Save, Undo2 } from 'lucide-react';
+import { Keyboard, Loader2, RotateCcw, Save, Undo2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -10,31 +12,129 @@ import {
 } from '@/components/ui/select';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { type Config, type SendMessageShortcut } from 'shared/types';
-import { IMPLEMENTED_SHORTCUTS } from '@/keyboard/appShortcuts';
+import { chordFromEvent, formatChord } from '@/keyboard/chord';
+import {
+  formatSequentialKeys,
+  getEffectiveKeyBindings,
+  findChordConflicts,
+  sequentialBindings,
+  type EffectiveKeyBinding,
+} from '@/keyboard/registry';
+import { useKeyBindingOverridesStore } from '@/keyboard/useKeyBindingOverrides';
 
-const SEND_MESSAGE_SHORTCUT_OPTIONS: Array<{
-  value: SendMessageShortcut;
-  label: string;
-  helper: string;
-}> = [
-  {
-    value: 'ModifierEnter',
-    label: 'Ctrl / Cmd + Enter',
-    helper: '使用 Ctrl / Cmd + Enter 发送消息，Enter 仅换行。',
-  },
-  {
-    value: 'Enter',
-    label: 'Enter',
-    helper: '使用 Enter 直接发送消息，Shift + Enter 换行。',
-  },
-];
+function groupBy<T>(items: T[], key: (item: T) => string): [string, T[]][] {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    (map.get(k) ?? map.set(k, []).get(k)!).push(item);
+  }
+  return [...map.entries()];
+}
+
+/** A single rebindable shortcut row: shows keys, captures a new chord, resets. */
+function ShortcutRow({
+  binding,
+  conflicts,
+  capturing,
+  captureError,
+  onStartCapture,
+  onReset,
+}: {
+  binding: EffectiveKeyBinding;
+  conflicts: EffectiveKeyBinding[];
+  capturing: boolean;
+  captureError: boolean;
+  onStartCapture: () => void;
+  onReset: () => void;
+}) {
+  const { t } = useTranslation(['settings', 'common']);
+
+  return (
+    <div className="settings-row flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{binding.description}</span>
+          {binding.scopes?.map((scope) => (
+            <span
+              key={scope}
+              className="settings-meta-chip px-1.5 py-0.5 text-[10px]"
+            >
+              {scope}
+            </span>
+          ))}
+          {conflicts.length > 0 ? (
+            <span
+              className="rounded px-1.5 py-0.5 text-[10px] text-destructive"
+              title={conflicts
+                .map((c) =>
+                  t('shortcuts.conflictWith', { description: c.description })
+                )
+                .join('\n')}
+            >
+              {t('shortcuts.conflict')}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {capturing ? (
+          <span className="text-[11px] text-muted-foreground">
+            {captureError
+              ? t('shortcuts.unsupportedKey')
+              : t('shortcuts.capturing')}
+          </span>
+        ) : (
+          <div className="flex flex-wrap justify-end gap-1">
+            {binding.keys.map((key) => (
+              <kbd
+                key={key}
+                className="settings-kbd px-2 py-1 text-[11px] font-mono"
+              >
+                {formatChord(key)}
+              </kbd>
+            ))}
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-xs"
+          onClick={onStartCapture}
+          disabled={capturing}
+        >
+          {t('shortcuts.rebind')}
+        </Button>
+        {binding.overridden ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs"
+            onClick={onReset}
+            title={t('common:reset')}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export function ShortcutSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? structuredClone(config) : null
   );
   const [saving, setSaving] = useState(false);
+
+  const overrides = useKeyBindingOverridesStore((s) => s.overrides);
+  const setOverride = useKeyBindingOverridesStore((s) => s.setOverride);
+  const clearOverride = useKeyBindingOverridesStore((s) => s.clearOverride);
+  const clearAll = useKeyBindingOverridesStore((s) => s.clearAll);
+
+  const [capturingId, setCapturingId] = useState<string | null>(null);
+  const [captureError, setCaptureError] = useState(false);
 
   useEffect(() => {
     if (config) {
@@ -42,20 +142,80 @@ export function ShortcutSettings() {
     }
   }, [config]);
 
-  const hasUnsavedChanges = useMemo(() => {
-    return (
+  // Global capture-phase listener while rebinding — intercepts the chord before
+  // the app's own hotkeys can fire on it.
+  useEffect(() => {
+    if (!capturingId) return;
+
+    const handler = (event: KeyboardEvent) => {
+      // Ignore lone modifier presses so the user can hold e.g. ⌘ then a key.
+      if (['Meta', 'Control', 'Alt', 'Shift'].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      // Bare Escape cancels the capture (can't rebind onto Escape in v1).
+      if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        setCapturingId(null);
+        setCaptureError(false);
+        return;
+      }
+
+      const chord = chordFromEvent(event);
+      if (!chord) {
+        setCaptureError(true);
+        return;
+      }
+      setOverride(capturingId, chord);
+      setCapturingId(null);
+      setCaptureError(false);
+    };
+
+    window.addEventListener('keydown', handler, { capture: true });
+    return () =>
+      window.removeEventListener('keydown', handler, { capture: true });
+  }, [capturingId, setOverride]);
+
+  const effective = useMemo(
+    () => getEffectiveKeyBindings(overrides),
+    [overrides]
+  );
+  const groupedBindings = useMemo(
+    () => groupBy(effective, (b) => b.group ?? 'Other'),
+    [effective]
+  );
+  const hasOverrides = Object.keys(overrides).length > 0;
+
+  const hasUnsavedChanges = useMemo(
+    () =>
       !!config &&
       !!draft &&
-      draft.send_message_shortcut !== config.send_message_shortcut
-    );
-  }, [config, draft]);
+      draft.send_message_shortcut !== config.send_message_shortcut,
+    [config, draft]
+  );
+
+  const sendShortcutOptions = useMemo(
+    () => [
+      {
+        value: 'ModifierEnter' as SendMessageShortcut,
+        label: t('shortcuts.sendModifierEnterLabel'),
+        helper: t('shortcuts.sendModifierEnterHelper'),
+      },
+      {
+        value: 'Enter' as SendMessageShortcut,
+        label: t('shortcuts.sendEnterLabel'),
+        helper: t('shortcuts.sendEnterHelper'),
+      },
+    ],
+    [t]
+  );
 
   const selectedShortcutHelper = useMemo(
     () =>
-      SEND_MESSAGE_SHORTCUT_OPTIONS.find(
+      sendShortcutOptions.find(
         (option) => option.value === draft?.send_message_shortcut
       )?.helper ?? '',
-    [draft?.send_message_shortcut]
+    [draft?.send_message_shortcut, sendShortcutOptions]
   );
 
   const updateSendShortcut = useCallback((value: SendMessageShortcut) => {
@@ -98,12 +258,16 @@ export function ShortcutSettings() {
         <section className="settings-section space-y-3">
           <div className="flex items-center gap-2">
             <Keyboard className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">输入</h3>
+            <h3 className="text-sm font-semibold">
+              {t('shortcuts.inputTitle')}
+            </h3>
           </div>
           <div className="settings-card overflow-hidden rounded-lg border">
             <div className="settings-row flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-sm font-medium">发送快捷键</div>
+                <div className="text-sm font-medium">
+                  {t('shortcuts.sendLabel')}
+                </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {selectedShortcutHelper}
                 </p>
@@ -118,7 +282,7 @@ export function ShortcutSettings() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="start">
-                  {SEND_MESSAGE_SHORTCUT_OPTIONS.map((option) => (
+                  {sendShortcutOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -130,40 +294,89 @@ export function ShortcutSettings() {
         </section>
 
         <section className="settings-section space-y-3">
-          <div className="flex items-center gap-2">
-            <Keyboard className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">快捷键</h3>
-          </div>
-          <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
-            {IMPLEMENTED_SHORTCUTS.map((item) => (
-              <div
-                key={item.id}
-                className="settings-row flex items-center justify-between gap-4"
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <Keyboard className="h-4 w-4 text-muted-foreground" />
+                {t('shortcuts.sectionTitle')}
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t('shortcuts.sectionDescription')}
+              </p>
+            </div>
+            {hasOverrides ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 text-xs"
+                onClick={() => clearAll()}
               >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium">{item.name}</span>
-                    <span className="settings-meta-chip px-1.5 py-0.5 text-[10px]">
-                      {item.scope}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {item.description}
-                  </p>
+                <RotateCcw className="mr-1 h-3 w-3" />
+                {t('shortcuts.resetAll')}
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="space-y-4">
+            {groupedBindings.map(([group, bindings]) => (
+              <div key={group} className="space-y-1.5">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {group}
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                  {item.keys.map((key) => (
-                    <kbd
-                      key={key}
-                      className="settings-kbd px-2 py-1 text-[11px] font-mono"
-                    >
-                      {key}
-                    </kbd>
+                <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
+                  {bindings.map((binding) => (
+                    <ShortcutRow
+                      key={binding.id}
+                      binding={binding}
+                      conflicts={findChordConflicts(binding, effective)}
+                      capturing={capturingId === binding.id}
+                      captureError={captureError}
+                      onStartCapture={() => {
+                        setCaptureError(false);
+                        setCapturingId(binding.id);
+                      }}
+                      onReset={() => clearOverride(binding.id)}
+                    />
                   ))}
                 </div>
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="settings-section space-y-3">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <Keyboard className="h-4 w-4 text-muted-foreground" />
+              {t('shortcuts.sequentialTitle')}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {t('shortcuts.sequentialDescription')}
+            </p>
+          </div>
+          <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
+            {sequentialBindings.map((binding) => (
+              <div
+                key={binding.id}
+                className="settings-row flex items-center justify-between gap-4"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm">{binding.description}</span>
+                    <span className="settings-meta-chip px-1.5 py-0.5 text-[10px]">
+                      {binding.group}
+                    </span>
+                  </div>
+                </div>
+                <kbd className="settings-kbd shrink-0 px-2 py-1 text-[11px] font-mono">
+                  {formatSequentialKeys(binding.keys)}
+                </kbd>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {t('shortcuts.readOnlyNote')}
+          </p>
         </section>
       </div>
 
@@ -171,7 +384,7 @@ export function ShortcutSettings() {
         <div className="settings-action-bar sticky bottom-0 z-10 mt-4 py-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">
-              有未保存的更改
+              {t('shortcuts.unsaved')}
             </span>
             <div className="flex gap-2">
               <Button
@@ -182,7 +395,7 @@ export function ShortcutSettings() {
                 disabled={saving}
               >
                 <Undo2 className="mr-1 h-3 w-3" />
-                放弃
+                {t('common:discard')}
               </Button>
               <Button
                 size="sm"
@@ -195,7 +408,7 @@ export function ShortcutSettings() {
                 ) : (
                   <Save className="mr-1 h-3 w-3" />
                 )}
-                保存设置
+                {t('shortcuts.saveSettings')}
               </Button>
             </div>
           </div>

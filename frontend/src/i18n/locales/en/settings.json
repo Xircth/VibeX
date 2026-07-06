@@ -36,6 +36,27 @@
       "hint": "Bilingual coverage is progressive — some screens are still Chinese-only and will be completed over time."
     }
   },
+  "shortcuts": {
+    "inputTitle": "Input",
+    "sendLabel": "Send shortcut",
+    "sendModifierEnterLabel": "Ctrl / Cmd + Enter",
+    "sendModifierEnterHelper": "Send with Ctrl / Cmd + Enter; Enter inserts a newline.",
+    "sendEnterLabel": "Enter",
+    "sendEnterHelper": "Send with Enter; Shift + Enter inserts a newline.",
+    "sectionTitle": "Shortcuts",
+    "sectionDescription": "Rebind keys for the actions below; applies instantly and is remembered.",
+    "resetAll": "Reset all to default",
+    "rebind": "Rebind",
+    "capturing": "Press the new key combination… (Esc to cancel)",
+    "unsupportedKey": "Unsupported key — try another combination.",
+    "conflict": "Conflict",
+    "conflictWith": "Conflicts with “{{description}}”",
+    "sequentialTitle": "Chord shortcuts (read-only)",
+    "sequentialDescription": "Two-step chords (e.g. G then S); not rebindable yet.",
+    "readOnlyNote": "System/raw shortcuts (e.g. Cmd+P, Cmd+,) are not rebindable here yet.",
+    "unsaved": "You have unsaved changes",
+    "saveSettings": "Save settings"
+  },
   "automations": {
     "pageTitle": "Automations",
     "pageDescription": "Save a “start turn” as a reusable automation that runs headlessly, manually or on a cron schedule; each run creates a real session you can open in the workspace.",

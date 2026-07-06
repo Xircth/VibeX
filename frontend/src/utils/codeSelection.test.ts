@@ -33,6 +33,22 @@ describe('computeLineRange', () => {
     expect(computeLineRange(CONTENT, 'not present')).toBeNull();
   });
 
+  it('returns null when the fragment is ambiguous (repeats)', () => {
+    // A boilerplate line that appears more than once (or old-side diff text
+    // that also exists elsewhere in the file) can't be mapped to a single
+    // occurrence from selection text alone — refuse rather than cite a wrong line.
+    const dup = `open\n});\nmiddle\n});\nclose`;
+    expect(computeLineRange(dup, '});')).toBeNull();
+  });
+
+  it('still maps a multi-line selection that is unique even if a sub-line repeats', () => {
+    const dup = `head\n});\nbody\n});\ntail`;
+    expect(computeLineRange(dup, '});\nbody')).toEqual({
+      startLine: 2,
+      endLine: 3,
+    });
+  });
+
   it('is robust to CRLF content', () => {
     expect(computeLineRange('a\r\nb\r\nc', 'b')).toEqual({
       startLine: 2,

@@ -1615,6 +1615,17 @@ impl AgentConnectionRunner {
                             *self.last_activity.lock().await = Instant::now();
                             self.respond_pending_permission(&permission_id, response).await;
                         }
+                        Some(AgentConnectionCommand::ForkSession { result_tx, .. }) => {
+                            // A fork can't be taken mid-turn: the session state is
+                            // actively mutating, so we'd branch a partial context.
+                            // Answer the waiting caller with an accurate error instead
+                            // of dropping result_tx (a dropped sender surfaces as the
+                            // misleading "connection closed before session fork").
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot fork the session while a turn is in progress; wait for it to finish"
+                                    .into(),
+                            )));
+                        }
                         Some(other) => {
                             self.emit(
                                 Some(session_id),

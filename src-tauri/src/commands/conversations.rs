@@ -595,6 +595,48 @@ pub async fn conversation_fork(
                 {
                     tracing::warn!(%error, "failed to bind forked ACP session to conversation");
                 }
+                // The turn-resume path resolves the session to resume from
+                // `conversation_agent_bindings` (not sessions.external_session_id),
+                // so without a binding row the fork would cold-start and drop the
+                // branched context — defeating the feature. Mirror the import path
+                // (import_agent_session_to_conversation_events) and register a
+                // binding carrying the forked acp session id so continuing the fork
+                // resumes it via ACP `session/load`.
+                let working_dir =
+                    ConversationAgentBindingRecord::latest_for_conversation(pool, source_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|binding| binding.working_dir)
+                        .unwrap_or_default();
+                if let Err(error) = ConversationAgentBindingRecord::create(
+                    pool,
+                    Uuid::new_v4(),
+                    CreateConversationAgentBinding {
+                        conversation_id: new_id,
+                        agent_type,
+                        working_dir: &working_dir,
+                        acp_session_id: Some(&forked_external_id),
+                        acp_protocol_version: None,
+                        load_supported: true,
+                        resume_supported: true,
+                        close_supported: true,
+                        terminal_supported: true,
+                        additional_directories_supported: false,
+                        prompt_capabilities_json: "{}",
+                        session_capabilities_json: "{}",
+                        client_capabilities_json: "{}",
+                        mcp_servers_json: "[]",
+                        modes_json: "[]",
+                        config_options_json: "[]",
+                        current_mode: None,
+                        status: "closed",
+                    },
+                )
+                .await
+                {
+                    tracing::warn!(%error, "failed to record forked ACP session binding");
+                }
             }
             Err(error) => {
                 tracing::info!(

@@ -1,8 +1,14 @@
 /**
  * Map a selected text fragment back to a 1-based line range within `content`,
  * by locating the fragment in the known content string (robust to how the
- * viewer renders/highlights it). Returns null when the fragment is empty or not
- * found. Uses the first occurrence when the fragment repeats.
+ * viewer renders/highlights it). Returns null when the fragment is empty, not
+ * found, or ambiguous.
+ *
+ * Ambiguity guard: a plain text selection carries no position, so if the exact
+ * fragment appears more than once we can't tell which occurrence the user meant
+ * (repeated boilerplate lines, or — in a two-sided diff — an old/deleted line
+ * whose text also exists elsewhere in the new content). In those cases we return
+ * null rather than cite a wrong line: no reference is better than a wrong one.
  */
 export function computeLineRange(
   content: string,
@@ -15,6 +21,8 @@ export function computeLineRange(
   const normalized = content.replace(/\r/g, '');
   const index = normalized.indexOf(fragment);
   if (index < 0) return null;
+  // Refuse ambiguous matches — the selection can't disambiguate repeats.
+  if (normalized.indexOf(fragment, index + 1) !== -1) return null;
 
   const before = normalized.slice(0, index);
   const startLine = (before.match(/\n/g)?.length ?? 0) + 1;

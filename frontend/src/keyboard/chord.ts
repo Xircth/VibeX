@@ -20,7 +20,9 @@ const CODE_TO_TOKEN: Record<string, string> = {
   Slash: 'slash',
   Period: 'period',
   Comma: 'comma',
-  Backquote: 'backtick',
+  // Must be 'backquote' (not 'backtick'): react-hotkeys-hook maps event.code
+  // 'Backquote' → 'backquote' at match time, so any other token silently never fires.
+  Backquote: 'backquote',
   Minus: 'minus',
   Equal: 'equal',
   Semicolon: 'semicolon',
@@ -83,7 +85,7 @@ const TOKEN_DISPLAY: Record<string, string> = {
   slash: '/',
   period: '.',
   comma: ',',
-  backtick: '`',
+  backquote: '`',
   up: '↑',
   down: '↓',
   left: '←',

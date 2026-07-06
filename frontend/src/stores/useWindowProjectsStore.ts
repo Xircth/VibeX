@@ -411,7 +411,15 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       partialize: (state) => ({
         openProjectIds: state.openProjectIds,
         lastRouteByProject: state.lastRouteByProject,
-        projectSnapshots: state.projectSnapshots,
+        // runningCount reflects live in-flight sessions, which never survive an
+        // app restart — persist it as 0 so the status-bar count badge doesn't show
+        // a phantom count on the next launch before trackers reload (P3-5).
+        projectSnapshots: Object.fromEntries(
+          Object.entries(state.projectSnapshots).map(([id, snapshot]) => [
+            id,
+            { ...snapshot, runningCount: 0 },
+          ])
+        ),
         projectAlerts: state.projectAlerts,
       }),
     }

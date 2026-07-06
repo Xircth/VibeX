@@ -23,6 +23,10 @@ export function UpdateAvailableBadge() {
       const { check } = await import('@tauri-apps/plugin-updater');
       const update = await check();
       setVersion(update?.version ?? null);
+      // check() returns a Tauri Resource (backend rid); we only read the version
+      // here (the actual download happens in AppUpdaterSection), so release it to
+      // avoid leaking one resource-table entry on every poll.
+      await update?.close();
     } catch {
       // No updater configured / dev build / offline — stay silent.
     }

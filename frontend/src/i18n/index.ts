@@ -17,6 +17,7 @@ import {
   getUiLanguage,
   persistUiLanguage,
   DEFAULT_LANGUAGE,
+  LANGUAGE_KEY,
   type UiLanguage,
 } from '@/lib/uiLanguage';
 
@@ -52,6 +53,20 @@ void i18n.use(initReactI18next).init({
 export function setUiLanguage(language: UiLanguage): void {
   persistUiLanguage(language);
   void i18n.changeLanguage(language);
+}
+
+// Cross-window sync: the Settings webview is a separate JS context with its own
+// i18n singleton. localStorage is shared and fires a `storage` event in the OTHER
+// windows when it changes, so mirror the language change into this window's i18n
+// (e.g. main window re-localizes when Settings switches language).
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== LANGUAGE_KEY) return;
+    const next = getUiLanguage();
+    if (i18n.language !== next) {
+      void i18n.changeLanguage(next);
+    }
+  });
 }
 
 export default i18n;

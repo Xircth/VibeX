@@ -507,8 +507,11 @@ export function getEffectiveKeyBindings(
 }
 
 function scopesOverlap(a?: Scope[], b?: Scope[]): boolean {
-  // An undefined scope means global — it overlaps every scope.
+  // An undefined scope, or the explicit GLOBAL scope, means the binding is
+  // active everywhere — it overlaps every scope. (GLOBAL is always kept active
+  // alongside the view scopes, so a GLOBAL chord genuinely collides in any view.)
   if (!a || !b) return true;
+  if (a.includes(Scope.GLOBAL) || b.includes(Scope.GLOBAL)) return true;
   return a.some((scope) => b.includes(scope));
 }
 

@@ -16,7 +16,7 @@ export const LANGUAGE_LABELS: Record<UiLanguage, string> = {
   en: 'English',
 };
 
-const LANGUAGE_KEY = 'vibex:ui-language';
+export const LANGUAGE_KEY = 'vibex:ui-language';
 export const DEFAULT_LANGUAGE: UiLanguage = 'zh-CN';
 
 function isSupported(value: string | null): value is UiLanguage {

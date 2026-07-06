@@ -51,6 +51,14 @@ describe('chordFromEvent', () => {
   it('returns null for an unsupported key', () => {
     expect(chordFromEvent(evt({ key: 'F1', code: 'F1' }))).toBeNull();
   });
+
+  it('maps Backquote to the react-hotkeys-hook token "backquote"', () => {
+    // The library derives this token from event.code at match time; any other
+    // spelling (e.g. "backtick") would register but never fire.
+    expect(chordFromEvent(evt({ key: '`', code: 'Backquote', metaKey: true }))).toBe(
+      'meta+backquote'
+    );
+  });
 });
 
 describe('formatChord', () => {
@@ -91,6 +99,16 @@ describe('findChordConflicts', () => {
     const target = effective.find((b) => b.id === id)!;
     const conflicts = findChordConflicts(target, effective);
     expect(conflicts.map((c) => c.action)).toContain(Action.NAV_UP);
+  });
+
+  it('flags a conflict against a GLOBAL binding (active in every view)', () => {
+    // SHOW_HELP is GLOBAL ('shift+slash'); rebinding a kanban action onto it
+    // collides because GLOBAL is always active alongside the view scope.
+    const id = bindingKey(Action.DELETE_TASK, [Scope.KANBAN]);
+    const effective = getEffectiveKeyBindings({ [id]: 'shift+slash' });
+    const target = effective.find((b) => b.id === id)!;
+    const conflicts = findChordConflicts(target, effective);
+    expect(conflicts.map((c) => c.action)).toContain(Action.SHOW_HELP);
   });
 
   it('does not flag identical chords in non-overlapping scopes', () => {

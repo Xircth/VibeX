@@ -50,6 +50,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 aes-gcm = { version = "0.10", features = ["stream"] }
 argon2 = "0.5"
 rand = "0.8"
+# Deep links (P2-5). single-instance MUST be registered before deep-link.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-deep-link = "2"
+url = "2"
 
 # Reuse existing workspace crates
 db = { path = "../crates/db" }

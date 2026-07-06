@@ -41,6 +41,11 @@
     "shell": {
       "open": true
     },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["vibex"]
+      }
+    },
     "fs": {
       "requireLiteralLeadingDot": false
     },

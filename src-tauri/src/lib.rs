@@ -4,6 +4,7 @@ pub mod bridge;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
+mod deeplink;
 mod delegation;
 mod error;
 mod logging;
@@ -64,6 +65,13 @@ pub fn run() {
     install_rustls_crypto_provider();
 
     tauri::Builder::default()
+        // single-instance MUST come first and before deep-link (P2-5): it forwards
+        // a second launch's args (carrying the vibex:// URL on Windows/Linux) into
+        // the running instance.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            deeplink::route_deep_link_args(app, &args);
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -170,6 +178,17 @@ pub fn run() {
             // (no StatusNotifierWatcher) even on success, so log and continue.
             if let Err(error) = tray::install_tray_icon(app.handle()) {
                 tracing::warn!("Failed to install tray icon: {}", error);
+            }
+
+            // Deep links (P2-5). macOS delivers URLs here; register the scheme at
+            // runtime too so it works in dev on Linux/Windows (best-effort).
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let deep_link_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    deeplink::route_deep_link_urls(&deep_link_handle, &event.urls());
+                });
+                let _ = app.deep_link().register_all();
             }
 
             Ok(())

@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -77,11 +78,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// Returns an i18n key (resolved by the caller via `t`) or null when valid.
 function validateDraft(draft: InstructionDraft): string | null {
-  if (!draft.name.trim()) return '请填写指令名称。';
-  if (/\s/.test(draft.name.trim())) return '指令名称不能包含空格。';
-  if (!draft.content.trim()) return '请填写指令内容。';
-  if (draft.agentTypes.length === 0) return '请至少选择一个可用 Agent。';
+  if (!draft.name.trim()) return 'instructions.nameRequired';
+  if (/\s/.test(draft.name.trim())) return 'instructions.nameNoSpaces';
+  if (!draft.content.trim()) return 'instructions.contentRequired';
+  if (draft.agentTypes.length === 0) return 'instructions.agentRequired';
   return null;
 }
 
@@ -92,8 +94,11 @@ function AgentMultiSelect({
   value: string[];
   onChange: (next: string[]) => void;
 }) {
+  const { t } = useTranslation(['settings', 'common']);
   const allSelected = value.length === AGENT_OPTIONS.length;
-  const label = allSelected ? '全部 Agent' : `${value.length} 个 Agent`;
+  const label = allSelected
+    ? t('instructions.allAgents')
+    : t('instructions.agentCount', { count: value.length });
 
   const toggleAgent = (agent: string, checked: boolean) => {
     if (checked) {
@@ -126,7 +131,7 @@ function AgentMultiSelect({
             }}
           >
             <Checkbox checked={allSelected} className="pointer-events-none" />
-            <span className="font-medium">全部 Agent</span>
+            <span className="font-medium">{t('instructions.allAgents')}</span>
           </div>
 
           <div className="h-px bg-border" />
@@ -163,6 +168,7 @@ function AgentMultiSelect({
 }
 
 export function InstructionsSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [localInstructions, setLocalInstructions] = useState<Instruction[]>([]);
@@ -193,23 +199,27 @@ export function InstructionsSettings() {
       setLocalInstructions(list);
       return list;
     } catch (error) {
-      toast.error('指令列表加载失败', { description: errorMessage(error) });
+      toast.error(t('instructions.loadListFailed'), {
+        description: errorMessage(error),
+      });
       return [];
     } finally {
       setLoadingLocal(false);
     }
-  }, []);
+  }, [t]);
 
   const refreshMarket = useCallback(async () => {
     try {
       setLoadingMarket(true);
       setMarketInstructions(await instructionsApi.listOfficial());
     } catch (error) {
-      toast.error('官方市场加载失败', { description: errorMessage(error) });
+      toast.error(t('instructions.loadMarketFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setLoadingMarket(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void refreshLocal();
@@ -264,7 +274,7 @@ export function InstructionsSettings() {
   const saveLocal = async () => {
     const validation = validateDraft(draft);
     if (validation) {
-      toast.error(validation);
+      toast.error(t(validation));
       return;
     }
 
@@ -290,9 +300,11 @@ export function InstructionsSettings() {
       setLocalInstructions(list);
       setDraft(draftFromInstruction(saved));
       setDirty(false);
-      toast.success('指令已保存');
+      toast.success(t('instructions.saved'));
     } catch (error) {
-      toast.error('保存指令失败', { description: errorMessage(error) });
+      toast.error(t('instructions.saveFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setSaving(false);
     }
@@ -302,7 +314,7 @@ export function InstructionsSettings() {
     if (!selectedMarket) return;
     const validation = validateDraft(draft);
     if (validation) {
-      toast.error(validation);
+      toast.error(t(validation));
       return;
     }
 
@@ -318,9 +330,11 @@ export function InstructionsSettings() {
       setSelection({ kind: 'local', id: saved.id });
       setDraft(draftFromInstruction(saved));
       setDirty(false);
-      toast.success('已配置到本地');
+      toast.success(t('instructions.installedToLocal'));
     } catch (error) {
-      toast.error('配置官方指令失败', { description: errorMessage(error) });
+      toast.error(t('instructions.installFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setSaving(false);
     }
@@ -329,10 +343,10 @@ export function InstructionsSettings() {
   const deleteLocal = async () => {
     if (!selectedLocal) return;
     const result = await ConfirmDialog.show({
-      title: `删除指令 #${selectedLocal.name}?`,
-      message: '删除后，任务输入框中对应的 #tag_name 片段也会不可用。',
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t('instructions.deleteConfirmTitle', { name: selectedLocal.name }),
+      message: t('instructions.deleteConfirmMessage'),
+      confirmText: t('common:delete'),
+      cancelText: t('common:cancel'),
       variant: 'destructive',
     });
     if (result !== 'confirmed') return;
@@ -344,9 +358,11 @@ export function InstructionsSettings() {
       setSelection(null);
       setDraft(emptyDraft());
       setDirty(false);
-      toast.success('指令已删除');
+      toast.success(t('instructions.deleted'));
     } catch (error) {
-      toast.error('删除指令失败', { description: errorMessage(error) });
+      toast.error(t('instructions.deleteFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setSaving(false);
     }
@@ -366,7 +382,7 @@ export function InstructionsSettings() {
       return (
         <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          加载中
+          {t('instructions.loading')}
         </div>
       );
     }
@@ -374,7 +390,9 @@ export function InstructionsSettings() {
     if (items.length === 0) {
       return (
         <div className="settings-empty-state py-10 text-center">
-          {leftTab === 'local' ? '暂无本地指令。' : '暂无官方指令。'}
+          {leftTab === 'local'
+            ? t('instructions.emptyLocal')
+            : t('instructions.emptyMarket')}
         </div>
       );
     }
@@ -401,7 +419,7 @@ export function InstructionsSettings() {
             </span>
             {leftTab === 'market' ? (
               <Badge variant="secondary" className="h-5 text-[10px]">
-                官方
+                {t('instructions.officialBadge')}
               </Badge>
             ) : null}
           </div>
@@ -415,18 +433,18 @@ export function InstructionsSettings() {
 
   const editorTitle =
     selection?.kind === 'new'
-      ? '新建指令'
+      ? t('instructions.newInstruction')
       : selection?.kind === 'market'
-        ? '官方指令'
+        ? t('instructions.officialInstruction')
         : selectedLocal
           ? `#${selectedLocal.name}`
-          : '指令预览';
+          : t('instructions.preview');
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SettingsPageHeader
-        title="指令"
-        description="管理可通过 #tag_name 插入任务输入框的快捷指令。"
+        title={t('instructions.title')}
+        description={t('instructions.description')}
       />
 
       <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] gap-4">
@@ -442,7 +460,7 @@ export function InstructionsSettings() {
                 )}
                 onClick={() => setLeftTab('local')}
               >
-                本地
+                {t('instructions.tabLocal')}
               </Button>
               <Button
                 variant="ghost"
@@ -453,7 +471,7 @@ export function InstructionsSettings() {
                 )}
                 onClick={() => setLeftTab('market')}
               >
-                官方市场
+                {t('instructions.tabMarket')}
               </Button>
             </div>
 
@@ -462,7 +480,7 @@ export function InstructionsSettings() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索指令"
+                placeholder={t('instructions.searchPlaceholder')}
                 className="pl-8"
               />
             </div>
@@ -480,7 +498,7 @@ export function InstructionsSettings() {
                 type="button"
                 onClick={refreshLocal}
                 disabled={loadingLocal}
-                title="刷新"
+                title={t('instructions.refresh')}
               >
                 <RefreshCw
                   className={cn('h-4 w-4', loadingLocal && 'animate-spin')}
@@ -488,7 +506,7 @@ export function InstructionsSettings() {
               </Button>
               <Button type="button" className="flex-1" onClick={startNew}>
                 <Plus className="mr-2 h-4 w-4" />
-                新建指令
+                {t('instructions.newInstruction')}
               </Button>
             </div>
           ) : (
@@ -501,7 +519,7 @@ export function InstructionsSettings() {
                 disabled={loadingMarket}
               >
                 <Store className="mr-2 h-4 w-4" />
-                刷新市场
+                {t('instructions.refreshMarket')}
               </Button>
             </div>
           )}
@@ -511,7 +529,7 @@ export function InstructionsSettings() {
           {!selection ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
               <MessageSquareText className="h-10 w-10 opacity-35" />
-              <p className="mt-3 text-sm">选择左侧指令进行预览或编辑。</p>
+              <p className="mt-3 text-sm">{t('instructions.selectPrompt')}</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -520,8 +538,8 @@ export function InstructionsSettings() {
                   <h3 className="text-base font-semibold">{editorTitle}</h3>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {selection.kind === 'market'
-                      ? '可调整配置后写入本地。'
-                      : '保存后可在任务输入框继续使用 #tag_name。'}
+                      ? t('instructions.marketHint')
+                      : t('instructions.localHint')}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -533,7 +551,7 @@ export function InstructionsSettings() {
                       disabled={saving}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
-                      删除
+                      {t('common:delete')}
                     </Button>
                   ) : null}
                   <Button
@@ -548,7 +566,9 @@ export function InstructionsSettings() {
                     ) : (
                       <Save className="mr-2 h-4 w-4" />
                     )}
-                    {selection.kind === 'market' ? '配置到本地' : '保存'}
+                    {selection.kind === 'market'
+                      ? t('instructions.installToLocal')
+                      : t('common:save')}
                   </Button>
                 </div>
               </div>
@@ -556,9 +576,9 @@ export function InstructionsSettings() {
               <div className="grid gap-4">
                 <div className="settings-row settings-row--stacked">
                   <div>
-                    <Label>名称</Label>
+                    <Label>{t('instructions.nameLabel')}</Label>
                     <p className="settings-row__description">
-                      对应任务输入框中的 #tag_name。
+                      {t('instructions.nameFieldDescription')}
                     </p>
                   </div>
                   <Input
@@ -572,9 +592,9 @@ export function InstructionsSettings() {
 
                 <div className="settings-row settings-row--stacked">
                   <div>
-                    <Label>可用 Agent</Label>
+                    <Label>{t('instructions.agentLabel')}</Label>
                     <p className="settings-row__description">
-                      默认全部，也可限制到指定 Agent。
+                      {t('instructions.agentFieldDescription')}
                     </p>
                   </div>
                   <AgentMultiSelect
@@ -585,9 +605,9 @@ export function InstructionsSettings() {
 
                 <div className="settings-row settings-row--stacked">
                   <div>
-                    <Label>内容</Label>
+                    <Label>{t('instructions.contentLabel')}</Label>
                     <p className="settings-row__description">
-                      插入指令时写入任务输入框的完整提示词。
+                      {t('instructions.contentFieldDescription')}
                     </p>
                   </div>
                   <Textarea

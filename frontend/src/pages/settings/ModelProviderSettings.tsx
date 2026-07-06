@@ -14,6 +14,7 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
@@ -55,11 +56,6 @@ const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
   { value: 'openclaw', label: 'OpenClaw' },
   { value: 'cline', label: 'Cline' },
   { value: 'hermes', label: 'Hermes' },
-];
-
-const AUTH_OPTIONS = [
-  { value: 'openai_compatible', label: 'OpenAI 兼容' },
-  { value: 'anthropic', label: 'Anthropic' },
 ];
 
 function defaultAuthType(agent: AgentType): string {
@@ -109,6 +105,17 @@ function errorMessage(error: unknown): string {
 }
 
 export function ModelProviderSettings() {
+  const { t } = useTranslation(['settings', 'common']);
+  const AUTH_OPTIONS = useMemo(
+    () => [
+      {
+        value: 'openai_compatible',
+        label: t('modelProviders.authOpenAICompatible'),
+      },
+      { value: 'anthropic', label: 'Anthropic' },
+    ],
+    [t]
+  );
   const [selectedAgent, setSelectedAgent] = useState<AgentType>('claude_code');
   const [view, setView] = useState<AgentProvidersView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -140,12 +147,14 @@ export function ModelProviderSettings() {
       const result = await modelProviderApi.list(agent);
       setView(result);
     } catch (error) {
-      toast.error('模型供应商加载失败', { description: errorMessage(error) });
+      toast.error(t('modelProviders.loadFailed'), {
+        description: errorMessage(error),
+      });
       setView(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load(selectedAgent);
@@ -226,7 +235,7 @@ export function ModelProviderSettings() {
 
   const saveProvider = async () => {
     if (!draft.name.trim()) {
-      toast.error('请填写供应商名称');
+      toast.error(t('modelProviders.nameRequired'));
       return;
     }
     setSaving(true);
@@ -240,10 +249,16 @@ export function ModelProviderSettings() {
           )
         : await modelProviderApi.create(selectedAgent, payload);
       setView(result);
-      toast.success(editingProvider ? '供应商已保存' : '供应商已创建');
+      toast.success(
+        editingProvider
+          ? t('modelProviders.providerSaved')
+          : t('modelProviders.providerCreated')
+      );
       setDialogOpen(false);
     } catch (error) {
-      toast.error('供应商保存失败', { description: errorMessage(error) });
+      toast.error(t('modelProviders.saveFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setSaving(false);
     }
@@ -254,42 +269,52 @@ export function ModelProviderSettings() {
     try {
       const result = await modelProviderApi.apply(selectedAgent, provider.id);
       setView(result);
-      toast.success(`已应用「${provider.name}」`, {
+      toast.success(t('modelProviders.applied', { name: provider.name }), {
         description: result.config_path
-          ? `已写入 ${result.config_path}`
+          ? t('modelProviders.writtenTo', { path: result.config_path })
           : undefined,
       });
     } catch (error) {
-      toast.error('应用供应商失败', { description: errorMessage(error) });
+      toast.error(t('modelProviders.applyFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setApplyingId(null);
     }
   };
 
   const deleteProvider = (provider: AgentProvider) => {
-    const toastId = toast.warning(`删除 ${provider.name}？`, {
-      duration: 8000,
-      action: {
-        label: '删除',
-        onClick: async () => {
-          toast.dismiss(toastId);
-          try {
-            const result = await modelProviderApi.delete(
-              selectedAgent,
-              provider.id
-            );
-            setView(result);
-            if (editingProvider?.id === provider.id) {
-              setDialogOpen(false);
+    const toastId = toast.warning(
+      t('modelProviders.deleteConfirm', { name: provider.name }),
+      {
+        duration: 8000,
+        action: {
+          label: t('common:delete'),
+          onClick: async () => {
+            toast.dismiss(toastId);
+            try {
+              const result = await modelProviderApi.delete(
+                selectedAgent,
+                provider.id
+              );
+              setView(result);
+              if (editingProvider?.id === provider.id) {
+                setDialogOpen(false);
+              }
+              toast.success(t('modelProviders.providerDeleted'));
+            } catch (error) {
+              toast.error(t('modelProviders.deleteFailed'), {
+                description: errorMessage(error),
+              });
             }
-            toast.success('供应商已删除');
-          } catch (error) {
-            toast.error('供应商删除失败', { description: errorMessage(error) });
-          }
+          },
         },
-      },
-      cancel: { label: '取消', onClick: () => toast.dismiss(toastId) },
-    });
+        cancel: {
+          label: t('common:cancel'),
+          onClick: () => toast.dismiss(toastId),
+        },
+      }
+    );
   };
 
   const fetchModels = async () => {
@@ -301,9 +326,13 @@ export function ModelProviderSettings() {
         editingProvider.id
       );
       setModels(result.models);
-      toast.success(`已同步 ${result.models.length} 个模型`);
+      toast.success(
+        t('modelProviders.modelsSynced', { num: result.models.length })
+      );
     } catch (error) {
-      toast.error('模型列表同步失败', { description: errorMessage(error) });
+      toast.error(t('modelProviders.modelsSyncFailed'), {
+        description: errorMessage(error),
+      });
     } finally {
       setModelsLoading(false);
     }
@@ -320,9 +349,11 @@ export function ModelProviderSettings() {
       setEditingProvider(
         result.providers.find((p) => p.id === editingProvider.id) ?? null
       );
-      toast.success('API Key 已移除');
+      toast.success(t('modelProviders.apiKeyRemoved'));
     } catch (error) {
-      toast.error('API Key 移除失败', { description: errorMessage(error) });
+      toast.error(t('modelProviders.apiKeyRemoveFailed'), {
+        description: errorMessage(error),
+      });
     }
   };
 
@@ -341,18 +372,18 @@ export function ModelProviderSettings() {
       AGENT_OPTIONS.find((agent) => agent.value === selectedAgent)?.label ??
       selectedAgent;
     if (!supportsApply) {
-      return `${agentLabel} 的供应商配置由其客户端自行管理，VibeX 暂不支持切换写入。`;
+      return t('modelProviders.unmanagedDescription', { agent: agentLabel });
     }
     return configPath
-      ? `应用后写入 ${configPath}（自动备份原文件）。`
-      : `配置 ${agentLabel} 使用的供应商。`;
-  }, [configPath, selectedAgent, supportsApply]);
+      ? t('modelProviders.applyWritesTo', { path: configPath })
+      : t('modelProviders.configureDescription', { agent: agentLabel });
+  }, [configPath, selectedAgent, supportsApply, t]);
 
   return (
     <div className="settings-content">
       <SettingsPageHeader
-        title="模型供应商"
-        description="先选择 Agent，再为其配置供应商；应用后写入该 Agent 的真实配置文件。"
+        title={t('modelProviders.title')}
+        description={t('modelProviders.pageDescription')}
       />
 
       {/* Agent selector — justified across the full width. */}
@@ -378,12 +409,12 @@ export function ModelProviderSettings() {
       <div className="settings-sections">
         <SettingsSection
           icon={Server}
-          title="供应商"
+          title={t('modelProviders.sectionTitle')}
           description={sectionDescription}
           action={
             <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <Plus className="mr-1 h-3.5 w-3.5" />
-              新建供应商
+              {t('modelProviders.newProvider')}
             </Button>
           }
         >
@@ -394,9 +425,11 @@ export function ModelProviderSettings() {
           ) : providers.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
               <Server className="h-8 w-8 text-muted-foreground/60" />
-              <p className="text-sm font-medium">还没有供应商</p>
+              <p className="text-sm font-medium">
+                {t('modelProviders.emptyTitle')}
+              </p>
               <p className="text-xs text-muted-foreground">
-                点击右上角「新建供应商」，应用后即可切换该 Agent 的模型接入。
+                {t('modelProviders.emptyDescription')}
               </p>
             </div>
           ) : (
@@ -418,7 +451,7 @@ export function ModelProviderSettings() {
                       {provider.is_current ? (
                         <span className="settings-status-pill-success inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium">
                           <CheckCircle2 className="h-3 w-3" />
-                          当前
+                          {t('modelProviders.currentBadge')}
                         </span>
                       ) : null}
                       {provider.auth_type === 'anthropic' ? (
@@ -454,7 +487,9 @@ export function ModelProviderSettings() {
                       ) : (
                         <Zap className="mr-1 h-3.5 w-3.5" />
                       )}
-                      {provider.is_current ? '重新应用' : '应用'}
+                      {provider.is_current
+                        ? t('modelProviders.reapply')
+                        : t('modelProviders.apply')}
                     </Button>
                   ) : null}
                   <Button
@@ -462,8 +497,8 @@ export function ModelProviderSettings() {
                     size="sm"
                     className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
                     onClick={() => openEdit(provider)}
-                    title="编辑"
-                    aria-label="编辑供应商"
+                    title={t('modelProviders.edit')}
+                    aria-label={t('modelProviders.editProvider')}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
@@ -472,8 +507,8 @@ export function ModelProviderSettings() {
                     size="sm"
                     className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
                     onClick={() => deleteProvider(provider)}
-                    title="删除"
-                    aria-label="删除供应商"
+                    title={t('common:delete')}
+                    aria-label={t('modelProviders.deleteProvider')}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
@@ -487,12 +522,14 @@ export function ModelProviderSettings() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen} className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {editingProvider ? '编辑供应商' : '新建供应商'}
+            {editingProvider
+              ? t('modelProviders.editProvider')
+              : t('modelProviders.newProvider')}
           </DialogTitle>
           <DialogDescription>
             {editingProvider
-              ? '更新供应商配置与密钥；若该供应商为当前项，保存后会同步写入配置文件。'
-              : '为该 Agent 配置一个供应商，支持 OpenAI 兼容与 Anthropic 协议。'}
+              ? t('modelProviders.editDialogDescription')
+              : t('modelProviders.createDialogDescription')}
           </DialogDescription>
         </DialogHeader>
 
@@ -500,7 +537,7 @@ export function ModelProviderSettings() {
           <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="provider-name" className="text-xs">
-                名称
+                {t('modelProviders.nameLabel')}
               </Label>
               <Input
                 id="provider-name"
@@ -511,11 +548,13 @@ export function ModelProviderSettings() {
                     name: event.target.value,
                   }))
                 }
-                placeholder="自定义供应商"
+                placeholder={t('modelProviders.namePlaceholder')}
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">接口协议</Label>
+              <Label className="text-xs">
+                {t('modelProviders.authTypeLabel')}
+              </Label>
               <Select
                 value={draft.auth_type}
                 onValueChange={(value) =>
@@ -538,7 +577,7 @@ export function ModelProviderSettings() {
 
           <div className="space-y-1.5">
             <Label htmlFor="provider-url" className="text-xs">
-              API 地址
+              {t('modelProviders.apiUrlLabel')}
             </Label>
             <Input
               id="provider-url"
@@ -555,7 +594,7 @@ export function ModelProviderSettings() {
 
           <div className="space-y-1.5">
             <Label htmlFor="provider-key" className="text-xs">
-              API 密钥
+              {t('modelProviders.apiKeyLabel')}
             </Label>
             <div className="flex gap-2">
               <Input
@@ -570,8 +609,8 @@ export function ModelProviderSettings() {
                 }
                 placeholder={
                   editingProvider?.has_api_key
-                    ? '已保存，留空保持不变'
-                    : '输入 API Key'
+                    ? t('modelProviders.apiKeySavedPlaceholder')
+                    : t('modelProviders.apiKeyPlaceholder')
                 }
               />
               {editingProvider?.has_api_key ? (
@@ -581,7 +620,7 @@ export function ModelProviderSettings() {
                   className="h-8 shrink-0 text-xs"
                   onClick={() => void clearApiKey()}
                 >
-                  移除
+                  {t('modelProviders.remove')}
                 </Button>
               ) : null}
             </div>
@@ -592,7 +631,7 @@ export function ModelProviderSettings() {
           >
             <div className="space-y-1.5">
               <Label htmlFor="provider-model" className="text-xs">
-                默认模型
+                {t('modelProviders.defaultModelLabel')}
               </Label>
               <Input
                 id="provider-model"
@@ -634,7 +673,9 @@ export function ModelProviderSettings() {
           {editingProvider ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs">模型列表</Label>
+                <Label className="text-xs">
+                  {t('modelProviders.modelListLabel')}
+                </Label>
                 <Button
                   variant="outline"
                   size="sm"
@@ -647,7 +688,7 @@ export function ModelProviderSettings() {
                   ) : (
                     <RefreshCw className="mr-1 h-3.5 w-3.5" />
                   )}
-                  同步模型
+                  {t('modelProviders.syncModels')}
                 </Button>
               </div>
               {models.length ? (
@@ -673,7 +714,7 @@ export function ModelProviderSettings() {
                 </div>
               ) : (
                 <p className="text-[11px] text-muted-foreground">
-                  从供应商的 `/v1/models` 同步可用模型，点击即可设为默认模型。
+                  {t('modelProviders.modelListHint')}
                 </p>
               )}
             </div>
@@ -693,10 +734,10 @@ export function ModelProviderSettings() {
                       previewOpen ? 'rotate-90' : ''
                     }`}
                   />
-                  预览配置文件
+                  {t('modelProviders.previewConfigFiles')}
                 </span>
                 <span className="text-[11px] text-muted-foreground">
-                  应用时写入这些文件
+                  {t('modelProviders.previewWriteHint')}
                 </span>
               </button>
 
@@ -708,7 +749,7 @@ export function ModelProviderSettings() {
                     </div>
                   ) : previewFiles.length === 0 ? (
                     <p className="py-2 text-center text-[11px] text-muted-foreground">
-                      填写 API 地址后可预览生成的配置文件。
+                      {t('modelProviders.previewEmpty')}
                     </p>
                   ) : (
                     previewFiles.map((file) => {
@@ -730,7 +771,7 @@ export function ModelProviderSettings() {
                                 className="inline-flex shrink-0 items-center gap-1 text-[11px] text-primary hover:underline"
                               >
                                 <RotateCcw className="h-3 w-3" />
-                                恢复与表单同步
+                                {t('modelProviders.resetToForm')}
                               </button>
                             ) : null}
                           </div>
@@ -760,7 +801,7 @@ export function ModelProviderSettings() {
             className="h-8 text-xs"
             onClick={() => setDialogOpen(false)}
           >
-            取消
+            {t('common:cancel')}
           </Button>
           <Button
             type="submit"
@@ -774,7 +815,7 @@ export function ModelProviderSettings() {
             ) : (
               <Save className="mr-1 h-3.5 w-3.5" />
             )}
-            {editingProvider ? '保存' : '创建'}
+            {editingProvider ? t('common:save') : t('modelProviders.create')}
           </Button>
         </DialogFooter>
       </Dialog>

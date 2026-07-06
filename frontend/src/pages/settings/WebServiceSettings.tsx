@@ -10,6 +10,7 @@ import {
   Shield,
   Square,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -39,14 +40,8 @@ function sameConfig(a: WebServiceConfig, b: WebServiceConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function statusLabel(status: WebServerStatus | null): string {
-  if (!status) {
-    return '未检查';
-  }
-  return status.running ? '运行中' : '已停止';
-}
-
 export function WebServiceSettings() {
+  const { t } = useTranslation(['settings', 'common']);
   const [config, setConfig] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const [status, setStatus] = useState<WebServerStatus | null>(null);
@@ -69,11 +64,13 @@ export function WebServiceSettings() {
       setDraft(savedConfig);
       setStatus(currentStatus);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Web 服务配置读取失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.configLoadFailed')
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -84,11 +81,13 @@ export function WebServiceSettings() {
     try {
       setStatus(await webServiceApi.getStatus());
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Web 服务状态读取失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.statusLoadFailed')
+      );
     } finally {
       setStatusBusy(false);
     }
-  }, []);
+  }, [t]);
 
   const saveConfig = useCallback(async () => {
     setSaving(true);
@@ -97,13 +96,15 @@ export function WebServiceSettings() {
       setConfig(saved);
       setDraft(saved);
       setProbe(null);
-      toast.success('Web 服务配置已保存');
+      toast.success(t('webService.configSaved'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Web 服务配置保存失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.configSaveFailed')
+      );
     } finally {
       setSaving(false);
     }
-  }, [draft]);
+  }, [draft, t]);
 
   const discard = useCallback(() => {
     setDraft(config);
@@ -112,32 +113,36 @@ export function WebServiceSettings() {
 
   const startServer = useCallback(async () => {
     if (dirty) {
-      toast.error('请先保存 Web 服务配置');
+      toast.error(t('webService.saveBeforeStart'));
       return;
     }
 
     setStatusBusy(true);
     try {
       setStatus(await webServiceApi.start());
-      toast.success('Web 服务已启动');
+      toast.success(t('webService.started'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Web 服务启动失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.startFailed')
+      );
     } finally {
       setStatusBusy(false);
     }
-  }, [dirty]);
+  }, [dirty, t]);
 
   const stopServer = useCallback(async () => {
     setStatusBusy(true);
     try {
       setStatus(await webServiceApi.stop());
-      toast.success('Web 服务已停止');
+      toast.success(t('webService.stopped'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Web 服务停止失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.stopFailed')
+      );
     } finally {
       setStatusBusy(false);
     }
-  }, []);
+  }, [t]);
 
   const probePort = useCallback(async () => {
     setProbing(true);
@@ -145,14 +150,18 @@ export function WebServiceSettings() {
       const result = await webServiceApi.probePort(draft.port);
       setProbe(result);
       toast[result.available ? 'success' : 'error'](
-        result.available ? '端口可用' : (result.message ?? '端口不可用')
+        result.available
+          ? t('webService.portAvailable')
+          : (result.message ?? t('webService.portUnavailable'))
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '端口探测失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.probeFailed')
+      );
     } finally {
       setProbing(false);
     }
-  }, [draft.port]);
+  }, [draft.port, t]);
 
   const generateToken = useCallback(async () => {
     setSaving(true);
@@ -160,18 +169,23 @@ export function WebServiceSettings() {
       const saved = await webServiceApi.generateToken();
       setConfig(saved);
       setDraft(saved);
-      toast.success('访问 token 已生成');
+      toast.success(t('webService.tokenGenerated'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Token 生成失败');
+      toast.error(
+        error instanceof Error ? error.message : t('webService.tokenGenerateFailed')
+      );
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [t]);
 
-  const copyText = useCallback(async (text: string, label: string) => {
-    await navigator.clipboard.writeText(text);
-    toast.success(`${label} 已复制`);
-  }, []);
+  const copyText = useCallback(
+    async (text: string, label: string) => {
+      await navigator.clipboard.writeText(text);
+      toast.success(t('webService.copied', { label }));
+    },
+    [t]
+  );
 
   if (loading) {
     return (
@@ -184,21 +198,23 @@ export function WebServiceSettings() {
   return (
     <div className="settings-content">
       <SettingsPageHeader
-        title="Web 服务"
-        description="管理本机 Web 服务监听、访问控制和启动状态。"
+        title={t('webService.title')}
+        description={t('webService.description')}
       />
 
       <div className="settings-sections">
         <SettingsSection
           icon={Globe}
-          title="服务状态"
-          description="Web 服务仅监听本机回环地址，用于本地集成和自动化访问。"
+          title={t('webService.statusSectionTitle')}
+          description={t('webService.statusSectionDescription')}
         >
           <div className="settings-row">
             <div>
-              <Label className="text-xs">当前状态</Label>
+              <Label className="text-xs">
+                {t('webService.currentStatusLabel')}
+              </Label>
               <p className="settings-row__description">
-                {status?.address ?? '服务未启动'}
+                {status?.address ?? t('webService.serviceNotStarted')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -209,7 +225,11 @@ export function WebServiceSettings() {
                     : 'text-muted-foreground'
                 }`}
               >
-                {statusLabel(status)}
+                {!status
+                  ? t('webService.statusUnchecked')
+                  : status.running
+                    ? t('webService.statusRunning')
+                    : t('webService.statusStopped')}
               </span>
               <Button
                 variant="outline"
@@ -217,8 +237,8 @@ export function WebServiceSettings() {
                 className="h-8 w-8 p-0"
                 onClick={() => void refreshStatus()}
                 disabled={statusBusy}
-                title="刷新状态"
-                aria-label="刷新状态"
+                title={t('webService.refreshStatus')}
+                aria-label={t('webService.refreshStatus')}
               >
                 <RefreshCw
                   className={`h-3.5 w-3.5 ${statusBusy ? 'animate-spin' : ''}`}
@@ -229,9 +249,11 @@ export function WebServiceSettings() {
 
           <div className="settings-row">
             <div>
-              <Label className="text-xs">服务控制</Label>
+              <Label className="text-xs">
+                {t('webService.serviceControlLabel')}
+              </Label>
               <p className="settings-row__description">
-                配置变更需要保存后再启动服务。
+                {t('webService.serviceControlDescription')}
               </p>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -243,7 +265,7 @@ export function WebServiceSettings() {
                   onClick={() => window.open(status.address!, '_blank')}
                 >
                   <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                  打开
+                  {t('webService.open')}
                 </Button>
               ) : null}
               <Button
@@ -261,7 +283,9 @@ export function WebServiceSettings() {
                 ) : (
                   <Play className="mr-1 h-3.5 w-3.5" />
                 )}
-                {status?.running ? '停止' : '启动'}
+                {status?.running
+                  ? t('webService.stop')
+                  : t('webService.start')}
               </Button>
             </div>
           </div>
@@ -269,16 +293,16 @@ export function WebServiceSettings() {
 
         <SettingsSection
           icon={Shield}
-          title="访问配置"
-          description="端口和 token 会保存到本机配置；token 只用于后续受保护接口。"
+          title={t('webService.accessSectionTitle')}
+          description={t('webService.accessSectionDescription')}
         >
           <div className="settings-row">
             <div>
               <Label htmlFor="web-service-port" className="text-xs">
-                监听端口
+                {t('webService.portLabel')}
               </Label>
               <p className="settings-row__description">
-                默认端口为 17891，建议仅使用本机回环访问。
+                {t('webService.portDescription')}
               </p>
             </div>
             <div className="flex w-full max-w-xs gap-2">
@@ -307,24 +331,29 @@ export function WebServiceSettings() {
                 ) : (
                   <RefreshCw className="mr-1 h-3.5 w-3.5" />
                 )}
-                探测
+                {t('webService.probe')}
               </Button>
             </div>
           </div>
 
           {probe ? (
             <div className="px-4 pb-3 text-[11px] text-muted-foreground">
-              端口 {probe.port}：{probe.available ? '可用' : probe.message}
+              {t('webService.portProbeResult', {
+                port: probe.port,
+                result: probe.available
+                  ? t('webService.available')
+                  : probe.message,
+              })}
             </div>
           ) : null}
 
           <div className="settings-row">
             <div>
               <Label htmlFor="web-service-autostart" className="text-xs">
-                自动启动
+                {t('webService.autoStartLabel')}
               </Label>
               <p className="settings-row__description">
-                应用启动时自动启动 Web 服务。
+                {t('webService.autoStartDescription')}
               </p>
             </div>
             <Switch
@@ -342,9 +371,9 @@ export function WebServiceSettings() {
 
           <div className="settings-row">
             <div>
-              <Label className="text-xs">访问 Token</Label>
+              <Label className="text-xs">{t('webService.tokenLabel')}</Label>
               <p className="settings-row__description">
-                Token 会被遮罩显示，可重新生成或复制。
+                {t('webService.tokenDescription')}
               </p>
             </div>
             <div className="flex w-full max-w-sm gap-2">
@@ -352,7 +381,7 @@ export function WebServiceSettings() {
                 type="password"
                 readOnly
                 value={draft.token ?? ''}
-                placeholder="尚未生成"
+                placeholder={t('webService.tokenPlaceholder')}
                 className="font-mono"
               />
               <Button
@@ -363,8 +392,8 @@ export function WebServiceSettings() {
                   draft.token ? void copyText(draft.token, 'Token') : undefined
                 }
                 disabled={!draft.token}
-                title="复制 Token"
-                aria-label="复制 Token"
+                title={t('webService.copyToken')}
+                aria-label={t('webService.copyToken')}
               >
                 <Copy className="h-3.5 w-3.5" />
               </Button>
@@ -375,7 +404,7 @@ export function WebServiceSettings() {
                 disabled={saving}
               >
                 <KeyRound className="mr-1 h-3.5 w-3.5" />
-                生成
+                {t('webService.generate')}
               </Button>
             </div>
           </div>
@@ -388,7 +417,7 @@ export function WebServiceSettings() {
         onDiscard={discard}
         onSave={() => void saveConfig()}
         disabled={saving}
-        message="Web 服务配置已修改，保存后生效。"
+        message={t('webService.actionBarMessage')}
       />
     </div>
   );
